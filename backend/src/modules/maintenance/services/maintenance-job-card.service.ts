@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException, BadRequestException } from '@nes
 import { InjectRepository } from '@nestjs/typeorm';
 import { isUUID } from 'class-validator';
 import { Repository, DataSource, EntityManager, MoreThanOrEqual } from 'typeorm';
+import { withTransaction } from '../../../common/transaction.util';
 import { MaintenanceJobCard } from '../entities/maintenance-job-card.entity';
 import { MaintenanceJobCardTechnician } from '../entities/maintenance-job-card-technician.entity';
 import { MaintenanceJobCardPart } from '../entities/maintenance-job-card-part.entity';
@@ -577,8 +578,23 @@ export class MaintenanceJobCardService {
     }
     const erpUserId = await this.userResolver.resolve(userId);
     jobCard.isActive = false;
+    // RECYCLE BIN — recoverable delete. `deleted_at` takes the card (and its
+    // spare-part lines) out of every live maintenance grid while leaving the
+    // document and its audit trail physically intact for Restore.
+    const deletedAt = new Date();
+    jobCard.deletedAt = deletedAt;
+    jobCard.deletedBy = erpUserId;
     jobCard.updatedBy = erpUserId;
-    await this.jobCardRepo.save(jobCard);
+    await this.jobCardRepo.manager.transaction(async (manager) => {
+      await manager.getRepository(MaintenanceJobCard).save(jobCard);
+      await manager
+        .getRepository(MaintenanceJobCardPart)
+        .createQueryBuilder()
+        .update(MaintenanceJobCardPart)
+        .set({ deletedAt, deletedBy: erpUserId })
+        .where('job_card_id = :id', { id: jobCard.id })
+        .execute();
+    });
   }
 
   async assign(id: string, dto: AssignJobCardDto, userId: string): Promise<MaintenanceJobCard> {
@@ -592,10 +608,7 @@ export class MaintenanceJobCardService {
     }
     const uniqueIds = Array.from(new Set(dto.technicianIds.map(t => String(t).trim()).filter(Boolean)));
 
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-    try {
+    await withTransaction(this.dataSource, async (manager) => {
       const technicians = await this.maintenanceTechnicianRepo
         .createQueryBuilder('t')
         .where('t.id IN (:...ids)', { ids: uniqueIds })
@@ -617,11 +630,11 @@ export class MaintenanceJobCardService {
         resolvedTeamId = team.id;
       }
 
-      await queryRunner.manager.delete(MaintenanceJobCardTechnician, { jobCardId: id });
+      await manager.delete(MaintenanceJobCardTechnician, { jobCardId: id });
 
       for (let i = 0; i < technicians.length; i++) {
         const t = technicians[i];
-        const tech = queryRunner.manager.create(MaintenanceJobCardTechnician, {
+        const tech = manager.create(MaintenanceJobCardTechnician, {
           jobCardId: id,
           technicianId: t.id,
           technicianUserId: t.userId ?? null,
@@ -631,31 +644,24 @@ export class MaintenanceJobCardService {
           updatedBy: erpUserId,
           remarks: dto.remarks || null,
         });
-        await queryRunner.manager.save(tech);
+        await manager.save(tech);
       }
 
       jobCard.currentStatus = JobCardStatus.ASSIGNED;
       jobCard.assignedAt = new Date();
       jobCard.teamId = resolvedTeamId;
       jobCard.updatedBy = erpUserId;
-      await queryRunner.manager.save(jobCard);
+      await manager.save(jobCard);
 
-      const history = queryRunner.manager.create(MaintenanceJobCardStatusHistory, {
+      const history = manager.create(MaintenanceJobCardStatusHistory, {
         jobCardId: id,
         fromStatus: previousStatus,
         toStatus: JobCardStatus.ASSIGNED,
         changedBy: erpUserId,
         remarks: dto.remarks || `Assigned to ${technicians.length} technician(s)`,
       });
-      await queryRunner.manager.save(history);
-
-      await queryRunner.commitTransaction();
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      throw error;
-    } finally {
-      await queryRunner.release();
-    }
+      await manager.save(history);
+    });
 
     await this.logActivity(erpUserId, 'JOB_CARD_ASSIGNED', id, jobCard.jobCardNo);
     return this.findOne(id);
@@ -779,10 +785,7 @@ export class MaintenanceJobCardService {
     const previousStatus = jobCard.currentStatus;
     const erpUserId = await this.userResolver.resolve(userId);
 
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-    try {
+    await withTransaction(this.dataSource, async (manager) => {
       jobCard.currentStatus = JobCardStatus.PENDING_VERIFICATION;
       jobCard.completedAt = new Date();
       jobCard.completedBy = erpUserId;
@@ -801,24 +804,17 @@ export class MaintenanceJobCardService {
         jobCard.downtimeMinutes = Math.round((end.getTime() - start.getTime()) / 60000);
       }
 
-      await queryRunner.manager.save(jobCard);
+      await manager.save(jobCard);
 
-      const history = queryRunner.manager.create(MaintenanceJobCardStatusHistory, {
+      const history = manager.create(MaintenanceJobCardStatusHistory, {
         jobCardId: id,
         fromStatus: previousStatus,
         toStatus: JobCardStatus.PENDING_VERIFICATION,
         changedBy: erpUserId,
         remarks: dto.remarks || 'Job completed, submitted for review',
       });
-      await queryRunner.manager.save(history);
-
-      await queryRunner.commitTransaction();
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      throw error;
-    } finally {
-      await queryRunner.release();
-    }
+      await manager.save(history);
+    });
 
     await this.logActivity(erpUserId, 'JOB_CARD_COMPLETED', id, jobCard.jobCardNo);
     this.emitJobCardEvent('MAINT_JOB_CARD_SUBMITTED', id, userId);
@@ -1597,13 +1593,18 @@ export class MaintenanceJobCardService {
       .map(([month, v]) => ({ month, mttr: v.n > 0 ? Math.round(v.sum / v.n) : 0 }));
 
     // ---- PM metrics ----
+    // `deleted_at IS NULL` is required here: this is a RAW table query
+    // (`dataSource.createQueryBuilder().from(...)`), which bypasses the entity's
+    // `@DeleteDateColumn` filter. Without it a schedule moved to the Recycle Bin
+    // would keep counting as "PM scheduled" on the maintenance KPI dashboard.
     const pmQb = this.dataSource.createQueryBuilder()
       .from('maintenance_pm_schedules', 's')
       .innerJoin('maintenance_pm_plans', 'p', 'p.id = s.pm_plan_id')
       .innerJoin('machines', 'm', 'm.id = s.machine_id')
       .select('s.status', 'status')
       .addSelect('s.scheduled_date', 'scheduledDate')
-      .addSelect('s.completed_at', 'completedAt');
+      .addSelect('s.completed_at', 'completedAt')
+      .where('s.deleted_at IS NULL');
     if (opts.machineId) pmQb.andWhere('s.machine_id = :machineId', { machineId: opts.machineId });
     if (opts.divisionId) pmQb.andWhere('m.division_id = :divisionId', { divisionId: opts.divisionId });
     if (opts.sectionId) pmQb.andWhere('m.section_id = :sectionId', { sectionId: opts.sectionId });

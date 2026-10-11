@@ -25,6 +25,7 @@ import {
 } from '../dto';
 import { SupabaseJwtGuard } from '../../auth/guards/supabase-jwt.guard';
 import { OrgScopeGuard, RequireOrgScope } from '../../auth/guards/org-scope.guard';
+import { PermissionGuard, RequirePermission } from '../../auth/guards';
 
 @ApiTags('dispatch/packages')
 @Controller('dispatch/packages')
@@ -97,6 +98,23 @@ export class DispatchPackageController {
       success: true,
       data: result,
       message: `Added Coil ${result.addedUnit.coilNo} (${result.addedUnit.unitSerialNo})`,
+    };
+  }
+
+  @Delete(':id')
+  @HttpCode(HttpStatus.OK)
+  @RequireOrgScope()
+  @UseGuards(PermissionGuard)
+  @RequirePermission('dispatch.package.delete')
+  @ApiOperation({ summary: 'Move a dispatch package to the Recycle Bin (recoverable soft-delete)' })
+  async removePackage(@Req() req: any, @Param('id') id: string) {
+    const companyId = req.erpUser?.defaultCompanyId || '00000000-0000-0000-0000-000000000001';
+    const userId = req.erpUser?.id || req.user?.id;
+    const pkg = await this.service.remove(id, companyId, userId);
+    return {
+      success: true,
+      data: pkg,
+      message: `Package ${pkg.packageNo} moved to Recycle Bin`,
     };
   }
 

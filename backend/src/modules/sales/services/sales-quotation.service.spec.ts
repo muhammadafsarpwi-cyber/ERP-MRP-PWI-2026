@@ -36,6 +36,7 @@ describe('SalesQuotationService', () => {
     subtotal: 1000, discountAmount: 0, taxAmount: 100, totalAmount: 1100,
     notes: null, salesRepId: null, status: 'Draft', createdBy: UUID_USER,
     createdAt: new Date(), updatedAt: new Date(),
+    deletedAt: null, deletedBy: null,
     customer: null as never, items: [],
   };
 
@@ -184,16 +185,31 @@ describe('SalesQuotationService', () => {
   });
 
   describe('remove', () => {
-    it('should remove a Draft quotation', async () => {
-      repo.findOne.mockResolvedValue({ ...mockQuotation, status: 'Draft' });
-      repo.remove.mockResolvedValue(mockQuotation);
-      await service.remove(UUID_QT);
-      expect(repo.remove).toHaveBeenCalled();
+    it('should move a Draft quotation to the Recycle Bin rather than destroy it', async () => {
+      const quotation = { ...mockQuotation, status: 'Draft' };
+      repo.findOne.mockResolvedValue(quotation);
+      repo.save.mockResolvedValue(quotation);
+
+      await service.remove(UUID_QT, undefined, UUID_USER);
+
+      // A soft delete, not `repo.remove()`: the row and its quotation_items must
+      // survive so the document is recoverable from the Recycle Bin.
+      expect(repo.remove).not.toHaveBeenCalled();
+      expect(repo.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: UUID_QT,
+          deletedAt: expect.any(Date),
+          deletedBy: UUID_USER,
+        }),
+      );
     });
 
     it('should throw if not Draft', async () => {
       repo.findOne.mockResolvedValue({ ...mockQuotation, status: 'Sent' });
       await expect(service.remove(UUID_QT)).rejects.toThrow(BadRequestException);
+      // The business guard must fire BEFORE anything is written, so a refused
+      // document is never silently trashed.
+      expect(repo.save).not.toHaveBeenCalled();
     });
   });
 
@@ -254,6 +270,8 @@ describe('SalesQuotationService', () => {
       sectionId: null,
       section: null as never,
       items: [],
+      deletedAt: null,
+      deletedBy: null,
     };
 
     it('should convert an Accepted quotation into a Sales Order and update quotation status to Converted', async () => {

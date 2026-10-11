@@ -1722,4 +1722,20 @@ describe('ItemService', () => {
       expect(result.stages[0].title).toBe('RAW MATERIAL');
     });
   });
+
+  describe('getLookupItems — itemTypes and department filtering', () => {
+    it('filters by departmentId and itemTypes in SQL query', async () => {
+      repository.query.mockResolvedValue([
+        { id: 'item-1', itemCode: 'WIP-SP-018', name: '225*17 Outer Straight', itemType: 'WORK_IN_PROGRESS', departmentId: 'dept-spk' },
+      ]);
+
+      const result = await service.getLookupItems('dept-spk', undefined, 'WIP,RM');
+      expect(repository.query).toHaveBeenCalledWith(
+        expect.stringContaining('i.department_id = $1 AND i.item_type = ANY($2)'),
+        expect.arrayContaining(['dept-spk', ['WORK_IN_PROGRESS', 'WIP', 'RAW_MATERIAL', 'RM']]),
+      );
+      expect(result).toHaveLength(1);
+      expect(result[0].itemCode).toBe('WIP-SP-018');
+    });
+  });
 });

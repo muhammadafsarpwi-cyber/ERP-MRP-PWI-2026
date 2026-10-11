@@ -141,10 +141,10 @@ export class CustomerController {
   @UseGuards(PermissionGuard)
   @RequirePermission('customer.customer.delete')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Delete or deactivate customer' })
-  async remove(@Param('id') id: string) {
-    await this.customerService.remove(id);
-    return { success: true, message: 'Customer deactivated successfully' };
+  @ApiOperation({ summary: 'Move a customer to the Recycle Bin (recoverable soft-delete)' })
+  async remove(@Param('id') id: string, @Request() req: any) {
+    await this.customerService.remove(id, req?.erpUser?.id || req?.user?.id);
+    return { success: true, message: 'Customer moved to Recycle Bin' };
   }
 
   // --- Customer 360 & Commercial Summary Endpoints ---

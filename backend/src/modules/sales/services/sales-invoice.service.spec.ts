@@ -40,6 +40,7 @@ describe('SalesInvoiceService', () => {
     paidAmount: 0, balance: 5500, status: 'Pending', createdBy: UUID_USER,
     createdAt: new Date(), updatedAt: new Date(),
     customer: null as never, salesOrder: null as never,
+    deletedAt: null, deletedBy: null,
   };
 
   const makeMockRepo = () => ({
@@ -253,6 +254,33 @@ describe('SalesInvoiceService', () => {
     it('should throw if Paid', async () => {
       repo.findOne.mockResolvedValue({ ...mockInvoice, status: 'Paid' });
       await expect(service.cancel(UUID_INV)).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('remove (Recycle Bin)', () => {
+    it('recycles a never-touched invoice and stamps who did it', async () => {
+      repo.findOne.mockResolvedValue({ ...mockInvoice, status: 'Pending', paidAmount: 0 });
+      repo.save.mockImplementation(async (row: any) => row);
+
+      const result = await service.remove(UUID_INV, UUID_USER, UUID_COMPANY);
+
+      expect(result.deletedAt).toBeInstanceOf(Date);
+      expect(result.deletedBy).toBe(UUID_USER);
+    });
+
+    it('REFUSES an invoice with payments recorded — hiding it would orphan the ledger', async () => {
+      repo.findOne.mockResolvedValue({ ...mockInvoice, status: 'Pending', paidAmount: 250 });
+
+      await expect(service.remove(UUID_INV, UUID_USER)).rejects.toThrow(BadRequestException);
+      expect(repo.save).not.toHaveBeenCalled();
+    });
+
+    it('REFUSES a Posted or Paid invoice, which must be voided instead', async () => {
+      for (const status of ['Posted', 'Paid', 'Settled']) {
+        repo.findOne.mockResolvedValue({ ...mockInvoice, status, paidAmount: 0 });
+        await expect(service.remove(UUID_INV, UUID_USER)).rejects.toThrow(BadRequestException);
+      }
+      expect(repo.save).not.toHaveBeenCalled();
     });
   });
 });

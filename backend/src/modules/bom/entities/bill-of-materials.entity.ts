@@ -1,5 +1,5 @@
 import { Entity, Column, ManyToOne, JoinColumn, OneToMany } from 'typeorm';
-import { BaseEntity } from '../../../common/base.entity';
+import { SoftDeletableEntity } from '../../../common/soft-deletable.entity';
 import { Company } from '../../organization/entities/company.entity';
 import { Item } from '../../item/entities/item.entity';
 import { BomLine } from './bom-line.entity';
@@ -11,7 +11,7 @@ export enum BomStatus {
 }
 
 @Entity('bill_of_materials')
-export class BillOfMaterials extends BaseEntity {
+export class BillOfMaterials extends SoftDeletableEntity {
   @Column({ name: 'company_id', type: 'uuid' })
   companyId: string;
 

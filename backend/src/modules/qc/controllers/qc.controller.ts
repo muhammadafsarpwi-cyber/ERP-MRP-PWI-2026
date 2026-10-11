@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Param, Query, Body, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Param, Query, Body, UseGuards, HttpCode, HttpStatus, Req } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { QcService } from '../services/qc.service';
 import { SupabaseJwtGuard } from '../../auth/guards/supabase-jwt.guard';
@@ -34,6 +34,15 @@ export class QcController {
   async findPlan(@Param('id') id: string) {
     const data = await this.qcService.findPlan(id);
     return { success: true, data };
+  }
+
+  @Delete('plans/:id')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('qc.plan.manage')
+  @HttpCode(HttpStatus.OK)
+  async removePlan(@Param('id') id: string, @Req() req: any) {
+    const data = await this.qcService.removePlan(id, req?.erpUser?.id || req?.user?.id, req?.erpUser?.defaultCompanyId);
+    return { success: true, data, message: 'Inspection plan moved to the Recycle Bin' };
   }
 
   @Post('plans/:id/characteristics')

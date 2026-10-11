@@ -2,6 +2,7 @@ import {
   ACHIEVEMENT_THRESHOLD,
   DEPARTMENT_ORDER,
   EXECUTIVE_TITLE,
+  NO_MASTER_RATE_TEXT,
   TONE_GLYPH,
   achievementTone,
   buildDailyProductionReport,
@@ -76,7 +77,9 @@ const rows: ReportRowSource[] = [
   makeRow({ machineNo: 'SPK-10', targetQuantity: 1000, actualQuantity: 1200, scrapQuantity: 10, downtimeHours: 2, downtimeReasonText: 'Coil change' }),
   makeRow({ machineNo: 'SPK-02', targetQuantity: 500, actualQuantity: 250 }),
   makeRow({ department: { name: 'Straightener', departmentCode: 'ST' }, machineNo: 'ST-01', targetQuantity: 4000, actualQuantity: 4400, scrapQuantity: 5 }),
-  makeRow({ machineNo: 'SPK-01', targetQuantity: 2000, actualQuantity: 2000, scrapQuantity: 20 }),
+  // Master-linked like every real entry: 2,000 over a standard 8h = 250 /h.
+  makeRow({ machineNo: 'SPK-01', targetQuantity: 2000, actualQuantity: 2000, scrapQuantity: 20,
+    targetPerHour: 250, targetStandardHours: 8, targetStandardQuantity: 2000 }),
   // Night shift rows for the same department (same machine as a day row).
   makeRow({ shift: NIGHT, machineNo: 'SPK-01', targetQuantity: 1000, actualQuantity: 900 }),
   makeRow({ shift: NIGHT, machineNo: 'SPK-03', targetQuantity: 1000, actualQuantity: 100 }),
@@ -1158,16 +1161,21 @@ describe('Daily Production Report — pro-rata TARGET', () => {
   const line = (machine: string) =>
     model().sections.flatMap((s) => s.lines).find((l) => l.machine === machine)!;
 
+  /* Locked Target Master rows, READ by the engine and never re-derived.
+     12,960 over a standard 8h shift = 1,620 /h; 34,560 over 8h = 4,320 /h. */
+  const MASTER_1620 = { perHour: 1620, standardHours: 8, standardQuantity: 12960 };
+  const MASTER_4320 = { perHour: 4320, standardHours: 8, standardQuantity: 34560 };
+
   it('scales the stored plan figure by the hours the machine really ran', () => {
     expect(STANDARD_SHIFT_HOURS).toBe(8);
-    // The live-grid case: the server stores the plan figure ALREADY scaled to
-    // the run — an 8h master of 12,960 (1,620 /h) stored as 11,340 for a 7h
-    // run. The engine recovers the locked per-hour factor from it (11,340 / 7
-    // = 1,620 = 12,960 / 8) instead of dividing by 8 a SECOND time, which
-    // would have printed 1,417.50 /h and a target of 9,922.50.
-    const p = proRataTarget(11340, 7);
+    // The live-grid case: an 8h master of 12,960 (1,620 /h) whose entry was
+    // SAVED while 7 hours were in force, so the snapshot itself already holds
+    // 11,340. The rate is READ off the master and scaled against the hours the
+    // machine really ran — 1,620 × 7 = 11,340. It is never recovered from the
+    // snapshot: that reverse division is precisely what this cell forbids.
+    const p = proRataTarget(11340, 7, MASTER_1620);
     expect(p.perHour).toBe(1620);
-    expect(p.standard).toBe(12960); // recovered on the 8h basis for audit
+    expect(p.standard).toBe(12960); // the master's own 8h figure
     expect(p.target).toBe(11340); // 1,620 × 7 — the plan for that 7-hour run
     expect(p.proRated).toBe(true);
     expect(targetTopText(p)).toBe('1,620 /h (For 7 hrs Run)');
@@ -1178,8 +1186,8 @@ describe('Daily Production Report — pro-rata TARGET', () => {
     // The corruption this fixes: the same SPK master printed three different
     // "hourly rates" because each row re-divided its own stored figure by 8.
     // Every run length now collapses back to the same locked master factor.
-    const short = proRataTarget(12960, 3); // 3h @ 4,320/h
-    const long = proRataTarget(60480, 14); // 14h @ 4,320/h
+    const short = proRataTarget(12960, 3, MASTER_4320); // 3h @ 4,320/h
+    const long = proRataTarget(60480, 14, MASTER_4320); // 14h @ 4,320/h
     expect(short.perHour).toBe(4320);
     expect(long.perHour).toBe(4320);
     expect(short.standard).toBe(34560);
@@ -1194,15 +1202,51 @@ describe('Daily Production Report — pro-rata TARGET', () => {
     expect(p.target).toBe(12960);
     expect(p.hours).toBe(0);
     expect(p.proRated).toBe(false);
-    expect(targetTopText(p)).toBe('1,620 /h (Standard 8h basis)');
+    // NO master linked → NO hourly figure. It must not fall back to
+    // `12,960 ÷ 8`, which would read a rate straight off the saved snapshot.
+    expect(p.perHour).toBe(0);
+    expect(targetTopText(p)).toBe(NO_MASTER_RATE_TEXT);
     expect(targetBottomText(p, 'PCS')).toBe('12,960 PCS');
     expect(proRataTarget(0, 7).target).toBe(0);
     expect(proRataTarget(null as any, undefined).target).toBe(0);
   });
 
+  it('NEVER reverse-divides a saved snapshot, with or without run hours', () => {
+    // THE INVARIANT. For a manual entry (no Target Master link) the only way
+    // to print an hourly factor would be `stored ÷ hours` — which reads the
+    // floor's own output back as the plan, so the same machine+item could
+    // read 4,320 /h on one row and 1,851 /h on the next purely because of
+    // how much the line produced. The rate is therefore reported as ABSENT.
+    const withHours = proRataTarget(12960, 7);
+    expect(withHours.perHour).toBe(0); // never 12,960 ÷ 7 = 1,851.43
+    expect(withHours.target).toBe(12960); // the stored plan figure stands
+    expect(withHours.proRated).toBe(false);
+    expect(targetTopText(withHours)).toBe(NO_MASTER_RATE_TEXT);
+
+    const noHours = proRataTarget(12960, 0);
+    expect(noHours.perHour).toBe(0); // never 12,960 ÷ 8 = 1,620
+    expect(targetTopText(noHours)).toBe(NO_MASTER_RATE_TEXT);
+
+    // …and a machine-linked row must ALWAYS report its master, even when the
+    // snapshot it carries would have produced a wildly different figure.
+    const linked = proRataTarget(12960, 7, MASTER_4320);
+    expect(linked.perHour).toBe(4320);
+    expect(targetTopText(linked)).toBe('4,320 /h (For 7 hrs Run)');
+  });
+
   it('drives the printed cell, the totals and Achievement % off that one number', () => {
     const m = buildDailyProductionReport(
-      [makeRow({ targetQuantity: 11340, actualQuantity: 11340, shift: { name: 'DAY', shiftCode: 'D', plannedHours: 8 }, downtimeHours: 1 })],
+      [makeRow({
+        targetQuantity: 11340,
+        // Locked 8h master of 12,960 → 1,620 /h. Shipped by the API on every
+        // real entry; without it the row has no rate to print at all.
+        targetPerHour: 1620,
+        targetStandardHours: 8,
+        targetStandardQuantity: 12960,
+        actualQuantity: 11340,
+        shift: { name: 'DAY', shiftCode: 'D', plannedHours: 8 },
+        downtimeHours: 1,
+      })],
       opts(),
     );
     const l = m.sections[0].lines[0];
@@ -1329,15 +1373,20 @@ describe('Daily Production Report — locked Target Master rate', () => {
     expect(proRataTarget(12960, 0, SPK01).target).toBe(12960);
   });
 
-  it('exposes the hydrated rate and keeps the manual-entry fallback', () => {
+  it('exposes the hydrated rate, and a manual entry keeps its plan figure', () => {
     expect(masterRateOf(null)).toBeNull();
     expect(masterRateOf(undefined)).toBeNull();
     expect(masterRateOf({ targetPerHour: null })).toBeNull();
     expect(masterRateOf({ targetPerHour: '0' })).toBeNull();
     expect(masterRateOf({ targetPerHour: '4320', targetStandardHours: 8, targetStandardQuantity: 34560 }))
       .toEqual({ perHour: 4320, standardHours: 8, standardQuantity: 34560 });
-    // A manual entry with no machine-linked target keeps the legacy basis.
-    expect(proRataTarget(11340, 7, masterRateOf({})).target).toBe(11340);
+    // A manual entry has no machine-linked target: the stored plan figure
+    // still stands as the target, but it reports NO hourly rate rather than
+    // deriving one by dividing that figure by its run hours.
+    const manual = proRataTarget(11340, 7, masterRateOf({}));
+    expect(manual.target).toBe(11340);
+    expect(manual.perHour).toBe(0);
+    expect(targetTopText(manual)).toBe(NO_MASTER_RATE_TEXT);
   });
 
   it('drives the printed cell, Σ Target and Achievement off that one rate', () => {

@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Body, Param, Query, Req, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query, Req, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { SalesDeliveryService } from '../services/sales-delivery.service';
 import { CreateSalesDeliveryDto } from '../dto';
@@ -139,5 +139,18 @@ export class SalesDeliveryController {
     const companyId = req.erpUser?.defaultCompanyId;
     const invoice = await this.service.convertToInvoice(id, userId, companyId, this.divisionScope(req));
     return { success: true, data: invoice, message: `Invoice ${invoice.invoiceNo} created successfully` };
+  }
+
+  @Delete(':id')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('sales.deliveries.update')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Move a Draft gate pass (delivery) to the Recycle Bin (reversible)' })
+  async remove(@Req() req: any, @Param('id') id: string) {
+    const userId = req.user?.id;
+    const companyId = req.erpUser?.defaultCompanyId;
+    const delivery = await this.service.remove(id, userId, companyId, this.divisionScope(req));
+    return { success: true, data: delivery, message: 'Gate pass moved to the Recycle Bin' };
   }
 }

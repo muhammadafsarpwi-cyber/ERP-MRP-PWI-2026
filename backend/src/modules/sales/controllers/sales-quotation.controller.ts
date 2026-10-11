@@ -97,7 +97,9 @@ export class SalesQuotationController {
   @ApiOperation({ summary: 'Delete sales quotation' })
   async remove(@Req() req: any, @Param('id') id: string) {
     const companyId = req.erpUser?.defaultCompanyId;
-    await this.service.remove(id, companyId);
+    // `deleted_by` is stamped so the Recycle Bin grid can name the operator who
+    // trashed the document; without it the audit trail dead-ends at a uuid.
+    await this.service.remove(id, companyId, req.erpUser?.id || req.user?.id);
     return { success: true, message: 'Sales quotation deleted successfully' };
   }
 

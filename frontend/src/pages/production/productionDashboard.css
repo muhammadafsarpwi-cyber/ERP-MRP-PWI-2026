@@ -1,68 +1,605 @@
-/* Production Dashboard — reuses the global ERP dashboard design system
-   (.erp-dashboard, .erp-section-card, .erp-kpi-card) plus these additions. */
+/* =====================================================================
+   PWI Production Executive Dashboard — Universal Theme System
+   Supports both Light Theme and Dark Theme dynamically via CSS Variables
+   ===================================================================== */
 
-.erp-pd {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
+.pwi-dashboard-container {
+  min-height: 100vh;
+  padding: 12px 16px 36px;
+  background: var(--theme-background, #f8fafc);
+  color: var(--theme-text, #0f172a);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  position: relative;
+  border-radius: 10px;
+  transition: background 0.25s ease, color 0.25s ease;
 }
 
-/* Toolbar / filters */
-.erp-pd__toolbar {
+[data-theme="dark"] .pwi-dashboard-container {
+  background: radial-gradient(circle at 50% -5%, #1e293b 0%, #0f172a 42%, #070b14 100%);
+  color: var(--theme-text, #f1f5f9);
+}
+
+/* ── Top Header Strip ───────────────────────────────────────────────── */
+.pwi-dashboard-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 12px 18px;
+  background: var(--theme-surface, #ffffff);
+  border: 1px solid var(--theme-border, #e2e8f0);
+  border-radius: 12px;
+  margin-bottom: 14px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.02);
+  transition: background 0.22s ease, border-color 0.22s ease;
+}
+
+[data-theme="dark"] .pwi-dashboard-header {
+  background: rgba(30, 41, 59, 0.65);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35);
+}
+
+.pwi-dashboard-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--theme-text-muted, #64748b);
+  margin-bottom: 3px;
+  font-weight: 500;
+}
+
+.pwi-dashboard-breadcrumb a {
+  color: var(--theme-text-muted, #64748b);
+  text-decoration: none;
+}
+
+.pwi-dashboard-breadcrumb a:hover {
+  color: var(--theme-primary, #0ea5e9);
+}
+
+.pwi-dashboard-title {
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--theme-text, #0f172a);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+[data-theme="dark"] .pwi-dashboard-title {
+  color: #f8fafc;
+}
+
+.pwi-dashboard-subtitle {
+  font-size: 11.5px;
+  color: var(--theme-text-muted, #64748b);
+  font-weight: 500;
+  margin-top: 2px;
+}
+
+/* Date Preset Quick Selector Dropdown */
+.pwi-date-preset-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 600;
+  border-radius: 8px;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--theme-border, #cbd5e1);
+  background: var(--theme-surface, #ffffff);
+  color: var(--theme-text, #0f172a);
+  transition: all 0.2s ease;
+}
+
+.pwi-date-preset-btn:hover {
+  border-color: var(--theme-primary, #0ea5e9);
+  color: var(--theme-primary, #0ea5e9);
+}
+
+[data-theme="dark"] .pwi-date-preset-btn {
+  background: rgba(30, 41, 59, 0.8);
+  border-color: rgba(255, 255, 255, 0.12);
+  color: #f1f5f9;
+}
+
+[data-theme="dark"] .pwi-date-preset-btn:hover {
+  border-color: #38bdf8;
+  color: #38bdf8;
+}
+
+/* ── 6 Crystal KPI Metric Cards ─────────────────────────────────────── */
+.pwi-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+@media (max-width: 1400px) {
+  .pwi-kpi-grid { grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 900px) {
+  .pwi-kpi-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 600px) {
+  .pwi-kpi-grid { grid-template-columns: 1fr; }
+}
+
+.pwi-kpi-card {
+  position: relative;
+  background: var(--theme-surface, #ffffff);
+  border: 1px solid var(--theme-border, #e2e8f0);
+  border-radius: 12px;
+  padding: 14px 16px 12px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.02);
+  display: flex;
+  flex-direction: column;
+}
+
+.pwi-kpi-card:hover {
+  transform: translateY(-3px);
+  border-color: var(--theme-primary, #0ea5e9);
+  box-shadow: 0 8px 22px -3px rgba(0, 0, 0, 0.09), 0 0 12px var(--theme-hover, rgba(14, 165, 233, 0.15));
+}
+
+[data-theme="dark"] .pwi-kpi-card {
+  background: linear-gradient(135deg, rgba(30, 41, 59, 0.75) 0%, rgba(15, 23, 42, 0.85) 100%);
+  backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35);
+}
+
+[data-theme="dark"] .pwi-kpi-card:hover {
+  border-color: rgba(56, 189, 248, 0.5);
+  box-shadow: 0 10px 28px -4px rgba(0, 0, 0, 0.55), 0 0 14px rgba(56, 189, 248, 0.2);
+}
+
+.pwi-kpi-card__top {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 12px;
+  gap: 6px;
+  margin-bottom: 8px;
 }
 
-/* KPI grid — responsive */
-.erp-pd-kpi-grid {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 12px;
+.pwi-kpi-card__label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--theme-text-muted, #64748b);
 }
-.erp-pd-kpi-grid .erp-kpi-card {
-  min-height: 74px;
-  padding: 12px 14px;
-  border: 1px solid var(--theme-border);
-  border-radius: 8px;
-  background: var(--theme-surface);
-  align-items: flex-start;
-}
-.erp-pd-kpi-grid .erp-kpi-card__value { padding-right: 2px; }
 
-/* Chart cards — two per row on desktop, stacked on smaller screens */
-.erp-pd-chart-row {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 16px;
-}
-.erp-pd-chart {
-  width: 100%;
-  height: 260px;
-  display: flex;
+.pwi-kpi-card__icon-badge {
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-}
-.erp-pd-empty {
-  color: var(--theme-text-muted);
-  font-size: 12px;
-  padding: 32px 0;
-  text-align: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  font-size: 14px;
 }
 
-/* Responsive */
-@media (max-width: 1200px) {
-  .erp-pd-kpi-grid { grid-template-columns: repeat(3, 1fr); }
+.pwi-kpi-card__value-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 8px;
 }
-@media (max-width: 900px) {
-  .erp-pd-chart-row { grid-template-columns: 1fr; }
+
+.pwi-kpi-card__value {
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  color: var(--theme-text, #0f172a);
 }
-@media (max-width: 640px) {
-  .erp-pd-kpi-grid { grid-template-columns: repeat(2, 1fr); }
+
+[data-theme="dark"] .pwi-kpi-card__value {
+  color: #ffffff;
 }
-@media (max-width: 430px) {
-  .erp-pd-kpi-grid { grid-template-columns: 1fr; }
-  .erp-pd__toolbar { justify-content: flex-start; }
+
+.pwi-kpi-card__trend {
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  line-height: 1.2;
 }
+
+.pwi-kpi-card__progress {
+  height: 3.5px;
+  width: 100%;
+  background: var(--theme-border, rgba(148, 163, 184, 0.2));
+  border-radius: 2px;
+  overflow: hidden;
+  margin-bottom: 6px;
+}
+
+.pwi-kpi-card__subtext {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--theme-text-muted, #64748b);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Analytical Panels & Cards ──────────────────────────────────────── */
+.pwi-panel {
+  background: var(--theme-surface, #ffffff);
+  border: 1px solid var(--theme-border, #e2e8f0);
+  border-radius: 12px;
+  padding: 14px 16px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 4px 14px rgba(0, 0, 0, 0.02);
+  position: relative;
+  overflow: hidden;
+  transition: background 0.22s ease, border-color 0.22s ease;
+}
+
+[data-theme="dark"] .pwi-panel {
+  background: linear-gradient(135deg, rgba(30, 41, 59, 0.7) 0%, rgba(15, 23, 42, 0.8) 100%);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+.pwi-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--theme-border, #e2e8f0);
+}
+
+[data-theme="dark"] .pwi-panel__header {
+  border-bottom-color: rgba(255, 255, 255, 0.07);
+}
+
+.pwi-panel__title {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--theme-text, #0f172a);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  letter-spacing: -0.01em;
+}
+
+[data-theme="dark"] .pwi-panel__title {
+  color: #f1f5f9;
+}
+
+.pwi-panel__subtitle {
+  font-size: 11px;
+  color: var(--theme-text-muted, #64748b);
+}
+
+/* ── Section Pills / Tabs for Machine Grid ──────────────────────────── */
+.pwi-section-pill-bar {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.pwi-section-pill {
+  padding: 4px 11px;
+  font-size: 11.5px;
+  font-weight: 600;
+  border-radius: 6px;
+  background: var(--theme-surface-alt, #f1f5f9);
+  border: 1px solid var(--theme-border, #cbd5e1);
+  color: var(--theme-text-muted, #64748b);
+  cursor: pointer;
+  transition: all 0.18s ease;
+  user-select: none;
+}
+
+.pwi-section-pill:hover {
+  background: var(--theme-hover, rgba(14, 165, 233, 0.08));
+  color: var(--theme-text, #0f172a);
+}
+
+.pwi-section-pill--active {
+  background: var(--theme-accent-soft, rgba(14, 165, 233, 0.15)) !important;
+  border-color: var(--theme-primary, #0ea5e9) !important;
+  color: var(--theme-primary, #0284c7) !important;
+  box-shadow: 0 1px 4px rgba(14, 165, 233, 0.2);
+}
+
+[data-theme="dark"] .pwi-section-pill {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #94a3b8;
+}
+
+[data-theme="dark"] .pwi-section-pill:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #f8fafc;
+}
+
+[data-theme="dark"] .pwi-section-pill--active {
+  background: rgba(14, 165, 233, 0.2) !important;
+  border-color: #0ea5e9 !important;
+  color: #38bdf8 !important;
+  box-shadow: 0 0 10px rgba(14, 165, 233, 0.3);
+}
+
+/* ── Middle 3-Column Layout ─────────────────────────────────────────── */
+.pwi-analytics-grid {
+  display: grid;
+  grid-template-columns: 1.15fr 1.35fr 1fr;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+@media (max-width: 1400px) {
+  .pwi-analytics-grid { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 992px) {
+  .pwi-analytics-grid { grid-template-columns: 1fr; }
+}
+
+/* ── Department Scorecard Table ─────────────────────────────────────── */
+.pwi-scorecard-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.pwi-scorecard-table th {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--theme-text, #0f172a);
+  padding: 11px 12px;
+  text-align: left;
+  border-bottom: 2px solid var(--theme-border, #e2e8f0);
+  background: var(--theme-surface-alt, #f8fafc);
+  white-space: nowrap;
+}
+
+.pwi-scorecard-table td {
+  padding: 11px 12px;
+  font-size: 12.5px;
+  border-bottom: 1px solid var(--theme-border, #e2e8f0);
+  color: var(--theme-text, #0f172a);
+}
+
+.pwi-scorecard-table tr:hover td {
+  background: var(--theme-hover, rgba(14, 165, 233, 0.04));
+}
+
+[data-theme="dark"] .pwi-scorecard-table th {
+  background: rgba(30, 41, 59, 0.7);
+  color: #94a3b8;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+[data-theme="dark"] .pwi-scorecard-table td {
+  color: #e2e8f0;
+  border-bottom-color: rgba(255, 255, 255, 0.06);
+}
+
+[data-theme="dark"] .pwi-scorecard-table tr:hover td {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.pwi-action-badge {
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.18s ease;
+  border: 1px solid transparent;
+}
+
+.pwi-action-badge--logs {
+  background: rgba(59, 130, 246, 0.12);
+  color: #2563eb;
+  border-color: rgba(59, 130, 246, 0.3);
+}
+.pwi-action-badge--logs:hover {
+  background: rgba(59, 130, 246, 0.22);
+}
+
+.pwi-action-badge--ot {
+  background: rgba(139, 92, 246, 0.12);
+  color: #7c3aed;
+  border-color: rgba(139, 92, 246, 0.3);
+}
+.pwi-action-badge--ot:hover {
+  background: rgba(139, 92, 246, 0.22);
+}
+
+.pwi-action-badge--scrap {
+  background: rgba(239, 68, 68, 0.12);
+  color: #dc2626;
+  border-color: rgba(239, 68, 68, 0.3);
+}
+.pwi-action-badge--scrap:hover {
+  background: rgba(239, 68, 68, 0.22);
+}
+
+[data-theme="dark"] .pwi-action-badge--logs {
+  background: rgba(59, 130, 246, 0.15);
+  color: #60a5fa;
+  border-color: rgba(59, 130, 246, 0.35);
+}
+[data-theme="dark"] .pwi-action-badge--logs:hover {
+  background: rgba(59, 130, 246, 0.3);
+}
+
+[data-theme="dark"] .pwi-action-badge--ot {
+  background: rgba(139, 92, 246, 0.15);
+  color: #a78bfa;
+  border-color: rgba(139, 92, 246, 0.35);
+}
+[data-theme="dark"] .pwi-action-badge--ot:hover {
+  background: rgba(139, 92, 246, 0.3);
+}
+
+[data-theme="dark"] .pwi-action-badge--scrap {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  border-color: rgba(239, 68, 68, 0.35);
+}
+[data-theme="dark"] .pwi-action-badge--scrap:hover {
+  background: rgba(239, 68, 68, 0.3);
+}
+
+/* ── 2-Column Responsive Analytics Grid ────────────────────────────── */
+.pwi-analytics-grid-2col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+@media (max-width: 1024px) {
+  .pwi-analytics-grid-2col {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── Chart Mode Toggle Switcher ────────────────────────────────────── */
+.pwi-toggle-bar {
+  display: inline-flex;
+  background: var(--theme-surface-alt, #f1f5f9);
+  border: 1px solid var(--theme-border, #cbd5e1);
+  border-radius: 6px;
+  padding: 2px;
+  gap: 2px;
+}
+
+[data-theme="dark"] .pwi-toggle-bar {
+  background: rgba(15, 23, 42, 0.6);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.pwi-toggle-btn {
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 4px;
+  border: none;
+  background: transparent;
+  color: var(--theme-text-muted, #64748b);
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.pwi-toggle-btn:hover {
+  color: var(--theme-text, #0f172a);
+}
+
+.pwi-toggle-btn--active {
+  background: var(--theme-surface, #ffffff) !important;
+  color: var(--theme-primary, #0ea5e9) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+[data-theme="dark"] .pwi-toggle-btn--active {
+  background: rgba(30, 41, 59, 0.9) !important;
+  color: #38bdf8 !important;
+}
+
+/* ── Table Header Icons & Subtitle ─────────────────────────────────── */
+.th-icon {
+  margin-right: 5px;
+  font-size: 12.5px;
+  vertical-align: -1px;
+}
+
+/* ── Plant Time Dual Progress Bar (Running vs Downtime) ─────────────── */
+.pwi-time-progress-bar {
+  display: flex;
+  height: 5px;
+  width: 100%;
+  border-radius: 3px;
+  overflow: hidden;
+  background: var(--theme-border, #e2e8f0);
+  margin-top: 3px;
+}
+
+.pwi-time-progress-bar__run {
+  background: #10b981;
+  transition: width 0.3s ease;
+}
+
+.pwi-time-progress-bar__down {
+  background: #f59e0b;
+  transition: width 0.3s ease;
+}
+
+/* ── Section Summary Total Badge (TOT = [ ... ]) ───────────────────── */
+.pwi-section-tot-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--theme-surface-alt, #f8fafc);
+  border: 1px solid var(--theme-border, #cbd5e1);
+  padding: 3px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  color: var(--theme-text, #0f172a);
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+}
+
+[data-theme="dark"] .pwi-section-tot-badge {
+  background: rgba(15, 23, 42, 0.7);
+  border-color: rgba(255, 255, 255, 0.12);
+  color: #f1f5f9;
+}
+
+.pwi-section-tot-label {
+  font-weight: 700;
+  color: var(--theme-primary, #0ea5e9);
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+
+.pwi-section-tot-target strong {
+  color: #64748b;
+  font-weight: 700;
+}
+
+[data-theme="dark"] .pwi-section-tot-target strong {
+  color: #94a3b8;
+}
+
+.pwi-section-tot-actual strong {
+  color: #10b981;
+  font-weight: 700;
+}
+
+.pwi-section-tot-sep {
+  color: var(--theme-border, #94a3b8);
+  font-weight: 300;
+}
+

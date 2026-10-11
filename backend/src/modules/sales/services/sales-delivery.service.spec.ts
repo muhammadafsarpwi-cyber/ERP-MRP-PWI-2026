@@ -41,6 +41,7 @@ describe('SalesDeliveryService', () => {
     createdBy: UUID_USER, updatedBy: UUID_USER, receivedBy: null, receivedAt: null,
     createdAt: new Date(), updatedAt: new Date(),
     customer: null as never, salesOrder: null as never, lines: [], warehouse: null as never,
+    deletedAt: null, deletedBy: null,
   };
 
   const mockLine: SalesDeliveryLine = {
@@ -222,6 +223,26 @@ describe('SalesDeliveryService', () => {
     it('should throw if already CANCELLED', async () => {
       repo.findOne.mockResolvedValue({ ...mockDelivery, status: 'CANCELLED' });
       await expect(service.cancel(UUID_DN)).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('remove (Recycle Bin)', () => {
+    it('recycles a Draft gate pass and stamps who did it', async () => {
+      repo.findOne.mockResolvedValue({ ...mockDelivery, status: 'DRAFT' });
+      repo.save.mockImplementation(async (row: any) => row);
+
+      const result = await service.remove(UUID_DN, UUID_USER, UUID_COMPANY);
+
+      expect(result.deletedAt).toBeInstanceOf(Date);
+      expect(result.deletedBy).toBe(UUID_USER);
+    });
+
+    it('REFUSES a shipped or confirmed gate pass — goods have already left', async () => {
+      for (const status of ['CONFIRMED', 'SHIPPED', 'DELIVERED', 'CANCELLED']) {
+        repo.findOne.mockResolvedValue({ ...mockDelivery, status });
+        await expect(service.remove(UUID_DN, UUID_USER)).rejects.toThrow(BadRequestException);
+      }
+      expect(repo.save).not.toHaveBeenCalled();
     });
   });
 });

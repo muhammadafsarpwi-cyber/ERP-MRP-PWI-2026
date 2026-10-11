@@ -320,24 +320,27 @@ export class CustomerService implements OnModuleInit {
     return saved;
   }
 
-  async remove(id: string): Promise<void> {
+  /**
+   * RECYCLE BIN — deleting a customer is now a recoverable trash operation.
+   *
+   * The old implementation only flipped `status` to INACTIVE, which kept the
+   * account visible in every live directory and was indistinguishable from the
+   * separate, deliberate Activate/Deactivate action. `deleted_at` is now the
+   * single delete signal, so the row leaves the directory grids immediately
+   * while its contacts, addresses and — critically — its ledger rows are NOT
+   * touched, so the immutable accounting history behind any transaction still
+   * reconciles.
+   *
+   * `status` and `isActive` are deliberately left exactly as they were: they
+   * are business state owned by `activate()` / `deactivate()` and a Restore
+   * must return the account to precisely the state it was deleted in rather
+   * than silently resurrecting a commercially dead customer as ACTIVE.
+   */
+  async remove(id: string, userId?: string): Promise<void> {
     const customer = await this.findOne(id);
-
-    // Integrity Guard: Check if non-opening ledger entries exist
-    const nonOpeningEntries = (customer.ledgerEntries || []).filter(
-      (e) => e.documentType !== 'OPENING_BALANCE' as any,
-    );
-
-    if (nonOpeningEntries.length > 0 || (customer.totalOrders && customer.totalOrders > 0)) {
-      // Soft-delete to preserve immutable accounting history
-      customer.status = 'INACTIVE';
-      await this.repo.save(customer);
-      return;
-    }
-
-    // If no operational transactions exist, mark inactive
-    customer.status = 'INACTIVE';
-    customer.isActive = false;
+    customer.deletedAt = new Date();
+    customer.deletedBy = userId ?? null;
+    customer.updatedBy = userId ?? null;
     await this.repo.save(customer);
   }
 

@@ -281,6 +281,8 @@ export class ComponentChangeService {
     const machine = await this.machineRepo.findOne({ where: { id: machineId, companyId } });
     if (!machine) throw new NotFoundException(`Machine '${machineId}' not found in this company`);
 
+    // Deliberately NOT filtered by `deleted_at` — machine life totals track
+    // physical output, so a recycled entry must not shrink them.
     const rows = await this.changeRepo.manager.query(
       `SELECT COUNT(*)::int AS entry_count,
               COALESCE(SUM(actual_quantity), 0)::numeric(19,4) AS total_quantity,

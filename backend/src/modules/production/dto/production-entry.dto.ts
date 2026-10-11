@@ -365,6 +365,10 @@ export class UpdateProductionEntryDto {
   @IsOptional()
   @IsUUID('loose')
   rawMaterialWarehouseId?: string | null;
+  @IsOptional()
+  @IsUUID('loose')
+  warehouseId?: string | null;
+
 
   /** Repeatable production item lines (multi-item shift; max 4 independent production items). */
   @IsOptional()

@@ -10,6 +10,7 @@ import {
   Shift,
   DowntimeReason,
 } from '../entities';
+import type { ProductionEntryNestedItem } from '../entities';
 import { CreateProductionEntryDto, UpdateProductionEntryDto, CreateMachineDto } from '../dto';
 import { Item, Uom, UomConversion } from '../../item/entities';
 import { Division, Section, Department, Warehouse, WarehouseType } from '../../organization/entities';
@@ -300,6 +301,7 @@ export class ProductionEntryService {
     allowedDivisionIds?: string[];
     status?: string;
     chevronKey?: string;
+    warehouseId?: string;
   }): Promise<{
     data: ProductionEntry[];
     total: number;
@@ -343,6 +345,7 @@ export class ProductionEntryService {
       allowedDivisionIds,
       status,
       chevronKey,
+      warehouseId,
     } = filters || {};
 
     const qb = this.entryRepo.createQueryBuilder('pe')
@@ -353,6 +356,8 @@ export class ProductionEntryService {
       .leftJoinAndSelect('pe.item', 'item')
       .leftJoinAndSelect('pe.uom', 'uom')
       .leftJoinAndSelect('pe.machine', 'machine')
+      .leftJoinAndSelect('pe.rawMaterialWarehouse', 'rawMaterialWarehouse')
+      .leftJoinAndSelect('pe.warehouse', 'warehouse')
       .where('pe.companyId = :companyId', { companyId })
       .andWhere('pe.isActive = true');
 
@@ -368,6 +373,7 @@ export class ProductionEntryService {
     if (machineId) qb.andWhere('pe.machineId = :machineId', { machineId });
     if (itemId) qb.andWhere('pe.itemId = :itemId', { itemId });
     if (uomId) qb.andWhere('pe.uomId = :uomId', { uomId });
+    if (warehouseId) qb.andWhere('(pe.rawMaterialWarehouseId = :warehouseId OR pe.warehouseId = :warehouseId)', { warehouseId });
     if (productionOrderId) qb.andWhere('pe.productionOrderId = :productionOrderId', { productionOrderId });
     if (search?.trim()) {
       qb.andWhere(
@@ -399,6 +405,7 @@ export class ProductionEntryService {
     if (machineId) summaryQb.andWhere('pe.machineId = :machineId', { machineId });
     if (itemId) summaryQb.andWhere('pe.itemId = :itemId', { itemId });
     if (uomId) summaryQb.andWhere('pe.uomId = :uomId', { uomId });
+    if (warehouseId) summaryQb.andWhere('(pe.rawMaterialWarehouseId = :warehouseId OR pe.warehouseId = :warehouseId)', { warehouseId });
     if (productionOrderId) summaryQb.andWhere('pe.productionOrderId = :productionOrderId', { productionOrderId });
     if (search?.trim()) {
       summaryQb.andWhere(
@@ -426,6 +433,7 @@ export class ProductionEntryService {
         'COUNT(CASE WHEN (pe.inventory_reference_id IS NULL AND pe.actual_quantity = 0) THEN 1 END)::int AS "draftCount"',
         'COUNT(CASE WHEN pe.scrap_quantity > 0 THEN 1 END)::int AS "withScrapCount"',
         'COUNT(CASE WHEN pe.downtime_hours > 0 THEN 1 END)::int AS "withDowntimeCount"',
+        `COUNT(CASE WHEN ${OVERTIME_SUM_SQL} > 0 THEN 1 END)::int AS "withOvertimeCount"`,
       ])
       .getRawOne();
 
@@ -449,6 +457,7 @@ export class ProductionEntryService {
         DRAFT: Number(summaryRow?.draftCount || 0),
         WITH_SCRAP: Number(summaryRow?.withScrapCount || 0),
         WITH_DOWNTIME: Number(summaryRow?.withDowntimeCount || 0),
+        WITH_OVERTIME: Number(summaryRow?.withOvertimeCount || 0),
       },
     };
 
@@ -463,6 +472,8 @@ export class ProductionEntryService {
       qb.andWhere('pe.scrapQuantity > 0');
     } else if (chevronKey === 'WITH_DOWNTIME') {
       qb.andWhere('pe.downtimeHours > 0');
+    } else if (chevronKey === 'WITH_OVERTIME') {
+      qb.andWhere(`(${OVERTIME_SUM_SQL} > 0)`);
     }
 
     const sortMap: Record<string, string> = {
@@ -483,6 +494,8 @@ export class ProductionEntryService {
     const [data, total] = await qb.getManyAndCount();
     await populateAuditNames(this.entryRepo.manager.connection, data);
     await this.hydrateMasterTargetRates(data);
+    await this.hydrateNestedItems(data);
+    await this.hydrateReceiptWarehouses(data, companyId);
     return { data, total, page, limit, summary };
   }
 
@@ -546,12 +559,104 @@ export class ProductionEntryService {
     }
   }
 
+  /**
+   * MULTI-ITEM ACCORDION — ship each entry's produced child lines with the row.
+   *
+   * A production document can hold several items (an Inner + an Outer, two
+   * spoke variants …) while `production_entries.item_id` only names the FIRST
+   * one, so the grid showed a single product for a multi-product document.
+   * One batched `In(ids)` query per page feeds the row's expand (➕) toggle —
+   * no N+1, and nothing is aggregated or recomputed: the client renders
+   * exactly what the child table holds.
+   *
+   * OUTPUT lines only. INPUT lines are consumed raw material and carry no
+   * good production, so including them would show "0 pieces" rows that look
+   * like production. A missing child table degrades to "no child lines"
+   * rather than failing the list.
+   */
+  private async hydrateNestedItems(entries: ProductionEntry[]): Promise<void> {
+    if (!entries?.length) return;
+    const ids = [...new Set(entries.map((e) => e.id).filter((v): v is string => !!v))];
+    if (!ids.length) return;
+
+    const byEntry = new Map<string, ProductionEntryNestedItem[]>();
+    try {
+      const rows = await this.entryItemRepo.find({
+        where: { productionEntryId: In(ids), entryKind: ProductionEntryItemKind.OUTPUT },
+        relations: ['item', 'uom'],
+        order: { lineNumber: 'ASC' },
+      });
+      for (const row of rows) {
+        const list = byEntry.get(row.productionEntryId) ?? [];
+        list.push({
+          lineNumber: Number(row.lineNumber ?? 0),
+          itemId: row.itemId ?? null,
+          itemCode: row.item?.itemCode ?? null,
+          itemName: row.item?.name ?? row.item?.shortName ?? null,
+          uomCode: row.uom?.code ?? null,
+          targetQuantity: this.round4(Number(row.targetQuantity ?? 0)),
+          actualQuantity: this.round4(Number(row.actualQuantity ?? 0)),
+          scrapQuantity: this.round4(Number(row.scrapQuantity ?? 0)),
+          // Raw Item Master weight data — the client converts to KG with the
+          // shared productionWeight helper, so grid and report agree.
+          weightPerPiece: row.item?.weightPerPiece ?? null,
+          weightPerMeter: row.item?.weightPerMeter ?? null,
+        });
+        byEntry.set(row.productionEntryId, list);
+      }
+    } catch {
+      /* child table may not exist for legacy entries */
+    }
+
+    for (const e of entries) e.nestedItems = byEntry.get(e.id) ?? [];
+  }
+
+  /**
+   * Hydrates the outbound receipt warehouse for each production entry from the stock ledger.
+   * Single batched query per page matching PRODUCTION_RECEIPT movements.
+   */
+  private async hydrateReceiptWarehouses(entries: ProductionEntry[], companyId: string): Promise<void> {
+    if (!entries?.length) return;
+    const entryIds = entries.map((e) => e.id);
+    try {
+      const rows = await this.entryRepo.manager.query(
+        `SELECT sl.reference_id, sl.warehouse_id, w.name AS warehouse_name, w.warehouse_code AS warehouse_code
+         FROM stock_ledger sl
+         LEFT JOIN warehouses w ON w.id = sl.warehouse_id
+         WHERE sl.company_id = $1
+           AND sl.reference_type = 'PRODUCTION_ENTRY'
+           AND sl.transaction_type = 'PRODUCTION_RECEIPT'
+           AND sl.reference_id = ANY($2)`,
+        [companyId, entryIds],
+      );
+      const map = new Map<string, { id: string; name: string; warehouseCode: string }>();
+      for (const r of rows) {
+        if (r.reference_id && r.warehouse_id && !map.has(r.reference_id)) {
+          map.set(r.reference_id, {
+            id: r.warehouse_id,
+            name: r.warehouse_name || '',
+            warehouseCode: r.warehouse_code || '',
+          });
+        }
+      }
+      for (const e of entries) {
+        const wh = map.get(e.id);
+        if (wh) {
+          (e as any).warehouseId = wh.id;
+          (e as any).warehouse = wh;
+        }
+      }
+    } catch {
+      /* non-critical */
+    }
+  }
+
   async findOne(id: string, companyId: string, allowedDivisionIds?: string[]): Promise<ProductionEntry> {
     const entry = await this.entryRepo.findOne({
       where: { id, companyId },
       relations: [
         'division', 'section', 'department', 'shift', 'item.productionInItem', 'uom',
-        'machine', 'downtimeReason', 'productionOrder',
+        'machine', 'downtimeReason', 'productionOrder', 'rawMaterialWarehouse', 'warehouse',
       ],
     });
     if (!entry || !entry.isActive) {
@@ -701,7 +806,11 @@ export class ProductionEntryService {
     // Real production aggregates (target/actual/scrap/hours) per item + UOM.
     // Org/date/shift/machine/order filters apply ONLY to the entries aggregated —
     // the Item Master rows themselves always survive (their values become zero).
-    const aggWhere: string[] = ['pe.company_id = $1', 'pe.is_active = true'];
+    // `deleted_at IS NULL`: this feeds a REPORT (target/actual/scrap per item),
+    // so a row moved to the Recycle Bin must stop inflating the totals. Note the
+    // Item-Master EXISTS probe above deliberately keeps NO such filter — those
+    // rows survive regardless, per the comment.
+    const aggWhere: string[] = ['pe.company_id = $1', 'pe.is_active = true', 'pe.deleted_at IS NULL'];
     const aggParams: unknown[] = [companyId];
     if (dateFrom) { aggParams.push(dateFrom); aggWhere.push(`pe.entry_date >= $${aggParams.length}`); }
     if (dateTo) { aggParams.push(dateTo); aggWhere.push(`pe.entry_date <= $${aggParams.length}`); }
@@ -1425,6 +1534,7 @@ addToDept(org, {
       processScrapKg: dto.processScrapKg ?? 0,
       remarks: dto.remarks ?? null,
       rawMaterialWarehouseId: sourceStoreId,
+      warehouseId: resolved.warehouseId ?? dto.warehouseId ?? null,
       createdBy: userId ?? null,
       updatedBy: userId ?? null,
     });
@@ -1500,6 +1610,7 @@ addToDept(org, {
       overtimeHours: dto.overtimeHours !== undefined ? Number(dto.overtimeHours) : Number(entry.overtimeHours || 0),
       downtimeHours: dto.downtimeHours ?? Number(entry.downtimeHours),
       rawMaterialWarehouseId: dto.rawMaterialWarehouseId !== undefined ? (dto.rawMaterialWarehouseId ?? null) : entry.rawMaterialWarehouseId ?? null,
+      warehouseId: dto.warehouseId !== undefined ? (dto.warehouseId ?? null) : entry.warehouseId ?? null,
     };
     // §19 — moving an existing record INTO a division must also be authorized.
     this.assertDivisionAccess(allowedDivisionIds, merged.divisionId, 'production entry');
@@ -2159,8 +2270,27 @@ addToDept(org, {
         entry.inventoryReferenceId = null;
       }
       entry.isActive = false;
+      // RECYCLE BIN — this is a recoverable delete, not a destroy. The row is
+      // stamped so every live grid/report stops seeing it (TypeORM appends
+      // `deleted_at IS NULL`) while the document itself stays fully intact and
+      // one UPDATE away from coming back. Its child production lines are
+      // stamped in the same transaction so a restored parent can never come
+      // back half-populated.
+      //
+      // Recovery and permanent purge live in the Recycle Bin module
+      // (`modules/recycle-bin`), which is the single tray that owns every
+      // trash operation across modules.
+      entry.deletedAt = new Date();
+      entry.deletedBy = userId ?? null;
       entry.updatedBy = userId ?? null;
       await manager.getRepository(ProductionEntry).save(entry);
+      await manager
+        .getRepository(ProductionEntryItem)
+        .createQueryBuilder()
+        .update(ProductionEntryItem)
+        .set({ deletedAt: entry.deletedAt, deletedBy: entry.deletedBy })
+        .where('production_entry_id = :id', { id: entry.id })
+        .execute();
     });
   }
 
@@ -2641,20 +2771,34 @@ addToDept(org, {
     for (const line of lines ?? []) {
       if (!line.itemId) continue;
       if (!outputs.has(line.itemId)) {
-        // The entry's own item is the primary/first production item: its
-        // quantity is the authoritative ENTRY-level good output + rejection
-        // (the UI row for the main item mirrors the entry record). Child rows
-        // with any other item id carry their own quantities.
+        // EVERY line posts its OWN quantity. `entry.actualQuantity` is the
+        // DOCUMENT TOTAL — proven live on 274 entries: it equals Σ children on
+        // 271 of them and equals the parent line's own figure on 0 of them
+        // (e.g. 83,500 + 30,000 = 113,500 while the parent row holds 83,500).
+        //
+        // Reading the total for the parent line credited the WHOLE multi-item
+        // document to the parent part and left its siblings to be posted
+        // separately on top, so the parent's stock ledger absorbed every other
+        // part's output: 40,000 posted where that part made 10,000. Across the
+        // live data that inflated 18 of 41 items by ~494K phantom pieces.
+        //
+        // Entry-level scrap still rides on the parent: the document records
+        // scrap once at entry level and children usually carry 0, and scrap is
+        // an audit trail with no balance impact either way.
         const isMain = line.itemId === entry.itemId;
         outputs.set(line.itemId, {
           itemId: line.itemId,
           uomId: line.uomId ?? entry.uomId,
-          actualQuantity: isMain ? Number(entry.actualQuantity) : Number(line.actualQuantity ?? 0),
+          actualQuantity: Number(line.actualQuantity ?? 0),
           scrapQuantity: isMain ? Number(entry.scrapQuantity) : Number(line.scrapQuantity ?? 0),
         });
       }
     }
     if (!outputs.has(entry.itemId)) {
+      // The parent has NO line of its own (legacy payloads / requests that
+      // carry only sibling rows), so the entry total is the only figure
+      // available for it. Whenever the parent line IS present — the normal
+      // case — its own quantity above is authoritative instead.
       outputs.set(entry.itemId, {
         itemId: entry.itemId,
         uomId: entry.uomId,

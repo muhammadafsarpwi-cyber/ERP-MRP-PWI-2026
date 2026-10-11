@@ -180,6 +180,12 @@ export class StoreController {
     return this.storeService.cancelMaterialRequest(id, this.getUserId(req), this.getCompanyId(req), this.divisionScope(req));
   }
 
+  @Delete('material-requests/:id')
+  @RequirePermission('store.request.create')
+  async removeMaterialRequest(@Param('id') id: string, @Req() req: any) {
+    return this.storeService.removeMaterialRequest(id, this.getUserId(req), this.getCompanyId(req), this.divisionScope(req));
+  }
+
   @Post('material-requests/:id/convert-pr')
   @RequirePermission('store.request.convert')
   async convertRequestToPr(
@@ -244,6 +250,12 @@ export class StoreController {
     return this.storeService.cancelMaterialIssue(id, this.getUserId(req), this.getCompanyId(req), this.divisionScope(req));
   }
 
+  @Delete('material-issues/:id')
+  @RequirePermission('store.issue.cancel')
+  async removeMaterialIssue(@Param('id') id: string, @Req() req: any) {
+    return this.storeService.removeMaterialIssue(id, this.getUserId(req), this.getCompanyId(req), this.divisionScope(req));
+  }
+
   // ==================== MATERIAL RETURNS ====================
 
   @Get('material-returns')
@@ -280,6 +292,12 @@ export class StoreController {
   @RequirePermission('store.return.create')
   async cancelMaterialReturn(@Param('id') id: string, @Req() req: any) {
     return this.storeService.cancelMaterialReturn(id, this.getUserId(req), this.getCompanyId(req), this.divisionScope(req));
+  }
+
+  @Delete('material-returns/:id')
+  @RequirePermission('store.return.create')
+  async removeMaterialReturn(@Param('id') id: string, @Req() req: any) {
+    return this.storeService.removeMaterialReturn(id, this.getUserId(req), this.getCompanyId(req), this.divisionScope(req));
   }
 
   // ==================== DASHBOARD ====================

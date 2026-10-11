@@ -185,3 +185,109 @@
 .erp-table-container .entry-grid-compact .ant-table-tbody > tr > td {
   padding: 4px 5px !important;
 }
+
+/* =====================================================================
+   Connected Folder-Style Tabs Navigation Bar
+   "Active tab seamlessly blends and connects with content below; bottom is open"
+   ===================================================================== */
+.production-connected-tabs .ant-tabs-nav {
+  margin-bottom: 0 !important;
+}
+
+.production-connected-tabs .ant-tabs-nav::before {
+  border-bottom: 1.5px solid var(--theme-border, #334155) !important;
+}
+
+.production-connected-tabs .ant-tabs-tab {
+  background: var(--theme-surface-subtle, rgba(255, 255, 255, 0.04)) !important;
+  border: 1px solid var(--theme-border, #334155) !important;
+  border-bottom: 1.5px solid var(--theme-border, #334155) !important;
+  border-radius: 8px 8px 0 0 !important;
+  margin-right: 6px !important;
+  padding: 8px 18px !important;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  color: var(--theme-text-muted, #94a3b8) !important;
+  font-weight: 500 !important;
+  font-size: 13px !important;
+  user-select: none !important;
+}
+
+.production-connected-tabs .ant-tabs-tab:hover {
+  background: var(--theme-surface-hover, rgba(255, 255, 255, 0.08)) !important;
+  color: var(--theme-text, #f1f5f9) !important;
+}
+
+.production-connected-tabs .ant-tabs-tab-active {
+  background: var(--theme-surface, #1e293b) !important;
+  border-color: #38bdf8 !important;
+  border-bottom: 2px solid var(--theme-surface, #1e293b) !important; /* Seamless open bottom directly into content */
+  color: #38bdf8 !important;
+  font-weight: 700 !important;
+  box-shadow: 0 -3px 12px rgba(56, 189, 248, 0.18) !important;
+  position: relative !important;
+  z-index: 5 !important;
+  margin-bottom: -1px !important; /* Bridges the tab and panel border seamlessly */
+}
+
+.production-connected-tabs .ant-tabs-tab-active .ant-tabs-tab-btn {
+  color: #38bdf8 !important;
+  text-shadow: 0 0 12px rgba(56, 189, 248, 0.4) !important;
+}
+
+.production-connected-tabs .ant-tabs-content-holder {
+  background: var(--theme-surface, #1e293b);
+  border: 1px solid var(--theme-border, #334155);
+  border-radius: 0 12px 12px 12px;
+  padding: 16px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+  position: relative;
+  z-index: 1;
+}
+
+.production-connected-tabs .ant-tabs-ink-bar {
+  display: none !important; /* Replaced by seamless connected tab architecture */
+}
+
+/* Light mode specific background harmony */
+:root:not([data-theme="dark"]) .production-connected-tabs .ant-tabs-tab {
+  background: #f1f5f9 !important;
+  border-color: #e2e8f0 !important;
+  color: #64748b !important;
+}
+
+:root:not([data-theme="dark"]) .production-connected-tabs .ant-tabs-tab:hover {
+  background: #e2e8f0 !important;
+  color: #1e293b !important;
+}
+
+:root:not([data-theme="dark"]) .production-connected-tabs .ant-tabs-tab-active {
+  background: #ffffff !important;
+  border-color: #0284c7 !important;
+  border-bottom: 2px solid #ffffff !important;
+  color: #0284c7 !important;
+}
+
+:root:not([data-theme="dark"]) .production-connected-tabs .ant-tabs-tab-active .ant-tabs-tab-btn {
+  color: #0284c7 !important;
+  text-shadow: none !important;
+}
+
+:root:not([data-theme="dark"]) .production-connected-tabs .ant-tabs-content-holder {
+  background: #ffffff;
+  border-color: #e2e8f0;
+  box-shadow: 0 4px 20px rgba(15, 23, 42, 0.05);
+}
+
+/* Page background with subtle industrial ambient styling */
+.entry-page-container {
+  min-height: 100vh;
+  padding: 4px 12px 24px;
+  background: radial-gradient(circle at 50% -5%, #1e293b 0%, #0f172a 40%, #090d16 100%);
+  position: relative;
+  border-radius: 8px;
+}
+
+:root:not([data-theme="dark"]) .entry-page-container {
+  background: #f8fafc;
+}
+

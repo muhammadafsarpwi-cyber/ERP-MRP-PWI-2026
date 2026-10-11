@@ -1,5 +1,5 @@
 import { Entity, Column, ManyToOne, JoinColumn, OneToMany } from 'typeorm';
-import { BaseEntity } from '../../../common/base.entity';
+import { SoftDeletableEntity } from '../../../common/soft-deletable.entity';
 import { Company } from '../../organization/entities/company.entity';
 import { Division } from '../../organization/entities/division.entity';
 import { CustomerContact } from './customer-contact.entity';
@@ -7,7 +7,7 @@ import { CustomerAddress } from './customer-address.entity';
 import { CustomerLedgerEntry } from './customer-ledger.entity';
 
 @Entity('customers')
-export class Customer extends BaseEntity {
+export class Customer extends SoftDeletableEntity {
   @Column({ name: 'company_id', type: 'uuid' })
   companyId: string;
 

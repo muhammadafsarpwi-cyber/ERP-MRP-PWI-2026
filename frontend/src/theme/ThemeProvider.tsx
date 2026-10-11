@@ -102,6 +102,7 @@ export const buildCssVars = (
       '--theme-info-soft': rgbaFromHex(accent, 0.16),
       '--theme-surface-elevated': lightenHex(surface, 0.09),
       '--theme-bg-card': surface,
+      '--theme-card-bg': surface,
       '--theme-bg-secondary': surface,
       '--theme-bg-subtle': darkenHex(surface, 0.15),
       '--theme-chart-grid': 'rgba(226, 232, 255, 0.09)',
@@ -111,9 +112,13 @@ export const buildCssVars = (
       '--theme-table-sticky-selected': mixHex(surface, accent, 0.26),
       '--theme-table-sticky-selected-hover': mixHex(surface, accent, 0.32),
       // 2027 Dynamic Enterprise Table tokens (adapts directly to current palette)
-      '--theme-table-header-bg': darkenHex(primary, 0.18),
-      '--theme-table-header-color': '#ffffff',
-      '--theme-table-header-border': darkenHex(primary, 0.32),
+      // Header is a LOW-CONTRAST accent tint over the surface rather than an
+      // inverted slab of `darkenHex(primary, .18)`. On a dense data grid a
+      // dark navy band with white 11px type reads as a wall; a tint keeps the
+      // band clearly distinct from the rows without fighting the row text.
+      '--theme-table-header-bg': mixHex(surface, accent, 0.16),
+      '--theme-table-header-color': 'rgba(241, 245, 249, 0.95)',
+      '--theme-table-header-border': mixHex(surface, accent, 0.30),
       '--theme-table-row-odd': surface,
       '--theme-table-row-even': lightenHex(surface, 0.04),
       '--theme-table-row-hover': mixHex(surface, accent, 0.18),
@@ -160,6 +165,7 @@ export const buildCssVars = (
     '--theme-info-soft': mixHex(accent, '#ffffff', 0.88),
     '--theme-surface-elevated': '#ffffff',
     '--theme-bg-card': '#ffffff',
+    '--theme-card-bg': '#ffffff',
     '--theme-bg-secondary': surface,
     '--theme-bg-subtle': mixHex(surface, '#0f172a', 0.05),
     '--theme-chart-grid': 'rgba(15, 23, 42, 0.08)',
@@ -169,9 +175,12 @@ export const buildCssVars = (
     '--theme-table-sticky-selected': mixHex(surface, primary, 0.10),
     '--theme-table-sticky-selected-hover': mixHex(surface, primary, 0.14),
     // 2027 Dynamic Enterprise Table tokens (adapts directly to current palette)
-    '--theme-table-header-bg': darkenHex(primary, 0.18),
-    '--theme-table-header-color': '#ffffff',
-    '--theme-table-header-border': darkenHex(primary, 0.32),
+    // See the dark branch above: the header is a subtle accent tint, not a
+    // dark navy slab. Text flips to the normal strong text colour, which is
+    // what makes the "unorganized / heavy" header read as light and clean.
+    '--theme-table-header-bg': mixHex(surface, accent, 0.07),
+    '--theme-table-header-color': 'rgba(15, 23, 42, 0.92)',
+    '--theme-table-header-border': mixHex(surface, accent, 0.16),
     '--theme-table-row-odd': '#ffffff',
     '--theme-table-row-even': mixHex(surface, primary, 0.035),
     '--theme-table-row-hover': mixHex('#ffffff', accent, 0.08),
@@ -212,7 +221,10 @@ const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
 
   const themeConfig = React.useMemo(() => {
     const dark = draft.mode === 'dark';
-    const computedHeaderBg = dark ? darkenHex(roles.primary, 0.22) : darkenHex(roles.primary, 0.18);
+    // Subtle accent tint over the surface — replaces the dark navy slab.
+    const computedHeaderBg = dark
+      ? mixHex(roles.surface, roles.accent, 0.16)
+      : mixHex(roles.surface, roles.accent, 0.07);
     return {
       algorithm: dark ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
       token: {
@@ -223,6 +235,13 @@ const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
         colorBgElevated: roles.surface,
         colorTextLightSolid: dark ? DARK_ON_ACCENT : '#ffffff',
         borderRadius: 6,
+        // Inter, with the same system fallback stack that erp-font.css defines
+        // as `--ui-font-family`. Inlined rather than `var(...)` on purpose: a
+        // stylesheet that fails to load must not cost the app its fallback
+        // stack and leave antd rendering in a browser default.
+        fontFamily:
+          "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, " +
+          "'Helvetica Neue', Arial, sans-serif",
       },
       components: {
         Layout: {
@@ -247,19 +266,23 @@ const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
         },
         Table: {
           headerBg: computedHeaderBg,
-          headerColor: dark ? '#ffffff' : 'rgba(15, 23, 42, 0.92)',
-          headerSplitColor: 'rgba(255, 255, 255, 0.15)',
-          headerSortActiveBg: dark ? darkenHex(roles.primary, 0.30) : darkenHex(roles.primary, 0.26),
-          headerSortHoverBg: dark ? darkenHex(roles.primary, 0.14) : darkenHex(roles.primary, 0.12),
-          fixedHeaderSortActiveBg: dark ? darkenHex(roles.primary, 0.30) : darkenHex(roles.primary, 0.26),
+          headerColor: dark ? 'rgba(241, 245, 249, 0.95)' : 'rgba(15, 23, 42, 0.92)',
+          // Was a white hairline — invisible against the new light tint.
+          headerSplitColor: dark ? 'rgba(255, 255, 255, 0.10)' : 'rgba(15, 23, 42, 0.10)',
+          headerSortActiveBg: dark ? mixHex(roles.surface, roles.accent, 0.26) : mixHex(roles.surface, roles.accent, 0.14),
+          headerSortHoverBg: dark ? mixHex(roles.surface, roles.accent, 0.20) : mixHex(roles.surface, roles.accent, 0.10),
+          fixedHeaderSortActiveBg: dark ? mixHex(roles.surface, roles.accent, 0.26) : mixHex(roles.surface, roles.accent, 0.14),
           borderColor: dark ? mixHex(roles.surface, '#ffffff', 0.10) : mixHex(roles.surface, '#0f172a', 0.10),
           rowHoverBg: dark ? mixHex(roles.surface, roles.accent, 0.18) : mixHex('#ffffff', roles.accent, 0.08),
           rowSelectedBg: dark ? mixHex(roles.surface, roles.accent, 0.26) : mixHex('#ffffff', roles.accent, 0.16),
           rowSelectedHoverBg: dark ? mixHex(roles.surface, roles.accent, 0.32) : mixHex('#ffffff', roles.accent, 0.20),
-          cellPaddingBlock: 10,
-          cellPaddingInline: 12,
+          // Matches `--ui-table-cell-pad-*` in styles/erp-redesign.css, which is
+          // what actually paints the grid (it outranks these via !important).
+          // Kept in sync so the token is correct for any component that reads it.
+          cellPaddingBlock: 13,
+          cellPaddingInline: 20,
           fontSize: 13,
-          fontWeightStrong: 700,
+          fontWeightStrong: 600,
         },
         Card: {
           headerBg: 'transparent',

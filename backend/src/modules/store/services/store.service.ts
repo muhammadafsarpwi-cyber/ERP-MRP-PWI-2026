@@ -273,21 +273,41 @@ export class StoreService {
     if (!request.lines || request.lines.length === 0) return request;
     const store = request.storeId ? await this.storeRepo.findOne({ where: { id: request.storeId } }) : null;
 
+    // Batch the availability lookup: one query for every line that needs it,
+    // instead of one getAvailableStock() round-trip PER LINE (classic N+1).
+    const needsLookup: MaterialRequestLine[] = [];
+    if (store?.warehouseId) {
+      for (const line of request.lines) {
+        if (Number(line.availableStock || 0) <= 0 && line.itemId) needsLookup.push(line);
+      }
+    }
+    if (needsLookup.length) {
+      const pairs = needsLookup.map((line) => ({ itemId: line.itemId, warehouseId: store!.warehouseId! }));
+      try {
+        const balances = await this.inventoryBalanceService.findBalancesForItemWarehousePairs(
+          request.companyId, pairs,
+        );
+        const availableByItem = new Map<string, number>();
+        for (const b of balances) {
+          availableByItem.set(
+            b.itemId,
+            (availableByItem.get(b.itemId) || 0) + (Number(b.onHand) - Number(b.reserved)),
+          );
+        }
+        // No balance row ⇒ 0 (same as the per-line lookup); a failed batch keeps
+        // whatever the line already carried rather than wiping it to zero.
+        for (const line of needsLookup) {
+          line.availableStock = availableByItem.get(line.itemId) ?? 0;
+        }
+      } catch {
+        for (const line of needsLookup) line.availableStock = line.availableStock || 0;
+      }
+    }
+
     for (const line of request.lines) {
       const requestedQty = Number(line.requestedQuantity || 0);
       const prCreated = Number(line.prCreatedQty || 0);
       const issued = Number(line.issuedQuantity || 0);
-
-      if (Number(line.availableStock || 0) <= 0 && store?.warehouseId) {
-        try {
-          const available = await this.inventoryBalanceService.getAvailableStock(
-            request.companyId, line.itemId, store.warehouseId,
-          );
-          line.availableStock = available ?? 0;
-        } catch {
-          line.availableStock = line.availableStock || 0;
-        }
-      }
 
       line.currentShortage = Math.max(requestedQty - Number(line.availableStock || 0), 0);
       line.prRemainingQty = Math.max(requestedQty - prCreated, 0);
@@ -425,6 +445,33 @@ export class StoreService {
     request.status = 'CANCELLED';
     request.cancelledBy = userId;
     request.cancelledAt = new Date();
+    return this.materialRequestRepo.save(request);
+  }
+
+  /**
+   * Move a store requisition to the Recycle Bin.
+   *
+   * Only `DRAFT`, `REJECTED` and `CANCELLED` requests may be trashed. Anything
+   * past that point is either feeding a purchase requisition (`pr_id` / `po_id`
+   * set) or sits on the approval path an auditor reads; hiding it would strand
+   * the downstream procurement documents with no visible parent.
+   */
+  async removeMaterialRequest(id: string, userId?: string, companyId?: string, allowedDivisionIds?: DivisionAccess) {
+    const request = await this.findMaterialRequestById(id, companyId, allowedDivisionIds);
+    if (request.prId || request.poId) {
+      throw new BadRequestException(
+        'This request was converted to a purchase requisition and cannot be recycled. ' +
+          'Cancel the downstream requisition first.',
+      );
+    }
+    if (!['DRAFT', 'REJECTED', 'CANCELLED'].includes(request.status)) {
+      throw new BadRequestException(
+        `A ${request.status} request is on the approval path and cannot be recycled. ` +
+          'Reject or cancel it first.',
+      );
+    }
+    request.deletedAt = new Date();
+    request.deletedBy = userId ?? null;
     return this.materialRequestRepo.save(request);
   }
 
@@ -852,6 +899,29 @@ export class StoreService {
     return this.materialIssueRepo.save(issue);
   }
 
+  /**
+   * Move a Goods Outward Note to the Recycle Bin.
+   *
+   * ONLY `DRAFT` and `CANCELLED` issues may be trashed. A POSTED issue has
+   * already written `stock_ledger` movements and reduced `inventory_balances`;
+   * hiding the document would leave those postings on the books with nothing
+   * visible to explain them, so the guard refuses and the operator must raise
+   * a material return or a stock adjustment instead. This mirrors the Draft
+   * guard the Sales Quotation screen has always applied.
+   */
+  async removeMaterialIssue(id: string, userId?: string, companyId?: string, allowedDivisionIds?: DivisionAccess) {
+    const issue = await this.findMaterialIssueById(id, companyId, allowedDivisionIds);
+    if (!['DRAFT', 'CANCELLED'].includes(issue.status)) {
+      throw new BadRequestException(
+        `A ${issue.status} issue has already moved stock and cannot be recycled. ` +
+          'Raise a material return or a stock adjustment instead.',
+      );
+    }
+    issue.deletedAt = new Date();
+    issue.deletedBy = userId ?? null;
+    return this.materialIssueRepo.save(issue);
+  }
+
   // ==================== MATERIAL RETURNS ====================
 
   async findAllMaterialReturns(
@@ -1013,6 +1083,26 @@ export class StoreService {
     returnRecord.status = 'CANCELLED';
     returnRecord.cancelledBy = userId;
     returnRecord.cancelledAt = new Date();
+    return this.materialReturnRepo.save(returnRecord);
+  }
+
+  /**
+   * Move a Goods Inward Note to the Recycle Bin.
+   *
+   * Same guard rationale as `removeMaterialIssue`: a POSTED return has already
+   * booked inbound `stock_ledger` movements, so recycling it would orphan those
+   * receipts.
+   */
+  async removeMaterialReturn(id: string, userId?: string, companyId?: string, allowedDivisionIds?: DivisionAccess) {
+    const returnRecord = await this.findMaterialReturnById(id, companyId, allowedDivisionIds);
+    if (!['DRAFT', 'CANCELLED'].includes(returnRecord.status)) {
+      throw new BadRequestException(
+        `A ${returnRecord.status} return has already moved stock and cannot be recycled. ` +
+          'Raise a stock adjustment instead.',
+      );
+    }
+    returnRecord.deletedAt = new Date();
+    returnRecord.deletedBy = userId ?? null;
     return this.materialReturnRepo.save(returnRecord);
   }
 

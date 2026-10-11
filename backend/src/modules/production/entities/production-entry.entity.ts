@@ -5,7 +5,7 @@ import {
   JoinColumn,
   Index,
 } from 'typeorm';
-import { BaseEntity } from '../../../common/base.entity';
+import { SoftDeletableEntity } from '../../../common/soft-deletable.entity';
 import { Company } from '../../organization/entities/company.entity';
 import { Division } from '../../organization/entities/division.entity';
 import { Section } from '../../organization/entities/section.entity';
@@ -19,9 +19,31 @@ import { Shift } from './shift.entity';
 import { DowntimeReason } from './downtime-reason.entity';
 import { Warehouse } from '../../organization/entities/warehouse.entity';
 
+/**
+ * ONE PRODUCED LINE of a production document, as shipped with the list row so
+ * the grid can expand a multi-item entry inline. Deliberately a structural
+ * type: `production-entry-item.entity` imports THIS file, so importing it back
+ * would create a cycle for a shape that carries no decorators.
+ */
+export interface ProductionEntryNestedItem {
+  lineNumber: number;
+  itemId: string | null;
+  itemCode: string | null;
+  itemName: string | null;
+  uomCode: string | null;
+  /** Planned figure for THIS line. */
+  targetQuantity: number;
+  /** GOOD production pieces for this line. */
+  actualQuantity: number;
+  scrapQuantity: number;
+  /** Item Master weight data — the client derives KG with the shared helper. */
+  weightPerPiece: number | null;
+  weightPerMeter: number | null;
+}
+
 @Entity('production_entries')
 @Index(['companyId'])
-export class ProductionEntry extends BaseEntity {
+export class ProductionEntry extends SoftDeletableEntity {
   @Column({ name: 'company_id', type: 'uuid' })
   companyId: string;
 
@@ -157,6 +179,14 @@ export class ProductionEntry extends BaseEntity {
   targetStandardHours?: number | null;
   targetStandardQuantity?: number | null;
 
+  /** TRANSIENT — this document's produced child lines, hydrated by
+   *  `hydrateNestedItems` so the grid can show an expand (➕) toggle on any
+   *  entry holding 2 or more items and reveal all of them inline. Only OUTPUT
+   *  lines are shipped: INPUT lines are consumed raw material, not products,
+   *  and carry no good production to display. `undefined` when the child table
+   *  is unavailable (legacy deployments) or the page was not hydrated. */
+  nestedItems?: ProductionEntryNestedItem[];
+
   @Column({ name: 'actual_quantity', type: 'decimal', precision: 19, scale: 4, default: 0 })
   actualQuantity: number;
 
@@ -226,6 +256,16 @@ export class ProductionEntry extends BaseEntity {
   @ManyToOne(() => Warehouse, { nullable: true })
   @JoinColumn({ name: 'raw_material_warehouse_id' })
   rawMaterialWarehouse: Warehouse | null;
+
+  /**
+   * Destination / Receipt Warehouse where good production output is posted.
+   */
+  @Column({ name: 'warehouse_id', type: 'uuid', nullable: true })
+  warehouseId: string | null;
+
+  @ManyToOne(() => Warehouse, { nullable: true })
+  @JoinColumn({ name: 'warehouse_id' })
+  warehouse: Warehouse | null;
 
   @Column({ type: 'text', nullable: true })
   remarks: string | null;

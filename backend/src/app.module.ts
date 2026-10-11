@@ -33,6 +33,7 @@ import { BarcodeModule } from './modules/barcode/barcode.module';
 import { StoreModule } from './modules/store/store.module';
 import { DispatchModule } from './modules/dispatch/dispatch.module';
 import { VisitorModule } from './modules/visitor/visitor.module';
+import { RecycleBinModule } from './modules/recycle-bin/recycle-bin.module';
 import * as net from 'net';
 
 function isDatabaseAvailable(host: string, port: number, timeout = 3000): Promise<boolean> {
@@ -113,6 +114,7 @@ function isDatabaseAvailable(host: string, port: number, timeout = 3000): Promis
     StoreModule,
     DispatchModule,
     VisitorModule,
+    RecycleBinModule,
   ],
   controllers: [AppController],
   providers: [AppService],

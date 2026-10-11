@@ -1,4 +1,14 @@
-import { Entity, Column, ManyToOne, JoinColumn, Index, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import {
+  Entity,
+  Column,
+  ManyToOne,
+  JoinColumn,
+  Index,
+  PrimaryGeneratedColumn,
+  CreateDateColumn,
+  UpdateDateColumn,
+  DeleteDateColumn,
+} from 'typeorm';
 import { Machine } from '../../production/entities/machine.entity';
 import { MaintenancePmPlan } from './maintenance-pm-plan.entity';
 import { MaintenanceJobCard } from './maintenance-job-card.entity';
@@ -47,4 +57,18 @@ export class MaintenancePmSchedule {
 
   @Column({ name: 'completed_at', type: 'timestamp with time zone', nullable: true })
   completedAt: Date | null;
+
+  /**
+   * Recycle Bin columns.
+   *
+   * NOTE: this table has NO `company_id` of its own — a schedule inherits its
+   * tenancy from the PM plan it was generated from. The Recycle Bin registry
+   * therefore scopes it with a `JOIN maintenance_pm_plans` clause rather than
+   * the plain `e.companyId = :companyId` every other trash type uses.
+   */
+  @DeleteDateColumn({ name: 'deleted_at', type: 'timestamp with time zone', nullable: true })
+  deletedAt: Date | null;
+
+  @Column({ name: 'deleted_by', type: 'uuid', nullable: true })
+  deletedBy: string | null;
 }

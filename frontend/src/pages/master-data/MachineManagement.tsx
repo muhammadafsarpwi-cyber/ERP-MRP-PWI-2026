@@ -1829,7 +1829,7 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
       void fetchMachinesRef.current(page);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, pageSize, fetchMachines]);
+  }, [page, pageSize]);
 
   useEffect(() => {
     (async () => {

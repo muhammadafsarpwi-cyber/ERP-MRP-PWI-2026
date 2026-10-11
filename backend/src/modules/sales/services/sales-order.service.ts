@@ -399,6 +399,29 @@ export class SalesOrderService {
     return this.repo.save(order);
   }
 
+  /**
+   * Move a Customer Purchase Order to the Recycle Bin.
+   *
+   * Draft-only, exactly like the Sales Quotation screen: a confirmed order is
+   * a commitment the ERP may have already propagated downstream (a delivery
+   * raised from it, a production order spawned from it). Those documents must
+   * be cancelled on their own screens first, so the operator gets a refusal
+   * that names the reason rather than an order that vanishes while its
+   * deliveries still reference it.
+   */
+  async remove(id: string, userId?: string, companyId?: string, allowedDivisionIds?: DivisionAccess): Promise<SalesOrder> {
+    const order = await this.findOne(id, companyId, allowedDivisionIds);
+    if ((order.status || '').toLowerCase() !== 'draft') {
+      throw new BadRequestException(
+        `A ${order.status || 'confirmed'} order has already been committed and cannot be recycled. ` +
+          'Cancel it, and cancel any delivery raised from it, first.',
+      );
+    }
+    order.deletedAt = new Date();
+    order.deletedBy = userId || null;
+    return this.repo.save(order);
+  }
+
   async convertToDelivery(
     id: string,
     dto?: { warehouseId?: string; deliveryDate?: string; carrier?: string; trackingNumber?: string; notes?: string; lines?: Array<{ itemId: string; quantity: number }> },

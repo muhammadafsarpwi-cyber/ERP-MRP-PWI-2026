@@ -1,8 +1,17 @@
 import { Entity, Column, ManyToOne, JoinColumn } from 'typeorm';
-import { BaseEntity } from '../../../common/base.entity';
+import { SoftDeletableEntity } from '../../../common/soft-deletable.entity';
 
+/**
+ * QC inspection plan (the tolerance template an inspection is measured against).
+ *
+ * Extends `SoftDeletableEntity` rather than `BaseEntity`: `qc_inspection_plans`
+ * has the `is_active` column the base carries, so the standard Recycle Bin base
+ * applies cleanly. A plan is a pure template with no stock or ledger impact, so
+ * it can be trashed at any time; `qc.service.ts` refuses only when inspections
+ * already reference it.
+ */
 @Entity('qc_inspection_plans')
-export class QcInspectionPlan extends BaseEntity {
+export class QcInspectionPlan extends SoftDeletableEntity {
   @Column({ name: 'company_id', type: 'uuid' })
   companyId: string;
 

@@ -169,6 +169,90 @@ import { entryOvertimeHours } from './overtimeHours';
  * Input shape — `ProductionEntryRow` (EntryList.tsx) satisfies it
  * structurally, so rows can be passed straight in.
  * ------------------------------------------------------------------ */
+/* ------------------------------------------------------------------ *
+ * MULTI-ITEM DOCUMENTS — one entry, several produced parts.
+ *
+ * `production_entries.item_id` can only point at the FIRST produced item,
+ * while every OUTPUT line lives in `production_entry_items` and ships back as
+ * `nestedItems`. The interactive grid expands them behind a ➕; the three
+ * record surfaces below must show them WITHOUT the operator clicking
+ * anything, because a printed or exported document is the audit copy:
+ *
+ *   · print / PDF → a SUB-ROW indented under its parent entry (hierarchical);
+ *   · Excel / CSV → N independent, consecutive, fully-populated rows
+ *                   (flat, 1NF — sortable and filterable on its own).
+ *
+ * The gate is SHARED with the grid: one constant decides the toggle, the
+ * sub-rows and the flat expansion, so the screen can never disagree with the
+ * paper it was printed from.
+ * ------------------------------------------------------------------ */
+
+/** How many produced lines a document must hold before ANY surface expands
+ *  it — grid toggle, printed sub-row, PDF sub-row and Excel flat rows all
+ *  read this single value. */
+export const MULTI_ITEM_THRESHOLD = 2;
+
+/** One OUTPUT child line exactly as the list API ships it. */
+export interface ReportNestedSource {
+  lineNumber?: number | null;
+  itemCode?: string | null;
+  itemName?: string | null;
+  uomCode?: string | null;
+  actualQuantity?: number | string | null;
+  scrapQuantity?: number | string | null;
+  weightPerPiece?: number | string | null;
+  weightPerMeter?: number | string | null;
+}
+
+/**
+ * One nested item as it appears on a SUB-ROW / a flat Excel row.
+ *
+ * Deliberately carries NO `target` and NO `achievement`: both are
+ * document-level figures owned by the parent row, and repeating them on every
+ * sub-row would multiply Σ Target each time the sheet is summed — breaking
+ * exactly the reconciliation an audit copy exists to protect. Excel restores
+ * the figure once, on the first row of the block (see `csvSubLineRow`).
+ */
+export interface ReportNestedLine {
+  /** Child line number inside the document (1, 2, 3 …). */
+  lineNumber: number;
+  /** Line 1 of the Item cell — the nested product's full name. */
+  item: string;
+  /** Line 2 of the Item cell — the nested Item / WIP code. */
+  itemCode: string;
+  /** GOOD production pieces recorded against THIS nested line. */
+  actual: number;
+  /** Bare per-unit weight (`0.01053`), falling back to the UOM / `—`. */
+  perUnitWeight: string;
+  /** Weight (KG) of this nested line's good production. */
+  actualKg: number | null;
+  /** Rejected pieces recorded against THIS nested line. */
+  rejection: number;
+  /** Rejected weight (KG) for this nested line. */
+  rejectionKg: number | null;
+  /** `Rejection KG / (Actual KG + Rejection KG) × 100` for this line alone. */
+  rejectionPct: number;
+  /** This line's own unit of measure (`PCS`, `M`, …). */
+  uom: string;
+}
+
+/** Either the raw API child lines or the built report sub-lines — the gate
+ *  only ever inspects the COUNT, so both shapes are legal input here. */
+type NestedLineHost = { nestedItems?: ReportNestedLine[] | ReportNestedSource[] | null };
+
+/** The child lines of a report line, tolerant of rows that predate the field. */
+export function nestedLinesOf(line: NestedLineHost | null | undefined): ReportNestedLine[] {
+  const items = line?.nestedItems;
+  return Array.isArray(items) ? (items as ReportNestedLine[]) : [];
+}
+
+/** True only for genuinely multi-item documents — a single child would be a
+ *  byte-for-byte duplicate of its parent (verified: 92/92 single-child rows
+ *  carry the parent's own item code and quantity), so it never expands. */
+export function isMultiItemLine(line: NestedLineHost | null | undefined): boolean {
+  return nestedLinesOf(line).length >= MULTI_ITEM_THRESHOLD;
+}
+
 export interface ReportRowSource {
   entryDate?: string;
   division?: { name?: string; divisionCode?: string } | null;
@@ -192,6 +276,10 @@ export interface ReportRowSource {
     weightPerMeter?: number | null;
   } | null;
   uom?: { code?: string } | null;
+  /** Every OUTPUT child line of this document (`nestedItems` on the list
+   *  API). Present on multi-item and single-item entries alike; only the
+   *  former is ever expanded (see `MULTI_ITEM_THRESHOLD`). */
+  nestedItems?: ReportNestedSource[] | null;
   targetQuantity?: number | string;
   /** LOCKED planned hourly rate hydrated from this row's Target Master
    *  record (`machine_targets.target_quantity ÷ standard_hours`). Present on
@@ -415,6 +503,9 @@ export interface ReportLine {
    *  formula `aggregateProductionTotals` uses on screen. 0 only when the total
    *  produced KG is zero / unknown. */
   rejectionPct: number;
+  /** OUTPUT child lines — built for EVERY entry, but only ever rendered when
+   *  `isMultiItemLine` is true (single-child lines would repeat the parent). */
+  nestedItems?: ReportNestedLine[];
   /** Live runtime summary replacing the static status word —
    *  `11.5 hrs Running (95.8%) / 0.5 hrs Breakdown - Wire jam`. */
   runtime: string;
@@ -660,7 +751,9 @@ export interface ProRataTarget {
   /** The Master's own standard figure (`quantity ÷ hours × standard hours`). */
   standard: number;
   /** THE LOCKED PLANNED HOURLY RATE, read straight from the Target Master
-   *  row — e.g. 4,320. Never output ÷ hours, never `stored ÷ 8`. */
+   *  row — e.g. 4,320. Never output ÷ hours, never `stored ÷ 8`, never
+   *  `stored ÷ run hours`. 0 means the row carries no machine-linked
+   *  target, so there is genuinely no rate to show. */
   perHour: number;
   /** Actual machine running hours the target was scaled to; 0 = none. */
   hours: number;
@@ -674,8 +767,9 @@ export interface ProRataTarget {
  * The locked planned-hourly-rate fields the server hydrates onto every entry
  * straight from its Machine Target Master row (see `hydrateMasterTargetRates`
  * in the backend). `null`/absent means the entry has NO machine-linked target
- * (a manual entry), in which case `proRataTarget` keeps the legacy basis
- * rather than inventing a rate that does not exist anywhere in the data.
+ * (a manual entry), in which case `proRataTarget` reports NO hourly rate at
+ * all — because none exists anywhere in the data — instead of inventing one
+ * by dividing the saved snapshot.
  */
 export interface MasterTargetRate {
   /** `machine_targets.target_quantity ÷ machine_targets.standard_hours`. */
@@ -711,7 +805,7 @@ export function masterRateOf(
 /**
  * `Per Hour Target × Actual Running Hours`, anchored on the locked master rate.
  *
- * Three cases, in strict priority order — and they are the ONLY three:
+ * THREE CASES, in strict priority order — and they are the ONLY three:
  *
  *  1. Master rate present + run hours present →
  *         target = rate × hours   (4,320 × 7 = 30,240)
@@ -720,10 +814,17 @@ export function masterRateOf(
  *         the entry's stored plan figure stands. Nothing can be pro-rated
  *     against zero hours without silently zeroing a perfectly good target
  *     (or dividing by it), and `proRated` is false so line 1 admits it
- *     (`4,320 /h (Standard 8h basis)`), exactly as it always did.
- *  3. No master rate at all (manual entry) →
- *     the entry's stored plan figure stands unchanged on the standard shift
- *     basis, exactly as rows without hour data behaved before this feature.
+ *     (`4,320 /h (Standard 12h basis)`).
+ *  3. NO master rate (manual entry) →
+ *         `perHour` is 0 and the entry's stored plan figure stands.
+ *     THIS FUNCTION NEVER REVERSE-DIVIDES A SAVED SNAPSHOT. `stored ÷ hours`
+ *     is the backwards arithmetic this whole feature exists to kill: it reads
+ *     the floor's own output back as if it were the plan, so an under-producing
+ *     line reports a low "target" (12,960 ÷ 7 = 1,851 /h on SPK-01) and an
+ *     over-producing line reports a high one. For the SAME machine + item the
+ *     rate must be identical on every row, and the only value that can do that
+ *     is the one READ from the Target Master. With no master row there is no
+ *     rate to read, so line 1 says exactly that rather than fabricating one.
  */
 export function proRataTarget(
   standardTarget: number | string | null | undefined,
@@ -748,41 +849,30 @@ export function proRataTarget(
     return { standard, perHour: rate, hours: 0, target: stored, proRated: false };
   }
 
-  // ── 3 — no machine-linked target: keep the legacy basis ───────────────
-  if (!(stored > 0) || !(hours > 0)) {
-    // Nothing to scale against: the stored figure IS the plan figure, read
-    // on the standard shift basis rather than dropped.
-    return {
-      standard: stored,
-      perHour: round4(stored / STANDARD_SHIFT_HOURS),
-      hours: 0,
-      target: stored,
-      proRated: false,
-    };
-  }
-  const perHour = round4(stored / hours);
-  return {
-    standard: round4(perHour * STANDARD_SHIFT_HOURS),
-    perHour,
-    hours,
-    target: round4(perHour * hours),
-    proRated: true,
-  };
+  // ── 3 — no machine-linked target: report NO rate, never derive one ────
+  return { standard: stored, perHour: 0, hours: 0, target: stored, proRated: false };
 }
 
 /**
- * Line 1 (the muted top tier) of the TARGET cell — the locked hourly rate
- * followed by the runtime it was scaled over: `4,320 /h (For 7 hrs Run)`.
- * A row without run hours says so instead of claiming a run that never
- * happened: `4,320 /h (Standard 8h basis)` — the basis shown is whichever
- * standard the row actually carries (8, 12, 14 …), derived from
+ * Line 1 (the muted top tier) of the TARGET cell.
+ *
+ * With a locked rate it reads the rate plus the runtime it was scaled over —
+ * `4,320 /h (For 7 hrs Run)` — or, when the row has no run hours, the rate
+ * against its own standard (`4,320 /h (Standard 12h basis)`), the basis being
  * `standard ÷ perHour` so it can never disagree with line 2.
+ *
+ * Without a locked rate there is NOTHING to print here. The only way to
+ * manufacture a `/h` figure would be `stored ÷ hours`, which reports the
+ * floor's own output back as the plan and made the same machine+item read
+ * 4,320 on one row and 1,851 on another — so the cell says so plainly.
  */
+export const NO_MASTER_RATE_TEXT = 'Master rate not linked';
+
 export function targetTopText(t: ProRataTarget): string {
+  if (!(t.perHour > 0)) return NO_MASTER_RATE_TEXT;
   const perHour = formatNumber(t.perHour, 2);
   if (t.proRated) return `${perHour} /h (For ${formatNumber(t.hours, 2)} hrs Run)`;
-  const basis = t.perHour > 0 ? t.standard / t.perHour : STANDARD_SHIFT_HOURS;
-  return `${perHour} /h (Standard ${formatNumber(basis, 0)}h basis)`;
+  return `${perHour} /h (Standard ${formatNumber(t.standard / t.perHour, 0)}h basis)`;
 }
 
 /** Line 2 (the bold bottom tier) of the TARGET cell — the Dynamic Operational
@@ -801,7 +891,9 @@ export function lineProRata(line: ReportLine): ProRataTarget {
     perHour: line.targetPerHour,
     hours: line.targetHours,
     target: line.target,
-    proRated: line.targetHours > 0,
+    // Only a row that BOTH has a locked rate and real run hours was scaled.
+    // A manual entry has hours but no rate, and it was never pro-rated.
+    proRated: line.targetHours > 0 && line.targetPerHour > 0,
   };
 }
 
@@ -915,6 +1007,53 @@ function emptyTotals(departments: number): ReportTotals {
 /* ------------------------------------------------------------------ *
  * Model builder
  * ------------------------------------------------------------------ */
+
+/** Σ of a document's nested KG figures. Returns `null` — NEVER a partial
+ *  sum — when any child has no usable weight basis, so a part whose weight is
+ *  unknown cannot quietly make the parent row under-report itself. */
+function sumNestedKg(nested: readonly ReportNestedLine[]): number | null {
+  let total = 0;
+  for (const sub of nested) {
+    if (sub.actualKg == null) return null;
+    total += sub.actualKg;
+  }
+  return total;
+}
+
+/** Map one row's OUTPUT child lines into report-ready sub-lines, each with its
+ *  own unit weight, KG and scrap percentage. */
+function buildNestedLines(row: ReportRowSource, parentUom: string): ReportNestedLine[] {
+  const source = row.nestedItems;
+  if (!Array.isArray(source)) return [];
+  return source.map((n) => {
+    const uom = blank(n.uomCode) || parentUom;
+    const wpp = toNum(n.weightPerPiece);
+    const wpm = toNum(n.weightPerMeter);
+    const actual = toNum(n.actualQuantity);
+    const rejection = toNum(n.scrapQuantity);
+    const actualKg = calcActualKg(uom, actual, wpp, wpm);
+    const rejectionKg = calcActualKg(uom, rejection, wpp, wpm);
+    const actualKgRounded = actualKg == null ? null : round4(actualKg);
+    const rejectionKgRounded = rejectionKg == null ? null : round4(rejectionKg);
+    const code = blank(n.itemCode);
+    const name = blank(n.itemName);
+    return {
+      lineNumber: toNum(n.lineNumber),
+      item: name || code || '—',
+      /* Two clean lines, matching the parent cell: a code equal to the name
+       * is dropped rather than printed twice. */
+      itemCode: code && code !== (name || code) ? code : '',
+      actual,
+      perUnitWeight: perUnitWeightValue(uom, wpp, wpm) || uom || '—',
+      actualKg: actualKgRounded,
+      rejection,
+      rejectionKg: rejectionKgRounded,
+      rejectionPct: rejectionPercent(rejectionKgRounded, actualKgRounded),
+      uom,
+    };
+  });
+}
+
 export function buildDailyProductionReport(
   rows: readonly ReportRowSource[],
   opts: ReportOptions = {},
@@ -930,8 +1069,27 @@ export function buildDailyProductionReport(
     const machine = blank(row.machine?.machineCode) || blank(row.machineNo) || '—';
     const uom = blank(row.uom?.code);
     const actual = toNum(row.actualQuantity);
-    const actualKg = calcActualKg(uom, actual, row.item?.weightPerPiece, row.item?.weightPerMeter);
     const rejection = toNum(row.scrapQuantity);
+    const nested = buildNestedLines(row, uom);
+
+    /* --- WEIGHT (KG) -------------------------------------------------
+     * A multi-item document's pieces come from SEVERAL parts, each with its
+     * OWN unit weight, so `calcActualKg` on the parent would apply child #1's
+     * weight to every piece in the document (measured deltas up to 18.4 KG on
+     * live rows). Every child ships weight data, so the parent ROLLS UP from
+     * its children — which is also what makes the printed parent row and the
+     * flat Excel rows sum to exactly the same figure.
+     *
+     * SCRAP deliberately does NOT roll up: the database records it at ENTRY
+     * level and does not allocate it to the child lines (one live entry holds
+     * 12.87 KG while all of its children report 0). Taking scrap from the
+     * children would delete real rejected stock from the audit copy, so the
+     * parent keeps the entry figure and Excel carries it on the block's first
+     * row — see `csvSubLineRow`. */
+    const rolledUp = nested.length >= MULTI_ITEM_THRESHOLD;
+    const actualKg = rolledUp
+      ? sumNestedKg(nested)
+      : calcActualKg(uom, actual, row.item?.weightPerPiece, row.item?.weightPerMeter);
     const rejectionKg = calcActualKg(uom, rejection, row.item?.weightPerPiece, row.item?.weightPerMeter);
     const itemCode = blank(row.item?.itemCode);
     const itemName = blank(row.item?.name);
@@ -983,6 +1141,7 @@ export function buildDailyProductionReport(
       rejection,
       rejectionKg: rejectionKgRounded,
       rejectionPct: rejectionPercent(rejectionKgRounded, actualKgRounded),
+      nestedItems: nested,
       runtime: runtimeText(running, downShown, available, blank(row.downtimeReasonText)),
       uom,
       date: row.entryDate ? dayjs(row.entryDate).format('YYYY-MM-DD') : '',
@@ -1320,6 +1479,45 @@ export function pdfLineRow(columns: ReportColumn[], line: ReportLine): any[] {
   });
 }
 
+/**
+ * ONE PDF SUB-ROW for a nested item of a multi-item document.
+ *
+ * The Item cell is indented with NON-BREAKING spaces rather than ASCII ones:
+ * autoTable collapses a leading plain space, which would silently drop the
+ * only visual cue that this row belongs to the entry above it. TARGET stays
+ * blank on every sub-row (the parent owns the document's pro-rated target) so
+ * a reader — or a screen reader — can never sum the column twice, and
+ * Achievement / runtime / date are left to the parent for the same reason.
+ */
+export function pdfSubRow(columns: ReportColumn[], sub: ReportNestedLine): any[] {
+  return columns.map((c) => {
+    switch (c.key) {
+      case 'item':
+        return pdfStackedCell('item', `\u00A0\u00A0${sub.item}`, sub.itemCode, c.align);
+      case 'actual':
+        return formatNumber(sub.actual, 2);
+      case 'weight':
+        return pdfStackedCell(
+          'weight',
+          sub.perUnitWeight,
+          sub.actualKg == null ? '—' : formatNumber(sub.actualKg, 2),
+          c.align,
+        );
+      case 'rejectionScrap':
+        return pdfStackedCell(
+          'rejectionScrap',
+          formatNumber(sub.rejectionKg ?? 0, 2),
+          rejectionPctLabel(sub.rejectionPct),
+          c.align,
+        );
+      default:
+        // Sr / Shift / Machine / OT / Operator / TARGET / Achievement /
+        // Runtime / Date are document-level values owned by the parent row.
+        return '';
+    }
+  });
+}
+
 /** One PDF summary row: label merged over the leading columns (Sr. # / Shift
  *  / Machine / OT / Operator), then Σ Target, Σ Actual, weighted Achievement
  *  %, WEIGHT (KG) (— / Σ Actual KG), Σ OT, and REJECTION / SCRAP (Σ KG /
@@ -1515,10 +1713,38 @@ const PRINT_CSS = `
   .rp-iw-name { font-size: 9.5px; line-height: 1.3; color: #64748b; overflow-wrap: anywhere; }
   .rp-iw-scrap { flex: 0 0 auto; font-size: 9.5px; line-height: 1.3; color: #94a3b8;
                  white-space: nowrap; }
+  /* ---- multi-item SUB-ROWS (KEEP THIS COMMENT FREE OF ANY PRINTED STRING
+     — the stylesheet ships with EVERY report, empty ones included).
+     Each nested OUTPUT line is BAKED INTO THE PRINTED HTML directly under its
+     parent entry, so a paper copy shows every produced part and not just the
+     one the parent row can name. They carry only the item-specific columns —
+     the document-level columns stay blank because the row above owns them,
+     which is what keeps Σ Target counted exactly once. The hairline rules are
+     deliberately the SAME #e2e8f0 baseline used by the KPI item footer, so a
+     reader sees one visual language for "this belongs to the row above". */
+  .rp-sub > td { background: #f8fafc; font-size: 10.5px;
+                 padding-top: 3px; padding-bottom: 3px;
+                 border-top: 1px solid #e2e8f0;
+                 border-bottom: 1px solid #e2e8f0; }
+  .rp-sub .rp-item-name { font-weight: 600; color: #334155; }
+  .rp-sub .rp-item-code { font-size: 9.5px; color: #64748b; }
+  /* The indent that visually subordinates the row to its parent entry. */
+  .rp-sub-ind { padding-left: 14px !important; }
+  .rp-sub .rp-wt-top, .rp-sub .rp-rj-top { font-size: 10px; color: #64748b; }
+  .rp-sub .rp-wt-bottom, .rp-sub .rp-rj-bottom { font-size: 10.5px; color: #0f172a; }
   @media print {
     body { margin: 0; padding: 0; }
     .rp-dept { break-inside: avoid; page-break-inside: avoid; }
     .rp-table thead { display: table-header-group; }
+    /* Nested sub-rows are ALWAYS present in the printed DOM — the report
+       builder emits them, so there is no collapsed state to un-hide. These
+       rules exist only to make that guarantee explicit and to stop a page
+       break from ever separating a sub-row from its parent entry. */
+    .rp-sub { display: table-row !important; visibility: visible !important;
+              height: auto !important;
+              break-inside: avoid; page-break-inside: avoid; }
+    .rp-sub > td { border-top: 1px solid #e2e8f0 !important;
+                   border-bottom: 1px solid #e2e8f0 !important; }
   }
 `;
 
@@ -1537,7 +1763,7 @@ function tableHtml(model: DailyProductionReport, withHead: boolean, bodyHtml: st
 
 function lineRowHtml(model: DailyProductionReport, line: ReportLine): string {
   const tone = achievementTone(line.achievement);
-  return `<tr>${model.columns
+  const parent = `<tr>${model.columns
     .map((c) => {
       const cls = [
         `a-${c.align}`,
@@ -1557,6 +1783,61 @@ function lineRowHtml(model: DailyProductionReport, line: ReportLine): string {
         // of the fused cells. Numeric cells stay plain — they never need a
         // 3rd line.
         text = c.key === 'operator' || c.key === 'status' ? `<span class="rp-clamp2">${value}</span>` : value;
+      }
+      return `<td class="${cls}">${text}</td>`;
+    })
+    .join('')}</tr>`;
+  if (!isMultiItemLine(line)) return parent;
+  return parent + nestedLinesOf(line).map((sub) => nestedRowHtml(model, sub)).join('');
+}
+
+/**
+ * ONE nested sub-row of a multi-item document, printed DIRECTLY beneath its
+ * parent entry.
+ *
+ * The printed document is a standalone HTML string (`buildPrintHtml`) opened * in its own window — NOT the live antd grid — so these rows are simply
+ * BAKED IN at build time. There is no expand/collapse state to override and no
+ * operator to click a ➕: every produced part is on the paper the moment the
+ * dialog opens.
+ *
+ * Only the item-specific columns carry values (Item, good pieces, WEIGHT (KG),
+ * REJECTION / SCRAP). Shift / Machine / Operator / runtime / TARGET are
+ * document-level figures already printed on the parent row immediately above,
+ * so repeating them would both waste the row and risk a reader summing
+ * Σ Target twice.
+ */
+function nestedRowHtml(model: DailyProductionReport, sub: ReportNestedLine): string {
+  return `<tr class="rp-sub">${model.columns
+    .map((c) => {
+      const cls = [
+        `a-${c.align}`,
+        tightColumnClass(c.key),
+        c.key === 'actual' ? 'strong' : '',
+        /* The indent that marks the row as a child of the one above. */
+        c.key === 'item' ? 'rp-sub-ind' : '',
+      ].filter(Boolean).join(' ');
+      let text = '';
+      switch (c.key) {
+        case 'item':
+          text =
+            `<span class="rp-item-name">${escapeHtml(sub.item)}</span>` +
+            (sub.itemCode ? `<span class="rp-item-code">${escapeHtml(sub.itemCode)}</span>` : '');
+          break;
+        case 'actual':
+          text = escapeHtml(formatNumber(sub.actual, 2));
+          break;
+        case 'weight':
+          text =
+            `<span class="rp-wt-top">${escapeHtml(sub.perUnitWeight)}</span>` +
+            `<span class="rp-wt-bottom">${sub.actualKg == null ? '—' : escapeHtml(formatNumber(sub.actualKg, 2))}</span>`;
+          break;
+        case 'rejectionScrap':
+          text =
+            `<span class="rp-rj-top">${escapeHtml(formatNumber(sub.rejectionKg ?? 0, 2))}</span>` +
+            `<span class="rp-rj-bottom">${escapeHtml(rejectionPctLabel(sub.rejectionPct))}</span>`;
+          break;
+        default:
+          text = '';
       }
       return `<td class="${cls}">${text}</td>`;
     })
@@ -1729,22 +2010,51 @@ export function sectionItemTotals(section: ReportSection): ItemTotal[] {
     string,
     { name: string; actualPcs: number; actualKg: number; scrapPcs: number; scrapKg: number }
   >();
-  for (const line of section.lines) {
-    const code = line.itemCode || line.item;
-    if (!code) continue;
-    const agg = byCode.get(code) ?? {
-      name: line.item,
-      actualPcs: 0,
-      actualKg: 0,
-      scrapPcs: 0,
-      scrapKg: 0,
-    };
-    agg.actualPcs += line.actual ?? 0;
-    agg.actualKg += line.actualKg ?? 0;
-    agg.scrapPcs += line.rejection ?? 0;
-    agg.scrapKg += line.rejectionKg ?? 0;
-    if (!agg.name) agg.name = line.item;
+  const add = (
+    code: string,
+    name: string,
+    actualPcs: number,
+    actualKg: number,
+    scrapPcs: number,
+    scrapKg: number,
+  ): void => {
+    if (!code) return;
+    const agg = byCode.get(code) ?? { name, actualPcs: 0, actualKg: 0, scrapPcs: 0, scrapKg: 0 };
+    agg.actualPcs += actualPcs;
+    agg.actualKg += actualKg;
+    agg.scrapPcs += scrapPcs;
+    agg.scrapKg += scrapKg;
+    if (!agg.name) agg.name = name;
     byCode.set(code, agg);
+  };
+
+  for (const line of section.lines) {
+    /* A multi-item document's `item` names only child #1 while `line.actual`
+     * is the WHOLE document's output — pooling it would pin every nested
+     * part's pieces onto one code and leave the remaining parts off the KPI
+     * card entirely. Pool the children instead, so the footer lists every part
+     * the department actually produced. */
+    if (isMultiItemLine(line)) {
+      const subs = nestedLinesOf(line);
+      subs.forEach((sub) => {
+        add(sub.itemCode || sub.item, sub.item, sub.actual, sub.actualKg ?? 0, sub.rejection, sub.rejectionKg ?? 0);
+      });
+      /* …but the document's own scrap is NOT allocated to those child lines in
+       * the database (an entry can hold 12.87 KG while every child reports 0).
+       * Attribute the UNALLOCATED REMAINDER to the first part so the card's
+       * Σ Scrap still equals Σ entry scrap. In the common case the remainder
+       * is 0 and nothing is added, so nothing is ever double counted. */
+      const lead = subs[0];
+      const childScrap = subs.reduce((sum, sub) => sum + sub.rejection, 0);
+      const childScrapKg = subs.reduce((sum, sub) => sum + (sub.rejectionKg ?? 0), 0);
+      const residual = round4(Math.max(0, (line.rejection ?? 0) - childScrap));
+      const residualKg = round4(Math.max(0, (line.rejectionKg ?? 0) - childScrapKg));
+      if (lead && (residual > 0 || residualKg > 0)) {
+        add(lead.itemCode || lead.item, lead.item, 0, 0, residual, residualKg);
+      }
+      continue;
+    }
+    add(line.itemCode || line.item, line.item, line.actual ?? 0, line.actualKg ?? 0, line.rejection, line.rejectionKg ?? 0);
   }
   return [...byCode.entries()]
     .map(([code, agg]) => ({
@@ -1930,6 +2240,61 @@ function csvLineCell(line: ReportLine, key: ReportColumnKey): string {
   }
 }
 
+/**
+ * ONE Excel row for a nested item of a multi-item document.
+ *
+ * Excel gets NORMALIZED (1NF) output, not the hierarchical shape the paper
+ * surfaces use: an entry with 3 parts becomes 3 independent, consecutive,
+ * fully-populated rows so management can sort and filter by any single part
+ * without a merged cell getting in the way.
+ *
+ *  · Machine / Operator / Shift / OT / runtime / Date are DUPLICATED verbatim
+ *    across every row of the block — they describe the document, not a part.
+ *  · Item / good pieces / WEIGHT (KG) / REJECTION (SCRAP) are SWAPPED for
+ *    this row's own child record.
+ *  · TARGET and Achievement are document-level: they are emitted on the FIRST
+ *    row only. Carrying them on all N rows would multiply Σ Target by N the
+ *    moment the column is summed, which is precisely the reconciliation the
+ *    printed report depends on.
+ *  · SCRAP leads with the ENTRY figure on row 1, because the database records
+ *    scrap at entry level and does not allocate it to the child lines —
+ *    taking it from the children would silently drop real rejected stock.
+ */
+function csvSubLineRow(
+  model: DailyProductionReport,
+  line: ReportLine,
+  sub: ReportNestedLine,
+  isBlockLead: boolean,
+): string {
+  return [
+    ...model.columns.map((c) => {
+      switch (c.key) {
+        /* ---- duplicated: identical across the whole document ---- */
+        case 'sr': return String(line.sr);
+        case 'machine': return csvQuote(line.machine);
+        case 'operator': return csvQuote(line.operator);
+        case 'ot': return csvNum(line.ot);
+        case 'status': return csvQuote(line.runtime);
+        case 'shift': return csvQuote(`${line.shift}\n${line.shiftTime}`);
+        case 'date': return csvQuote(line.date);
+        /* ---- swapped: this row's own part record ---- */
+        case 'item': return csvQuote(sub.itemCode ? `${sub.item}\n${sub.itemCode}` : sub.item);
+        case 'actual': return csvNum(sub.actual);
+        case 'weight': return csvStacked(sub.perUnitWeight, csvStackNum(sub.actualKg));
+        case 'rejectionScrap':
+          return isBlockLead
+            ? csvStacked(csvStackNum(line.rejectionKg), rejectionPctLabel(line.rejectionPct))
+            : csvStacked(csvStackNum(sub.rejectionKg), rejectionPctLabel(sub.rejectionPct));
+        /* ---- document-level: first row of the block only ---- */
+        case 'target': return isBlockLead ? csvNum(line.target) : '';
+        case 'achievement': return isBlockLead ? csvLineCell(line, 'achievement') : '';
+        default: return '';
+      }
+    }),
+    csvQuote(sub.uom),
+  ].join(',');
+}
+
 function csvTotalCell(totals: ReportTotals, key: ReportColumnKey): string {
   switch (key) {
     case 'target': return csvNum(totals.target);
@@ -1975,6 +2340,17 @@ export function buildDailyProductionCsv(model: DailyProductionReport): string {
     out.push(csvQuote(`DEPARTMENT — ${section.name}`));
     for (const block of sectionBlocks(section)) {
       for (const line of block.lines) {
+        /* MULTI-ITEM documents are FLATTENED: the parent row is replaced by
+         * N consecutive, independent rows — one per produced part — rather
+         * than emitted alongside them. Emitting both would double count, since
+         * a document's pieces are exactly the sum of its children (verified
+         * 8/8 on live data), and the parent's item code is child #1's. */
+        if (isMultiItemLine(line)) {
+          nestedLinesOf(line).forEach((sub, i) => {
+            out.push(csvSubLineRow(model, line, sub, i === 0));
+          });
+          continue;
+        }
         out.push([...model.columns.map((c) => csvLineCell(line, c.key)), csvQuote(line.uom)].join(','));
       }
       out.push(totalRow(block.label, block.totals));

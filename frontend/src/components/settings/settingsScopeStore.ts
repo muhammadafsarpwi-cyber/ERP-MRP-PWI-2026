@@ -1,4 +1,6 @@
 import { create } from 'zustand';
+import { tabSessionCache } from '../../services/tabSessionCache';
+import { invalidateLookupsCache } from '../../services/lookupsCache';
 
 /**
  * Organization scope used by the Settings area.
@@ -85,8 +87,20 @@ export const useSettingsScopeStore = create<SettingsScopeState>((set, get) => ({
 
   setDivisionScope: (divisionId, allowedDivisionIds, unrestricted) => {
     if (!inScope(divisionId, allowedDivisionIds, unrestricted)) return false;
+    const previous = get().divisionId;
     persist(divisionId);
     set({ divisionId, isHydrated: true });
+
+    // SCOPE INVARIANT: switching divisions must actively evict every cached
+    // view of the previous division. Without this, sibling/downstream tab
+    // snapshots (warehouses, divisions, filters) survive in `tabSessionCache`
+    // and in the global lookups cache, so rows from the OLD division keep
+    // rendering under the new scope — the "Spoke filter still shows
+    // Control Cable / CCD-SP-002" ghost.
+    if (previous !== divisionId) {
+      tabSessionCache.clear();
+      invalidateLookupsCache();
+    }
     return true;
   },
 

@@ -1,0 +1,74 @@
+/* ============================================================================
+   ERP TYPEFACE — self-hosted Inter
+ ----------------------------------------------------------------------------
+   Inter is bundled as woff2 in ../assets/fonts and served from the same origin,
+   so the ERP renders in its intended typeface on a factory-floor machine with
+   no internet access at all. There is no CDN round-trip, no FOUT while a remote
+   stylesheet resolves, and no layout shift: the browser swaps from the fallback
+   stack the instant the local face is ready.
+
+   Only the Latin subset is shipped (4 weights, ~23 KB each / ~94 KB total) —
+   the ERP's UI strings are Latin, and every extra subset would be dead weight
+   on a production build.
+
+   `font-display: swap` is deliberate: on a cold cache the fallback stack paints
+   immediately rather than holding blank text for a blocking period, which
+   matters on the low-power terminals used on the shop floor.
+   ============================================================================ */
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('../assets/fonts/inter-latin-400-normal.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('../assets/fonts/inter-latin-500-normal.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('../assets/fonts/inter-latin-600-normal.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('../assets/fonts/inter-latin-700-normal.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+:root {
+  /* Single source of truth for the app typeface. The system stack is a real
+     fallback, not decoration: if the woff2 files are ever stripped from a
+     build the ERP keeps its previous look instead of falling back to a serif. */
+  --ui-font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI',
+    Roboto, 'Helvetica Neue', Arial, sans-serif;
+
+  /* Tabular numerals for every figure the operator has to compare down a
+     column — quantities, hours, amounts. Inter ships `tnum` as an OpenType
+     feature, so this is a font setting rather than a monospace hack. */
+  --ui-font-numeric: 'tnum' 1, 'cv05' 1;
+}

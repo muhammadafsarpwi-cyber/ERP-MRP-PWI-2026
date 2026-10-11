@@ -22,6 +22,7 @@ import {
   ClusterOutlined,
   DashboardOutlined,
   DatabaseOutlined,
+  DeleteOutlined,
   EditOutlined,
   EnvironmentOutlined,
   FileTextOutlined,
@@ -205,6 +206,7 @@ export const NAV_ENTRIES: NavEntry[] = [
       { key: '/admin/roles', label: 'Roles', icon: SafetyCertificateOutlined, color: 'warning', permissions: ['admin.roles.view'] },
       { key: '/admin/permissions', label: 'Permissions', icon: KeyOutlined, color: 'warning', permissions: ['admin.permissions.view'] },
       { key: '/admin/permissions-matrix', label: 'Roles & Permissions', icon: SafetyCertificateOutlined, color: 'indigo', permissions: ['admin.roles.view'] },
+      { key: '/admin/recycle-bin', label: 'Recycle Bin', icon: DeleteOutlined, color: 'warning', permissions: ['admin.permissions.view'] },
     ],
   },
 

@@ -1,8 +1,10 @@
 import { Entity, Column, ManyToOne, JoinColumn, OneToMany } from 'typeorm';
 import { BaseEntity } from '../../../common/base.entity';
 import { Company } from './company.entity';
+import { Division } from './division.entity';
 import { Branch } from './branch.entity';
 import { BusinessUnit } from './business-unit.entity';
+import { Department } from './department.entity';
 import { WarehouseLocation } from './warehouse-location.entity';
 
 export enum WarehouseType {
@@ -27,6 +29,20 @@ export class Warehouse extends BaseEntity {
   @ManyToOne(() => Company, (company) => company.warehouses)
   @JoinColumn({ name: 'company_id' })
   company: Company;
+
+  @Column({ name: 'division_id', type: 'uuid', nullable: true })
+  divisionId: string;
+
+  @ManyToOne(() => Division, { nullable: true })
+  @JoinColumn({ name: 'division_id' })
+  division: Division;
+
+  @Column({ name: 'department_id', type: 'uuid', nullable: true })
+  departmentId: string | null;
+
+  @ManyToOne(() => Department, { nullable: true })
+  @JoinColumn({ name: 'department_id' })
+  department: Department | null;
 
   @Column({ name: 'branch_id', type: 'uuid', nullable: true })
   branchId: string;
@@ -66,3 +82,4 @@ export class Warehouse extends BaseEntity {
   @OneToMany(() => WarehouseLocation, (location) => location.warehouse)
   locations: WarehouseLocation[];
 }
+

@@ -10,7 +10,7 @@
   bottom: 0;
   background: rgba(0, 0, 0, 0.65);
   backdrop-filter: blur(8px);
-  z-index: 1000;
+  z-index: 50000 !important;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -47,6 +47,7 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  z-index: 50001 !important;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
   margin: auto;
@@ -124,28 +125,39 @@
 }
 
 .entry-window-ctrl-btn {
-  width: 32px;
-  height: 32px;
+  width: 34px;
+  height: 34px;
   border-radius: 6px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  color: #e2e8f0;
+  background: rgba(255, 255, 255, 0.15);
+  border: 1.5px solid rgba(255, 255, 255, 0.45);
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 700;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
 }
 
 .entry-window-ctrl-btn:hover {
-  background: rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.3);
+  border-color: #ffffff;
   color: #ffffff;
   transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+}
+
+.entry-window-ctrl-btn.btn-close {
+  background: rgba(239, 68, 68, 0.25);
+  border-color: #ef4444;
+  color: #ffffff;
 }
 
 .entry-window-ctrl-btn.btn-close:hover {
-  background: #ff4d4f;
-  border-color: #ff4d4f;
+  background: #dc2626;
+  border-color: #ef4444;
   color: #ffffff;
 }
 
@@ -222,7 +234,7 @@
   padding: 8px 12px;
   display: flex;
   flex-direction: column;
-  justifyContent: center;
+  justify-content: center;
   min-height: 56px;
   transition: all 0.2s ease;
 }

@@ -397,6 +397,26 @@ export class SalesDeliveryService {
     return this.repo.save(delivery);
   }
 
+  /**
+   * Move a delivery — the physical GATE PASS document — to the Recycle Bin.
+   *
+   * `DRAFT` only. Once a delivery is confirmed or shipped, goods have left (or
+   * are leaving) the premises and the gate record is the evidence that they
+   * did so; hiding it would break the outbound audit trail.
+   */
+  async remove(id: string, userId?: string, companyId?: string, allowedDivisionIds?: DivisionAccess): Promise<SalesDelivery> {
+    const delivery = await this.findOne(id, companyId, allowedDivisionIds);
+    if ((delivery.status || '').toUpperCase() !== 'DRAFT') {
+      throw new BadRequestException(
+        `A ${delivery.status || 'confirmed'} gate pass has already been raised and cannot be recycled. ` +
+          'Cancel the delivery instead.',
+      );
+    }
+    delivery.deletedAt = new Date();
+    delivery.deletedBy = userId || null;
+    return this.repo.save(delivery);
+  }
+
   private async generateDeliveryNumber(companyId: string): Promise<string> {
     const year = new Date().getFullYear();
     const prefix = `DN-${year}-`;

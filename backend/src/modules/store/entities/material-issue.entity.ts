@@ -1,4 +1,12 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, OneToMany } from 'typeorm';
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+  UpdateDateColumn,
+  DeleteDateColumn,
+  OneToMany,
+} from 'typeorm';
 import { MaterialIssueLine } from './material-issue-line.entity';
 
 @Entity('material_issues')
@@ -77,4 +85,19 @@ export class MaterialIssue {
 
   @Column({ name: 'updated_by', type: 'uuid', nullable: true })
   updatedBy!: string | null;
+
+  /**
+   * Recycle Bin columns.
+   *
+   * Declared inline rather than through `SoftDeletableEntity` because this
+   * entity does not extend `BaseEntity` — `material_issues` carries its own
+   * `id`/timestamps and has no `is_active`, so inheriting the base would add a
+   * column the physical table does not have. The columns are added by
+   * `migrations/1806000000000-AddSoftDeleteColumns.ts`.
+   */
+  @DeleteDateColumn({ name: 'deleted_at', type: 'timestamp with time zone', nullable: true })
+  deletedAt: Date | null;
+
+  @Column({ name: 'deleted_by', type: 'uuid', nullable: true })
+  deletedBy: string | null;
 }

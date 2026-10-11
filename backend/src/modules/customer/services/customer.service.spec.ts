@@ -22,6 +22,9 @@ describe('CustomerService', () => {
     // fixture is a generic customer with no division assigned.
     divisionId: null,
     division: null,
+    // Soft-delete (Recycle Bin) columns inherited from SoftDeletableEntity.
+    deletedAt: null,
+    deletedBy: null,
     customerCode: 'CUST-0001',
     name: 'Test Customer',
     legalName: 'Test Customer Ltd',

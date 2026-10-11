@@ -621,19 +621,19 @@ export const EditProductionEntry: React.FC = () => {
 
         {/* Quick Context Chips */}
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          <div style={{ background: '#fff', border: '1px solid #cbd5e1', borderRadius: 8, padding: '6px 12px', fontSize: 12 }}>
+          <div style={{ background: 'var(--theme-surface-alt, #1e293b)', border: '1px solid var(--theme-border, rgba(148, 163, 184, 0.2))', borderRadius: 8, padding: '6px 12px', fontSize: 12 }}>
             <Text type="secondary">Date: </Text>
             <Text strong>{dayjs(entry.entryDate).format('DD-MMM-YYYY')}</Text>
           </div>
-          <div style={{ background: '#fff', border: '1px solid #cbd5e1', borderRadius: 8, padding: '6px 12px', fontSize: 12 }}>
+          <div style={{ background: 'var(--theme-surface-alt, #1e293b)', border: '1px solid var(--theme-border, rgba(148, 163, 184, 0.2))', borderRadius: 8, padding: '6px 12px', fontSize: 12 }}>
             <Text type="secondary">Shift: </Text>
             <Text strong>{entry.shift?.name || 'General'}</Text>
           </div>
-          <div style={{ background: '#fff', border: '1px solid #cbd5e1', borderRadius: 8, padding: '6px 12px', fontSize: 12 }}>
+          <div style={{ background: 'var(--theme-surface-alt, #1e293b)', border: '1px solid var(--theme-border, rgba(148, 163, 184, 0.2))', borderRadius: 8, padding: '6px 12px', fontSize: 12 }}>
             <Text type="secondary">Machine: </Text>
             <Text strong>{entry.machine?.name ? `${entry.machine.name} (${entry.machineNo})` : entry.machineNo}</Text>
           </div>
-          <div style={{ background: '#fff', border: '1px solid #cbd5e1', borderRadius: 8, padding: '6px 12px', fontSize: 12 }}>
+          <div style={{ background: 'var(--theme-surface-alt, #1e293b)', border: '1px solid var(--theme-border, rgba(148, 163, 184, 0.2))', borderRadius: 8, padding: '6px 12px', fontSize: 12 }}>
             <Text type="secondary">Department: </Text>
             <Text strong>{entry.department?.name || 'SPD'}</Text>
           </div>
@@ -644,14 +644,14 @@ export const EditProductionEntry: React.FC = () => {
       <Row gutter={[12, 12]} style={{ marginBottom: 20 }}>
         {/* Actual Production */}
         <Col xs={12} sm={8} lg={4}>
-          <Card size="small" style={{ borderRadius: 10, border: '1px solid #cbd5e1', textAlign: 'center' }}>
-            <span style={{ fontSize: 11, color: '#64748b', fontWeight: 700, textTransform: 'uppercase' }}>
+          <Card size="small" style={{ borderRadius: 10, border: '1px solid var(--theme-border, #cbd5e1)', background: 'var(--theme-card-bg, #0f172a)', textAlign: 'center' }}>
+            <span style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', fontWeight: 700, textTransform: 'uppercase' }}>
               Actual Good ({entry.uom?.code || 'PCS'})
             </span>
-            <div style={{ fontSize: 20, fontWeight: 800, color: '#0284c7', marginTop: 4 }}>
+            <div style={{ fontSize: 20, fontWeight: 800, color: '#38bdf8', marginTop: 4 }}>
               {formatNumber(kpis.totalActual, 0)}
             </div>
-            <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
+            <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', marginTop: 2 }}>
               Target: {formatNumber(kpis.totalTarget, 0)}
             </div>
           </Card>
@@ -659,14 +659,14 @@ export const EditProductionEntry: React.FC = () => {
 
         {/* Achievement % */}
         <Col xs={12} sm={8} lg={4}>
-          <Card size="small" style={{ borderRadius: 10, border: '1px solid #cbd5e1', textAlign: 'center' }}>
-            <span style={{ fontSize: 11, color: '#64748b', fontWeight: 700, textTransform: 'uppercase' }}>
+          <Card size="small" style={{ borderRadius: 10, border: '1px solid var(--theme-border, #cbd5e1)', background: 'var(--theme-card-bg, #0f172a)', textAlign: 'center' }}>
+            <span style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', fontWeight: 700, textTransform: 'uppercase' }}>
               Achievement %
             </span>
-            <div style={{ fontSize: 20, fontWeight: 800, color: kpis.achievementPct >= 80 ? '#16a34a' : '#d97706', marginTop: 4 }}>
+            <div style={{ fontSize: 20, fontWeight: 800, color: kpis.achievementPct >= 80 ? '#22c55e' : '#f59e0b', marginTop: 4 }}>
               {kpis.achievementPct.toFixed(1)}%
             </div>
-            <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
+            <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', marginTop: 2 }}>
               Efficiency: {kpis.efficiencyPct.toFixed(1)}%
             </div>
           </Card>
@@ -674,14 +674,14 @@ export const EditProductionEntry: React.FC = () => {
 
         {/* Production Weight KG */}
         <Col xs={12} sm={8} lg={4}>
-          <Card size="small" style={{ borderRadius: 10, border: '1px solid #cbd5e1', textAlign: 'center' }}>
-            <span style={{ fontSize: 11, color: '#64748b', fontWeight: 700, textTransform: 'uppercase' }}>
+          <Card size="small" style={{ borderRadius: 10, border: '1px solid var(--theme-border, #cbd5e1)', background: 'var(--theme-card-bg, #0f172a)', textAlign: 'center' }}>
+            <span style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', fontWeight: 700, textTransform: 'uppercase' }}>
               Prod. Weight (KG)
             </span>
-            <div style={{ fontSize: 20, fontWeight: 800, color: '#0f172a', marginTop: 4 }}>
+            <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--theme-text, #f8fafc)', marginTop: 4 }}>
               {kpis.totalProductionKg.toFixed(2)} <span style={{ fontSize: 12 }}>KG</span>
             </div>
-            <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
+            <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', marginTop: 2 }}>
               Total: {kpis.totalWeightKg.toFixed(2)} KG
             </div>
           </Card>
@@ -689,14 +689,14 @@ export const EditProductionEntry: React.FC = () => {
 
         {/* Scrap / Rejection (KG) - Always KG */}
         <Col xs={12} sm={8} lg={4}>
-          <Card size="small" style={{ borderRadius: 10, border: '1px solid #fca5a5', background: '#fff5f5', textAlign: 'center' }}>
-            <span style={{ fontSize: 11, color: '#b91c1c', fontWeight: 700, textTransform: 'uppercase' }}>
+          <Card size="small" style={{ borderRadius: 10, border: '1px solid rgba(239, 68, 68, 0.4)', background: 'rgba(239, 68, 68, 0.08)', textAlign: 'center' }}>
+            <span style={{ fontSize: 11, color: '#f87171', fontWeight: 700, textTransform: 'uppercase' }}>
               Product Rejection (KG)
             </span>
-            <div style={{ fontSize: 20, fontWeight: 800, color: '#dc2626', marginTop: 4 }}>
+            <div style={{ fontSize: 20, fontWeight: 800, color: '#ef4444', marginTop: 4 }}>
               {kpis.totalScrapKg.toFixed(2)} <span style={{ fontSize: 12 }}>KG</span>
             </div>
-            <div style={{ fontSize: 11, color: '#b91c1c', marginTop: 2 }}>
+            <div style={{ fontSize: 11, color: '#f87171', marginTop: 2 }}>
               Rejection: {kpis.rejectionPct.toFixed(2)}%
             </div>
           </Card>
@@ -704,14 +704,14 @@ export const EditProductionEntry: React.FC = () => {
 
         {/* Running Hours */}
         <Col xs={12} sm={8} lg={4}>
-          <Card size="small" style={{ borderRadius: 10, border: '1px solid #cbd5e1', textAlign: 'center' }}>
-            <span style={{ fontSize: 11, color: '#64748b', fontWeight: 700, textTransform: 'uppercase' }}>
+          <Card size="small" style={{ borderRadius: 10, border: '1px solid var(--theme-border, #cbd5e1)', background: 'var(--theme-card-bg, #0f172a)', textAlign: 'center' }}>
+            <span style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', fontWeight: 700, textTransform: 'uppercase' }}>
               Running Hours
             </span>
-            <div style={{ fontSize: 20, fontWeight: 800, color: '#0f172a', marginTop: 4 }}>
+            <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--theme-text, #f8fafc)', marginTop: 4 }}>
               {kpis.running.toFixed(2)}h
             </div>
-            <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
+            <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', marginTop: 2 }}>
               Downtime: {kpis.dtSum.toFixed(2)}h
             </div>
           </Card>
@@ -723,8 +723,8 @@ export const EditProductionEntry: React.FC = () => {
             size="small"
             style={{
               borderRadius: 10,
-              border: `1px solid ${kpis.isShiftBalanced ? '#86efac' : '#fdba74'}`,
-              background: kpis.isShiftBalanced ? '#f0fdf4' : '#fffbeb',
+              border: `1px solid ${kpis.isShiftBalanced ? 'rgba(34, 197, 94, 0.4)' : 'rgba(245, 158, 11, 0.4)'}`,
+              background: kpis.isShiftBalanced ? 'rgba(34, 197, 94, 0.08)' : 'rgba(245, 158, 11, 0.08)',
               textAlign: 'center',
             }}
           >
@@ -1109,8 +1109,8 @@ export const EditProductionEntry: React.FC = () => {
                   {/* Flow Impact Cards */}
                   <div
                     style={{
-                      background: '#f8fafc',
-                      border: '1px solid #cbd5e1',
+                      background: 'var(--theme-surface-alt, #1e293b)',
+                      border: '1px solid var(--theme-border, rgba(148, 163, 184, 0.2))',
                       borderRadius: 8,
                       padding: '10px 12px',
                       display: 'flex',
@@ -1181,8 +1181,8 @@ export const EditProductionEntry: React.FC = () => {
 
               <div
                 style={{
-                  background: '#f8fafc',
-                  border: '1px solid #cbd5e1',
+                  background: 'var(--theme-surface-alt, #1e293b)',
+                  border: '1px solid var(--theme-border, rgba(148, 163, 184, 0.2))',
                   borderRadius: 8,
                   padding: '10px 12px',
                   display: 'flex',

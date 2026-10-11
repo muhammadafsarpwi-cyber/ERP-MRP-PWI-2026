@@ -370,15 +370,27 @@ html:not([data-theme="dark"]) body .ant-table-tbody > tr:nth-child(odd):not(:hov
   color: #ffffff !important;
 }
 
-/* ── 4. Dense / Compact Mode Variant ── */
+/* ── 4. Dense / Compact Mode Variant ────────────────────────────────
+   MANDATE: absolute 100% visual uniformity across EVERY data table.
+   Compact padding rule is `4px 5px` for BOTH headers and cells (they must
+   match exactly — cells were previously 3px, which made row rhythm uneven),
+   with high-density tabular-nums typography so numeric columns align. */
+.erp-table-container .ant-table-thead > tr > th,
 .erp-table-container--dense .ant-table-thead > tr > th {
   padding: 4px 5px !important;
   font-size: 11.5px !important;
 }
 
+.erp-table-container .ant-table-tbody > tr > td,
 .erp-table-container--dense .ant-table-tbody > tr > td {
-  padding: 3px 5px !important;
+  padding: 4px 5px !important;
   font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Numeric/summary cells in headers keep figures on the same monospaced grid. */
+.erp-table-container .ant-table-thead > tr > th {
+  font-variant-numeric: tabular-nums;
 }
 
 /* ── 5. Standardized Direction Indicators (IN / OUT) ── */

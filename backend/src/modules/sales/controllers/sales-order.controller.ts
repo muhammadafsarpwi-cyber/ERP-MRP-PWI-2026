@@ -230,4 +230,17 @@ export class SalesOrderController {
     const result = await this.service.getOrderTraceability(id, companyId, this.divisionScope(req));
     return { success: true, data: result };
   }
+
+  @Delete(':id')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('sales.orders.update')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Move a Draft sales order to the Recycle Bin (reversible)' })
+  async remove(@Req() req: any, @Param('id') id: string) {
+    const userId = req.user?.id;
+    const companyId = req.erpUser?.defaultCompanyId;
+    const order = await this.service.remove(id, userId, companyId, this.divisionScope(req));
+    return { success: true, data: order, message: 'Sales order moved to the Recycle Bin' };
+  }
 }

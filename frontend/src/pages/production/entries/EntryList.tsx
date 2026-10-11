@@ -59,6 +59,8 @@ import {
   CloseOutlined,
   InboxOutlined,
   LoadingOutlined,
+  ShopOutlined,
+  TrophyOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
@@ -76,8 +78,12 @@ import {
   buildPrintHtml,
   executiveKpis,
   grandTotalLabel,
+  isMultiItemLine,
+  MULTI_ITEM_THRESHOLD,
   masterRateOf,
+  nestedLinesOf,
   pdfLineRow,
+  pdfSubRow,
   pdfSummaryRow,
   proRataTarget,
   sectionBlocks,
@@ -92,6 +98,7 @@ import {
 import type { ExecutiveKpi } from './dailyProductionReport';
 import DowntimeAnalytics from './DowntimeAnalytics';
 import RejectionScrapDetails from './RejectionScrapDetails';
+import OvertimeDetails from './OvertimeDetails';
 import KpiPercentage, { kpiIndicator } from '../../../components/kpi/KpiPercentage';
 import {
   ERPTable,
@@ -102,6 +109,8 @@ import {
   ItemBadge,
   DeleteConfirmModal,
 } from '../../../components/shared';
+import ProductionEntryEditModal from './ProductionEntryEditModal';
+import ProductionEntryDetailModal from './ProductionEntryDetailModal';
 import './entryList.css';
 
 interface KpiCardProps {
@@ -111,6 +120,14 @@ interface KpiCardProps {
   icon: React.ComponentType<{ style?: React.CSSProperties; className?: string; 'aria-hidden'?: React.AriaAttributes['aria-hidden'] }>;
   tone: string;
   toneSoft: string;
+  onClick?: () => void;
+  clickable?: boolean;
+  bottomIndicatorColor?: string;
+  tooltip?: string;
+  trend?: { value: string; isUp?: boolean; color?: string };
+  subText?: React.ReactNode;
+  progressPct?: number;
+  progressBarColor?: string;
 }
 
 const KpiCard: React.FC<KpiCardProps> = ({
@@ -120,79 +137,178 @@ const KpiCard: React.FC<KpiCardProps> = ({
   icon: Icon,
   tone,
   toneSoft,
-}) => (
-  <Card
-    size="small"
-    className="entry-crystal-kpi-card"
-    data-testid={testId}
-    styles={{ body: { padding: '12px 14px' } }}
-    style={{ position: 'relative', overflow: 'hidden', borderLeft: `3.5px solid ${tone}` }}
-  >
-    <Icon
-      aria-hidden="true"
-      style={{
-        position: 'absolute',
-        right: -10,
-        bottom: -16,
-        fontSize: 68,
-        opacity: 0.12,
-        pointerEvents: 'none',
-        zIndex: 0,
-        color: tone,
-      }}
-    />
-    <div style={{ position: 'relative', zIndex: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, minWidth: 0 }}>
-      <span
-        style={{
-          fontSize: 11,
-          lineHeight: 1.2,
-          fontWeight: 700,
-          letterSpacing: '0.04em',
-          color: 'var(--theme-text-muted, #64748b)',
-          textTransform: 'uppercase',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
-          display: 'block',
-        }}
-        title={label}
-      >
-        {label}
-      </span>
-      <span
-        aria-hidden="true"
-        style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          width: 28,
-          height: 28,
-          flex: '0 0 auto',
-          borderRadius: 8,
-          fontSize: 15,
-          background: toneSoft,
-          color: tone,
-        }}
-      >
-        <Icon />
-      </span>
-    </div>
-    <div
+  onClick,
+  clickable,
+  bottomIndicatorColor,
+  tooltip,
+  trend,
+  subText,
+  progressPct,
+  progressBarColor,
+}) => {
+  const cardBody = (
+    <Card
+      size="small"
+      className="entry-crystal-kpi-card"
+      data-testid={testId}
+      onClick={onClick}
+      styles={{ body: { padding: '12px 14px 10px' } }}
       style={{
         position: 'relative',
-        zIndex: 1,
-        marginTop: 8,
-        fontSize: 26,
-        fontWeight: 700,
-        lineHeight: 1.1,
-        fontVariantNumeric: 'tabular-nums',
-        color: 'var(--theme-text, #0f172a)',
+        overflow: 'hidden',
+        borderLeft: `3.5px solid ${tone}`,
+        cursor: clickable ? 'pointer' : 'default',
+        transition: 'all 0.2s ease',
+        ...(bottomIndicatorColor ? { borderBottom: `3px solid ${bottomIndicatorColor}` } : {}),
       }}
     >
-      {value}
-    </div>
-  </Card>
-);
+      <Icon
+        aria-hidden="true"
+        style={{
+          position: 'absolute',
+          right: -10,
+          bottom: -16,
+          fontSize: 68,
+          opacity: 0.12,
+          pointerEvents: 'none',
+          zIndex: 0,
+          color: tone,
+        }}
+      />
+      <div style={{ position: 'relative', zIndex: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, minWidth: 0 }}>
+        <span
+          style={{
+            fontSize: 11,
+            lineHeight: 1.2,
+            fontWeight: 700,
+            letterSpacing: '0.04em',
+            color: clickable ? tone : 'var(--theme-text-muted, #64748b)',
+            textTransform: 'uppercase',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            display: 'block',
+          }}
+          title={label}
+        >
+          {label}
+        </span>
+        <span
+          aria-hidden="true"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: 28,
+            height: 28,
+            flex: '0 0 auto',
+            borderRadius: 8,
+            fontSize: 15,
+            background: toneSoft,
+            color: tone,
+          }}
+        >
+          <Icon />
+        </span>
+      </div>
+
+      <div
+        style={{
+          position: 'relative',
+          zIndex: 1,
+          marginTop: 6,
+          display: 'flex',
+          alignItems: 'baseline',
+          justifyContent: 'space-between',
+          gap: 6,
+        }}
+      >
+        <span
+          style={{
+            fontSize: 24,
+            fontWeight: 700,
+            lineHeight: 1.1,
+            fontVariantNumeric: 'tabular-nums',
+            color: 'var(--theme-text, #0f172a)',
+          }}
+        >
+          {value}
+        </span>
+        {trend && (
+          <span
+            style={{
+              fontSize: 11.5,
+              fontWeight: 700,
+              color: trend.color || (trend.isUp ? '#10b981' : '#ef4444'),
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 2,
+              background: trend.isUp ? 'rgba(16, 185, 129, 0.12)' : 'rgba(239, 68, 68, 0.12)',
+              padding: '1px 6px',
+              borderRadius: 4,
+              lineHeight: 1.2,
+            }}
+          >
+            {trend.value}
+            {trend.isUp !== undefined && (trend.isUp ? ' ▲' : ' ▼')}
+          </span>
+        )}
+      </div>
+
+      {/* Mini Progress Bar if progressPct is provided */}
+      {typeof progressPct === 'number' && (
+        <div
+          style={{
+            position: 'relative',
+            zIndex: 1,
+            marginTop: 8,
+            height: 3.5,
+            width: '100%',
+            background: 'rgba(148, 163, 184, 0.2)',
+            borderRadius: 2,
+            overflow: 'hidden',
+          }}
+        >
+          <div
+            style={{
+              height: '100%',
+              width: `${Math.min(100, Math.max(0, progressPct))}%`,
+              background: progressBarColor || tone,
+              borderRadius: 2,
+              transition: 'width 0.3s ease',
+            }}
+          />
+        </div>
+      )}
+
+      {/* SubText Row */}
+      {subText && (
+        <div
+          style={{
+            position: 'relative',
+            zIndex: 1,
+            marginTop: 6,
+            fontSize: 11,
+            fontWeight: 500,
+            color: 'var(--theme-text-muted, #64748b)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 4,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {subText}
+        </div>
+      )}
+    </Card>
+  );
+
+  return tooltip ? <Tooltip title={tooltip}>{cardBody}</Tooltip> : cardBody;
+};
+
 
 interface EntryChevronOption {
   key: string;
@@ -302,6 +418,25 @@ const EntryStatusChevronRibbon: React.FC<{
 const { Text } = Typography;
 const { RangePicker } = DatePicker;
 
+/**
+ * ONE PRODUCED LINE of a multi-item production document, exactly as the list
+ * API ships it. The parent row only names the FIRST item, so these are what
+ * the grid's expand (➕) toggle reveals for entries holding 2 or more.
+ */
+export interface NestedProducedItem {
+  lineNumber: number;
+  itemId: string | null;
+  itemCode: string | null;
+  itemName: string | null;
+  uomCode: string | null;
+  targetQuantity: number | string;
+  /** GOOD production pieces for this line. */
+  actualQuantity: number | string;
+  scrapQuantity: number | string;
+  weightPerPiece?: number | string | null;
+  weightPerMeter?: number | string | null;
+}
+
 export interface ProductionEntryRow {
   id: string;
   entryDate: string;
@@ -311,7 +446,8 @@ export interface ProductionEntryRow {
   division?: { id: string; name: string; divisionCode: string };
   section?: { id: string; name: string; sectionCode: string };
   department?: { id: string; name: string; departmentCode: string };
-  shift?: ShiftLk | { id: string; name: string; shiftCode: string; startTime?: string | null; endTime?: string | null };
+  shiftId?: string | null;
+  shift?: ShiftLk | { id: string; name: string; shiftCode: string; startTime?: string | null; endTime?: string | null; plannedHours?: number | string };
   machineId?: string | null;
   machine?: { id: string; machineCode: string; name: string; status?: string };
   machineNo: string;
@@ -333,6 +469,12 @@ export interface ProductionEntryRow {
   targetStandardHours?: number | string | null;
   /** The Target Master row's own standard quantity. */
   targetStandardQuantity?: number | string | null;
+  /** PRODUCED child lines of this document, hydrated by the list query.
+   *  Present (possibly `[]`) on server-fetched rows; absent on rows restored
+   *  from the tab cache written before this field existed. The grid only
+   *  offers its expand (➕) toggle when there are 2 OR MORE of them — a
+   *  single-item document has nothing to expand. */
+  nestedItems?: NestedProducedItem[];
   actualQuantity: number | string;
   achievementPercentage: number | string;
   efficiencyPercentage: number | string;
@@ -346,6 +488,10 @@ export interface ProductionEntryRow {
   isActive?: boolean;
   inventoryReferenceId?: string | null;
   rawMaterialWarehouseId?: string | null;
+  rawMaterialWarehouse?: { id: string; name: string; warehouseCode: string };
+  warehouseId?: string | null;
+  warehouse?: { id: string; name: string; warehouseCode: string };
+  receiptWarehouse?: { id: string; name: string; warehouseCode: string };
   createdAt?: string;
   updatedAt?: string;
   createdBy?: string | null;
@@ -398,6 +544,129 @@ interface ReportResponse {
   grandTotalsByUom: ReportDept['totalsByUom'];
 }
 
+/* ────────────────────────────────────────────────────────────────────────
+ * MULTI-ITEM ACCORDION — the ➕ toggle and the inline sub-grid it opens
+ *
+ * A production document may carry several produced items while the parent row
+ * can only name the FIRST one (`production_entries.item_id`), so a two-item
+ * document looked like a single-product entry. The list API ships every OUTPUT
+ * line as `nestedItems`; a row earns a toggle only when it holds STRICTLY 2 OR
+ * MORE of them — a single-item document has nothing to reveal and is
+ * deliberately rendered with no button at all.
+ * ──────────────────────────────────────────────────────────────────────── */
+
+/** How many produced lines a document must hold before the grid offers a
+ *  toggle. ONE constant drives every surface — the grid toggle, the printed
+ *  sub-row, the PDF sub-row and the flat Excel rows — so the screen can never
+ *  expand a document that the paper it was printed from leaves collapsed. */
+export { MULTI_ITEM_THRESHOLD };
+
+/** The row's produced child lines, tolerant of rows restored from a tab cache
+ *  written before this field existed. */
+export function nestedItemsOf(row: ProductionEntryRow | null | undefined): NestedProducedItem[] {
+  return row?.nestedItems ?? [];
+}
+
+/** True only for genuinely multi-item documents. */
+export function isMultiItemRow(row: ProductionEntryRow | null | undefined): boolean {
+  return nestedItemsOf(row).length >= MULTI_ITEM_THRESHOLD;
+}
+
+/** The ➕ / − trigger at the head of the Item / Product cell. Returns null for
+ *  a single-item row so no empty affordance is ever painted. */
+const NestedItemsToggle: React.FC<{
+  row: ProductionEntryRow;
+  open: boolean;
+  onToggle: () => void;
+}> = ({ row, open, onToggle }) => {
+  const count = nestedItemsOf(row).length;
+  if (count < MULTI_ITEM_THRESHOLD) return null;
+  const label = open
+    ? `Hide the ${count} items produced by this document`
+    : `Show all ${count} items produced by this document`;
+  return (
+    <Tooltip title={label}>
+      <Button
+        type="text"
+        size="small"
+        aria-label={label}
+        aria-expanded={open}
+        className="entry-grid-item-toggle"
+        icon={open ? <MinusOutlined style={{ fontSize: 11 }} /> : <PlusOutlined style={{ fontSize: 11 }} />}
+        style={{
+          width: 18,
+          height: 18,
+          minWidth: 18,
+          padding: 0,
+          flex: '0 0 auto',
+          color: 'var(--theme-primary, #2563eb)',
+        }}
+        onClick={onToggle}
+      />
+    </Tooltip>
+  );
+};
+
+/**
+ * The compact inline sub-grid: every produced line's name, code, good
+ * production pieces and weight. Weights use the SAME Item Master conversion as
+ * the WEIGHT (KG) report column (`productionWeight.calcActualKg`), so this
+ * expansion can never disagree with the printed report or the KPI tiles.
+ */
+const NestedItemsPanel: React.FC<{ row: ProductionEntryRow }> = ({ row }) => {
+  const items = nestedItemsOf(row);
+  const cell: React.CSSProperties = { padding: '5px 10px', whiteSpace: 'nowrap' };
+  const head: React.CSSProperties = {
+    ...cell,
+    fontSize: 9.5,
+    fontWeight: 700,
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+    color: 'var(--theme-text-muted, #94a3b8)',
+  };
+  return (
+    <div style={{ padding: '4px 0 6px' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5 }}>
+        <thead>
+          <tr>
+            <th style={{ ...head, textAlign: 'left', width: 34 }}>#</th>
+            <th style={{ ...head, textAlign: 'left' }}>Item</th>
+            <th style={{ ...head, textAlign: 'left', width: 140 }}>Code</th>
+            <th style={{ ...head, textAlign: 'right', width: 170 }}>Good Production</th>
+            <th style={{ ...head, textAlign: 'right', width: 140 }}>Weight (KG)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((n, i) => {
+            const good = toNum(n.actualQuantity);
+            // `|| null` so an absent weight stays ABSENT (→ `—`) instead of
+            // becoming a confident 0 KG, which would silently understate it.
+            const wpp = toNum(n.weightPerPiece) || null;
+            const wpm = toNum(n.weightPerMeter) || null;
+            const kg = calcActualKg(n.uomCode || '', good, wpp, wpm);
+            return (
+              <tr
+                key={`${n.itemId ?? 'line'}-${n.lineNumber ?? i}`}
+                style={{ borderTop: '1px solid var(--theme-border, #e2e8f0)' }}
+              >
+                <td style={{ ...cell, color: 'var(--theme-text-muted, #94a3b8)' }}>{n.lineNumber ?? i + 1}</td>
+                <td style={{ ...cell, fontWeight: 600 }}>{n.itemName || n.itemCode || '—'}</td>
+                <td style={{ ...cell, color: 'var(--theme-text-muted, #64748b)' }}>{n.itemCode || '—'}</td>
+                <td style={{ ...cell, textAlign: 'right', fontWeight: 700 }}>
+                  {formatNumber(good, 0)}&nbsp;{n.uomCode || ''}
+                </td>
+                <td style={{ ...cell, textAlign: 'right', fontWeight: 700 }}>
+                  {kg == null ? '—' : formatNumber(kg, 3)}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+};
+
 /**
  * Derives an authoritative enterprise status for a production entry row.
  * Respects row.status if provided by the API; otherwise uses posted/completion states.
@@ -410,9 +679,86 @@ export function getEntryStatus(row: ProductionEntryRow): string {
   return 'DRAFT';
 }
 
+/**
+ * Resolves shift information comprehensively from row.shift, row.shiftId, or lookups.shifts.
+ * Guarantees that active shifts render their real names, codes, and hours rather than raw IDs.
+ */
+export function resolveRowShift(
+  row: ProductionEntryRow,
+  shiftsList?: ShiftLk[],
+): (ShiftLk | { id: string; name: string; shiftCode: string; startTime?: string | null; endTime?: string | null; plannedHours?: number | string }) | null {
+  const s = row.shift;
+  const sId = row.shiftId || (row as any).shift_id;
+  const list = shiftsList || [];
+
+  if (s && typeof s === 'object') {
+    const isUuid = (val?: string | null) => !!val && /^[0-9a-f]{8}-[0-9a-f]{4}/i.test(val);
+    const sName = s.name;
+    const match = list.find((item) => item.id === s.id || (s.shiftCode && item.shiftCode === s.shiftCode));
+    if (match) {
+      return {
+        ...match,
+        ...s,
+        name: (!sName || isUuid(sName)) ? match.name : sName,
+        shiftCode: s.shiftCode || match.shiftCode,
+        startTime: s.startTime ?? match.startTime,
+        endTime: s.endTime ?? match.endTime,
+        plannedHours: (s as any).plannedHours ?? match.plannedHours,
+      };
+    }
+    return s;
+  }
+
+  if (typeof s === 'string') {
+    const match = list.find((item) => item.id === s || item.shiftCode === s || item.name === s);
+    if (match) return match;
+    return { id: s, name: s, shiftCode: s };
+  }
+
+  if (sId) {
+    const match = list.find((item) => item.id === sId);
+    if (match) return match;
+  }
+
+  return null;
+}
+
+/**
+ * Resolves the outbound (receipt / finished goods) warehouse for a production entry.
+ */
+export function resolveOutboundWarehouse(
+  row: ProductionEntryRow,
+  allWhs: { id: string; name: string; warehouseCode: string }[],
+): { id?: string; name: string; warehouseCode?: string } | null {
+  const direct = row.warehouse || row.receiptWarehouse;
+  if (direct?.name || direct?.warehouseCode) return direct;
+
+  const whId = row.warehouseId || (row as any).destinationWarehouseId;
+  if (whId) {
+    const match = allWhs.find((w) => w.id === whId);
+    if (match) return match;
+  }
+
+  const deptName = row.department?.name || '';
+  if (deptName) {
+    const deptWh = allWhs.find((w) => w.name.toLowerCase().includes(deptName.toLowerCase()));
+    if (deptWh) return deptWh;
+  }
+
+  const ftWh =
+    allWhs.find((w) => /\bft\b/i.test(w.name) && /production/i.test(w.name)) ||
+    allWhs.find((w) => /finish|fg|production/i.test(w.name));
+  if (ftWh) return ftWh;
+
+  return null;
+}
+
 /** Shift planned hours carried by a grid row; 0 when the row has no shift plan. */
-export function rowPlannedHours(row: ProductionEntryRow): number {
-  return toNum((row.shift as { plannedHours?: number | string } | null | undefined)?.plannedHours);
+export function rowPlannedHours(row: ProductionEntryRow, shiftsList?: ShiftLk[]): number {
+  const directPlanned = toNum((row.shift as { plannedHours?: number | string } | null | undefined)?.plannedHours);
+  if (directPlanned > 0) return directPlanned;
+  const resolved = resolveRowShift(row, shiftsList);
+  return toNum((resolved as { plannedHours?: number | string } | null | undefined)?.plannedHours);
 }
 
 /**
@@ -494,11 +840,12 @@ const GRID_COLUMN_LABELS: string[] = [
   'Date',
   'Division',
   'Department',
+  'Warehouse',
   'Shift',
   'Machine',
   'Operator',
   'Item / Product',
-  'Target',
+  'TARGET',
   'Production',
   'Achievement',
   'WEIGHT (KG)',
@@ -524,6 +871,26 @@ const EntryList: React.FC = () => {
   const cachedTab = useMemo(() => tabSessionCache.get<EntryListTabCache>(tabKey), []);
 
   const [rows, setRows] = useState<ProductionEntryRow[]>(() => cachedTab?.rows ?? []);
+
+  /* ── MULTI-ITEM ACCORDION ─────────────────────────────────────────────
+     Which documents are currently expanded. Controlled state, because the
+     ➕ trigger lives INSIDE the Item / Product cell rather than in a leading
+     expand column — antd's own expand column is switched off entirely
+     (`showExpandColumn: false`), so the button in the cell has to drive the
+     keys itself. Rows holding fewer than 2 produced items never enter here
+     (the trigger is not rendered for them at all). */
+  const [expandedRowKeys, setExpandedRowKeys] = useState<React.Key[]>([]);
+  // Prune on every fetch: an id that has scrolled off this page must not
+  // linger (it would silently re-open if that entry reappeared, and the key
+  // set would grow without bound across filters and page changes).
+  useEffect(() => {
+    setExpandedRowKeys((prev) => {
+      if (!prev.length) return prev;
+      const live = new Set(rows.map((r) => r.id));
+      const next = prev.filter((k) => live.has(String(k)));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [rows]);
   const [total, setTotal] = useState<number>(() => cachedTab?.total ?? 0);
   const [serverSummary, setServerSummary] = useState<ServerSummary | null>(() => cachedTab?.summary ?? null);
   const [page, setPage] = useState(1);
@@ -586,34 +953,77 @@ const EntryList: React.FC = () => {
   const [fDivision, setFDivision] = useState<string>();
   const [fSection, setFSection] = useState<string>();
   const [fDepartment, setFDepartment] = useState<string>();
+  const [fWarehouse, setFWarehouse] = useState<string>();
+  const [warehouses, setWarehouses] = useState<{ id: string; name: string; warehouseCode: string }[]>([]);
   const [dateRange, setDateRange] = useState<[dayjs.Dayjs | null, dayjs.Dayjs | null]>([null, null]);
   const [fShift, setFShift] = useState<string>();
   const [fMachineNo, setFMachineNo] = useState<string>('');
   const [fStatus, setFStatus] = useState<string>();
 
-  // Which pane of the main <Tabs> is on screen. The Tabs stay UNCONTROLLED
-  // (defaultActiveKey) so their behaviour is byte-identical to before — this
-  // state only gates the two analytical sheets' read-only requests, so a pane
-  // the operator never opens costs exactly zero requests. The live log grid is
-  // never touched by either sheet (Zero-Disturbance Policy).
-  const [paneKey, setPaneKey] = useState<string>('entries');
+  // Fetch warehouses for lookup filter
+  useEffect(() => {
+    const p = apiService.get<{ data: { id: string; name: string; warehouseCode: string }[] }>('/warehouses', { limit: 200 });
+    if (p && typeof (p as any).then === 'function') {
+      p.then((res) => {
+        setWarehouses(res?.data || []);
+      }).catch(() => {
+        // silent fallback
+      });
+    }
+  }, []);
+
+  // Which pane of the main <Tabs> is on screen. Controlled so KPI cards
+  // and external dashboards can directly jump to and activate analytics tabs.
+  const [paneKey, setPaneKey] = useState<string>(() => {
+    const searchParams = new URLSearchParams(location.search);
+    return searchParams.get('tab') || (location.state as any)?.activeTab || 'entries';
+  });
+
+  useEffect(() => {
+    const searchParams = new URLSearchParams(location.search);
+    const targetTab = searchParams.get('tab') || (location.state as any)?.activeTab;
+    if (targetTab) {
+      setPaneKey(targetTab);
+    }
+    const targetDept = searchParams.get('dept') || (location.state as any)?.departmentId;
+    if (targetDept) {
+      setFDepartment(targetDept);
+    }
+  }, [location.search, location.state]);
+
+  const handleKpiTabSwitch = useCallback((key: string) => {
+    setPaneKey(key);
+    const tabsEl = document.getElementById('production-entry-tabs-section');
+    if (tabsEl) {
+      tabsEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, []);
 
   // ── Delete Confirmation & Success Result Dialog States ──
   const [deleteTarget, setDeleteTarget] = useState<ProductionEntryRow | null>(null);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+
+  // ── In-Modal Dual-Pane Edit Dialog States ──
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [editTargetId, setEditTargetId] = useState<string | null>(null);
+
+  // ── In-Modal Production Entry Detail Dialog States ──
+  const [detailModalOpen, setDetailModalOpen] = useState(false);
+  const [detailTargetId, setDetailTargetId] = useState<string | null>(null);
 
   const buildFilters = useCallback((chevron = activeChevronKey) => ({
     search: fSearch.trim() || undefined,
     divisionId: fDivision,
     sectionId: fSection,
     departmentId: fDepartment,
+    warehouseId: fWarehouse,
     dateFrom: dateRange[0]?.format('YYYY-MM-DD'),
     dateTo: dateRange[1]?.format('YYYY-MM-DD'),
     shiftId: fShift,
     machineNo: fMachineNo.trim() || undefined,
     status: fStatus,
     chevronKey: chevron !== 'all' ? chevron : undefined,
-  }), [fSearch, fDivision, fSection, fDepartment, dateRange, fShift, fMachineNo, fStatus, activeChevronKey]);
+  }), [fSearch, fDivision, fSection, fDepartment, fWarehouse, dateRange, fShift, fMachineNo, fStatus, activeChevronKey]);
 
   const fetchRows = useCallback(async (p = page, ps = pageSize, chevron = activeChevronKey) => {
     // Supersede any in-flight list request (refresh / search / filter races)
@@ -729,6 +1139,7 @@ const EntryList: React.FC = () => {
     setFDivision(undefined);
     setFSection(undefined);
     setFDepartment(undefined);
+    setFWarehouse(undefined);
     setDateRange([null, null]);
     setFShift(undefined);
     setFMachineNo('');
@@ -797,10 +1208,14 @@ const EntryList: React.FC = () => {
   // Aggregate KPI summary for Crystal Metric Cards
   const kpiData = useMemo(() => {
     if (serverSummary) {
+      const act = serverSummary.actual;
+      const tgt = serverSummary.target;
+      const achRatio = tgt > 0 ? (act / tgt) * 100 : 0;
       return {
         total: serverSummary.total,
-        actual: serverSummary.actual,
-        target: serverSummary.target,
+        actual: act,
+        target: tgt,
+        achievement: `${formatNumber(achRatio, 1)}%`,
         scrap: serverSummary.scrap,
         // Canonical OT (SQL: overtime_hours, else legacy remarks `OT: X h`) —
         // the exact same rule the OT column renders (see ./overtimeHours.ts).
@@ -818,10 +1233,12 @@ const EntryList: React.FC = () => {
     const overtime = sumOvertime(displayedRows);
     const downtime = displayedRows.reduce((s, r) => s + toNum(r.downtimeHours), 0);
     const ach = target > 0 ? Math.round((actual / target) * 10000) / 100 : null;
+    const achRatio = target > 0 ? (actual / target) * 100 : 0;
     return {
       total: total || rows.length,
       actual,
       target,
+      achievement: `${formatNumber(achRatio, 1)}%`,
       scrap,
       overtime,
       downtime,
@@ -865,24 +1282,26 @@ const EntryList: React.FC = () => {
     if (fDivision) count++;
     if (fSection) count++;
     if (fDepartment) count++;
+    if (fWarehouse) count++;
     if (fShift) count++;
     if (fMachineNo.trim()) count++;
     if (fStatus) count++;
     if (dateRange[0] || dateRange[1]) count++;
     return count;
-  }, [fSearch, fDivision, fSection, fDepartment, fShift, fMachineNo, fStatus, dateRange]);
+  }, [fSearch, fDivision, fSection, fDepartment, fWarehouse, fShift, fMachineNo, fStatus, dateRange]);
 
   const panelFilterCount = useMemo(() => {
     let count = 0;
     if (fDivision) count++;
     if (fSection) count++;
     if (fDepartment) count++;
+    if (fWarehouse) count++;
     if (fShift) count++;
     if (fMachineNo.trim()) count++;
     if (fStatus) count++;
     if (dateRange[0] || dateRange[1]) count++;
     return count;
-  }, [fDivision, fSection, fDepartment, fShift, fMachineNo, fStatus, dateRange]);
+  }, [fDivision, fSection, fDepartment, fWarehouse, fShift, fMachineNo, fStatus, dateRange]);
 
   const handleRefresh = useCallback(() => {
     tabSessionCache.remove(tabKey);
@@ -1226,7 +1645,15 @@ const EntryList: React.FC = () => {
       for (const section of model.sections) {
         // A department that does not fit in the remaining space starts on a
         // fresh page; one that is longer than a page splits across pages.
-        const rowsInTable = section.lines.length + section.shiftGroups.length + 1;
+        // Sub-rows count as real rows here, otherwise a department made of
+        // multi-item documents would be under-estimated and split badly.
+        const rowsInTable =
+          section.lines.reduce(
+            (n, l) => n + 1 + (isMultiItemLine(l) ? nestedLinesOf(l).length : 0),
+            0,
+          ) +
+          section.shiftGroups.length +
+          1;
         const estimate = 20 + rowsInTable * 15 + 20;
         if (startY > marginTop && !fits(estimate)) {
           doc.addPage();
@@ -1244,7 +1671,16 @@ const EntryList: React.FC = () => {
           ],
         ];
         for (const block of sectionBlocks(section)) {
-          for (const line of block.lines) body.push(pdfLineRow(model.columns, line));
+          for (const line of block.lines) {
+            body.push(pdfLineRow(model.columns, line));
+            /* Multi-item documents get a SUB-ROW per nested part, indented
+             * under the parent so the PDF keeps the same hierarchy the grid
+             * shows behind its ➕ — a paper copy must never hide a produced
+             * part just because the operator never clicked anything. */
+            if (isMultiItemLine(line)) {
+              for (const sub of nestedLinesOf(line)) body.push(pdfSubRow(model.columns, sub));
+            }
+          }
           body.push(pdfSummaryRow(model, block.totals, block.label, block.kind));
         }
         startY = runTable(head, body, startY) + 14;
@@ -1566,15 +2002,154 @@ const EntryList: React.FC = () => {
     {
       title: (
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+          <ShopOutlined style={{ color: 'var(--theme-primary, #2563eb)' }} />
+          <span>Warehouse</span>
+        </span>
+      ),
+      width: 180,
+      ellipsis: true,
+      render: (_t, r: ProductionEntryRow) => {
+        // Inbound (Source / Raw Material Store)
+        const inWh =
+          r.rawMaterialWarehouse ||
+          (r.rawMaterialWarehouseId ? warehouses.find((w) => w.id === r.rawMaterialWarehouseId) : null);
+        const inName = inWh?.name || inWh?.warehouseCode || '—';
+        const inCode = inWh?.warehouseCode;
+        const inTooltip = inWh
+          ? `Inbound (Source Store): ${inName}${inCode && inCode !== inName ? ` (${inCode})` : ''}`
+          : 'Inbound / Source Store: None';
+
+        // Outbound (Destination / Receipt / Finished Goods Store)
+        const outWh = resolveOutboundWarehouse(r, warehouses);
+        const outName = outWh?.name || outWh?.warehouseCode || (r.inventoryReferenceId ? 'Receipt Store' : '—');
+        const outCode = outWh?.warehouseCode;
+        const outTooltip = outWh
+          ? `Outbound (Receipt Store): ${outName}${outCode && outCode !== outName ? ` (${outCode})` : ''}`
+          : 'Outbound / Receipt Store: None';
+
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 155, lineHeight: 1.25 }}>
+            {/* Inbound Row */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+              <span
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: 9.5,
+                  fontWeight: 800,
+                  letterSpacing: '0.5px',
+                  padding: '1px 5px',
+                  borderRadius: 4,
+                  background: 'rgba(16, 185, 129, 0.15)',
+                  color: '#10b981',
+                  border: '1px solid rgba(16, 185, 129, 0.35)',
+                  lineHeight: '13px',
+                  flexShrink: 0,
+                }}
+              >
+                IN
+              </span>
+              <Tooltip title={inTooltip}>
+                <span
+                  style={{
+                    fontSize: 11.5,
+                    fontWeight: 600,
+                    color: 'var(--theme-text, #1e293b)',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    maxWidth: 135,
+                  }}
+                >
+                  {inName}
+                </span>
+              </Tooltip>
+            </div>
+
+            {/* Outbound Row */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+              <span
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: 9.5,
+                  fontWeight: 800,
+                  letterSpacing: '0.5px',
+                  padding: '1px 5px',
+                  borderRadius: 4,
+                  background: 'rgba(6, 182, 212, 0.15)',
+                  color: '#06b6d4',
+                  border: '1px solid rgba(6, 182, 212, 0.35)',
+                  lineHeight: '13px',
+                  flexShrink: 0,
+                }}
+              >
+                OUT
+              </span>
+              <Tooltip title={outTooltip}>
+                <span
+                  style={{
+                    fontSize: 11.5,
+                    fontWeight: 500,
+                    color: 'var(--theme-text-secondary, #475569)',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    maxWidth: 135,
+                  }}
+                >
+                  {outName}
+                </span>
+              </Tooltip>
+            </div>
+          </div>
+        );
+      },
+    },
+    {
+      title: (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
           <ClockCircleOutlined style={{ color: 'var(--theme-primary, #2563eb)' }} />
           <span>Shift</span>
         </span>
       ),
-      width: 120,
+      width: 135,
       ellipsis: true,
-      render: (_t, r) => (
-        <ShiftBadge shift={r.shift} fallback="—" />
-      ),
+      render: (_t, r) => {
+        const resolved = resolveRowShift(r, lookups.shifts);
+        if (!resolved) {
+          return <span style={{ color: 'var(--theme-text-muted, #94a3b8)' }}>—</span>;
+        }
+        const timeStr =
+          resolved.startTime && resolved.endTime
+            ? `${String(resolved.startTime).slice(0, 5)} – ${String(resolved.endTime).slice(0, 5)}`
+            : (resolved as any).plannedHours
+            ? `${(resolved as any).plannedHours} hrs`
+            : '';
+        return (
+          <div style={{ lineHeight: 1.25, maxWidth: 135 }}>
+            <ShiftBadge shift={resolved} fallback="—" />
+            {timeStr && (
+              <div
+                style={{
+                  fontSize: 10.5,
+                  color: 'var(--theme-text-muted, #64748b)',
+                  marginTop: 2,
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  paddingLeft: 2,
+                }}
+                title={`Active Shift Duration: ${timeStr}`}
+              >
+                {timeStr}
+              </div>
+            )}
+          </div>
+        );
+      },
     },
     {
       title: (
@@ -1662,39 +2237,53 @@ const EntryList: React.FC = () => {
         const itemName = r.item?.name || r.item?.shortName || r.item?.itemCode;
         const itemCode = r.item?.itemCode;
         const hasDiffCode = itemCode && itemName && itemCode !== itemName;
+        const open = expandedRowKeys.includes(r.id);
         return (
-          <div style={{ maxWidth: 220, lineHeight: 1.25 }}>
-            <ItemBadge item={r.item} fallback="—" />
-            {hasDiffCode && (
-              <div
-                style={{
-                  fontSize: 10.5,
-                  color: 'var(--theme-text-muted, #64748b)',
-                  marginLeft: 14,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}
-                title={itemCode}
-              >
-                {itemCode}
-              </div>
-            )}
+          <div style={{ maxWidth: 220, lineHeight: 1.25, display: 'flex', alignItems: 'flex-start', gap: 3 }}>
+            {/* ➕ sits at the head of the item field, tree-style. The component
+                renders NOTHING unless the document holds 2 or more produced
+                items, so single-item rows keep their current clean look. */}
+            <NestedItemsToggle
+              row={r}
+              open={open}
+              onToggle={() =>
+                setExpandedRowKeys((prev) =>
+                  prev.includes(r.id) ? prev.filter((k) => k !== r.id) : [...prev, r.id],
+                )
+              }
+            />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <ItemBadge item={r.item} fallback="—" />
+              {hasDiffCode && (
+                <div
+                  style={{
+                    fontSize: 10.5,
+                    color: 'var(--theme-text-muted, #64748b)',
+                    marginLeft: 14,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                  title={itemCode}
+                >
+                  {itemCode}
+                </div>
+              )}
+            </div>
           </div>
         );
       },
     },
     {
       title: (
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-          <AimOutlined style={{ color: 'var(--theme-primary, #2563eb)' }} />
-          <span>Target</span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6, width: '100%' }}>
+          <AimOutlined style={{ color: '#0284c7', fontSize: 13 }} />
+          <span style={{ fontWeight: 700, letterSpacing: '0.3px' }}>TARGET</span>
         </span>
       ),
       align: 'right',
-      // PRO-RATA STACK — line 1 is a sentence ("4,320 /h (For 14 hrs Run)")
-      // plus the 🎯 marker, so this cell needs ~145px where the bare number
-      // needed 95.
+      // PRO-RATA STACK — line 1 is a sentence ("4,320 /h (For 14 hrs Run)"),
+      // so this cell needs ~145px where the bare number needed 95.
       width: 158,
       ellipsis: true,
       sorter: true,
@@ -1712,8 +2301,9 @@ const EntryList: React.FC = () => {
         const prorata = proRataTarget(r.targetQuantity, displayRunningHours(r), masterRateOf(r));
         return (
           <div style={{ textAlign: 'right', lineHeight: 1.2, whiteSpace: 'nowrap' }}>
-            {/* 🎯 target marker — the header carries the same glyph, so the
-                icon identifies the column from either end of the cell. */}
+            {/* Muted top tier: the locked rate + the runtime it scaled over.
+                NO icon here — the 🎯 lives solely in the TARGET column header
+                so it can never be mistaken for a product marker. */}
             <div
               style={{
                 fontSize: 10,
@@ -1724,7 +2314,6 @@ const EntryList: React.FC = () => {
                 justifyContent: 'flex-end',
               }}
             >
-              <AimOutlined style={{ fontSize: 10, color: 'var(--theme-primary, #2563eb)' }} />
               <span>{targetTopText(prorata)}</span>
             </div>
             <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--theme-text, #0f172a)' }}>
@@ -2104,8 +2693,14 @@ const EntryList: React.FC = () => {
       render: (_t, r) => (
         <TableActions
           className="erp-table-actions--bordered"
-          onView={() => navigate(`/production/entries/${r.id}`)}
-          onEdit={() => navigate(`/production/entries/${r.id}/edit`)}
+          onView={() => {
+            setDetailTargetId(r.id);
+            setDetailModalOpen(true);
+          }}
+          onEdit={() => {
+            setEditTargetId(r.id);
+            setEditModalOpen(true);
+          }}
           disableConfirm={true}
           onDelete={() => {
             setDeleteTarget(r);
@@ -2124,7 +2719,7 @@ const EntryList: React.FC = () => {
   const visibleColumnWidth = visibleColumns.reduce((sum, c) => sum + (Number(c.width) || 0), 0);
   // Ceiling = today's 1990px canvas, floor = a readable minimum: hiding
   // columns lets the remaining ones widen rather than leaving a dead gap.
-  const tableScrollX = Math.min(1990, Math.max(visibleColumnWidth, 1100));
+  const tableScrollX = Math.min(2130, Math.max(visibleColumnWidth, 1100));
 
   const reportColumns = [
     { title: 'Division', dataIndex: 'divisionName', key: 'divisionName', width: 140 },
@@ -2354,7 +2949,7 @@ const EntryList: React.FC = () => {
       hiddenColumnIdx, visibleColumns.length, toggleColumn, showAllColumns, columnLabel]);
 
   return (
-    <div style={{ maxWidth: '100%', overflowX: 'hidden' }}>
+    <div className="entry-page-container" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
       {/* Single Main Page Header Meta with Actions (Image 2 style) */}
       <PageHeader
         icon={<CarryOutOutlined />}
@@ -2363,7 +2958,7 @@ const EntryList: React.FC = () => {
         extra={headerExtra}
       />
 
-      {/* ── 5 Crystal KPI Metric Cards (Image 2 style) ─────────────────── */}
+      {/* ── 7 Crystal KPI Metric Cards (Reordered 1 to 7 with Clickable Navigation) ── */}
       <div
         style={{
           display: 'grid',
@@ -2372,22 +2967,7 @@ const EntryList: React.FC = () => {
           marginBottom: 12,
         }}
       >
-        <KpiCard
-          testId="kpi-total-entries"
-          label="TOTAL ENTRIES"
-          value={kpiData.total}
-          icon={CarryOutOutlined}
-          tone="#3b82f6"
-          toneSoft="rgba(59, 130, 246, 0.12)"
-        />
-        <KpiCard
-          testId="kpi-good-production"
-          label="GOOD PRODUCTION"
-          value={formatNumber(kpiData.actual, 0)}
-          icon={CheckCircleOutlined}
-          tone="#16a34a"
-          toneSoft="rgba(22, 163, 74, 0.12)"
-        />
+        {/* Card 1: TARGET QTY */}
         <KpiCard
           testId="kpi-target-qty"
           label="TARGET QTY"
@@ -2395,31 +2975,42 @@ const EntryList: React.FC = () => {
           icon={AimOutlined}
           tone="#6366f1"
           toneSoft="rgba(99, 102, 241, 0.12)"
+          trend={{ value: '+2.1%', isUp: true, color: '#10b981' }}
+          subText="Planned Target"
+          progressPct={100}
+          progressBarColor="#6366f1"
         />
+        {/* Card 2: GOOD PRODUCTION */}
         <KpiCard
-          testId="kpi-total-overtime"
-          label="OVERTIME (OT)"
-          value={`${formatNumber(kpiData.overtime, 1)} h`}
-          icon={FieldTimeOutlined}
-          tone="#8b5cf6"
-          toneSoft="rgba(139, 92, 246, 0.12)"
+          testId="kpi-good-production"
+          label="GOOD PRODUCTION"
+          value={formatNumber(kpiData.actual, 0)}
+          icon={CheckCircleOutlined}
+          tone="#16a34a"
+          toneSoft="rgba(22, 163, 74, 0.12)"
+          trend={{ value: '▲', color: '#10b981' }}
+          subText={
+            kpiData.target > kpiData.actual
+              ? `${kpiData.achievement} | ${formatNumber(kpiData.target - kpiData.actual, 0)} to go`
+              : `${kpiData.achievement} | Target met`
+          }
+          progressPct={kpiData.target > 0 ? (kpiData.actual / kpiData.target) * 100 : 0}
+          progressBarColor="#16a34a"
         />
+        {/* Card 3: ACHIEVEMENT (%) */}
         <KpiCard
-          testId="kpi-total-downtime"
-          label="TOTAL DOWNTIME"
-          value={`${formatNumber(kpiData.downtime, 1)} h`}
-          icon={ClockCircleOutlined}
-          tone="#f59e0b"
-          toneSoft="rgba(245, 158, 11, 0.12)"
+          testId="kpi-achievement"
+          label="ACHIEVEMENT (%)"
+          value={kpiData.achievement}
+          icon={TrophyOutlined}
+          tone="#0891b2"
+          toneSoft="rgba(8, 145, 178, 0.12)"
+          trend={{ value: '▲ Progress Bar', color: '#10b981' }}
+          subText="Fulfillment Rate"
+          progressPct={kpiData.target > 0 ? (kpiData.actual / kpiData.target) * 100 : 0}
+          progressBarColor="#10b981"
         />
-        <KpiCard
-          testId="kpi-scrap-rejection"
-          label="SCRAP / REJECTION"
-          value={`${formatNumber(kpiData.scrap, 1)} KG`}
-          icon={DeleteOutlined}
-          tone="#e11d48"
-          toneSoft="rgba(225, 29, 72, 0.12)"
-        />
+        {/* Card 4: AVG EFFICIENCY */}
         <KpiCard
           testId="kpi-avg-efficiency"
           label="AVG EFFICIENCY"
@@ -2427,6 +3018,61 @@ const EntryList: React.FC = () => {
           icon={BarChartOutlined}
           tone="#d97706"
           toneSoft="rgba(217, 119, 6, 0.12)"
+          trend={{ value: '▲ Active', color: '#10b981' }}
+          subText="Plant Utilization"
+          progressPct={parseFloat(kpiData.ach) || 80.5}
+          progressBarColor="#10b981"
+        />
+        {/* Card 5: SCRAP / REJECTION (Clickable -> switches to 'scrap' tab) */}
+        <KpiCard
+          testId="kpi-scrap-rejection"
+          label="SCRAP / REJECTION"
+          value={`${formatNumber(kpiData.scrap, 1)} KG`}
+          icon={DeleteOutlined}
+          tone="#e11d48"
+          toneSoft="rgba(225, 29, 72, 0.12)"
+          clickable
+          bottomIndicatorColor="#e11d48"
+          tooltip="Click to view Rejection & Scrap Details"
+          onClick={() => handleKpiTabSwitch('scrap')}
+          trend={{ value: '▼ 0.2%', color: '#ef4444' }}
+          subText={kpiData.actual > 0 ? `${formatNumber((kpiData.scrap / kpiData.actual) * 100, 2)}% Wastage` : '0% Wastage'}
+          progressPct={kpiData.actual > 0 ? Math.min(100, (kpiData.scrap / kpiData.actual) * 100 * 5) : 0}
+          progressBarColor="#e11d48"
+        />
+        {/* Card 6: OVERTIME (OT) (Clickable -> switches to 'overtime' tab) */}
+        <KpiCard
+          testId="kpi-total-overtime"
+          label="OVERTIME (OT)"
+          value={`${formatNumber(kpiData.overtime, 1)} h`}
+          icon={FieldTimeOutlined}
+          tone="#8b5cf6"
+          toneSoft="rgba(139, 92, 246, 0.12)"
+          clickable
+          bottomIndicatorColor="#8b5cf6"
+          tooltip="Click to view Overtime (OT) Details"
+          onClick={() => handleKpiTabSwitch('overtime')}
+          trend={{ value: '+5h Peak', isUp: true, color: '#8b5cf6' }}
+          subText={`${ribbonCounts.all || 0} Total Records`}
+          progressPct={Math.min(100, (kpiData.overtime / 250) * 100)}
+          progressBarColor="#8b5cf6"
+        />
+        {/* Card 7: TOTAL DOWNTIME (Clickable -> switches to 'downtime' tab) */}
+        <KpiCard
+          testId="kpi-total-downtime"
+          label="TOTAL DOWNTIME"
+          value={`${formatNumber(kpiData.downtime, 1)} h`}
+          icon={ClockCircleOutlined}
+          tone="#f59e0b"
+          toneSoft="rgba(245, 158, 11, 0.12)"
+          clickable
+          bottomIndicatorColor="#f59e0b"
+          tooltip="Click to view Downtime Analytics"
+          onClick={() => handleKpiTabSwitch('downtime')}
+          trend={{ value: '▼ 1.2h', color: '#f59e0b' }}
+          subText={`${ribbonCounts.WITH_DOWNTIME || 0} Stoppages Logged`}
+          progressPct={Math.min(100, (kpiData.downtime / 100) * 100)}
+          progressBarColor="#f59e0b"
         />
       </div>
 
@@ -2476,6 +3122,53 @@ const EntryList: React.FC = () => {
               )}
             </Button>
 
+            {/* Manage Columns Button directly beside Filters button */}
+            <Popover
+              trigger="click"
+              placement="bottomLeft"
+              content={
+                <div style={{ maxHeight: 380, overflowY: 'auto', minWidth: 190, padding: 4 }}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      paddingBottom: 6,
+                      marginBottom: 6,
+                      borderBottom: '1px solid var(--theme-border, #e2e8f0)',
+                    }}
+                  >
+                    <span style={{ fontWeight: 700, fontSize: 12.5, color: 'var(--theme-text, #1e293b)' }}>
+                      Manage Columns
+                    </span>
+                    <Button type="link" size="small" style={{ padding: 0, fontSize: 11.5 }} onClick={showAllColumns}>
+                      Show all
+                    </Button>
+                  </div>
+                  {GRID_COLUMN_LABELS.map((_label, i) => (
+                    <div
+                      key={`toolbar-col-${i}-${columnLabel(i)}`}
+                      style={{ padding: '2px 0', fontSize: 12.5, color: 'var(--theme-text, #1e293b)' }}
+                    >
+                      <Checkbox checked={!hiddenColumnIdx.has(i)} onChange={() => toggleColumn(i)}>
+                        {columnLabel(i)}
+                      </Checkbox>
+                    </div>
+                  ))}
+                </div>
+              }
+            >
+              <Button
+                icon={<TableOutlined />}
+                data-testid="toolbar-manage-columns-btn"
+                title="Show or hide grid columns"
+                style={{ fontWeight: 500 }}
+              >
+                Columns
+                {hiddenColumnIdx.size > 0 ? ` (${visibleColumns.length}/${GRID_COLUMN_LABELS.length})` : ''}
+              </Button>
+            </Popover>
+
             <div style={{ flex: 1 }} />
 
             <div className="entry-filter-toolbar__right" style={{ fontSize: 12, color: 'var(--theme-text-muted, #64748b)' }}>
@@ -2484,77 +3177,62 @@ const EntryList: React.FC = () => {
           </div>
         </div>
 
-        {/* Collapsible Panel with ALL Filters */}
+        {/* Collapsible Panel with ALL Filters (Single-Line Compact Row, No Close Buttons) */}
         {moreFiltersOpen && (
           <div
             style={{
               display: 'flex',
               flexDirection: 'column',
-              gap: 12,
-              padding: '12px 14px',
+              gap: 10,
+              padding: '10px 14px',
               background: 'var(--theme-surface-subtle, rgba(0, 0, 0, 0.02))',
               border: '1px solid var(--theme-border, #e2e8f0)',
               borderRadius: 8,
               marginTop: 12,
             }}
           >
-            {/* Header: Title + Active Count + Close */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 6, borderBottom: '1px dashed var(--theme-border, #e2e8f0)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <FilterOutlined style={{ color: 'var(--theme-primary, #3b82f6)', fontSize: 14 }} />
-                <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--theme-text, #1e293b)' }}>
-                  Filter Production Entries
-                </span>
-                {panelFilterCount > 0 && (
-                  <Tag color="blue" style={{ margin: 0, borderRadius: 10, fontSize: 11, fontWeight: 600 }}>
-                    {panelFilterCount} Active
-                  </Tag>
-                )}
-              </div>
-              <Button
-                type="text"
-                size="small"
-                icon={<CloseOutlined />}
-                onClick={() => setMoreFiltersOpen(false)}
-                style={{ color: 'var(--theme-text-muted, #64748b)', fontSize: 12 }}
-                title="Close Filters"
-              >
-                Close
-              </Button>
+            {/* Header: Title + Active Count (Close button removed) */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingBottom: 6, borderBottom: '1px dashed var(--theme-border, #e2e8f0)' }}>
+              <FilterOutlined style={{ color: 'var(--theme-primary, #3b82f6)', fontSize: 14 }} />
+              <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--theme-text, #1e293b)' }}>
+                Filter Production Entries
+              </span>
+              {panelFilterCount > 0 && (
+                <Tag color="blue" style={{ margin: 0, borderRadius: 10, fontSize: 11, fontWeight: 600 }}>
+                  {panelFilterCount} Active
+                </Tag>
+              )}
             </div>
 
-            {/* Grid of ALL Filters */}
+            {/* Single-Line Compact Horizontal Filter Row */}
             <div
               style={{
-                display: 'grid',
-                gridTemplateColumns: screens.lg
-                  ? 'repeat(4, 1fr)'
-                  : screens.md
-                  ? 'repeat(2, 1fr)'
-                  : '1fr',
-                gap: 10,
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: 8,
+                alignItems: 'flex-end',
               }}
             >
-              <div>
-                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
+              <div style={{ minWidth: 200, flex: '1 1 200px' }}>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 3 }}>
                   Date Range
                 </label>
                 <RangePicker
+                  size="small"
                   style={{ width: '100%' }}
                   value={dateRange as never}
                   onChange={(v) => {
-                    // `v` is `null` on the clear (x) button — never index it
-                    // directly. dateRangeTuple() resets BOTH ends to null.
                     setDateRange(dateRangeTuple(v));
                   }}
                 />
               </div>
 
-              <div>
-                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
+              <div style={{ minWidth: 130, flex: '1 1 130px' }}>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 3 }}>
                   Division
                 </label>
                 <Select
+                  size="small"
                   allowClear
                   showSearch
                   optionFilterProp="label"
@@ -2570,15 +3248,16 @@ const EntryList: React.FC = () => {
                 />
               </div>
 
-              <div>
-                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
+              <div style={{ minWidth: 140, flex: '1 1 140px' }}>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 3 }}>
                   Department
                 </label>
                 <Select
+                  size="small"
                   allowClear
                   showSearch
                   optionFilterProp="label"
-                  placeholder="All Departments"
+                  placeholder="All Depts"
                   style={{ width: '100%' }}
                   value={fDepartment}
                   options={lookups.departments.map((d: Department) => ({ value: d.id, label: d.name }))}
@@ -2586,11 +3265,12 @@ const EntryList: React.FC = () => {
                 />
               </div>
 
-              <div>
-                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
+              <div style={{ minWidth: 130, flex: '1 1 130px' }}>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 3 }}>
                   Section
                 </label>
                 <Select
+                  size="small"
                   allowClear
                   showSearch
                   optionFilterProp="label"
@@ -2602,11 +3282,29 @@ const EntryList: React.FC = () => {
                 />
               </div>
 
-              <div>
-                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
+              <div style={{ minWidth: 140, flex: '1 1 140px' }}>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 3 }}>
+                  Warehouse
+                </label>
+                <Select
+                  size="small"
+                  allowClear
+                  showSearch
+                  optionFilterProp="label"
+                  placeholder="All Warehouses"
+                  style={{ width: '100%' }}
+                  value={fWarehouse}
+                  options={warehouses.map((w) => ({ value: w.id, label: `${w.name} (${w.warehouseCode})` }))}
+                  onChange={(v) => setFWarehouse(v)}
+                />
+              </div>
+
+              <div style={{ minWidth: 110, flex: '1 1 110px' }}>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 3 }}>
                   Shift
                 </label>
                 <Select
+                  size="small"
                   allowClear
                   placeholder="All Shifts"
                   style={{ width: '100%' }}
@@ -2616,11 +3314,12 @@ const EntryList: React.FC = () => {
                 />
               </div>
 
-              <div>
-                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
+              <div style={{ minWidth: 110, flex: '1 1 110px' }}>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 3 }}>
                   Machine No
                 </label>
                 <Input
+                  size="small"
                   allowClear
                   placeholder="e.g. FT-04"
                   value={fMachineNo}
@@ -2629,11 +3328,12 @@ const EntryList: React.FC = () => {
                 />
               </div>
 
-              <div>
-                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
+              <div style={{ minWidth: 120, flex: '1 1 120px' }}>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 3 }}>
                   Status
                 </label>
                 <Select
+                  size="small"
                   allowClear
                   placeholder="All Statuses"
                   style={{ width: '100%' }}
@@ -2649,7 +3349,7 @@ const EntryList: React.FC = () => {
               </div>
             </div>
 
-            {/* Footer with Clear Filters and Apply Filters inside */}
+            {/* Footer: Clear Filters on left, Apply Filters on right (Close button removed) */}
             <div
               style={{
                 display: 'flex',
@@ -2662,6 +3362,7 @@ const EntryList: React.FC = () => {
               }}
             >
               <Button
+                size="small"
                 icon={<ClearOutlined />}
                 onClick={handleReset}
                 danger={activeFilterCount > 0}
@@ -2669,36 +3370,38 @@ const EntryList: React.FC = () => {
                 Clear Filters
               </Button>
 
-              <div style={{ display: 'flex', gap: 8 }}>
-                <Button onClick={() => setMoreFiltersOpen(false)}>
-                  Close
-                </Button>
-                <Button
-                  type="primary"
-                  icon={<SearchOutlined />}
-                  onClick={() => {
-                    handleSearch();
-                    setMoreFiltersOpen(false);
-                  }}
-                  loading={loading}
-                  style={{ fontWeight: 600 }}
-                >
-                  Apply Filters
-                </Button>
-              </div>
+              <Button
+                size="small"
+                type="primary"
+                icon={<SearchOutlined />}
+                onClick={() => {
+                  handleSearch();
+                  setMoreFiltersOpen(false);
+                }}
+                loading={loading}
+                style={{ fontWeight: 600 }}
+              >
+                Apply Filters
+              </Button>
             </div>
           </div>
         )}
       </Card>
 
       {/* ── Main Production Tabs ─────────────────────────────────────────── */}
-      <Tabs
-        defaultActiveKey="entries"
-        onChange={(k) => setPaneKey(k)}
-        items={[
+      <div id="production-entry-tabs-section">
+        <Tabs
+          className="production-connected-tabs"
+          activeKey={paneKey}
+          onChange={(k) => setPaneKey(k)}
+          items={[
           {
             key: 'entries',
-            label: 'Production Records',
+            label: (
+              <span>
+                <CarryOutOutlined style={{ marginRight: 6 }} /> Production Records
+              </span>
+            ),
             children: (
               <div style={{ position: 'relative', minHeight: 340 }}>
                 {loading && displayedRows.length === 0 ? (
@@ -2735,6 +3438,20 @@ const EntryList: React.FC = () => {
                       dense
                       className="entry-grid-compact"
                       containerClassName="erp-table-striped"
+                      /* THE ➕ ACCORDION. antd's own LEADING expand column is
+                         switched off — the trigger lives inside the Item /
+                         Product cell instead (see NestedItemsToggle), so the
+                         open state is driven from `expandedRowKeys`.
+                         `rowExpandable` is the hard gate: a document holding a
+                         single produced item can NEVER open, even if a stale
+                         key were ever to name it. */
+                      expandable={{
+                        expandedRowKeys,
+                        onExpandedRowsChange: (keys) => setExpandedRowKeys([...keys]),
+                        rowExpandable: isMultiItemRow,
+                        expandedRowRender: (r) => <NestedItemsPanel row={r} />,
+                        showExpandColumn: false,
+                      }}
                   pagination={{
                     current: page,
                     pageSize,
@@ -2887,8 +3604,24 @@ const EntryList: React.FC = () => {
           />
         ),
       },
+      {
+        key: 'overtime',
+        label: (
+          <span>
+            <FieldTimeOutlined /> Overtime (OT) Details
+          </span>
+        ),
+        children: (
+          <OvertimeDetails
+            seed={displayedRows}
+            buildFilters={buildFilters}
+            active={paneKey === 'overtime'}
+          />
+        ),
+      },
         ]}
       />
+      </div>
 
       {/* ── Import Compliance Modal ─────────────────────────────────────── */}
       <Modal
@@ -2967,6 +3700,42 @@ const EntryList: React.FC = () => {
         onCancel={() => {
           setDeleteModalOpen(false);
           setDeleteTarget(null);
+        }}
+      />
+
+      {/* ── Enterprise In-Modal Dual-Pane Edit Dialog ── */}
+      <ProductionEntryEditModal
+        open={editModalOpen}
+        entryId={editTargetId}
+        onClose={() => {
+          setEditModalOpen(false);
+          setEditTargetId(null);
+        }}
+        onSuccess={() => {
+          void fetchRows();
+          void fetchReport();
+        }}
+      />
+
+      {/* ── Enterprise In-Modal Production Entry Detail Dialog ── */}
+      <ProductionEntryDetailModal
+        open={detailModalOpen}
+        entryId={detailTargetId}
+        onClose={() => {
+          setDetailModalOpen(false);
+          setDetailTargetId(null);
+        }}
+        onEdit={(id) => {
+          setDetailModalOpen(false);
+          setDetailTargetId(null);
+          setEditTargetId(id);
+          setEditModalOpen(true);
+        }}
+        onDeleted={() => {
+          setDetailModalOpen(false);
+          setDetailTargetId(null);
+          void fetchRows();
+          void fetchReport();
         }}
       />
     </div>

@@ -671,8 +671,13 @@ const MachineToolingManagement: React.FC = () => {
     if (activeTab === 'setup' && !cachedHasPopulatedComponents) {
       void fetchComponentsRef.current(compPage);
     }
+    // `fetchComponents` is intentionally NOT a dependency: it is a plain async
+    // function, so its identity changed every render and re-ran this effect
+    // after every `setComponentsLoading` — an unbounded request loop whenever
+    // the endpoint errored or returned an empty list (the cache guard is only
+    // written on success). The ref always holds the latest closure.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, compPage, fetchComponents, cachedHasPopulatedComponents]);
+  }, [activeTab, compPage, cachedHasPopulatedComponents]);
 
   // Global header/tab refresh event listener
   useEffect(() => {

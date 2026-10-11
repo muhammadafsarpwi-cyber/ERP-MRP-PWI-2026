@@ -1039,6 +1039,10 @@ export class ItemFilterDto {
   @IsOptional()
   itemType?: string;
 
+  @ApiPropertyOptional({ description: 'Filter by multiple item types (comma-separated or array)' })
+  @IsOptional()
+  itemTypes?: string | string[];
+
   @ApiPropertyOptional({ description: 'Filter by item type master UUID' })
   @IsUUID('loose')
   @IsOptional()

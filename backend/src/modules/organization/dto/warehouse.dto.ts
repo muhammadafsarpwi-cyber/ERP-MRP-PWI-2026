@@ -9,6 +9,16 @@ export class CreateWarehouseDto {
   @IsNotEmpty()
   companyId: string;
 
+  @ApiProperty({ description: 'Division ID' })
+  @IsUuid()
+  @IsNotEmpty()
+  divisionId: string;
+
+  @ApiPropertyOptional({ description: 'Department ID (optional)' })
+  @IsUuid()
+  @IsOptional()
+  departmentId?: string;
+
   @ApiPropertyOptional({ description: 'Branch ID (optional)' })
   @IsUuid()
   @IsOptional()
@@ -62,6 +72,16 @@ export class UpdateWarehouseDto {
   @IsOptional()
   @MaxLength(50)
   warehouseCode?: string;
+
+  @ApiPropertyOptional({ description: 'Division ID' })
+  @IsUuid()
+  @IsOptional()
+  divisionId?: string;
+
+  @ApiPropertyOptional({ description: 'Department ID' })
+  @IsUuid()
+  @IsOptional()
+  departmentId?: string;
 
   @ApiPropertyOptional({ description: 'Branch ID' })
   @IsUuid()

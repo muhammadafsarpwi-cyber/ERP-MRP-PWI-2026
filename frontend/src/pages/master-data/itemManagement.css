@@ -779,10 +779,11 @@
    from styles applied WHILE antd's table Spin is active):
 
    1) largeLoadingBuffer.css → `.erp-table .ant-spin-nested-loading > div > .ant-spin`
-      paints the overlay that sits above the table with
-      `background: rgba(...) !important` + `backdrop-filter: blur(5px) !important`
-      → the table behind the loading card was literally blurred and
-        semi-transparent (translucent white in light, translucent dark in dark).
+      paints the overlay that sits above the table. It now ships with a
+      transparent scrim and `backdrop-filter: none` (system-wide ZERO backdrop
+      blur rule), but it used to apply `background: rgba(...) !important` +
+      `backdrop-filter: blur(5px) !important`, so the table behind the loading
+      card was literally blurred and semi-transparent.
    2) antd Spin (cssinjs) → the table container receives `.ant-spin-blur`:
       `opacity: 0.5` plus a `::after` wash at `opacity: 0.4` → the table
       underneath renders faded (that wash even paints above the overlay card).
@@ -794,8 +795,7 @@
    (`.ant-spin-blur` → pointer-events: none / user-select: none) stays fully
    intact so the table remains non-interactive while loading.
 
-   Shared files are NOT modified, so every other module keeps its current
-   look. Loading card, orbital icon, title, subtitle and badge untouched. */
+   Loading card, orbital icon, title, subtitle and badge untouched. */
 .erp-table-container.items-loading-surface .erp-table .ant-spin-nested-loading > div > .ant-spin {
   /* Solid token-based surface (light #f7f8fd / dark #181c33 via html[data-theme]) */
   background: var(--theme-surface) !important;

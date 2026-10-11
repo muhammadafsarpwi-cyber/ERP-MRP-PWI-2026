@@ -40,6 +40,7 @@ describe('SalesOrderService', () => {
     paymentTermId: null, salesRepId: null,
     divisionId: null, division: null as never, sectionId: null, section: null as never,
     customer: null as never, items: [],
+    deletedAt: null, deletedBy: null,
   };
 
   const makeMockRepo = () => ({
@@ -197,6 +198,26 @@ describe('SalesOrderService', () => {
     it('should throw when closing non-Delivered order', async () => {
       repo.findOne.mockResolvedValue(mockOrder);
       await expect(service.close(UUID_SO)).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('remove (Recycle Bin)', () => {
+    it('recycles a Draft order and stamps who did it', async () => {
+      repo.findOne.mockResolvedValue({ ...mockOrder, status: 'Draft' });
+      repo.save.mockImplementation(async (row: any) => row);
+
+      const result = await service.remove(UUID_SO, UUID_USER, UUID_COMPANY);
+
+      expect(result.deletedAt).toBeInstanceOf(Date);
+      expect(result.deletedBy).toBe(UUID_USER);
+    });
+
+    it('REFUSES a confirmed order — it may already have downstream deliveries', async () => {
+      for (const status of ['Confirmed', 'Processing', 'Shipped', 'Delivered', 'Closed', 'Cancelled']) {
+        repo.findOne.mockResolvedValue({ ...mockOrder, status });
+        await expect(service.remove(UUID_SO, UUID_USER)).rejects.toThrow(BadRequestException);
+      }
+      expect(repo.save).not.toHaveBeenCalled();
     });
   });
 });

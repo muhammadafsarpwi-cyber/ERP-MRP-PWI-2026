@@ -603,13 +603,38 @@ export class ItemService implements OnModuleInit {
    * Caches active items in memory for 5 minutes (invalidated on item write)
    * so frontend requests resolve in < 5ms.
    */
-  async getLookupItems(departmentId?: string, allowedDivisionIds?: string[]): Promise<any[]> {
+  async getLookupItems(departmentId?: string, allowedDivisionIds?: string[], itemTypes?: string | string[]): Promise<any[]> {
     try {
       const now = Date.now();
-      if (!departmentId && !allowedDivisionIds && this.lookupMemoryCache && (now - this.lookupMemoryCache.timestamp < this.LOOKUP_CACHE_TTL)) {
+      const rawTypes: string[] = [];
+      if (itemTypes) {
+        const list = Array.isArray(itemTypes) ? itemTypes : String(itemTypes).split(',');
+        rawTypes.push(...list.map((s) => s.trim()).filter(Boolean));
+      }
+      const resolvedTypes = Array.from(new Set(rawTypes.flatMap((t) => {
+        const clean = t.trim().toUpperCase().replace(/[-\s]+/g, '_');
+        if (clean === 'WIP' || clean === 'WORK_IN_PROGRESS' || clean === 'WORK_IN_PROCESS') {
+          return ['WORK_IN_PROGRESS', 'WIP'];
+        }
+        if (clean === 'RM' || clean === 'RAW_MATERIAL' || clean === 'RAW') {
+          return ['RAW_MATERIAL', 'RM'];
+        }
+        if (clean === 'FG' || clean === 'FINISHED_GOOD' || clean === 'FINISHED_GOODS') {
+          return ['FINISHED_GOOD', 'FINISHED_GOODS', 'FG'];
+        }
+        if (clean === 'SFG' || clean === 'SEMI_FINISHED') {
+          return ['SEMI_FINISHED', 'SFG'];
+        }
+        if (clean.includes('TOOL')) {
+          return ['TOOLS', 'TOOLING', 'Tooling', 'Tools', 'TOOL'];
+        }
+        return [clean];
+      })));
+
+      if (!departmentId && !allowedDivisionIds && resolvedTypes.length === 0 && this.lookupMemoryCache && (now - this.lookupMemoryCache.timestamp < this.LOOKUP_CACHE_TTL)) {
         return this.lookupMemoryCache.data;
       }
-      if (!departmentId && allowedDivisionIds && this.lookupMemoryCache && (now - this.lookupMemoryCache.timestamp < this.LOOKUP_CACHE_TTL)) {
+      if (!departmentId && allowedDivisionIds && resolvedTypes.length === 0 && this.lookupMemoryCache && (now - this.lookupMemoryCache.timestamp < this.LOOKUP_CACHE_TTL)) {
         return this.lookupMemoryCache.data.filter(item => !item.divisionId || allowedDivisionIds.includes(item.divisionId));
       }
 
@@ -653,6 +678,10 @@ export class ItemService implements OnModuleInit {
         params.push(departmentId);
         sql += ` AND i.department_id = $${params.length}`;
       }
+      if (resolvedTypes.length > 0) {
+        params.push(resolvedTypes);
+        sql += ` AND i.item_type = ANY($${params.length})`;
+      }
       if (allowedDivisionIds && allowedDivisionIds.length > 0) {
         params.push(allowedDivisionIds);
         sql += ` AND (i.division_id = ANY($${params.length}) OR i.division_id IS NULL)`;
@@ -679,7 +708,7 @@ export class ItemService implements OnModuleInit {
   }
 
   async findAll(filter: ItemFilterDto): Promise<{ data: Item[]; total: number }> {
-    const { page = 1, limit = 20, search, status, itemType, itemTypeId, materialRoleUsage, categoryId, companyId, divisionId, sectionId, departmentId, routeType, routeTypeId, wireSizeMm, thicknessMm, widthMm, active, isPurchasable, isSellable, isManufacturable, isStockItem, trackInventory, sortField = 'createdAt', sortOrder = 'DESC' } = filter;
+    const { page = 1, limit = 20, search, status, itemType, itemTypes, itemTypeId, materialRoleUsage, categoryId, companyId, divisionId, sectionId, departmentId, routeType, routeTypeId, wireSizeMm, thicknessMm, widthMm, active, isPurchasable, isSellable, isManufacturable, isStockItem, trackInventory, sortField = 'createdAt', sortOrder = 'DESC' } = filter;
 
     const qb = this.itemRepository.createQueryBuilder('item');
 
@@ -715,18 +744,39 @@ export class ItemService implements OnModuleInit {
     }
     if (status) qb.andWhere('item.status = :status', { status });
     if (active !== undefined) qb.andWhere(active ? 'item.status = :activeStatus' : 'item.status != :activeStatus', { activeStatus: 'ACTIVE' });
-    if (itemType) {
-      const isTooling = /tool/i.test(itemType);
-      if (isTooling) {
-        qb.andWhere('(item.itemType IN (\'TOOLS\', \'TOOLING\', \'Tooling\', \'Tools\') OR item.itemType ILIKE :itemType)', { itemType: `%${itemType}%` });
-      } else {
-        const normalized = itemType.trim().toUpperCase().replace(/[-\s]+/g, '_');
-        qb.andWhere('(item.itemType = :itemType OR item.itemType = :normalized OR item.itemType ILIKE :rawOrNorm)', {
-          itemType,
-          normalized,
-          rawOrNorm: `%${normalized}%`,
-        });
-      }
+    
+    const requestedTypes: string[] = [];
+    if (itemTypes) {
+      const list = Array.isArray(itemTypes) ? itemTypes : String(itemTypes).split(',');
+      requestedTypes.push(...list.map((s) => s.trim()).filter(Boolean));
+    }
+    if (itemType && requestedTypes.length === 0) {
+      const list = String(itemType).split(',');
+      requestedTypes.push(...list.map((s) => s.trim()).filter(Boolean));
+    }
+
+    if (requestedTypes.length > 0) {
+      const resolvedTypes = Array.from(new Set(requestedTypes.flatMap((t) => {
+        const clean = t.trim().toUpperCase().replace(/[-\s]+/g, '_');
+        if (clean === 'WIP' || clean === 'WORK_IN_PROGRESS' || clean === 'WORK_IN_PROCESS') {
+          return ['WORK_IN_PROGRESS', 'WIP'];
+        }
+        if (clean === 'RM' || clean === 'RAW_MATERIAL' || clean === 'RAW') {
+          return ['RAW_MATERIAL', 'RM'];
+        }
+        if (clean === 'FG' || clean === 'FINISHED_GOOD' || clean === 'FINISHED_GOODS') {
+          return ['FINISHED_GOOD', 'FINISHED_GOODS', 'FG'];
+        }
+        if (clean === 'SFG' || clean === 'SEMI_FINISHED') {
+          return ['SEMI_FINISHED', 'SFG'];
+        }
+        if (clean.includes('TOOL')) {
+          return ['TOOLS', 'TOOLING', 'Tooling', 'Tools', 'TOOL'];
+        }
+        return [clean];
+      })));
+
+      qb.andWhere('item.itemType IN (:...resolvedTypes)', { resolvedTypes });
     }
     if (itemTypeId) qb.andWhere('item.itemTypeId = :itemTypeId', { itemTypeId });
     if (materialRoleUsage) qb.andWhere('item.materialRoleUsage ILIKE :materialRoleUsage', { materialRoleUsage: `%${materialRoleUsage}%` });

@@ -2,7 +2,7 @@ import { NotFoundException } from '@nestjs/common';
 import { Repository } from 'typeorm';
 import { Item, ItemType } from '../../item/entities';
 import { InventoryBalance, StockLedger } from '../../inventory/entities';
-import { ProductionEntry } from '../entities';
+import { ProductionEntry, ProductionEntryItem, ProductionEntryItemKind } from '../entities';
 import { ProductionInventoryReportService } from './production-inventory-report.service';
 
 const COMPANY_ID = 'a0000000-0000-4000-8000-000000000001';
@@ -460,5 +460,86 @@ describe('ProductionInventoryReportService flow chain + reconciliation (TASK #39
     expect(flat.flow.consumers[0]).toMatchObject({ itemCode: 'PVC-475', inScope: false });
     expect(report.summary.flowChainItems).toBe(1);
     expect(report.summary.flowSourceItems).toBe(0);
+  });
+});
+
+/**
+ * A daily production entry is ONE parent record whose `actual_quantity` is the
+ * DOCUMENT TOTAL (live proof: 83,500 + 30,000 = 113,500, and the total never
+ * equals the parent line's own quantity). Aggregating it by `pe.itemId` credited
+ * the whole document to the parent part and left every sibling at 0 — merging
+ * separate item lots into a single stage line and inflating that line's
+ * Opening / Sub-Total / Closing. Produced must therefore be read strictly from
+ * `production_entry_items`.
+ */
+describe('ProductionInventoryReportService — child-level Produced isolation (item-wise ledger)', () => {
+  it('inner-joins production_entry_items and aggregates the CHILD quantity, never the parent total', async () => {
+    const service = serviceWith({ produced: [{ itemId: ITEM_ID, produced: '83500', entryCount: 1 }] });
+    await service.getReport(COMPANY_ID);
+
+    const qb = service.__qbs.producedQb;
+
+    // Strict inner join: a production figure must always be attributable to a
+    // real child row, never to a bare parent total.
+    expect(qb.innerJoin).toHaveBeenCalledTimes(1);
+    const [entity, alias, condition] = qb.innerJoin.mock.calls[0];
+    expect(entity).toBe(ProductionEntryItem);
+    expect(alias).toBe('pei');
+    expect(String(condition)).toContain('pei.productionEntryId = pe.id');
+
+    // Grouping key is the child item, so each part lands in its own row.
+    expect(qb.select).toHaveBeenCalledWith('pei.itemId', 'itemId');
+    expect(qb.groupBy).toHaveBeenCalledWith('pei.itemId');
+
+    const selects = qb.__addSelect.join(' | ');
+    expect(selects).toContain('SUM(pei.actualQuantity)');
+    expect(selects).not.toContain('SUM(pe.actualQuantity)');
+    // An entry that holds several child rows is still ONE entry.
+    expect(selects).toContain('COUNT(DISTINCT pe.id)');
+  });
+
+  it('restricts the child join to OUTPUT lines so consumed raw material never counts as production', async () => {
+    const service = serviceWith({});
+    await service.getReport(COMPANY_ID);
+
+    const qb = service.__qbs.producedQb;
+    const sqls = qb.__andWhere.map((c: any) => String(c.sql));
+
+    const kindClause = qb.__andWhere.find((c: any) => String(c.sql).includes('pei.entryKind'));
+    expect(kindClause).toBeDefined();
+    expect(kindClause.params.entryKind).toBe(ProductionEntryItemKind.OUTPUT);
+
+    // INPUT lines carry no good production, and an orphan child (no item) must
+    // not surface as a phantom row.
+    expect(sqls.some((s: string) => s.includes('pei.itemId IS NOT NULL'))).toBe(true);
+    // The parent document total is never the aggregation source any more.
+    expect(sqls.some((s: string) => s.includes('pe.itemId IN'))).toBe(false);
+    expect(sqls.some((s: string) => s.includes('SUM(pe.actualQuantity)'))).toBe(false);
+  });
+
+  it('keeps the produced aggregate scoped to the company, active entries and the date window', async () => {
+    const service = serviceWith({});
+    await service.getReport(COMPANY_ID, { dateFrom: '2026-10-01', dateTo: '2026-10-09' });
+
+    const qb = service.__qbs.producedQb;
+    const clauses = qb.__andWhere.map((c: any) => ({
+      sql: String(c.sql),
+      params: c.params,
+    }));
+
+    expect(clauses.some((c: any) => c.sql === 'pe.isActive = true')).toBe(true);
+    expect(clauses.some((c: any) => c.sql === 'pe.entryDate >= :dateFrom' && c.params.dateFrom === '2026-10-01')).toBe(true);
+    expect(clauses.some((c: any) => c.sql === 'pe.entryDate <= :dateTo' && c.params.dateTo === '2026-10-09')).toBe(true);
+    expect(clauses.some((c: any) => c.sql.includes('pei.itemId IN (:...itemIds)'))).toBe(true);
+    // Both sides of the join carry the company scope: the parent entry is
+    // scoped in `.where()` and the child line in its own `.andWhere()`.
+    expect(String(qb.where.mock.calls[0]?.[0] ?? '')).toContain('pe.companyId = :companyId');
+    expect(clauses.some((c: any) => c.sql.includes('pei.companyId = :companyId'))).toBe(true);
+  });
+
+  it('maps the child aggregate onto the report row as Produced', async () => {
+    const service = serviceWith({ produced: [{ itemId: ITEM_ID, produced: '83500', entryCount: 1 }] });
+    const report = await service.getReport(COMPANY_ID);
+    expect(report.items[0].produced).toBe(83500);
   });
 });

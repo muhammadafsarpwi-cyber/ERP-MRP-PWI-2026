@@ -71,9 +71,10 @@ export const GlobalLoading: React.FC<GlobalLoadingProps> = ({
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              background: 'rgba(15, 23, 42, 0.45)',
-              backdropFilter: 'blur(4px)',
-              WebkitBackdropFilter: 'blur(4px)',
+              // Transparent backdrop scrim, ZERO blur (no frosted "dhund" effect).
+              background: 'rgba(15, 23, 42, 0.28)',
+              backdropFilter: 'none',
+              WebkitBackdropFilter: 'none',
               zIndex: 1200,
               padding: 24,
               ...style,

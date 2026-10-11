@@ -11,7 +11,7 @@ import {
   CheckOutlined, UndoOutlined, DatabaseOutlined, CalendarOutlined,
   ToolOutlined, TeamOutlined, ApartmentOutlined, CheckCircleFilled,
   ArrowDownOutlined, ArrowUpOutlined, EyeOutlined, EyeInvisibleOutlined, UserOutlined,
-  EditOutlined,
+  EditOutlined, PlusSquareOutlined, MinusSquareOutlined, ShopOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import apiService from '../../../services/api';
@@ -36,6 +36,7 @@ import KpiPercentage from '../../../components/kpi/KpiPercentage';
 import { GlobalLoading } from '../../../components/shared';
 import PageHeader from '../../../components/shared/PageHeader';
 import ProductionSaveSuccessModal, { SavedEntrySummary } from './ProductionSaveSuccessModal';
+import EntryPreSaveConfirmModal, { type EntryPreSaveSummary } from './EntryPreSaveConfirmModal';
 
 const { Title, Text } = Typography;
 
@@ -94,7 +95,7 @@ const DowntimeSummary: React.FC<{ totalDowntime: number; plannedHours: number; r
   );
 };
 
-interface WarehouseLk { id: string; name: string; warehouseCode: string; warehouseType?: string; }
+interface WarehouseLk { id: string; name: string; warehouseCode: string; warehouseType?: string; divisionId?: string | null; departmentId?: string | null; }
 interface OrderOperation { id: string; sequenceNo: number; departmentId: string | null; operationName?: string; name?: string; }
 interface OrderDetail {
   id: string; orderNumber: string; productId: string; uomId: string;
@@ -219,10 +220,24 @@ const EntryForm: React.FC<EntryFormProps> = ({
   const [localShowLinked, setLocalShowLinked] = useState(true);
   const effectiveShowLinked = isModal ? showLinkedDetails : localShowLinked;
 
-  const [warehouses, setWarehouses] = useState<WarehouseLk[]>([]);
+  const [warehouses, setWarehouses] = useState<WarehouseLk[]>(() =>
+    lookups.warehouses && lookups.warehouses.length > 0 ? lookups.warehouses : []
+  );
+
+  useEffect(() => {
+    if (lookups.warehouses && lookups.warehouses.length > 0) {
+      setWarehouses(lookups.warehouses);
+    }
+  }, [lookups.warehouses]);
+
   const [orderDetail, setOrderDetail] = useState<OrderDetail | null>(null);
   const [loadingEntry, setLoadingEntry] = useState(mode === 'edit');
   const [saving, setSaving] = useState(false);
+
+  // 2-Step Pre-Save Confirmation Review State
+  const [preSaveOpen, setPreSaveOpen] = useState(false);
+  const [pendingSaveData, setPendingSaveData] = useState<{ payload: any; values: any } | null>(null);
+  const [preSaveSummary, setPreSaveSummary] = useState<EntryPreSaveSummary | null>(null);
 
   // PROMPT-35: success confirmation — populated/open ONLY after the backend
   // confirms the entry was persisted (POST/PUT /production/entries).
@@ -440,71 +455,210 @@ const EntryForm: React.FC<EntryFormProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // TASK #37: default the Raw Material source store to the company's first
-  // ACTIVE RAW_MATERIAL warehouse when no explicit one is supplied (no-op when
-  // none exist, e.g. inventory-independent test scenarios).
-  useEffect(() => {
-    if (mode !== 'create' || form.getFieldValue('rawMaterialWarehouseId')) return;
-    const rawStore = warehouses.find((w) => w.warehouseType === 'RAW_MATERIAL');
-    if (rawStore) form.setFieldValue('rawMaterialWarehouseId', rawStore.id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [warehouses, mode]);
+  // Strictly filter warehouse dropdowns so only warehouses of the current division appear
+  const divisionWarehouses = useMemo(() => {
+    const pool = warehouses.length > 0 ? warehouses : (lookups.warehouses || []);
+    const divId = ctxIds.divisionId;
+    const divObj = lookups.divisions.find((d) => d.id === divId);
+    const divCode = (divObj?.divisionCode || '').toLowerCase();
+    const divName = (divObj?.name || qDivisionName || '').toLowerCase();
 
-  // DYNAMIC WAREHOUSE AUTO-SELECTION BY DIVISION / DEPARTMENT.
-  // The Step-2 warehouse dropdowns follow the Division + Section pre-selected on
-  // the main page, so the operator can no longer commit a manual-entry mistake:
-  //   · Control Cable Division (CCD) → Raw Material Source = "CCD Warehouse"
-  //   · Flattening department (FT)   → Receipt Warehouse   = "FT Production Department"
+    const isSpoke =
+      divId === 'd1000000-0000-0000-0000-000000000001' ||
+      divCode.includes('spd') ||
+      divCode.includes('spi') ||
+      divName.includes('spoke') ||
+      (qMachineCode || '').toLowerCase().includes('spk');
+
+    const isCables =
+      divId === 'd1000000-0000-0000-0000-000000000002' ||
+      divCode.includes('ccd') ||
+      divName.includes('cable') ||
+      (qMachineCode || '').toLowerCase().includes('ccd');
+
+    if (isSpoke) {
+      // Return Spoke division warehouses, exclude any CCD/Cable warehouses
+      const spokeWhs = pool.filter((w) => {
+        const c = (w.warehouseCode || '').toLowerCase();
+        const n = (w.name || '').toLowerCase();
+        if (c.startsWith('ccd') || n.includes('ccd') || n.includes('cable')) return false;
+        if (w.divisionId === 'd1000000-0000-0000-0000-000000000001') return true;
+        if (c.includes('spi') || c.includes('spk') || c.includes('spd') || n.includes('spoke') || c.includes('st-') || c.includes('sw-') || c.includes('pl-')) return true;
+        return !c.includes('ccd');
+      });
+      return spokeWhs.length > 0 ? spokeWhs : pool.filter((w) => !(w.warehouseCode || '').toLowerCase().startsWith('ccd'));
+    }
+
+    if (isCables) {
+      // Return Control Cable warehouses, exclude Spoke/SPI warehouses
+      const ccdWhs = pool.filter((w) => {
+        const c = (w.warehouseCode || '').toLowerCase();
+        const n = (w.name || '').toLowerCase();
+        if (c.startsWith('spi') || n.includes('spi') || n.includes('spoke')) return false;
+        if (w.divisionId === 'd1000000-0000-0000-0000-000000000002') return true;
+        if (c.includes('ccd') || n.includes('cable')) return true;
+        return !c.includes('spi');
+      });
+      return ccdWhs.length > 0 ? ccdWhs : pool.filter((w) => !(w.warehouseCode || '').toLowerCase().startsWith('spi'));
+    }
+
+    if (divId) {
+      const match = pool.filter((w) => w.divisionId === divId);
+      if (match.length > 0) return match;
+    }
+
+    return pool;
+  }, [warehouses, lookups.warehouses, ctxIds.divisionId, lookups.divisions, qDivisionName, qMachineCode]);
+
+  // ── Output Department & Destination Warehouses (OUT) ──
+  // Resolves the output department for the current entry (Context Dept > Form Dept > First Item Dept)
+  const outputDepartmentId = useMemo(() => {
+    if (ctxIds.departmentId) return ctxIds.departmentId;
+    if (departmentId) return departmentId;
+    if (firstProdItemId) {
+      const itm = lookups.items.find((i) => i.id === firstProdItemId);
+      if (itm?.departmentId) return itm.departmentId;
+    }
+    return undefined;
+  }, [ctxIds.departmentId, departmentId, firstProdItemId, lookups.items]);
+
+  // Destination Finished Goods / Receipt Warehouse ("OUT") strictly filtered to the output department's warehouse
+  const destinationWarehouses = useMemo(() => {
+    if (!outputDepartmentId) {
+      return divisionWarehouses;
+    }
+
+    // Direct match by warehouse.departmentId (set in DB and organization management)
+    const deptWhs = divisionWarehouses.filter((w) => w.departmentId === outputDepartmentId);
+    if (deptWhs.length > 0) {
+      return deptWhs;
+    }
+
+    // Fallback: match by department code or name if departmentId is not yet assigned on the warehouse
+    const deptObj = lookups.departments.find((d) => d.id === outputDepartmentId);
+    const dCode = (deptObj?.departmentCode || '').toLowerCase();
+    const dName = (deptObj?.name || '').toLowerCase();
+
+    const matched = divisionWarehouses.filter((w) => {
+      const wc = (w.warehouseCode || '').toLowerCase();
+      const wn = (w.name || '').toLowerCase();
+      if (dCode.includes('spd-dept001') || dName.includes('straight')) return wc.includes('st-') || wn.includes('straight');
+      if (dCode.includes('spd-dept002') || dName.includes('swag')) return wc.includes('sw-') || wn.includes('swag');
+      if (dCode.includes('spd-dept003') || (dName.includes('spoke') && !dName.includes('plat') && !dName.includes('pack'))) {
+        return wc.includes('spk') || wc.includes('sp-') || wn.includes('spk') || wn.includes('spoke');
+      }
+      if (dCode.includes('spd-dept006') || dName.includes('plat')) return wc.includes('pl-') || wn.includes('plat');
+      if (dCode.includes('spd-dept008') || dName.includes('pack') || dName.includes('disp')) {
+        return wc.includes('fgdw') || wn.includes('dispatch') || wn.includes('pack');
+      }
+      if (dCode.includes('ccd-dept001') || dName.includes('flat')) return wc.includes('ft-') || wn.includes('flat');
+      if (dCode.includes('ccd-dept002') || dName.includes('spiral')) return wc.includes('sp-') || wn.includes('spiral');
+      if (dCode.includes('ccd-dept003') || dName.includes('pvc')) return wc.includes('pvc');
+      if (dCode.includes('ccd-dept004') || dName.includes('pack')) return wc.includes('wh-001') || wn.includes('main');
+      return false;
+    });
+
+    return matched.length > 0 ? matched : divisionWarehouses;
+  }, [outputDepartmentId, divisionWarehouses, lookups.departments]);
+
+  // DYNAMIC WAREHOUSE AUTO-SELECTION BY DIVISION / DEPARTMENT & MATERIAL FLOW.
+  // Auto-populates both:
+  //   · Source Raw Material Warehouse ("IN"): drawn from previous stage department or raw store
+  //   · Destination / Receipt Warehouse ("OUT"): deposits into the current department's production store
   // Create mode only. Whatever THIS effect picks is remembered in a ref, so a
-  // warehouse the operator chooses by hand is never overwritten, while a stale
-  // pre-selection is re-derived (or cleared) when the context changes.
+  // warehouse the operator chooses by hand is never overwritten.
   const autoWarehouseRef = useRef<{ raw?: string; receipt?: string }>({});
 
   useEffect(() => {
-    if (mode !== 'create' || warehouses.length === 0) return;
+    if (mode !== 'create' || divisionWarehouses.length === 0) return;
+    const warehouses = divisionWarehouses;
 
-    const label = (name?: string, code?: string) => `${name ?? ''} ${code ?? ''}`;
+    const label = (name?: string, code?: string) => `${name ?? ''} ${code ?? ''}`.toLowerCase();
 
     const division = lookups.divisions.find((d) => d.id === ctxIds.divisionId);
-    const isControlCable = /control\s*cable|\bccd\b/i.test(label(division?.name, division?.divisionCode));
+    const divText = label(division?.name, division?.divisionCode);
+    const isControlCable = divText.includes('control') || divText.includes('ccd');
 
     const department = lookups.departments.find((d) => d.id === ctxIds.departmentId);
-    const isFlattening = /flatten|\bft\b/i.test(label(department?.name, department?.departmentCode));
+    const deptText = label(department?.name, department?.departmentCode);
 
-    // ── 1. Raw Material Source Warehouse → CCD Warehouse ─────────────────────
-    const rawCurrent = form.getFieldValue('rawMaterialWarehouseId') as string | undefined;
-    const genericRawId = warehouses.find((w) => w.warehouseType === 'RAW_MATERIAL')?.id;
-    const rawIsAuto =
-      !rawCurrent || rawCurrent === autoWarehouseRef.current.raw || rawCurrent === genericRawId;
-    if (isControlCable) {
-      const ccd = warehouses.find((w) => /\bccd\b/i.test(label(w.name, w.warehouseCode)));
-      if (ccd && rawIsAuto && ccd.id !== rawCurrent) {
-        form.setFieldValue('rawMaterialWarehouseId', ccd.id);
-        autoWarehouseRef.current.raw = ccd.id;
+    // ── 1. Destination Finished Goods / Receipt Warehouse ("OUT") ──────────────────────
+    let matchedReceiptWh: WarehouseLk | undefined;
+    if (destinationWarehouses.length > 0) {
+      matchedReceiptWh = destinationWarehouses[0];
+    } else {
+      if (deptText.includes('straight') || deptText.includes('st') || deptText.includes('spd-dept001')) {
+        matchedReceiptWh = warehouses.find((w) => label(w.name, w.warehouseCode).includes('st') || w.warehouseCode === 'SPI-ST-001');
+      } else if (deptText.includes('spoke') && !deptText.includes('plat') && !deptText.includes('pack')) {
+        matchedReceiptWh = warehouses.find((w) => label(w.name, w.warehouseCode).includes('spk') || w.warehouseCode === 'SPI-SPK-003' || w.warehouseCode === 'SPI-SP-003');
+      } else if (deptText.includes('swag') || deptText.includes('sw') || deptText.includes('spd-dept002')) {
+        matchedReceiptWh = warehouses.find((w) => label(w.name, w.warehouseCode).includes('sw') || w.warehouseCode === 'SPI-SW-002');
+      } else if (deptText.includes('plat') || deptText.includes('pl') || deptText.includes('spd-dept006') || deptText.includes('spd-dept007')) {
+        matchedReceiptWh = warehouses.find((w) => label(w.name, w.warehouseCode).includes('pl') || w.warehouseCode === 'SPI-PL-004');
+      } else if (deptText.includes('flatten') || deptText.includes('ft') || deptText.includes('ccd-dept001')) {
+        matchedReceiptWh = warehouses.find((w) => label(w.name, w.warehouseCode).includes('ft') || w.warehouseCode === 'CCD-FT-001');
+      } else if (deptText.includes('spiral') || deptText.includes('sp') || deptText.includes('ccd-dept002')) {
+        matchedReceiptWh = warehouses.find((w) => label(w.name, w.warehouseCode).includes('sp') || w.warehouseCode === 'CCD-SP-002');
+      } else if (deptText.includes('pvc') || deptText.includes('ccd-dept003')) {
+        matchedReceiptWh = warehouses.find((w) => label(w.name, w.warehouseCode).includes('pvc') || w.warehouseCode === 'CCD-PVC-003');
+      } else if (deptText.includes('pack') || deptText.includes('disp')) {
+        matchedReceiptWh = isControlCable
+          ? warehouses.find((w) => w.warehouseType === 'FINISHED_GOODS' && label(w.name, w.warehouseCode).includes('ccd'))
+          : warehouses.find((w) => w.warehouseType === 'FINISHED_GOODS' && (label(w.name, w.warehouseCode).includes('dispatch') || label(w.name, w.warehouseCode).includes('spi')));
       }
-    } else if (autoWarehouseRef.current.raw) {
-      // Context moved off Control Cable → drop our stale CCD pre-selection.
-      if (rawCurrent === autoWarehouseRef.current.raw) form.setFieldValue('rawMaterialWarehouseId', undefined);
-      autoWarehouseRef.current.raw = undefined;
     }
 
-    // ── 2. Receipt Warehouse → FT Production Department ──────────────────────
     const receiptCurrent = form.getFieldValue('warehouseId') as string | undefined;
     const receiptIsAuto = !receiptCurrent || receiptCurrent === autoWarehouseRef.current.receipt;
-    if (isFlattening) {
-      const ft =
-        warehouses.find((w) => /\bft\b/i.test(w.name ?? '') && /production/i.test(w.name ?? '')) ??
-        warehouses.find((w) => /ft\s*production/i.test(label(w.name, w.warehouseCode)));
-      if (ft && receiptIsAuto && ft.id !== receiptCurrent) {
-        form.setFieldValue('warehouseId', ft.id);
-        autoWarehouseRef.current.receipt = ft.id;
+    if (matchedReceiptWh && (receiptIsAuto || !destinationWarehouses.some((w) => w.id === receiptCurrent))) {
+      form.setFieldValue('warehouseId', matchedReceiptWh.id);
+      autoWarehouseRef.current.receipt = matchedReceiptWh.id;
+    }
+
+    // ── 2. Source Raw Material Warehouse ("IN") ─────────────────────
+    const selectedItem = lookups.items.find((i) => i.id === itemId);
+    const inItem = selectedItem?.productionInItem || (selectedItem?.productionInItemId ? lookups.items.find((i) => i.id === selectedItem.productionInItemId) : null);
+    let matchedRawWh: WarehouseLk | undefined;
+
+    if (inItem) {
+      const inItemId = (inItem as any)?.id;
+      const fullInItem = inItemId ? lookups.items.find((i) => i.id === inItemId) : null;
+      const inItemDeptId = (inItem as any)?.departmentId || fullInItem?.departmentId;
+      const inItemDept = inItemDeptId ? lookups.departments.find((d) => d.id === inItemDeptId) : null;
+      const inDeptText = label(inItemDept?.name, inItemDept?.departmentCode);
+      if (inDeptText.includes('straight') || inDeptText.includes('st') || inItem.itemCode?.startsWith('WIP-ST')) {
+        matchedRawWh = warehouses.find((w) => label(w.name, w.warehouseCode).includes('st production') || w.warehouseCode === 'SPI-ST-001');
+      } else if (inDeptText.includes('spoke') || inItem.itemCode?.startsWith('WIP-SP')) {
+        matchedRawWh = warehouses.find((w) => label(w.name, w.warehouseCode).includes('spk production') || w.warehouseCode === 'SPI-SP-003');
+      } else if (inDeptText.includes('swag') || inDeptText.includes('sw') || inItem.itemCode?.startsWith('WIP-SW')) {
+        matchedRawWh = warehouses.find((w) => label(w.name, w.warehouseCode).includes('sw production') || w.warehouseCode === 'SPI-SW-002');
+      } else if (inDeptText.includes('plat') || inDeptText.includes('pl') || inItem.itemCode?.startsWith('WIP-PL')) {
+        matchedRawWh = warehouses.find((w) => label(w.name, w.warehouseCode).includes('pl production') || w.warehouseCode === 'SPI-PL-004');
+      } else if (inDeptText.includes('flatten') || inDeptText.includes('ft') || inItem.itemCode?.startsWith('WIP-FT')) {
+        matchedRawWh = warehouses.find((w) => label(w.name, w.warehouseCode).includes('ft production') || w.warehouseCode === 'CCD-FT-001');
       }
-    } else if (autoWarehouseRef.current.receipt) {
-      if (receiptCurrent === autoWarehouseRef.current.receipt) form.setFieldValue('warehouseId', undefined);
-      autoWarehouseRef.current.receipt = undefined;
+    }
+
+    if (!matchedRawWh) {
+      if (isControlCable) {
+        matchedRawWh = warehouses.find((w) => label(w.name, w.warehouseCode).includes('ccd') && w.warehouseType === 'RAW_MATERIAL')
+          || warehouses.find((w) => label(w.name, w.warehouseCode).includes('ccd warehouse'));
+      } else {
+        matchedRawWh = warehouses.find((w) => label(w.name, w.warehouseCode).includes('spi') && w.warehouseType === 'RAW_MATERIAL')
+          || warehouses.find((w) => label(w.name, w.warehouseCode).includes('spi warehouse'))
+          || warehouses.find((w) => w.warehouseType === 'RAW_MATERIAL');
+      }
+    }
+
+    const rawCurrent = form.getFieldValue('rawMaterialWarehouseId') as string | undefined;
+    const genericRawId = warehouses.find((w) => w.warehouseType === 'RAW_MATERIAL')?.id;
+    const rawIsAuto = !rawCurrent || rawCurrent === autoWarehouseRef.current.raw || rawCurrent === genericRawId;
+    if (matchedRawWh && rawIsAuto && matchedRawWh.id !== rawCurrent) {
+      form.setFieldValue('rawMaterialWarehouseId', matchedRawWh.id);
+      autoWarehouseRef.current.raw = matchedRawWh.id;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, warehouses, lookups.divisions, lookups.departments, ctxIds.divisionId, ctxIds.departmentId]);
+  }, [mode, divisionWarehouses, lookups.divisions, lookups.departments, lookups.items, ctxIds.divisionId, ctxIds.departmentId, itemId]);
 
   // Prefill the locked context coming from the machine-selection step. This
   // only feeds display helpers; the submit payload uses ctxIds above because
@@ -1031,31 +1185,77 @@ const EntryForm: React.FC<EntryFormProps> = ({
 
   useEffect(() => {
     if (effectiveDeptId) {
-      void lookups.loadDepartmentItems(effectiveDeptId);
+      void lookups.loadDepartmentItems(effectiveDeptId, 'WORK_IN_PROGRESS,RAW_MATERIAL,WIP,RM');
       void lookups.loadEmployeesForDepartment(effectiveDeptId);
     }
   }, [effectiveDeptId, lookups.loadDepartmentItems, lookups.loadEmployeesForDepartment]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const departmentItems = useMemo(() => {
-    if (!effectiveDeptId) return lookups.items;
-    // 1. Items specifically assigned to this department (either cached from loadDepartmentItems or in lookups.items)
-    const cachedDept = lookups.deptItemsMap[effectiveDeptId];
-    if (cachedDept && cachedDept.length > 0) return cachedDept;
+  /**
+   * Production Entry Output Item Filter:
+   * Production entry form dropdown must strictly satisfy:
+   * 1. Filter by Department: ONLY show items belonging to currently selected department.
+   * 2. Filter by Item Type: Strictly restrict to 'WIP' (Work in Process) or 'RM' (Raw Material).
+   * 3. Exclusion: Strictly exclude all other item types (breakers, tools, machinery parts, etc.)
+   *    or items from any other departments.
+   */
+  const isProductionItem = useCallback((i: any, targetDeptId?: string): boolean => {
+    if (!i) return false;
 
-    const filtered = lookups.items.filter((i) => i.departmentId === effectiveDeptId);
-    if (filtered.length > 0) return filtered;
-
-    // 2. If no items match this department directly, check division-linked items
-    const divId = ctxIds.divisionId || (typeof divisionId === 'string' ? divisionId : undefined);
-    if (divId) {
-      const divFiltered = lookups.items.filter((i) => i.divisionId === divId);
-      if (divFiltered.length > 0) return divFiltered;
+    // 1. Department match: must belong to the active department
+    if (targetDeptId) {
+      const itemDeptId = i.departmentId ?? i.department?.id;
+      if (itemDeptId && itemDeptId !== targetDeptId) {
+        return false;
+      }
     }
 
-    // 3. Fallback to manufacturable items or all items so the picker is never dead/empty
-    const mfg = lookups.items.filter((i) => i.isManufacturable);
-    return mfg.length > 0 ? mfg : lookups.items;
-  }, [effectiveDeptId, lookups.deptItemsMap, lookups.items, ctxIds.divisionId, divisionId]);
+    const name = (i.name || '').toUpperCase().trim();
+    const code = (i.itemCode || i.code || '').toUpperCase().trim();
+    const type = (i.itemType || i.type || '').toUpperCase().trim();
+
+    // 2. Strict exclusions: exclude electrical, tools, equipment, spare parts, consumables, etc.
+    const excludedTypes = [
+      'ELECTRICAL', 'EQUIPMENT', 'TOOL', 'TOOLS', 'TOOLING',
+      'SPARE_PART', 'SPARE', 'MECH_SPARE', 'CONSUMABLE',
+      'ASSET', 'SERVICE', 'MAINTENANCE', 'PACKAGING_MATERIAL',
+      'STATIONERY', 'STATIONERY_TAG', 'SANITARY_FITTING', 'SANITARY_FITTINGS',
+      'BOBBIN', 'CHAIN', 'SEAL', 'LAB', 'MECH_FITTINGS', 'CHEMICAL', 'BEARING', 'BELT', 'OTHER',
+    ];
+    if (excludedTypes.includes(type)) {
+      return false;
+    }
+
+    const excludedKeywords = [
+      'PUNCH', 'BREAKER', 'MCB', 'MCCB', 'BEARING', 'GREASE', 'DIES', 'DIE',
+      'FUSE', 'RELAY', 'CONTACTOR', 'SWITCH', 'ROLLER PIN', 'CUTTER BLOCK',
+      'ARM (', 'ARM SMALL', 'ARM LARGE', 'TONG ARM', 'HEADING ARM', 'HEADING BODY'
+    ];
+    if (excludedKeywords.some((kw) => name.includes(kw) || code.includes(kw))) {
+      return false;
+    }
+
+    // 3. Strict inclusion: Item Type must be WIP or RM
+    const isWip = type === 'WORK_IN_PROGRESS' || type === 'WIP' || code.startsWith('WIP-');
+    const isRm = type === 'RAW_MATERIAL' || type === 'RM' || code.startsWith('RM-');
+
+    return isWip || isRm;
+  }, []);
+
+  const departmentItems = useMemo(() => {
+    if (!effectiveDeptId) {
+      return [];
+    }
+    let pool: ItemLk[] = [];
+    const cachedDept = lookups.deptItemsMap[effectiveDeptId];
+    if (cachedDept && cachedDept.length > 0) {
+      pool = cachedDept;
+    } else {
+      pool = lookups.items.filter((i) => (i.departmentId ?? (i as any)?.department?.id) === effectiveDeptId);
+    }
+
+    // Filter strictly to WIP and RM belonging to the active department
+    return pool.filter((i) => isProductionItem(i, effectiveDeptId));
+  }, [effectiveDeptId, lookups.deptItemsMap, lookups.items, isProductionItem]);
 
   // ── Machine Target Items: Load active target configurations for this machine
   //    so the item dropdown prioritizes/scopes to items designated for this machine.
@@ -1093,14 +1293,16 @@ const EntryForm: React.FC<EntryFormProps> = ({
       if (!itId || seen.has(itId)) continue;
       seen.add(itId);
       const full = departmentItems.find((i) => i.id === itId)
-        || lookups.items.find((i) => i.id === itId);
-      if (full) {
+        || lookups.items.find((i) => i.id === itId && (i.departmentId ?? (i as any)?.department?.id) === effectiveDeptId);
+      if (full && isProductionItem(full, effectiveDeptId)) {
         result.push(full);
-      } else if (mt.item) {
+      } else if (mt.item && isProductionItem(mt.item, effectiveDeptId)) {
         result.push({
           id: mt.item.id,
           itemCode: mt.item.code || mt.item.itemCode,
           name: mt.item.name,
+          itemType: mt.item.itemType || mt.item.type,
+          departmentId: mt.item.departmentId ?? effectiveDeptId,
           baseUomId: mt.item.baseUomId || mt.uomId,
           wireSizeMm: mt.item.wireSizeMm ?? null,
           isManufacturable: true,
@@ -1108,7 +1310,7 @@ const EntryForm: React.FC<EntryFormProps> = ({
       }
     }
     return result;
-  }, [machineTargets, departmentItems, lookups.items]);
+  }, [machineTargets, departmentItems, lookups.items, effectiveDeptId, isProductionItem]);
 
   const selectedItem = useMemo(
     () => (machineTargetItems.find((i) => i.id === itemId)) || departmentItems.find((i) => i.id === itemId) || lookups.items.find((i) => i.id === itemId) || null,
@@ -1631,6 +1833,7 @@ const EntryForm: React.FC<EntryFormProps> = ({
         delete payload.machineId;
       }
       payload.rawMaterialWarehouseId = (values as { rawMaterialWarehouseId?: string }).rawMaterialWarehouseId ?? undefined;
+      payload.warehouseId = (values as { warehouseId?: string }).warehouseId ?? undefined;
       const coilSizeVal = (values as { coilSize?: string }).coilSize;
       if (typeof coilSizeVal === 'string' && coilSizeVal.trim().length > 0) {
         payload.coilSize = coilSizeVal.trim();
@@ -1638,57 +1841,104 @@ const EntryForm: React.FC<EntryFormProps> = ({
         delete payload.coilSize;
       }
 
-      // PROMPT-35: build the success-confirmation summary from the AUTHORITATIVE
-      // saved entity + lookups (labels only — never raw UUIDs). Called only on
-      // back-end-confirmed success for both create and update.
-      const showSavedSuccess = (saved: { id: string; machineNo?: string; entryNumber?: string | null }) => {
-        const shift = lookups.shifts.find((s) => s.id === payload.shiftId);
-        const div = lookups.divisions.find((d) => d.id === payload.divisionId);
-        const sec = lookups.sections.find((s) => s.id === payload.sectionId);
-        const dep = lookups.departments.find((d) => d.id === payload.departmentId);
-        const itm = lookups.items.find((i) => i.id === payload.itemId);
-        const uomLk = lookups.uoms.find((u) => u.id === payload.uomId);
-        const firstLine = itemLines.find((l) => !!l.itemId);
-        const qty = firstLine?.actualQuantity ?? payload.actualQuantity;
-        const tgt = machineLinked ? displayTarget : toNum(targetQty);
-        setSavedEntry({
-          entryId: saved.id,
-          entryNumber: saved.entryNumber,
-          entryDate: String(payload.entryDate ?? ''),
-          shift: shift?.name,
-          division: div ? `${div.divisionCode} — ${div.name}` : undefined,
-          section: sec?.name,
-          department: dep?.name,
-          machineNo: String(saved.machineNo ?? payload.machineNo ?? ''),
-          itemCode: itm?.itemCode,
-          itemName: itm?.name,
-          quantity: qty !== undefined && qty !== null ? formatNumber(toNum(qty), 4) : undefined,
-          actualQuantity: qty !== undefined && qty !== null ? formatNumber(toNum(qty), 2) : undefined,
-          targetQuantity: tgt !== null && tgt !== undefined ? formatNumber(toNum(tgt), 2) : undefined,
-          achievementPercentage: achievement !== null ? achievement : undefined,
-          uom: uomLk?.code || uomLk?.symbol,
-          status: (values as { postToInventory?: boolean }).postToInventory ? 'Saved • Posted to Inventory' : 'Saved',
-        });
-        setSaveError(null);
-        useEntryDockStore.getState().setHasUnsavedChanges(false);
-        setSavedOpen(true);
-      };
+      // ── 2-Step Pre-Save Confirmation Review ──────────────────────────────────
+      const itm = lookups.items.find((i) => i.id === payload.itemId);
+      const rawWh = warehouses.find((w) => w.id === payload.rawMaterialWarehouseId);
+      const recWh = warehouses.find((w) => w.id === payload.warehouseId);
+      const shift = lookups.shifts.find((s) => s.id === payload.shiftId);
+      const firstLine = itemLines.find((l) => !!l.itemId);
+      const goodQty = firstLine?.actualQuantity ?? payload.actualQuantity;
+      const scrapTotalKg = itemLines.reduce((sum, l) => sum + (Number(l.scrapQuantity) || 0), 0) + (Number(payload.processScrapKg) || 0);
 
+      setPreSaveSummary({
+        mode: mode === 'edit' ? 'edit' : 'create',
+        itemCode: itm?.itemCode,
+        itemName: itm?.name,
+        wireSizeMm: itm?.wireSizeMm,
+        rawMaterialWarehouseName: rawWh?.name,
+        rawMaterialWarehouseCode: rawWh?.warehouseCode,
+        receiptWarehouseName: recWh?.name,
+        receiptWarehouseCode: recWh?.warehouseCode,
+        actualQuantity: toNum(goodQty),
+        scrapQuantityKg: toNum(scrapTotalKg),
+        machineName: String(payload.machineNo ?? ''),
+        shiftName: shift?.name,
+        entryDate: String(payload.entryDate ?? ''),
+      });
+      setPendingSaveData({ payload, values });
+      setPreSaveOpen(true);
+      setSaving(false);
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { message?: string | string[] } } };
+      console.error('ENTRY_VALIDATION_ERROR:', JSON.stringify(axiosErr.response?.data));
+      const msg = Array.isArray(axiosErr.response?.data?.message)
+        ? axiosErr.response!.data!.message!.join(', ')
+        : axiosErr.response?.data?.message ?? 'Failed to prepare entry';
+      setSaveError(String(msg));
+      setSavedOpen(true);
+    } finally {
+      setSaving(false);
+    }
+  }, [mode, id, navigate, lockedContext, machineLinked, ctxIds, plannedHours, downtimeMode, lookups.items, saving, displayTarget, targetQty, achievement, submitBlocked, isFullDowntime, departmentItems, warehouses, lookups.shifts]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // PROMPT-35: build the success-confirmation summary from the AUTHORITATIVE
+  // saved entity + lookups (labels only — never raw UUIDs). Called only on
+  // back-end-confirmed success for both create and update.
+  const showSavedSuccess = useCallback((saved: { id: string; machineNo?: string; entryNumber?: string | null }, payload: any, values: any) => {
+    const shift = lookups.shifts.find((s) => s.id === payload.shiftId);
+    const div = lookups.divisions.find((d) => d.id === payload.divisionId);
+    const sec = lookups.sections.find((s) => s.id === payload.sectionId);
+    const dep = lookups.departments.find((d) => d.id === payload.departmentId);
+    const itm = lookups.items.find((i) => i.id === payload.itemId);
+    const uomLk = lookups.uoms.find((u) => u.id === payload.uomId);
+    const itemsArr = (Array.isArray(payload.items) ? payload.items : []) as any[];
+    const firstLine = itemsArr.find((l) => !!l.itemId);
+    const qty = firstLine?.actualQuantity ?? payload.actualQuantity;
+    const tgt = machineLinked ? displayTarget : toNum(targetQty);
+    setSavedEntry({
+      entryId: saved.id,
+      entryNumber: saved.entryNumber,
+      entryDate: String(payload.entryDate ?? ''),
+      shift: shift?.name,
+      division: div ? `${div.divisionCode} — ${div.name}` : undefined,
+      section: sec?.name,
+      department: dep?.name,
+      machineNo: String(saved.machineNo ?? payload.machineNo ?? ''),
+      itemCode: itm?.itemCode,
+      itemName: itm?.name,
+      quantity: qty !== undefined && qty !== null ? formatNumber(toNum(qty), 4) : undefined,
+      actualQuantity: qty !== undefined && qty !== null ? formatNumber(toNum(qty), 2) : undefined,
+      targetQuantity: tgt !== null && tgt !== undefined ? formatNumber(toNum(tgt), 2) : undefined,
+      achievementPercentage: achievement !== null ? achievement : undefined,
+      uom: uomLk?.code || uomLk?.symbol,
+      status: (values as { postToInventory?: boolean }).postToInventory ? 'Saved • Posted to Inventory' : 'Saved',
+    });
+    setSaveError(null);
+    useEntryDockStore.getState().setHasUnsavedChanges(false);
+    setSavedOpen(true);
+  }, [lookups.shifts, lookups.divisions, lookups.sections, lookups.departments, lookups.items, lookups.uoms, machineLinked, displayTarget, targetQty, achievement]);
+
+  // Execute the actual persistence after operator audits & confirms
+  const doExecutePersist = useCallback(async () => {
+    if (!pendingSaveData) return;
+    const { payload, values } = pendingSaveData;
+    setSaving(true);
+    try {
       if (mode === 'create') {
         payload.postToInventory = !!(values as { postToInventory?: boolean }).postToInventory;
         const res = await apiService.post<{ success: boolean; data: ProductionEntrySaved }>('/production/entries', payload);
-        showSavedSuccess(res.data);
+        setPreSaveOpen(false);
+        setPendingSaveData(null);
+        showSavedSuccess(res.data, payload, values);
       } else if (id) {
-        // Inventory posting is a CREATE-only decision (stock is posted once at
-        // creation; the update API does not accept postToInventory/warehouseId).
-        delete payload.warehouseId;
         console.log('SENDING_PUT_PAYLOAD:', JSON.stringify(payload));
-        console.log('BEFORE_API_PUT');
         const updated = await apiService.put<{ success: boolean; data: ProductionEntrySaved }>(`/production/entries/${id}`, payload);
-        console.log('AFTER_API_PUT_SUCCESS');
-        showSavedSuccess(updated.data);
+        setPreSaveOpen(false);
+        setPendingSaveData(null);
+        showSavedSuccess(updated.data, payload, values);
       }
     } catch (err: unknown) {
+      setPreSaveOpen(false);
       const axiosErr = err as { response?: { data?: { message?: string | string[] } } };
       console.error('ENTRY_SAVE_ERROR_RESPONSE:', JSON.stringify(axiosErr.response?.data));
       const msg = Array.isArray(axiosErr.response?.data?.message)
@@ -1699,7 +1949,7 @@ const EntryForm: React.FC<EntryFormProps> = ({
     } finally {
       setSaving(false);
     }
-  }, [mode, id, navigate, lockedContext, machineLinked, ctxIds, plannedHours, downtimeMode, lookups.items, saving, displayTarget, targetQty, achievement, submitBlocked, isFullDowntime, departmentItems]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [pendingSaveData, mode, id, showSavedSuccess]);
 
   // ── PROMPT-35 success-modal actions ───────────────────────────────────────
   const viewSavedEntry = useCallback(() => {
@@ -1994,6 +2244,22 @@ const EntryForm: React.FC<EntryFormProps> = ({
               showSearch optionFilterProp="label" placeholder="Select Department"
               disabled={!sectionId}
               options={departmentsFiltered.map((d) => ({ value: d.id, label: `${d.name}${d.departmentCode && d.departmentCode !== d.name ? ` (${d.departmentCode})` : ''}` }))}
+              onChange={(newDeptId) => {
+                if (newDeptId) {
+                  void lookups.loadDepartmentItems(newDeptId, 'WORK_IN_PROGRESS,RAW_MATERIAL,WIP,RM');
+                  void lookups.loadEmployeesForDepartment(newDeptId);
+                  form.setFieldsValue({ machineNo: undefined });
+                  const currentItems = form.getFieldValue('productionItems');
+                  if (Array.isArray(currentItems)) {
+                    const resetLines = currentItems.map((line: any) => ({
+                      ...line,
+                      itemId: undefined,
+                      uomId: undefined,
+                    }));
+                    form.setFieldsValue({ productionItems: resetLines, itemId: undefined });
+                  }
+                }
+              }}
             />
           </Form.Item>
         </Col>
@@ -2183,18 +2449,23 @@ const EntryForm: React.FC<EntryFormProps> = ({
                 </Form.Item>
               </Card>
 
-              {/* ── STEP 2: Post Directly to Inventory (make-to-stock) ── */}
+              {/* ── STEP 2: Inventory & Warehouse Material Flow (Make-to-Stock) ── */}
               <Card
-                title="Post Directly to Inventory (make-to-stock)"
+                title={
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                    <ShopOutlined style={{ color: 'var(--theme-primary, #2563eb)' }} />
+                    <span>Inventory & Warehouse Material Flow (Make-to-Stock)</span>
+                  </span>
+                }
                 size="small"
                 style={{ marginTop: 16 }}
                 extra={<Tag color={isStep2Done ? '#16a34a' : '#1d4ed8'} style={{ fontWeight: 700, borderRadius: 12, padding: '2px 10px' }}>{isStep2Done ? <><CheckOutlined style={{ marginRight: 4 }} />STEP 2 OK</> : 'STEP 2'}</Tag>}
               >
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, paddingBottom: 10, borderBottom: '1px solid var(--theme-border, rgba(255, 255, 255, 0.08))' }}>
                   <div>
                     <Text strong style={{ fontSize: 13, display: 'block' }}>Direct Stock Posting</Text>
                     <Text type="secondary" style={{ fontSize: 12 }}>
-                      Toggle ON to automatically post completed output to inventory warehouses.
+                      Automatically deduct consumed raw materials and post completed output to inventory warehouses.
                     </Text>
                   </div>
                   <Form.Item
@@ -2207,51 +2478,92 @@ const EntryForm: React.FC<EntryFormProps> = ({
                   </Form.Item>
                 </div>
 
-                <Form.Item
-                  noStyle
-                  shouldUpdate={(p, c) => p.postToInventory !== c.postToInventory}
-                >
-                  {({ getFieldValue }) =>
-                    getFieldValue('postToInventory') ? (
-                      <div style={{ background: 'var(--theme-surface-alt, #0f172a)', border: '1px solid var(--theme-border, #334155)', borderRadius: 8, padding: 12, marginTop: 8 }}>
-                        {/* 1. Raw Material Source Warehouse (First) */}
-                        <Form.Item
-                          name="rawMaterialWarehouseId"
-                          label="Raw Material Source Warehouse"
-                          tooltip="Warehouse that the Item Master production IN items / ACTIVE BOM raw materials are automatically deducted from when this entry posts to inventory. Defaults to the company's first ACTIVE RAW MATERIAL warehouse when left empty."
-                          style={{ marginBottom: 12 }}
-                        >
-                          <Select
-                            allowClear showSearch optionFilterProp="label" placeholder="Auto: first ACTIVE RAW MATERIAL store"
-                            disabled={mode === 'edit'}
-                            data-testid="raw-source-store-select"
-                            className={rawMatWarehouseWatch ? 'erp-field-filled' : 'erp-field-unfilled'}
-                            dropdownStyle={{ zIndex: 99999 }}
-                            popupClassName="production-select-popup"
-                            options={warehouses.map((w) => ({ value: w.id, label: `${w.name} (${w.warehouseCode})${w.warehouseType ? ` [${w.warehouseType}]` : ''}` }))}
-                          />
-                        </Form.Item>
+                <div style={{ background: 'var(--theme-surface-alt, #0f172a)', border: '1px solid var(--theme-border, #334155)', borderRadius: 8, padding: 14 }}>
+                  <Row gutter={[16, 12]}>
+                    {/* 1. Inbound: Raw Material Source Warehouse ("IN") */}
+                    <Col xs={24} md={12}>
+                      <Form.Item
+                        name="rawMaterialWarehouseId"
+                        label={
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                            <span
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontSize: 9.5,
+                                fontWeight: 800,
+                                letterSpacing: '0.5px',
+                                padding: '1px 6px',
+                                borderRadius: 4,
+                                background: 'rgba(16, 185, 129, 0.15)',
+                                color: '#10b981',
+                                border: '1px solid rgba(16, 185, 129, 0.35)',
+                                lineHeight: '13px',
+                              }}
+                            >
+                              IN
+                            </span>
+                            <span style={{ fontWeight: 600 }}>Source Raw Material Warehouse</span>
+                          </span>
+                        }
+                        tooltip="Warehouse from which raw materials are automatically deducted when this entry posts to inventory. Defaults to first ACTIVE RAW MATERIAL store if unassigned."
+                        style={{ marginBottom: 0 }}
+                      >
+                        <Select
+                          allowClear showSearch optionFilterProp="label" placeholder="Select Source Warehouse (IN)"
+                          data-testid="raw-source-store-select"
+                          className={rawMatWarehouseWatch ? 'erp-field-filled' : 'erp-field-unfilled'}
+                          dropdownStyle={{ zIndex: 99999 }}
+                          popupClassName="production-select-popup"
+                          options={divisionWarehouses.map((w) => ({ value: w.id, label: `${w.name} (${w.warehouseCode})${w.warehouseType ? ` [${w.warehouseType}]` : ''}` }))}
+                        />
+                      </Form.Item>
+                    </Col>
 
-                        {/* 2. Receipt Warehouse (Second) */}
-                        <Form.Item
-                          name="warehouseId"
-                          label="Receipt Warehouse"
-                          rules={mode === 'edit' || isFullDowntime ? [] : [{ required: true, message: 'Warehouse is required for direct posting' }]}
-                          style={{ marginBottom: 0 }}
-                        >
-                          <Select
-                            allowClear showSearch optionFilterProp="label" placeholder="Select Warehouse"
-                            disabled={mode === 'edit' && Boolean(getFieldValue('warehouseId'))}
-                            className={warehouseWatch ? 'erp-field-filled' : 'erp-field-unfilled'}
-                            dropdownStyle={{ zIndex: 99999 }}
-                            popupClassName="production-select-popup"
-                            options={warehouses.map((w) => ({ value: w.id, label: `${w.name} (${w.warehouseCode})` }))}
-                          />
-                        </Form.Item>
-                      </div>
-                    ) : null
-                  }
-                </Form.Item>
+                    {/* 2. Outbound: Destination / Receipt Warehouse ("OUT") */}
+                    <Col xs={24} md={12}>
+                      <Form.Item
+                        name="warehouseId"
+                        label={
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                            <span
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontSize: 9.5,
+                                fontWeight: 800,
+                                letterSpacing: '0.5px',
+                                padding: '1px 6px',
+                                borderRadius: 4,
+                                background: 'rgba(6, 182, 212, 0.15)',
+                                color: '#06b6d4',
+                                border: '1px solid rgba(6, 182, 212, 0.35)',
+                                lineHeight: '13px',
+                              }}
+                            >
+                              OUT
+                            </span>
+                            <span style={{ fontWeight: 600 }}>Destination Finished Goods / Receipt Warehouse</span>
+                          </span>
+                        }
+                        tooltip="Warehouse where completed manufactured products and good output are deposited."
+                        rules={mode === 'edit' || isFullDowntime ? [] : [{ required: true, message: 'Receipt Warehouse is required for stock posting' }]}
+                        style={{ marginBottom: 0 }}
+                      >
+                        <Select
+                          allowClear showSearch placeholder="Select Destination Finished Goods Warehouse (OUT)"
+                          filterOption={(input, option) => String(option?.label ?? '').toLowerCase().includes(input.toLowerCase())}
+                          className={warehouseWatch ? 'erp-field-filled' : 'erp-field-unfilled'}
+                          dropdownStyle={{ zIndex: 99999 }}
+                          popupClassName="production-select-popup"
+                          options={destinationWarehouses.map((w) => ({ value: w.id, label: `${w.name} (${w.warehouseCode})${w.warehouseType ? ` [${w.warehouseType}]` : ''}` }))}
+                        />
+                      </Form.Item>
+                    </Col>
+                  </Row>
+                </div>
               </Card>
 
               {/* ── STEP 3: Production Items ── */}
@@ -2296,8 +2608,8 @@ const EntryForm: React.FC<EntryFormProps> = ({
                       {/* Header row: hidden on mobile (xs=0) to prevent vertical stack, cleanly aligned on desktop (sums to 24 cols) */}
                       {fields.length > 0 && (
                         <Row gutter={6} style={{ marginBottom: 6, paddingBottom: 4, borderBottom: '1px solid var(--theme-border, #f0f0f0)' }}>
-                          <Col xs={0} sm={1} md={1}><Text type="secondary" style={{ fontSize: 11, fontWeight: 600 }}>#</Text></Col>
-                          <Col xs={0} sm={11} md={10}><Text type="secondary" style={{ fontSize: 11, fontWeight: 600 }}>Item / Product</Text></Col>
+                          <Col xs={0} sm={2} md={2}><Text type="secondary" style={{ fontSize: 11, fontWeight: 600 }}>#</Text></Col>
+                          <Col xs={0} sm={10} md={9}><Text type="secondary" style={{ fontSize: 11, fontWeight: 600 }}>Item / Product</Text></Col>
                           <Col xs={0} sm={3} md={3}><Text type="secondary" style={{ fontSize: 11, fontWeight: 600 }}>Wire Size</Text></Col>
                           <Col xs={0} sm={4} md={5}><Text type="secondary" style={{ fontSize: 11, fontWeight: 600 }}>Quantity</Text></Col>
                           <Col xs={0} sm={3} md={3}><Text type="secondary" style={{ fontSize: 11, fontWeight: 600 }}>UOM</Text></Col>
@@ -2316,6 +2628,8 @@ const EntryForm: React.FC<EntryFormProps> = ({
                           machineTargetItems={machineTargetItems}
                           isFullDowntime={isFullDowntime}
                           remove={() => remove(f.name)}
+                          mode={mode}
+                          effectiveDeptId={effectiveDeptId}
                         />
                       ))}
                       {multiItemAggregate && fields.length > 0 && (() => {
@@ -3293,6 +3607,17 @@ const EntryForm: React.FC<EntryFormProps> = ({
         )}
       </Form>
 
+      <EntryPreSaveConfirmModal
+        open={preSaveOpen}
+        summary={preSaveSummary}
+        loading={saving}
+        onConfirm={doExecutePersist}
+        onCancel={() => {
+          setPreSaveOpen(false);
+          setPendingSaveData(null);
+        }}
+      />
+
       <ProductionSaveSuccessModal
         open={savedOpen}
         saving={saving}
@@ -3838,6 +4163,9 @@ const RawMaterialAvailability: React.FC<{
   }>) => void;
 }> = ({ productionItems, lookups, warehouseId, receiptWarehouseId, sourceStoreLabel, receiptStoreLabel, fallbackScrapQty, isDone, excludeEntryId, consumedByItem, onData }) => {
   const [data, setData] = useState<Record<string, RawMatItem>>({});
+  // Baseline cache: freezes opening balances so opening/editing an entry
+  // never mutates historical or original stock baselines with running live stock.
+  const staticBaselinesRef = useRef<Record<string, number>>({});
   const selected = productionItems.filter((p) => !!p.itemId);
   const selectedIds = selected.map((p) => p.itemId).join('|');
   // Row 1 is the MAIN production item (matches buildProductionItemsPayload); its
@@ -4152,25 +4480,30 @@ const RawMaterialAvailability: React.FC<{
           }));
 
           // ── 4) Exact-item inventory for the resolved raw material.
-          // FIX 4 — read the store's CURRENT stock and rebuild the pre-entry
-          // baseline explicitly, instead of asking the API to un-post this
-          // document. Relying on excludeEntryId left the live balance on
-          // screen, so opening an existing entry subtracted its consumption a
-          // SECOND time (a fresh subtraction on form load):
-          //     Opening Available (Before Entry) = Current Store Stock + Consumed By This Entry
+          // Static baseline preservation: on initial load/edit, the baseline is
+          // established and frozen in staticBaselinesRef. Subsequent edits to
+          // quantities re-calculate remaining stock without re-polling and
+          // overwriting the opening balance with running live inventory.
           lines.forEach((line) => {
             void (async () => {
               try {
-                const params: Record<string, unknown> = { itemId: line.rawItemId };
-                if (warehouseId) params.warehouseId = warehouseId;
-                const alreadyConsumed = consumedByItem?.[String(line.rawItemId)] ?? 0;
-                const avail = await apiService.get<{ data?: number | { available?: number } }>(
-                  '/inventory/balances/available',
-                  params,
-                );
-                if (cancelled) return;
-                const rawCurrent = toNum((avail.data as any)?.available ?? avail.data);
-                const available = Math.round((rawCurrent + alreadyConsumed) * 10000) / 10000;
+                const cacheKey = `raw_${line.rawItemId}_${warehouseId || ''}`;
+                let available: number;
+                if (staticBaselinesRef.current[cacheKey] !== undefined) {
+                  available = staticBaselinesRef.current[cacheKey];
+                } else {
+                  const params: Record<string, unknown> = { itemId: line.rawItemId };
+                  if (warehouseId) params.warehouseId = warehouseId;
+                  const alreadyConsumed = consumedByItem?.[String(line.rawItemId)] ?? 0;
+                  const avail = await apiService.get<{ data?: number | { available?: number } }>(
+                    '/inventory/balances/available',
+                    params,
+                  );
+                  if (cancelled) return;
+                  const rawCurrent = toNum((avail.data as any)?.available ?? avail.data);
+                  available = Math.round((rawCurrent + alreadyConsumed) * 10000) / 10000;
+                  staticBaselinesRef.current[cacheKey] = available;
+                }
                 const balance = available - line.required;
                 setData((prev) => ({
                   ...prev,
@@ -4196,19 +4529,26 @@ const RawMaterialAvailability: React.FC<{
 
           // ── 5) TASK #34B: OUTPUT INVENTORY — the produced item's own real balance
           //    (read from receiptWarehouseId if available, or warehouseId, keyed by the exact Item ID).
-          //    In edit mode, exclude the current entry's own posted receipt.
+          //    Preserves static opening balance without live overwrites.
           void (async () => {
             try {
               const targetWh = receiptWarehouseId || warehouseId;
-              const params: Record<string, unknown> = { itemId };
-              if (targetWh) params.warehouseId = targetWh;
-              if (excludeEntryId) params.excludeEntryId = excludeEntryId;
-              const avail = await apiService.get<{ data?: number | { available?: number } }>(
-                '/inventory/balances/available',
-                params,
-              );
-              if (cancelled) return;
-              const available = toNum((avail.data as any)?.available ?? avail.data);
+              const outCacheKey = `out_${itemId}_${targetWh || ''}`;
+              let available: number;
+              if (staticBaselinesRef.current[outCacheKey] !== undefined) {
+                available = staticBaselinesRef.current[outCacheKey];
+              } else {
+                const params: Record<string, unknown> = { itemId };
+                if (targetWh) params.warehouseId = targetWh;
+                if (excludeEntryId) params.excludeEntryId = excludeEntryId;
+                const avail = await apiService.get<{ data?: number | { available?: number } }>(
+                  '/inventory/balances/available',
+                  params,
+                );
+                if (cancelled) return;
+                available = toNum((avail.data as any)?.available ?? avail.data);
+                staticBaselinesRef.current[outCacheKey] = available;
+              }
               setData((prev) => ({
                 ...prev,
                 [itemId]: { ...prev[itemId]!, outAvailable: available, outLoading: false, outError: false },
@@ -4587,7 +4927,7 @@ const RawMaterialAvailability: React.FC<{
                       </div>
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 6, textAlign: 'center' }}>
                         <div style={{ background: 'rgba(255, 255, 255, 0.04)', borderRadius: 5, padding: '5px 4px' }}>
-                          <span style={{ fontSize: 9, textTransform: 'uppercase', color: 'var(--theme-text-muted, #94a3b8)', fontWeight: 600, display: 'block', letterSpacing: 0.3 }}>Current Stock</span>
+                          <span style={{ fontSize: 9, textTransform: 'uppercase', color: 'var(--theme-text-muted, #94a3b8)', fontWeight: 600, display: 'block', letterSpacing: 0.3 }}>Opening</span>
                           <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--theme-text, #ffffff)' }}>{formatNumber(outBefore, 3)} {outUom}</span>
                         </div>
                         <div style={{ background: 'rgba(16, 185, 129, 0.08)', borderRadius: 5, padding: '5px 4px' }}>
@@ -4595,7 +4935,7 @@ const RawMaterialAvailability: React.FC<{
                           <span style={{ fontSize: 12, fontWeight: 700, color: '#10b981' }}>+{formatNumber(outProduced, 3)} {outUom}</span>
                         </div>
                         <div style={{ background: 'rgba(16, 185, 129, 0.14)', borderRadius: 5, padding: '5px 4px' }}>
-                          <span style={{ fontSize: 9, textTransform: 'uppercase', color: '#34d399', fontWeight: 700, display: 'block', letterSpacing: 0.3 }}>Projected</span>
+                          <span style={{ fontSize: 9, textTransform: 'uppercase', color: '#34d399', fontWeight: 700, display: 'block', letterSpacing: 0.3 }}>Closing</span>
                           <span style={{ fontSize: 12, fontWeight: 800, color: '#34d399' }}>{formatNumber(outAfter, 3)} {outUom}</span>
                         </div>
                       </div>
@@ -4690,7 +5030,9 @@ const ProductionItemLine: React.FC<{
   machineTargetItems?: ItemLk[];
   isFullDowntime?: boolean;
   remove: () => void;
-}> = ({ fieldName, rowNumber, lookups, machineLinked, mtResolution, departmentItems, machineTargetItems = [], isFullDowntime = false, remove }) => {
+  mode?: string;
+  effectiveDeptId?: string;
+}> = ({ fieldName, rowNumber, lookups, machineLinked, mtResolution, departmentItems, machineTargetItems = [], isFullDowntime = false, remove, mode = 'create', effectiveDeptId }) => {
   const lineItemId = Form.useWatch(['productionItems', fieldName, 'itemId']);
   const lineActualQty = Form.useWatch(['productionItems', fieldName, 'actualQuantity']);
   const lineScrapQty = Form.useWatch(['productionItems', fieldName, 'scrapQuantity']);
@@ -4779,12 +5121,21 @@ const ProductionItemLine: React.FC<{
   const savedItemOption = useMemo(() => {
     if (!lineItemId) return null;
     const saved = lineItem || lookups.items.find((i) => i.id === lineItemId) || null;
+    if (!saved) return null;
+    if (mode === 'create' && effectiveDeptId) {
+      const itemDeptId = saved.departmentId ?? (saved as any)?.department?.id;
+      if (itemDeptId && itemDeptId !== effectiveDeptId) return null;
+      const type = (saved.itemType || (saved as any)?.type || '').toUpperCase().trim();
+      const code = (saved.itemCode || (saved as any)?.code || '').toUpperCase().trim();
+      const isWipOrRm = type === 'WORK_IN_PROGRESS' || type === 'WIP' || type === 'RAW_MATERIAL' || type === 'RM' || code.startsWith('WIP-') || code.startsWith('RM-');
+      if (!isWipOrRm) return null;
+    }
     return {
       value: lineItemId,
-      label: saved ? `${saved.name} (${saved.itemCode})` : 'Unknown product',
-      title: saved ? `${saved.name} (${saved.itemCode})` : lineItemId,
+      label: `${saved.name} (${saved.itemCode})`,
+      title: `${saved.name} (${saved.itemCode})`,
     };
-  }, [lineItemId, lineItem, lookups.items]);
+  }, [lineItemId, lineItem, lookups.items, mode, effectiveDeptId]);
 
   // Group items in dropdown: machine target items first!
   const selectOptions = useMemo(() => {
@@ -4813,16 +5164,28 @@ const ProductionItemLine: React.FC<{
     return list;
   }, [machineTargetItems, departmentItems, savedItemOption]);
 
+  const [expanded, setExpanded] = useState(false);
+
   return (
     <div data-testid={`production-item-row-${rowNumber}`} style={{ padding: '8px 0', borderBottom: '1px solid var(--theme-border, #f0f0f0)' }}>
       <Row gutter={[6, 8]} align="middle">
-        {/* Col 1: Row Number */}
-        <Col xs={2} sm={1} md={1} style={{ display: 'flex', alignItems: 'center' }}>
+        {/* Col 1: Expand (+) Button and Row Number */}
+        <Col xs={4} sm={2} md={2} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <Button
+            type="text"
+            size="small"
+            data-testid={`expand-item-${rowNumber}`}
+            icon={expanded ? <MinusSquareOutlined style={{ color: '#0284c7', fontSize: 13 }} /> : <PlusSquareOutlined style={{ color: '#0284c7', fontSize: 13 }} />}
+            onClick={() => setExpanded((prev) => !prev)}
+            aria-label={`Toggle details for production item ${rowNumber}`}
+            title={expanded ? 'Hide line details' : 'View line details (Scrap, Target, KG weight, Remarks)'}
+            style={{ width: 22, height: 22, padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+          />
           <Text type="secondary" style={{ fontSize: 11, fontWeight: 700 }}>{rowNumber}</Text>
         </Col>
 
         {/* Col 2: Item / Product Selection */}
-        <Col xs={22} sm={11} md={10}>
+        <Col xs={20} sm={10} md={9}>
           <Form.Item name={[fieldName, 'itemId']} noStyle rules={isFullDowntime ? [] : [{ required: true, message: 'Required' }]}>
             <Select
               style={{ width: '100%', height: 38 }}
@@ -4926,27 +5289,73 @@ const ProductionItemLine: React.FC<{
           />
         </Col>
       </Row>
-      {/* Hidden persisted fields — kept so buildProductionItemsPayload, per-line
-          KG conversion and aggregate totals remain unchanged. */}
-      <Form.Item name={[fieldName, 'targetQuantity']} noStyle hidden>
-        <InputNumber min={0} />
-      </Form.Item>
-      <Form.Item name={[fieldName, 'scrapQuantity']} noStyle hidden>
-        <InputNumber min={0} />
-      </Form.Item>
+
+      {/* Expandable item details sub-panel */}
+      <div
+        data-testid={`production-item-details-${rowNumber}`}
+        style={{
+          display: expanded ? 'block' : 'none',
+          marginTop: 8,
+          marginBottom: 6,
+          padding: '10px 14px',
+          background: 'var(--theme-surface-alt, #0f172a)',
+          border: '1px solid var(--theme-border, #334155)',
+          borderRadius: 6,
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, borderBottom: '1px solid var(--theme-border, rgba(255, 255, 255, 0.08))', paddingBottom: 4 }}>
+          <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--theme-text, #e2e8f0)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+            Item #{rowNumber} Operational & Line Details
+          </span>
+          {kgConversion && (
+            <span style={{ fontSize: 11, color: '#38bdf8', fontWeight: 600 }}>
+              Weight: {formatNumber(kgConversion.kg, 3)} KG {kgConversion.rejKg > 0 ? `· Scrap: ${formatNumber(kgConversion.rejKg, 3)} KG` : ''}
+            </span>
+          )}
+        </div>
+        <Row gutter={[12, 8]}>
+          <Col xs={24} sm={8} md={6}>
+            <span style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', display: 'block', marginBottom: 4 }}>
+              Line Target Quantity
+            </span>
+            <Form.Item name={[fieldName, 'targetQuantity']} noStyle>
+              <InputNumber min={0} placeholder="Target Qty" style={{ width: '100%', height: 34 }} />
+            </Form.Item>
+          </Col>
+          <Col xs={24} sm={8} md={6}>
+            <span style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', display: 'block', marginBottom: 4 }}>
+              Scrap / Rejection Quantity
+            </span>
+            <Form.Item name={[fieldName, 'scrapQuantity']} noStyle>
+              <InputNumber min={0} placeholder="Scrap Qty" style={{ width: '100%', height: 34 }} />
+            </Form.Item>
+          </Col>
+          <Col xs={24} sm={8} md={6}>
+            <span style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', display: 'block', marginBottom: 4 }}>
+              Line Running Hours
+            </span>
+            <Form.Item name={[fieldName, 'runningHours']} noStyle>
+              <InputNumber min={0} placeholder="Running Hours" style={{ width: '100%', height: 34 }} />
+            </Form.Item>
+          </Col>
+          <Col xs={24} sm={24} md={6}>
+            <span style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', display: 'block', marginBottom: 4 }}>
+              Line Remarks / Routing
+            </span>
+            <Form.Item name={[fieldName, 'remarks']} noStyle>
+              <Input placeholder="Line remarks or routing" style={{ width: '100%', height: 34 }} />
+            </Form.Item>
+          </Col>
+        </Row>
+      </div>
+
       <Form.Item name={[fieldName, 'id']} noStyle hidden>
         <Input type="hidden" />
       </Form.Item>
       <Form.Item name={[fieldName, 'lineNumber']} noStyle hidden>
         <InputNumber min={1} />
       </Form.Item>
-      <Form.Item name={[fieldName, 'runningHours']} noStyle hidden>
-        <InputNumber min={0} />
-      </Form.Item>
       <Form.Item name={[fieldName, 'routingCode']} noStyle hidden>
-        <Input type="hidden" />
-      </Form.Item>
-      <Form.Item name={[fieldName, 'remarks']} noStyle hidden>
         <Input type="hidden" />
       </Form.Item>
       {kgNote && (

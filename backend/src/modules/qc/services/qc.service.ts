@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
+import { withTransaction } from '../../../common/transaction.util';
 import { QcInspectionPlan } from '../entities/qc-inspection-plan.entity';
 import {
   QcInspection, QcInspectionResult, QcQualityCharacteristic,
@@ -44,6 +45,36 @@ export class QcService {
     const plan = await this.planRepo.findOne({ where: { id: planId } });
     if (!plan) throw new NotFoundException('Plan not found');
     return this.charRepo.save(this.charRepo.create({ ...dto, planId, companyId: plan.companyId }));
+  }
+
+  /**
+   * Move an inspection plan (the tolerance matrix) to the Recycle Bin.
+   *
+   * A plan is a pure template with no stock or ledger impact, so it can be
+   * trashed at any point in its lifecycle — but NOT once inspections have been
+   * measured against it: those inspection records are the objective evidence
+   * a quality release was properly evaluated, and the plan they cite must
+   * remain resolvable. The guard refuses instead of stranding them.
+   */
+  async removePlan(id: string, userId?: string, companyId?: string) {
+    const plan = await this.planRepo.findOne({ where: { id } });
+    if (!plan) throw new NotFoundException('Plan not found');
+    if (companyId && plan.companyId !== companyId) throw new NotFoundException('Plan not found');
+
+    const referenced = await this.inspectionRepo
+      .createQueryBuilder('i')
+      .where('i.plan_id = :planId', { planId: plan.id })
+      .getCount();
+    if (referenced > 0) {
+      throw new BadRequestException(
+        `This plan is cited by ${referenced} inspection record(s) and cannot be recycled. ` +
+          'Retire it (status INACTIVE) instead so the audit trail stays intact.',
+      );
+    }
+
+    plan.deletedAt = new Date();
+    plan.deletedBy = userId || null;
+    return this.planRepo.save(plan);
   }
 
   async listCharacteristics(planId: string) {
@@ -112,18 +143,15 @@ export class QcService {
     const insp = await this.inspectionRepo.findOne({ where: { id } });
     if (!insp) throw new NotFoundException('Inspection not found');
     if (insp.status !== 'PENDING') throw new BadRequestException('Inspection already completed');
-    const runner = this.dataSource.createQueryRunner();
-    await runner.connect();
-    await runner.startTransaction();
-    try {
+    await withTransaction(this.dataSource, async (manager) => {
       let passed = 0, failed = 0;
       for (const r of dto.results) {
-        const res = await runner.manager.findOne(QcInspectionResult, { where: { id: r.id } });
+        const res = await manager.findOne(QcInspectionResult, { where: { id: r.id } });
         if (!res) throw new NotFoundException('Result not found');
         res.measuredValue = r.measuredValue ?? null;
         res.result = r.result;
         res.remarks = r.remarks ?? null;
-        await runner.manager.save(res);
+        await manager.save(res);
         if (r.result === 'PASS') passed++;
         else if (r.result === 'FAIL') failed++;
       }
@@ -131,14 +159,8 @@ export class QcService {
       insp.result = overall;
       insp.status = 'COMPLETED';
       insp.remarks = `Passed ${passed}, failed ${failed} characteristic(s)`;
-      await runner.manager.save(insp);
-      await runner.commitTransaction();
-    } catch (e) {
-      await runner.rollbackTransaction();
-      throw e;
-    } finally {
-      await runner.release();
-    }
+      await manager.save(insp);
+    });
     return this.findInspection(id);
   }
 

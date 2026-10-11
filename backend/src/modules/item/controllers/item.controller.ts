@@ -67,6 +67,7 @@ export class ItemController {
   @ApiQuery({ name: 'search', required: false })
   @ApiQuery({ name: 'status', required: false, enum: ItemStatus })
   @ApiQuery({ name: 'itemType', required: false })
+  @ApiQuery({ name: 'itemTypes', required: false })
   @ApiQuery({ name: 'itemTypeId', required: false })
   @ApiQuery({ name: 'categoryId', required: false })
   @ApiQuery({ name: 'companyId', required: false })
@@ -93,6 +94,7 @@ export class ItemController {
     @Query('search') search?: string,
     @Query('status') status?: ItemStatus,
     @Query('itemType') itemType?: string,
+    @Query('itemTypes') itemTypes?: string,
     @Query('itemTypeId') itemTypeId?: string,
     @Query('categoryId') categoryId?: string,
     @Query('companyId') companyId?: string,
@@ -115,7 +117,7 @@ export class ItemController {
     @Query('sortOrder') sortOrder?: string,
   ) {
     const result = await this.itemService.findAll({
-      page: Number(page) || 1, limit: Number(limit) || 20, search, status, itemType, itemTypeId, categoryId, companyId,
+      page: Number(page) || 1, limit: Number(limit) || 20, search, status, itemType, itemTypes, itemTypeId, categoryId, companyId,
       divisionId, sectionId, departmentId, routeType, routeTypeId, materialRoleUsage,
       wireSizeMm: wireSizeMm !== undefined && wireSizeMm !== null && `${wireSizeMm}` !== '' ? Number(wireSizeMm) : undefined,
       thicknessMm: thicknessMm !== undefined && thicknessMm !== null && `${thicknessMm}` !== '' ? Number(thicknessMm) : undefined,
@@ -133,9 +135,17 @@ export class ItemController {
   @RequirePermission('item.view')
   @ApiOperation({ summary: 'Fast item lookup for dropdowns and caches' })
   @ApiQuery({ name: 'departmentId', required: false })
-  async getLookup(@Req() req: any, @Query('departmentId') departmentId?: string) {
+  @ApiQuery({ name: 'itemType', required: false })
+  @ApiQuery({ name: 'itemTypes', required: false })
+  async getLookup(
+    @Req() req: any,
+    @Query('departmentId') departmentId?: string,
+    @Query('itemType') itemType?: string,
+    @Query('itemTypes') itemTypes?: string,
+  ) {
     try {
-      const items = await this.itemService.getLookupItems(departmentId, this.divisions(req));
+      const types = itemTypes || itemType;
+      const items = await this.itemService.getLookupItems(departmentId, this.divisions(req), types);
       return { success: true, data: items, total: items.length };
     } catch (err: any) {
       return { success: false, error: err.message, stack: err.stack };

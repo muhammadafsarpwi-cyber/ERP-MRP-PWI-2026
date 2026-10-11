@@ -323,12 +323,27 @@ export class SalesQuotationService {
     };
   }
 
-  async remove(id: string, companyId?: string): Promise<void> {
+  /**
+   * Move a quotation to the Recycle Bin.
+   *
+   * This was a HARD `repo.remove()`: the quotation and every one of its
+   * `quotation_items` were destroyed outright with no way back. It is now a
+   * soft delete — `deleted_at` is stamped and TypeORM hides the row from every
+   * subsequent find, while the row and its lines stay physically intact and no
+   * FK is broken. Recovery is `POST /admin/recycle-bin/sales-quotations/:id/restore`.
+   *
+   * The Draft-only guard is kept deliberately: it is a BUSINESS rule about
+   * which documents may leave the sales pipeline at all, and moving a document
+   * to the bin must not become a back door around it.
+   */
+  async remove(id: string, companyId?: string, userId?: string): Promise<void> {
     const quotation = await this.findOne(id, companyId);
     if (quotation.status !== 'Draft') {
       throw new BadRequestException('Can only delete quotations in Draft status');
     }
-    await this.repo.remove(quotation);
+    quotation.deletedAt = new Date();
+    quotation.deletedBy = userId ?? null;
+    await this.repo.save(quotation);
   }
 
   private async generateQuotationNumber(companyId: string): Promise<string> {

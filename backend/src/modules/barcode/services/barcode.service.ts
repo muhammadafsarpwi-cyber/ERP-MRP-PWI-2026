@@ -231,7 +231,7 @@ export class BarcodeService {
       const pkgRows = await this.barcodeRepo.query(
         `SELECT id, package_no, customer_name, company_id, package_qr_payload FROM dispatch_packages
          WHERE (package_no ILIKE $1 OR package_qr_payload ILIKE $1 OR id::text = $1 OR id::text = $2 OR package_no ILIKE $3)
-           AND is_active = true LIMIT 1`,
+           AND is_active = true AND deleted_at IS NULL LIMIT 1`,
         [cleanValue, validUuid, extractedCode],
       );
       if (pkgRows && pkgRows.length > 0) {
@@ -279,7 +279,7 @@ export class BarcodeService {
       const jcRows = await this.barcodeRepo.query(
         `SELECT id, job_card_no, company_id FROM maintenance_job_cards 
          WHERE (job_card_no ILIKE $1 OR id::text = $1 OR id::text = $2 OR job_card_no ILIKE $3) 
-           AND is_active = true LIMIT 1`,
+           AND is_active = true AND deleted_at IS NULL LIMIT 1`,
         [cleanValue, validUuid, extractedCode],
       );
       if (jcRows && jcRows.length > 0) {
@@ -304,6 +304,7 @@ export class BarcodeService {
       const delRows = await this.barcodeRepo.query(
         `SELECT id, delivery_number, company_id FROM sales_deliveries 
          WHERE (delivery_number ILIKE $1 OR delivery_number ILIKE $2 OR id::text = $1 OR id::text = $3) 
+           AND deleted_at IS NULL
          LIMIT 1`,
         [cleanValue, `%${cleanRef}%`, validUuid],
       );
@@ -328,7 +329,7 @@ export class BarcodeService {
       const custRows = await this.barcodeRepo.query(
         `SELECT id, customer_code, company_name, name, company_id FROM customers 
          WHERE (customer_code ILIKE $1 OR company_name ILIKE $1 OR name ILIKE $1 OR id::text = $1 OR id::text = $2 OR customer_code ILIKE $3) 
-           AND is_active = true LIMIT 1`,
+           AND is_active = true AND deleted_at IS NULL LIMIT 1`,
         [cleanValue, validUuid, extractedCode],
       );
       if (custRows && custRows.length > 0) {
@@ -457,7 +458,7 @@ export class BarcodeService {
         if (r?.cnt > 0) stats.ITEM = r.cnt;
       }
       if (stats.CUSTOMER === 0) {
-        const [r] = await this.barcodeRepo.query(`SELECT COUNT(*)::int as cnt FROM customers WHERE is_active = true`);
+        const [r] = await this.barcodeRepo.query(`SELECT COUNT(*)::int as cnt FROM customers WHERE is_active = true AND deleted_at IS NULL`);
         if (r?.cnt > 0) stats.CUSTOMER = r.cnt;
       }
       if (stats.MACHINE === 0) {
@@ -473,16 +474,16 @@ export class BarcodeService {
         if (r?.cnt > 0) stats.EMPLOYEE = r.cnt;
       }
       if (stats.PRODUCTION_ENTRY === 0) {
-        const [r] = await this.barcodeRepo.query(`SELECT COUNT(*)::int as cnt FROM production_entries WHERE is_active = true`);
+        const [r] = await this.barcodeRepo.query(`SELECT COUNT(*)::int as cnt FROM production_entries WHERE is_active = true AND deleted_at IS NULL`);
         if (r?.cnt > 0) stats.PRODUCTION_ENTRY = r.cnt;
       }
       if (stats.JOB_CARD === 0) {
-        const [r] = await this.barcodeRepo.query(`SELECT COUNT(*)::int as cnt FROM maintenance_job_cards WHERE is_active = true`);
+        const [r] = await this.barcodeRepo.query(`SELECT COUNT(*)::int as cnt FROM maintenance_job_cards WHERE is_active = true AND deleted_at IS NULL`);
         if (r?.cnt > 0) stats.JOB_CARD = r.cnt;
       }
       if (stats.GATE_PASS === 0) {
         try {
-          const [r] = await this.barcodeRepo.query(`SELECT COUNT(*)::int as cnt FROM sales_deliveries WHERE is_active = true OR is_active IS NULL`);
+          const [r] = await this.barcodeRepo.query(`SELECT COUNT(*)::int as cnt FROM sales_deliveries WHERE (is_active = true OR is_active IS NULL) AND deleted_at IS NULL`);
           if (r?.cnt > 0) stats.GATE_PASS = r.cnt;
         } catch {
           // Ignore if table does not exist
@@ -613,7 +614,7 @@ export class BarcodeService {
         if (companyId) { query += ` AND (company_id = $1 OR company_id IS NULL)`; params.push(companyId); }
         break;
       case BarcodeEntityType.CUSTOMER:
-        query = `SELECT id, customer_code as code, name as label, company_id as "companyId" FROM customers WHERE is_active = true`;
+        query = `SELECT id, customer_code as code, name as label, company_id as "companyId" FROM customers WHERE is_active = true AND deleted_at IS NULL`;
         if (companyId) { query += ` AND (company_id = $1 OR company_id IS NULL)`; params.push(companyId); }
         break;
       case BarcodeEntityType.MACHINE:
@@ -629,15 +630,15 @@ export class BarcodeService {
         if (companyId) { query += ` AND (company_id = $1 OR company_id IS NULL)`; params.push(companyId); }
         break;
       case BarcodeEntityType.PRODUCTION_ENTRY:
-        query = `SELECT id, COALESCE(entry_number, 'PE-' || LEFT(id::text, 8)) as code, ('Production: ' || COALESCE(machine_no, '') || ' (' || entry_date || ')') as label, company_id as "companyId" FROM production_entries WHERE is_active = true`;
+        query = `SELECT id, COALESCE(entry_number, 'PE-' || LEFT(id::text, 8)) as code, ('Production: ' || COALESCE(machine_no, '') || ' (' || entry_date || ')') as label, company_id as "companyId" FROM production_entries WHERE is_active = true AND deleted_at IS NULL`;
         if (companyId) { query += ` AND (company_id = $1 OR company_id IS NULL)`; params.push(companyId); }
         break;
       case BarcodeEntityType.JOB_CARD:
-        query = `SELECT id, job_card_no as code, (job_card_no || ' - Job Card') as label, company_id as "companyId" FROM maintenance_job_cards WHERE is_active = true`;
+        query = `SELECT id, job_card_no as code, (job_card_no || ' - Job Card') as label, company_id as "companyId" FROM maintenance_job_cards WHERE is_active = true AND deleted_at IS NULL`;
         if (companyId) { query += ` AND (company_id = $1 OR company_id IS NULL)`; params.push(companyId); }
         break;
       case BarcodeEntityType.GATE_PASS:
-        query = `SELECT id, delivery_number as code, ('Gate Pass: ' || delivery_number) as label, company_id as "companyId" FROM sales_deliveries WHERE is_active = true`;
+        query = `SELECT id, delivery_number as code, ('Gate Pass: ' || delivery_number) as label, company_id as "companyId" FROM sales_deliveries WHERE is_active = true AND deleted_at IS NULL`;
         if (companyId) { query += ` AND (company_id = $1 OR company_id IS NULL)`; params.push(companyId); }
         break;
       default:

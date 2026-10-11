@@ -9,11 +9,28 @@ import { PageHeader, ERPTable, StatusBadge, GlobalLoading, TabKeepAlive } from '
 import BarcodePrint from '../../components/shared/BarcodePrint';
 import { tabSessionCache, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 import { useHeaderActions } from '../../components/layout/headerActionsStore';
+import { CANONICAL_PRODUCTION_DIVISIONS } from '../../services/lookupsCache';
 
 interface Company {
   id: string;
   companyCode: string;
   legalName: string;
+}
+
+interface Division {
+  id: string;
+  divisionCode: string;
+  name: string;
+  companyId?: string;
+}
+
+interface Department {
+  id: string;
+  departmentCode: string;
+  name: string;
+  divisionId?: string | null;
+  companyId?: string;
+  status?: string;
 }
 
 interface Warehouse {
@@ -22,7 +39,12 @@ interface Warehouse {
   name: string;
   companyId: string;
   company?: Company;
+  divisionId?: string;
+  division?: Division;
+  departmentId?: string | null;
+  department?: Department | null;
   warehouseType: string;
+  address?: string;
   city: string;
   country: string;
   status: string;
@@ -44,9 +66,11 @@ const ORGANIZATION_WAREHOUSES_TAB_ID = '/organization/warehouses';
 interface WarehouseTabCache {
   warehouses: Warehouse[];
   companies: Company[];
+  divisions: Division[];
+  departments: Department[];
   total: number;
   page: number;
-  filters: { searchText: string; typeFilter?: string; statusFilter?: string };
+  filters: { searchText: string; divisionFilter?: string; departmentFilter?: string; typeFilter?: string; statusFilter?: string };
 }
 
 const formatDateTime = (dateStr?: string | null): string => {
@@ -58,8 +82,11 @@ const formatDateTime = (dateStr?: string | null): string => {
 const COLUMN_META: Record<string, { label: string }> = {
   warehouseCode: { label: 'Warehouse Code' },
   name: { label: 'Name' },
+  division: { label: 'Division' },
+  department: { label: 'Department' },
   company: { label: 'Company' },
   warehouseType: { label: 'Type' },
+  address: { label: 'Address' },
   city: { label: 'City' },
   country: { label: 'Country' },
   createdByNameDate: { label: 'Created By / Date' },
@@ -75,6 +102,8 @@ const WarehouseManagement: React.FC = () => {
 
   const [warehouses, setWarehouses] = useState<Warehouse[]>(() => cachedMaster?.warehouses ?? []);
   const [companies, setCompanies] = useState<Company[]>(() => cachedMaster?.companies ?? []);
+  const [divisions, setDivisions] = useState<Division[]>(() => cachedMaster?.divisions ?? []);
+  const [departments, setDepartments] = useState<Department[]>(() => cachedMaster?.departments ?? []);
   const [loading, setLoading] = useState<boolean>(() => !cachedMaster || !cachedMaster.warehouses || cachedMaster.warehouses.length === 0);
   const [total, setTotal] = useState<number>(() => cachedMaster?.total ?? 0);
   const [page, setPage] = useState<number>(() => cachedMaster?.page ?? 1);
@@ -83,6 +112,8 @@ const WarehouseManagement: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [form] = Form.useForm();
   const [searchText, setSearchText] = useState<string>(() => cachedMaster?.filters?.searchText ?? '');
+  const [divisionFilter, setDivisionFilter] = useState<string | undefined>(() => cachedMaster?.filters?.divisionFilter);
+  const [departmentFilter, setDepartmentFilter] = useState<string | undefined>(() => cachedMaster?.filters?.departmentFilter);
   const [typeFilter, setTypeFilter] = useState<string | undefined>(() => cachedMaster?.filters?.typeFilter);
   const [statusFilter, setStatusFilter] = useState<string | undefined>(() => cachedMaster?.filters?.statusFilter);
   const [printModal, setPrintModal] = useState<PrintModalState>({
@@ -94,8 +125,11 @@ const WarehouseManagement: React.FC = () => {
   const [visibleCols, setVisibleCols] = useState<Record<string, boolean>>({
     warehouseCode: true,
     name: true,
+    division: true,
+    department: true,
     company: true,
     warehouseType: true,
+    address: true,
     city: true,
     country: true,
     createdByNameDate: true,
@@ -113,37 +147,130 @@ const WarehouseManagement: React.FC = () => {
     { value: 'SCRAP', label: 'Scrap' },
   ];
 
-  const fetchWarehousesRef = useRef(async (pageNum: number = 1) => {
+  // Robustly merge divisions: canonical list + live fetched divisions + any warehouse divisions
+  const mergedDivisions = useMemo(() => {
+    const map = new Map<string, Division>();
+    CANONICAL_PRODUCTION_DIVISIONS.forEach((d) => map.set(d.id, { id: d.id, divisionCode: d.divisionCode, name: d.name }));
+    divisions.forEach((d) => map.set(d.id, d));
+    warehouses.forEach((w) => {
+      if (w.division?.id && !map.has(w.division.id)) {
+        map.set(w.division.id, w.division);
+      }
+    });
+    return Array.from(map.values());
+  }, [divisions, warehouses]);
+
+  // Robustly merge departments: fetched departments + any warehouse departments
+  const mergedDepartments = useMemo(() => {
+    const map = new Map<string, Department>();
+    departments.forEach((d) => map.set(d.id, d));
+    warehouses.forEach((w) => {
+      if (w.department?.id && !map.has(w.department.id)) {
+        map.set(w.department.id, w.department);
+      }
+    });
+    return Array.from(map.values());
+  }, [departments, warehouses]);
+
+  // Dynamic watched division for form cascading
+  const watchedDivisionId = Form.useWatch('divisionId', form);
+  const availableDepartmentsForForm = useMemo(() => {
+    if (!watchedDivisionId) return mergedDepartments;
+    return mergedDepartments.filter((d) => !d.divisionId || d.divisionId === watchedDivisionId);
+  }, [mergedDepartments, watchedDivisionId]);
+
+  const fetchWarehouses = async (pageNum: number = 1) => {
     setLoading(true);
     try {
       const response = await apiService.get<{ data: Warehouse[]; total: number }>('/warehouses', { page: pageNum, limit: 20 });
       setWarehouses(response.data);
       setTotal(response.total);
       tabSessionCache.set<WarehouseTabCache>(ORGANIZATION_WAREHOUSES_TAB_ID, {
-        warehouses: response.data, companies, total: response.total, page: pageNum,
-        filters: { searchText, typeFilter, statusFilter },
+        warehouses: response.data,
+        companies,
+        divisions,
+        departments,
+        total: response.total,
+        page: pageNum,
+        filters: { searchText, divisionFilter, departmentFilter, typeFilter, statusFilter },
       });
     } catch (error: any) {
       modal.error({ title: 'Load Failed', content: formatApiError(error, 'Failed to fetch warehouses') });
     } finally {
       setLoading(false);
     }
-  });
+  };
+
+  // Re-assigned every render so the closure captured above always reflects the
+  // CURRENT filters and master data. Previously this ref was seeded once and
+  // never updated, so the session cache kept being written back with the
+  // first-render `companies`/`divisions` (empty) and the mount-time filters —
+  // the "ghost" division/warehouse mappings that survived a scope change.
+  const fetchWarehousesRef = useRef(fetchWarehouses);
+  fetchWarehousesRef.current = fetchWarehouses;
 
   const fetchCompanies = useCallback(async () => {
     try {
       const response = await apiService.get<{ data: Company[] }>('/companies', { limit: 100 });
       setCompanies(response.data);
       const c = tabSessionCache.get<WarehouseTabCache>(ORGANIZATION_WAREHOUSES_TAB_ID);
-      tabSessionCache.set<WarehouseTabCache>(ORGANIZATION_WAREHOUSES_TAB_ID, { warehouses: c?.warehouses ?? [], companies: response.data, total: c?.total ?? 0, page: c?.page ?? 1, filters: c?.filters ?? { searchText: '', typeFilter: undefined, statusFilter: undefined } });
+      tabSessionCache.set<WarehouseTabCache>(ORGANIZATION_WAREHOUSES_TAB_ID, {
+        warehouses: c?.warehouses ?? [],
+        companies: response.data,
+        divisions: c?.divisions ?? divisions,
+        departments: c?.departments ?? departments,
+        total: c?.total ?? 0,
+        page: c?.page ?? 1,
+        filters: c?.filters ?? { searchText: '', divisionFilter: undefined, departmentFilter: undefined, typeFilter: undefined, statusFilter: undefined },
+      });
     } catch (error: any) {
       modal.error({ title: 'Load Failed', content: formatApiError(error, 'Failed to fetch companies') });
     }
-  }, [modal]);
+  }, [modal, divisions, departments]);
+
+  const fetchDivisions = useCallback(async () => {
+    try {
+      const response = await apiService.get<{ data: Division[] }>('/divisions', { limit: 100 });
+      setDivisions(response.data);
+      const c = tabSessionCache.get<WarehouseTabCache>(ORGANIZATION_WAREHOUSES_TAB_ID);
+      tabSessionCache.set<WarehouseTabCache>(ORGANIZATION_WAREHOUSES_TAB_ID, {
+        warehouses: c?.warehouses ?? [],
+        companies: c?.companies ?? companies,
+        divisions: response.data,
+        departments: c?.departments ?? departments,
+        total: c?.total ?? 0,
+        page: c?.page ?? 1,
+        filters: c?.filters ?? { searchText: '', divisionFilter: undefined, departmentFilter: undefined, typeFilter: undefined, statusFilter: undefined },
+      });
+    } catch (error: any) {
+      modal.error({ title: 'Load Failed', content: formatApiError(error, 'Failed to fetch divisions') });
+    }
+  }, [modal, companies, departments]);
+
+  const fetchDepartments = useCallback(async () => {
+    try {
+      const response = await apiService.get<{ data: Department[] }>('/departments', { limit: 200 });
+      setDepartments(response.data || []);
+      const c = tabSessionCache.get<WarehouseTabCache>(ORGANIZATION_WAREHOUSES_TAB_ID);
+      tabSessionCache.set<WarehouseTabCache>(ORGANIZATION_WAREHOUSES_TAB_ID, {
+        warehouses: c?.warehouses ?? [],
+        companies: c?.companies ?? companies,
+        divisions: c?.divisions ?? divisions,
+        departments: response.data || [],
+        total: c?.total ?? 0,
+        page: c?.page ?? 1,
+        filters: c?.filters ?? { searchText: '', divisionFilter: undefined, departmentFilter: undefined, typeFilter: undefined, statusFilter: undefined },
+      });
+    } catch (error: any) {
+      console.warn('Failed to fetch departments:', error);
+    }
+  }, [companies, divisions]);
 
   useEffect(() => {
     if (!cachedMaster || !cachedMaster.warehouses || cachedMaster.warehouses.length === 0) void fetchWarehousesRef.current(page);
     if (!cachedMaster || !cachedMaster.companies || cachedMaster.companies.length === 0) void fetchCompanies();
+    if (!cachedMaster || !cachedMaster.divisions || cachedMaster.divisions.length === 0) void fetchDivisions();
+    if (!cachedMaster || !cachedMaster.departments || cachedMaster.departments.length === 0) void fetchDepartments();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page]);
 
@@ -154,6 +281,8 @@ const WarehouseManagement: React.FC = () => {
         tabSessionCache.remove(ORGANIZATION_WAREHOUSES_TAB_ID);
         void fetchWarehousesRef.current(page);
         void fetchCompanies();
+        void fetchDivisions();
+        void fetchDepartments();
       }
     };
     window.addEventListener(TAB_REFRESH_EVENT, handleGlobalRefresh);
@@ -164,12 +293,19 @@ const WarehouseManagement: React.FC = () => {
   const handleCreate = () => {
     setEditingWarehouse(null);
     form.resetFields();
+    if (companies.length === 1) {
+      form.setFieldValue('companyId', companies[0].id);
+    }
     setModalVisible(true);
   };
 
   const handleEdit = (record: Warehouse) => {
     setEditingWarehouse(record);
-    form.setFieldsValue(record);
+    form.setFieldsValue({
+      ...record,
+      divisionId: record.divisionId || record.division?.id,
+      departmentId: record.departmentId || record.department?.id || undefined,
+    });
     setModalVisible(true);
   };
 
@@ -268,12 +404,16 @@ const WarehouseManagement: React.FC = () => {
       onOk: async () => {
         setSubmitting(true);
         try {
+          const payload = {
+            ...values,
+            departmentId: values.departmentId || null,
+          };
           if (editingWarehouse) {
-            const { companyId: _co, ...editable } = values;
+            const { companyId: _co, ...editable } = payload;
             await apiService.patch(`/warehouses/${editingWarehouse.id}`, editable);
             message.success('Warehouse updated successfully');
           } else {
-            await apiService.post('/warehouses', values);
+            await apiService.post('/warehouses', payload);
             message.success('Warehouse created successfully');
           }
           setModalVisible(false);
@@ -305,6 +445,30 @@ const WarehouseManagement: React.FC = () => {
       width: 200,
     },
     {
+      title: 'Division',
+      key: 'division',
+      width: 180,
+      render: (_, record) => record.division?.name ? (
+        <span style={{ fontWeight: 600, color: token.colorPrimary }}>{record.division.name}</span>
+      ) : record.division?.divisionCode ? (
+        <span style={{ fontWeight: 600 }}>{record.division.divisionCode}</span>
+      ) : '—',
+    },
+    {
+      title: 'Department',
+      key: 'department',
+      width: 190,
+      render: (_, record) => record.department?.name ? (
+        <Tag color="cyan" style={{ fontWeight: 600, borderRadius: 8, padding: '2px 8px' }}>
+          {record.department.name}
+        </Tag>
+      ) : record.department?.departmentCode ? (
+        <span style={{ fontWeight: 600 }}>{record.department.departmentCode}</span>
+      ) : (
+        <span style={{ color: token.colorTextSecondary }}>—</span>
+      ),
+    },
+    {
       title: 'Type',
       dataIndex: 'warehouseType',
       key: 'warehouseType',
@@ -313,6 +477,13 @@ const WarehouseManagement: React.FC = () => {
         const typeObj = warehouseTypes.find((t) => t.value === type);
         return typeObj?.label || type;
       },
+    },
+    {
+      title: 'Address',
+      dataIndex: 'address',
+      key: 'address',
+      width: 140,
+      render: (a: string) => a || '—',
     },
     {
       title: 'City',
@@ -438,7 +609,18 @@ const WarehouseManagement: React.FC = () => {
   }, [setHeaderActions, clearHeaderActions, handleCreate, page]);
 
   const filteredWarehouses = warehouses.filter((w) => {
-    if (searchText && !`${w.warehouseCode || ''} ${w.name || ''}`.toLowerCase().includes(searchText.toLowerCase())) {
+    if (
+      searchText &&
+      !`${w.warehouseCode || ''} ${w.name || ''} ${w.division?.name || ''} ${w.division?.divisionCode || ''} ${w.department?.name || ''} ${w.department?.departmentCode || ''}`
+        .toLowerCase()
+        .includes(searchText.toLowerCase())
+    ) {
+      return false;
+    }
+    if (divisionFilter && w.divisionId !== divisionFilter && w.division?.id !== divisionFilter) {
+      return false;
+    }
+    if (departmentFilter && w.departmentId !== departmentFilter && w.department?.id !== departmentFilter) {
       return false;
     }
     if (typeFilter && w.warehouseType !== typeFilter) {
@@ -453,8 +635,21 @@ const WarehouseManagement: React.FC = () => {
   return (
     <TabKeepAlive
       tabId={ORGANIZATION_WAREHOUSES_TAB_ID}
-      load={async () => { await fetchWarehousesRef.current(page); await fetchCompanies(); }}
-      serialize={() => ({ warehouses, companies, total, page, filters: { searchText, typeFilter, statusFilter } })}
+      load={async () => {
+        await fetchWarehousesRef.current(page);
+        await fetchCompanies();
+        await fetchDivisions();
+        await fetchDepartments();
+      }}
+      serialize={() => ({
+        warehouses,
+        companies,
+        divisions,
+        departments,
+        total,
+        page,
+        filters: { searchText, divisionFilter, departmentFilter, typeFilter, statusFilter },
+      })}
     >
       <div>
         <PageHeader
@@ -476,9 +671,53 @@ const WarehouseManagement: React.FC = () => {
               border: `1px solid ${token.colorBorderSecondary}`,
               background: token.colorBgContainer,
               color: token.colorText,
-              width: 260,
+              width: 240,
             }}
           />
+
+          <Select
+            placeholder="DIVISION"
+            allowClear
+            style={{ width: 180 }}
+            value={divisionFilter}
+            onChange={(val) => {
+              setDivisionFilter(val);
+              if (val && departmentFilter) {
+                const dep = mergedDepartments.find((d) => d.id === departmentFilter);
+                if (dep?.divisionId && dep.divisionId !== val) {
+                  setDepartmentFilter(undefined);
+                }
+              }
+            }}
+            popupMatchSelectWidth={false}
+            showSearch
+            optionFilterProp="children"
+          >
+            {mergedDivisions.map((div) => (
+              <Select.Option key={div.id} value={div.id}>
+                {div.name}
+              </Select.Option>
+            ))}
+          </Select>
+
+          <Select
+            placeholder="DEPARTMENT"
+            allowClear
+            style={{ width: 190 }}
+            value={departmentFilter}
+            onChange={setDepartmentFilter}
+            popupMatchSelectWidth={false}
+            showSearch
+            optionFilterProp="children"
+          >
+            {mergedDepartments
+              .filter((dept) => !divisionFilter || !dept.divisionId || dept.divisionId === divisionFilter)
+              .map((dept) => (
+                <Select.Option key={dept.id} value={dept.id}>
+                  {dept.name}
+                </Select.Option>
+              ))}
+          </Select>
 
           <Select
             placeholder="WAREHOUSE TYPE"
@@ -601,6 +840,45 @@ const WarehouseManagement: React.FC = () => {
                 {companies.map((company) => (
                   <Select.Option key={company.id} value={company.id}>
                     {company.legalName}
+                  </Select.Option>
+                ))}
+              </Select>
+            </Form.Item>
+            <Form.Item
+              name="divisionId"
+              label="Division"
+              rules={[{ required: true, message: 'Please select division' }]}
+            >
+              <Select
+                placeholder="Select division"
+                allowClear
+                showSearch
+                optionFilterProp="children"
+                onChange={() => {
+                  form.setFieldValue('departmentId', undefined);
+                }}
+              >
+                {mergedDivisions.map((division) => (
+                  <Select.Option key={division.id} value={division.id}>
+                    {division.name} {division.divisionCode ? `(${division.divisionCode})` : ''}
+                  </Select.Option>
+                ))}
+              </Select>
+            </Form.Item>
+            <Form.Item
+              name="departmentId"
+              label="Department"
+              tooltip="Optional: Associate warehouse with a specific department for department-wise routing & dropdowns"
+            >
+              <Select
+                placeholder="Select department (optional)"
+                allowClear
+                showSearch
+                optionFilterProp="children"
+              >
+                {availableDepartmentsForForm.map((dept) => (
+                  <Select.Option key={dept.id} value={dept.id}>
+                    {dept.name} {dept.departmentCode ? `(${dept.departmentCode})` : ''}
                   </Select.Option>
                 ))}
               </Select>

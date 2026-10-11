@@ -312,6 +312,12 @@ await this.assertExists(this.uomRepo, dto.uomId, 'UOM');
       throw new BadRequestException(`Only DRAFT production orders can be deleted. Current status: ${order.status}`);
     }
     order.isActive = false;
+    // "Delete" on this screen has always been an ARCHIVE (`is_active = false`)
+    // rather than a removal. Stamping `deleted_at` alongside it moves the order
+    // into the Recycle Bin, where it can be restored; the archive flag is kept
+    // in step so the two signals can never disagree about the row's state.
+    order.deletedAt = new Date();
+    order.deletedBy = userId ?? null;
     order.updatedBy = userId ?? null;
     await this.orderRepo.save(order);
   }

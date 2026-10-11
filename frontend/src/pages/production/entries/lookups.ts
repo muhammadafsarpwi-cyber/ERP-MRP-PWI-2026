@@ -37,8 +37,8 @@ export interface ItemLk extends LookupItem {
   // TASK #33: Production Flow Mapping
   productionInItemId?: string | null;
   productionOutItemId?: string | null;
-  productionInItem?: { id: string; itemCode: string; name: string; wireSizeMm?: number | null; baseUomId?: string; baseUom?: { code: string } } | null;
-  productionOutItem?: { id: string; itemCode: string; name: string; wireSizeMm?: number | null; baseUomId?: string; baseUom?: { code: string } } | null;
+  productionInItem?: { id: string; itemCode: string; name: string; wireSizeMm?: number | null; baseUomId?: string; baseUom?: { code: string }; departmentId?: string | null } | null;
+  productionOutItem?: { id: string; itemCode: string; name: string; wireSizeMm?: number | null; baseUomId?: string; baseUom?: { code: string }; departmentId?: string | null } | null;
 }
 export interface UomLk extends LookupItem { code: string; symbol: string; uomType: string; }
 export interface UomConversionLk { id: string; fromUomId: string; toUomId: string; conversionFactor: string | number; status: string; }
@@ -62,6 +62,14 @@ export interface HrEmployeeLk {
   departmentId: string | null;
   jobTitle: string | null;
   status: string;
+}
+
+export interface WarehouseLk extends LookupItem {
+  warehouseCode: string;
+  warehouseType?: string;
+  divisionId?: string | null;
+  departmentId?: string | null;
+  status?: string;
 }
 
 interface ListResponse<T> { success?: boolean; data?: T[]; total?: number; }
@@ -96,6 +104,7 @@ export function useLookups() {
   const [productionOrders, setProductionOrders] = useState<ProductionOrderLk[]>(() => initialSnap.productionOrders as ProductionOrderLk[]);
   const [hrEmployees, setHrEmployees] = useState<HrEmployeeLk[]>(() => initialSnap.employees as HrEmployeeLk[]);
   const [hrEmployeesLoading, setHrEmployeesLoading] = useState(initialSnap.employees.length === 0);
+  const [warehouses, setWarehouses] = useState<WarehouseLk[]>(() => (initialSnap.warehouses || []) as WarehouseLk[]);
 
   useEffect(() => {
     // 1. Subscribe to any background cache updates
@@ -109,6 +118,7 @@ export function useLookups() {
       if (snap.shifts.length > 0) setShifts(snap.shifts as ShiftLk[]);
       if (snap.machines.length > 0) setMachines(snap.machines as MachineLk[]);
       if (snap.productionOrders.length > 0) setProductionOrders(snap.productionOrders as ProductionOrderLk[]);
+      if (snap.warehouses && snap.warehouses.length > 0) setWarehouses(snap.warehouses as WarehouseLk[]);
       if (snap.employees.length > 0) {
         setHrEmployees(snap.employees as HrEmployeeLk[]);
         setHrEmployeesLoading(false);
@@ -172,8 +182,8 @@ export function useLookups() {
     } catch {}
   }, []);
 
-  /** Dynamically loads items for a specific department and caches them */
-  const loadDepartmentItems = useCallback(async (departmentId: string): Promise<ItemLk[]> => {
+  /** Dynamically loads items for a specific department (strictly WIP and RM) and caches them */
+  const loadDepartmentItems = useCallback(async (departmentId: string, itemTypes = 'WORK_IN_PROGRESS,RAW_MATERIAL,WIP,RM'): Promise<ItemLk[]> => {
     if (!departmentId) return [];
     const cached = getCachedDepartmentItems(departmentId) || deptItemsMap[departmentId];
     if (cached && cached.length > 0) return cached as ItemLk[];
@@ -181,18 +191,29 @@ export function useLookups() {
     try {
       const fetched = await fetchList<ItemLk>('/master-data/items', {
         departmentId,
+        itemTypes,
         limit: 1000,
         status: 'ACTIVE',
       });
-      if (fetched && fetched.length > 0) {
-        cacheDepartmentItems(departmentId, fetched);
-        setDeptItemsMap((prev) => ({ ...prev, [departmentId]: fetched }));
+      // Filter strictly: only items of this department and itemType WIP or RM
+      const sanitized = (fetched || []).filter((i) => {
+        const itemDept = i.departmentId ?? (i as any)?.department?.id;
+        if (itemDept && itemDept !== departmentId) return false;
+        const type = (i.itemType || (i as any)?.type || '').toUpperCase().trim();
+        const code = (i.itemCode || (i as any)?.code || '').toUpperCase().trim();
+        const isWip = type === 'WORK_IN_PROGRESS' || type === 'WIP' || code.startsWith('WIP-');
+        const isRm = type === 'RAW_MATERIAL' || type === 'RM' || code.startsWith('RM-');
+        return isWip || isRm;
+      });
+      if (sanitized.length > 0) {
+        cacheDepartmentItems(departmentId, sanitized);
+        setDeptItemsMap((prev) => ({ ...prev, [departmentId]: sanitized }));
         setItems((prevItems) => {
           const existingIds = new Set(prevItems.map((i) => i.id));
-          const toAdd = fetched.filter((i) => !existingIds.has(i.id));
+          const toAdd = sanitized.filter((i) => !existingIds.has(i.id));
           return toAdd.length > 0 ? [...prevItems, ...toAdd] : prevItems;
         });
-        return fetched;
+        return sanitized;
       }
     } finally {
       setDeptItemsLoading((prev) => ({ ...prev, [departmentId]: false }));
@@ -271,6 +292,7 @@ export function useLookups() {
   return {
     divisions, sections, departments, items, uoms, uomConversions,
     shifts, machines, downtimeReasons, productionOrders, hrEmployees, hrEmployeesLoading,
+    warehouses,
     deptItemsMap, deptItemsLoading, loadDepartmentItems,
     downtimeReasonsLoading, downtimeReasonsFailed, loadDowntimeReasons,
     loadMachines, sectionsForDivision, departmentsForSection, validUomsForItem,

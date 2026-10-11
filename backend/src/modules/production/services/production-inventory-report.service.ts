@@ -4,7 +4,7 @@ import { Repository, In } from 'typeorm';
 import { Item } from '../../item/entities';
 import { StockLedger, InventoryBalance } from '../../inventory/entities';
 import { Company } from '../../organization/entities';
-import { ProductionEntry } from '../entities';
+import { ProductionEntry, ProductionEntryItem, ProductionEntryItemKind } from '../entities';
 import { businessDayWindow } from '../date/business-day';
 import { applyDivisionScopeFilter, isUnrestricted } from '../../../common/division-scope.util';
 
@@ -20,10 +20,12 @@ const R4 = (v: number): number => Math.round(v * 10000) / 10000;
  *    every balance calculation because scrap movements are an audit-trail only
  *    (they carry no balance impact) — exactly matching the reconciliation used
  *    by the Traceability stock statement.
- *  * `production_entries`   → Produced (entries where the item is the output)
- *    and Required (entries whose producing item's Item-Master `productionInItemId`
+ *  * `production_entries` + `production_entry_items` → Produced, read strictly
+ *    from the child OUTPUT lines so a multi-item entry is split into one row per
+ *    part instead of pooling the document total on the parent item. Required
+ *    comes from entries whose producing item's Item-Master `productionInItemId`
  *    is this item — the authoritative 1:1 raw-material requirement rule used by
- *    `ProductionEntryService.consumeRawMaterials`).
+ *    `ProductionEntryService.consumeRawMaterials`.
  *
  * No fabricated stock values are ever produced — an item appears only when it
  * has a stock ledger row or an inventory balance row in this company. No schema
@@ -289,18 +291,37 @@ export class ProductionInventoryReportService {
       .andWhere('ib.status = :status', { status: 'ACTIVE' })
       .groupBy('ib.itemId');
 
-    // ── Produced: production entries whose output is this item (real records).
+    // ── Produced: STRICTLY the child OUTPUT lines of `production_entry_items`.
+    //
+    // A multi-item daily entry is ONE parent record whose `actual_quantity` is
+    // the document TOTAL, not the parent line's own output (live proof: the
+    // entry total equals Σ children on 271/274 rows and equals the parent
+    // line's own quantity on 0/274). Summing `pe.actual_quantity` therefore
+    // credited the whole document to the parent item and left every sibling
+    // part at 0 — merging separate item lots into a single stage line. Grouping
+    // `pei.item_id` instead isolates each part into its own row, so the
+    // Opening / Sub-Total / Closing of one item can never absorb another's.
+    //
+    // The inner join is deliberate (and safe: all 274 entries in this company
+    // carry OUTPUT children, so no entry is lost) — a production figure must
+    // always be attributable to a real child row, never to a bare parent total.
+    // INPUT lines are excluded: consumed raw material carries no good
+    // production, and counting them would post input stock as output.
     const producedQb = this.entryRepo
       .createQueryBuilder('pe')
-      .select('pe.itemId', 'itemId')
-      .addSelect('COALESCE(SUM(pe.actualQuantity), 0)', 'produced')
-      .addSelect('COUNT(*)', 'entryCount')
+      .innerJoin(ProductionEntryItem, 'pei', 'pei.productionEntryId = pe.id')
+      .select('pei.itemId', 'itemId')
+      .addSelect('COALESCE(SUM(pei.actualQuantity), 0)', 'produced')
+      .addSelect('COUNT(DISTINCT pe.id)', 'entryCount')
       .where('pe.companyId = :companyId', { companyId })
       .andWhere('pe.isActive = true')
-      .andWhere('pe.itemId IN (:...itemIds)', { itemIds });
+      .andWhere('pei.companyId = :companyId', { companyId })
+      .andWhere('pei.entryKind = :entryKind', { entryKind: ProductionEntryItemKind.OUTPUT })
+      .andWhere('pei.itemId IS NOT NULL')
+      .andWhere('pei.itemId IN (:...itemIds)', { itemIds });
     if (filters.dateFrom) producedQb.andWhere('pe.entryDate >= :dateFrom', { dateFrom: filters.dateFrom });
     if (filters.dateTo) producedQb.andWhere('pe.entryDate <= :dateTo', { dateTo: filters.dateTo });
-    producedQb.groupBy('pe.itemId');
+    producedQb.groupBy('pei.itemId');
 
     // ── Required: entries consuming THIS item as their authoritative IN item
     //    (Item-Master `productionInItemId` = this item). Real 1:1 requirement.

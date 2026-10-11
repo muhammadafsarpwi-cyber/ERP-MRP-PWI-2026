@@ -1,5 +1,5 @@
 import { Entity, Column, ManyToOne, OneToMany, JoinColumn, Index } from 'typeorm';
-import { BaseEntity } from '../../../common/base.entity';
+import { SoftDeletableEntity } from '../../../common/soft-deletable.entity';
 import { Company } from '../../organization/entities/company.entity';
 import { Machine } from '../../production/entities/machine.entity';
 import { Department } from '../../organization/entities/department.entity';
@@ -21,7 +21,7 @@ import { JobCardStatus, MaintenancePriority, MaintenanceType } from '../enums';
 @Index(['priority'])
 @Index(['requestedAt'])
 @Index(['assignedDepartmentId'])
-export class MaintenanceJobCard extends BaseEntity {
+export class MaintenanceJobCard extends SoftDeletableEntity {
   @Column({ name: 'company_id', type: 'uuid' })
   companyId: string;
 

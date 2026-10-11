@@ -137,6 +137,7 @@ const DISCOVERED_ROUTES: string[] = [
   '/visitor-management/visitors', '/visitor-management/locations',
   '/admin/users', '/admin/roles', '/admin/permissions',
   '/admin/permissions-matrix',
+  '/admin/recycle-bin',
   '/master-data/items', '/master-data/item-types', '/master-data/categories', '/master-data/route-types',
   '/master-data/uom', '/master-data/uom-conversions', '/master-data/machines', '/master-data/operations',
   '/master-data/machine-tools',

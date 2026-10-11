@@ -1,4 +1,4 @@
-import { Entity, Column, ManyToOne, JoinColumn, OneToMany, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import { Entity, Column, ManyToOne, JoinColumn, OneToMany, PrimaryGeneratedColumn, CreateDateColumn, DeleteDateColumn, UpdateDateColumn } from 'typeorm';
 import { SalesCustomer } from './sales-customer.entity';
 import { SalesQuotationItem } from './sales-quotation-item.entity';
 
@@ -58,6 +58,22 @@ export class SalesQuotation {
 
   @Column({ name: 'created_by', type: 'uuid', nullable: true })
   createdBy: string | null;
+
+  /**
+   * Recycle Bin columns.
+   *
+   * Declared inline rather than through `SoftDeletableEntity`, because this
+   * entity never extended `BaseEntity` — the `quotations` table carries its own
+   * `id` / timestamps and has NO `is_active` column, so inheriting the base
+   * would add a column the physical table does not have. The physical columns
+   * live in the `erp_sales` schema and are added by
+   * `migrations/1806000000000-AddSoftDeleteColumns.ts`.
+   */
+  @DeleteDateColumn({ name: 'deleted_at', type: 'timestamp with time zone', nullable: true })
+  deletedAt: Date | null;
+
+  @Column({ name: 'deleted_by', type: 'uuid', nullable: true })
+  deletedBy: string | null;
 
   @OneToMany(() => SalesQuotationItem, (item) => item.quotation)
   items: SalesQuotationItem[];

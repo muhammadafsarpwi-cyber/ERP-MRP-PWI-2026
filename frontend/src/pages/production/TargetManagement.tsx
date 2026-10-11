@@ -571,11 +571,17 @@ const TargetManagement: React.FC = () => {
   useEffect(() => {
     // If the tab was already loaded in this session, DO NOT re-fetch when
     // returning to it — the cached targets are already seeded into state.
+    //
+    // `fetchTargets` is deliberately NOT a dependency: it is a plain async
+    // function whose identity changes on every render, so listing it here made
+    // this effect re-run after every render (setLoading(true) → render →
+    // effect → fetch, forever). The ref always points at the latest closure,
+    // so only the pagination inputs should ever retrigger the fetch.
     if (!tabSessionCache.has(MASTER_MACHINE_TARGETS_TAB_ID)) {
       void fetchTargetsRef.current(page);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, pageSize, fetchTargets]);
+  }, [page, pageSize]);
 
   const fetchAllActiveTargets = useCallback(async () => {
     try {

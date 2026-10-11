@@ -808,6 +808,13 @@ const params: any[] = [companyId];
     opts?: { dateColumn?: string; storeIdColumn?: string },
   ): string[] {
     const conds: string[] = [`${alias}.company_id = $1`];
+    // Recycle Bin: raw SQL bypasses TypeORM's `@DeleteDateColumn` filter, so a
+    // trashed document would otherwise keep inflating the Store KPI counters
+    // and keep showing in aged-pending lists. Every caller of this builder
+    // targets `material_requests` / `material_issues` / `material_returns` —
+    // the three Phase-3 trash tables — so the guard belongs here, once.
+    // A literal rather than a bind: it costs no placeholder index.
+    conds.push(`${alias}.deleted_at IS NULL`);
     const dateColumn = opts?.dateColumn || 'created_at';
     const storeIdColumn = opts?.storeIdColumn || 'store_id';
     const add = (column: string, op: string, value: any) => {
@@ -832,6 +839,8 @@ const params: any[] = [companyId];
     opts?: { dateColumn?: string; storeIdColumn?: string },
   ): string[] {
     const conds: string[] = [`${alias}.company_id = $${this.pushParam(params, () => companyId)}`];
+    // See `scopeConds` — same three trash tables, same reason.
+    conds.push(`${alias}.deleted_at IS NULL`);
     const dateColumn = opts?.dateColumn || 'created_at';
     const storeIdColumn = opts?.storeIdColumn || 'store_id';
     const add = (column: string, op: string, value: any) => {

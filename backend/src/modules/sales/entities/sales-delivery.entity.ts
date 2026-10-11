@@ -1,4 +1,14 @@
-import { Entity, Column, ManyToOne, JoinColumn, OneToMany, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import {
+  Entity,
+  Column,
+  ManyToOne,
+  JoinColumn,
+  OneToMany,
+  PrimaryGeneratedColumn,
+  CreateDateColumn,
+  UpdateDateColumn,
+  DeleteDateColumn,
+} from 'typeorm';
 import { Warehouse } from '../../organization/entities/warehouse.entity';
 import { SalesCustomer } from './sales-customer.entity';
 import { SalesOrder } from './sales-order.entity';
@@ -89,4 +99,18 @@ export class SalesDelivery {
 
   @OneToMany(() => SalesDeliveryLine, (line) => line.delivery)
   lines: SalesDeliveryLine[];
+
+  /**
+   * Recycle Bin columns.
+   *
+   * `sales_deliveries` is the physical GATE PASS document (the barcode module
+   * maps `BarcodeEntityType.GATE_PASS` to this table), so trashing a delivery
+   * is what the store does when a gate pass is raised in error. See
+   * `sales-order.entity.ts` for why these are declared inline.
+   */
+  @DeleteDateColumn({ name: 'deleted_at', type: 'timestamp with time zone', nullable: true })
+  deletedAt: Date | null;
+
+  @Column({ name: 'deleted_by', type: 'uuid', nullable: true })
+  deletedBy: string | null;
 }

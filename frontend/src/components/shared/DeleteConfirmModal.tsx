@@ -63,7 +63,7 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
   forceDeleteLabel = 'Force Delete (Admin Purge)',
 }) => {
   const [phase, setPhase] = useState<'confirm' | 'loading' | 'success'>('confirm');
-  const [internalOpen, setInternalOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(open);
   const [deactivating, setDeactivating] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -84,14 +84,30 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
 
   const loading = phase === 'loading';
   const forceDeleting = phase === 'loading';
+  const isSubmittingRef = React.useRef(false);
+  const prevOpenRef = React.useRef(false);
 
-  // Synchronize open prop with internal lifecycle
+  // Synchronize open prop transitions cleanly with internal lifecycle
   useEffect(() => {
-    if (open) {
+    if (open && !prevOpenRef.current) {
+      // Fresh open: reset phase to confirm and clear error
       setInternalOpen(true);
       setPhase('confirm');
       setDeactivating(false);
       setErrorMsg(null);
+    } else if (!open && prevOpenRef.current) {
+      // Parent closed modal
+      setInternalOpen(false);
+      setPhase('confirm');
+      setDeactivating(false);
+      setErrorMsg(null);
+    }
+    prevOpenRef.current = open;
+  }, [open]);
+
+  // Keep metadata cache fresh without triggering phase resets or infinite re-renders
+  useEffect(() => {
+    if (open) {
       cachedMeta.current = {
         itemType: itemType || cachedMeta.current.itemType || 'Record',
         itemName: itemName || cachedMeta.current.itemName,
@@ -106,12 +122,12 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
         successMessage: successMessage || cachedMeta.current.successMessage,
         okLabel: okLabel || cachedMeta.current.okLabel,
       };
-    } else if (phase !== 'loading' && phase !== 'success') {
-      setInternalOpen(false);
     }
-  }, [open, phase, itemType, itemName, itemCode, recordType, userName, userEmail, avatarUrl, tags, title, successTitle, successMessage, okLabel]);
+  }, [open, itemType, itemName, itemCode, recordType, userName, userEmail, avatarUrl, tags, title, successTitle, successMessage, okLabel]);
 
   const handleConfirm = async () => {
+    if (isSubmittingRef.current || phase === 'loading') return;
+    isSubmittingRef.current = true;
     try {
       setPhase('loading');
       setErrorMsg(null);
@@ -135,11 +151,14 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
 
       setPhase('confirm');
       setErrorMsg(msgStr);
+    } finally {
+      isSubmittingRef.current = false;
     }
   };
 
   const handleDeactivate = async () => {
-    if (!onDeactivateInstead) return;
+    if (!onDeactivateInstead || isSubmittingRef.current || deactivating) return;
+    isSubmittingRef.current = true;
     try {
       setDeactivating(true);
       setErrorMsg(null);
@@ -154,11 +173,13 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
       setErrorMsg(typeof msg === 'string' ? msg : JSON.stringify(msg));
     } finally {
       setDeactivating(false);
+      isSubmittingRef.current = false;
     }
   };
 
   const handleForceDelete = async () => {
-    if (!onForceDelete) return;
+    if (!onForceDelete || isSubmittingRef.current || phase === 'loading') return;
+    isSubmittingRef.current = true;
     try {
       setPhase('loading');
       setErrorMsg(null);
@@ -171,6 +192,8 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
         err?.message ||
         'Could not force delete the record. Please verify permissions.';
       setErrorMsg(typeof msg === 'string' ? msg : JSON.stringify(msg));
+    } finally {
+      isSubmittingRef.current = false;
     }
   };
 
@@ -305,7 +328,7 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
                 danger
                 icon={<DeleteOutlined />}
                 loading={loading}
-                disabled={deactivating || forceDeleting}
+                disabled={loading || deactivating || forceDeleting}
                 onClick={handleConfirm}
                 style={{ fontWeight: 700 }}
               >

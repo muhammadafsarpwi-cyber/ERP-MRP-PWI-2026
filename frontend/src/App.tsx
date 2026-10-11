@@ -74,6 +74,7 @@ import {
   RoleManagement,
   PermissionManagement,
   PermissionMatrix,
+  RecycleBin,
 } from './pages/admin';
 import {
   ItemManagement,
@@ -280,6 +281,7 @@ const App: React.FC = () => {
                   <Route path="/admin/roles" element={<RoleManagement />} />
                   <Route path="/admin/permissions" element={<PermissionManagement />} />
                   <Route path="/admin/permissions-matrix" element={<PermissionMatrix />} />
+                  <Route path="/admin/recycle-bin" element={<RecycleBin />} />
                   <Route path="/master-data/items" element={<ItemManagement />} />
                   <Route path="/master-data/categories" element={<CategoryManagement />} />
                   <Route path="/master-data/route-types" element={<RouteTypeManagement />} />

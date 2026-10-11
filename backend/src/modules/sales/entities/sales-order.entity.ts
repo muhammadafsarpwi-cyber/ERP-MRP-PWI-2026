@@ -1,4 +1,14 @@
-import { Entity, Column, ManyToOne, JoinColumn, OneToMany, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import {
+  Entity,
+  Column,
+  ManyToOne,
+  JoinColumn,
+  OneToMany,
+  PrimaryGeneratedColumn,
+  CreateDateColumn,
+  UpdateDateColumn,
+  DeleteDateColumn,
+} from 'typeorm';
 import { SalesCustomer } from './sales-customer.entity';
 import { SalesOrderItem } from './sales-order-item.entity';
 
@@ -96,4 +106,18 @@ export class SalesOrder {
 
   @OneToMany(() => SalesOrderItem, (item) => item.order)
   items: SalesOrderItem[];
+
+  /**
+   * Recycle Bin columns.
+   *
+   * Declared inline rather than through `SoftDeletableEntity`: this entity
+   * never extended `BaseEntity` and `erp_sales.sales_orders` carries its own
+   * `id`/timestamps with NO `is_active` column. Added by
+   * `migrations/1806000000000-AddSoftDeleteColumns.ts`.
+   */
+  @DeleteDateColumn({ name: 'deleted_at', type: 'timestamp with time zone', nullable: true })
+  deletedAt: Date | null;
+
+  @Column({ name: 'deleted_by', type: 'uuid', nullable: true })
+  deletedBy: string | null;
 }

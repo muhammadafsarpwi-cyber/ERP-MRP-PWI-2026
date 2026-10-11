@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In, IsNull, Not } from 'typeorm';
+import { Repository, In, IsNull, Not, ObjectLiteral, SelectQueryBuilder } from 'typeorm';
 import { ProductionEntry } from '../../production/entities/production-entry.entity';
 import { Machine } from '../../production/entities/machine.entity';
 import { Shift } from '../../production/entities/shift.entity';
@@ -267,98 +267,114 @@ export class DashboardService {
   }
 
   async getProductionSummary(companyId: string, filters?: DashboardFilters) {
-    const qb = this.entryRepo
-      .createQueryBuilder('pe')
-      .leftJoinAndSelect('pe.department', 'department')
-      .leftJoinAndSelect('pe.item', 'item')
-      .leftJoinAndSelect('pe.uom', 'uom')
-      .leftJoinAndSelect('pe.shift', 'shift')
-      .where('pe.company_id = :companyId', { companyId })
-      .andWhere('pe.is_active = true');
-
-    if (filters?.dateFrom) qb.andWhere('pe.entry_date >= :dateFrom', { dateFrom: filters.dateFrom });
-    if (filters?.dateTo) qb.andWhere('pe.entry_date <= :dateTo', { dateTo: filters.dateTo });
-    if (filters?.departmentId) qb.andWhere('pe.department_id = :departmentId', { departmentId: filters.departmentId });
-    if (filters?.shiftId) qb.andWhere('pe.shift_id = :shiftId', { shiftId: filters.shiftId });
-    if (filters?.machineId) qb.andWhere('pe.machine_no = :machineId', { machineId: filters.machineId });
-    if (filters?.itemId) qb.andWhere('pe.item_id = :itemId', { itemId: filters.itemId });
-    if (filters?.sectionId) {
-      qb.innerJoin(Department, 'd', 'd.id = pe.department_id')
-        .andWhere('d.section_id = :sectionId', { sectionId: filters.sectionId });
-    }
-    if (filters?.divisionId) {
-      qb.innerJoin(Department, 'd2', 'd2.id = pe.department_id')
-        .innerJoin(Division, 'div', 'div.id = d2.division_id')
-        .andWhere('d2.division_id = :divisionId', { divisionId: filters.divisionId });
-    }
-    // Server-side division scoping (Prompt #16) — never trusts a client dropdown.
-    applyDivisionScopeFilter(qb, 'pe.divisionId', filters?.allowedDivisionIds);
-
-    const entries = await qb.getMany();
-
-    let totalTarget = 0;
-    let totalActual = 0;
-    let totalScrap = 0;
-    let totalRunningHours = 0;
-    let totalDowntimeHours = 0;
-
-    const departmentMap = new Map<string, {
-      departmentId: string;
-      departmentName: string;
-      targetQuantity: number;
-      actualQuantity: number;
-      scrapQuantity: number;
-      runningHours: number;
-      downtimeHours: number;
-      entryCount: number;
-    }>();
-
-    for (const e of entries) {
-      totalTarget += Number(e.targetQuantity);
-      totalActual += Number(e.actualQuantity);
-      totalScrap += Number(e.scrapQuantity);
-      totalRunningHours += Number(e.runningHours);
-      totalDowntimeHours += Number(e.downtimeHours);
-
-      const deptId = e.departmentId;
-      if (!departmentMap.has(deptId)) {
-        departmentMap.set(deptId, {
-          departmentId: deptId,
-          departmentName: e.department?.name ?? 'Unknown',
-          targetQuantity: 0,
-          actualQuantity: 0,
-          scrapQuantity: 0,
-          runningHours: 0,
-          downtimeHours: 0,
-          entryCount: 0,
-        });
+    /**
+     * This endpoint is an AGGREGATE, not a list. It used to hydrate every
+     * matching production entry (four joined relations) and reduce it in JS —
+     * an unbounded full scan that grew with company history. Both queries below
+     * push the same work into SQL: one totals row, one GROUP BY department.
+     */
+    const applyScope = <T extends ObjectLiteral>(qb: SelectQueryBuilder<T>): SelectQueryBuilder<T> => {
+      qb.where('pe.company_id = :companyId', { companyId }).andWhere('pe.is_active = true');
+      if (filters?.dateFrom) qb.andWhere('pe.entry_date >= :dateFrom', { dateFrom: filters.dateFrom });
+      if (filters?.dateTo) qb.andWhere('pe.entry_date <= :dateTo', { dateTo: filters.dateTo });
+      if (filters?.departmentId) qb.andWhere('pe.department_id = :departmentId', { departmentId: filters.departmentId });
+      if (filters?.shiftId) qb.andWhere('pe.shift_id = :shiftId', { shiftId: filters.shiftId });
+      if (filters?.machineId) qb.andWhere('pe.machine_no = :machineId', { machineId: filters.machineId });
+      if (filters?.itemId) qb.andWhere('pe.item_id = :itemId', { itemId: filters.itemId });
+      if (filters?.sectionId) {
+        qb.innerJoin(Department, 'd', 'd.id = pe.department_id')
+          .andWhere('d.section_id = :sectionId', { sectionId: filters.sectionId });
       }
-      const dept = departmentMap.get(deptId)!;
-      dept.targetQuantity += Number(e.targetQuantity);
-      dept.actualQuantity += Number(e.actualQuantity);
-      dept.scrapQuantity += Number(e.scrapQuantity);
-      dept.runningHours += Number(e.runningHours);
-      dept.downtimeHours += Number(e.downtimeHours);
-      dept.entryCount += 1;
-    }
+      if (filters?.divisionId) {
+        qb.innerJoin(Department, 'd2', 'd2.id = pe.department_id')
+          .innerJoin(Division, 'div', 'div.id = d2.division_id')
+          .andWhere('d2.division_id = :divisionId', { divisionId: filters.divisionId });
+      }
+      // Server-side division scoping (Prompt #16) — never trusts a client dropdown.
+      applyDivisionScopeFilter(qb, 'pe.divisionId', filters?.allowedDivisionIds);
+      return qb;
+    };
 
-    const departments = [...departmentMap.values()].map(d => ({
-      ...d,
-      achievementPercentage: d.targetQuantity > 0 ? Math.round((d.actualQuantity / d.targetQuantity) * 100 * 100) / 100 : 0,
-    }));
+    const totals = await applyScope(this.entryRepo.createQueryBuilder('pe'))
+      .select('COUNT(*)', 'entryCount')
+      .addSelect('COALESCE(SUM(pe.target_quantity), 0)', 'totalTarget')
+      .addSelect('COALESCE(SUM(pe.actual_quantity), 0)', 'totalActual')
+      .addSelect('COALESCE(SUM(pe.scrap_quantity), 0)', 'totalScrap')
+      .addSelect('COALESCE(SUM(pe.running_hours), 0)', 'totalRunningHours')
+      .addSelect('COALESCE(SUM(pe.downtime_hours), 0)', 'totalDowntimeHours')
+      .getRawOne<{
+        entryCount: string;
+        totalTarget: string;
+        totalActual: string;
+        totalScrap: string;
+        totalRunningHours: string;
+        totalDowntimeHours: string;
+      }>();
+
+    const deptRows = await applyScope(this.entryRepo.createQueryBuilder('pe'))
+      .select('pe.department_id', 'departmentId')
+      .addSelect('dep.name', 'departmentName')
+      .addSelect('COUNT(*)', 'entryCount')
+      .addSelect('COALESCE(SUM(pe.target_quantity), 0)', 'targetQuantity')
+      .addSelect('COALESCE(SUM(pe.actual_quantity), 0)', 'actualQuantity')
+      .addSelect('COALESCE(SUM(pe.scrap_quantity), 0)', 'scrapQuantity')
+      .addSelect('COALESCE(SUM(pe.running_hours), 0)', 'runningHours')
+      .addSelect('COALESCE(SUM(pe.downtime_hours), 0)', 'downtimeHours')
+      .leftJoin(Department, 'dep', 'dep.id = pe.department_id')
+      .groupBy('pe.department_id')
+      .addGroupBy('dep.name')
+      .orderBy('dep.name', 'ASC')
+      .getRawMany<{
+        departmentId: string;
+        departmentName: string | null;
+        entryCount: string;
+        targetQuantity: string;
+        actualQuantity: string;
+        scrapQuantity: string;
+        runningHours: string;
+        downtimeHours: string;
+      }>();
+
+    const num = (v: string | number | null | undefined) => Number(v ?? 0);
+    const round4 = (v: number) => Math.round(v * 10000) / 10000;
+    const round2 = (v: number) => Math.round(v * 100 * 100) / 100;
+
+    const totalTarget = num(totals?.totalTarget);
+    const totalActual = num(totals?.totalActual);
+    const totalScrap = num(totals?.totalScrap);
+    const totalRunningHours = num(totals?.totalRunningHours);
+    const totalDowntimeHours = num(totals?.totalDowntimeHours);
+
+    const departments = deptRows.map((r) => {
+      const targetQuantity = num(r.targetQuantity);
+      const actualQuantity = num(r.actualQuantity);
+      return {
+        departmentId: r.departmentId,
+        departmentName: r.departmentName ?? 'Unknown',
+        targetQuantity,
+        actualQuantity,
+        scrapQuantity: num(r.scrapQuantity),
+        runningHours: num(r.runningHours),
+        downtimeHours: num(r.downtimeHours),
+        entryCount: num(r.entryCount),
+        achievementPercentage: targetQuantity > 0
+          ? Math.round((actualQuantity / targetQuantity) * 100 * 100) / 100
+          : 0,
+      };
+    });
 
     return {
       dateRange: { dateFrom: filters?.dateFrom ?? null, dateTo: filters?.dateTo ?? null },
-      totalEntries: entries.length,
+      totalEntries: num(totals?.entryCount),
       summary: {
-        totalTarget: Math.round(totalTarget * 10000) / 10000,
-        totalActual: Math.round(totalActual * 10000) / 10000,
-        totalScrap: Math.round(totalScrap * 10000) / 10000,
-        totalRunningHours: Math.round(totalRunningHours * 100) / 100,
-        totalDowntimeHours: Math.round(totalDowntimeHours * 100) / 100,
-        achievementPercentage: totalTarget > 0 ? Math.round((totalActual / totalTarget) * 100 * 100) / 100 : 0,
+        totalTarget: round4(totalTarget),
+        totalActual: round4(totalActual),
+        totalScrap: round4(totalScrap),
+        totalRunningHours: round2(totalRunningHours),
+        totalDowntimeHours: round2(totalDowntimeHours),
+        achievementPercentage: totalTarget > 0 ? round2((totalActual / totalTarget) * 100) : 0,
         efficiencyPercentage: (totalRunningHours + totalDowntimeHours) > 0
-          ? Math.round((totalRunningHours / (totalRunningHours + totalDowntimeHours)) * 100 * 100) / 100
+          ? round2((totalRunningHours / (totalRunningHours + totalDowntimeHours)) * 100)
           : 0,
       },
       departments,

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Routes, useLocation } from 'react-router-dom';
 import { useWorkspaceTabStore } from '../../store/workspaceTabStore';
 import { useHeaderActions } from './headerActionsStore';
+import { VerticalStatusRail } from './VerticalStatusRail';
 import './workspaceTabViewport.css';
 
 interface WorkspaceTabViewportProps {
@@ -143,6 +144,8 @@ export const WorkspaceTabViewport: React.FC<WorkspaceTabViewportProps> = React.m
 
   return (
     <div className="erp-tab-viewport-container">
+      {/* Vertical (bottom → top) status side label for the active view pane */}
+      {activePaneId ? <VerticalStatusRail tabId={activePaneId} /> : null}
       {panes.map((pane) => {
         const isActive = pane.id === activePaneId;
         const paneId = `erp-tab-pane-${pane.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;

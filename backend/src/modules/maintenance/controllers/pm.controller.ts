@@ -77,4 +77,11 @@ export class MaintenancePmController {
   skipSchedule(@Param('id') id: string, @CurrentUser() user: any) {
     return this.pmService.skipSchedule(id, user.id);
   }
+
+  @Delete('schedules/:id')
+  @RequirePermission('maintenance.pm.manage')
+  @ApiOperation({ summary: 'Move a PM schedule instance to the Recycle Bin (reversible)' })
+  removeSchedule(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.pmService.removeSchedule(id, user.id);
+  }
 }

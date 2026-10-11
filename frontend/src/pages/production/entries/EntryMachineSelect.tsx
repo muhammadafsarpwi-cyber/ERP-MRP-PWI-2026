@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Card, Row, Col, DatePicker, Select, Button, Space, Typography,
-  Empty, Popover, Tag, Alert, Steps, App,
+  Empty, Popover, Tag, Alert, Steps, App, theme,
 } from 'antd';
 import {
   ArrowLeftOutlined, ReloadOutlined, SelectOutlined, EditOutlined,
@@ -12,7 +12,8 @@ import dayjs from 'dayjs';
 import apiService from '../../../services/api';
 import { useLookups, ShiftLk } from './lookups';
 import { GlobalLoading } from '../../../components/shared';
-import { useEntryDockStore } from './entryDockStore';
+import { useEntryDockStore, type EntryContextParams } from './entryDockStore';
+import ProductionEntryDetailModal from './ProductionEntryDetailModal';
 
 const { Title, Text } = Typography;
 
@@ -71,6 +72,21 @@ interface MachineStatusResponse {
   };
 }
 
+interface MachineCacheEntry {
+  data: MachineStatusRow[];
+  meta: MachineStatusResponse['meta'] | null;
+  ts: number;
+}
+const machineStatusCache = new Map<string, MachineCacheEntry>();
+
+const formatDivLabel = (d: { name: string; divisionCode?: string }) => {
+  const code = d.divisionCode || '';
+  if (code && d.name.toUpperCase().includes(code.toUpperCase())) {
+    return d.name;
+  }
+  return code ? `${d.name} (${code})` : d.name;
+};
+
 /**
  * Step 1 of the production-entry flow: pick Date + Shift + organizational area,
  * then see every machine flagged as Already Entered / Entry Required BEFORE any
@@ -82,14 +98,17 @@ const EntryMachineSelect: React.FC = () => {
   const [searchParams] = useSearchParams();
   const lookups = useLookups();
 
-  // ── selection state (seeded from URL so back-navigation restores context) ──
+  // ── selection state: date defaults to yesterday (1 day minus) ──
   const [entryDate, setEntryDate] = useState<dayjs.Dayjs | null>(
-    searchParams.get('entryDate') ? dayjs(searchParams.get('entryDate') as string) : dayjs(),
+    searchParams.get('entryDate') ? dayjs(searchParams.get('entryDate') as string) : dayjs().subtract(1, 'day'),
   );
   const [shiftId, setShiftId] = useState<string | undefined>(searchParams.get('shiftId') || undefined);
   const [divisionId, setDivisionId] = useState<string | undefined>(searchParams.get('divisionId') || undefined);
   const [sectionId, setSectionId] = useState<string | undefined>(searchParams.get('sectionId') || undefined);
   const [departmentId, setDepartmentId] = useState<string | undefined>(searchParams.get('departmentId') || undefined);
+
+  // In-Modal Production Entry Detail Dialog State
+  const [detailModalEntryId, setDetailModalEntryId] = useState<string | null>(null);
 
   // ── department-specific target shifts ──
   const [deptShifts, setDeptShifts] = useState<ShiftLk[] | null>(null);
@@ -132,14 +151,19 @@ const EntryMachineSelect: React.FC = () => {
 
   const availableShifts = deptShifts && deptShifts.length > 0 ? deptShifts : lookups.shifts;
 
-  // ── machine status state ──
-  const [machines, setMachines] = useState<MachineStatusRow[]>([]);
-  const [meta, setMeta] = useState<MachineStatusResponse['meta'] | null>(null);
-  const [loading, setLoading] = useState(false);
+  // ── machine status global cache for 0ms tab switching & instantaneous hydration ──
+  const dateIso = entryDate ? entryDate.format('YYYY-MM-DD') : undefined;
+
+  // Key generator for in-memory status cache
+  const currentCacheKey = `${dateIso || ''}_${shiftId || ''}_${divisionId || 'all'}_${sectionId || 'all'}_${departmentId || 'all'}`;
+  const initialCacheHit = machineStatusCache.get(currentCacheKey);
+
+  // ── machine status state (seeded from in-memory cache if available) ──
+  const [machines, setMachines] = useState<MachineStatusRow[]>(() => initialCacheHit?.data || []);
+  const [meta, setMeta] = useState<MachineStatusResponse['meta'] | null>(() => initialCacheHit?.meta || null);
+  const [loading, setLoading] = useState<boolean>(() => !initialCacheHit && !!(dateIso && shiftId));
   const [error, setError] = useState<string | null>(null);
   const [refreshTick, setRefreshTick] = useState(0);
-
-  const dateIso = entryDate ? entryDate.format('YYYY-MM-DD') : undefined;
 
   const sectionsFiltered = lookups.sectionsForDivision(divisionId);
   const departmentsFiltered = lookups.departmentsForSection(sectionId);
@@ -166,7 +190,23 @@ const EntryMachineSelect: React.FC = () => {
       setMeta(null);
       return;
     }
-    setLoading(true);
+
+    const cacheKey = `${dateIso}_${shiftId}_${divisionId || 'all'}_${sectionId || 'all'}_${departmentId || 'all'}`;
+    const cached = machineStatusCache.get(cacheKey);
+
+    // If cache hit, immediately display cached machines (0ms screen wipe)
+    if (cached && cached.data.length > 0) {
+      setMachines(cached.data);
+      setMeta(cached.meta);
+      // If cached less than 15 seconds ago, skip background request unless explicitly refreshed
+      if (Date.now() - cached.ts < 15000 && refreshTick === 0) {
+        setLoading(false);
+        return;
+      }
+    } else {
+      setLoading(true);
+    }
+
     setError(null);
     try {
       const res = await apiService.get<MachineStatusResponse>('/production/entries/machine-status', {
@@ -176,20 +216,38 @@ const EntryMachineSelect: React.FC = () => {
         ...(sectionId && { sectionId }),
         ...(departmentId && { departmentId }),
       });
-      setMachines(res.data || []);
-      setMeta(res.meta || null);
-    } catch {
-      setError('Failed to load machine entry status. Check your connection and try again.');
+      const data = res.data || [];
+      const resMeta = res.meta || null;
+      machineStatusCache.set(cacheKey, { data, meta: resMeta, ts: Date.now() });
+      setMachines(data);
+      setMeta(resMeta);
+    } catch (err: any) {
+      if (!cached) {
+        const msg = err?.response?.data?.message || err?.message || 'Failed to load machine entry status. Please retry.';
+        setError(Array.isArray(msg) ? msg.join('; ') : String(msg));
+      }
     } finally {
       setLoading(false);
     }
-  }, [dateIso, shiftId, divisionId, sectionId, departmentId]);
+  }, [dateIso, shiftId, divisionId, sectionId, departmentId, refreshTick]);
 
   // Recompute whenever Date / Shift / Division / Section / Department change
   useEffect(() => {
-    const t = setTimeout(() => void fetchStatus(), 250);
+    const t = setTimeout(() => void fetchStatus(), 150);
     return () => clearTimeout(t);
   }, [fetchStatus, refreshTick]);
+
+  // When entry modal closes/saves in dock store, refresh availability grid automatically
+  useEffect(() => {
+    let wasOpen = false;
+    const unsub = useEntryDockStore.subscribe((state) => {
+      if (wasOpen && !state.isOpen) {
+        setRefreshTick((t) => t + 1);
+      }
+      wasOpen = state.isOpen;
+    });
+    return () => unsub();
+  }, []);
 
   const openNewEntry = (m: MachineStatusRow) => {
     const ctxDepartment = m.departmentId ?? departmentId;
@@ -204,7 +262,7 @@ const EntryMachineSelect: React.FC = () => {
     const secName = secObj?.name;
     const shiftName = effectiveShift?.name;
 
-    useEntryDockStore.getState().openEntry({
+    const params: EntryContextParams = {
       from: 'select',
       machineId: m.id,
       machineCode: m.machineCode,
@@ -219,6 +277,21 @@ const EntryMachineSelect: React.FC = () => {
       ...(ctxDepartment && { departmentId: ctxDepartment }),
       ...(depName && { departmentName: depName }),
       mode: 'create',
+    };
+
+    useEntryDockStore.getState().openEntry(params);
+  };
+
+  const handleEditEntry = (entryId: string) => {
+    useEntryDockStore.getState().openEntry({
+      from: 'select',
+      entryId,
+      mode: 'edit',
+      ...(dateIso && { entryDate: dateIso }),
+      ...(shiftId && { shiftId }),
+      ...(divisionId && { divisionId }),
+      ...(sectionId && { sectionId }),
+      ...(departmentId && { departmentId }),
     });
   };
 
@@ -288,40 +361,52 @@ const EntryMachineSelect: React.FC = () => {
         items={[{ title: 'Select Machine' }, { title: 'Production Details' }]}
       />
 
-      <Card size="small" style={{ marginBottom: 12 }}>
-        <Row gutter={12} wrap>
+      <Card
+        size="small"
+        style={{
+          marginBottom: 12,
+          borderRadius: 10,
+          border: '1px solid var(--theme-border, rgba(148, 163, 184, 0.2))',
+          boxShadow: '0 2px 8px rgba(0, 0, 0, 0.04)',
+        }}
+      >
+        <Row gutter={[12, 8]} wrap align="middle">
           <Col>
-            <Text type="secondary" style={{ display: 'block' }}>Division</Text>
+            <Text type="secondary" style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 3 }}>Division</Text>
             <Select
               allowClear showSearch optionFilterProp="label" placeholder="All Divisions"
-              style={{ width: 180 }} value={divisionId}
-              options={lookups.divisions.map((d) => ({ value: d.id, label: `${d.name} (${d.divisionCode})` }))}
+              className={divisionId ? 'erp-field-filled' : 'erp-field-unfilled'}
+              style={{ width: 180, borderRadius: 8 }} value={divisionId}
+              options={lookups.divisions.map((d) => ({ value: d.id, label: formatDivLabel(d) }))}
               onChange={(v) => { setDivisionId(v); setSectionId(undefined); setDepartmentId(undefined); }}
             />
           </Col>
           <Col>
-            <Text type="secondary" style={{ display: 'block' }}>Section</Text>
+            <Text type="secondary" style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 3 }}>Section</Text>
             <Select
               allowClear showSearch optionFilterProp="label" placeholder="All Sections"
-              style={{ width: 160 }} value={sectionId} disabled={!divisionId}
+              className={sectionId ? 'erp-field-filled' : 'erp-field-unfilled'}
+              style={{ width: 160, borderRadius: 8 }} value={sectionId} disabled={!divisionId}
               options={sectionsFiltered.map((s) => ({ value: s.id, label: s.name }))}
               onChange={(v) => { setSectionId(v); setDepartmentId(undefined); }}
             />
           </Col>
           <Col>
-            <Text type="secondary" style={{ display: 'block' }}>Department</Text>
+            <Text type="secondary" style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 3 }}>Department</Text>
             <Select
               allowClear showSearch optionFilterProp="label" placeholder="All Departments"
-              style={{ width: 170 }} value={departmentId} disabled={!sectionId}
+              className={departmentId ? 'erp-field-filled' : 'erp-field-unfilled'}
+              style={{ width: 170, borderRadius: 8 }} value={departmentId} disabled={!sectionId}
               options={departmentsFiltered.map((d) => ({ value: d.id, label: `${d.name}${d.departmentCode && d.departmentCode !== d.name ? ` (${d.departmentCode})` : ''}` }))}
               onChange={(v) => setDepartmentId(v)}
             />
           </Col>
           <Col>
-            <Text type="secondary" style={{ display: 'block' }}>Shift</Text>
+            <Text type="secondary" style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 3 }}>Shift</Text>
             <Select
               placeholder="Select Shift"
-              style={{ width: 220 }}
+              className={shiftId ? 'erp-field-filled' : 'erp-field-unfilled'}
+              style={{ width: 220, borderRadius: 8 }}
               value={shiftId}
               loading={deptShiftsLoading}
               options={availableShifts.map((s) => ({
@@ -332,9 +417,10 @@ const EntryMachineSelect: React.FC = () => {
             />
           </Col>
           <Col>
-            <Text type="secondary" style={{ display: 'block' }}>Production Date</Text>
+            <Text type="secondary" style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 3 }}>Production Date</Text>
             <DatePicker
-              style={{ width: 150 }}
+              className={entryDate ? 'erp-field-filled' : ''}
+              style={{ width: 150, borderRadius: 8 }}
               value={entryDate}
               onChange={(v) => setEntryDate(v)}
               allowClear={false}
@@ -405,8 +491,8 @@ const EntryMachineSelect: React.FC = () => {
                   key={m.id}
                   machine={m}
                   onSelect={() => openNewEntry(m)}
-                  onEdit={(entryId) => navigate(`/production/entries/${entryId}/edit`)}
-                  onView={(entryId) => navigate(`/production/entries/${entryId}`)}
+                  onEdit={(entryId) => handleEditEntry(entryId)}
+                  onView={(entryId) => setDetailModalEntryId(entryId)}
                   onDelete={(entryId) => deleteEntry(entryId)}
                 />
               ))}
@@ -414,6 +500,22 @@ const EntryMachineSelect: React.FC = () => {
           )}
         </>
       )}
+
+
+      {/* ── Enterprise In-Modal Production Entry Detail Dialog ── */}
+      <ProductionEntryDetailModal
+        open={Boolean(detailModalEntryId)}
+        entryId={detailModalEntryId}
+        onClose={() => setDetailModalEntryId(null)}
+        onEdit={(entryId) => {
+          setDetailModalEntryId(null);
+          handleEditEntry(entryId);
+        }}
+        onDeleted={() => {
+          setDetailModalEntryId(null);
+          setRefreshTick((t) => t + 1);
+        }}
+      />
     </div>
   );
 };
@@ -425,9 +527,9 @@ const MachineTile: React.FC<{
   onView: (entryId: string) => void;
   onDelete: (entryId: string) => void;
 }> = ({ machine, onSelect, onEdit, onView, onDelete }) => {
+  const { token } = theme.useToken();
   const entered = machine.status === 'ENTERED';
-  const statusColor = entered ? 'var(--theme-success)' : 'var(--theme-danger)';
-  const softBg = entered ? 'var(--theme-success-soft)' : 'transparent';
+  const statusColor = entered ? token.colorSuccess : token.colorError;
 
   // ── Metrics resolution (uses real machine targets & entry data) ───────────
   const hasEntries = machine.entries && machine.entries.length > 0;
@@ -462,19 +564,19 @@ const MachineTile: React.FC<{
   if (variance !== null) {
     if (variance > 0) {
       varianceNode = (
-        <span style={{ color: 'var(--theme-success, #16a34a)', fontWeight: 600 }}>
+        <span style={{ color: token.colorSuccess, fontWeight: 600 }}>
           ↑ {formatQty(variance)} {uom}
         </span>
       );
     } else if (variance < 0) {
       varianceNode = (
-        <span style={{ color: 'var(--theme-danger, #dc2626)', fontWeight: 600 }}>
+        <span style={{ color: token.colorError, fontWeight: 600 }}>
           ↓ {formatQty(Math.abs(variance))} {uom}
         </span>
       );
     } else {
       varianceNode = (
-        <span style={{ color: 'var(--theme-text-secondary, #64748b)', fontWeight: 600 }}>
+        <span style={{ color: token.colorTextSecondary, fontWeight: 600 }}>
           – 0 {uom}
         </span>
       );
@@ -489,13 +591,13 @@ const MachineTile: React.FC<{
           style={{
             display: 'flex', justifyContent: 'space-between', alignItems: 'center',
             gap: 8, padding: '8px 2px',
-            borderBottom: idx < machine.entries.length - 1 ? '1px solid var(--theme-border)' : 'none',
+            borderBottom: idx < machine.entries.length - 1 ? `1px solid ${token.colorBorderSecondary}` : 'none',
           }}
         >
           <div>
-            <Text strong style={{ fontSize: 13 }}>{e.itemName ?? e.itemId}</Text>
+            <Text strong style={{ fontSize: 13, color: token.colorText }}>{e.itemName ?? e.itemId}</Text>
             <br />
-            <Text type="secondary" style={{ fontSize: 11 }}>
+            <Text style={{ fontSize: 11, color: token.colorTextSecondary }}>
               Actual {formatQty(e.actualQuantity)} {e.uom || uom} / Target {formatQty(e.targetQuantity)} {e.uom || uom}
             </Text>
           </div>
@@ -516,31 +618,42 @@ const MachineTile: React.FC<{
   return (
     <div
       style={{
-        border: `1px solid ${entered ? 'var(--theme-success)' : 'var(--theme-border-strong)'}`,
-        borderRadius: 8,
-        padding: '10px 12px',
-        background: softBg,
+        border: `1.5px solid ${entered ? token.colorSuccess : token.colorBorderSecondary}`,
+        borderRadius: 10,
+        padding: '12px 14px',
+        background: entered ? (token.colorSuccessBg || 'rgba(16, 185, 129, 0.08)') : token.colorBgContainer,
+        boxShadow: entered
+          ? '0 2px 8px rgba(16, 185, 129, 0.12)'
+          : (token.boxShadowTertiary || '0 2px 8px rgba(0, 0, 0, 0.04)'),
         display: 'flex',
         flexDirection: 'column',
         gap: 8,
-        opacity: entered ? 0.96 : 1,
+        transition: 'all 0.2s ease',
       }}
     >
       <div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 6 }}>
-          <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--theme-text, #0f172a)', lineHeight: 1.3 }} title={machine.name}>
+          <div style={{ fontWeight: 700, fontSize: 14, color: token.colorText, lineHeight: 1.3 }} title={machine.name}>
             {machine.name}
           </div>
-          <Tag style={{ fontSize: 11, margin: 0, fontWeight: 600, padding: '0 6px', background: 'var(--theme-surface-alt, #f1f5f9)' }}>
+          <Tag style={{
+            fontSize: 11,
+            margin: 0,
+            fontWeight: 600,
+            padding: '0 6px',
+            background: token.colorFillAlter,
+            color: token.colorTextSecondary,
+            border: `1px solid ${token.colorBorderSecondary}`,
+          }}>
             {machine.machineCode}
           </Tag>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
           {machine.departmentName && (
-            <Text type="secondary" style={{ fontSize: 11 }}>{machine.departmentName}</Text>
+            <Text style={{ fontSize: 11, color: token.colorTextSecondary }}>{machine.departmentName}</Text>
           )}
           {machine.systemCode && machine.systemCode !== machine.machineCode && (
-            <Text type="secondary" style={{ fontSize: 10, color: 'var(--theme-text-muted, #94a3b8)' }}>· {machine.systemCode}</Text>
+            <Text style={{ fontSize: 10, color: token.colorTextTertiary }}>· {machine.systemCode}</Text>
           )}
         </div>
       </div>
@@ -558,10 +671,10 @@ const MachineTile: React.FC<{
       {/* ── Compact Machine KPI Section ─────────────────────────────────── */}
       <div
         style={{
-          border: '1px solid var(--theme-border-secondary, rgba(0, 0, 0, 0.08))',
+          border: `1px solid ${token.colorBorderSecondary}`,
           borderRadius: 6,
           padding: '4px 8px',
-          background: 'var(--theme-bg-subtle, rgba(0, 0, 0, 0.02))',
+          background: token.colorFillAlter,
           display: 'grid',
           gridTemplateColumns: '1fr 1fr 1fr',
           gap: 4,
@@ -570,24 +683,24 @@ const MachineTile: React.FC<{
         }}
       >
         <div>
-          <div style={{ color: 'var(--theme-text-secondary)', fontSize: 10, fontWeight: 500 }}>Target</div>
-          <div style={{ fontWeight: 600, fontSize: 12 }}>
+          <div style={{ color: token.colorTextSecondary, fontSize: 10, fontWeight: 500 }}>Target</div>
+          <div style={{ fontWeight: 600, fontSize: 12, color: token.colorText }}>
             {target !== null ? `${formatQty(target)} ${uom}` : '—'}
           </div>
         </div>
         <div>
-          <div style={{ color: 'var(--theme-text-secondary)', fontSize: 10, fontWeight: 500 }}>Production</div>
-          <div style={{ fontWeight: 600, fontSize: 12 }}>
+          <div style={{ color: token.colorTextSecondary, fontSize: 10, fontWeight: 500 }}>Production</div>
+          <div style={{ fontWeight: 600, fontSize: 12, color: token.colorText }}>
             {entered || target !== null ? `${formatQty(production)} ${uom}` : '—'}
           </div>
         </div>
         <div style={{ textAlign: 'right' }}>
-          <div style={{ color: 'var(--theme-text-secondary)', fontSize: 10, fontWeight: 500 }}>Achievement</div>
+          <div style={{ color: token.colorTextSecondary, fontSize: 10, fontWeight: 500 }}>Achievement</div>
           <div
             style={{
               fontWeight: 600,
               fontSize: 12,
-              color: achievement !== null && achievement >= 100 ? 'var(--theme-success, #16a34a)' : undefined,
+              color: achievement !== null && achievement >= 100 ? token.colorSuccess : token.colorText,
             }}
           >
             {achievement !== null ? formatPercent(achievement) : '—'}
@@ -599,6 +712,84 @@ const MachineTile: React.FC<{
           )}
         </div>
       </div>
+
+      {/* ── Item Breakdown (1 Item, 2 Items, etc.) ─────────────────────── */}
+      {machine.entries && machine.entries.length > 0 && (
+        <div
+          style={{
+            borderRadius: 6,
+            padding: '5px 8px',
+            background: token.colorFillAlter,
+            border: `1px solid ${token.colorBorderSecondary}`,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 4,
+          }}
+        >
+          {machine.entries.map((itemEntry, idx) => (
+            <div
+              key={itemEntry.id || idx}
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                fontSize: 11,
+                gap: 6,
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                <span
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    width: 16,
+                    height: 16,
+                    borderRadius: 3,
+                    background: token.colorPrimary,
+                    color: '#fff',
+                    fontSize: 9.5,
+                    fontWeight: 700,
+                    flexShrink: 0,
+                  }}
+                >
+                  {idx + 1}
+                </span>
+                <span
+                  style={{
+                    fontWeight: 600,
+                    color: token.colorText,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}
+                  title={itemEntry.itemName ?? itemEntry.itemId}
+                >
+                  {itemEntry.itemName || `Item #${idx + 1}`}
+                </span>
+              </div>
+              <div
+                style={{
+                  fontWeight: 700,
+                  fontVariantNumeric: 'tabular-nums',
+                  color: token.colorPrimary,
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {formatQty(itemEntry.actualQuantity)} {itemEntry.uom || uom}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div style={{ marginTop: 'auto', paddingTop: 4 }}>
         {entered ? (

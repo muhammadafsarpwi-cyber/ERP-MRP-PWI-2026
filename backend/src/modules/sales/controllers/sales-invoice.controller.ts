@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Body, Param, Query, Req, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query, Req, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { SalesInvoiceService } from '../services/sales-invoice.service';
 import { CreateSalesInvoiceDto } from '../dto';
@@ -101,5 +101,18 @@ export class SalesInvoiceController {
     const companyId = req.erpUser?.defaultCompanyId;
     const invoice = await this.service.recordPayment(id, paidAmount, userId, companyId, this.divisionScope(req));
     return { success: true, data: invoice, message: 'Payment recorded successfully' };
+  }
+
+  @Delete(':id')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('sales.invoices.update')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Move an unpaid invoice to the Recycle Bin (reversible)' })
+  async remove(@Req() req: any, @Param('id') id: string) {
+    const userId = req.user?.id;
+    const companyId = req.erpUser?.defaultCompanyId;
+    const invoice = await this.service.remove(id, userId, companyId, this.divisionScope(req));
+    return { success: true, data: invoice, message: 'Invoice moved to the Recycle Bin' };
   }
 }

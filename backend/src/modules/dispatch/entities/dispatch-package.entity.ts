@@ -8,7 +8,7 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
 } from 'typeorm';
-import { BaseEntity } from '../../../common/base.entity';
+import { SoftDeletableEntity } from '../../../common/soft-deletable.entity';
 import { DispatchPackageUnit } from './dispatch-package-unit.entity';
 import { DispatchPackageAuditLog } from './dispatch-package-audit.entity';
 import { SalesDelivery } from '../../sales/entities/sales-delivery.entity';
@@ -24,7 +24,7 @@ export enum DispatchPackageStatus {
 @Index(['companyId', 'packageNo'], { unique: true })
 @Index(['companyId', 'status'])
 @Index(['companyId', 'packageQrPayload'], { unique: true })
-export class DispatchPackage extends BaseEntity {
+export class DispatchPackage extends SoftDeletableEntity {
   @Column({ name: 'company_id', type: 'uuid' })
   companyId: string;
 

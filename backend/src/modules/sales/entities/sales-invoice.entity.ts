@@ -1,4 +1,13 @@
-import { Entity, Column, ManyToOne, JoinColumn, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import {
+  Entity,
+  Column,
+  ManyToOne,
+  JoinColumn,
+  PrimaryGeneratedColumn,
+  CreateDateColumn,
+  UpdateDateColumn,
+  DeleteDateColumn,
+} from 'typeorm';
 import { SalesCustomer } from './sales-customer.entity';
 import { SalesOrder } from './sales-order.entity';
 
@@ -62,4 +71,14 @@ export class SalesInvoice {
 
   @Column({ name: 'created_by', type: 'uuid', nullable: true })
   createdBy: string | null;
+
+  /**
+   * Recycle Bin columns — see `sales-order.entity.ts` for why these are
+   * declared inline instead of inheriting `SoftDeletableEntity`.
+   */
+  @DeleteDateColumn({ name: 'deleted_at', type: 'timestamp with time zone', nullable: true })
+  deletedAt: Date | null;
+
+  @Column({ name: 'deleted_by', type: 'uuid', nullable: true })
+  deletedBy: string | null;
 }

@@ -62,14 +62,18 @@ export class WarehouseService {
     search?: string;
     status?: WarehouseStatus;
     companyId?: string;
+    divisionId?: string;
+    departmentId?: string;
     branchId?: string;
     businessUnitId?: string;
     warehouseType?: string;
   }): Promise<{ data: Warehouse[]; total: number }> {
-    const { page = 1, limit = 20, search, status, companyId, branchId, businessUnitId, warehouseType } = options || {};
+    const { page = 1, limit = 20, search, status, companyId, divisionId, departmentId, branchId, businessUnitId, warehouseType } = options || {};
 
     const queryBuilder = this.warehouseRepository.createQueryBuilder('wh');
     queryBuilder.leftJoinAndSelect('wh.company', 'company');
+    queryBuilder.leftJoinAndSelect('wh.division', 'division');
+    queryBuilder.leftJoinAndSelect('wh.department', 'department');
     queryBuilder.leftJoinAndSelect('wh.branch', 'branch');
     queryBuilder.leftJoinAndSelect('wh.businessUnit', 'businessUnit');
 
@@ -86,6 +90,14 @@ export class WarehouseService {
 
     if (companyId) {
       queryBuilder.andWhere('wh.companyId = :companyId', { companyId });
+    }
+
+    if (divisionId) {
+      queryBuilder.andWhere('wh.divisionId = :divisionId', { divisionId });
+    }
+
+    if (departmentId) {
+      queryBuilder.andWhere('wh.departmentId = :departmentId', { departmentId });
     }
 
     if (branchId) {
@@ -113,7 +125,7 @@ export class WarehouseService {
   async findOne(id: string): Promise<Warehouse> {
     const warehouse = await this.warehouseRepository.findOne({
       where: { id },
-      relations: ['company', 'branch', 'businessUnit', 'locations'],
+      relations: ['company', 'division', 'department', 'branch', 'businessUnit', 'locations'],
     });
 
     if (!warehouse) {

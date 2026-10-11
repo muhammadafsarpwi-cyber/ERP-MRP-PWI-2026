@@ -1,5 +1,5 @@
 import { Entity, Column, ManyToOne, JoinColumn, Index } from 'typeorm';
-import { BaseEntity } from '../../../common/base.entity';
+import { SoftDeletableEntity } from '../../../common/soft-deletable.entity';
 import { Item } from '../../item/entities/item.entity';
 import { Uom } from '../../item/entities/uom.entity';
 import { Warehouse } from '../../organization/entities/warehouse.entity';
@@ -15,7 +15,7 @@ export enum ProductionEntryItemKind {
 
 @Entity('production_entry_items')
 @Index(['productionEntryId'])
-export class ProductionEntryItem extends BaseEntity {
+export class ProductionEntryItem extends SoftDeletableEntity {
   @Column({ name: 'company_id', type: 'uuid' })
   companyId: string;
 

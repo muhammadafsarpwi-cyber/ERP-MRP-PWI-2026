@@ -74,6 +74,11 @@ export class ToolLifecycleService {
       throw new NotFoundException(`Machine '${machineId}' not found in this company`);
     }
     const rows = await this.changeRepo.manager.query(
+      // Deliberately NOT filtered by `deleted_at`. This derives the machine's
+      // LIFETIME production counter, and the parts were physically made whether
+      // or not the entry document is later recycled — dropping trashed rows
+      // would make the counter rewind and push tool replacement decisions the
+      // wrong way. Recycle Bin governs document grids, not physical totals.
       `SELECT COALESCE(SUM(actual_quantity), 0)::numeric(19,4) AS counter_value
          FROM production_entries
         WHERE company_id = $1 AND machine_id = $2 AND is_active = TRUE AND entry_date <= $3`,

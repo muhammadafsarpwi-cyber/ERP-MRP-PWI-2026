@@ -226,6 +226,9 @@ export class MachineComponentService {
    * production-counter table.
    */
   async deriveMachineCounter(companyId: string, machineId: string): Promise<number | null> {
+    // Deliberately NOT filtered by `deleted_at`: see the same rationale in
+    // `tool-lifecycle.service.ts` — this is a physical lifetime total, not a
+    // document list, so recycling an entry must not rewind the counter.
     const rows = await this.changeRepo.manager.query(
       `SELECT COALESCE(SUM(actual_quantity), 0)::numeric(19,4) AS total_quantity
          FROM production_entries

@@ -7,6 +7,7 @@ import {
   ArrowLeftOutlined, EditOutlined, DeleteOutlined, ArrowRightOutlined,
   AimOutlined, AppstoreFilled, DeleteFilled, TrophyFilled, ThunderboltFilled, ClockCircleFilled, FieldTimeOutlined,
   ExclamationCircleOutlined, ArrowDownOutlined, ArrowUpOutlined, BarcodeOutlined, PrinterOutlined, FileTextOutlined,
+  LeftOutlined, RightOutlined, CheckCircleFilled,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import apiService from '../../../services/api';
@@ -20,6 +21,7 @@ import { ProductionUnitsPage } from '../units';
 import { convertProductToComponentQty } from './downtimeHours';
 import { entryOvertimeHours } from './overtimeHours';
 import { splitEntryItemLines } from './entryLines';
+import ProductionEntryEditModal from './ProductionEntryEditModal';
 
 const { Title, Text } = Typography;
 
@@ -214,27 +216,29 @@ const InventoryImpactReport: React.FC<{
   <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 14 }}>
     {/* LINE 1: INPUT (RAW MATERIAL INFLOW & DEDUCTION) */}
     <div style={{
-      background: 'rgba(239, 68, 68, 0.03)',
-      border: '1px solid rgba(239, 68, 68, 0.22)',
+      background: 'var(--theme-card-bg, rgba(15, 23, 42, 0.6))',
+      border: '1px solid rgba(239, 68, 68, 0.3)',
       borderRadius: 8,
       padding: '12px 14px',
-      boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
+      boxShadow: '0 2px 8px rgba(0,0,0,0.05)',
     }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 6 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <span style={{
-            background: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5',
+            background: 'var(--theme-danger-soft, rgba(239, 68, 68, 0.15))',
+            color: '#ef4444',
+            border: '1px solid rgba(239, 68, 68, 0.35)',
             fontWeight: 700, fontSize: 11, borderRadius: 4, padding: '3px 8px', letterSpacing: 0.3,
             display: 'inline-flex', alignItems: 'center', gap: 4,
           }}>
             <ArrowDownOutlined style={{ fontSize: 11 }} /> INPUT (RAW MATERIAL)
           </span>
-          <Text strong style={{ fontSize: 13, color: 'var(--theme-text, #1e293b)' }}>
+          <Text strong style={{ fontSize: 13, color: 'var(--theme-text, #f8fafc)' }}>
             {rawItemCode ? `${rawItemCode} — ` : ''}{rawItemName ?? 'Raw Material'}
           </Text>
         </div>
-        <span style={{ fontSize: 12, color: 'var(--theme-text-muted, #64748b)', background: 'var(--theme-surface-alt, #f8fafc)', padding: '3px 10px', borderRadius: 4, border: '1px solid var(--theme-border, #e2e8f0)' }}>
-          Source: <strong style={{ color: 'var(--theme-text, #0f172a)' }}>{rawStoreName ?? '—'}</strong>
+        <span style={{ fontSize: 12, color: 'var(--theme-text-muted, #94a3b8)', background: 'var(--theme-surface-alt, rgba(255, 255, 255, 0.05))', padding: '3px 10px', borderRadius: 4, border: '1px solid var(--theme-border, rgba(148, 163, 184, 0.2))' }}>
+          Source: <strong style={{ color: 'var(--theme-text, #f8fafc)' }}>{rawStoreName ?? '—'}</strong>
         </span>
       </div>
 
@@ -246,31 +250,46 @@ const InventoryImpactReport: React.FC<{
         textAlign: 'center',
       }}>
         {/* Before */}
-        <div style={{ background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: 8, padding: '8px 10px' }}>
-          <span style={{ fontSize: 11, textTransform: 'uppercase', color: '#475569', fontWeight: 700, display: 'block', marginBottom: 2 }}>
+        <div style={{
+          background: 'var(--theme-surface-alt, rgba(255, 255, 255, 0.04))',
+          border: '1px solid var(--theme-border, rgba(148, 163, 184, 0.2))',
+          borderRadius: 8,
+          padding: '8px 10px',
+        }}>
+          <span style={{ fontSize: 11, textTransform: 'uppercase', color: 'var(--theme-text-muted, #94a3b8)', fontWeight: 700, display: 'block', marginBottom: 2 }}>
             {posted ? 'Opening Available' : 'Current Available'}
           </span>
-          <span style={{ fontSize: 15, fontWeight: 800, color: '#0f172a', fontVariantNumeric: 'tabular-nums' }}>
+          <span style={{ fontSize: 15, fontWeight: 800, color: 'var(--theme-text, #f8fafc)', fontVariantNumeric: 'tabular-nums' }}>
             {formatNumber(rawBefore, 3)} <span style={{ fontSize: 12, fontWeight: 600 }}>{rawUom}</span>
           </span>
         </div>
         <span style={{ fontSize: 20, fontWeight: 800, color: '#ef4444' }}>−</span>
         {/* Consumed */}
-        <div style={{ background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 8, padding: '8px 10px' }}>
-          <span style={{ fontSize: 11, textTransform: 'uppercase', color: '#991b1b', fontWeight: 700, display: 'block', marginBottom: 2 }}>
+        <div style={{
+          background: 'var(--theme-danger-soft, rgba(239, 68, 68, 0.12))',
+          border: '1px solid rgba(239, 68, 68, 0.35)',
+          borderRadius: 8,
+          padding: '8px 10px',
+        }}>
+          <span style={{ fontSize: 11, textTransform: 'uppercase', color: '#f87171', fontWeight: 700, display: 'block', marginBottom: 2 }}>
             Consumed (Out)
           </span>
-          <span style={{ fontSize: 15, fontWeight: 800, color: '#b91c1c', fontVariantNumeric: 'tabular-nums' }}>
+          <span style={{ fontSize: 15, fontWeight: 800, color: '#ef4444', fontVariantNumeric: 'tabular-nums' }}>
             −{formatNumber(rawConsumed, 3)} <span style={{ fontSize: 12, fontWeight: 600 }}>{rawUom}</span>
           </span>
         </div>
-        <span style={{ fontSize: 20, fontWeight: 800, color: '#64748b' }}>=</span>
+        <span style={{ fontSize: 20, fontWeight: 800, color: 'var(--theme-text-muted, #94a3b8)' }}>=</span>
         {/* After */}
-        <div style={{ background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 8, padding: '8px 10px' }}>
-          <span style={{ fontSize: 11, textTransform: 'uppercase', color: '#166534', fontWeight: 700, display: 'block', marginBottom: 2 }}>
+        <div style={{
+          background: 'var(--theme-success-soft, rgba(16, 185, 129, 0.12))',
+          border: '1px solid rgba(16, 185, 129, 0.35)',
+          borderRadius: 8,
+          padding: '8px 10px',
+        }}>
+          <span style={{ fontSize: 11, textTransform: 'uppercase', color: '#34d399', fontWeight: 700, display: 'block', marginBottom: 2 }}>
             {posted ? 'Remaining Balance' : 'Projected Balance'}
           </span>
-          <span style={{ fontSize: 15, fontWeight: 800, color: '#15803d', fontVariantNumeric: 'tabular-nums' }}>
+          <span style={{ fontSize: 15, fontWeight: 800, color: '#10b981', fontVariantNumeric: 'tabular-nums' }}>
             {formatNumber(rawAfter, 3)} <span style={{ fontSize: 12, fontWeight: 600 }}>{rawUom}</span>
           </span>
         </div>
@@ -279,31 +298,33 @@ const InventoryImpactReport: React.FC<{
 
     {/* LINE 2: OUTPUT (GOOD PRODUCTION OUTFLOW & ADDITION) */}
     <div style={{
-      background: 'rgba(16, 185, 129, 0.03)',
-      border: '1px solid rgba(16, 185, 129, 0.22)',
+      background: 'var(--theme-card-bg, rgba(15, 23, 42, 0.6))',
+      border: '1px solid rgba(16, 185, 129, 0.3)',
       borderRadius: 8,
       padding: '12px 14px',
-      boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
+      boxShadow: '0 2px 8px rgba(0,0,0,0.05)',
     }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 6 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <span style={{
-            background: '#dcfce7', color: '#166534', border: '1px solid #86efac',
+            background: 'var(--theme-success-soft, rgba(16, 185, 129, 0.15))',
+            color: '#10b981',
+            border: '1px solid rgba(16, 185, 129, 0.35)',
             fontWeight: 700, fontSize: 11, borderRadius: 4, padding: '3px 8px', letterSpacing: 0.3,
             display: 'inline-flex', alignItems: 'center', gap: 4,
           }}>
             <ArrowUpOutlined style={{ fontSize: 11 }} /> OUTPUT (GOOD PRODUCTION)
           </span>
-          <Text strong style={{ fontSize: 13, color: 'var(--theme-text, #1e293b)' }}>
+          <Text strong style={{ fontSize: 13, color: 'var(--theme-text, #f8fafc)' }}>
             {outItemCode ? `${outItemCode} — ` : ''}{outItemName ?? 'Produced Item'}
           </Text>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 12, color: 'var(--theme-text-muted, #64748b)', background: 'var(--theme-surface-alt, #f8fafc)', padding: '3px 10px', borderRadius: 4, border: '1px solid var(--theme-border, #e2e8f0)' }}>
-            Receipt: <strong style={{ color: 'var(--theme-text, #0f172a)' }}>{outStoreName ?? '—'}</strong>
+          <span style={{ fontSize: 12, color: 'var(--theme-text-muted, #94a3b8)', background: 'var(--theme-surface-alt, rgba(255, 255, 255, 0.05))', padding: '3px 10px', borderRadius: 4, border: '1px solid var(--theme-border, rgba(148, 163, 184, 0.2))' }}>
+            Receipt: <strong style={{ color: 'var(--theme-text, #f8fafc)' }}>{outStoreName ?? '—'}</strong>
           </span>
           {outCompanyBefore != null && outCompanyBefore > outBefore && (
-            <span style={{ fontSize: 11, color: '#0369a1', background: '#e0f2fe', padding: '3px 8px', borderRadius: 4, border: '1px solid #7dd3fc', fontWeight: 600 }}>
+            <span style={{ fontSize: 11, color: '#38bdf8', background: 'rgba(56, 189, 248, 0.12)', padding: '3px 8px', borderRadius: 4, border: '1px solid rgba(56, 189, 248, 0.35)', fontWeight: 600 }}>
               Company Prior: {formatNumber(outCompanyBefore, 3)} {outUom}
             </span>
           )}
@@ -318,37 +339,52 @@ const InventoryImpactReport: React.FC<{
         textAlign: 'center',
       }}>
         {/* Before */}
-        <div style={{ background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: 8, padding: '8px 10px' }}>
-          <span style={{ fontSize: 11, textTransform: 'uppercase', color: '#475569', fontWeight: 700, display: 'block', marginBottom: 2 }}>
+        <div style={{
+          background: 'var(--theme-surface-alt, rgba(255, 255, 255, 0.04))',
+          border: '1px solid var(--theme-border, rgba(148, 163, 184, 0.2))',
+          borderRadius: 8,
+          padding: '8px 10px',
+        }}>
+          <span style={{ fontSize: 11, textTransform: 'uppercase', color: 'var(--theme-text-muted, #94a3b8)', fontWeight: 700, display: 'block', marginBottom: 2 }}>
             {posted ? 'Opening Balance' : 'Current Balance'}
           </span>
-          <span style={{ fontSize: 15, fontWeight: 800, color: '#0f172a', fontVariantNumeric: 'tabular-nums' }}>
+          <span style={{ fontSize: 15, fontWeight: 800, color: 'var(--theme-text, #f8fafc)', fontVariantNumeric: 'tabular-nums' }}>
             {formatNumber(outBefore, 3)} <span style={{ fontSize: 12, fontWeight: 600 }}>{outUom}</span>
           </span>
         </div>
         <span style={{ fontSize: 20, fontWeight: 800, color: '#10b981' }}>+</span>
         {/* Produced */}
-        <div style={{ background: '#dcfce7', border: '1px solid #86efac', borderRadius: 8, padding: '8px 10px' }}>
-          <span style={{ fontSize: 11, textTransform: 'uppercase', color: '#166534', fontWeight: 700, display: 'block', marginBottom: 2 }}>
+        <div style={{
+          background: 'var(--theme-success-soft, rgba(16, 185, 129, 0.12))',
+          border: '1px solid rgba(16, 185, 129, 0.35)',
+          borderRadius: 8,
+          padding: '8px 10px',
+        }}>
+          <span style={{ fontSize: 11, textTransform: 'uppercase', color: '#34d399', fontWeight: 700, display: 'block', marginBottom: 2 }}>
             Produced (In)
           </span>
-          <span style={{ fontSize: 15, fontWeight: 800, color: '#15803d', fontVariantNumeric: 'tabular-nums' }}>
+          <span style={{ fontSize: 15, fontWeight: 800, color: '#10b981', fontVariantNumeric: 'tabular-nums' }}>
             +{formatNumber(outProduced, 3)} <span style={{ fontSize: 12, fontWeight: 600 }}>{outUom}</span>
           </span>
         </div>
-        <span style={{ fontSize: 20, fontWeight: 800, color: '#64748b' }}>=</span>
+        <span style={{ fontSize: 20, fontWeight: 800, color: 'var(--theme-text-muted, #94a3b8)' }}>=</span>
         {/* After */}
-        <div style={{ background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 8, padding: '8px 10px' }}>
-          <span style={{ fontSize: 11, textTransform: 'uppercase', color: '#166534', fontWeight: 700, display: 'block', marginBottom: 2 }}>
+        <div style={{
+          background: 'var(--theme-success-soft, rgba(16, 185, 129, 0.18))',
+          border: '1px solid rgba(16, 185, 129, 0.45)',
+          borderRadius: 8,
+          padding: '8px 10px',
+        }}>
+          <span style={{ fontSize: 11, textTransform: 'uppercase', color: '#34d399', fontWeight: 700, display: 'block', marginBottom: 2 }}>
             {posted ? 'New Balance in Store' : 'Projected Balance'}
           </span>
-          <span style={{ fontSize: 15, fontWeight: 800, color: '#15803d', fontVariantNumeric: 'tabular-nums', textDecoration: 'underline' }}>
+          <span style={{ fontSize: 15, fontWeight: 800, color: '#10b981', fontVariantNumeric: 'tabular-nums', textDecoration: 'underline' }}>
             {formatNumber(outAfter, 3)} <span style={{ fontSize: 12, fontWeight: 600 }}>{outUom}</span>
           </span>
         </div>
       </div>
       {outCompanyBefore != null && outCompanyBefore > outBefore && (
-        <div style={{ marginTop: 8, padding: '6px 12px', background: 'rgba(2, 132, 199, 0.08)', borderRadius: 6, fontSize: 11.5, color: '#0284c7', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+        <div style={{ marginTop: 8, padding: '6px 12px', background: 'rgba(2, 132, 199, 0.12)', borderRadius: 6, fontSize: 11.5, color: '#38bdf8', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6, border: '1px solid rgba(56, 189, 248, 0.3)' }}>
           <span>
             ℹ️ <strong>Store Notice:</strong> Store <em>{outStoreName}</em> had 0 {outUom} prior opening balance.
           </span>
@@ -361,12 +397,32 @@ const InventoryImpactReport: React.FC<{
   </div>
 );
 
-const EntryDetail: React.FC = () => {
+type DetailStepKey = 'items' | 'downtime' | 'material' | 'ledger' | 'route' | 'coils' | 'audit';
+
+export interface EntryDetailProps {
+  id?: string;
+  isModal?: boolean;
+  onClose?: () => void;
+  onEdit?: (entryId: string) => void;
+  onDeleted?: () => void;
+}
+
+export const EntryDetail: React.FC<EntryDetailProps> = ({
+  id: propId,
+  isModal = false,
+  onClose,
+  onEdit: onEditProp,
+  onDeleted: onDeletedProp,
+}) => {
   const { message } = App.useApp();
-  const { id } = useParams<{ id: string }>();
+  const { id: paramId } = useParams<{ id: string }>();
+  const id = propId || paramId;
   const navigate = useNavigate();
   const [entry, setEntry] = useState<DetailData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
+  const [activeStep, setActiveStep] = useState<DetailStepKey>('items');
   const [balances, setBalances] = useState<StockBalance[]>([]);
   const [balancesLoading, setBalancesLoading] = useState(false);
   const [balancesError, setBalancesError] = useState<string | null>(null);
@@ -394,7 +450,7 @@ const EntryDetail: React.FC = () => {
         setLoading(false);
       }
     })();
-  }, [id, message]);
+  }, [id, message, reloadKey]);
 
   // Real inventory balances from the existing inventory-balance architecture
   // (never fabricated): the same /inventory/balances endpoint + filter the
@@ -591,13 +647,13 @@ const EntryDetail: React.FC = () => {
   const noBalancesAnywhere = inputBalances.length === 0;
 
   // ── Calculations for 2-Line Material Movement & Balance Impact Report ──
-  const rawStoreName = sourceStoreRow?.warehouse?.name ?? (entry as any).rawMaterialWarehouse?.name ?? 'CCD Stores';
+  const rawStoreName = (entry as any).rawMaterialWarehouse?.name ?? sourceStoreRow?.warehouse?.name ?? 'Source Store';
   const rawCurrentAvail = sourceStoreAvail ?? 0;
   const rawBefore = posted ? rawCurrentAvail + rawConsumed : rawCurrentAvail;
   const rawAfter = posted ? rawCurrentAvail : Math.max(0, rawCurrentAvail - rawConsumed);
 
   const outItem = entry.item;
-  const receiptStoreName = (entry as any).warehouse?.name ?? (movements.find(m => m.transactionType === 'PRODUCTION_RECEIPT')?.warehouse?.name) ?? balances[0]?.warehouse?.name ?? 'FT Production Department';
+  const receiptStoreName = (entry as any).warehouse?.name ?? (movements.find(m => m.transactionType === 'PRODUCTION_RECEIPT')?.warehouse?.name) ?? balances[0]?.warehouse?.name ?? 'Receipt Store';
   const outProduced = goodQty;
   const outUom = entry.uom?.code ?? 'KG';
   const outCurrentAvail = balances.find(b => b.warehouse?.name === receiptStoreName)?.available ?? balances[0]?.available ?? 0;
@@ -607,32 +663,123 @@ const EntryDetail: React.FC = () => {
   const outCompanyTotal = realOutBalances.reduce((s, b) => s + toNum(b.available), 0);
   const outCompanyBefore = posted ? Math.max(0, outCompanyTotal - outProduced) : outCompanyTotal;
 
+  const ContextInfoTile: React.FC<{
+    label: string;
+    value: React.ReactNode;
+    fullWidth?: boolean;
+    highlight?: boolean;
+  }> = ({ label, value, fullWidth, highlight }) => (
+    <div
+      style={{
+        gridColumn: fullWidth ? '1 / -1' : undefined,
+        background: highlight
+          ? 'var(--theme-primary-soft, rgba(2, 132, 199, 0.08))'
+          : 'var(--theme-surface-alt, rgba(255, 255, 255, 0.03))',
+        border: highlight
+          ? '1px solid var(--theme-primary, rgba(2, 132, 199, 0.35))'
+          : '1px solid var(--theme-border, rgba(148, 163, 184, 0.15))',
+        borderRadius: 6,
+        padding: '7px 10px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 2,
+        minWidth: 0,
+        overflow: 'hidden',
+      }}
+    >
+      <span
+        style={{
+          fontSize: 10.5,
+          fontWeight: 600,
+          textTransform: 'uppercase',
+          letterSpacing: 0.4,
+          color: 'var(--theme-text-muted, #64748b)',
+          lineHeight: 1.2,
+        }}
+      >
+        {label}
+      </span>
+      <div
+        style={{
+          fontSize: 12.5,
+          fontWeight: 600,
+          color: 'var(--theme-text, #0f172a)',
+          lineHeight: 1.35,
+          overflowWrap: 'anywhere',
+          wordBreak: 'break-word',
+        }}
+      >
+        {value || '—'}
+      </div>
+    </div>
+  );
+
   const sectionCtx = (
-    <Descriptions column={{ xs: 1, sm: 2, md: 3 }} size="small" bordered className="erp-detail-descriptions">
-      {/* Entry ID binds the human-readable document reference (PE-2026-00177),
-          never the raw database UUID — the hex string looked like a debugging
-          artefact next to the Entry Reference it duplicates. */}
-      <Descriptions.Item label="Entry ID"><Text type="secondary" style={{ fontSize: 12 }}>{entry.entryNumber ?? '—'}</Text></Descriptions.Item>
-      <Descriptions.Item label="Entry Reference"><Text strong style={{ fontSize: 13 }}>{entry.entryNumber ?? '—'}</Text></Descriptions.Item>
-      <Descriptions.Item label="Division">
-        {entry.division?.name ? `${entry.division.name} (${entry.division.divisionCode})` : (entry.division?.divisionCode || '—')}
-      </Descriptions.Item>
-      <Descriptions.Item label="Section">{entry.section?.name ?? '—'}</Descriptions.Item>
-      <Descriptions.Item label="Department">
-        {entry.department?.name ? `${entry.department.name} (${entry.department.departmentCode})` : (entry.department?.departmentCode || '—')}
-      </Descriptions.Item>
-      <Descriptions.Item label="Date">{dayjs(entry.entryDate).format('DD-MMM-YYYY')}</Descriptions.Item>
-      <Descriptions.Item label="Shift">
-        {entry.shift ? `${entry.shift.name} (${entry.shift.startTime ?? ''}–${entry.shift.endTime ?? ''})` : '—'}
-      </Descriptions.Item>
-      <Descriptions.Item label="Machine No.">
-        <Text strong>
-          {entry.machine?.name ? `${entry.machine.name} (${entry.machineNo})` : entry.machineNo}
-        </Text>
-      </Descriptions.Item>
-      <Descriptions.Item label="Operator">{entry.operatorName}</Descriptions.Item>
-      <Descriptions.Item label="Supervisor">{entry.supervisorName ?? '—'}</Descriptions.Item>
-    </Descriptions>
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+        gap: '8px',
+      }}
+    >
+      <ContextInfoTile
+        label="Entry ID"
+        value={
+          <span style={{ fontFamily: 'monospace', fontWeight: 700, color: 'var(--theme-primary, #0284c7)', fontSize: 13 }}>
+            {entry.entryNumber ?? '—'}
+          </span>
+        }
+      />
+      <ContextInfoTile
+        label="Status"
+        value={
+          posted ? (
+            <Tag color="green" style={{ margin: 0, fontWeight: 700, fontSize: 11 }}>POSTED</Tag>
+          ) : (
+            <Tag color="orange" style={{ margin: 0, fontWeight: 700, fontSize: 11 }}>DRAFT</Tag>
+          )
+        }
+      />
+      <ContextInfoTile
+        label="Entry Date"
+        value={dayjs(entry.entryDate).format('DD-MMM-YYYY')}
+      />
+      <ContextInfoTile
+        label="Shift"
+        value={entry.shift ? `${entry.shift.name} (${entry.shift.startTime ?? ''}–${entry.shift.endTime ?? ''})` : '—'}
+      />
+      <ContextInfoTile
+        label="Machine No."
+        value={
+          <span style={{ color: 'var(--theme-primary, #0284c7)', fontWeight: 700 }}>
+            {entry.machine?.name ? `${entry.machine.name} (${entry.machineNo})` : entry.machineNo}
+          </span>
+        }
+        fullWidth
+        highlight
+      />
+      <ContextInfoTile
+        label="Division"
+        value={entry.division?.name ? `${entry.division.name} (${entry.division.divisionCode})` : (entry.division?.divisionCode || '—')}
+      />
+      <ContextInfoTile
+        label="Department"
+        value={entry.department?.name ? `${entry.department.name} (${entry.department.departmentCode})` : (entry.department?.departmentCode || '—')}
+      />
+      <ContextInfoTile
+        label="Section"
+        value={entry.section?.name ?? '—'}
+        fullWidth
+      />
+      <ContextInfoTile
+        label="Operator"
+        value={entry.operatorName || '—'}
+      />
+      <ContextInfoTile
+        label="Supervisor"
+        value={entry.supervisorName || '—'}
+      />
+    </div>
   );
 
   const sectionSummary = (
@@ -1024,6 +1171,27 @@ const EntryDetail: React.FC = () => {
     </div>
   );
 
+  const stepDefinitions: Array<{
+    key: DetailStepKey;
+    stepNum: number;
+    title: string;
+    badge?: React.ReactNode;
+    icon: React.ReactNode;
+  }> = [
+    { key: 'items', stepNum: 1, title: 'Production Items & Output Lines', badge: outputItemLines.length > 0 ? `${outputItemLines.length} lines` : undefined, icon: <AppstoreFilled /> },
+    { key: 'downtime', stepNum: 2, title: 'Shift Duty & Downtime Tracking', badge: entry.downtimes?.length ? `${entry.downtimes.length} logs` : undefined, icon: <FieldTimeOutlined /> },
+    { key: 'material', stepNum: 3, title: 'Material Flow & Store Balances', icon: <ThunderboltFilled /> },
+    { key: 'ledger', stepNum: 4, title: 'Stock Ledger Movements & Reconciliation', badge: movements.length > 0 ? `${movements.length} rows` : undefined, icon: <BarcodeOutlined /> },
+    { key: 'route', stepNum: 5, title: 'Machine Route & Sequence Operations', badge: entry.route?.operations?.length ? `${entry.route.operations.length} ops` : undefined, icon: <AimOutlined /> },
+    { key: 'coils', stepNum: 6, title: 'Coil QR & Barcode Labels', icon: <PrinterOutlined /> },
+    { key: 'audit', stepNum: 7, title: 'Order Linkages & Entry Metadata', icon: <FileTextOutlined /> },
+  ];
+
+  const currentStepIdx = stepDefinitions.findIndex((s) => s.key === activeStep);
+  const currentStep = stepDefinitions[currentStepIdx] || stepDefinitions[0];
+  const prevStep = currentStepIdx > 0 ? stepDefinitions[currentStepIdx - 1] : null;
+  const nextStep = currentStepIdx < stepDefinitions.length - 1 ? stepDefinitions[currentStepIdx + 1] : null;
+
   return (
     <div>
       <style>{`
@@ -1055,28 +1223,53 @@ const EntryDetail: React.FC = () => {
       `}</style>
 
       {/* ── PageHeader provider for application header & tabs ── */}
-      <PageHeader
-        icon={<FileTextOutlined />}
-        title="Production Entry Details"
-        subtitle={`Shift production details, raw material reconciliation, and inventory impacts for ${entry.entryNumber || entry.id.slice(0, 8)}`}
-      />
+      {!isModal && (
+        <PageHeader
+          icon={<FileTextOutlined />}
+          title="Production Entry Details"
+          subtitle={`Shift production details, raw material reconciliation, and inventory impacts for ${entry.entryNumber || entry.id.slice(0, 8)}`}
+        />
+      )}
 
       {/* ── Action bar: identity + machine/department + date + actions ── */}
       <div style={{ marginBottom: 12, width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
         <Space style={{ flexWrap: 'wrap' }}>
-          <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/production/entries')}>Back</Button>
-          <Title level={4} style={{ margin: 0 }}>
+          <Button
+            icon={isModal ? undefined : <ArrowLeftOutlined />}
+            onClick={isModal ? (onClose || (() => navigate('/production/entries'))) : () => navigate('/production/entries')}
+          >
+            {isModal ? 'Close' : 'Back'}
+          </Button>
+          <Title level={4} style={{ margin: 0, fontSize: isModal ? 16 : 18 }}>
             Production Entry — {dayjs(entry.entryDate).format('DD-MMM-YYYY')}
           </Title>
+          {posted ? (
+            <Tag color="green" style={{ margin: 0, fontWeight: 700 }}>POSTED</Tag>
+          ) : (
+            <Tag color="orange" style={{ margin: 0, fontWeight: 700 }}>DRAFT</Tag>
+          )}
         </Space>
         <Space style={{ flexWrap: 'wrap' }}>
           <Text type="secondary" style={{ fontSize: 12 }}>
             {entry.department?.name} · {entry.machine?.name ? `${entry.machine.name} (${entry.machineNo})` : entry.machineNo} · {dayjs(entry.entryDate).format('YYYY-MM-DD')}
           </Text>
-          <Button icon={<EditOutlined />} onClick={() => navigate(`/production/entries/${id}/edit`)}>
+          <Button
+            icon={<EditOutlined />}
+            onClick={() => {
+              if (onEditProp && id) {
+                onEditProp(id);
+              } else {
+                setEditModalOpen(true);
+              }
+            }}
+          >
             Edit
           </Button>
-          <DeleteEntryButton onDeleted={() => navigate('/production/entries')} id={id!} entry={entry} />
+          <DeleteEntryButton
+            onDeleted={onDeletedProp || (() => navigate('/production/entries'))}
+            id={id!}
+            entry={entry}
+          />
         </Space>
       </div>
 
@@ -1091,139 +1284,405 @@ const EntryDetail: React.FC = () => {
         <KpiCell label="Downtime" value={`${formatNumber(totalDowntime, 2)}h`} sub={remaining != null ? `remaining ${formatNumber(remaining, 2)}h` : undefined} accent={totalDowntime > 0 ? 'warn' : undefined} icon={<FieldTimeOutlined />} />
       </Row>
 
-      <Row gutter={16}>
-        <Col xs={24} lg={16}>
-          <Section letter="A" title="Production Context">{sectionCtx}</Section>
+      {/* ── Step-to-Step Interactive Navigation Ribbon ── */}
+      <div
+        style={{
+          marginTop: 8,
+          marginBottom: 12,
+          padding: '6px 8px',
+          background: 'var(--theme-card-bg, rgba(15, 23, 42, 0.6))',
+          borderRadius: 8,
+          border: '1px solid var(--theme-border, rgba(148, 163, 184, 0.2))',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          overflowX: 'auto',
+          scrollbarWidth: 'none',
+        }}
+      >
+        {stepDefinitions.map((step) => {
+          const isActive = activeStep === step.key;
+          return (
+            <button
+              key={step.key}
+              type="button"
+              onClick={() => setActiveStep(step.key)}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '7px 14px',
+                borderRadius: 6,
+                fontSize: 12.5,
+                fontWeight: isActive ? 700 : 500,
+                cursor: 'pointer',
+                border: isActive
+                  ? '1px solid var(--theme-primary, #0284c7)'
+                  : '1px solid var(--theme-border, rgba(148, 163, 184, 0.15))',
+                background: isActive
+                  ? 'var(--theme-primary, #0284c7)'
+                  : 'var(--theme-surface-alt, rgba(255, 255, 255, 0.04))',
+                color: isActive ? '#ffffff' : 'var(--theme-text, #e2e8f0)',
+                boxShadow: isActive ? '0 2px 6px rgba(2, 132, 199, 0.35)' : 'none',
+                transition: 'all 0.2s ease',
+                whiteSpace: 'nowrap',
+                flexShrink: 0,
+              }}
+            >
+              <span style={{ fontSize: 13, display: 'inline-flex' }}>{step.icon}</span>
+              <span>{step.stepNum}. {step.title.split('&')[0].trim()}</span>
+              {step.badge && (
+                <span
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 700,
+                    padding: '1px 6px',
+                    borderRadius: 999,
+                    background: isActive ? 'rgba(255, 255, 255, 0.25)' : 'var(--theme-primary-soft, rgba(2, 132, 199, 0.15))',
+                    color: isActive ? '#ffffff' : 'var(--theme-primary, #0284c7)',
+                  }}
+                >
+                  {step.badge}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
 
-          <Section letter="B" title="Production Summary">{sectionSummary}</Section>
+      <Row gutter={[16, 16]}>
+        {/* ── LEFT PANE: Executive Station & Production Context ── */}
+        <Col xs={24} lg={8} xl={7}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <Card
+              size="small"
+              title={
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontWeight: 700, fontSize: 13.5, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <AimOutlined style={{ color: 'var(--theme-primary, #0284c7)' }} />
+                    Production Station Context
+                  </span>
+                  {posted ? (
+                    <Tag color="green" style={{ margin: 0 }}>POSTED</Tag>
+                  ) : (
+                    <Tag color="orange" style={{ margin: 0 }}>DRAFT</Tag>
+                  )}
+                </div>
+              }
+            >
+              {sectionCtx}
 
-          <Section letter="C" title="Input Material & Raw Material Availability">{sectionInputMaterial}</Section>
+              <Divider style={{ margin: '12px 0' }} />
 
-          <Section letter="D" title="Material Flow">{sectionMaterialFlow}</Section>
-
-          {outputItemLines.length > 0 && (
-            <Section letter="E" title="Production Output Lines">
-              <Table rowKey="id" size="small" pagination={false}
-                scroll={{ x: 'max-content' }}
-                dataSource={outputItemLines}
-                columns={[
-                  { title: '#', dataIndex: 'lineNumber', width: 40 },
-                  {
-                    title: 'Item', key: 'item',
-                    render: (_, r) => r.item ? <Text strong>{r.item.name}{r.item.itemCode ? ` (${r.item.itemCode})` : ''}</Text> : '—',
-                  },
-                  {
-                    title: 'Wire Size', key: 'wire', width: 110,
-                    render: (_, r) => r.item?.wireSizeMm != null ? `${formatDimension(r.item.wireSizeMm)} mm` : '—',
-                  },
-                  { title: 'UOM', key: 'uom', width: 70, render: (_, r) => r.uom?.code ?? '—' },
-                  { title: 'Per Unit Weight', key: 'perUnitWeight', width: 115, render: (_, r) => (
-                    <Text type="secondary" style={{ fontVariantNumeric: 'tabular-nums', fontSize: 12 }}>{perUnitWeightLabel(r.uom?.code ?? '', r.item?.weightPerPiece, r.item?.weightPerMeter) ?? '—'}</Text>
-                  ) },
-                  { title: 'Actual', dataIndex: 'actualQuantity', width: 90, align: 'right', render: (v) => formatNumber(v, 3) },
-                  { title: 'Actual KG', key: 'actualKg', width: 100, align: 'right', render: (_, r) => {
-                    const kg = calcActualKg(r.uom?.code ?? '', toNum(r.actualQuantity), r.item?.weightPerPiece, r.item?.weightPerMeter);
-                    return kg == null ? <Text type="secondary">—</Text> : <Text style={{ fontVariantNumeric: 'tabular-nums' }}>{formatNumber(kg, 3)}</Text>;
-                  } },
-                  { title: 'Scrap', dataIndex: 'scrapQuantity', width: 90, align: 'right', render: (v) => formatNumber(v, 3) },
-                ]}
-              />
-            </Section>
-          )}
-
-          <Section letter="F" title="Downtime Breakdown">{sectionDowntime}</Section>
-
-          <Section letter="G" title="Production Route">{sectionRoute}</Section>
-
-          <Section letter="H" title="Linkages">
-            <Descriptions column={{ xs: 1, sm: 2 }} size="small" bordered className="erp-detail-descriptions">
-              <Descriptions.Item label="Production Order">
-                {entry.productionOrder ? (
-                  <Button type="link" size="small" onClick={() => navigate(`/production/orders/${entry.productionOrder!.id}`)}>
-                    {entry.productionOrder.orderNumber}
-                  </Button>
-                ) : (
-                  '—'
-                )}
-              </Descriptions.Item>
-              <Descriptions.Item label="Operation ID">{entry.productionOrderOperationId?.slice(0, 8) || '—'}</Descriptions.Item>
-            </Descriptions>
-          </Section>
-
-          <Section letter="I" title="Remarks & Entry Metadata">
-            <Descriptions column={{ xs: 1, sm: 2 }} size="small" bordered className="erp-detail-descriptions">
-              <Descriptions.Item label="Remarks" span={2}>{entry.remarks ?? '—'}</Descriptions.Item>
-              <Descriptions.Item label="Created By">{entry.createdByUser?.fullName ?? '—'}</Descriptions.Item>
-              {/* Same rule as Section A: the operator-facing reference, not the UUID. */}
-              <Descriptions.Item label="Entry ID"><Text type="secondary" style={{ fontSize: 12 }}>{entry.entryNumber ?? '—'}</Text></Descriptions.Item>
-            </Descriptions>
-          </Section>
-
-          <Section letter="K" title="Inventory Movements & Reconciliation">
-            {sectionMovements}
-          </Section>
-
-          <div id="coil-serialization-section">
-            <Section letter="L" title="Coil Serialization & Unique Barcode/QR Labels">
-              <ProductionUnitsPage
-                embedded
-                productionEntryId={entry.id}
-                initialItem={entry.item ? { id: entry.itemId, itemCode: entry.item.itemCode, name: entry.item.name } : null}
-                initialValues={{
-                  shiftName: entry.shift?.name,
-                  operatorName: entry.operatorName,
-                  machineNo: entry.machineNo,
-                  productionDate: entry.entryDate,
-                  lengthMeters: 250,
+              {/* Achievement & Efficiency Visual Gauges */}
+              <div
+                style={{
+                  background: 'var(--theme-surface-alt, rgba(255, 255, 255, 0.02))',
+                  borderRadius: 8,
+                  border: '1px solid var(--theme-border, rgba(148, 163, 184, 0.12))',
+                  padding: '10px 8px',
+                  display: 'grid',
+                  gridTemplateColumns: '1fr 1fr',
+                  gap: 8,
+                  textAlign: 'center',
                 }}
-              />
-            </Section>
+              >
+                <div style={{ borderRight: '1px solid var(--theme-border, rgba(148, 163, 184, 0.15))', paddingRight: 6 }}>
+                  <Text type="secondary" style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.3, display: 'block' }}>
+                    Achievement
+                  </Text>
+                  <div style={{ margin: '2px 0' }}>
+                    <KpiPercentage value={ach} fontSize={22} fontWeight={800} />
+                  </div>
+                  <Text type="secondary" style={{ fontSize: 11, display: 'block' }}>
+                    {formatNumber(entry.actualQuantity, 2)} / {formatNumber(entry.targetQuantity, 2)}
+                  </Text>
+                </div>
+                <div style={{ paddingLeft: 6 }}>
+                  <Text type="secondary" style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.3, display: 'block' }}>
+                    Efficiency
+                  </Text>
+                  <div style={{ margin: '2px 0' }}>
+                    <KpiPercentage value={eff} fontSize={22} fontWeight={800} />
+                  </div>
+                  <Text type="secondary" style={{ fontSize: 11, display: 'block' }}>
+                    {formatNumber(effectiveRunning, 2)}h / {planned != null ? `${formatNumber(planned, 2)}h` : 'shift'}
+                  </Text>
+                </div>
+              </div>
+
+              <Divider style={{ margin: '12px 0' }} />
+
+              {/* Quick Actions in Left Pane */}
+              <Space direction="vertical" style={{ width: '100%' }}>
+                <Button
+                  type="primary"
+                  icon={<EditOutlined />}
+                  block
+                  onClick={() => {
+                    if (onEditProp && id) {
+                      onEditProp(id);
+                    } else {
+                      setEditModalOpen(true);
+                    }
+                  }}
+                >
+                  Edit Entry (In-Modal)
+                </Button>
+                <Button
+                  icon={<PrinterOutlined />}
+                  block
+                  onClick={() => setActiveStep('coils')}
+                >
+                  Coil Barcode Labels
+                </Button>
+                <DeleteEntryButton
+                  onDeleted={onDeletedProp || (() => navigate('/production/entries'))}
+                  id={id!}
+                  entry={entry}
+                  block
+                />
+              </Space>
+            </Card>
           </div>
         </Col>
 
-        <Col xs={24} lg={8}>
-          <Card size="small" style={{ marginTop: 12 }}>
-            <div style={{ textAlign: 'center', padding: '4px 0 12px' }}>
-              <Text type="secondary">Achievement vs Target</Text>
+        {/* ── RIGHT PANE: Active Interactive Step & Table View ── */}
+        <Col xs={24} lg={16} xl={17}>
+          <Card
+            size="small"
+            title={
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700, fontSize: 14 }}>
+                  <span
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      width: 24,
+                      height: 24,
+                      borderRadius: 4,
+                      background: 'var(--theme-primary, #0284c7)',
+                      color: '#ffffff',
+                      fontSize: 12,
+                      fontWeight: 700,
+                    }}
+                  >
+                    {currentStep.stepNum}
+                  </span>
+                  <span>{currentStep.title}</span>
+                </span>
+                <Space>
+                  <Button
+                    size="small"
+                    icon={<LeftOutlined />}
+                    disabled={!prevStep}
+                    onClick={() => prevStep && setActiveStep(prevStep.key)}
+                  >
+                    Previous
+                  </Button>
+                  <Button
+                    size="small"
+                    type="primary"
+                    disabled={!nextStep}
+                    onClick={() => nextStep && setActiveStep(nextStep.key)}
+                  >
+                    Next <RightOutlined />
+                  </Button>
+                </Space>
+              </div>
+            }
+          >
+            {/* Step 1: Production Items & Outputs */}
+            {activeStep === 'items' && (
               <div>
-                <KpiPercentage value={ach} fontSize={40} fontWeight={700} />
+                <div style={{ marginBottom: 12 }}>
+                  <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>
+                    Primary Manufactured Product
+                  </Text>
+                  {sectionSummary}
+                </div>
+                {outputItemLines.length > 0 && (
+                  <div style={{ marginTop: 14 }}>
+                    <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>
+                      Secondary Output Production Lines ({outputItemLines.length})
+                    </Text>
+                    <Table
+                      rowKey="id"
+                      size="small"
+                      pagination={false}
+                      scroll={{ x: 'max-content' }}
+                      dataSource={outputItemLines}
+                      columns={[
+                        { title: '#', dataIndex: 'lineNumber', width: 40 },
+                        {
+                          title: 'Item',
+                          key: 'item',
+                          render: (_, r) =>
+                            r.item ? (
+                              <Text strong>
+                                {r.item.name}
+                                {r.item.itemCode ? ` (${r.item.itemCode})` : ''}
+                              </Text>
+                            ) : (
+                              '—'
+                            ),
+                        },
+                        {
+                          title: 'Wire Size',
+                          key: 'wire',
+                          width: 110,
+                          render: (_, r) =>
+                            r.item?.wireSizeMm != null
+                              ? `${formatDimension(r.item.wireSizeMm)} mm`
+                              : '—',
+                        },
+                        { title: 'UOM', key: 'uom', width: 70, render: (_, r) => r.uom?.code ?? '—' },
+                        {
+                          title: 'Per Unit Weight',
+                          key: 'perUnitWeight',
+                          width: 115,
+                          render: (_, r) => (
+                            <Text type="secondary" style={{ fontVariantNumeric: 'tabular-nums', fontSize: 12 }}>
+                              {perUnitWeightLabel(r.uom?.code ?? '', r.item?.weightPerPiece, r.item?.weightPerMeter) ?? '—'}
+                            </Text>
+                          ),
+                        },
+                        { title: 'Actual', dataIndex: 'actualQuantity', width: 90, align: 'right', render: (v) => formatNumber(v, 3) },
+                        {
+                          title: 'Actual KG',
+                          key: 'actualKg',
+                          width: 100,
+                          align: 'right',
+                          render: (_, r) => {
+                            const kg = calcActualKg(r.uom?.code ?? '', toNum(r.actualQuantity), r.item?.weightPerPiece, r.item?.weightPerMeter);
+                            return kg == null ? <Text type="secondary">—</Text> : <Text style={{ fontVariantNumeric: 'tabular-nums' }}>{formatNumber(kg, 3)}</Text>;
+                          },
+                        },
+                        { title: 'Scrap', dataIndex: 'scrapQuantity', width: 90, align: 'right', render: (v) => formatNumber(v, 3) },
+                      ]}
+                    />
+                  </div>
+                )}
               </div>
-              <Divider />
-              <Text type="secondary">Efficiency</Text>
+            )}
+
+            {/* Step 2: Downtime Tracking & Shift Duty */}
+            {activeStep === 'downtime' && (
               <div>
-                <KpiPercentage value={eff} fontSize={28} fontWeight={600} />
+                {sectionDowntime}
               </div>
-              <div style={{ marginTop: 4 }}>
-                <Text type="secondary">
-                  {formatNumber(entry.actualQuantity, 3)} of {formatNumber(entry.targetQuantity, 3)} {entry.uom?.code} produced
-                </Text>
+            )}
+
+            {/* Step 3: Material Flow & Store Balances */}
+            {activeStep === 'material' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <div>
+                  <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>
+                    Raw Material Inventory Availability
+                  </Text>
+                  {sectionInputMaterial}
+                </div>
+                <div>
+                  <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>
+                    2-Line Material Movement & Balance Impact Analysis
+                  </Text>
+                  {sectionMaterialFlow}
+                </div>
               </div>
-            </div>
+            )}
+
+            {/* Step 4: Stock Ledger Movements & Reconciliation */}
+            {activeStep === 'ledger' && (
+              <div>
+                {sectionMovements}
+              </div>
+            )}
+
+            {/* Step 5: Machine Route Operations Sequence */}
+            {activeStep === 'route' && (
+              <div>
+                {sectionRoute}
+              </div>
+            )}
+
+            {/* Step 6: Coil Serialization & Unique Barcode/QR Labels */}
+            {activeStep === 'coils' && (
+              <div id="coil-serialization-section">
+                <ProductionUnitsPage
+                  embedded
+                  productionEntryId={entry.id}
+                  initialItem={entry.item ? { id: entry.itemId, itemCode: entry.item.itemCode, name: entry.item.name } : null}
+                  initialValues={{
+                    shiftName: entry.shift?.name,
+                    operatorName: entry.operatorName,
+                    machineNo: entry.machineNo,
+                    productionDate: entry.entryDate,
+                    lengthMeters: 250,
+                  }}
+                />
+              </div>
+            )}
+
+            {/* Step 7: Order Linkages & Audit Trail */}
+            {activeStep === 'audit' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <div>
+                  <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 8 }}>
+                    Production Order & Operations Linkage
+                  </Text>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
+                    <ContextInfoTile
+                      label="Production Order"
+                      value={
+                        entry.productionOrder ? (
+                          <Button type="link" size="small" style={{ padding: 0, fontWeight: 700 }} onClick={() => navigate(`/production/orders/${entry.productionOrder!.id}`)}>
+                            {entry.productionOrder.orderNumber}
+                          </Button>
+                        ) : '—'
+                      }
+                    />
+                    <ContextInfoTile
+                      label="Operation ID"
+                      value={entry.productionOrderOperationId?.slice(0, 8) || '—'}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 8 }}>
+                    Remarks & Entry Audit Metadata
+                  </Text>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
+                    <ContextInfoTile
+                      label="Remarks"
+                      value={entry.remarks ?? '—'}
+                      fullWidth
+                    />
+                    <ContextInfoTile
+                      label="Created By"
+                      value={entry.createdByUser?.fullName ?? '—'}
+                    />
+                    <ContextInfoTile
+                      label="Entry ID"
+                      value={<span style={{ fontFamily: 'monospace', fontWeight: 600, color: 'var(--theme-text-muted)' }}>{entry.entryNumber ?? '—'}</span>}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
           </Card>
-
-          <Section letter="J" title="Inventory Posting Summary">{sectionStock}</Section>
-
-          <Space direction="vertical" style={{ width: '100%', marginTop: 16 }}>
-            <Button
-              type="primary"
-              icon={<BarcodeOutlined />}
-              block
-              style={{ background: '#0284c7', borderColor: '#0284c7' }}
-              onClick={() => {
-                const el = document.getElementById('coil-serialization-section');
-                if (el) el.scrollIntoView({ behavior: 'smooth' });
-                else navigate(`/production/units?productionEntryId=${id}`);
-              }}
-            >
-              Coil Serialization & Labels
-            </Button>
-            <Button type="primary" icon={<EditOutlined />} block onClick={() => navigate(`/production/entries/${id}/edit`)}>
-              Edit Entry
-            </Button>
-            <DeleteEntryButton onDeleted={() => navigate('/production/entries')} id={id!} entry={entry} block />
-          </Space>
         </Col>
       </Row>
+
+      {/* ── Enterprise In-Modal Dual-Pane Edit Dialog ── */}
+      <ProductionEntryEditModal
+        open={editModalOpen}
+        entryId={id || null}
+        onClose={() => setEditModalOpen(false)}
+        onSuccess={() => {
+          setReloadKey((k) => k + 1);
+        }}
+      />
     </div>
   );
 };

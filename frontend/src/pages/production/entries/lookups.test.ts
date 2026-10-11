@@ -17,7 +17,7 @@ describe('useLookups — HR Employees & Department Items', () => {
     ];
 
     apiMock.get.mockImplementation(async (url: string) => {
-      if (url === '/hr/employees/lookup') return { success: true, data: mockEmps };
+      if (url === '/hr/employees/lookup' || url === '/hr/employees') return { success: true, data: mockEmps };
       if (url === '/master-data/items') return { success: true, data: [] };
       return { success: true, data: [] };
     });
@@ -69,5 +69,38 @@ describe('useLookups — HR Employees & Department Items', () => {
     expect(loaded.length).toBe(2);
     expect(loaded[0].itemCode).toBe('WIP-ST-011');
     expect(result.current.deptItemsMap['dept-st'].length).toBe(2);
+  });
+
+  it('loadDepartmentItems strictly excludes non-WIP/RM items such as tools, spare parts, and breakers', async () => {
+    const mixedItems = [
+      { id: 'item-spk-1', itemCode: 'WIP-SP-018', name: '225*17 Outer Straight', itemType: 'WORK_IN_PROGRESS', departmentId: 'dept-spk' },
+      { id: 'item-spk-2', itemCode: 'RM-WIRE-01', name: 'Wire Rod 2.6mm', itemType: 'RAW_MATERIAL', departmentId: 'dept-spk' },
+      { id: 'item-spk-3', itemCode: 'SP-117026', name: 'SPOKE BENDING PUNCH', itemType: 'SPARE_PART', departmentId: 'dept-spk' },
+      { id: 'item-spk-4', itemCode: 'SP-216008', name: 'SPOKE HEADING PUNCH', itemType: 'TOOLS', departmentId: 'dept-spk' },
+      { id: 'item-spk-5', itemCode: '175007A', name: 'BREAKER MCB 3 POLE 32AMP', itemType: 'ELECTRICAL', departmentId: 'dept-spk' },
+      { id: 'item-other-1', itemCode: 'WIP-CCD-01', name: 'Control Cable WIP', itemType: 'WORK_IN_PROGRESS', departmentId: 'dept-other' },
+    ];
+
+    apiMock.get.mockImplementation(async (url: string, params?: any) => {
+      if (url === '/master-data/items' && params?.departmentId === 'dept-spk') {
+        return { success: true, data: mixedItems };
+      }
+      return { success: true, data: [] };
+    });
+
+    const { result } = renderHook(() => useLookups());
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+
+    let loaded: any[] = [];
+    await act(async () => {
+      loaded = await result.current.loadDepartmentItems('dept-spk');
+    });
+
+    expect(loaded.length).toBe(2);
+    expect(loaded.map((i) => i.itemCode)).toEqual(['WIP-SP-018', 'RM-WIRE-01']);
+    expect(result.current.deptItemsMap['dept-spk'].map((i) => i.itemCode)).toEqual(['WIP-SP-018', 'RM-WIRE-01']);
   });
 });

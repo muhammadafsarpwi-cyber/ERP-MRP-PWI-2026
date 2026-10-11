@@ -326,7 +326,8 @@ export class StoreMaterialTraceService {
         COALESCE(SUM(mrl.pr_created_qty), 0)::float AS pr_created
        FROM material_request_lines mrl
        JOIN material_requests m ON m.id = mrl.request_id
-       WHERE mrl.item_id = $1 AND m.company_id = $2 AND m.status <> 'CANCELLED' AND m.rejected_at IS NULL${scope ? ` ${scope}` : ''}`,
+       WHERE mrl.item_id = $1 AND m.company_id = $2 AND m.status <> 'CANCELLED' AND m.rejected_at IS NULL
+         AND m.deleted_at IS NULL${scope ? ` ${scope}` : ''}`,
       params,
     );
     return rows[0] || {};
@@ -341,10 +342,10 @@ export class StoreMaterialTraceService {
       `SELECT
         (SELECT COALESCE(SUM(mil.quantity), 0)::float
            FROM material_issue_lines mil JOIN material_issues mi ON mi.id = mil.issue_id
-          WHERE mil.item_id = $1 AND mi.company_id = $2 AND mi.status = 'POSTED'${issueScope}) AS issued,
+          WHERE mil.item_id = $1 AND mi.company_id = $2 AND mi.status = 'POSTED' AND mi.deleted_at IS NULL${issueScope}) AS issued,
         (SELECT COALESCE(SUM(mrl.quantity), 0)::float
            FROM material_return_lines mrl JOIN material_returns mr ON mr.id = mrl.return_id
-          WHERE mrl.item_id = $1 AND mr.company_id = $2 AND mr.status = 'POSTED'${returnScope}) AS returned`,
+          WHERE mrl.item_id = $1 AND mr.company_id = $2 AND mr.status = 'POSTED' AND mr.deleted_at IS NULL${returnScope}) AS returned`,
       params,
     );
     return rows[0] || {};
@@ -447,7 +448,7 @@ w.warehouse_code, w.name AS warehouse_name, u.display_name AS user_name
        LEFT JOIN divisions d ON d.id = m.division_id
        LEFT JOIN sections sec ON sec.id = m.section_id
        LEFT JOIN departments dep ON dep.id = m.department_id
-       WHERE mrl.item_id = $1 AND m.company_id = $2${sco}${scope}
+       WHERE mrl.item_id = $1 AND m.company_id = $2 AND m.deleted_at IS NULL${sco}${scope}
        ORDER BY m.request_date DESC, m.request_number DESC`,
       params,
     );
@@ -528,7 +529,7 @@ SUP.name AS supplier_name, w.name AS warehouse_name,
        JOIN stores s ON s.id = mi.store_id
        LEFT JOIN uoms u ON u.id = mil.uom_id
        LEFT JOIN departments dep ON dep.id = mi.issued_to_department_id
-       WHERE mil.item_id = $1 AND mi.company_id = $2${storeId ? ' AND mi.store_id = $3' : ''}${scope}
+       WHERE mil.item_id = $1 AND mi.company_id = $2 AND mi.deleted_at IS NULL${storeId ? ' AND mi.store_id = $3' : ''}${scope}
        ORDER BY mi.issue_date DESC, mi.issue_number DESC`,
       params,
     );
@@ -549,7 +550,7 @@ SUP.name AS supplier_name, w.name AS warehouse_name,
        JOIN stores s ON s.id = mr.store_id
        LEFT JOIN uoms u ON u.id = mrl.uom_id
        LEFT JOIN departments dep ON dep.id = mr.from_department_id
-       WHERE mrl.item_id = $1 AND mr.company_id = $2${storeId ? ' AND mr.store_id = $3' : ''}${scope}
+       WHERE mrl.item_id = $1 AND mr.company_id = $2 AND mr.deleted_at IS NULL${storeId ? ' AND mr.store_id = $3' : ''}${scope}
        ORDER BY mr.return_date DESC, mr.return_number DESC`,
       params,
     );

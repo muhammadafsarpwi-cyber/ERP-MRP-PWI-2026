@@ -1,41 +1,50 @@
 /* ─────────────────────────────────────────────────────────────────────────────
  * RejectionScrapDetails.tsx — TAB B · "Rejection & Scrap Details"
  *
- * Read-only analytical sheet rendered only inside its own tab pane under the
- * existing Daily Production Entry <Tabs>. Nothing here writes back, so the live
- * log grid stays 100% untouched (Zero-Disturbance Policy).
- *
- * What it answers:
- *   · Data Matrix — Machine/Product | Actual produced (KG) | Rejected scrap
- *     (KG) | Wastage defect reason code, one tight row per machine+product pair.
- *   · Wastage Trend — daily scrap generation across the selected date range.
- *   · Department Breakdown — the same totals grouped by department tier
- *     (Straightening · Swaging · Plating) so the wasteful stage is obvious.
- *
- * WEIGHTS · Both KG columns go through `calcActualKg`, the SAME conversion the
- * grid's "Actual KG" and "Rejection %" columns print, and the wastage % uses
- * actual KG as its denominator — so this sheet can never disagree with the live
- * row it summarises. A zero / unknown Actual KG reads 0%, never Infinity.
+ * Rich Analytical Dashboard featuring:
+ *   1. Executive KPI Summary Tiles (Produced KG, Scrap KG, Wastage %, Top Defect)
+ *   2. 4 Modern Visual Recharts:
+ *      - Area Chart: Day-wise Scrap Trend (Timeline)
+ *      - Donut Chart: Defect Reason Distribution
+ *      - Horizontal Bar Chart: Department-wise Rejection (KG)
+ *      - Bar Chart: Top Item-wise Rejection
+ *   3. Wastage Data Matrix (Machine/Product | Actual KG | Scrap KG | Defect Reason)
+ *   4. Department Breakdown Summary Table
  * ──────────────────────────────────────────────────────────────────────────── */
 
 import React, { useMemo } from 'react';
-import { Button, Tooltip } from 'antd';
+import { Button, Tooltip, Tag } from 'antd';
 import {
+  Area,
+  AreaChart,
   Bar,
   BarChart,
   CartesianGrid,
+  Pie,
+  PieChart,
   ResponsiveContainer,
   Tooltip as ChartTooltip,
   XAxis,
   YAxis,
 } from 'recharts';
-import { ReloadOutlined, WarningOutlined } from '@ant-design/icons';
+import {
+  ReloadOutlined,
+  WarningOutlined,
+  LineChartOutlined,
+  PieChartOutlined,
+  BarChartOutlined,
+  ApartmentOutlined,
+  AppstoreOutlined,
+  TrophyOutlined,
+} from '@ant-design/icons';
 import { formatNumber } from '../../../utils/numberFormat';
 import type { ProductionEntryRow } from './EntryList';
 import { useAnalysisRows } from './analyticsData';
 import {
   dailyScrapSeries,
   departmentScrapRollup,
+  defectReasonDistribution,
+  topItemsScrapRollup,
   hoursFixed,
   kgFixed,
   scrapMatrix,
@@ -62,17 +71,17 @@ export interface RejectionScrapDetailsProps {
   active: boolean;
 }
 
-/**
- * Compact wrapping header cell. The spec's column titles are long, so they wrap
- * inside a tight cell instead of stretching the table and leaving dead margin.
- */
+/** Defect Donut Color Palette */
+const DEFECT_COLORS = ['#f97316', '#06b6d4', '#a855f7', '#10b981', '#ec4899', '#eab308', '#6366f1'];
+
+/** Compact wrapping header cell. */
 const thHead: React.CSSProperties = {
   fontSize: 10,
   textTransform: 'uppercase',
   letterSpacing: '0.04em',
   lineHeight: 1.3,
   color: 'var(--theme-text-muted, #94a3b8)',
-  padding: '4px 4px',
+  padding: '6px 6px',
   whiteSpace: 'normal',
   verticalAlign: 'bottom',
 };
@@ -87,6 +96,14 @@ const RejectionScrapDetails: React.FC<RejectionScrapDetailsProps> = ({ seed, bui
   const byDepartment = useMemo(() => departmentScrapRollup(rows), [rows]);
   const totals = useMemo(() => scrapTotals(rows), [rows]);
   const unweighted = useMemo(() => unweightedEntryCount(rows), [rows]);
+  const defectDist = useMemo(() => {
+    const list = defectReasonDistribution(rows);
+    return list.map((item, index) => ({
+      ...item,
+      fill: DEFECT_COLORS[index % DEFECT_COLORS.length],
+    }));
+  }, [rows]);
+  const topItems = useMemo(() => topItemsScrapRollup(rows, 6), [rows]);
 
   const status =
     analysis.error ?? (analysis.loading ? 'Loading the analytical sample…' : null);
@@ -95,16 +112,15 @@ const RejectionScrapDetails: React.FC<RejectionScrapDetailsProps> = ({ seed, bui
     ? `Read-only · ${formatNumber(rows.length, 0)} of ${formatNumber(analysis.scopeTotal, 0)} matching entries analysed across ${formatNumber(series.length, 0)} production day${series.length === 1 ? '' : 's'}.`
     : `Read-only · seeded with the ${formatNumber(rows.length, 0)} entries on the current page while the filtered sample loads.`;
 
-  const SCRAP_BAR = CHART_COLORS[1];
-  const PRODUCED_BAR = CHART_COLORS[0];
+  const topDefect = defectDist[0];
 
   return (
-    <div data-testid="rejection-scrap-sheet" style={{ padding: '4px 0 12px' }}>
+    <div data-testid="rejection-scrap-sheet" style={{ padding: '4px 0 16px' }}>
       <SheetHead
         title={
-          <span>
-            <WarningOutlined style={{ color: 'var(--theme-danger, #dc2626)', marginRight: 6 }} />
-            Rejection &amp; Scrap Details
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 15, fontWeight: 700 }}>
+            <WarningOutlined style={{ color: 'var(--theme-danger, #ef4444)' }} />
+            Rejection &amp; Scrap Analytics
           </span>
         }
         caption={caption}
@@ -122,8 +138,8 @@ const RejectionScrapDetails: React.FC<RejectionScrapDetailsProps> = ({ seed, bui
       />
       <SheetStatus text={status} />
 
-      {/* ── Header metrics ───────────────────────────────────────────────── */}
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+      {/* ── 4 Top Executive KPI Metrics ────────────────────────────────────── */}
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
         <MetricTile
           testId="scrap-produced"
           label="Actual Produced"
@@ -132,54 +148,305 @@ const RejectionScrapDetails: React.FC<RejectionScrapDetailsProps> = ({ seed, bui
         />
         <MetricTile
           testId="scrap-rejected"
-          label="Rejected Scrap"
+          label="Scrap Weight (KG)"
           value={`${kgFixed(totals.scrapKg)} KG`}
-          tone={totals.scrapKg > 0 ? 'var(--theme-danger, #dc2626)' : undefined}
+          tone={totals.scrapKg > 0 ? 'var(--theme-danger, #ef4444)' : undefined}
           hint={`${formatNumber(matrix.length, 0)} machine / product pairs`}
         />
         <MetricTile
           testId="scrap-wastage"
-          label="Wastage"
+          label="Rejection Rate"
           value={`${formatNumber(totals.wastagePct, 2)}%`}
-          tone={totals.wastagePct > 0 ? 'var(--theme-warning, #d97706)' : undefined}
+          tone={totals.wastagePct > 0 ? 'var(--theme-warning, #f59e0b)' : undefined}
           hint="Rejected KG ÷ Actual KG"
         />
         <MetricTile
-          testId="scrap-unweighted"
-          label="No Weight UOM"
-          value={formatNumber(unweighted, 0)}
-          hint={unweighted > 0 ? 'Excluded from KG totals' : 'All rows convert to KG'}
+          testId="scrap-top-defect"
+          label="Top Defect Type"
+          value={topDefect ? topDefect.reason : 'None'}
+          tone="#a855f7"
+          hint={topDefect ? `${topDefect.pct}% of scrap (${kgFixed(topDefect.scrapKg)} KG)` : (unweighted > 0 ? `${unweighted} rows excluded` : 'Zero defect recorded')}
         />
       </div>
 
-      {/* ── 1 · Data Matrix ──────────────────────────────────────────────── */}
-      <Panel title="Wastage Data Matrix" testId="scrap-matrix">
+      {/* ── 2x2 Grid: 4 Visual Analytics Charts ────────────────────────────── */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(440px, 1fr))',
+          gap: 12,
+          marginBottom: 14,
+        }}
+      >
+        {/* CHART 1: Day-wise Scrap Trend (Area Chart) */}
+        <Panel
+          title={
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700 }}>
+              <LineChartOutlined style={{ color: '#06b6d4' }} /> Day-wise Scrap Trend
+            </span>
+          }
+          testId="scrap-trend-panel"
+        >
+          {series.length === 0 ? (
+            <div style={{ fontSize: 12, color: 'var(--theme-text-muted, #94a3b8)', padding: '24px 8px', textAlign: 'center' }}>
+              No dated entries in the selected range.
+            </div>
+          ) : (
+            <>
+              <ChartFrame height={230}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={series} margin={{ top: 10, right: 12, left: -10, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="scrapGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#f97316" stopOpacity={0.4} />
+                        <stop offset="95%" stopColor="#f97316" stopOpacity={0.0} />
+                      </linearGradient>
+                      <linearGradient id="producedGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.25} />
+                        <stop offset="95%" stopColor="#06b6d4" stopOpacity={0.0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--theme-border, rgba(255,255,255,0.08))" vertical={false} />
+                    <XAxis
+                      dataKey="date"
+                      tick={{ fontSize: 10, fill: 'var(--theme-text-muted, #94a3b8)' }}
+                      tickFormatter={(v: string) => String(v).slice(5)}
+                      stroke="var(--theme-border, #cbd5e1)"
+                    />
+                    <YAxis
+                      tick={{ fontSize: 10, fill: 'var(--theme-text-muted, #94a3b8)' }}
+                      stroke="var(--theme-border, #cbd5e1)"
+                    />
+                    <ChartTooltip
+                      contentStyle={{
+                        background: 'var(--theme-surface, #1e293b)',
+                        borderColor: 'var(--theme-border, #334155)',
+                        borderRadius: 8,
+                        fontSize: 12,
+                      }}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="actualKg"
+                      name="Actual Produced (KG)"
+                      stroke="#06b6d4"
+                      strokeWidth={2}
+                      fill="url(#producedGradient)"
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="scrapKg"
+                      name="Rejected Scrap (KG)"
+                      stroke="#f97316"
+                      strokeWidth={2.5}
+                      fill="url(#scrapGradient)"
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </ChartFrame>
+              <div style={{ display: 'flex', gap: 14, fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', marginTop: 6, flexWrap: 'wrap' }}>
+                <span>
+                  <span style={{ display: 'inline-block', width: 9, height: 9, borderRadius: 2, background: '#06b6d4', marginRight: 5 }} />
+                  Actual Produced (KG)
+                </span>
+                <span>
+                  <span style={{ display: 'inline-block', width: 9, height: 9, borderRadius: 2, background: '#f97316', marginRight: 5 }} />
+                  Rejected Scrap (KG)
+                </span>
+              </div>
+            </>
+          )}
+        </Panel>
+
+        {/* CHART 2: Defect Reason Distribution (Donut Pie Chart) */}
+        <Panel
+          title={
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700 }}>
+              <PieChartOutlined style={{ color: '#f97316' }} /> Defect Reason Distribution
+            </span>
+          }
+          testId="defect-dist-panel"
+        >
+          {defectDist.length === 0 ? (
+            <div style={{ fontSize: 12, color: 'var(--theme-text-muted, #94a3b8)', padding: '24px 8px', textAlign: 'center' }}>
+              No scrap recorded in this period.
+            </div>
+          ) : (
+            <>
+              <ChartFrame height={230}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={defectDist}
+                      dataKey="scrapKg"
+                      nameKey="reason"
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={52}
+                      outerRadius={82}
+                      paddingAngle={3}
+                    />
+                    <ChartTooltip
+                      formatter={(val: unknown) => [`${kgFixed(Number(val))} KG`, 'Scrap Weight']}
+                      contentStyle={{
+                        background: 'var(--theme-surface, #1e293b)',
+                        borderColor: 'var(--theme-border, #334155)',
+                        borderRadius: 8,
+                        fontSize: 12,
+                      }}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              </ChartFrame>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
+                {defectDist.slice(0, 5).map((d, i) => (
+                  <Tag
+                    key={d.reason}
+                    style={{
+                      margin: 0,
+                      fontSize: 10.5,
+                      borderRadius: 4,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      border: 'none',
+                      background: 'var(--theme-surface-subtle, rgba(255,255,255,0.06))',
+                      color: 'var(--theme-text, #f1f5f9)',
+                    }}
+                  >
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: DEFECT_COLORS[i % DEFECT_COLORS.length] }} />
+                    <span>{d.reason}: <strong>{d.pct}%</strong></span>
+                  </Tag>
+                ))}
+              </div>
+            </>
+          )}
+        </Panel>
+
+        {/* CHART 3: Department-wise Rejection (KG) (Horizontal Bar Chart) */}
+        <Panel
+          title={
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700 }}>
+              <ApartmentOutlined style={{ color: '#38bdf8' }} /> Department-wise Rejection (KG)
+            </span>
+          }
+          testId="scrap-dept-chart"
+        >
+          {byDepartment.length === 0 ? (
+            <div style={{ fontSize: 12, color: 'var(--theme-text-muted, #94a3b8)', padding: '24px 8px', textAlign: 'center' }}>
+              No department records found.
+            </div>
+          ) : (
+            <ChartFrame height={230}>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={byDepartment}
+                  layout="vertical"
+                  margin={{ top: 8, right: 24, left: 16, bottom: 0 }}
+                  barCategoryGap="20%"
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--theme-border, rgba(255,255,255,0.08))" horizontal={false} />
+                  <XAxis type="number" tick={{ fontSize: 10, fill: 'var(--theme-text-muted, #94a3b8)' }} />
+                  <YAxis
+                    dataKey="department"
+                    type="category"
+                    width={110}
+                    tick={{ fontSize: 11, fill: 'var(--theme-text, #f1f5f9)', fontWeight: 500 }}
+                  />
+                  <ChartTooltip
+                    formatter={(val: unknown) => [`${kgFixed(Number(val))} KG`, 'Scrap Weight']}
+                    contentStyle={{
+                      background: 'var(--theme-surface, #1e293b)',
+                      borderColor: 'var(--theme-border, #334155)',
+                      borderRadius: 8,
+                      fontSize: 12,
+                    }}
+                  />
+                  <Bar dataKey="scrapKg" name="Scrap (KG)" fill="#38bdf8" radius={[0, 6, 6, 0]} isAnimationActive={false} />
+                </BarChart>
+              </ResponsiveContainer>
+            </ChartFrame>
+          )}
+        </Panel>
+
+        {/* CHART 4: Top Items by Rejection (Item-wise Bar Chart) */}
+        <Panel
+          title={
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700 }}>
+              <AppstoreOutlined style={{ color: '#ec4899' }} /> Top Items by Rejection
+            </span>
+          }
+          testId="scrap-items-chart"
+        >
+          {topItems.length === 0 ? (
+            <div style={{ fontSize: 12, color: 'var(--theme-text-muted, #94a3b8)', padding: '24px 8px', textAlign: 'center' }}>
+              No item scrap recorded.
+            </div>
+          ) : (
+            <ChartFrame height={230}>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={topItems}
+                  margin={{ top: 8, right: 12, left: -10, bottom: 18 }}
+                  barCategoryGap="22%"
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--theme-border, rgba(255,255,255,0.08))" vertical={false} />
+                  <XAxis
+                    dataKey="item"
+                    tick={{ fontSize: 9.5, fill: 'var(--theme-text-muted, #94a3b8)' }}
+                    interval={0}
+                    angle={-15}
+                    textAnchor="end"
+                  />
+                  <YAxis tick={{ fontSize: 10, fill: 'var(--theme-text-muted, #94a3b8)' }} />
+                  <ChartTooltip
+                    formatter={(val: unknown) => [`${kgFixed(Number(val))} KG`, 'Scrap Weight']}
+                    contentStyle={{
+                      background: 'var(--theme-surface, #1e293b)',
+                      borderColor: 'var(--theme-border, #334155)',
+                      borderRadius: 8,
+                      fontSize: 12,
+                    }}
+                  />
+                  <Bar dataKey="scrapKg" name="Scrap (KG)" fill="#ec4899" radius={[6, 6, 0, 0]} isAnimationActive={false} />
+                </BarChart>
+              </ResponsiveContainer>
+            </ChartFrame>
+          )}
+        </Panel>
+      </div>
+
+      {/* ── 3 · Wastage Data Matrix ──────────────────────────────────────── */}
+      <Panel
+        title={
+          <span style={{ fontWeight: 700, fontSize: 13 }}>
+            Wastage Data Matrix
+          </span>
+        }
+        testId="scrap-matrix"
+      >
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, tableLayout: 'fixed' }}>
             <thead>
-              {/* Strictly the four columns the spec lists, in order. The
-                  wastage % rides under the scrap figure as a sub-line (the
-                  same report style the live grid uses) rather than taking a
-                  fifth column. */}
               <tr>
-                <th style={{ ...thHead, textAlign: 'left', width: '26%' }}>Machine/Product</th>
-                <th style={{ ...thHead, textAlign: 'right' }}>Total Actual Quantity Produced (KG)</th>
-                <th style={{ ...thHead, textAlign: 'right' }}>Total Rejected Scrap (KG)</th>
-                <th style={{ ...thHead, textAlign: 'left', width: '24%' }}>Wastage Defect Reason Code</th>
+                <th style={{ ...thHead, textAlign: 'left', width: '28%' }}>Machine / Product</th>
+                <th style={{ ...thHead, textAlign: 'right', width: '24%' }}>Total Actual Quantity Produced (KG)</th>
+                <th style={{ ...thHead, textAlign: 'right', width: '22%' }}>Total Rejected Scrap (KG)</th>
+                <th style={{ ...thHead, textAlign: 'left', width: '26%' }}>Wastage Defect Reason Code</th>
               </tr>
             </thead>
             <tbody>
               {matrix.length === 0 ? (
                 <tr>
-                  <td colSpan={4} style={{ ...labelCellStyle, color: 'var(--theme-text-muted, #94a3b8)' }}>
-                    No production was recorded in this period.
+                  <td colSpan={4} style={{ ...labelCellStyle, color: 'var(--theme-text-muted, #94a3b8)', padding: '16px 8px', textAlign: 'center' }}>
+                    No production records found for the selected filter.
                   </td>
                 </tr>
               ) : (
                 matrix.map((m) => (
                   <tr key={m.key} data-testid="scrap-matrix-row" style={{ borderTop: '1px solid var(--theme-border, #e2e8f0)' }}>
                     <td style={labelCellStyle}>
-                      <b>{m.machine}</b>
+                      <b style={{ color: 'var(--theme-text, #f1f5f9)' }}>{m.machine}</b>
                       <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)' }}>{m.product}</div>
                     </td>
                     <td style={{ ...numCellStyle, textAlign: 'right' }}>{kgFixed(m.actualKg)}</td>
@@ -187,18 +454,15 @@ const RejectionScrapDetails: React.FC<RejectionScrapDetailsProps> = ({ seed, bui
                       style={{
                         ...numCellStyle,
                         textAlign: 'right',
-                        color: m.scrapKg > 0 ? 'var(--theme-danger, #dc2626)' : 'var(--theme-text-muted, #94a3b8)',
+                        color: m.scrapKg > 0 ? 'var(--theme-danger, #ef4444)' : 'var(--theme-text-muted, #94a3b8)',
                       }}
                     >
                       {kgFixed(m.scrapKg)}
-                      {/* Wastage % as a light sub-line — same report style the
-                          live grid's Rejection % uses, so the matrix keeps the
-                          strict four-column layout. */}
                       <div
                         style={{
                           fontSize: 10.5,
-                          fontWeight: 500,
-                          color: m.wastagePct > 0 ? 'var(--theme-warning, #d97706)' : 'var(--theme-text-muted, #94a3b8)',
+                          fontWeight: 600,
+                          color: m.wastagePct > 0 ? 'var(--theme-warning, #f59e0b)' : 'var(--theme-text-muted, #94a3b8)',
                         }}
                       >
                         {formatNumber(m.wastagePct, 2)}%
@@ -206,7 +470,9 @@ const RejectionScrapDetails: React.FC<RejectionScrapDetailsProps> = ({ seed, bui
                     </td>
                     <td style={labelCellStyle}>
                       <Tooltip title={m.defectReason !== '—' ? m.defectReason : undefined}>
-                        <span>{m.defectReason}</span>
+                        <span style={{ color: m.defectReason !== '—' ? 'var(--theme-text, #f1f5f9)' : 'var(--theme-text-muted, #64748b)' }}>
+                          {m.defectReason}
+                        </span>
                       </Tooltip>
                     </td>
                   </tr>
@@ -217,60 +483,20 @@ const RejectionScrapDetails: React.FC<RejectionScrapDetailsProps> = ({ seed, bui
         </div>
       </Panel>
 
-      {/* ── 2 · Wastage Trend ────────────────────────────────────────────── */}
-      <Panel title="Wastage Trend — Daily Scrap Generation" testId="scrap-trend">
-        {series.length === 0 ? (
-          <div style={{ fontSize: 12, color: 'var(--theme-text-muted, #94a3b8)', padding: '6px 2px' }}>
-            No production days in the selected date range.
-          </div>
-        ) : (
-          <ChartFrame height={262}>
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={series} margin={{ top: 8, right: 8, left: -6, bottom: 24 }} barCategoryGap="18%">
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--theme-border, #e2e8f0)" vertical={false} />
-                <XAxis
-                  dataKey="date"
-                  tick={{ fontSize: 10, fill: 'var(--theme-text-muted, #94a3b8)' }}
-                  tickFormatter={(v: string) => String(v).slice(5)}
-                  interval="preserveStartEnd"
-                  minTickGap={16}
-                  stroke="var(--theme-border, #cbd5e1)"
-                />
-                <YAxis
-                  tick={{ fontSize: 10, fill: 'var(--theme-text-muted, #94a3b8)' }}
-                  width={46}
-                  stroke="var(--theme-border, #cbd5e1)"
-                />
-                {/* `name` is what the default tooltip prints — kept as props
-                    instead of a formatter so the labels cannot drift from the
-                    legend below. */}
-                <ChartTooltip cursor={{ fill: 'rgba(148, 163, 184, 0.14)' }} />
-                <Bar dataKey="actualKg" name="Actual Produced (KG)" fill={PRODUCED_BAR} radius={[3, 3, 0, 0]} isAnimationActive={false} />
-                <Bar dataKey="scrapKg" name="Rejected Scrap (KG)" fill={SCRAP_BAR} radius={[3, 3, 0, 0]} isAnimationActive={false} />
-              </BarChart>
-            </ResponsiveContainer>
-          </ChartFrame>
-        )}
-        <div style={{ display: 'flex', gap: 14, fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', marginTop: 4, flexWrap: 'wrap' }}>
-          <span>
-            <span style={{ display: 'inline-block', width: 9, height: 9, borderRadius: 2, background: PRODUCED_BAR, marginRight: 5 }} />
-            Actual Produced (KG)
+      {/* ── 4 · Department Breakdown Table ───────────────────────────────── */}
+      <Panel
+        title={
+          <span style={{ fontWeight: 700, fontSize: 13 }}>
+            Department Breakdown — Which Stage Wastes Most
           </span>
-          <span>
-            <span style={{ display: 'inline-block', width: 9, height: 9, borderRadius: 2, background: SCRAP_BAR, marginRight: 5 }} />
-            Rejected Scrap (KG)
-          </span>
-          <span>Busiest day: {series.length ? series.reduce((a, b) => (b.scrapKg > a.scrapKg ? b : a)).date : '—'}</span>
-        </div>
-      </Panel>
-
-      {/* ── 3 · Department Breakdown ─────────────────────────────────────── */}
-      <Panel title="Department Breakdown — Which Stage Wastes Most" testId="scrap-departments">
+        }
+        testId="scrap-departments"
+      >
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
             <thead>
               <tr>
-                {['Department', 'Entries', 'Produced KG', 'Scrap KG', 'Wastage', 'Downtime'].map((h, i) => (
+                {['Department', 'Entries', 'Produced KG', 'Scrap KG', 'Wastage Rate', 'Downtime'].map((h, i) => (
                   <th
                     key={h}
                     style={{
@@ -280,6 +506,7 @@ const RejectionScrapDetails: React.FC<RejectionScrapDetailsProps> = ({ seed, bui
                       fontSize: 10.5,
                       textTransform: 'uppercase',
                       letterSpacing: '0.05em',
+                      padding: '6px 6px',
                     }}
                   >
                     {h}
@@ -290,7 +517,7 @@ const RejectionScrapDetails: React.FC<RejectionScrapDetailsProps> = ({ seed, bui
             <tbody>
               {byDepartment.length === 0 ? (
                 <tr>
-                  <td colSpan={6} style={{ ...labelCellStyle, color: 'var(--theme-text-muted, #94a3b8)' }}>
+                  <td colSpan={6} style={{ ...labelCellStyle, color: 'var(--theme-text-muted, #94a3b8)', padding: '16px 8px', textAlign: 'center' }}>
                     No department produced anything in this period.
                   </td>
                 </tr>
@@ -303,12 +530,12 @@ const RejectionScrapDetails: React.FC<RejectionScrapDetailsProps> = ({ seed, bui
                           display: 'inline-block',
                           minWidth: 16,
                           fontWeight: 700,
-                          color: i === 0 ? 'var(--theme-danger, #dc2626)' : 'var(--theme-text-muted, #94a3b8)',
+                          color: i === 0 ? 'var(--theme-danger, #ef4444)' : 'var(--theme-text-muted, #94a3b8)',
                         }}
                       >
                         {i + 1}.
                       </span>{' '}
-                      <b>{d.department}</b>
+                      <b style={{ color: 'var(--theme-text, #f1f5f9)' }}>{d.department}</b>
                     </td>
                     <td style={{ ...numCellStyle, textAlign: 'right' }}>{formatNumber(d.entries, 0)}</td>
                     <td style={{ ...numCellStyle, textAlign: 'right' }}>{kgFixed(d.actualKg)}</td>
@@ -316,7 +543,7 @@ const RejectionScrapDetails: React.FC<RejectionScrapDetailsProps> = ({ seed, bui
                       style={{
                         ...numCellStyle,
                         textAlign: 'right',
-                        color: d.scrapKg > 0 ? 'var(--theme-danger, #dc2626)' : 'var(--theme-text-muted, #94a3b8)',
+                        color: d.scrapKg > 0 ? 'var(--theme-danger, #ef4444)' : 'var(--theme-text-muted, #94a3b8)',
                       }}
                     >
                       {kgFixed(d.scrapKg)}
@@ -325,7 +552,7 @@ const RejectionScrapDetails: React.FC<RejectionScrapDetailsProps> = ({ seed, bui
                       style={{
                         ...numCellStyle,
                         textAlign: 'right',
-                        color: d.wastagePct > 0 ? 'var(--theme-warning, #d97706)' : 'var(--theme-text-muted, #94a3b8)',
+                        color: d.wastagePct > 0 ? 'var(--theme-warning, #f59e0b)' : 'var(--theme-text-muted, #94a3b8)',
                       }}
                     >
                       {formatNumber(d.wastagePct, 2)}%
@@ -336,10 +563,6 @@ const RejectionScrapDetails: React.FC<RejectionScrapDetailsProps> = ({ seed, bui
               )}
             </tbody>
           </table>
-        </div>
-        <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', marginTop: 6 }}>
-          Rows whose UOM cannot be converted to KG contribute 0 to both weight columns and are counted in the
-          &ldquo;No Weight UOM&rdquo; tile above, so a 0 KG row is never mistaken for a wasted shift.
         </div>
       </Panel>
     </div>

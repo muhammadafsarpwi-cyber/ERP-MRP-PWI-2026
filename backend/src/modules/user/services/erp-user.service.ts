@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, ConflictException, BadRequestException, 
 import { InjectRepository } from '@nestjs/typeorm';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, Repository, Not, IsNull } from 'typeorm';
+import { withTransaction } from '../../../common/transaction.util';
 import * as bcrypt from 'bcrypt';
 import { ErpUser, ErpUserStatus, UserRole, UserRoleStatus, UserOrganizationScope, ScopeLevel, OrgScopeStatus } from '../entities';
 import { Company, CompanyStatus } from '../../organization/entities/company.entity';
@@ -91,55 +92,64 @@ export class ErpUserService {
       throw new ConflictException('A user with this email already exists');
     }
 
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
+    // Hash OUTSIDE the transaction: bcrypt is CPU-bound (~100ms) and must not
+    // pin one of the pool's connections while it runs.
+    const hashedPassword = await bcrypt.hash(dto.password, 10);
+    const now = new Date().toISOString();
+
+    let authId: string;
+    try {
+      // The auth rows are the ONLY thing that needs transactional isolation;
+      // withTransaction() releases the connection the instant it commits.
+      authId = await withTransaction(this.dataSource, async (manager) => {
+        // Disable the on_auth_user_created trigger (erp_core.users table doesn't exist)
+        await manager.query(`SET LOCAL session_replication_role = 'replica'`);
+
+        // Create auth user — match provisioning script exactly
+        const newAuthId = crypto.randomUUID();
+        await manager.query(
+          `INSERT INTO auth.users (
+            instance_id, id, aud, role, email, encrypted_password,
+            email_confirmed_at, recovery_token, recovery_sent_at,
+            email_change_token_new, email_change, email_change_sent_at,
+            confirmation_token, confirmation_sent_at,
+            raw_app_meta_data, raw_user_meta_data,
+            is_super_admin, created_at, updated_at,
+            is_sso_user, is_anonymous
+          ) VALUES (
+            $1, $2, 'authenticated', 'authenticated', $3, $4,
+            $5, '', NULL,
+            '', '', NULL,
+            '', NULL,
+            '{"provider":"email","providers":["email"]}'::jsonb,
+            '{}'::jsonb,
+            false, $5, $5,
+            false, false
+          )`,
+          ['00000000-0000-0000-0000-000000000000', newAuthId, dto.email, hashedPassword, now],
+        );
+
+        // Create auth identity
+        const identityId = crypto.randomUUID();
+        await manager.query(
+          `INSERT INTO auth.identities (
+            id, provider_id, provider, identity_data, user_id, created_at, updated_at, last_sign_in_at
+          ) VALUES (
+            $1::uuid, $2, 'email',
+            $3::jsonb,
+            $4::uuid, $5, $5, $5
+          )`,
+          [identityId, newAuthId, JSON.stringify({ sub: newAuthId, email: dto.email, email_verified: true, phone_verified: false }), newAuthId, now],
+        );
+
+        return newAuthId;
+      });
+    } catch (error) {
+      if (error instanceof ConflictException || error instanceof BadRequestException) throw error;
+      throw new BadRequestException(`Failed to create user: ${error.message}`);
+    }
 
     try {
-      // Disable the on_auth_user_created trigger (erp_core.users table doesn't exist)
-      await queryRunner.query(`SET LOCAL session_replication_role = 'replica'`);
-
-      // Create auth user — match provisioning script exactly
-      const authId = crypto.randomUUID();
-      const hashedPassword = await bcrypt.hash(dto.password, 10);
-      const now = new Date().toISOString();
-      await queryRunner.query(
-        `INSERT INTO auth.users (
-          instance_id, id, aud, role, email, encrypted_password,
-          email_confirmed_at, recovery_token, recovery_sent_at,
-          email_change_token_new, email_change, email_change_sent_at,
-          confirmation_token, confirmation_sent_at,
-          raw_app_meta_data, raw_user_meta_data,
-          is_super_admin, created_at, updated_at,
-          is_sso_user, is_anonymous
-        ) VALUES (
-          $1, $2, 'authenticated', 'authenticated', $3, $4,
-          $5, '', NULL,
-          '', '', NULL,
-          '', NULL,
-          '{"provider":"email","providers":["email"]}'::jsonb,
-          '{}'::jsonb,
-          false, $5, $5,
-          false, false
-        )`,
-        ['00000000-0000-0000-0000-000000000000', authId, dto.email, hashedPassword, now],
-      );
-
-      // Create auth identity
-      const identityId = crypto.randomUUID();
-      await queryRunner.query(
-        `INSERT INTO auth.identities (
-          id, provider_id, provider, identity_data, user_id, created_at, updated_at, last_sign_in_at
-        ) VALUES (
-          $1::uuid, $2, 'email',
-          $3::jsonb,
-          $4::uuid, $5, $5, $5
-        )`,
-        [identityId, authId, JSON.stringify({ sub: authId, email: dto.email, email_verified: true, phone_verified: false }), authId, now],
-      );
-
-      await queryRunner.commitTransaction();
-
       // Determine default company for the new user:
       let targetCompanyId = dto.companyId;
       if (!targetCompanyId && userId) {
@@ -211,11 +221,8 @@ export class ErpUserService {
 
       return this.findOne(saved.id);
     } catch (error) {
-      await queryRunner.rollbackTransaction();
       if (error instanceof ConflictException || error instanceof BadRequestException) throw error;
       throw new BadRequestException(`Failed to create user: ${error.message}`);
-    } finally {
-      await queryRunner.release();
     }
   }
 

@@ -1,0 +1,656 @@
+/* ============================================================================
+   ERP UI REDESIGN LAYER
+ ============================================================================
+   Loaded AFTER index.css (see src/index.tsx), so it comes after the legacy
+   `styles/erp-table.css` in the concatenated bundle.
+
+   TWO RULES OF ENGAGEMENT:
+
+   1. COLOUR ALWAYS COMES FROM A TOKEN. Nothing here hard-codes a hex for a
+      themed surface, text or accent. Every value reads from the `--theme-*`
+      variables that ThemeProvider writes per-palette and per-mode, so all 34
+      palettes and both Light/Dark modes keep working untouched.
+
+   2. OVERRANKING THE LEGACY LAYER IS DELIBERATE AND EXPLICIT.
+      styles/erp-table.css paints the old table chrome with blanket
+      `!important` declarations. A later sheet cannot beat `!important` on
+      load order alone — it has to match it on BOTH `!important` and
+      specificity. Every override below therefore uses the full structural
+      selector `html .ant-table-wrapper .ant-table .ant-table-container ...`
+      (0,4,3) which strictly outranks the legacy rules' highest-scoring
+      selectors, such as `.erp-table-container .ant-table-thead > tr > th`
+      (0,2,1) and `:root:not([data-theme="dark"]) .ant-table-wrapper
+      .ant-table-tbody > tr > td` (0,4,2). Those overrides are marked
+      "LEGACY OVERRIDE". Everything new is written normally.
+
+   WHAT IS *NOT* OVERRIDDEN, ON PURPOSE
+      The legacy sheet already owns row states — zebra striping, hover and
+      selection — and owns them well: every one is driven by
+      `--theme-table-row-odd/even/hover/selected`, so they are already
+      palette-aware and mode-aware. Duplicating them here would mean two
+      competing rules for one property. They are left alone and inherited.
+
+   Sections
+     1  Design tokens
+     2  Base typography
+     3  Table reconstruction
+     4  Module tab switchboard
+     5  Sidebar
+     6  Top navbar
+     7  Cards, panels & surfaces
+     8  Utilities
+     9  Responsive
+    10  Motion & print
+   ============================================================================ */
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   1 — DESIGN TOKENS
+   Derived from the live theme so they follow the active palette. They exist
+   to give the redesign a shared vocabulary of radii, elevation and motion
+   rather than re-inventing a shadow at every call site.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  --ui-radius-xs: 4px;
+  --ui-radius-sm: 6px;
+  --ui-radius-md: 10px;
+  --ui-radius-lg: 14px;
+  --ui-radius-xl: 18px;
+
+  /* Elevation is deliberately shallow. ERP screens are dense; a stack of
+     heavy drop shadows reads as visual noise once a page has six cards. */
+  --ui-shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.05);
+  --ui-shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04);
+  --ui-shadow-md: 0 4px 12px rgba(15, 23, 42, 0.08);
+  --ui-shadow-lg: 0 12px 32px rgba(15, 23, 42, 0.12);
+
+  /* One easing curve everywhere, so hover, selection and disclosure all feel
+     like the same instrument. */
+  --ui-ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --ui-speed-fast: 120ms;
+  --ui-speed: 180ms;
+  --ui-speed-slow: 260ms;
+
+  /* Table rhythm. Vertical sits inside the brief's 12-16px band; horizontal is
+     a flat 20px, which is what actually makes a dense manufacturing grid feel
+     spacious rather than cramped. */
+  --ui-table-cell-pad-y: 13px;
+  --ui-table-cell-pad-x: 20px;
+  --ui-table-header-pad-y: 12px;
+  --ui-table-header-pad-x: 20px;
+
+  /* The header band. `--ui-table-header-*` are aliases of the retuned
+     `--theme-table-*` tokens in ThemeProvider.tsx, so the CSS, the antd
+     ConfigProvider and ERPTable.tsx all paint the SAME band from one source. */
+  --ui-table-header-bg: var(--theme-table-header-bg, #f1f5f9);
+  --ui-table-header-text: var(--theme-table-header-color, #0f172a);
+  --ui-table-header-rule: var(--theme-table-header-border, #e2e8f0);
+  --ui-table-rule: var(--theme-table-border, #e2e8f0);
+}
+
+html[data-theme='dark'] {
+  --ui-shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --ui-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4), 0 1px 2px rgba(0, 0, 0, 0.3);
+  --ui-shadow-md: 0 4px 14px rgba(0, 0, 0, 0.45);
+  --ui-shadow-lg: 0 14px 40px rgba(0, 0, 0, 0.6);
+  --ui-table-header-bg: var(--theme-table-header-bg, #1e293b);
+  --ui-table-header-text: var(--theme-table-header-color, #e2e8f0);
+  --ui-table-header-rule: var(--theme-table-header-border, #334155);
+  --ui-table-rule: var(--theme-table-border, #293548);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   2 — BASE TYPOGRAPHY
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body,
+.ant-app,
+.ant-btn,
+.ant-input,
+.ant-select-selector,
+.ant-table,
+.ant-menu,
+.ant-modal,
+.ant-form-item {
+  font-family: var(--ui-font-family) !important;
+}
+
+body {
+  /* A hair more tracking than the system stack needs — Inter is drawn slightly
+     tighter and benefits from it at 12-14px UI sizes. */
+  letter-spacing: -0.006em;
+  font-feature-settings: 'cv05' 1;
+}
+
+/* Numeric columns line up digit-for-digit so a column of quantities can be
+   read as a column rather than parsed one figure at a time. Opt-in per page:
+   add `ui-num` to a column's `className`. */
+.ui-num,
+.ant-table td.ui-num,
+.ant-table th.ui-num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: var(--ui-font-numeric);
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   3 — TABLE RECONSTRUCTION
+
+   The goal is a grid that scans horizontally: generous breathing room inside
+   each cell and a header that reads as a label band rather than a slab of
+   inverted colour.
+
+   Structure note: antd v5 always renders
+     .ant-table-wrapper > .ant-table > .ant-table-container > (header|body)
+   so that full chain is a safe specificity ladder to climb.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── 3.1 Container ──────────────────────────────────────────────────────── */
+.ant-table-wrapper .ant-table,
+.erp-table-container .ant-table {
+  background: var(--theme-surface, #ffffff);
+  font-size: 13px;
+  border-radius: var(--ui-radius-md);
+}
+
+.ant-table-wrapper .ant-table > .ant-table-container {
+  border-radius: var(--ui-radius-md);
+}
+
+/* ── 3.2 Header band ────────────────────────────────────────────────────── */
+/* LEGACY OVERRIDE. erp-table.css draws the header as a dark navy slab
+   (#0b1e36) with white 11px uppercase type at `padding: 10px 12px`, all at
+   `!important`. The band's COLOUR is fixed by the retuned
+   `--theme-table-header-*` tokens in ThemeProvider.tsx, so this block only
+   has to reclaim the geometry and type that are hard-coded in the legacy
+   sheet. (0,4,3) outranks the legacy max of (0,2,1). */
+html .ant-table-wrapper .ant-table .ant-table-container .ant-table-thead > tr > th,
+html .erp-table-container .ant-table .ant-table-container .ant-table-thead > tr > th,
+html .ant-table-thead th[class*='ant-table-cell-fix-'],
+html th.erp-th-navy {
+  padding: var(--ui-table-header-pad-y) var(--ui-table-header-pad-x) !important;
+  font-weight: 600 !important;
+  font-size: 11.5px !important;
+  letter-spacing: 0.05em !important;
+  vertical-align: middle;
+  transition: background-color var(--ui-speed) var(--ui-ease);
+}
+
+/* The band's colour, restated here rather than only in the legacy sheet, so
+   this layer is self-contained if erp-table.css is ever retired. */
+html .ant-table-wrapper .ant-table .ant-table-container .ant-table-thead > tr > th,
+html .erp-table-container .ant-table .ant-table-container .ant-table-thead > tr > th {
+  background: var(--ui-table-header-bg) !important;
+  background-color: var(--ui-table-header-bg) !important;
+  color: var(--ui-table-header-text) !important;
+  border-bottom: 1px solid var(--ui-table-header-rule) !important;
+}
+
+/* The title itself — legacy set it to white explicitly. */
+html .ant-table-wrapper .ant-table .ant-table-container .ant-table-thead > tr > th .ant-table-column-title,
+html .erp-table-container .ant-table .ant-table-container .ant-table-thead > tr > th .ant-table-column-title {
+  color: var(--ui-table-header-text) !important;
+  font-weight: 600 !important;
+}
+
+/* Sort affordances: legacy forced white, which disappears on a light band. */
+html .ant-table-wrapper .ant-table .ant-table-container .ant-table-thead > tr > th .ant-table-column-sorter {
+  color: var(--theme-text-muted, #94a3b8) !important;
+}
+
+html .ant-table-wrapper .ant-table .ant-table-container .ant-table-thead > tr > th .ant-table-column-sorter-up.active,
+html .ant-table-wrapper .ant-table .ant-table-container .ant-table-thead > tr > th .ant-table-column-sorter-down.active {
+  color: var(--theme-accent, #6366f1) !important;
+}
+
+/* Column split. Legacy drew a 50%-height white hairline, which is invisible
+   on a light band. A taller, very low-alpha rule gives the modern "column
+   gutter" read without the vertical grid the brief asked to remove. */
+html .ant-table-wrapper .ant-table .ant-table-container .ant-table-thead > tr > th::before,
+html .erp-table-container .ant-table .ant-table-container .ant-table-thead > tr > th::before {
+  background-color: var(--ui-table-header-rule) !important;
+  height: 60% !important;
+}
+
+/* ── 3.3 Cells: room to breathe ─────────────────────────────────────────── */
+/* LEGACY OVERRIDE. The legacy body rule is `padding: 8px 12px !important` at
+   `:root:not([data-theme="dark"]) .ant-table-wrapper .ant-table-tbody > tr > td`
+   — (0,4,2). This ladder reaches (0,4,3) so it wins outright, in both modes,
+   regardless of load order. */
+html .ant-table-wrapper .ant-table .ant-table-container .ant-table-tbody > tr > td,
+html .erp-table-container .ant-table .ant-table-container .ant-table-tbody > tr > td {
+  padding: var(--ui-table-cell-pad-y) var(--ui-table-cell-pad-x) !important;
+  vertical-align: middle;
+  border-bottom: 1px solid var(--ui-table-rule) !important;
+  transition: background-color var(--ui-speed-fast) var(--ui-ease);
+}
+
+/* The final row keeps its divider so a short table still reads as a table
+   rather than a list that simply stopped. */
+html .ant-table-wrapper .ant-table .ant-table-container .ant-table-tbody > tr:last-child > td {
+  border-bottom: none !important;
+}
+
+/* Safety net: drop any vertical rule a page may have introduced. The brief
+   asks for horizontal dividers only. */
+html .ant-table-wrapper .ant-table .ant-table-container .ant-table-tbody > tr > td,
+html .ant-table-wrapper .ant-table .ant-table-container .ant-table-thead > tr > th {
+  border-left: none !important;
+  border-right: none !important;
+}
+
+/* Sticky/fixed header shadow — legacy and antd both draw one; flat is calmer. */
+.ant-table-wrapper .ant-table-ping-left .ant-table-cell-fix-left-last::after,
+.ant-table-wrapper .ant-table-ping-right .ant-table-cell-fix-right-first::after {
+  box-shadow: none !important;
+}
+
+/* ── 3.4 Alignment: status and actions to the right ─────────────────────── */
+/* The brief calls for text left, status/actions right or centred. Column
+   alignment is per-table metadata in antd, but two cases are universal enough
+   to do automatically: a cell whose ONLY child is a Tag is a status cell, and
+   a cell whose only child is a button is an action cell.
+
+   Deliberately NOT `!important`: antd writes an inline `text-align` whenever a
+   column sets an explicit `align` prop, and inline styles outrank any
+   stylesheet. So this rule only takes effect on columns that have expressed no
+   opinion — which is exactly the safe scope. `:has()` is guarded so a browser
+   without it simply skips the rule. */
+@supports selector(:has(*)) {
+  html .ant-table-wrapper .ant-table-tbody > tr > td:has(> .ant-tag:only-child),
+  html .ant-table-wrapper .ant-table-tbody > tr > td:has(> .ant-btn:only-child) {
+    text-align: right;
+  }
+}
+
+/* Opt-out hatch for any table that needs its original alignment. */
+.ant-table tr > td.erp-align-left,
+.ant-table tr > th.erp-align-left {
+  text-align: left !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   4 — MODULE TAB SWITCHBOARD
+
+   A single-row bar of uniform blocks. The active state is driven by
+   `aria-selected` rather than an extra class, so the styling hook IS the
+   accessibility contract — the two can never drift apart.
+
+   The single-row behaviour itself lives in CSS Grid here rather than in
+   inline React styles, so it is inspectable and themeable:
+   `grid-auto-flow: column` places every button into the NEXT COLUMN instead of
+   the next row, so the bar can never wrap however narrow the viewport gets.
+   `grid-auto-columns: minmax(112px, 1fr)` keeps the blocks uniform — they grow
+   together to fill the width, and once seventeen of them cannot share that
+   width without dropping below the floor they stop shrinking and the row
+   scrolls instead. Either way the block rhythm survives and the grid never
+   develops a ragged edge or an orphan button on a second line.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.erp-module-tabs {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(112px, 1fr);
+  align-items: stretch;
+  gap: 8px;
+  margin: 0 0 16px;
+  padding: 2px 2px 6px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  /* The bar gets its own hairline so it reads as a control strip, separate
+     from the grid beneath it, without adding a heavy card around it. */
+  border-bottom: 1px solid var(--theme-border, #e2e8f0);
+  scrollbar-width: thin;
+  scrollbar-color: var(--theme-border-strong, #cbd5e1) transparent;
+}
+
+.erp-module-tabs::-webkit-scrollbar {
+  height: 6px;
+}
+.erp-module-tabs::-webkit-scrollbar-track {
+  background: transparent;
+}
+.erp-module-tabs::-webkit-scrollbar-thumb {
+  background: var(--theme-border-strong, #cbd5e1);
+  border-radius: 999px;
+}
+
+.erp-module-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 2px;
+  height: 48px;
+  padding: 0 10px;
+  /* `min-width: 0` is essential inside a `grid-auto-flow: column` track: grid
+     items default to `min-width: auto`, which lets a long label push its block
+     wider than the track and breaks the uniform rhythm. With it, the label
+     ellipsizes inside the block instead. */
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--theme-border, #e2e8f0);
+  border-radius: var(--ui-radius-sm);
+  background: var(--theme-surface, #ffffff);
+  color: var(--theme-text-muted, #64748b);
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+  transition:
+    background-color var(--ui-speed) var(--ui-ease),
+    border-color var(--ui-speed) var(--ui-ease),
+    color var(--ui-speed) var(--ui-ease),
+    box-shadow var(--ui-speed) var(--ui-ease),
+    transform var(--ui-speed-fast) var(--ui-ease);
+}
+
+.erp-module-tab:hover {
+  background: var(--theme-hover, rgba(99, 102, 241, 0.06));
+  border-color: var(--theme-accent, #6366f1);
+  color: var(--theme-text, #0f172a);
+  transform: translateY(-1px);
+}
+
+.erp-module-tab:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--theme-focus, rgba(99, 102, 241, 0.35));
+}
+
+/* Active. The emphasis is drawn with an INSET ring rather than a 2px border so
+   switching tabs never nudges the grid by a pixel. */
+.erp-module-tab[aria-selected='true'] {
+  background: var(--theme-accent-soft, rgba(99, 102, 241, 0.12));
+  border-color: var(--theme-accent, #6366f1);
+  color: var(--theme-accent-active, #4338ca);
+  font-weight: 600;
+  box-shadow:
+    inset 0 0 0 1px var(--theme-accent, #6366f1),
+    var(--ui-shadow-sm);
+  transform: none;
+}
+
+.erp-module-tab[aria-selected='true'] .erp-module-tab__dept {
+  opacity: 0.85;
+}
+
+.erp-module-tab__label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  line-height: 16px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.erp-module-tab__emoji {
+  font-size: 13px;
+  line-height: 1;
+  flex: none;
+}
+
+.erp-module-tab__dept {
+  font-size: 9px;
+  line-height: 11px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  opacity: 0.6;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  transition: opacity var(--ui-speed) var(--ui-ease);
+}
+
+.erp-module-tab__count {
+  margin: 0 !important;
+  font-size: 10px !important;
+  line-height: 15px !important;
+  padding: 0 6px !important;
+  font-weight: 700 !important;
+  border-radius: 999px !important;
+  background: var(--theme-surface-alt, #f1f5f9) !important;
+  color: var(--theme-text-secondary, #475569) !important;
+  border: 1px solid var(--theme-border, #e2e8f0) !important;
+}
+
+.erp-module-tab[aria-selected='true'] .erp-module-tab__count {
+  background: var(--theme-accent, #6366f1) !important;
+  color: var(--theme-on-accent, #ffffff) !important;
+  border-color: transparent !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   5 — SIDEBAR
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.erp-desktop-sider .ant-menu {
+  border-inline-end: none !important;
+}
+
+/* Menu items: consistent horizontal padding, a soft radius, and a hover that
+   nudges the item rather than snapping a background on. */
+.erp-desktop-sider .ant-menu-item,
+.erp-desktop-sider .ant-menu-submenu-title {
+  margin: 2px 8px !important;
+  border-radius: var(--ui-radius-sm) !important;
+  height: 38px !important;
+  line-height: 38px !important;
+  transition:
+    background-color var(--ui-speed) var(--ui-ease),
+    color var(--ui-speed) var(--ui-ease),
+    transform var(--ui-speed-fast) var(--ui-ease) !important;
+}
+
+.erp-desktop-sider .ant-menu-item:hover,
+.erp-desktop-sider .ant-menu-submenu-title:hover {
+  transform: translateX(2px);
+}
+
+/* The active item is marked by an accent rail, which reads faster than a
+   filled block against the coloured sider. */
+.erp-desktop-sider .ant-menu-item-selected {
+  box-shadow: inset 3px 0 0 0 currentColor;
+}
+
+/* Icons sit on a consistent optical grid regardless of glyph width. */
+.erp-desktop-sider .ant-menu-item .anticon,
+.erp-desktop-sider .ant-menu-submenu-title .anticon {
+  min-width: 16px;
+  font-size: 15px;
+}
+
+.erp-sidebar-menu-scrollable {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.35) transparent;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   6 — TOP NAVBAR
+   One integrated bar: a single surface, a single hairline, and elevation that
+   reads as attached to the page rather than floating over it.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.erp-app-header {
+  background: var(--theme-surface, #ffffff) !important;
+  border-bottom: 1px solid var(--theme-border, #e2e8f0) !important;
+  box-shadow: var(--ui-shadow-xs) !important;
+  transition:
+    background-color var(--ui-speed-slow) var(--ui-ease),
+    border-color var(--ui-speed-slow) var(--ui-ease),
+    box-shadow var(--ui-speed-slow) var(--ui-ease);
+}
+
+/* Search field: a soft inset well rather than a boxed input, so it reads as
+   part of the bar instead of a control dropped on top of it. */
+.erp-app-header .ant-input-affix-wrapper,
+.erp-app-header .ant-select-selector,
+.erp-header-search-input {
+  border-radius: var(--ui-radius-md) !important;
+  background: var(--theme-surface-alt, #f8fafc) !important;
+  border: 1px solid transparent !important;
+  transition:
+    background-color var(--ui-speed) var(--ui-ease),
+    border-color var(--ui-speed) var(--ui-ease),
+    box-shadow var(--ui-speed) var(--ui-ease) !important;
+}
+
+.erp-app-header .ant-input-affix-wrapper:hover,
+.erp-app-header .ant-select-selector:hover {
+  border-color: var(--theme-border-strong, #cbd5e1) !important;
+}
+
+.erp-app-header .ant-input-affix-wrapper-focused,
+.erp-app-header .ant-input-affix-wrapper:focus-within {
+  background: var(--theme-surface-elevated, #ffffff) !important;
+  border-color: var(--theme-accent, #6366f1) !important;
+  box-shadow: 0 0 0 3px var(--theme-focus, rgba(99, 102, 241, 0.2)) !important;
+}
+
+/* Header utility buttons: one hit area, one hover language. */
+.erp-header-extra .ant-btn {
+  height: 34px !important;
+  border-radius: var(--ui-radius-sm) !important;
+  transition:
+    background-color var(--ui-speed) var(--ui-ease),
+    border-color var(--ui-speed) var(--ui-ease),
+    color var(--ui-speed) var(--ui-ease),
+    box-shadow var(--ui-speed) var(--ui-ease) !important;
+}
+
+/* Avatar / profile cluster gets a hairline so it separates from the icons. */
+.erp-header-extra .ant-avatar {
+  box-shadow: 0 0 0 1px var(--theme-border, #e2e8f0);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   7 — CARDS, PANELS & SURFACES
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.ant-card {
+  border-radius: var(--ui-radius-lg) !important;
+  border: 1px solid var(--theme-border, #e2e8f0) !important;
+  box-shadow: var(--ui-shadow-sm) !important;
+  transition:
+    box-shadow var(--ui-speed-slow) var(--ui-ease),
+    border-color var(--ui-speed-slow) var(--ui-ease);
+}
+
+.ant-card:hover {
+  box-shadow: var(--ui-shadow-md) !important;
+}
+
+/* The card header band, when present, gets the same subtle treatment as the
+   table header so the two read as one system. */
+.ant-card-head {
+  border-bottom: 1px solid var(--theme-border, #e2e8f0) !important;
+  background: transparent;
+}
+
+.ant-card-head-title {
+  font-weight: 600;
+  letter-spacing: -0.008em;
+}
+
+.ant-modal-content,
+.ant-modal-header {
+  border-radius: var(--ui-radius-lg) !important;
+}
+
+.ant-modal-content {
+  box-shadow: var(--ui-shadow-lg) !important;
+}
+
+/* Status tags: a touch more padding and a lighter radius reads more current
+   than the default tight rectangle. */
+.ant-tag {
+  border-radius: var(--ui-radius-xs);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+/* Buttons get the shared motion curve. */
+.ant-btn {
+  transition:
+    background-color var(--ui-speed) var(--ui-ease),
+    border-color var(--ui-speed) var(--ui-ease),
+    color var(--ui-speed) var(--ui-ease),
+    box-shadow var(--ui-speed) var(--ui-ease),
+    transform var(--ui-speed-fast) var(--ui-ease) !important;
+}
+
+.ant-btn:not(:disabled):active {
+  transform: translateY(1px);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   8 — UTILITIES
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.ui-surface {
+  background: var(--theme-surface, #ffffff);
+  border: 1px solid var(--theme-border, #e2e8f0);
+  border-radius: var(--ui-radius-lg);
+  box-shadow: var(--ui-shadow-sm);
+}
+
+.ui-muted {
+  color: var(--theme-text-muted, #94a3b8);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   9 — RESPONSIVE
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+@media (max-width: 767px) {
+  :root {
+    --ui-table-cell-pad-y: 11px;
+    --ui-table-cell-pad-x: 14px;
+    --ui-table-header-pad-x: 14px;
+  }
+
+  .erp-module-tabs {
+    grid-auto-columns: minmax(104px, 1fr);
+    gap: 6px;
+  }
+
+  .erp-app-header {
+    box-shadow: var(--ui-shadow-sm) !important;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   10 — MOTION & PRINT
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+@media (prefers-reduced-motion: reduce) {
+  .erp-module-tab,
+  .erp-module-tab:hover,
+  .erp-desktop-sider .ant-menu-item,
+  .erp-desktop-sider .ant-menu-submenu-title,
+  .ant-btn {
+    transition: none !important;
+    transform: none !important;
+  }
+}
+
+@media print {
+  .erp-app-header,
+  .erp-module-tabs {
+    display: none !important;
+  }
+
+  html .ant-table-wrapper .ant-table .ant-table-container .ant-table-tbody > tr > td,
+  html .ant-table-wrapper .ant-table .ant-table-container .ant-table-thead > tr > th {
+    padding: 6px 10px !important;
+  }
+}

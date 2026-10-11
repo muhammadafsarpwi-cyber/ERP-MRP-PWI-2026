@@ -1,5 +1,5 @@
 import { Entity, Column, ManyToOne, JoinColumn, Index } from 'typeorm';
-import { BaseEntity } from '../../../common/base.entity';
+import { SoftDeletableEntity } from '../../../common/soft-deletable.entity';
 import { Item } from '../../item/entities/item.entity';
 import { Uom } from '../../item/entities/uom.entity';
 import { Warehouse } from '../../organization/entities/warehouse.entity';
@@ -9,7 +9,7 @@ import { MaintenanceJobCard } from './maintenance-job-card.entity';
 @Entity('maintenance_job_card_parts')
 @Index(['jobCardId'])
 @Index(['itemId'])
-export class MaintenanceJobCardPart extends BaseEntity {
+export class MaintenanceJobCardPart extends SoftDeletableEntity {
   @Column({ name: 'job_card_id', type: 'uuid' })
   jobCardId: string;
 

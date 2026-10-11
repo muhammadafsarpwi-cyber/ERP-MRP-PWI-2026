@@ -346,6 +346,11 @@ interface IssuanceResolution {
   value: number;
   rule: string;
   driven: boolean;
+  /**
+   * §GHOST — the successor stage holds no material, so no issuance exists to
+   * report. Rendered as an em dash (never as a stock-ledger OUT number).
+   */
+  suppressed?: boolean;
   remarks: string;
   prodValue: number;
   returnOutValue: number;
@@ -366,6 +371,8 @@ interface LedgerMetrics {
   issuance: number;
   issuanceRule: string;
   issuanceDriven: boolean;
+  /** §GHOST — issuance withheld because the next stage holds nothing. */
+  suppressed: boolean;
   remarks: string;
   prodValue: number;
   returnOutValue: number;
@@ -616,6 +623,76 @@ export const resolveWeight = (
   return null;
 };
 
+/* ── Daily production bucketing (pure) ────────────────────────────────── */
+
+/**
+ * Groups production entries by business day -> item code -> pieces.
+ *
+ * The parent record of a multi-item entry carries the DOCUMENT TOTAL in
+ * `actualQuantity` (verified live: 83,500 + 30,000 = 113,500, and the total
+ * never equals the parent line's own quantity). Bucketing that total under the
+ * parent's item code credits every sibling part to the lead item, which both
+ * inflates the lead stage line and leaves the other parts at 0 — merging
+ * separate item lots into one row. Because the rolling window feeds each day's
+ * closing into the next day's opening, that single pooled figure then corrupts
+ * every subsequent day's balance too.
+ *
+ * Each OUTPUT child is therefore bucketed under ITS OWN item code, so a 3-item
+ * entry becomes 3 independent contributions. Entries with no hydrated child
+ * lines (legacy payloads) degrade to the old parent-total bucket rather than
+ * dropping their production entirely.
+ *
+ * Date keys keep the PKT (+5h) shift the rolling window has always used.
+ */
+export const bucketDailyProduction = (
+  entries: readonly any[],
+): Map<string, Map<string, number>> => {
+  const buckets = new Map<string, Map<string, number>>();
+
+  const dayOf = (rawDate: unknown): string => {
+    if (!rawDate) return '';
+    const dt = new Date(rawDate as any);
+    if (!isNaN(dt.getTime())) {
+      const pkt = new Date(dt.getTime() + 5 * 3600 * 1000);
+      return pkt.toISOString().slice(0, 10);
+    }
+    return dayjs(rawDate as any).format('YYYY-MM-DD');
+  };
+
+  const add = (day: string, code: string, qty: number): void => {
+    let bucket = buckets.get(day);
+    if (!bucket) {
+      bucket = new Map<string, number>();
+      buckets.set(day, bucket);
+    }
+    bucket.set(code, round4((bucket.get(code) ?? 0) + qty));
+  };
+
+  for (const entry of entries) {
+    if (entry?.isActive === false) continue;
+    const day = dayOf(entry?.entryDate);
+    if (!day) continue;
+
+    const children = Array.isArray(entry?.nestedItems) ? entry.nestedItems : [];
+    if (children.length > 0) {
+      for (const child of children) {
+        const code = String(child?.itemCode ?? '').trim();
+        const qty = num(child?.actualQuantity);
+        if (!code || qty <= 0) continue;
+        add(day, code, qty);
+      }
+      continue;
+    }
+
+    // No child lines: the entry total is the only quantity available.
+    const code = String(entry?.item?.itemCode ?? entry?.itemCode ?? '').trim();
+    const qty = num(entry?.actualQuantity);
+    if (code && qty > 0) add(day, code, qty);
+  }
+
+  return buckets;
+};
+
 /**
  * §3 — the semantic colour pathways (Production / Closing / Rejection) live
  * in CSS, not here, so they can key off `[data-theme='dark']` and off the
@@ -730,13 +807,43 @@ export const buildChainGrid = (
     if (!nextStage) return ledger('Recorded issues (OUT) — no successor stage');
 
     const consumers = byStage(nextStage);
-    if (consumers.length === 0) return ledger(`Recorded issues (OUT) — no ${nextStage} rows`);
 
     // Same branch (Inner→Inner, Outer→Outer) when both sides declare one.
     const matched =
       p.def.splitSide !== undefined
         ? consumers.filter((c) => c.def.splitSide === p.def.splitSide)
         : consumers.filter((c) => c.def.splitSide === undefined);
+
+    /**
+     * §GHOST ISSUANCE SUPPRESSION — an issuance is only meaningful when the
+     * stage it feeds actually holds material. When every row of the successor
+     * stage is inert (no opening balance and no production anywhere in it)
+     * there is no downstream receipt to offset a transfer, so the stock-ledger
+     * OUT rows that belong to other documents — or to a period before this
+     * chain was active — would be painted into the ISSUANCE cell as a
+     * transfer into a stage that never received anything. Those figures are
+     * withheld here rather than three times later (grid / print / PDF all
+     * read the same resolution).
+     *
+     * The basis is the set this row would actually draw from: the same-side
+     * successor rows when the stage is split (Inner→Inner), otherwise the
+     * whole successor pool.
+     */
+    const downstreamRows = matched.length > 0 ? matched : consumers;
+    const downstreamLive = downstreamRows.some(
+      (c) => Math.abs(c.opBalance) > 1e-9 || Math.abs(c.production) > 1e-9,
+    );
+    if (!downstreamLive) {
+      return {
+        value: 0,
+        rule: `${nextStage} holds no material — issuance suppressed (no downstream receipt)`,
+        driven: false,
+        suppressed: true,
+        remarks: '—',
+        prodValue: 0,
+        returnOutValue: 0,
+      };
+    }
 
     // RM converts its successor's pieces into KG using that successor's weight.
     const needsKg = stage === 'RM';
@@ -846,6 +953,7 @@ export const buildChainGrid = (
       issuance: iss.value,
       issuanceRule: iss.rule,
       issuanceDriven: iss.driven,
+      suppressed: Boolean(iss.suppressed),
       remarks: iss.remarks,
       prodValue: iss.prodValue,
       returnOutValue: iss.returnOutValue,
@@ -867,8 +975,10 @@ export const buildChainGrid = (
     missingCodes,
     // Reconciliation: every row must satisfy Closing = (Op + Production) − Issuance.
     balanced: rows.every((r) => Math.abs(r.closingPieces - (r.subTotal - r.issuance)) < 0.005),
+    // §GHOST — a deliberately withheld issuance is not a "driver unavailable"
+    // condition, so it stays out of the warning banner.
     undriven: rows
-      .filter((r) => !r.issuanceDriven && !TERMINAL_STAGES.has(r.stage))
+      .filter((r) => !r.issuanceDriven && !r.suppressed && !TERMINAL_STAGES.has(r.stage))
       .map((r) => r.stage),
     totalPacked: fg?.production ?? 0,
   };
@@ -974,6 +1084,14 @@ const stageLabel = (r: LedgerMetrics): string => departmentName(r);
 /** §2 — one cell, code over name, so nothing can overlap in the sheet. */
 const stackItem = (r: LedgerMetrics): string => `${r.itemCode}\n${r.itemName}`;
 
+/**
+ * §GHOST — a withheld issuance prints exactly what the grid shows: an em
+ * dash. Never a zero, and never the raw stock-ledger OUT figure that has no
+ * downstream receipt behind it.
+ */
+const issuanceCell = (r: LedgerMetrics): string =>
+  r.suppressed ? '—' : fmtQty(r.issuance, r.uomCode);
+
 /** Values exactly as the screen shows them (PDF / CSV-style fidelity). */
 const exportDisplayRow = (r: LedgerMetrics): (string | number | null)[] => [
   stageLabel(r),
@@ -981,7 +1099,7 @@ const exportDisplayRow = (r: LedgerMetrics): (string | number | null)[] => [
   fmtQty(r.opBalance, r.uomCode),
   fmtQty(r.production, r.uomCode),
   fmtQty(r.subTotal, r.uomCode),
-  fmtQty(r.issuance, r.uomCode),
+  issuanceCell(r),
   fmtQty(r.closingPieces, r.uomCode),
   // §6 — UoM travels with the balance it qualifies.
   r.uomCode ?? '—',
@@ -1000,7 +1118,7 @@ const exportNumericRow = (r: LedgerMetrics): (string | number | null)[] => [
   exportCell(r.opBalance, r.uomCode),
   exportCell(r.production, r.uomCode),
   exportCell(r.subTotal, r.uomCode),
-  exportCell(r.issuance, r.uomCode),
+  r.suppressed ? '—' : exportCell(r.issuance, r.uomCode),
   exportCell(r.closingPieces, r.uomCode),
   // §6 — same slot as the display row so header and cell never misalign.
   r.uomCode ?? '—',
@@ -1550,8 +1668,15 @@ const ItemWiseProductionLedger: React.FC = () => {
           return {
             ...c,
             label: item?.name ? `${item.name} — ${c.fgItemCode}` : c.label,
-            divisionId: item?.divisionId || item?.division?.id || 'd1000000-0000-0000-0000-000000000001',
-            divisionName: item?.division?.name || item?.divisionName || 'Spoke Division',
+            // NEVER fabricate a division. The old fallback stamped every chain
+            // whose item could not be resolved with the Spoke Division id and
+            // the literal name "Spoke Division", so unattributed chains (e.g.
+            // Control Cable ones whose item wasn't in the loaded page) were
+            // reported as SPD — the exact cross-division leak where filtering
+            // Spoke still showed Control Cable rows/warehouses. Unknown stays
+            // unknown: it renders under "All divisions" only.
+            divisionId: item?.divisionId || item?.division?.id || null,
+            divisionName: item?.division?.name || item?.divisionName || null,
           };
         });
 
@@ -1640,32 +1765,9 @@ const ItemWiseProductionLedger: React.FC = () => {
 
       // Multi-day rolling window: carry forward previous day's closing into next day's opening
       if (monthFrom !== endDate && baseItems.length > 0) {
-        // Group entries by PKT YYYY-MM-DD -> itemCode -> total quantity
-        const dailyProdMap = new Map<string, Map<string, number>>();
-        entriesList.forEach((e: any) => {
-          if (e?.isActive === false) return;
-          const rawDate = e?.entryDate;
-          let d = '';
-          if (rawDate) {
-            const dt = new Date(rawDate);
-            if (!isNaN(dt.getTime())) {
-              const pkt = new Date(dt.getTime() + 5 * 3600 * 1000);
-              d = pkt.toISOString().slice(0, 10);
-            } else {
-              d = dayjs(rawDate).format('YYYY-MM-DD');
-            }
-          }
-          const code = (e?.item?.itemCode || e?.itemCode || '').trim();
-          const qty = num(e?.actualQuantity);
-          if (d && code && qty > 0) {
-            let m = dailyProdMap.get(d);
-            if (!m) {
-              m = new Map<string, number>();
-              dailyProdMap.set(d, m);
-            }
-            m.set(code, round4((m.get(code) ?? 0) + qty));
-          }
-        });
+        // Group entries by PKT YYYY-MM-DD -> itemCode -> pieces, split across
+        // each document's OUTPUT children so multi-item logs stay item-isolated.
+        const dailyProdMap = bucketDailyProduction(entriesList);
 
         // Compute all days in sequence from monthFrom to endDate
         const days: string[] = [];
@@ -1934,7 +2036,11 @@ const ItemWiseProductionLedger: React.FC = () => {
         render: (v: number, row: LedgerMetrics) => (
           <div>
             <div>
-              {row.issuanceDriven ? (
+              {row.suppressed ? (
+                <Tooltip title={row.issuanceRule}>
+                  <Text type="secondary">—</Text>
+                </Tooltip>
+              ) : row.issuanceDriven ? (
                 <Tooltip title={`Driven by the next stage: ${row.issuanceRule}`}>
                   <Text type={row.returnOutValue > 0 ? 'danger' : 'warning'} strong={v > 0}>
                     {fmtQty(v, row.uomCode)}
@@ -3270,6 +3376,77 @@ const ItemWiseProductionLedger: React.FC = () => {
           color: #34d399;
         }
 
+        /* ══ §10 LOADING OVERLAY — CRYSTAL-CLEAR BACKDROP ═══════════════════
+           antd v5 paints the loading veil from TWO places, and both made the
+           ledger unreadable while it refreshed:
+             1. .ant-spin-container.ant-spin-blur drops the whole grid to
+                opacity .5, and
+             2. its ::after pseudo-element lays a colorBgContainer (white)
+                plate over the table at opacity .4 — that plate is the heavy
+                white "dhhund" that hid the figures.
+           Neither is load-bearing: the rotating indicator alone carries the
+           loading signal. Both are neutralised, and the backdrop filter some
+           shared CSS adds is stripped as well, so every column stays 100 %
+           legible underneath. Scoped to .iwl-page so no other ERP screen
+           inherits the change. */
+        .iwl-page .ant-spin-nested-loading > .ant-spin-container.ant-spin-blur {
+          opacity: 1 !important;
+          user-select: auto !important;
+        }
+        .iwl-page .ant-spin-nested-loading > .ant-spin-container.ant-spin-blur::after {
+          background: transparent !important;
+          background-color: transparent !important;
+          opacity: 0 !important;
+          backdrop-filter: none !important;
+          -webkit-backdrop-filter: none !important;
+        }
+        .iwl-page .ant-spin-nested-loading > .ant-spin {
+          backdrop-filter: none !important;
+          -webkit-backdrop-filter: none !important;
+        }
+
+        /* ══ §10 SPINNER GEOMETRY — 25 % LARGER ═══════════════════════════
+           antd sizes the large indicator off dotSizeLG (= controlHeight,
+           32 px) and COMPILES the four dot squares down to a literal 14 px,
+           so a real 1.25× scale needs both numbers lifted:
+           holder font-size 32 → 40 px, dot squares 14 → 18 px. */
+        .iwl-page .ant-spin.ant-spin-lg .ant-spin-dot,
+        .iwl-page .ant-spin.ant-spin-lg .ant-spin-dot-holder {
+          font-size: 40px !important;
+        }
+        .iwl-page .ant-spin.ant-spin-lg .ant-spin-dot-holder i {
+          width: 18px !important;
+          height: 18px !important;
+        }
+
+        /* ══ §10 VERTICAL STACK — KILL THE TEXT / SPINNER COLLISION ════════
+           antd absolutely-centres BOTH overlay children (.ant-spin-dot at
+           top:50% and .ant-spin-text at top:50%), which is why the
+           verification line landed on top of the rotating dots. Making the
+           overlay a real column stack and both children static pushes the
+           text underneath the icon with a hard 24 px separator. */
+        .iwl-page .ant-spin-nested-loading > .ant-spin.ant-spin-lg {
+          display: flex !important;
+          flex-direction: column !important;
+          align-items: center !important;
+          justify-content: center !important;
+        }
+        .iwl-page .ant-spin-nested-loading > .ant-spin.ant-spin-lg .ant-spin-dot {
+          position: static !important;
+          top: auto !important;
+          inset-inline-start: auto !important;
+          margin: 0 !important;
+        }
+        .iwl-page .ant-spin-nested-loading > .ant-spin.ant-spin-lg .ant-spin-text {
+          position: static !important;
+          top: auto !important;
+          width: auto !important;
+          margin-top: 24px !important;
+          padding-top: 0 !important;
+          text-align: center !important;
+          text-shadow: none !important;
+        }
+
         @page { size: A4 landscape; margin: 7mm 7mm; }
 
         @media print {
@@ -3992,7 +4169,10 @@ const ItemWiseProductionLedger: React.FC = () => {
           spinning={loading}
           size="large"
           tip={
-            <div style={{ marginTop: 10, fontWeight: 700, fontSize: 13, color: '#0284c7' }}>
+            // §10 — the 24px separation from the icon is enforced in CSS
+            // (`.ant-spin-text { margin-top: 24px }`), not inline, so the
+            // text can never be pulled back up onto the rotating dots.
+            <div style={{ fontWeight: 700, fontSize: 13, color: '#0284c7' }}>
               Recalculating &amp; verifying ledger balances for {endDate}...
             </div>
           }

@@ -1,0 +1,75 @@
+/* ── Vertical Status Rail (rotated side label) ────────────────────────────
+   A single block container anchored to the LEFT BORDER of the active view
+   pane. The status run reads BOTTOM → TOP:
+
+     writing-mode : vertical-rl   → inline axis is top → bottom
+     rotate(-180deg)              → flips it so it reads bottom → top
+
+   text-orientation stays at `mixed` so the letters stay glued together as a
+   rotated run — NEVER `upright`, which would stack one glyph per line.
+
+   Visual rules mandated by the audit:
+     • font-variant-numeric: tabular-nums  (aligned digits)
+     • exactly zero backdrop blur          (backdrop-filter: none)
+*/
+.erp-view-status-rail {
+  /* Single block container wrapping the whole status text */
+  display: block;
+  position: absolute;
+  left: 0;
+  top: 50%;
+  /* Hug the label so it never eats into the page body */
+  width: max-content;
+  max-width: 22px;
+  margin: 0;
+  padding: 10px 3px;
+
+  /* Vertical text: bottom → top, letters NOT stacked */
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  transform: translateY(-50%) rotate(-180deg);
+  transform-origin: center center;
+  white-space: nowrap;
+  text-align: center;
+
+  /* Typography */
+  font-family: inherit;
+  font-size: 9.5px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+
+  /* Surface */
+  color: var(--theme-text-muted, rgba(15, 23, 42, 0.55));
+  background: var(--theme-surface-elevated, #ffffff);
+  border: 1px solid var(--theme-border, #e4e7f1);
+  border-left: none;
+  border-radius: 0 4px 4px 0;
+  box-shadow: 1px 0 2px rgba(15, 23, 42, 0.06);
+
+  /* ZERO backdrop blur — the label is opaque, never frosted */
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  filter: none !important;
+
+  /* Never intercept a click meant for the page underneath */
+  pointer-events: none;
+  user-select: none;
+  z-index: 5;
+}
+
+/* Unsaved / dirty state */
+.erp-view-status-rail--dirty {
+  color: var(--theme-warning, #faad14);
+  border-color: var(--theme-warning, #faad14);
+}
+
+/* Side labels are screen chrome — never print them. */
+@media print {
+  .erp-view-status-rail {
+    display: none !important;
+  }
+}

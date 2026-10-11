@@ -1,4 +1,12 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, OneToMany } from 'typeorm';
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+  UpdateDateColumn,
+  DeleteDateColumn,
+  OneToMany,
+} from 'typeorm';
 import { MaterialRequestLine } from './material-request-line.entity';
 
 @Entity('material_requests')
@@ -140,4 +148,14 @@ export class MaterialRequest {
 
   @Column({ name: 'updated_by', type: 'uuid', nullable: true })
   updatedBy!: string | null;
+
+  /**
+   * Recycle Bin columns — see `material-issue.entity.ts` for why these are
+   * declared inline instead of inheriting `SoftDeletableEntity`.
+   */
+  @DeleteDateColumn({ name: 'deleted_at', type: 'timestamp with time zone', nullable: true })
+  deletedAt: Date | null;
+
+  @Column({ name: 'deleted_by', type: 'uuid', nullable: true })
+  deletedBy: string | null;
 }

@@ -715,7 +715,8 @@ export class ReplenishmentService {
          JOIN material_request_lines mrl ON mrl.request_id = mr.id
         WHERE mr.company_id = $1 AND mr.store_id = $2 AND mrl.item_id = $3
           AND mr.status = ANY($4)
-          AND mr.rejected_at IS NULL AND mr.cancelled_at IS NULL`,
+          AND mr.rejected_at IS NULL AND mr.cancelled_at IS NULL
+          AND mr.deleted_at IS NULL`,
       [companyId, storeId, itemId, ACTIVE_MR_STATUSES],
     );
 
@@ -899,6 +900,7 @@ export class ReplenishmentService {
         WHERE mr.company_id = $1 AND mr.store_id = $2 AND mrl.item_id = $3
           AND mr.status = ANY($4)
           AND mr.rejected_at IS NULL AND mr.cancelled_at IS NULL
+          AND mr.deleted_at IS NULL
         LIMIT 1`,
       [companyId, storeId, itemId, ACTIVE_MR_STATUSES],
     );
@@ -907,6 +909,11 @@ export class ReplenishmentService {
 
   private async nextRequestNumber(companyId: string): Promise<string> {
     const prefix = `RMR-${this.compactDate()}`;
+    // Deliberately NOT filtered by `deleted_at`: this is sequence generation,
+    // not a live-document read. A trashed request still physically occupies its
+    // number, so excluding it would hand the same RMR id to a new requisition
+    // while the old row — and its audit trail — still exists. Recycle Bin hides
+    // a row from GRIDS; it never reclaims its keys until the purge sweep runs.
     const rows = await this.dataSource.query<{ cnt: number }[]>(
       `SELECT COUNT(*)::int AS cnt
          FROM material_requests

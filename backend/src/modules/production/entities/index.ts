@@ -2,6 +2,7 @@ export { ProductionOrder, ProductionOrderStatus, ProductionOrderPriority, Produc
 export { ProductionOrderOperation, ProductionOperationStatus } from './production-order-operation.entity';
 export { ProductionOrderOperationLog, OperationLogEventType } from './production-order-operation-log.entity';
 export { ProductionEntry } from './production-entry.entity';
+export type { ProductionEntryNestedItem } from './production-entry.entity';
 export { ProductionEntryItem, ProductionEntryItemKind } from './production-entry-item.entity';
 export { ProductionEntryDowntime } from './production-entry-downtime.entity';
 export { Machine, MachineStatus, MachineCriticality } from './machine.entity';

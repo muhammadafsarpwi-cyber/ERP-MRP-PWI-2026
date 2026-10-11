@@ -51,6 +51,12 @@ interface LineArg {
  */
 export type DivisionScope = string[] | undefined;
 
+/**
+ * Trailing window used by `getReport` when the request carries no start date.
+ * Guarantees the report can never degenerate into an unbounded history scan.
+ */
+const REPORT_WINDOW_DAYS = 31;
+
 @Injectable()
 export class RawMaterialReceivingService {
   private static readonly PHOTO_MIMES = ['image/jpeg', 'image/png', 'image/webp'];
@@ -1044,7 +1050,7 @@ export class RawMaterialReceivingService {
       this.receiptRepo.manager.query(
         `SELECT id, order_number, status, product_id
            FROM production_orders
-          WHERE company_id = $1
+          WHERE company_id = $1 AND deleted_at IS NULL
           ORDER BY order_number DESC
           LIMIT 100`,
         [companyId],
@@ -1391,7 +1397,17 @@ export class RawMaterialReceivingService {
   // ─────────────────────────────────────────────────────────────────────────
 
   async getReport(companyId: string, filter: RawMaterialReceivingReportQuery, allowedDivisionIds?: DivisionScope) {
-    const { dateFrom, dateTo } = filter;
+    // The report must never degrade into a full-table fetch: close any open end
+    // of the window at "today" and, when no start is given, default to the
+    // trailing REPORT_WINDOW_DAYS (the UI itself defaults to the current month).
+    const isoDay = (d: Date) => d.toISOString().slice(0, 10);
+    let { dateFrom, dateTo } = filter;
+    if (!dateTo) dateTo = isoDay(new Date());
+    if (!dateFrom) {
+      const from = new Date(`${dateTo}T00:00:00Z`);
+      from.setUTCDate(from.getUTCDate() - (REPORT_WINDOW_DAYS - 1));
+      dateFrom = isoDay(from);
+    }
 
     const receiptsQb = this.receiptLineRepo
       .createQueryBuilder('line')
@@ -1499,8 +1515,12 @@ export class RawMaterialReceivingService {
         }
         if (dateFrom) prodConsumptionQb.andWhere('l.transactionDate >= :dateFrom', { dateFrom: `${dateFrom} 00:00:00` });
         if (dateTo) prodConsumptionQb.andWhere('l.transactionDate <= :dateTo', { dateTo: `${dateTo} 23:59:59` });
-        const prodEntries = await prodConsumptionQb.getMany();
-        const totalProductionConsumption = prodEntries.reduce((sum, l) => sum + Number(l.quantity || 0), 0);
+        // Aggregate in SQL: a JS reduce over every consumption row in the window
+        // would pull the whole ledger slice into memory just to add it up.
+        const prodConsumptionTotal = await prodConsumptionQb
+          .select('COALESCE(SUM(l.quantity), 0)', 'total')
+          .getRawOne<{ total: string }>();
+        const totalProductionConsumption = Number(prodConsumptionTotal?.total || 0);
 
         const lastTxQb = this.ledgerRepo.createQueryBuilder('l')
           .leftJoinAndSelect('l.warehouse', 'w')

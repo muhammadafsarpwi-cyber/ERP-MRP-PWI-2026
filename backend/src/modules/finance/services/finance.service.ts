@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
+import { withTransaction } from '../../../common/transaction.util';
 import {
   FinanceAccount, FinanceAccountGroup, FinanceFiscalYear, FinanceAccountingPeriod,
   FinanceJournal, FinanceJournalLine, JournalStatus, AccountType, NormalBalance,
@@ -201,29 +202,20 @@ export class FinanceService {
       const period = await this.periodRepo.findOne({ where: { id: journal.periodId } });
       if (period && period.status !== 'OPEN') throw new ForbiddenException(`Accounting period ${period.periodCode} is closed`);
     }
-    const runner = this.dataSource.createQueryRunner();
-    await runner.connect();
-    await runner.startTransaction();
-    try {
+    await withTransaction(this.dataSource, async (manager) => {
       journal.status = JournalStatus.POSTED;
       journal.postedAt = new Date();
       journal.postedBy = actorId ?? null;
-      await runner.manager.save(journal);
+      await manager.save(journal);
       // recompute totals from lines (defense in depth)
-      const totals = await runner.manager
+      const totals = await manager
         .createQueryBuilder(FinanceJournalLine, 'l')
         .select('COALESCE(SUM(l.debit),0)', 'd')
         .addSelect('COALESCE(SUM(l.credit),0)', 'c')
         .where('l.journal_id = :id', { id })
         .getRawOne();
       if (Math.abs(Number(totals.d) - Number(totals.c)) > 0.0001) throw new BadRequestException('Lines unbalanced');
-      await runner.commitTransaction();
-    } catch (e) {
-      await runner.rollbackTransaction();
-      throw e;
-    } finally {
-      await runner.release();
-    }
+    });
     return this.findJournal(id);
   }
 
@@ -246,20 +238,11 @@ export class FinanceService {
       postedAt: new Date(), postedBy: actorId ?? null, createdBy: actorId ?? null,
       lines: revLines,
     });
-    const runner = this.dataSource.createQueryRunner();
-    await runner.connect();
-    await runner.startTransaction();
-    try {
-      await runner.manager.save(reversal);
+    await withTransaction(this.dataSource, async (manager) => {
+      await manager.save(reversal);
       journal.status = JournalStatus.REVERSED;
-      await runner.manager.save(journal);
-      await runner.commitTransaction();
-    } catch (e) {
-      await runner.rollbackTransaction();
-      throw e;
-    } finally {
-      await runner.release();
-    }
+      await manager.save(journal);
+    });
     return this.findJournal(id);
   }
 

@@ -1,5 +1,5 @@
 import { Entity, Column, ManyToOne, JoinColumn, Index } from 'typeorm';
-import { BaseEntity } from '../../../common/base.entity';
+import { SoftDeletableEntity } from '../../../common/soft-deletable.entity';
 import { Company } from '../../organization/entities/company.entity';
 import { Machine } from '../../production/entities/machine.entity';
 import { MaintenanceTeam } from './maintenance-team.entity';
@@ -7,7 +7,7 @@ import { MaintenanceTeam } from './maintenance-team.entity';
 @Entity('maintenance_pm_plans')
 @Index(['companyId'])
 @Index(['machineId'])
-export class MaintenancePmPlan extends BaseEntity {
+export class MaintenancePmPlan extends SoftDeletableEntity {
   @Column({ name: 'company_id', type: 'uuid' })
   companyId: string;
 

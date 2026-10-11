@@ -14,20 +14,21 @@
 
 import React from 'react';
 
-/** Tight, right-aligned numeric cell — shared by both data matrices. */
+/** Tight, right-aligned numeric cell — shared by both data matrices.
+ *  Padding follows the system-wide compact grid rule (`4px 5px`). */
 export const numCellStyle: React.CSSProperties = {
   fontVariantNumeric: 'tabular-nums',
   fontSize: 12,
   fontWeight: 600,
   whiteSpace: 'nowrap',
-  padding: '3px 4px',
+  padding: '4px 5px',
 };
 
 /** Tight label cell — long text may wrap, but never onto an icon row. */
 export const labelCellStyle: React.CSSProperties = {
   fontSize: 12,
   lineHeight: 1.3,
-  padding: '3px 4px',
+  padding: '4px 5px',
   wordBreak: 'break-word',
 };
 

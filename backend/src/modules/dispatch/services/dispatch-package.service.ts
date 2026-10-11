@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
+import { withTransaction } from '../../../common/transaction.util';
 import {
   DispatchPackage,
   DispatchPackageStatus,
@@ -281,71 +282,68 @@ export class DispatchPackageService {
     }
 
     // 6. Execute atomic insertion & totals recalculation
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-
     let addedUnit: DispatchPackageUnit;
     try {
-      const unitRecord = queryRunner.manager.create(DispatchPackageUnit, {
-        companyId,
-        packageId: pkg.id,
-        productionUnitId: prodUnit.id,
-        unitSerialNo: prodUnit.unitSerialNo,
-        coilNo: prodUnit.coilNo,
-        itemId: prodUnit.itemId,
-        itemName: prodUnit.item?.name || 'Finished Product',
-        itemCode: prodUnit.item?.itemCode || null,
-        weightKg: prodUnit.weightKg != null ? Number(prodUnit.weightKg) : null,
-        lengthMeters: prodUnit.lengthMeters != null ? Number(prodUnit.lengthMeters) : null,
-        batchNo: prodUnit.batchNo || null,
-        status: DispatchPackageUnitStatus.PACKED,
-        addedBy: userId || null,
-      });
-
-      addedUnit = await queryRunner.manager.save(unitRecord);
-
-      // Recalculate authoritative totals
-      const totalsResult = await queryRunner.manager.query(
-        `SELECT 
-          COUNT(*)::int as total_units,
-          COALESCE(SUM(weight_kg), 0)::numeric as total_weight,
-          COALESCE(SUM(length_meters), 0)::numeric as total_length
-         FROM dispatch_package_units
-         WHERE package_id = $1 AND status = 'PACKED'`,
-        [pkg.id],
-      );
-
-      const totals = totalsResult[0] || { total_units: 0, total_weight: 0, total_length: 0 };
-
-      await queryRunner.manager.update(DispatchPackage, pkg.id, {
-        totalUnits: Number(totals.total_units),
-        totalWeightKg: Number(totals.total_weight),
-        totalLengthMeters: Number(totals.total_length),
-        updatedBy: userId || null,
-      });
-
-      // Record audit inside transaction
-      const auditLog = queryRunner.manager.create(DispatchPackageAuditLog, {
-        companyId,
-        packageId: pkg.id,
-        action: DispatchPackageAction.UNIT_ADDED,
-        productionUnitId: prodUnit.id,
-        unitSerialNo: prodUnit.unitSerialNo,
-        details: {
+      addedUnit = await withTransaction(this.dataSource, async (manager) => {
+        const unitRecord = manager.create(DispatchPackageUnit, {
+          companyId,
+          packageId: pkg.id,
+          productionUnitId: prodUnit.id,
+          unitSerialNo: prodUnit.unitSerialNo,
           coilNo: prodUnit.coilNo,
-          weightKg: prodUnit.weightKg,
-          lengthMeters: prodUnit.lengthMeters,
-          item: prodUnit.item?.name,
-        },
-        performedBy: userId || null,
-        performedByName: userName || null,
-      });
-      await queryRunner.manager.save(auditLog);
+          itemId: prodUnit.itemId,
+          itemName: prodUnit.item?.name || 'Finished Product',
+          itemCode: prodUnit.item?.itemCode || null,
+          weightKg: prodUnit.weightKg != null ? Number(prodUnit.weightKg) : null,
+          lengthMeters: prodUnit.lengthMeters != null ? Number(prodUnit.lengthMeters) : null,
+          batchNo: prodUnit.batchNo || null,
+          status: DispatchPackageUnitStatus.PACKED,
+          addedBy: userId || null,
+        });
 
-      await queryRunner.commitTransaction();
+        const unit = await manager.save(unitRecord);
+
+        // Recalculate authoritative totals
+        const totalsResult = await manager.query(
+          `SELECT 
+            COUNT(*)::int as total_units,
+            COALESCE(SUM(weight_kg), 0)::numeric as total_weight,
+            COALESCE(SUM(length_meters), 0)::numeric as total_length
+           FROM dispatch_package_units
+           WHERE package_id = $1 AND status = 'PACKED'`,
+          [pkg.id],
+        );
+
+        const totals = totalsResult[0] || { total_units: 0, total_weight: 0, total_length: 0 };
+
+        await manager.update(DispatchPackage, pkg.id, {
+          totalUnits: Number(totals.total_units),
+          totalWeightKg: Number(totals.total_weight),
+          totalLengthMeters: Number(totals.total_length),
+          updatedBy: userId || null,
+        });
+
+        // Record audit inside transaction
+        const auditLog = manager.create(DispatchPackageAuditLog, {
+          companyId,
+          packageId: pkg.id,
+          action: DispatchPackageAction.UNIT_ADDED,
+          productionUnitId: prodUnit.id,
+          unitSerialNo: prodUnit.unitSerialNo,
+          details: {
+            coilNo: prodUnit.coilNo,
+            weightKg: prodUnit.weightKg,
+            lengthMeters: prodUnit.lengthMeters,
+            item: prodUnit.item?.name,
+          },
+          performedBy: userId || null,
+          performedByName: userName || null,
+        });
+        await manager.save(auditLog);
+
+        return unit;
+      });
     } catch (err: any) {
-      await queryRunner.rollbackTransaction();
       if (err?.code === '23505') {
         // Postgres unique violation on idx_unique_active_packed_unit
         throw new ConflictException(
@@ -353,8 +351,6 @@ export class DispatchPackageService {
         );
       }
       throw err;
-    } finally {
-      await queryRunner.release();
     }
 
     const updatedPackage = await this.findOne(pkg.id, companyId);
@@ -723,6 +719,48 @@ export class DispatchPackageService {
   // ════════════════════════════════════════════════════════════════════════════
   // 9. CANCEL PACKAGE
   // ════════════════════════════════════════════════════════════════════════════
+
+  /**
+   * RECYCLE BIN — move a whole dispatch package to the trash.
+   *
+   * Deliberately NOT the same thing as `cancelPackage()`: cancelling is a
+   * business decision that RELEASES every packed production unit back into the
+   * dispatch pool and writes a cancellation reason, and it is irreversible.
+   * Deleting is administrative and recoverable, so it stamps `deleted_at` and
+   * touches nothing else — the units, their status, the audit trail and the
+   * gate-pass link all survive untouched and reappear exactly as they were on
+   * Restore.
+   *
+   * A package that has physically left the factory is a completed logistics
+   * fact and can never be trashed, only cancelled with a reason.
+   */
+  async remove(
+    packageId: string,
+    companyId: string,
+    userId?: string,
+  ): Promise<DispatchPackage> {
+    const pkg = await this.packageRepo.findOne({
+      where: { id: packageId, companyId },
+      withDeleted: true,
+    });
+
+    if (!pkg) {
+      throw new NotFoundException(`Dispatch package ${packageId} not found`);
+    }
+    if (pkg.deletedAt) {
+      throw new BadRequestException(`Dispatch package ${pkg.packageNo} is already in the Recycle Bin`);
+    }
+    if (pkg.status === DispatchPackageStatus.DISPATCHED) {
+      throw new BadRequestException(
+        'A package that has already DISPATCHED cannot be deleted — cancel it with a reason instead',
+      );
+    }
+
+    pkg.deletedAt = new Date();
+    pkg.deletedBy = userId || null;
+    pkg.updatedBy = userId || null;
+    return this.packageRepo.save(pkg);
+  }
 
   async cancelPackage(
     packageId: string,

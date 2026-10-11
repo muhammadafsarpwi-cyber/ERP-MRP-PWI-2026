@@ -442,6 +442,38 @@ export class SalesInvoiceService {
     return this.repo.save(invoice);
   }
 
+  /**
+   * Move an invoice to the Recycle Bin.
+   *
+   * AN ACCOUNTING GUARD, not a convenience one. An invoice is a financial
+   * record: if any money has been recorded against it (`paid_amount > 0`), or
+   * it has been posted or paid in full, hiding the row would leave the
+   * receivables ledger referencing a document no operator can see. Those must
+   * be voided on the accounts screen so the reversal lands in the ledger; only
+   * a never-touched invoice may simply be recycled.
+   */
+  async remove(id: string, userId?: string, companyId?: string, allowedDivisionIds?: DivisionAccess): Promise<SalesInvoice> {
+    const invoice = await this.findOne(id, companyId, allowedDivisionIds);
+    const status = String(invoice.status || '').toLowerCase();
+    const paid = Number(invoice.paidAmount ?? 0);
+
+    if (paid > 0) {
+      throw new BadRequestException(
+        'This invoice has payments recorded against it and cannot be recycled. ' +
+          'Void it on the accounts screen so the reversal lands in the ledger.',
+      );
+    }
+    if (['paid', 'posted', 'settled'].includes(status)) {
+      throw new BadRequestException(
+        `A ${invoice.status} invoice is a financial record and cannot be recycled. Void it instead.`,
+      );
+    }
+
+    invoice.deletedAt = new Date();
+    invoice.deletedBy = userId || null;
+    return this.repo.save(invoice);
+  }
+
   private async generateInvoiceNumber(companyId: string): Promise<string> {
     const year = new Date().getFullYear();
     const prefix = `SI-${year}-`;

@@ -30,6 +30,8 @@ export class WarehouseController {
   @ApiQuery({ name: 'search', required: false, type: String })
   @ApiQuery({ name: 'status', required: false, enum: WarehouseStatus })
   @ApiQuery({ name: 'companyId', required: false, type: String })
+  @ApiQuery({ name: 'divisionId', required: false, type: String })
+  @ApiQuery({ name: 'departmentId', required: false, type: String })
   @ApiQuery({ name: 'branchId', required: false, type: String })
   @ApiQuery({ name: 'businessUnitId', required: false, type: String })
   @ApiQuery({ name: 'warehouseType', required: false, enum: WarehouseType })
@@ -39,12 +41,14 @@ export class WarehouseController {
     @Query('search') search?: string,
     @Query('status') status?: WarehouseStatus,
     @Query('companyId') companyId?: string,
+    @Query('divisionId') divisionId?: string,
+    @Query('departmentId') departmentId?: string,
     @Query('branchId') branchId?: string,
     @Query('businessUnitId') businessUnitId?: string,
     @Query('warehouseType') warehouseType?: WarehouseType,
   ) {
     const result = await this.warehouseService.findAll({
-      page: Number(page) || 1, limit: Number(limit) || 20, search, status, companyId, branchId, businessUnitId, warehouseType,
+      page: Number(page) || 1, limit: Number(limit) || 20, search, status, companyId, divisionId, departmentId, branchId, businessUnitId, warehouseType,
     });
     return { success: true, ...result };
   }

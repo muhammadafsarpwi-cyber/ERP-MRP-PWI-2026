@@ -28,6 +28,7 @@
   --theme-info-soft: #e9eafd;
   --theme-surface-elevated: #ffffff;
   --theme-bg-card: var(--theme-surface-elevated, #ffffff);
+  --theme-card-bg: var(--theme-bg-card, #ffffff);
   --theme-bg-secondary: var(--theme-surface-alt, #f7f8fd);
   --theme-bg-subtle: #f1f3f9;
   --theme-chart-grid: rgba(15, 23, 42, 0.08);
@@ -88,6 +89,7 @@ html[data-theme='dark'] {
   --theme-info-soft: rgba(129, 140, 248, 0.16);
   --theme-surface-elevated: #202544;
   --theme-bg-card: var(--theme-surface-elevated, #202544);
+  --theme-card-bg: var(--theme-bg-card, #202544);
   --theme-bg-secondary: var(--theme-surface-alt, #202544);
   --theme-bg-subtle: #1a1f3a;
   --theme-chart-grid: rgba(226, 232, 255, 0.09);

@@ -187,6 +187,10 @@ export class BomService {
   async remove(id: string, companyId: string, userId?: string): Promise<void> {
     const bom = await this.findOne(id, companyId);
     bom.isActive = false;
+    // Archive + trash together: the Recycle Bin is now the single place a BOM
+    // goes when it leaves the live list, and restoring it re-activates the row.
+    bom.deletedAt = new Date();
+    bom.deletedBy = userId ?? null;
     bom.updatedBy = userId || null;
     await this.bomRepo.save(bom);
   }

@@ -97,6 +97,7 @@ export class ProductionEntryController {
     @Query('sortDir') sortDir?: 'ASC' | 'DESC',
     @Query('status') status?: string,
     @Query('chevronKey') chevronKey?: string,
+    @Query('warehouseId') warehouseId?: string,
   ) {
     const companyId = this.getCompanyId(req);
     const result = await this.entryService.findAll(companyId, {
@@ -118,6 +119,7 @@ export class ProductionEntryController {
       sortDir,
       status,
       chevronKey,
+      warehouseId,
       allowedDivisionIds: this.divisions(req),
     });
     return { success: true, ...result };

@@ -57,12 +57,14 @@ export const ProductionEntryModal: React.FC = () => {
         style={{
           display: isMinimized ? 'none' : 'flex',
           pointerEvents: isMinimized ? 'none' : 'auto',
+          zIndex: 50000,
         }}
         onClick={(e) => e.stopPropagation()}
       >
         <div
           className={`entry-modal-window ${isMaximized ? 'mode-maximized' : 'mode-normal'}`}
           data-testid="production-entry-modal"
+          style={{ zIndex: 50001 }}
         >
           {/* ── Window Header Bar ── */}
           <div className="entry-window-header">
@@ -89,7 +91,7 @@ export const ProductionEntryModal: React.FC = () => {
             </div>
 
             {/* Window Controls */}
-            <div className="entry-window-controls">
+            <div className="entry-window-controls" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               {/* View Details Toggle */}
               <button
                 type="button"
@@ -102,14 +104,27 @@ export const ProductionEntryModal: React.FC = () => {
               </button>
 
               {/* Minimize */}
-              <Tooltip title="Minimize to Bottom Dock (Preserve Data)">
+              <Tooltip title="Minimize to Dock (-)">
                 <button
                   type="button"
                   className="entry-window-ctrl-btn"
                   onClick={minimize}
                   aria-label="Minimize Window"
+                  style={{
+                    background: '#1e293b',
+                    border: '1.5px solid #475569',
+                    color: '#ffffff',
+                    width: 34,
+                    height: 34,
+                    borderRadius: 6,
+                    fontSize: 15,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'pointer',
+                  }}
                 >
-                  <MinusOutlined />
+                  <MinusOutlined style={{ fontSize: 16, strokeWidth: 2, color: '#ffffff' }} />
                 </button>
               </Tooltip>
 
@@ -120,20 +135,51 @@ export const ProductionEntryModal: React.FC = () => {
                   className="entry-window-ctrl-btn"
                   onClick={toggleMaximize}
                   aria-label="Toggle Fullscreen"
+                  style={{
+                    background: '#1e293b',
+                    border: '1.5px solid #475569',
+                    color: '#ffffff',
+                    width: 34,
+                    height: 34,
+                    borderRadius: 6,
+                    fontSize: 15,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'pointer',
+                  }}
                 >
-                  {isMaximized ? <FullscreenExitOutlined /> : <FullscreenOutlined />}
+                  {isMaximized ? (
+                    <FullscreenExitOutlined style={{ fontSize: 15, color: '#ffffff' }} />
+                  ) : (
+                    <FullscreenOutlined style={{ fontSize: 15, color: '#ffffff' }} />
+                  )}
                 </button>
               </Tooltip>
 
               {/* Close */}
-              <Tooltip title="Close Entry Window">
+              <Tooltip title="Close Entry Window (Esc)">
                 <button
                   type="button"
                   className="entry-window-ctrl-btn btn-close"
                   onClick={handleCloseClick}
                   aria-label="Close Window"
+                  style={{
+                    background: '#ef4444',
+                    border: '1.5px solid #dc2626',
+                    color: '#ffffff',
+                    width: 34,
+                    height: 34,
+                    borderRadius: 6,
+                    fontSize: 15,
+                    fontWeight: 'bold',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'pointer',
+                  }}
                 >
-                  <CloseOutlined />
+                  <CloseOutlined style={{ fontSize: 15, fontWeight: 'bold', color: '#ffffff' }} />
                 </button>
               </Tooltip>
             </div>

@@ -63,6 +63,10 @@ export class MaintenancePmService {
     const plan = await this.planRepo.findOne({ where: { id } });
     if (!plan) throw new NotFoundException(`PM Plan '${id}' not found`);
     plan.isActive = false;
+    // Archive + trash together, so a plan deactivated from the PM screen turns
+    // up in the Recycle Bin and can be brought back without re-creating it.
+    plan.deletedAt = new Date();
+    plan.deletedBy = erpUserId;
     plan.updatedBy = erpUserId;
     await this.planRepo.save(plan);
     await this.activityLog.log({ action: 'PM_PLAN_DEACTIVATED', targetType: 'maintenance_pm_plans', targetId: id, actorUserId: erpUserId });
@@ -186,6 +190,38 @@ export class MaintenancePmService {
     const saved = await this.scheduleRepo.save(schedule);
 
     await this.activityLog.log({ action: 'PM_SCHEDULE_SKIPPED', targetType: 'maintenance_pm_schedules', targetId: scheduleId, actorUserId: erpUserId });
+    return saved;
+  }
+
+  /**
+   * Move a generated PM schedule instance to the Recycle Bin.
+   *
+   * A schedule is a planning row — deleting one is how the store retires an
+   * occurrence that should never have been generated. The one hard stop is a
+   * schedule that already spawned a JOB CARD: that card is the machine's
+   * maintenance history, and hiding the schedule that produced it would leave
+   * the card pointing at nothing. Completed schedules are likewise kept, since
+   * the record of work actually performed is never disposable.
+   */
+  async removeSchedule(scheduleId: string, userId: string): Promise<MaintenancePmSchedule> {
+    const erpUserId = await this.userResolver.resolve(userId);
+    const schedule = await this.scheduleRepo.findOne({ where: { id: scheduleId } });
+    if (!schedule) throw new NotFoundException(`PM Schedule '${scheduleId}' not found`);
+    if (schedule.generatedJobCardId) {
+      throw new BadRequestException(
+        'This schedule already generated a job card and cannot be recycled — ' +
+          'it is the maintenance history for that work. Skip it instead.',
+      );
+    }
+    if (schedule.status === 'COMPLETED') {
+      throw new BadRequestException('Cannot recycle a completed schedule — it records work that was actually performed.');
+    }
+
+    schedule.deletedAt = new Date();
+    schedule.deletedBy = erpUserId;
+    const saved = await this.scheduleRepo.save(schedule);
+
+    await this.activityLog.log({ action: 'PM_SCHEDULE_RECYCLED', targetType: 'maintenance_pm_schedules', targetId: scheduleId, actorUserId: erpUserId });
     return saved;
   }
 }
