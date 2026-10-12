@@ -1,0 +1,75 @@
+﻿ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+  TRACE ΓÇö PE-2026-00308 and PE-2026-00298, every row, every warehouse
+  READ-ONLY. Nothing in this script writes to the database.
+ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+
+
+ΓöÇΓöÇΓöÇΓöÇ PE-2026-00308 ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+  entry id            : 0b343338-4a2c-4fb3-b434-8865e9bd2ad0
+  entry warehouse     : SPI-SPK-003
+  inventory_reference : NULL
+  is_active           : false   deleted_at: (null)
+  created             : 2026-10-09T11:50:03.901Z
+  updated             : 2026-10-11T05:57:46.356Z   <-- entry edited?
+
+  9 ledger row(s) still referencing this document:
+  ledger_row | wh | item | type | dir | qty | created | notes
+  7da4c61a-5677-49f6-95d7-91e24daa6072 | SPI-SPK-003 | WIP-SP-014 | PRODUCTION_RECEIPT | IN | 18,000 | 2026-10-09T11:50:03.901Z | Daily production receipt (SPK-01, 2026-10-08)
+  ae483d86-9987-401e-b789-e3e52bcde6ac | SPI-ST-001 | WIP-ST-004 | PRODUCTION_CONSUMPTION | OUT | 18,000 | 2026-10-09T11:50:03.901Z | Routing-configured raw material consumption for 
+  cca6c798-2c2f-4605-ae8a-81802160876e | SPI-SPK-003 | WIP-SP-014 | PRODUCTION_SCRAP | OUT | 1.12 | 2026-10-09T11:50:03.901Z | Scrap/rejection recorded for daily production en
+  512ad63a-0af6-4406-ab80-ded1742cb371 | CCD-SP-002 | WIP-SP-014 | PRODUCTION_REVERSAL | IN | 1.12 | 2026-10-10T09:15:56.978Z | Reversal of PRODUCTION_SCRAP for production entr
+  7cbc96b2-cad3-4a31-b978-3942c151eec1 | CCD-SP-002 | WIP-SP-014 | PRODUCTION_REVERSAL | OUT | 18,000 | 2026-10-10T09:15:56.978Z | Reversal of PRODUCTION_RECEIPT for production en
+  e06999a8-ec30-494d-bafb-72da09f35ac6 | SPI-ST-001 | WIP-ST-004 | PRODUCTION_REVERSAL | IN | 18,000 | 2026-10-10T09:15:56.978Z | Reversal of PRODUCTION_CONSUMPTION for productio
+  1e71b44f-9948-40ff-9d64-d3dcbc71c6eb | SPI-ST-001 | WIP-ST-004 | PRODUCTION_REVERSAL | IN | 18,000 | 2026-10-10T09:15:58.191Z | Reversal of PRODUCTION_CONSUMPTION for productio
+  7b8b9b0d-fd7c-4ea9-9a0c-12dee28b390a | CCD-SP-002 | WIP-SP-014 | PRODUCTION_REVERSAL | OUT | 18,000 | 2026-10-10T09:15:58.191Z | Reversal of PRODUCTION_RECEIPT for production en
+  a37507c2-29ce-4eeb-9e7c-d3c5e4c82158 | CCD-SP-002 | WIP-SP-014 | PRODUCTION_REVERSAL | IN | 1.12 | 2026-10-10T09:15:58.191Z | Reversal of PRODUCTION_SCRAP for production entr
+
+  Rows whose notes mention this entry's machine (SPK-01) and
+  entry date (Thu Oct 08 2026 00:00:00 GMT+0500 (Pakistan Standard Time)) but are NOT linked to it:
+  (none)
+
+
+ΓöÇΓöÇΓöÇΓöÇ PE-2026-00298 ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+  entry id            : 799c2ad4-36d3-482b-a293-97e8b67495d6
+  entry warehouse     : SPI-SPK-003
+  inventory_reference : 50357eac-f193-4375-a467-6f880df485d8
+  is_active           : true   deleted_at: (null)
+  created             : 2026-10-09T11:30:33.168Z
+  updated             : 2026-10-11T05:57:46.356Z   <-- entry edited?
+
+  3 ledger row(s) still referencing this document:
+  ledger_row | wh | item | type | dir | qty | created | notes
+  50357eac-f193-4375-a467-6f880df485d8 | SPI-SPK-003 | WIP-SP-002 | PRODUCTION_RECEIPT | IN | 39,005 | 2026-10-09T11:30:33.168Z | Daily production receipt (SPK-05, 2026-10-08)
+  8feef07a-2835-4f84-8276-c1615e91e9a3 | SPI-SW-002 | WIP-SW-001 | PRODUCTION_CONSUMPTION | OUT | 39,005 | 2026-10-09T11:30:33.168Z | Routing-configured raw material consumption for 
+  9d8d3b7f-e938-4119-852b-d909a8866d13 | SPI-SPK-003 | WIP-SP-002 | PRODUCTION_SCRAP | OUT | 31.23 | 2026-10-09T11:30:33.168Z | Scrap/rejection recorded for daily production en
+
+  Rows whose notes mention this entry's machine (SPK-05) and
+  entry date (Thu Oct 08 2026 00:00:00 GMT+0500 (Pakistan Standard Time)) but are NOT linked to it:
+  (none)
+
+
+ΓöÇΓöÇΓöÇΓöÇ stock_ledger columns ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+  column_name | data_type | column_default
+  id | uuid | uuid_generate_v4()
+  created_at | timestamp with time zone | now()
+  created_by | uuid | null
+  company_id | uuid | null
+  transaction_type | character varying | null
+  transaction_date | timestamp with time zone | now()
+  item_id | uuid | null
+  warehouse_id | uuid | null
+  location_id | uuid | null
+  quantity | numeric | null
+  uom_id | uuid | null
+  direction | character varying | null
+  reference_type | character varying | null
+  reference_id | uuid | null
+  reference_number | character varying | null
+  batch_id | uuid | null
+  serial_number | character varying | null
+  notes | text | null
+  division_id | uuid | null
+  section_id | uuid | null
+  department_id | uuid | null
+
+[DONE ΓÇö read-only, nothing was written]

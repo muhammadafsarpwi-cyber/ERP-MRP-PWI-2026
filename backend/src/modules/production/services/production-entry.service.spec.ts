@@ -1,7 +1,7 @@
 import { getMetadataArgsStorage } from 'typeorm';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { ProductionEntryService, calcActualKg, calcScrapPct } from './production-entry.service';
 import { ProductionEntry, ProductionEntryItem, ProductionEntryDowntime, Machine, Shift, DowntimeReason, ProductionOrder, ProductionOrderOperation } from '../entities';
 import { Item, Uom, UomConversion } from '../../item/entities';
@@ -71,9 +71,17 @@ beforeEach(async () => {
     createQueryBuilder: jest.fn(),
     // Minimal in-transaction manager so `entryRepo.manager.transaction(...)`
     // (used by atomic inventory posting) is exercised in unit tests.
+    //
+    // `query` backs `reverseInventoryPostings`/`readPostedMovements`, which now
+    // run UNCONDITIONALLY on delete. An empty result set is the correct default:
+    // it means "this document never posted anything", so the reversal is a
+    // no-op and the tests that are not about inventory stay about their own
+    // subject. Tests that DO exercise reversal override it with ledger rows.
     manager: {
+      query: jest.fn().mockResolvedValue([]),
       transaction: jest.fn(async (cb: (m: any) => Promise<any>) =>
         cb({
+          query: jest.fn().mockResolvedValue([]),
           getRepository: jest.fn((e: any) => ({
             update: jest.fn().mockResolvedValue({ affected: 1 }),
             save: jest.fn((x: any) => ({ ...x, id: x.id ?? 'entry-1' })),
@@ -525,16 +533,212 @@ describe('ProductionEntryService — update & delete', () => {
     expect(updated.efficiencyPercentage).toBe(75);
   });
 
+  /**
+   * Install an in-transaction manager double and expose the pieces the
+   * removal tests assert on.
+   *
+   * `remove()` writes through `manager`, not the outer repository, so every
+   * one of these tests needs the same three things: a `query` that returns the
+   * ledger rows the entry is holding, a repository that records the soft
+   * delete, and a query builder for the child-line stamp.
+   */
+  const useTxManager = (ledgerRows: any[] = []) => {
+    const managerQuery = jest.fn().mockResolvedValue(ledgerRows);
+    const childQb = {
+      update: jest.fn().mockReturnThis(),
+      set: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      execute: jest.fn().mockResolvedValue({ affected: 1 }),
+    };
+    const txRepo = {
+      save: jest.fn(async (x: any) => x),
+      update: jest.fn().mockResolvedValue({ affected: 1 }),
+      findOne: jest.fn().mockResolvedValue(null),
+      createQueryBuilder: jest.fn(() => childQb),
+    };
+    (entryRepo.manager.transaction as jest.Mock).mockImplementation(async (cb: any) =>
+      cb({ query: managerQuery, getRepository: jest.fn(() => txRepo) }));
+    return { managerQuery, txRepo, childQb };
+  };
+
   it('soft-deletes instead of hard delete', async () => {
-    entryRepo.findOne.mockResolvedValue({ id: 'entry-1', companyId: COMPANY, isActive: true });
+    const entry = { id: 'entry-1', companyId: COMPANY, isActive: true, entryDate: '2026-01-01', machineNo: 'M-04' };
+    entryRepo.findOne.mockResolvedValue(entry);
+    const { txRepo } = useTxManager();
+
     const res = await service.remove('entry-1', COMPANY);
+
     expect(res).toBeUndefined();
-    expect(entryRepo.save).toHaveBeenCalledWith(expect.objectContaining({ isActive: false }));
+    expect(txRepo.save).toHaveBeenCalledWith(expect.objectContaining({ isActive: false }));
+    // A recoverable delete, not a destroy: the row is stamped for the bin so
+    // live queries stop seeing it while the document stays intact.
+    expect(txRepo.save).toHaveBeenCalledWith(expect.objectContaining({ deletedAt: expect.any(Date) }));
+    expect(entryRepo.findOne).toHaveBeenCalled();
+  });
+
+  it('remove ALWAYS runs the stock reversal, even when the posted flag is NULL', async () => {
+    // THE DEFECT THIS FIXES. The old gate was `if (entry.inventoryReferenceId)`,
+    // so any entry whose flag had been cleared — by a ledger-row delete, by a
+    // prior delete, or by a posting that never wrote the flag — skipped its
+    // reversal entirely. Its stock stayed on `inventory_balances` forever and
+    // surfaced as "SYSTEM BOOK STOCK" on the Production Item Open Stock matrix
+    // with no document left to explain it.
+    const entry = {
+      id: 'entry-1',
+      companyId: COMPANY,
+      isActive: true,
+      inventoryReferenceId: null, // the flag is NULL — this is the case
+      entryDate: '2026-01-01',
+      machineNo: 'M-04',
+    };
+    entryRepo.findOne.mockResolvedValue(entry);
+
+    // The ledger still holds an unreversed receipt for this entry.
+    const { managerQuery } = useTxManager([
+      {
+        id: 'led-1',
+        transaction_type: 'PRODUCTION_RECEIPT',
+        direction: 'IN',
+        quantity: 250,
+        item_id: 'item-1',
+        warehouse_id: 'wh-1',
+        uom_id: 'uom-m',
+        location_id: null,
+        batch_id: null,
+      },
+    ]);
+
+    await service.remove('entry-1', COMPANY);
+
+    // The ledger was read...
+    expect(managerQuery).toHaveBeenCalledWith(expect.stringContaining('FROM stock_ledger'), expect.any(Array));
+    // ...and a reversal was written to undo the receipt.
+    expect(stockLedgerService.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        transactionType: 'PRODUCTION_REVERSAL',
+        direction: 'OUT',
+        quantity: 250,
+        itemId: 'item-1',
+        warehouseId: 'wh-1',
+      }),
+      expect.anything(),
+    );
+    // ...and the balance was put back in the same transaction.
+    expect(balanceService.updateBalance).toHaveBeenCalledWith(
+      COMPANY, 'item-1', 'wh-1', null, null, 'uom-m', 250, 'OUT', expect.anything(), true,
+    );
+  });
+
+  it('remove reverses NET of what was already undone, never the full original', async () => {
+    // An entry edited down already carries a partial reversal. Re-posting the
+    // full original would take the family past zero and corrupt the balance —
+    // which is how a delete could over-state stock and then need a manual
+    // "Adjust". Netting is idempotent: 100 in − 40 reversed = 60 still held.
+    const entry = { id: 'entry-1', companyId: COMPANY, isActive: true, entryDate: '2026-01-01', machineNo: 'M-04' };
+    entryRepo.findOne.mockResolvedValue(entry);
+
+    useTxManager([
+      { id: 'a', transaction_type: 'PRODUCTION_RECEIPT', direction: 'IN', quantity: 100, item_id: 'item-1', warehouse_id: 'wh-1', uom_id: 'uom-m', location_id: null, batch_id: null },
+      { id: 'b', transaction_type: 'PRODUCTION_REVERSAL', direction: 'OUT', quantity: 40, item_id: 'item-1', warehouse_id: 'wh-1', uom_id: 'uom-m', location_id: null, batch_id: null, notes: 'Reversal of PRODUCTION_RECEIPT for production entry (M-04, 2026-01-01)' },
+    ]);
+
+    await service.remove('entry-1', COMPANY);
+
+    expect(stockLedgerService.create).toHaveBeenCalledTimes(1);
+    expect(stockLedgerService.create).toHaveBeenCalledWith(
+      expect.objectContaining({ transactionType: 'PRODUCTION_REVERSAL', quantity: 60, direction: 'OUT' }),
+      expect.anything(),
+    );
+  });
+
+  it('remove nets the BALANCE to zero while still walking every family back on the ledger', async () => {
+    // Receipt 100 in, consumption 100 out: the balance is already square, so
+    // the net correction must be nil. But the document is going away, so BOTH
+    // families have to be walked back to zero on the journal — otherwise
+    // `readPostedMovements` keeps seeing 100 of movement attributed to an
+    // entry that no longer exists.
+    //
+    // The two balance writes are exact opposites (OUT 100, IN 100), which is
+    // what makes the net nil. Asserting the SUM rather than "never called" is
+    // the point: it pins that the reversal is balanced, not merely absent.
+    const entry = { id: 'entry-1', companyId: COMPANY, isActive: true, entryDate: '2026-01-01', machineNo: 'M-04' };
+    entryRepo.findOne.mockResolvedValue(entry);
+
+    useTxManager([
+      { id: 'a', transaction_type: 'PRODUCTION_RECEIPT', direction: 'IN', quantity: 100, item_id: 'item-1', warehouse_id: 'wh-1', uom_id: 'uom-m', location_id: null, batch_id: null },
+      { id: 'b', transaction_type: 'PRODUCTION_CONSUMPTION', direction: 'OUT', quantity: 100, item_id: 'item-1', warehouse_id: 'wh-1', uom_id: 'uom-m', location_id: null, batch_id: null },
+    ]);
+
+    await service.remove('entry-1', COMPANY);
+
+    // Both families reversed on the journal...
+    expect(stockLedgerService.create).toHaveBeenCalledTimes(2);
+    expect(stockLedgerService.create).toHaveBeenCalledWith(
+      expect.objectContaining({ transactionType: 'PRODUCTION_REVERSAL', direction: 'OUT', quantity: 100 }),
+      expect.anything(),
+    );
+    expect(stockLedgerService.create).toHaveBeenCalledWith(
+      expect.objectContaining({ transactionType: 'PRODUCTION_REVERSAL', direction: 'IN', quantity: 100 }),
+      expect.anything(),
+    );
+    // ...and the balance comes back exactly where it started.
+    const net = balanceService.updateBalance.mock.calls.reduce(
+      (sum: number, c: any[]) => sum + (c[7] === 'OUT' ? -c[6] : c[6]),
+      0,
+    );
+    expect(net).toBe(0);
+  });
+
+  it('remove is idempotent — a second delete reverses nothing more', async () => {
+    // Netting is what makes this safe. A repeated delete, or a delete after an
+    // edit already reversed part of the document, must never emit a second
+    // correction: that is precisely how a balance could be driven negative and
+    // then need a manual "Adjust".
+    const entry = { id: 'entry-1', companyId: COMPANY, isActive: true, entryDate: '2026-01-01', machineNo: 'M-04' };
+    entryRepo.findOne.mockResolvedValue(entry);
+
+    // Already fully reversed: the ledger holds the receipt AND its reversal.
+    useTxManager([
+      { id: 'a', transaction_type: 'PRODUCTION_RECEIPT', direction: 'IN', quantity: 100, item_id: 'item-1', warehouse_id: 'wh-1', uom_id: 'uom-m', location_id: null, batch_id: null },
+      { id: 'b', transaction_type: 'PRODUCTION_REVERSAL', direction: 'OUT', quantity: 100, item_id: 'item-1', warehouse_id: 'wh-1', uom_id: 'uom-m', location_id: null, batch_id: null, notes: 'Reversal of PRODUCTION_RECEIPT for production entry (M-04, 2026-01-01)' },
+    ]);
+
+    await service.remove('entry-1', COMPANY);
+
+    expect(stockLedgerService.create).not.toHaveBeenCalled();
+    expect(balanceService.updateBalance).not.toHaveBeenCalled();
+  });
+
+  it('remove never invents stock from a scrap row (audit trail only)', async () => {
+    const entry = { id: 'entry-1', companyId: COMPANY, isActive: true, entryDate: '2026-01-01', machineNo: 'M-04' };
+    entryRepo.findOne.mockResolvedValue(entry);
+
+    useTxManager([
+      { id: 's', transaction_type: 'PRODUCTION_SCRAP', direction: 'OUT', quantity: 150, item_id: 'item-1', warehouse_id: 'wh-1', uom_id: 'uom-m', location_id: null, batch_id: null },
+    ]);
+
+    await service.remove('entry-1', COMPANY);
+
+    expect(stockLedgerService.create).not.toHaveBeenCalled();
+    expect(balanceService.updateBalance).not.toHaveBeenCalled();
   });
 
   it('remove enforces company isolation', async () => {
     entryRepo.findOne.mockResolvedValue(null);
     await expect(service.remove('e-other-company', COMPANY)).rejects.toThrow(NotFoundException);
+  });
+
+  it('remove refuses to touch an entry from another division, and reverses nothing', async () => {
+    entryRepo.findOne.mockResolvedValue({ id: 'entry-1', companyId: COMPANY, isActive: true, divisionId: 'div-other' });
+    const managerQuery = jest.fn();
+    (entryRepo.manager.transaction as jest.Mock).mockImplementation(async (cb: any) =>
+      cb({ query: managerQuery, getRepository: jest.fn(() => ({ save: jest.fn(), update: jest.fn(), findOne: jest.fn() })) }));
+
+    await expect(service.remove('entry-1', COMPANY, 'u1', ['div-mine']))
+      .rejects.toThrow(ForbiddenException);
+    // §19: an out-of-scope document must not have its stock reversed either.
+    expect(managerQuery).not.toHaveBeenCalled();
+    expect(stockLedgerService.create).not.toHaveBeenCalled();
   });
 });
 

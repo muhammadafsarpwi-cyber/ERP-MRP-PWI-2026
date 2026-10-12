@@ -281,8 +281,23 @@ describe('PROMPT #27 — Store division isolation', () => {
   describe('TEST E + C — StoreMaterialTraceService ledger DELETEs', () => {
     // Highest-severity instance of this gap in the Store module: destructive
     // writes against `stock_ledger`, which carries a real `division_id`.
-    const buildTrace = (query: jest.Mock) =>
-      build(StoreMaterialTraceService, { dataSource: { query } });
+    //
+    // The two DELETE endpoints now run inside a `dataSource.transaction` so the
+    // ledger row and the `inventory_balances` row it fed are unwound together —
+    // the balance sync is the whole point of the change, so the mock has to
+    // offer a manager with the SAME `query` surface the assertions inspect.
+    const buildTrace = (query: jest.Mock, updateBalance?: jest.Mock) => {
+      const manager = { query };
+      const dataSource: any = { query };
+      dataSource.transaction = jest.fn(async (cb: (m: any) => any) => cb(manager));
+      return build(StoreMaterialTraceService, {
+        dataSource,
+        inventoryBalanceService: {
+          updateBalance: updateBalance ?? jest.fn().mockResolvedValue({ onHand: 0 }),
+          findByItemWarehouse: jest.fn().mockResolvedValue(null),
+        },
+      });
+    };
 
     it('refuses to delete a ledger row from another division, and writes nothing', async () => {
       const query = jest.fn().mockResolvedValue([]);
@@ -338,6 +353,153 @@ describe('PROMPT #27 — Store division isolation', () => {
         buildTrace(query).getItemLifecycle(COMPANY, 'item-1', { storeId: 'store-1' }, [DIV_CCD]),
       ).rejects.toThrow(NotFoundException);
       expect(String(query.mock.calls[0][0])).toContain('division_id = ANY(');
+    });
+  });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  describe('TEST G — ledger DELETEs unwind inventory_balances (deletion sync)', () => {
+    // The defect this suite exists for: `deleteLedgerRow` /
+    // `deleteDummyLedgerRows` issued a bare DELETE, so the journal row vanished
+    // while `inventory_balances` kept the quantity it had put on the books.
+    // Those stranded quantities are what the Production Item Open Stock matrix
+    // reports as "SYSTEM BOOK STOCK" that no document can explain.
+    const ITEM = '11111111-1111-1111-1111-111111111111';
+    const WH = '22222222-2222-2222-2222-222222222222';
+    const UOM = '33333333-3333-3333-3333-333333333333';
+
+    const build = (query: jest.Mock, updateBalance: jest.Mock) => {
+      const manager = { query };
+      const dataSource: any = { query };
+      dataSource.transaction = jest.fn(async (cb: (m: any) => any) => cb(manager));
+      return Object.assign(Object.create(StoreMaterialTraceService.prototype) as any, {
+        logger: { log: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn(), verbose: jest.fn() },
+        dataSource,
+        inventoryBalanceService: {
+          updateBalance,
+          findByItemWarehouse: jest.fn().mockResolvedValue(null),
+        },
+      });
+    };
+
+    const ledgerRow = (over: Record<string, any> = {}) => ({
+      id: 'led-1',
+      company_id: COMPANY,
+      item_id: ITEM,
+      warehouse_id: WH,
+      location_id: null,
+      batch_id: null,
+      uom_id: UOM,
+      transaction_type: 'PRODUCTION_RECEIPT',
+      direction: 'IN',
+      quantity: 100,
+      notes: null,
+      ...over,
+    });
+
+    it('an IN receipt is unwound as OUT before the row is deleted', async () => {
+      const updateBalance = jest.fn().mockResolvedValue({ onHand: 0 });
+      const query = jest.fn()
+        .mockResolvedValueOnce([ledgerRow()])   // SELECT … FOR UPDATE
+        .mockResolvedValueOnce([])               // UPDATE production_entries
+        .mockResolvedValueOnce([{ id: 'led-1' }]); // DELETE
+      await build(query, updateBalance).deleteLedgerRow(COMPANY, 'led-1');
+
+      expect(updateBalance).toHaveBeenCalledTimes(1);
+      expect(updateBalance).toHaveBeenCalledWith(
+        COMPANY, ITEM, WH, null, null, UOM, 100, 'OUT', expect.anything(), true,
+      );
+    });
+
+    it('an OUT consumption is unwound as IN', async () => {
+      const updateBalance = jest.fn().mockResolvedValue({ onHand: 0 });
+      const query = jest.fn()
+        .mockResolvedValueOnce([ledgerRow({ transaction_type: 'PRODUCTION_CONSUMPTION', direction: 'OUT', quantity: 40 })])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ id: 'led-1' }]);
+      await build(query, updateBalance).deleteLedgerRow(COMPANY, 'led-1');
+
+      expect(updateBalance).toHaveBeenCalledWith(
+        COMPANY, ITEM, WH, null, null, UOM, 40, 'IN', expect.anything(), true,
+      );
+    });
+
+    it('PRODUCTION_SCRAP is an audit row and never touches the balance', async () => {
+      const updateBalance = jest.fn().mockResolvedValue({ onHand: 0 });
+      const query = jest.fn()
+        .mockResolvedValueOnce([ledgerRow({ transaction_type: 'PRODUCTION_SCRAP', direction: 'OUT', quantity: 12 })])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ id: 'led-1' }]);
+      await build(query, updateBalance).deleteLedgerRow(COMPANY, 'led-1');
+
+      expect(updateBalance).not.toHaveBeenCalled();
+    });
+
+    it('a reversal of scrap is audit-only too', async () => {
+      const updateBalance = jest.fn().mockResolvedValue({ onHand: 0 });
+      const query = jest.fn()
+        .mockResolvedValueOnce([ledgerRow({
+          transaction_type: 'PRODUCTION_REVERSAL',
+          direction: 'IN',
+          quantity: 12,
+          notes: 'Reversal of PRODUCTION_SCRAP for production entry (M1, 2026-01-01)',
+        })])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ id: 'led-1' }]);
+      await build(query, updateBalance).deleteLedgerRow(COMPANY, 'led-1');
+
+      expect(updateBalance).not.toHaveBeenCalled();
+    });
+
+    it('opposite rows on the same item/warehouse NET, so deleting both issues nothing', async () => {
+      const updateBalance = jest.fn().mockResolvedValue({ onHand: 0 });
+      const query = jest.fn()
+        .mockResolvedValueOnce([
+          ledgerRow({ id: 'a', transaction_type: 'PRODUCTION_RECEIPT', direction: 'IN', quantity: 100 }),
+          ledgerRow({ id: 'b', transaction_type: 'PRODUCTION_CONSUMPTION', direction: 'OUT', quantity: 100 }),
+        ])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ id: 'a' }, { id: 'b' }]);
+      await build(query, updateBalance).deleteDummyLedgerRows(COMPANY, ITEM);
+
+      expect(updateBalance).not.toHaveBeenCalled();
+    });
+
+    it('rows differing only in quantity net to the remainder', async () => {
+      const updateBalance = jest.fn().mockResolvedValue({ onHand: 0 });
+      const query = jest.fn()
+        .mockResolvedValueOnce([
+          ledgerRow({ id: 'a', transaction_type: 'PRODUCTION_RECEIPT', direction: 'IN', quantity: 100 }),
+          ledgerRow({ id: 'b', transaction_type: 'PRODUCTION_CONSUMPTION', direction: 'OUT', quantity: 60 }),
+        ])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ id: 'a' }, { id: 'b' }]);
+      await build(query, updateBalance).deleteDummyLedgerRows(COMPANY, ITEM);
+
+      // 100 in − 60 out = 40 still on the books → one OUT of 40.
+      expect(updateBalance).toHaveBeenCalledTimes(1);
+      expect(updateBalance).toHaveBeenCalledWith(
+        COMPANY, ITEM, WH, null, null, UOM, 40, 'OUT', expect.anything(), true,
+      );
+    });
+
+    it('a balance driven negative is reported back instead of being swallowed', async () => {
+      const updateBalance = jest.fn().mockResolvedValue({ onHand: -25 });
+      const query = jest.fn()
+        .mockResolvedValueOnce([ledgerRow()]) // IN 100 → OUT 100 → −25
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ id: 'led-1' }]);
+      const res = await build(query, updateBalance).deleteLedgerRow(COMPANY, 'led-1');
+
+      expect(res.negativeBalances).toEqual([{ itemId: ITEM, warehouseId: WH, balanceAfter: -25 }]);
+    });
+
+    it('the DELETE never runs when the row is out of scope — no balance write either', async () => {
+      const updateBalance = jest.fn().mockResolvedValue({ onHand: 0 });
+      const query = jest.fn().mockResolvedValue([]);
+      await expect(build(query, updateBalance).deleteLedgerRow(COMPANY, 'led-1', [DIV_CCD]))
+        .rejects.toThrow(NotFoundException);
+      expect(updateBalance).not.toHaveBeenCalled();
+      expect(query).toHaveBeenCalledTimes(1); // the scoped SELECT only
     });
   });
 

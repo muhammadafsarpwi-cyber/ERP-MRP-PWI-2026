@@ -36,6 +36,7 @@ import { SalesInvoice } from '../sales/entities/sales-invoice.entity';
 import { SalesDelivery } from '../sales/entities/sales-delivery.entity';
 import { SalesDeliveryLine } from '../sales/entities/sales-delivery-line.entity';
 import { ErpUser } from '../user/entities/erp-user.entity';
+import { InventoryModule } from '../inventory/inventory.module';
 
 import { RecycleBinController } from './controllers/recycle-bin.controller';
 import { RecycleBinPurgeService } from './services/recycle-bin-purge.service';
@@ -45,12 +46,22 @@ import { RecycleBinService } from './services/recycle-bin.service';
  * Universal Recycle Bin — the one tray that owns recovery and permanent purge
  * for every soft-deletable module.
  *
- * Deliberately SELF-CONTAINED: it registers the entities it reads through
- * `TypeOrmModule.forFeature` and issues the restore/purge statements itself,
- * rather than importing the owning modules' services. Those modules export
- * nothing today and adding exports to four of them would thread new
+ * Deliberately SELF-CONTAINED for the entities it sweeps: it registers them
+ * through `TypeOrmModule.forFeature` and issues the restore/purge statements
+ * itself, rather than importing the owning modules' services. Those modules
+ * export nothing today and adding exports to four of them would thread new
  * dependencies through Production, Maintenance, Customer and Dispatch (two of
  * which already rely on `forwardRef`) purely for one endpoint each.
+ *
+ * `InventoryModule` is the one exception, and deliberately so. Purging a
+ * `production_entries` row destroys a document that has already posted to
+ * `stock_ledger`; the sweep has to reverse those postings onto
+ * `inventory_balances` in the same transaction or it strands stock that no
+ * document in the system can ever explain again. That correction must go
+ * through `InventoryBalanceService.updateBalance`, because `inventory_balances`
+ * carries NO unique constraint on (company, item, warehouse) — only a primary
+ * key on `id` — so a hand-rolled upsert would mint a second balance row for
+ * the same item/warehouse and silently fork the on-hand figure forever.
  *
  * The DELETES themselves still live in the owning services — each module
  * remains responsible for stamping its own rows — so this module only ever
@@ -94,6 +105,9 @@ import { RecycleBinService } from './services/recycle-bin.service';
     AuthModule,
     PermissionModule,
     UserModule,
+    // Provides `InventoryBalanceService` + `StockLedgerService`, which the
+    // purge uses to reverse stock movements before destroying a document.
+    InventoryModule,
   ],
   controllers: [RecycleBinController],
   providers: [RecycleBinService, RecycleBinPurgeService],

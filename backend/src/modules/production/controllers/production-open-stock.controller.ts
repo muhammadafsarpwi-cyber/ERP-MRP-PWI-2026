@@ -178,6 +178,50 @@ export class ProductionOpenStockController {
     return { success: true, data };
   }
 
+  @Get('reconcile')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('manufacturing.production.entries.view')
+  @ApiOperation({
+    summary:
+      'Compare SYSTEM BOOK STOCK (inventory_balances) against the stock_ledger it is supposed to summarise',
+    description:
+      'REPORT-ONLY by default. Pass apply=APPLY to write the correction — deliberately ' +
+      'unambiguous, so a stray ?apply=true cannot move a balance. Blindly reconciling in ' +
+      'either direction is unsafe: the two sides are currently wrong by different amounts, ' +
+      'and forcing one to match the other would push several warehouses negative.',
+  })
+  @ApiQuery({ name: 'divisionId', required: false })
+  @ApiQuery({ name: 'warehouseId', required: false })
+  @ApiQuery({ name: 'itemId', required: false })
+  @ApiQuery({ name: 'minAbsDrift', required: false, description: 'Ignore drift below this magnitude (default 0.0001)' })
+  @ApiQuery({ name: 'apply', required: false, description: 'Literal "APPLY" to write corrections. Omit to report only.' })
+  async reconcile(
+    @Req() req: any,
+    @Query('divisionId') divisionId?: string,
+    @Query('warehouseId') warehouseId?: string,
+    @Query('itemId') itemId?: string,
+    @Query('minAbsDrift') minAbsDrift?: string,
+    @Query('apply') apply?: string,
+  ) {
+    const companyId = this.getCompanyId(req);
+    const data = await this.openStockService.reconcileBalances(companyId, {
+      divisionId,
+      warehouseId,
+      itemId,
+      minAbsDrift: minAbsDrift === undefined ? undefined : Number(minAbsDrift),
+      apply,
+      allowedDivisionIds: this.divisions(req),
+    });
+    return {
+      success: true,
+      data,
+      message: data.applied
+        ? `Applied reconciliation to ${data.driftPairs} item/warehouse pair(s).`
+        : `${data.driftPairs} item/warehouse pair(s) show drift between the ledger and the balance. Report only — nothing was written.`,
+    };
+  }
+
   @Get('history')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()

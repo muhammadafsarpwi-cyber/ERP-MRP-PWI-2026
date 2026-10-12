@@ -32,6 +32,7 @@ import {
 import { BarcodeService } from '../../barcode/services/barcode.service';
 import { BarcodeEntityType } from '../../barcode/entities/barcode.entity';
 import { applyDivisionScopeFilter, isUnrestricted } from '../../../common/division-scope.util';
+import { classifyLedgerMovement, REVERSAL_ORIGIN_PATTERN } from '../../../common/stock-movement.classifier';
 
 const ENTRY_REFERENCE_TYPE = 'PRODUCTION_ENTRY';
 const HAND_PACKING_PCS_PER_GROSS = 144;
@@ -1721,6 +1722,16 @@ addToDept(org, {
     const prevActual = Number(entry.actualQuantity);
     const prevScrap = Number(entry.scrapQuantity);
     const prevItemId = entry.itemId;
+    // Warehouse identity is stock too. Before this, a warehouse-only edit (same
+    // quantities, different store) left `reconcile` false: the DOCUMENT moved to
+    // the new warehouse while its ledger rows and balances stayed where they
+    // were — the same split that stranded the CCD-SP-002 ghost rows, reachable
+    // through the ordinary edit screen instead of ad-hoc SQL. The delta engine
+    // already keys receipts by `itemId|warehouseId`, so once the edit is
+    // admitted it emits OUT+reversal in the old store and IN+receipt in the new
+    // one with no extra machinery.
+    const prevWarehouseId = entry.warehouseId ?? null;
+    const prevRawMaterialWarehouseId = entry.rawMaterialWarehouseId ?? null;
     // INPUT audit lines belong to the posting path, never to the client. They
     // are recognised both by the lineNumber convention and by identity, so a
     // payload that echoes them back without a lineNumber still cannot
@@ -1762,9 +1773,21 @@ addToDept(org, {
       || (dto.scrapQuantity !== undefined && Number(dto.scrapQuantity) !== prevScrap)
       || (dto.itemId !== undefined && dto.itemId !== prevItemId)
       || (requestedItems !== undefined && requestedItems.length > 0);
+    // Moving the receipt store or the consumption store is a stock change even
+    // when every quantity is untouched: the postings must follow the document
+    // into the new warehouse. Without this an edit could re-point
+    // `production_entries.warehouse_id` and leave the ledger behind — the exact
+    // split the database guard (migration 1808) now refuses at commit.
+    const warehouseChanged = prevWarehouseId !== null
+      && resolved.warehouseId != null
+      && resolved.warehouseId !== prevWarehouseId;
+    const sourceWarehouseChanged = prevRawMaterialWarehouseId !== null
+      && merged.rawMaterialWarehouseId != null
+      && merged.rawMaterialWarehouseId !== prevRawMaterialWarehouseId;
     // Nothing that feeds inventory moved and no line collection was supplied
     // (e.g. a remarks-only PATCH) → do not touch the ledger at all.
-    const reconcile = !!resolved.warehouseId && (quantityOrItemChanged || requestedItems !== undefined);
+    const reconcile = !!resolved.warehouseId
+      && (quantityOrItemChanged || requestedItems !== undefined || warehouseChanged || sourceWarehouseChanged);
     const outputLines: OutputLine[] = requestedItems ?? [];
 
     const saved = await this.entryRepo.manager.transaction(async (manager) => {
@@ -1886,6 +1909,13 @@ addToDept(org, {
    * Reads back everything this entry has ALREADY posted, net of its reversals.
    * This is the "original stored value" every edit delta is measured against —
    * never the live balance, which already reflects this document.
+   *
+   * NOTE the deliberate difference from `common/stock-movement.classifier`:
+   * that module answers "did this row move `inventory_balances`?" and so
+   * reports scrap as neutral. This method answers "what did this DOCUMENT
+   * post?" — scrap is part of that record and is tracked in its own bucket.
+   * Only the reversal-origin parsing is shared, because a second copy of that
+   * regex is exactly how the two answers came apart last time.
    */
   private async readPostedMovements(
     manager: EntityManager,
@@ -1939,23 +1969,26 @@ addToDept(org, {
       const key = movementKey(itemId, warehouseId);
       if (row.uom_id && !movements.uoms.has(key)) movements.uoms.set(key, String(row.uom_id));
 
-      let type = String(row.transaction_type ?? '');
+      const type = String(row.transaction_type ?? '');
       let sign = 1;
+      let family = type;
+
       if (type === 'PRODUCTION_REVERSAL') {
         // The reversed family is only recoverable from the note written when the
         // reversal was raised. If that cannot be read the entry's true prior
         // state is unknown, and the caller must restate it the safe way.
-        const parsed = /^Reversal of ([A-Z_]+)\b/.exec(String(row.notes ?? ''));
+        const parsed = REVERSAL_ORIGIN_PATTERN.exec(String(row.notes ?? ''));
         if (!parsed) {
           movements.reliable = false;
           continue;
         }
-        type = parsed[1];
+        family = parsed[1];
         sign = -1;
       } else if (String(row.direction ?? '') !== naturalDirection(type)) {
         sign = -1;
       }
-      const bucket = bucketFor(type);
+
+      const bucket = bucketFor(family);
       if (!bucket) continue;
       bumpBucket(bucket, key, sign * qty);
     }
@@ -2229,8 +2262,34 @@ addToDept(org, {
   }
 
   /**
-   * Reverses any posted stock movements (receipt, scrap, consumption) for this entry.
-   * Restores consumed raw materials back into the source store and removes finished output.
+   * Classify one `stock_ledger` row of a production entry.
+   *
+   * Delegates to `common/stock-movement.classifier`, which is the single
+   * authority for "did this row move the balance, and which way?". It used to
+   * be an inline copy here — and a second, subtly different copy lived in the
+   * Store module's ledger-delete path, which is how the two drifted apart and
+   * produced phantom "System Book Stock". One rule set, one place.
+   */
+  private classifyPostedMovement(m: Record<string, any>): { family: string; sign: 1 | -1 } | null {
+    return classifyLedgerMovement(m);
+  }
+
+  /**
+   * Reverse every stock movement this entry still holds — receipt, consumption
+   * and their partial reversals — and put `inventory_balances` back exactly
+   * where it would have been had the document never posted.
+   *
+   * NET, NOT ROW-FOR-ROW. Mirroring each original row only works the first
+   * time: an entry that was edited down already carries a partial reversal, so
+   * re-posting the full original would take the family past zero and quietly
+   * corrupt the balance (this is how a delete could over- or under-state stock
+   * and then need a manual "Adjust"). Netting per family is idempotent and
+   * self-correcting — a group that is already square emits nothing, a
+   * half-reversed group is topped up to exactly zero.
+   *
+   * This is the deletion sync: it runs on delete, and it needs no flag on the
+   * entry row to decide whether there is anything to undo. The ledger is the
+   * only authority for "did this document ever move stock?".
    */
   private async reverseInventoryPostings(
     manager: EntityManager,
@@ -2239,51 +2298,98 @@ addToDept(org, {
     userId?: string,
   ): Promise<void> {
     try {
-      const movements = await manager.query(
+      const movements: Array<Record<string, any>> = await manager.query(
         `SELECT * FROM stock_ledger 
          WHERE company_id = $1 
            AND reference_type = $2 
            AND reference_id = $3`,
         [companyId, ENTRY_REFERENCE_TYPE, entry.id],
       );
+      if (!movements.length) return;
+
+      const groups = new Map<
+        string,
+        {
+          family: string;
+          itemId: string;
+          warehouseId: string;
+          uomId: any;
+          locationId: any;
+          batchId: any;
+          net: number;
+        }
+      >();
 
       for (const m of movements) {
-        if (m.transaction_type === 'PRODUCTION_REVERSAL') continue;
-        const reverseDir: 'IN' | 'OUT' = m.direction === 'IN' ? 'OUT' : 'IN';
         const qty = Number(m.quantity) || 0;
         if (qty <= 0) continue;
+        const classified = this.classifyPostedMovement(m);
+        if (!classified) continue;
+
+        const key = `${classified.family}|${m.item_id}|${m.warehouse_id}`;
+        const group = groups.get(key) ?? {
+          family: classified.family,
+          itemId: m.item_id,
+          warehouseId: m.warehouse_id,
+          uomId: m.uom_id ?? null,
+          locationId: m.location_id ?? null,
+          batchId: m.batch_id ?? null,
+          net: 0,
+        };
+        group.net += classified.sign * qty;
+        if (m.uom_id && !group.uomId) group.uomId = m.uom_id;
+        if (m.location_id && !group.locationId) group.locationId = m.location_id;
+        if (m.batch_id && !group.batchId) group.batchId = m.batch_id;
+        groups.set(key, group);
+      }
+
+      const transactionDate = this.resolveBusinessTransactionDate(entry.entryDate);
+
+      for (const g of groups.values()) {
+        if (Math.abs(g.net) < 1e-9) continue; // already square — no-op
+
+        // A receipt ADDS to the balance, a consumption REMOVES from it, so the
+        // quantity this group currently holds on the books is the signed net
+        // flipped for consumption. That is what has to come back off.
+        const balanceSign = g.family === 'PRODUCTION_CONSUMPTION' ? -1 : 1;
+        const held = balanceSign * g.net;
+        const direction: 'IN' | 'OUT' = held > 0 ? 'OUT' : 'IN';
+        const quantity = Math.abs(g.net);
+
+        // The ledger row must ALSO walk `net` back to zero for
+        // readPostedMovements, and a PRODUCTION_REVERSAL row always SUBTRACTS
+        // its quantity from the family — so it only fits a group that is still
+        // positive. A group already reversed past zero needs the ORIGINAL
+        // family row (which adds) to climb back to zero.
+        const decreasing = g.net > 0;
 
         await this.stockLedgerService.create({
           companyId,
-          transactionType: 'PRODUCTION_REVERSAL',
-          transactionDate: this.resolveBusinessTransactionDate(entry.entryDate),
-          itemId: m.item_id,
-          warehouseId: m.warehouse_id,
-          quantity: qty,
-          uomId: m.uom_id,
-          direction: reverseDir,
+          transactionType: decreasing ? 'PRODUCTION_REVERSAL' : g.family,
+          transactionDate,
+          itemId: g.itemId,
+          warehouseId: g.warehouseId,
+          quantity,
+          uomId: g.uomId,
+          direction,
           referenceType: ENTRY_REFERENCE_TYPE,
           referenceId: entry.id,
           referenceNumber: entry.entryNumber || undefined,
-          notes: `Reversal of ${m.transaction_type} for production entry (${entry.machineNo}, ${entry.entryDate})`,
+          notes: decreasing
+            ? `Reversal of ${g.family} for production entry (${entry.machineNo}, ${entry.entryDate})`
+            : `Net-position correction of ${g.family} for production entry (${entry.machineNo}, ${entry.entryDate})`,
           createdBy: userId ?? undefined,
         }, manager);
 
-        // PRODUCTION_SCRAP is posted as an audit trail with NO balance impact
-        // (see postInventoryAndConsume), so reversing it must not move stock
-        // either — otherwise every edit inflated the finished-goods balance by
-        // the scrap quantity.
-        if (m.transaction_type === 'PRODUCTION_SCRAP') continue;
-
         await this.inventoryBalanceService.updateBalance(
           companyId,
-          m.item_id,
-          m.warehouse_id,
-          m.location_id || null,
-          m.batch_id || null,
-          m.uom_id,
-          qty,
-          reverseDir,
+          g.itemId,
+          g.warehouseId,
+          g.locationId || null,
+          g.batchId || null,
+          g.uomId,
+          quantity,
+          direction,
           manager,
           true,
         );
@@ -2297,18 +2403,23 @@ addToDept(org, {
   async remove(id: string, companyId: string, userId?: string, allowedDivisionIds?: string[]): Promise<void> {
     const entry = await this.entryRepo.findOne({ where: { id, companyId } });
     if (!entry) {
-      return;
-    }
-    if (!entry.isActive && !entry.inventoryReferenceId) {
-      return;
+      // Company isolation: a row outside the caller's tenant must look exactly
+      // like a row that does not exist, so the two cannot be told apart.
+      throw new NotFoundException(`Production Entry with ID '${id}' not found`);
     }
     // §19 — deletion must respect the caller's division scope too.
     this.assertDivisionAccess(allowedDivisionIds, entry.divisionId, 'production entry');
     await this.entryRepo.manager.transaction(async (manager) => {
-      if (entry.inventoryReferenceId) {
-        await this.reverseInventoryPostings(manager, entry, companyId, userId);
-        entry.inventoryReferenceId = null;
-      }
+      // ALWAYS run. The old gate was `if (entry.inventoryReferenceId)`, which
+      // silently skipped the reversal for every document whose flag had been
+      // cleared (a ledger-row delete, a prior delete, or an entry that posted
+      // consumption but never a receipt) — those entries vanished from the
+      // entry grid while their stock stayed in `inventory_balances` forever,
+      // showing up as phantom "System Book Stock" on the Production Item Open
+      // Stock matrix. reverseInventoryPostings nets the ledger to zero and does
+      // nothing when there is nothing to undo, so it is safe unconditionally.
+      await this.reverseInventoryPostings(manager, entry, companyId, userId);
+      entry.inventoryReferenceId = null;
       entry.isActive = false;
       // RECYCLE BIN — this is a recoverable delete, not a destroy. The row is
       // stamped so every live grid/report stops seeing it (TypeORM appends
@@ -2320,8 +2431,13 @@ addToDept(org, {
       // Recovery and permanent purge live in the Recycle Bin module
       // (`modules/recycle-bin`), which is the single tray that owns every
       // trash operation across modules.
-      entry.deletedAt = new Date();
-      entry.deletedBy = userId ?? null;
+      //
+      // A repeated delete must not rewrite the original deletion timestamp —
+      // the bin's retention window is measured from it.
+      if (!entry.deletedAt) {
+        entry.deletedAt = new Date();
+        entry.deletedBy = userId ?? null;
+      }
       entry.updatedBy = userId ?? null;
       await manager.getRepository(ProductionEntry).save(entry);
       await manager

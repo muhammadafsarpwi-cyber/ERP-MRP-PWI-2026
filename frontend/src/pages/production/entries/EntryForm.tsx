@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Card, Row, Col, Form, Select, DatePicker, Input, InputNumber, Button, Space,
-  App, Typography, Switch, Alert, AutoComplete, Tooltip, Tag, Progress, Segmented,
+  App, Typography, Switch, Alert, AutoComplete, Tooltip, Tag, Progress, Segmented, Divider,
 } from 'antd';
 import {
   ArrowLeftOutlined, SaveOutlined, LockOutlined, AimOutlined, InfoCircleOutlined,
@@ -327,15 +327,15 @@ const EntryForm: React.FC<EntryFormProps> = ({
   const scrapQty = Form.useWatch('scrapQuantity', form);
   const processScrapQty = Form.useWatch('processScrapKg', form);
 
-  // ── Product Rejection entry mode [KG | PCS] ───────────────────────────────
-  // `scrapQuantity` stays the canonical KG value the whole form (Rejection %,
-  // KPIs, posting service) already consumes. The toggle only decides which
-  // physical field the operator types into: the ACTIVE field is editable and
-  // the PEER field is auto-populated (read-only) through the FG's own
-  // Per Piece Weight. PCS-mode typing keeps an exact local draft so KG
-  // rounding can never drift the piece count the operator saw on the scale.
+  // ── Product Rejection entry mode [KG | PCS] & Breakdown Rows ───────────────
+  // `scrapQuantity` stays the canonical KG value the whole form consumes.
+  // Multiple rejection defect rows can be added via the + Add Rejection button.
+  // When KG is active, KG is editable and Pieces is read-only.
+  // When PCS is active, Pieces is editable and KG is read-only.
   const [rejectionUnit, setRejectionUnit] = useState<'KG' | 'PCS'>('KG');
-  const [rejectionPcsDraft, setRejectionPcsDraft] = useState<number | null>(null);
+  const [rejectionRows, setRejectionRows] = useState<Array<{ id: string; kg: number | null; pcs: number | null; reason: string }>>([
+    { id: 'rej-1', kg: null, pcs: null, reason: '' },
+  ]);
   const rawMatWarehouseWatch = Form.useWatch('rawMaterialWarehouseId', form);
   const warehouseWatch = Form.useWatch('warehouseId', form);
   const postToInventoryWatch = Form.useWatch('postToInventory', form);
@@ -427,6 +427,8 @@ const EntryForm: React.FC<EntryFormProps> = ({
     uomCode?: string | null;
     available?: number | null;
     productionInItemId?: string | null;
+    productionInItemCode?: string | null;
+    productionInItemName?: string | null;
     productionOutItemId?: string | null;
     productionInUomCode?: string | null;
     productionInDepartmentName?: string | null;
@@ -445,6 +447,9 @@ const EntryForm: React.FC<EntryFormProps> = ({
         if (!p || !n) return true;
         return (
           p.itemCode !== n.itemCode ||
+          p.itemName !== n.itemName ||
+          p.productionInItemCode !== n.productionInItemCode ||
+          p.productionInItemName !== n.productionInItemName ||
           p.available !== n.available ||
           p.wireSizeMm !== n.wireSizeMm ||
           p.uomCode !== n.uomCode ||
@@ -956,7 +961,22 @@ const EntryForm: React.FC<EntryFormProps> = ({
         remarks: dt.remarks ?? undefined,
         confirmed: true,
       })) ?? [],
-        });
+    });
+        const loadedScrap = toNum(e.scrapQuantity);
+        const loadedReason = extractRejectionRemarks(e.remarks) || '';
+        if (loadedScrap > 0 || loadedReason) {
+          const itemW = toNum((e as any).item?.weightPerPiece);
+          const effW = itemW > 0 ? itemW : 1.0;
+          const calcPcs = Math.round((loadedScrap / effW) * 100) / 100;
+          setRejectionRows([
+            {
+              id: 'rej-init',
+              kg: loadedScrap > 0 ? loadedScrap : null,
+              pcs: calcPcs > 0 ? calcPcs : null,
+              reason: loadedReason,
+            },
+          ]);
+        }
       } catch (err) {
         console.error('ENTRY_LOAD_ERROR:', err);
         message.error('Failed to load production entry');
@@ -1566,58 +1586,185 @@ const EntryForm: React.FC<EntryFormProps> = ({
     return round2(toNum(scrapQty));
   }, [scrapQty]);
 
-  // FG Per Piece Weight (KG) — drives the KG ⇄ PCS conversion of the Product
-  // Rejection entry. 0 = not configured in the Item Master → the PCS field is
-  // disabled with a configuration hint (KG entry always works).
+  // ── Product Rejection [KG | PCS] bidirectional conversion ──────────────────
+  // Per Piece Weight from Item Master; auto-defaults to 1.0 KG if missing or <= 0
   const fgWeightPerPiece = useMemo(() => {
     const wpp = toNum(primaryItem?.weightPerPiece);
-    return wpp > 0 ? wpp : 0;
-  }, [primaryItem]);
+    return wpp > 0 ? wpp : 1.0;
+  }, [primaryItem?.weightPerPiece]);
 
-  // Derived values for the paired [KG | PCS] rejection inputs. The KG value is
-  // the canonical form field (scrapQuantity); PCS is derived through the FG's
-  // own weight, or locally drafted while typing in PCS mode (drift-free).
-  const rejectionKgDerived = Math.max(0, toNum(scrapQty));
-  const rejectionPcsDerived = fgWeightPerPiece > 0
-    ? Math.round((rejectionKgDerived / fgWeightPerPiece) * 100) / 100
-    : null;
-  const rejectionPcsDisplay = rejectionUnit === 'PCS'
-    ? (rejectionPcsDraft ?? rejectionPcsDerived)
-    : rejectionPcsDerived;
+  // Derived totals across all rejection breakdown rows
+  const totalRejectionKg = useMemo(() => {
+    const sum = rejectionRows.reduce((acc, r) => acc + (toNum(r.kg)), 0);
+    return Math.round(sum * 10000) / 10000;
+  }, [rejectionRows]);
 
-  // [KG | PCS] toggle: keeps the PHYSICAL rejection amount constant when the
-  // operator switches modes (0 stays 0 — no phantom conversion appears).
-  const handleRejectionUnitToggle = (next: 'KG' | 'PCS') => {
-    if (next === rejectionUnit) return;
-    if (next === 'PCS' && fgWeightPerPiece > 0) {
-      setRejectionPcsDraft(rejectionPcsDerived ?? 0);
+  const totalRejectionPcs = useMemo(() => {
+    const sum = rejectionRows.reduce((acc, r) => acc + (toNum(r.pcs)), 0);
+    return Math.round(sum * 100) / 100;
+  }, [rejectionRows]);
+
+  // Sync canonical AntD form fields whenever rejection rows change
+  const syncFormRejection = useCallback((rows: Array<{ id: string; kg: number | null; pcs: number | null; reason: string }>) => {
+    const hasValue = rows.some((r) => r.kg !== null || r.pcs !== null);
+    if (!hasValue) {
+      if (isFullDowntime) {
+        form.setFieldValue('scrapQuantity', 0);
+      } else {
+        form.setFieldValue('scrapQuantity', undefined);
+      }
+    } else {
+      const sumKg = rows.reduce((acc, r) => acc + (toNum(r.kg)), 0);
+      const roundedKg = Math.round(sumKg * 10000) / 10000;
+      form.setFieldValue('scrapQuantity', roundedKg);
     }
+
+    const reasons = rows.map((r) => r.reason.trim()).filter(Boolean);
+    form.setFieldValue('rejectionRemarks', reasons.join(', '));
+  }, [form, isFullDowntime]);
+
+  const handleRowKgChange = useCallback((id: string, val: number | null) => {
+    const kg = val === null ? null : Math.max(0, Number(val) || 0);
+    setRejectionRows((prev) => {
+      const updated = prev.map((r) => {
+        if (r.id !== id) return r;
+        const derivedPcs = kg !== null ? Math.round((kg / fgWeightPerPiece) * 100) / 100 : null;
+        return { ...r, kg, pcs: derivedPcs };
+      });
+      syncFormRejection(updated);
+      return updated;
+    });
+  }, [fgWeightPerPiece, syncFormRejection]);
+
+  const handleRowPcsChange = useCallback((id: string, val: number | null) => {
+    const pcs = val === null ? null : Math.max(0, Number(val) || 0);
+    setRejectionRows((prev) => {
+      const updated = prev.map((r) => {
+        if (r.id !== id) return r;
+        const derivedKg = pcs !== null ? Math.round(pcs * fgWeightPerPiece * 10000) / 10000 : null;
+        return { ...r, pcs, kg: derivedKg };
+      });
+      syncFormRejection(updated);
+      return updated;
+    });
+  }, [fgWeightPerPiece, syncFormRejection]);
+
+  const handleRowReasonChange = useCallback((id: string, reason: string) => {
+    setRejectionRows((prev) => {
+      const updated = prev.map((r) => (r.id === id ? { ...r, reason } : r));
+      syncFormRejection(updated);
+      return updated;
+    });
+  }, [syncFormRejection]);
+
+  const handleAddRejectionRow = useCallback(() => {
+    setRejectionRows((prev) => [
+      ...prev,
+      {
+        id: `rej-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        kg: null,
+        pcs: null,
+        reason: '',
+      },
+    ]);
+  }, []);
+
+  const handleRemoveRejectionRow = useCallback((id: string) => {
+    setRejectionRows((prev) => {
+      if (prev.length <= 1) return prev;
+      const updated = prev.filter((r) => r.id !== id);
+      syncFormRejection(updated);
+      return updated;
+    });
+  }, [syncFormRejection]);
+
+  const handleRejectionUnitToggle = useCallback((next: 'KG' | 'PCS') => {
     setRejectionUnit(next);
-  };
+    setRejectionRows((prev) => {
+      const updated = prev.map((r) => {
+        if (next === 'KG' && r.pcs !== null && r.pcs > 0 && (r.kg === null || r.kg === 0)) {
+          return { ...r, kg: Math.round(r.pcs * fgWeightPerPiece * 10000) / 10000 };
+        }
+        if (next === 'PCS' && r.kg !== null && r.kg > 0 && (r.pcs === null || r.pcs === 0)) {
+          return { ...r, pcs: Math.round((r.kg / fgWeightPerPiece) * 100) / 100 };
+        }
+        return r;
+      });
+      syncFormRejection(updated);
+      return updated;
+    });
+  }, [fgWeightPerPiece, syncFormRejection]);
 
-  const handleRejectionKgChange = (v: number | null) => {
-    form.setFieldValue('scrapQuantity', v);
-    setRejectionPcsDraft(null);
-  };
+  // If item master per-piece weight changes, re-derive peer unit values
+  useEffect(() => {
+    setRejectionRows((prev) => {
+      const updated = prev.map((r) => {
+        if (rejectionUnit === 'KG' && r.kg !== null && r.kg > 0) {
+          return { ...r, pcs: Math.round((r.kg / fgWeightPerPiece) * 100) / 100 };
+        }
+        if (rejectionUnit === 'PCS' && r.pcs !== null && r.pcs > 0) {
+          return { ...r, kg: Math.round(r.pcs * fgWeightPerPiece * 10000) / 10000 };
+        }
+        return r;
+      });
+      syncFormRejection(updated);
+      return updated;
+    });
+  }, [fgWeightPerPiece]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleRejectionPcsChange = (v: number | null) => {
-    setRejectionPcsDraft(v === null ? null : Math.max(0, Number(v) || 0));
-    const pcs = Math.max(0, Number(v) || 0);
-    // Canonical KG value the whole form + posting service consume.
-    form.setFieldValue('scrapQuantity', fgWeightPerPiece > 0 ? Math.round(pcs * fgWeightPerPiece * 10000) / 10000 : 0);
-  };
+  const rejectionHint = `1 PC = ${formatNumber(fgWeightPerPiece, 4)} KG — ${
+    rejectionUnit === 'KG'
+      ? 'KG is active (Pieces calculated automatically)'
+      : 'Pieces is active (KG calculated automatically)'
+  }.`;
 
-  // PCS picked but the Item Master has no Per Piece Weight → nothing to
-  // convert with, so the KG box stays the only way in and the caption strip
-  // under the pair flips to the danger warning.
-  const rejectionPcsBlocked = rejectionUnit === 'PCS' && fgWeightPerPiece <= 0;
+  // ── Rejection Reasons catalog with presets, user additions & localStorage persistence ──
+  const [newReasonText, setNewReasonText] = useState('');
+  const [rejectionReasons, setRejectionReasons] = useState<string[]>(() => {
+    const defaultReasons = [
+      'Head Crack',
+      'Bent Wire',
+      'Overheated Wire',
+      'Dimensional Out',
+      'Surface Scratch / Mark',
+      'Gauge Variation',
+      'Tensile / Brittleness Failure',
+      'Burr / Rough Edge',
+      'Plating Defect',
+      'Setup Scrap',
+    ];
+    try {
+      const saved = localStorage.getItem('erp_rejection_reasons');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return Array.from(new Set([...defaultReasons, ...parsed]));
+        }
+      }
+    } catch { /* ignore */ }
+    return defaultReasons;
+  });
 
-  // Caption strip under the paired inputs — always rendered (constant height,
-  // its own grid row) so swapping between the two messages never re-flows,
-  // pushes or overlaps the boxes above it.
-  const rejectionHint = rejectionPcsBlocked
-    ? 'Per-piece weight missing — enter the rejection in KG or configure Item Master weight/piece.'
-    : 'Only the active unit is editable — KG and Pieces stay in sync automatically.';
+  const handleSaveReason = useCallback((reason: string) => {
+    const trimmed = reason.trim();
+    if (!trimmed) return;
+    setRejectionReasons((prev) => {
+      if (prev.includes(trimmed)) return prev;
+      const updated = [trimmed, ...prev];
+      try {
+        localStorage.setItem('erp_rejection_reasons', JSON.stringify(updated));
+      } catch { /* ignore */ }
+      return updated;
+    });
+    form.setFieldValue('rejectionRemarks', trimmed);
+    setNewReasonText('');
+  }, [form]);
+
+  const handleAddReason = useCallback(() => {
+    if (newReasonText.trim()) {
+      handleSaveReason(newReasonText.trim());
+    }
+  }, [newReasonText, handleSaveReason]);
 
   const maxProductionItems = 4;
   const productionItemsCount = (productionItemsWatch ?? []).length;
@@ -1817,7 +1964,6 @@ const EntryForm: React.FC<EntryFormProps> = ({
     // the success modal must appear exactly once per persisted entry.
     if (saving || submitBlocked) return;
     setSaving(true);
-    setSavedOpen(true);
     setSaveError(null);
     setSavedEntry(null);
     try {
@@ -1912,6 +2058,7 @@ const EntryForm: React.FC<EntryFormProps> = ({
           payload.items = (payload.items as any[]).map((it) => ({
             ...it,
             targetQuantity: toNum(displayTarget ?? it.targetQuantity),
+            scrapQuantity: toNum(payload.scrapQuantity ?? it.scrapQuantity),
             runningHours: toNum(payload.runningHours ?? derivedRunning ?? it.runningHours),
           }));
         }
@@ -2005,7 +2152,17 @@ const EntryForm: React.FC<EntryFormProps> = ({
       const shift = lookups.shifts.find((s) => s.id === payload.shiftId);
       const firstLine = itemLines.find((l) => !!l.itemId);
       const goodQty = firstLine?.actualQuantity ?? payload.actualQuantity;
-      const scrapTotalKg = itemLines.reduce((sum, l) => sum + (Number(l.scrapQuantity) || 0), 0) + (Number(payload.processScrapKg) || 0);
+      const formScrapKg = toNum(payload.scrapQuantity ?? 0);
+      const formProcessScrapKg = toNum(payload.processScrapKg ?? 0);
+      const uomCode = (firstLine?.uomId ? lookups.uoms.find((u) => u.id === firstLine.uomId)?.code : undefined)
+        || (payload.uomId ? lookups.uoms.find((u) => u.id === payload.uomId)?.code : undefined)
+        || primaryItem?.baseUom?.code
+        || mtResolution?.uom?.code
+        || 'KG';
+
+      if (Array.isArray(payload.items) && payload.items.length === 1 && payload.items[0]) {
+        payload.items[0].scrapQuantity = formScrapKg;
+      }
 
       setPreSaveSummary({
         mode: mode === 'edit' ? 'edit' : 'create',
@@ -2017,7 +2174,10 @@ const EntryForm: React.FC<EntryFormProps> = ({
         receiptWarehouseName: recWh?.name,
         receiptWarehouseCode: recWh?.warehouseCode,
         actualQuantity: toNum(goodQty),
-        scrapQuantityKg: toNum(scrapTotalKg),
+        uomCode,
+        scrapQuantityKg: formScrapKg,
+        scrapQuantityPcs: totalRejectionPcs > 0 ? totalRejectionPcs : null,
+        processScrapKg: formProcessScrapKg,
         machineName: String(payload.machineNo ?? ''),
         shiftName: shift?.name,
         entryDate: String(payload.entryDate ?? ''),
@@ -2080,6 +2240,7 @@ const EntryForm: React.FC<EntryFormProps> = ({
     if (!pendingSaveData) return;
     const { payload, values } = pendingSaveData;
     setSaving(true);
+    setSavedOpen(true);
     try {
       if (mode === 'create') {
         payload.postToInventory = !!(values as { postToInventory?: boolean }).postToInventory;
@@ -3024,13 +3185,15 @@ const EntryForm: React.FC<EntryFormProps> = ({
                     tracks for its [KG | PCS] pair; its caption strip rides on a
                     separate trailing full-width row (see `.rej-hint`) so a
                     warning can never disturb that line. */}
+                {/* ── Production Figures: Cleanly organized into Shift Hours and Rejection/Waste ── */}
                 <div style={{ marginBottom: 0 }}>
                   <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <span>Shift & Production Hours</span>
                     <span style={{ fontSize: 10.5, color: '#3b82f6', fontWeight: 600 }}>Tracked in Live View</span>
                   </div>
 
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 6, alignItems: 'end' }}>
+                  {/* Row 1 — Shift Hours · Overtime (OT) · Running Hours · Process Cutting Scrap (KG) [4 equal boxes in 1 line] */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 6, alignItems: 'end', marginBottom: 10 }}>
                     {/* 1 — Shift Hours [AUTO] */}
                     <Form.Item
                       label={<span style={figLabelStyle}>Shift Hours <Tag color="default" style={figTagStyle}>Auto</Tag></span>}
@@ -3064,103 +3227,7 @@ const EntryForm: React.FC<EntryFormProps> = ({
                       <div style={figRunningBoxStyle}>{formatNumber(derivedRunning, 2)} h</div>
                     </Form.Item>
 
-                    {/* 4 — Product Rejection [STOCK-DEDUCTING] with a dynamic
-                        [KG | PCS] entry toggle: fully formed items that failed
-                        the dimensional/visual audit. Keeps the ORIGINAL
-                        behaviour — it subtracts from good output and drives the
-                        raw-material consumption basis in the posting service.
-                        The ACTIVE unit's field is editable; the PEER field is
-                        read-only and auto-populated through the FG's own Per
-                        Piece Weight. The `scrapQuantity` form field always
-                        holds the canonical KG value. */}
-                    <Form.Item
-                      label={
-                        <span style={{ ...figLabelStyle, fontWeight: 600 }}>
-                          Product Rejection <Tag color={isFullDowntime ? 'green' : 'red'} style={figTagStyle}>{isFullDowntime ? 'Auto' : 'Stock-Deducting'}</Tag>
-                        </span>
-                      }
-                      // The name (and the auto id) lives on the inner noStyle
-                      // Form.Item wrapping the KG input — re-associate the
-                      // visible label with it so screen readers / label-based
-                      // queries still resolve the editable field.
-                      htmlFor="scrapQuantity"
-                      style={{ marginBottom: 0, gridColumn: 'span 2', minWidth: 0 }}
-                    >
-                      <div className="rej-entry-block">
-                        {/* Row 1 — entry unit switch + conversion caption */}
-                        <div className="rej-toggle-row">
-                          <Segmented
-                            size="small"
-                            value={rejectionUnit}
-                            onChange={(v) => handleRejectionUnitToggle(v as 'KG' | 'PCS')}
-                            options={[
-                              { label: 'KG', value: 'KG' },
-                              { label: 'PCS', value: 'PCS' },
-                            ]}
-                          />
-                          <span className="rej-toggle-hint">
-                            {fgWeightPerPiece > 0
-                              ? `1 PC = ${formatNumber(fgWeightPerPiece, 4)} KG`
-                              : 'Set Wt/Pc in Item Master'}
-                          </span>
-                        </div>
-
-                        {/* Row 2 — the pair. Each unit owns ONE grid track
-                            (2 × minmax(0,1fr), gap 12px) with its caption stacked
-                            directly above its own box: equal width, side by side,
-                            and structurally incapable of overlapping — the tracks
-                            are clamped (min-width: 0) so neither box can bleed
-                            into the other one's gutter. */}
-                        <div className="rej-pair">
-                          <div className="rej-field">
-                            <span
-                              className={`rej-field-label${rejectionUnit === 'KG' ? ' is-active' : ''}`}
-                            >
-                              KG
-                            </span>
-                            <Form.Item
-                              name="scrapQuantity"
-                              noStyle
-                              rules={isFullDowntime ? [] : [{ required: true, message: 'Required' }, { type: 'number', min: 0, message: 'Must be ≥ 0' }]}
-                            >
-                              <InputNumber
-                                style={{ width: '100%' }}
-                                min={0}
-                                placeholder="0"
-                                disabled={rejectionUnit === 'PCS'}
-                                className={`${(scrapQty !== undefined && scrapQty !== null && scrapQty !== '') || isFullDowntime ? 'erp-field-filled' : 'erp-field-unfilled'}${rejectionUnit === 'PCS' ? ' rej-input-ro' : ''}`}
-                              />
-                            </Form.Item>
-                          </div>
-
-                          <div className="rej-field">
-                            <span
-                              className={`rej-field-label${rejectionUnit === 'PCS' ? ' is-active' : ''}`}
-                            >
-                              Pieces
-                            </span>
-                            <InputNumber
-                              style={{ width: '100%' }}
-                              min={0}
-                              inputMode="numeric"
-                              placeholder="0"
-                              aria-label="Rejected pieces"
-                              disabled={rejectionUnit === 'KG' || fgWeightPerPiece <= 0}
-                              value={rejectionPcsDisplay}
-                              onChange={handleRejectionPcsChange}
-                              className={`${(rejectionPcsDisplay ?? 0) > 0 ? 'erp-field-filled' : 'erp-field-unfilled'}${rejectionUnit === 'KG' || fgWeightPerPiece <= 0 ? ' rej-input-ro' : ''}`}
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    </Form.Item>
-
-                    {/* 5 — Process Cutting Scrap (KG) [REPORT-ONLY]: raw metal
-                        off-cuts, wire trimmings and setup filings. Saves to
-                        process_scrap_kg and NOTHING else — it never reduces
-                        output pieces and never posts an inventory movement, so
-                        item/stock ledger balances are untouched. Optional by
-                        design (audit metric, not a submission gate). */}
+                    {/* 4 — Process Cutting Scrap (KG) [REPORT-ONLY] */}
                     <Form.Item
                       name="processScrapKg"
                       label={<span style={{ ...figLabelStyle, fontWeight: 600 }}>Process Cutting Scrap (KG) <Tag color={isFullDowntime ? 'green' : 'blue'} style={figTagStyle}>{isFullDowntime ? 'Auto' : 'Report-Only'}</Tag></span>}
@@ -3174,51 +3241,313 @@ const EntryForm: React.FC<EntryFormProps> = ({
                         className={(processScrapQty !== undefined && processScrapQty !== null && processScrapQty !== '') || isFullDowntime ? 'erp-field-filled' : 'erp-field-unfilled'}
                       />
                     </Form.Item>
+                  </div>
 
-                    {/* Caption strip for Product Rejection. It is the LAST child
-                        of the grid on its OWN full-width row (grid-column:
-                        1 / -1), directly beneath the input row — so it is laid
-                        out AFTER the five cells and can never push, re-flow or
-                        overlap them. Always rendered with a reserved height,
-                        so the message swapping between the neutral hint and the
-                        danger warning moves nothing above it. */}
+                  {/* Row 2 — Product Rejection [KG | PCS] Multi-Line Breakdown with Add button & Auto Wt/Pc */}
+                  <div
+                    className="rej-entry-block"
+                    style={{
+                      background: 'rgba(15, 23, 42, 0.35)',
+                      border: '1px solid var(--theme-border, rgba(148, 163, 184, 0.2))',
+                      borderRadius: 8,
+                      padding: '10px 12px 8px',
+                      marginTop: 4,
+                    }}
+                  >
+                    {/* Header: Title, Tag, Unit Toggle, Auto Wt/Pc Badge, and + Add Button */}
                     <div
-                      className={`rej-hint${rejectionPcsBlocked ? ' rej-hint-danger' : ''}`}
-                      role={rejectionPcsBlocked ? 'alert' : undefined}
-                      title={rejectionHint}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        flexWrap: 'wrap',
+                        gap: 8,
+                        marginBottom: 10,
+                        paddingBottom: 8,
+                        borderBottom: '1px solid var(--theme-border, rgba(148, 163, 184, 0.15))',
+                      }}
                     >
-                      {rejectionPcsBlocked
-                        ? <WarningOutlined aria-hidden />
-                        : <InfoCircleOutlined aria-hidden />}
-                      <span>{rejectionHint}</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--theme-text, #f8fafc)' }}>
+                          Product Rejection
+                          <Tag color={isFullDowntime ? 'green' : 'red'} style={{ ...figTagStyle, marginLeft: 6 }}>
+                            {isFullDowntime ? 'Auto' : 'Stock-Deducting'}
+                          </Tag>
+                        </span>
+
+                        {/* Mode Toggle: [KG | PCS] */}
+                        <Segmented
+                          size="small"
+                          value={rejectionUnit}
+                          onChange={(v) => handleRejectionUnitToggle(v as 'KG' | 'PCS')}
+                          options={[
+                            { label: 'KG', value: 'KG' },
+                            { label: 'PCS', value: 'PCS' },
+                          ]}
+                          style={{ fontWeight: 600 }}
+                        />
+
+                        {/* Clearly visible, fixed read-only Auto Per-Piece Weight Badge (defaults to 1.0 KG if none) */}
+                        <div
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            background: 'rgba(30, 41, 59, 0.85)',
+                            border: '1px solid rgba(148, 163, 184, 0.3)',
+                            borderRadius: 6,
+                            padding: '3px 8px',
+                            height: 28,
+                          }}
+                        >
+                          <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #94a3b8)' }}>
+                            Wt/Pc:
+                          </span>
+                          <span style={{ fontSize: 12.5, fontWeight: 800, color: '#38bdf8' }}>
+                            {formatNumber(fgWeightPerPiece, 4)} KG
+                          </span>
+                          <Tag
+                            color={toNum(primaryItem?.weightPerPiece) > 0 ? 'blue' : 'default'}
+                            style={{ fontSize: 9.5, padding: '0 4px', margin: 0, lineHeight: '16px' }}
+                          >
+                            {toNum(primaryItem?.weightPerPiece) > 0 ? 'Item Master' : 'Auto 1 KG'}
+                          </Tag>
+                        </div>
+                      </div>
+
+                      {/* Header Right: Total + Add Rejection Button */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        {totalRejectionKg > 0 ? (
+                          <span style={{ fontSize: 11.5, fontWeight: 700, color: '#10b981' }}>
+                            Total: {formatNumber(totalRejectionKg, 2)} KG ({formatNumber(totalRejectionPcs, 0)} PCS)
+                          </span>
+                        ) : null}
+
+                        <Button
+                          type="primary"
+                          size="small"
+                          icon={<PlusOutlined />}
+                          onClick={handleAddRejectionRow}
+                          style={{
+                            background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                            borderColor: '#059669',
+                            fontWeight: 700,
+                            height: 28,
+                            padding: '0 12px',
+                            borderRadius: 6,
+                          }}
+                        >
+                          + Add Rejection
+                        </Button>
+                      </div>
                     </div>
+
+                    {/* Column Headers */}
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'minmax(110px, 140px) minmax(110px, 140px) 1fr 34px',
+                        gap: 8,
+                        marginBottom: 4,
+                        padding: '0 2px',
+                      }}
+                    >
+                      <span
+                        style={{
+                          fontSize: 10.5,
+                          fontWeight: 700,
+                          letterSpacing: '0.05em',
+                          color: rejectionUnit === 'KG' ? '#10b981' : 'var(--theme-text-muted, #94a3b8)',
+                        }}
+                      >
+                        KG {rejectionUnit === 'KG' ? '★ Active' : '(Auto Read-Only)'}
+                      </span>
+                      <span
+                        style={{
+                          fontSize: 10.5,
+                          fontWeight: 700,
+                          letterSpacing: '0.05em',
+                          color: rejectionUnit === 'PCS' ? '#10b981' : 'var(--theme-text-muted, #94a3b8)',
+                        }}
+                      >
+                        PIECES {rejectionUnit === 'PCS' ? '★ Active' : '(Auto Read-Only)'}
+                      </span>
+                      <span
+                        style={{
+                          fontSize: 10.5,
+                          fontWeight: 700,
+                          letterSpacing: '0.05em',
+                          color: 'var(--theme-text-muted, #94a3b8)',
+                        }}
+                      >
+                        REJECTION REMARKS / DEFECT REASON
+                      </span>
+                      <span />
+                    </div>
+
+                    {/* Rejection Rows List */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {rejectionRows.map((row) => {
+                        const isKgActive = rejectionUnit === 'KG';
+                        const isPcsActive = rejectionUnit === 'PCS';
+
+                        return (
+                          <div
+                            key={row.id}
+                            style={{
+                              display: 'grid',
+                              gridTemplateColumns: 'minmax(110px, 140px) minmax(110px, 140px) 1fr 34px',
+                              gap: 8,
+                              alignItems: 'center',
+                            }}
+                          >
+                            {/* KG Input */}
+                            <div>
+                              <InputNumber
+                                style={{ width: '100%' }}
+                                min={0}
+                                step={0.01}
+                                placeholder="0"
+                                disabled={!isKgActive}
+                                value={row.kg ?? undefined}
+                                onChange={(val) => handleRowKgChange(row.id, val)}
+                                className={
+                                  isKgActive
+                                    ? (row.kg !== null && row.kg !== undefined && row.kg > 0 ? 'erp-field-filled' : 'erp-field-unfilled')
+                                    : 'rej-input-ro'
+                                }
+                              />
+                            </div>
+
+                            {/* Pieces Input */}
+                            <div>
+                              <InputNumber
+                                style={{ width: '100%' }}
+                                min={0}
+                                step={1}
+                                placeholder="0"
+                                disabled={!isPcsActive}
+                                value={row.pcs ?? undefined}
+                                onChange={(val) => handleRowPcsChange(row.id, val)}
+                                className={
+                                  isPcsActive
+                                    ? (row.pcs !== null && row.pcs !== undefined && row.pcs > 0 ? 'erp-field-filled' : 'erp-field-unfilled')
+                                    : 'rej-input-ro'
+                                }
+                              />
+                            </div>
+
+                            {/* Rejection Remarks AutoComplete */}
+                            <div>
+                              <AutoComplete
+                                options={rejectionReasons.map((r) => ({ label: r, value: r }))}
+                                placeholder="Select reason or type new defect category..."
+                                value={row.reason}
+                                onChange={(val) => handleRowReasonChange(row.id, val)}
+                                allowClear
+                                filterOption={(inputValue, option) =>
+                                  (option?.value?.toUpperCase() ?? '').includes(inputValue.toUpperCase())
+                                }
+                                dropdownRender={(menu) => (
+                                  <>
+                                    {menu}
+                                    <Divider style={{ margin: '6px 0' }} />
+                                    <div style={{ display: 'flex', gap: 6, padding: '4px 8px 6px' }}>
+                                      <Input
+                                        size="small"
+                                        placeholder="Add new rejection category..."
+                                        value={newReasonText}
+                                        onChange={(e) => setNewReasonText(e.target.value)}
+                                        onKeyDown={(e) => {
+                                          if (e.key === 'Enter') {
+                                            e.preventDefault();
+                                            handleAddReason();
+                                          }
+                                        }}
+                                      />
+                                      <Button
+                                        type="primary"
+                                        size="small"
+                                        icon={<PlusOutlined />}
+                                        onClick={handleAddReason}
+                                        style={{ background: '#8b5cf6', borderColor: '#8b5cf6', fontWeight: 600 }}
+                                      >
+                                        Add
+                                      </Button>
+                                    </div>
+                                  </>
+                                )}
+                                style={{ width: '100%' }}
+                              >
+                                <Input
+                                  suffix={
+                                    <Button
+                                      type="text"
+                                      size="small"
+                                      icon={<PlusOutlined />}
+                                      title="Save as defect category"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (row.reason && row.reason.trim()) {
+                                          handleSaveReason(row.reason.trim());
+                                        }
+                                      }}
+                                      style={{ fontSize: 11, color: '#8b5cf6', fontWeight: 700, padding: '0 4px', height: 22 }}
+                                    >
+                                      Add
+                                    </Button>
+                                  }
+                                  className="rej-remarks-input"
+                                  maxLength={200}
+                                />
+                              </AutoComplete>
+                            </div>
+
+                            {/* Row Delete Button */}
+                            <div style={{ textAlign: 'center' }}>
+                              {rejectionRows.length > 1 ? (
+                                <Button
+                                  type="text"
+                                  danger
+                                  icon={<DeleteOutlined />}
+                                  onClick={() => handleRemoveRejectionRow(row.id)}
+                                  title="Remove defect line"
+                                  style={{ width: 32, height: 32, padding: 0 }}
+                                />
+                              ) : null}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Hidden AntD form fields to satisfy form validation & onFinish payload contract */}
+                    <Form.Item
+                      name="scrapQuantity"
+                      noStyle
+                      rules={isFullDowntime ? [] : [{ required: true, message: 'Required' }, { type: 'number', min: 0, message: 'Must be ≥ 0' }]}
+                    >
+                      <Input type="hidden" />
+                    </Form.Item>
+                    <Form.Item name="rejectionRemarks" noStyle>
+                      <Input type="hidden" />
+                    </Form.Item>
+                  </div>
+
+                  {/* Caption strip for Product Rejection */}
+                  <div
+                    className="rej-hint"
+                    title={rejectionHint}
+                    style={{ marginTop: 6 }}
+                  >
+                    <InfoCircleOutlined aria-hidden />
+                    <span>{rejectionHint}</span>
                   </div>
 
                   {/* Hidden alias preserving antd form state / onFinish contract */}
                   <Form.Item name="runningHours" noStyle>
                     <Input type="hidden" />
                   </Form.Item>
-
-                  {/* Rejection Remarks — short operator audit string for the
-                      machine entry log (e.g. "Head Crack", "Bent Wire"). Sent
-                      as the dedicated `rejectionRemarks` DTO field and stored
-                      by the backend as a "| Rejection Remarks: …" fragment in
-                      the entry remarks (no schema change, travels with every
-                      remarks export / list view). */}
-                  <div style={{ marginTop: 8, maxWidth: 560 }}>
-                    <Form.Item
-                      name="rejectionRemarks"
-                      label={<span style={{ ...figLabelStyle, fontWeight: 600 }}>Rejection Remarks <Tag color="purple" style={figTagStyle}>Audit</Tag></span>}
-                      style={{ marginBottom: 0 }}
-                    >
-                      <Input
-                        className="rej-remarks-input"
-                        maxLength={200}
-                        placeholder="e.g. Head Crack, Bent Wire, Overheated Wire — why the product was rejected"
-                        allowClear
-                      />
-                    </Form.Item>
-                  </div>
 
                   <div style={{ marginTop: 4, fontSize: 10.5, color: 'var(--theme-text-muted, #64748b)' }}>
                     Target based on: {formatNumber(derivedRunning, 2)}h running ({plannedHours}h shift + {overtimeHours}h OT - {totalDowntime}h downtime)
@@ -4139,177 +4468,244 @@ const ItemDetailsStrip: React.FC<{
     productionInUomCode?: string | null;
     productionInDepartmentName?: string | null;
     productionOutItemName?: string | null;
+    productionInItemName?: string | null;
+    productionInItemCode?: string | null;
   } | null;
   productionInItemId?: string | null;
   productionOutItemId?: string | null;
   chainWarning?: string | null;
   allItems?: ItemLk[];
-}> = ({ item, rawMaterial, productionInItemId, productionOutItemId, chainWarning, allItems }) => (
-  <div data-testid="item-details-strip">
-    <div
-      style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'stretch', rowGap: 8 }}
-    >
-      {item.name && (
-        <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
-          <ItemMetadatum label="Item Name" value={<strong style={{ color: 'var(--theme-primary, #2563eb)' }}>{item.name}</strong>} />
+}> = ({ item, rawMaterial, productionInItemId, productionOutItemId, chainWarning, allItems }) => {
+  const [asyncInItem, setAsyncInItem] = useState<{ name: string; itemCode: string } | null>(null);
+
+  useEffect(() => {
+    if (
+      productionInItemId &&
+      !allItems?.some((i) => i.id === productionInItemId) &&
+      !item.productionInItem &&
+      !rawMaterial?.productionInItemName &&
+      !rawMaterial?.itemName
+    ) {
+      let active = true;
+      void (async () => {
+        try {
+          const res = await apiService.get<{ success?: boolean; data?: ItemLk }>(`/master-data/items/${productionInItemId}`);
+          const fetched = res?.data;
+          if (active && fetched) {
+            setAsyncInItem({ name: fetched.name, itemCode: fetched.itemCode });
+          }
+        } catch { /* ignore */ }
+      })();
+      return () => { active = false; };
+    }
+  }, [productionInItemId, allItems, item.productionInItem, rawMaterial?.productionInItemName, rawMaterial?.itemName]);
+
+  // Format helper: Name (Code) or Name or Code, NEVER a raw UUID
+  const formatItemDisplay = (
+    id?: string | null,
+    directItem?: { name?: string | null; itemCode?: string | null } | null,
+    fallbackName?: string | null,
+    fallbackCode?: string | null,
+    defaultLabel = 'Configured Material'
+  ): string => {
+    const found = id ? allItems?.find((i) => i.id === id) : null;
+    const name = found?.name || directItem?.name || fallbackName || '';
+    const code = found?.itemCode || directItem?.itemCode || fallbackCode || '';
+    if (name && code && name !== code) return `${name} (${code})`;
+    if (name) return name;
+    if (code) return code;
+    // Guard against UUID leakage: if id matches a UUID pattern, never show it!
+    if (id && !UUID_RE.test(String(id))) return id;
+    return defaultLabel;
+  };
+
+  const inputMaterialLabel = (() => {
+    if (item.productionInItem) {
+      return formatItemDisplay(item.productionInItemId, item.productionInItem);
+    }
+    const inName = rawMaterial?.productionInItemName || rawMaterial?.itemName || asyncInItem?.name;
+    const inCode = rawMaterial?.productionInItemCode || rawMaterial?.itemCode || asyncInItem?.itemCode;
+    return formatItemDisplay(productionInItemId, null, inName, inCode, 'Configured Input Material');
+  })();
+
+  const outputProductLabel = (() => {
+    if (productionOutItemId === item.id) {
+      return formatItemDisplay(item.id, item);
+    }
+    if (item.productionOutItem) {
+      return formatItemDisplay(item.productionOutItemId, item.productionOutItem);
+    }
+    return formatItemDisplay(
+      productionOutItemId,
+      null,
+      rawMaterial?.productionOutItemName || item.name,
+      item.itemCode,
+      item.name || item.itemCode || 'Self Output Product'
+    );
+  })();
+
+  return (
+    <div data-testid="item-details-strip">
+      <div
+        style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'stretch', rowGap: 8 }}
+      >
+        {item.name && (
+          <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
+            <ItemMetadatum label="Item Name" value={<strong style={{ color: 'var(--theme-primary, #2563eb)' }}>{item.name}</strong>} />
+          </div>
+        )}
+        {item.itemCode && (
+          <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
+            <ItemMetadatum label="Item Code" value={item.itemCode} />
+          </div>
+        )}
+        {item.wireSizeMm != null && (
+          <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
+            <ItemMetadatum label="Wire Size" value={<>{formatDimension(item.wireSizeMm)} mm</>} />
+          </div>
+        )}
+        {item.routeType && (
+          <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
+            <ItemMetadatum label="Route" value={item.routeType} />
+          </div>
+        )}
+        {item.departmentName && (
+          <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
+            <ItemMetadatum label="Department" value={item.departmentName} />
+          </div>
+        )}
+        {item.sectionName && (
+          <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
+            <ItemMetadatum label="Section" value={item.sectionName} />
+          </div>
+        )}
+        {item.divisionName && (
+          <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
+            <ItemMetadatum label="Division" value={item.divisionName} />
+          </div>
+        )}
+        {item.categoryName && (
+          <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
+            <ItemMetadatum label="Category" value={item.categoryName} />
+          </div>
+        )}
+        {item.weightPerPiece != null && (
+          <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
+            <ItemMetadatum label="Weight/Piece" value={<>{formatNumber(item.weightPerPiece, 5)} kg</>} />
+          </div>
+        )}
+        {item.piecesPerKg != null && (
+          <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
+            <ItemMetadatum label="Pieces/KG" value={formatNumber(item.piecesPerKg, 3)} />
+          </div>
+        )}
+        {item.weightPerMeter != null && (
+          <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
+            <ItemMetadatum label="Weight/Meter" value={<>{formatNumber(item.weightPerMeter, 6)} kg</>} />
+          </div>
+        )}
+        {item.lengthPerPiece != null && (
+          <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
+            <ItemMetadatum label="Length/Piece" value={<>{formatNumber(item.lengthPerPiece, 4)} m</>} />
+          </div>
+        )}
+        {item.baseUom && (
+          <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
+            <ItemMetadatum label="Base UOM" value={<>{item.baseUom.code}{item.baseUom.symbol ? ` (${item.baseUom.symbol})` : ''}</>} />
+          </div>
+        )}
+        {item.itemType && (
+          <div style={{ display: 'flex' }}>
+            <ItemMetadatum label="Type" value={item.itemType.replace(/_/g, ' ')} />
+          </div>
+        )}
+      </div>
+      {/* TASK #32: Raw Material details within Item Details */}
+      {rawMaterial && (
+        <div style={{
+          marginTop: 6, paddingTop: 6,
+          borderTop: '1px solid rgba(128,128,128,0.15)',
+          display: 'flex', flexWrap: 'wrap', alignItems: 'stretch', rowGap: 8,
+        }}>
+          <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
+            <ItemMetadatum label="Raw Material" value={
+              <span style={{ color: 'var(--theme-primary)' }}>
+                {rawMaterial.itemName || rawMaterial.itemCode}{rawMaterial.itemName && rawMaterial.itemName !== rawMaterial.itemCode ? ` (${rawMaterial.itemCode})` : ''}
+              </span>
+            } />
+          </div>
+          {rawMaterial.wireSizeMm != null && (
+            <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
+              <ItemMetadatum label="RM Wire Size" value={<>{formatDimension(rawMaterial.wireSizeMm)} mm</>} />
+            </div>
+          )}
+          {rawMaterial.uomCode && (
+            <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
+              <ItemMetadatum label="RM UOM" value={rawMaterial.productionInUomCode ?? rawMaterial.uomCode} />
+            </div>
+          )}
+          {rawMaterial.available != null && (
+            <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
+              <ItemMetadatum label="RM Available" value={<>{formatNumber(rawMaterial.available, 3)} {rawMaterial.uomCode ?? ''}</>} />
+            </div>
+          )}
         </div>
       )}
-      {item.itemCode && (
-        <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
-          <ItemMetadatum label="Item Code" value={item.itemCode} />
+      {/* TASK #33/#34B: Production Flow — Input Material + Output Product display.
+          The current item IS the output of its own production stage; the OUT is
+          server-owned and auto-synced to the current item (shown as "self"). */}
+      {(productionInItemId || productionOutItemId) && (
+        <div style={{
+          marginTop: 6, paddingTop: 6,
+          borderTop: '1px solid rgba(128,128,128,0.15)',
+          display: 'flex', flexWrap: 'wrap', alignItems: 'stretch', rowGap: 8,
+        }}>
+          {productionInItemId && (
+            <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
+              <ItemMetadatum label="Input Material" value={
+                <span style={{ color: 'var(--theme-primary)' }}>
+                  {inputMaterialLabel}
+                </span>
+              } />
+            </div>
+          )}
+          {productionInItemId && rawMaterial?.productionInUomCode && (
+            <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
+              <ItemMetadatum label="Production IN UOM" value={rawMaterial.productionInUomCode} />
+            </div>
+          )}
+          {productionInItemId && rawMaterial?.productionInDepartmentName && (
+            <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
+              <ItemMetadatum label="Production IN Source" value={rawMaterial.productionInDepartmentName} />
+            </div>
+          )}
+          {productionOutItemId && (
+            <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
+              <ItemMetadatum label="Output Product" value={
+                <span style={{ color: 'var(--theme-success, #52c41a)' }}>
+                  {outputProductLabel}
+                </span>
+              } />
+            </div>
+          )}
+          {productionOutItemId && rawMaterial?.productionOutItemName && rawMaterial.productionOutItemName !== item.itemCode && (
+            <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
+              <ItemMetadatum label="Output Product Name" value={rawMaterial.productionOutItemName} />
+            </div>
+          )}
         </div>
       )}
-      {item.wireSizeMm != null && (
-        <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
-          <ItemMetadatum label="Wire Size" value={<>{formatDimension(item.wireSizeMm)} mm</>} />
-        </div>
-      )}
-      {item.routeType && (
-        <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
-          <ItemMetadatum label="Route" value={item.routeType} />
-        </div>
-      )}
-      {item.departmentName && (
-        <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
-          <ItemMetadatum label="Department" value={item.departmentName} />
-        </div>
-      )}
-      {item.sectionName && (
-        <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
-          <ItemMetadatum label="Section" value={item.sectionName} />
-        </div>
-      )}
-      {item.divisionName && (
-        <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
-          <ItemMetadatum label="Division" value={item.divisionName} />
-        </div>
-      )}
-      {item.categoryName && (
-        <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
-          <ItemMetadatum label="Category" value={item.categoryName} />
-        </div>
-      )}
-      {item.weightPerPiece != null && (
-        <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
-          <ItemMetadatum label="Weight/Piece" value={<>{formatNumber(item.weightPerPiece, 5)} kg</>} />
-        </div>
-      )}
-      {item.piecesPerKg != null && (
-        <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
-          <ItemMetadatum label="Pieces/KG" value={formatNumber(item.piecesPerKg, 3)} />
-        </div>
-      )}
-      {item.weightPerMeter != null && (
-        <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
-          <ItemMetadatum label="Weight/Meter" value={<>{formatNumber(item.weightPerMeter, 6)} kg</>} />
-        </div>
-      )}
-      {item.lengthPerPiece != null && (
-        <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
-          <ItemMetadatum label="Length/Piece" value={<>{formatNumber(item.lengthPerPiece, 4)} m</>} />
-        </div>
-      )}
-      {item.baseUom && (
-        <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
-          <ItemMetadatum label="Base UOM" value={<>{item.baseUom.code}{item.baseUom.symbol ? ` (${item.baseUom.symbol})` : ''}</>} />
-        </div>
-      )}
-      {item.itemType && (
-        <div style={{ display: 'flex' }}>
-          <ItemMetadatum label="Type" value={item.itemType.replace(/_/g, ' ')} />
+      {chainWarning && (
+        <div style={{
+          marginTop: 6, padding: '4px 8px',
+          background: '#fff7e6', borderRadius: 4, border: '1px solid #ffd591',
+        }}>
+          <Text type="warning" style={{ fontSize: 11 }}>{chainWarning}</Text>
         </div>
       )}
     </div>
-    {/* TASK #32: Raw Material details within Item Details */}
-    {rawMaterial && (
-      <div style={{
-        marginTop: 6, paddingTop: 6,
-        borderTop: '1px solid rgba(128,128,128,0.15)',
-        display: 'flex', flexWrap: 'wrap', alignItems: 'stretch', rowGap: 8,
-      }}>
-        <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
-          <ItemMetadatum label="Raw Material" value={
-            <span style={{ color: 'var(--theme-primary)' }}>
-              {rawMaterial.itemName || rawMaterial.itemCode}{rawMaterial.itemName && rawMaterial.itemName !== rawMaterial.itemCode ? ` (${rawMaterial.itemCode})` : ''}
-            </span>
-          } />
-        </div>
-        {rawMaterial.wireSizeMm != null && (
-          <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
-            <ItemMetadatum label="RM Wire Size" value={<>{formatDimension(rawMaterial.wireSizeMm)} mm</>} />
-          </div>
-        )}
-        {rawMaterial.uomCode && (
-          <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
-            <ItemMetadatum label="RM UOM" value={rawMaterial.productionInUomCode ?? rawMaterial.uomCode} />
-          </div>
-        )}
-        {rawMaterial.available != null && (
-          <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
-            <ItemMetadatum label="RM Available" value={<>{formatNumber(rawMaterial.available, 3)} {rawMaterial.uomCode ?? ''}</>} />
-          </div>
-        )}
-      </div>
-    )}
-    {/* TASK #33/#34B: Production Flow — Input Material + Output Product display.
-        The current item IS the output of its own production stage; the OUT is
-        server-owned and auto-synced to the current item (shown as "self"). */}
-    {(productionInItemId || productionOutItemId) && (
-      <div style={{
-        marginTop: 6, paddingTop: 6,
-        borderTop: '1px solid rgba(128,128,128,0.15)',
-        display: 'flex', flexWrap: 'wrap', alignItems: 'stretch', rowGap: 8,
-      }}>
-        {productionInItemId && (
-          <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
-            <ItemMetadatum label="Input Material" value={
-              <span style={{ color: 'var(--theme-primary)' }}>
-                {(() => {
-                  const inItm = allItems?.find((i) => i.id === productionInItemId);
-                  return inItm ? `${inItm.name} (${inItm.itemCode})` : productionInItemId;
-                })()}
-              </span>
-            } />
-          </div>
-        )}
-        {productionInItemId && rawMaterial?.productionInUomCode && (
-          <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
-            <ItemMetadatum label="Production IN UOM" value={rawMaterial.productionInUomCode} />
-          </div>
-        )}
-        {productionInItemId && rawMaterial?.productionInDepartmentName && (
-          <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
-            <ItemMetadatum label="Production IN Source" value={rawMaterial.productionInDepartmentName} />
-          </div>
-        )}
-        {productionOutItemId && (
-          <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
-            <ItemMetadatum label="Output Product" value={
-              <span style={{ color: 'var(--theme-success, #52c41a)' }}>
-                {productionOutItemId === item.id
-                  ? `${item.name} (${item.itemCode})`
-                  : `${allItems?.find((i) => i.id === productionOutItemId)?.name || productionOutItemId}`}
-              </span>
-            } />
-          </div>
-        )}
-        {productionOutItemId && rawMaterial?.productionOutItemName && rawMaterial.productionOutItemName !== item.itemCode && (
-          <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
-            <ItemMetadatum label="Output Product Name" value={rawMaterial.productionOutItemName} />
-          </div>
-        )}
-      </div>
-    )}
-    {chainWarning && (
-      <div style={{
-        marginTop: 6, padding: '4px 8px',
-        background: '#fff7e6', borderRadius: 4, border: '1px solid #ffd591',
-      }}>
-        <Text type="warning" style={{ fontSize: 11 }}>{chainWarning}</Text>
-      </div>
-    )}
-  </div>
-);
+  );
+};
 
 const InputBadge: React.FC<{ type: 'input' | 'auto' }> = ({ type }) => {
   const isInput = type === 'input';
@@ -5021,7 +5417,21 @@ const RawMaterialAvailability: React.FC<{
   // TASK #35: Also exposes the input UOM, source/store department and output name.
   useEffect(() => {
     if (!onData) return;
-    const extracted: Record<string, { itemCode: string; itemName?: string | null; wireSizeMm?: number | null; uomCode?: string | null; available?: number | null; productionInItemId?: string | null; productionOutItemId?: string | null; productionInUomCode?: string | null; productionInDepartmentName?: string | null; productionOutItemName?: string | null; chainWarning?: string | null }> = {};
+    const extracted: Record<string, {
+      itemCode: string;
+      itemName?: string | null;
+      wireSizeMm?: number | null;
+      uomCode?: string | null;
+      available?: number | null;
+      productionInItemId?: string | null;
+      productionInItemCode?: string | null;
+      productionInItemName?: string | null;
+      productionOutItemId?: string | null;
+      productionInUomCode?: string | null;
+      productionInDepartmentName?: string | null;
+      productionOutItemName?: string | null;
+      chainWarning?: string | null;
+    }> = {};
     for (const key of Object.keys(data)) {
       const it = data[key];
       if (it.traceStatus === 'ready' && it.lines.length > 0) {
@@ -5033,6 +5443,8 @@ const RawMaterialAvailability: React.FC<{
           uomCode: line.rawBaseUomCode ?? line.uomCode ?? null,
           available: line.available,
           productionInItemId: it.productionInItemId ?? null,
+          productionInItemCode: it.prevStageItemCode || line.itemCode || null,
+          productionInItemName: it.prevStageItemName || line.itemName || null,
           productionOutItemId: it.productionOutItemId ?? null,
           productionInUomCode: it.inUomCode ?? null,
           productionInDepartmentName: it.sourceDepartmentName ?? null,

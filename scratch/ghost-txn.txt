@@ -1,0 +1,123 @@
+﻿ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+  FULL TRANSACTION FOOTPRINT ΓÇö every row at each ghost timestamp
+  READ-ONLY. Nothing in this script writes to the database.
+ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+
+156 tables carry a timestamptz created_at.
+
+
+ΓòÉΓòÉΓòÉ TRANSACTION AT 2026-10-09 11:30:33.168514+00 ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+
+  ΓöÇΓöÇ public.inventory_balances  (1 row(s)) ΓöÇΓöÇ
+    id | is_active | company_id | item_id | warehouse_id | location_id | batch_id | uom_id | on_hand | status
+    b2e21885-8ad2-41ea-a693-86ad4dd0d31c | true | 7725aa04-a270-4314-9e82-90949cbe7791 | 4dc93195-3e44-4428-9b57-a20eb47953f5 | dc212cb0-364c-47ba-88db-1bde18f842de | null | null | b932052f-141f-4d78-9baf-7025e5302442 | 77651.0000 | ACTIVE
+
+  ΓöÇΓöÇ public.production_entries  (1 row(s)) ΓöÇΓöÇ
+    id | company_id | division_id | item_id | uom_id | is_active | warehouse_id
+    799c2ad4-36d3-482b-a293-97e8b67495d6 | 7725aa04-a270-4314-9e82-90949cbe7791 | d1000000-0000-0000-0000-000000000001 | 4dc93195-3e44-4428-9b57-a20eb47953f5 | b932052f-141f-4d78-9baf-7025e5302442 | true | 29e71f41-713e-45dc-bd69-4a3ce05a3801
+
+  ΓöÇΓöÇ public.production_entry_items  (1 row(s)) ΓöÇΓöÇ
+    id | is_active | company_id | production_entry_id | item_id | uom_id
+    8b98f2fb-38ca-406b-a9be-5c0cc008fc05 | true | 7725aa04-a270-4314-9e82-90949cbe7791 | 799c2ad4-36d3-482b-a293-97e8b67495d6 | b0e5493e-58a4-4d2b-bb3b-d7b0c5d73468 | b932052f-141f-4d78-9baf-7025e5302442
+
+  ΓöÇΓöÇ public.stock_ledger  (3 row(s)) ΓöÇΓöÇ
+    id | company_id | transaction_type | item_id | warehouse_id | location_id | quantity | uom_id | direction | reference_type | reference_id | reference_number | batch_id | notes | division_id
+    50357eac-f193-4375-a467-6f880df485d8 | 7725aa04-a270-4314-9e82-90949cbe7791 | PRODUCTION_RECEIPT | 4dc93195-3e44-4428-9b57-a20eb47953f5 | 29e71f41-713e-45dc-bd69-4a3ce05a3801 | null | 39005.0000 | b932052f-141f-4d78-9baf-7025e5302442 | IN | PRODUCTION_ENTRY | 799c2ad4-36d3-482b-a293-97e8b67495d6 | PE-2026-00298 | null | Daily production receipt (SPK-05, 2026-10-08) | null
+    9d8d3b7f-e938-4119-852b-d909a8866d13 | 7725aa04-a270-4314-9e82-90949cbe7791 | PRODUCTION_SCRAP | 4dc93195-3e44-4428-9b57-a20eb47953f5 | 29e71f41-713e-45dc-bd69-4a3ce05a3801 | null | 31.2250 | b932052f-141f-4d78-9baf-7025e5302442 | OUT | PRODUCTION_ENTRY | 799c2ad4-36d3-482b-a293-97e8b67495d6 | PE-2026-00298 | null | Scrap/rejection recorded for daily production ΓÇª | null
+    8feef07a-2835-4f84-8276-c1615e91e9a3 | 7725aa04-a270-4314-9e82-90949cbe7791 | PRODUCTION_CONSUMPTION | b0e5493e-58a4-4d2b-bb3b-d7b0c5d73468 | d5685ddf-923a-4f7c-ba19-a5715cafa02e | null | 39005.0000 | b932052f-141f-4d78-9baf-7025e5302442 | OUT | PRODUCTION_ENTRY | 799c2ad4-36d3-482b-a293-97e8b67495d6 | PE-2026-00298 | null | Routing-configured raw material consumption foΓÇª | null
+
+  TOTAL rows in this transaction: 6
+
+
+ΓòÉΓòÉΓòÉ TRANSACTION AT 2026-10-09 11:33:12.572932+00 ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+
+  ΓöÇΓöÇ public.inventory_balances  (1 row(s)) ΓöÇΓöÇ
+    id | is_active | company_id | item_id | warehouse_id | location_id | batch_id | uom_id | on_hand | status
+    bef3d449-de8b-49f0-8f1b-a56243649d3c | true | 7725aa04-a270-4314-9e82-90949cbe7791 | 6f1bad04-90ef-448e-9a44-345c04538787 | dc212cb0-364c-47ba-88db-1bde18f842de | null | null | b932052f-141f-4d78-9baf-7025e5302442 | 42700.0000 | ACTIVE
+
+  ΓöÇΓöÇ public.production_entries  (1 row(s)) ΓöÇΓöÇ
+    id | company_id | division_id | item_id | uom_id | is_active | warehouse_id
+    0ddd74ed-2495-42b9-b61e-b65db5a440a3 | 7725aa04-a270-4314-9e82-90949cbe7791 | d1000000-0000-0000-0000-000000000001 | 6f1bad04-90ef-448e-9a44-345c04538787 | b932052f-141f-4d78-9baf-7025e5302442 | true | 29e71f41-713e-45dc-bd69-4a3ce05a3801
+
+  ΓöÇΓöÇ public.production_entry_items  (1 row(s)) ΓöÇΓöÇ
+    id | is_active | company_id | production_entry_id | item_id | uom_id
+    0052897d-6dc4-416f-aae6-8726479d4abf | true | 7725aa04-a270-4314-9e82-90949cbe7791 | 0ddd74ed-2495-42b9-b61e-b65db5a440a3 | 265dddca-6324-4b51-82ec-059188277165 | b932052f-141f-4d78-9baf-7025e5302442
+
+  ΓöÇΓöÇ public.stock_ledger  (3 row(s)) ΓöÇΓöÇ
+    id | company_id | transaction_type | item_id | warehouse_id | location_id | quantity | uom_id | direction | reference_type | reference_id | reference_number | batch_id | notes | division_id
+    68f70d4a-be3a-4456-8c09-627c23d88714 | 7725aa04-a270-4314-9e82-90949cbe7791 | PRODUCTION_RECEIPT | 6f1bad04-90ef-448e-9a44-345c04538787 | 29e71f41-713e-45dc-bd69-4a3ce05a3801 | null | 42700.0000 | b932052f-141f-4d78-9baf-7025e5302442 | IN | PRODUCTION_ENTRY | 0ddd74ed-2495-42b9-b61e-b65db5a440a3 | PE-2026-00301 | null | Daily production receipt (SPK-06, 2026-10-08) | null
+    9fad6e7a-71f3-484b-816f-e4c35a6da746 | 7725aa04-a270-4314-9e82-90949cbe7791 | PRODUCTION_SCRAP | 6f1bad04-90ef-448e-9a44-345c04538787 | 29e71f41-713e-45dc-bd69-4a3ce05a3801 | null | 2.0200 | b932052f-141f-4d78-9baf-7025e5302442 | OUT | PRODUCTION_ENTRY | 0ddd74ed-2495-42b9-b61e-b65db5a440a3 | PE-2026-00301 | null | Scrap/rejection recorded for daily production ΓÇª | null
+    a20a210e-e087-4ac1-8d88-5a1ed5594339 | 7725aa04-a270-4314-9e82-90949cbe7791 | PRODUCTION_CONSUMPTION | 265dddca-6324-4b51-82ec-059188277165 | 2ec20775-616c-4c6e-818e-1f76912d6dfa | null | 42700.0000 | b932052f-141f-4d78-9baf-7025e5302442 | OUT | PRODUCTION_ENTRY | 0ddd74ed-2495-42b9-b61e-b65db5a440a3 | PE-2026-00301 | null | Routing-configured raw material consumption foΓÇª | null
+
+  TOTAL rows in this transaction: 6
+
+
+ΓòÉΓòÉΓòÉ TRANSACTION AT 2026-10-09 11:16:40.648830+00 ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+
+  ΓöÇΓöÇ public.inventory_balances  (1 row(s)) ΓöÇΓöÇ
+    id | is_active | company_id | item_id | warehouse_id | location_id | batch_id | uom_id | on_hand | status
+    ba0d042f-b14b-4398-961e-338f369d1980 | true | 7725aa04-a270-4314-9e82-90949cbe7791 | 25c1ff49-aa11-44ec-85bd-432be77b04f1 | dc212cb0-364c-47ba-88db-1bde18f842de | null | null | b932052f-141f-4d78-9baf-7025e5302442 | 72000.0000 | ACTIVE
+
+  ΓöÇΓöÇ public.production_entries  (1 row(s)) ΓöÇΓöÇ
+    id | company_id | division_id | item_id | uom_id | is_active | warehouse_id
+    eef7a2ab-0132-4800-822e-bcec4f46f80e | 7725aa04-a270-4314-9e82-90949cbe7791 | d1000000-0000-0000-0000-000000000001 | 25c1ff49-aa11-44ec-85bd-432be77b04f1 | b932052f-141f-4d78-9baf-7025e5302442 | true | 29e71f41-713e-45dc-bd69-4a3ce05a3801
+
+  ΓöÇΓöÇ public.production_entry_items  (1 row(s)) ΓöÇΓöÇ
+    id | is_active | company_id | production_entry_id | item_id | uom_id
+    132378a9-9386-4137-b69d-bcf1a8224e81 | true | 7725aa04-a270-4314-9e82-90949cbe7791 | eef7a2ab-0132-4800-822e-bcec4f46f80e | 5daa3c40-a951-416e-81c8-823fb6a73a7c | b932052f-141f-4d78-9baf-7025e5302442
+
+  ΓöÇΓöÇ public.stock_ledger  (3 row(s)) ΓöÇΓöÇ
+    id | company_id | transaction_type | item_id | warehouse_id | location_id | quantity | uom_id | direction | reference_type | reference_id | reference_number | batch_id | notes | division_id
+    57ce3679-99aa-42c0-9c70-7cfb96f224dc | 7725aa04-a270-4314-9e82-90949cbe7791 | PRODUCTION_RECEIPT | 25c1ff49-aa11-44ec-85bd-432be77b04f1 | 29e71f41-713e-45dc-bd69-4a3ce05a3801 | null | 32000.0000 | b932052f-141f-4d78-9baf-7025e5302442 | IN | PRODUCTION_ENTRY | eef7a2ab-0132-4800-822e-bcec4f46f80e | PE-2026-00290 | null | Daily production receipt (SPK-02, 2026-10-08) | null
+    19d26364-e0ed-4e13-90ec-7e3e447c0d2e | 7725aa04-a270-4314-9e82-90949cbe7791 | PRODUCTION_SCRAP | 25c1ff49-aa11-44ec-85bd-432be77b04f1 | 29e71f41-713e-45dc-bd69-4a3ce05a3801 | null | 26.6950 | b932052f-141f-4d78-9baf-7025e5302442 | OUT | PRODUCTION_ENTRY | eef7a2ab-0132-4800-822e-bcec4f46f80e | PE-2026-00290 | null | Scrap/rejection recorded for daily production ΓÇª | null
+    7aacae80-0f56-4700-be2c-9c4b20b4d4d2 | 7725aa04-a270-4314-9e82-90949cbe7791 | PRODUCTION_CONSUMPTION | 5daa3c40-a951-416e-81c8-823fb6a73a7c | d5685ddf-923a-4f7c-ba19-a5715cafa02e | null | 32000.0000 | b932052f-141f-4d78-9baf-7025e5302442 | OUT | PRODUCTION_ENTRY | eef7a2ab-0132-4800-822e-bcec4f46f80e | PE-2026-00290 | null | Routing-configured raw material consumption foΓÇª | null
+
+  TOTAL rows in this transaction: 6
+
+
+ΓòÉΓòÉΓòÉ TRANSACTION AT 2026-10-09 11:20:05.929161+00 ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+
+  ΓöÇΓöÇ public.inventory_balances  (1 row(s)) ΓöÇΓöÇ
+    id | is_active | company_id | item_id | warehouse_id | location_id | batch_id | uom_id | on_hand | status
+    1151069f-1ca0-4773-9094-69ea36309274 | true | 7725aa04-a270-4314-9e82-90949cbe7791 | accec30c-d51c-4ddf-817a-087d8fde2e24 | dc212cb0-364c-47ba-88db-1bde18f842de | null | null | b932052f-141f-4d78-9baf-7025e5302442 | 114942.0000 | ACTIVE
+
+  ΓöÇΓöÇ public.production_entries  (1 row(s)) ΓöÇΓöÇ
+    id | company_id | division_id | item_id | uom_id | is_active | warehouse_id
+    7ba70546-8ca2-42ff-af5e-5092152fba53 | 7725aa04-a270-4314-9e82-90949cbe7791 | d1000000-0000-0000-0000-000000000001 | accec30c-d51c-4ddf-817a-087d8fde2e24 | b932052f-141f-4d78-9baf-7025e5302442 | true | 29e71f41-713e-45dc-bd69-4a3ce05a3801
+
+  ΓöÇΓöÇ public.production_entry_items  (1 row(s)) ΓöÇΓöÇ
+    id | is_active | company_id | production_entry_id | item_id | uom_id
+    ba8288fb-9ac7-491f-9aed-492f818858e2 | true | 7725aa04-a270-4314-9e82-90949cbe7791 | 7ba70546-8ca2-42ff-af5e-5092152fba53 | c1000000-0000-0000-0000-000000000011 | b932052f-141f-4d78-9baf-7025e5302442
+
+  ΓöÇΓöÇ public.stock_ledger  (3 row(s)) ΓöÇΓöÇ
+    id | company_id | transaction_type | item_id | warehouse_id | location_id | quantity | uom_id | direction | reference_type | reference_id | reference_number | batch_id | notes | division_id
+    02d47d52-e645-4988-b51e-6529402ef6aa | 7725aa04-a270-4314-9e82-90949cbe7791 | PRODUCTION_RECEIPT | accec30c-d51c-4ddf-817a-087d8fde2e24 | 29e71f41-713e-45dc-bd69-4a3ce05a3801 | null | 45078.0000 | b932052f-141f-4d78-9baf-7025e5302442 | IN | PRODUCTION_ENTRY | 7ba70546-8ca2-42ff-af5e-5092152fba53 | PE-2026-00293 | null | Daily production receipt (SPK-03, 2026-10-08) | null
+    a27427f6-4b86-4dbf-a17d-d6c4e1566c9c | 7725aa04-a270-4314-9e82-90949cbe7791 | PRODUCTION_SCRAP | accec30c-d51c-4ddf-817a-087d8fde2e24 | 29e71f41-713e-45dc-bd69-4a3ce05a3801 | null | 2.1900 | b932052f-141f-4d78-9baf-7025e5302442 | OUT | PRODUCTION_ENTRY | 7ba70546-8ca2-42ff-af5e-5092152fba53 | PE-2026-00293 | null | Scrap/rejection recorded for daily production ΓÇª | null
+    68922809-9451-4a00-9514-617b25b767b3 | 7725aa04-a270-4314-9e82-90949cbe7791 | PRODUCTION_CONSUMPTION | c1000000-0000-0000-0000-000000000011 | 2ec20775-616c-4c6e-818e-1f76912d6dfa | null | 45078.0000 | b932052f-141f-4d78-9baf-7025e5302442 | OUT | PRODUCTION_ENTRY | 7ba70546-8ca2-42ff-af5e-5092152fba53 | PE-2026-00293 | null | Routing-configured raw material consumption foΓÇª | null
+
+  TOTAL rows in this transaction: 6
+
+
+ΓòÉΓòÉΓòÉ TRANSACTION AT 2026-10-09 09:41:57.360200+00 ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+
+  ΓöÇΓöÇ public.inventory_balances  (1 row(s)) ΓöÇΓöÇ
+    id | is_active | company_id | item_id | warehouse_id | location_id | batch_id | uom_id | on_hand | status
+    7e7805b1-d6d0-4b3b-b032-db259512fbea | true | 7725aa04-a270-4314-9e82-90949cbe7791 | 60bda253-330b-49db-8594-d417a1dd690a | dc212cb0-364c-47ba-88db-1bde18f842de | null | null | b932052f-141f-4d78-9baf-7025e5302442 | 3000.0000 | ACTIVE
+
+  ΓöÇΓöÇ public.production_entries  (1 row(s)) ΓöÇΓöÇ
+    id | company_id | division_id | item_id | uom_id | is_active | warehouse_id
+    491e761f-3c07-4775-b13f-99194d3bed2c | 7725aa04-a270-4314-9e82-90949cbe7791 | d1000000-0000-0000-0000-000000000001 | 60bda253-330b-49db-8594-d417a1dd690a | b932052f-141f-4d78-9baf-7025e5302442 | true | 29e71f41-713e-45dc-bd69-4a3ce05a3801
+
+  ΓöÇΓöÇ public.production_entry_items  (1 row(s)) ΓöÇΓöÇ
+    id | is_active | company_id | production_entry_id | item_id | uom_id
+    effdb451-e960-4081-82a7-37011ceec7e9 | true | 7725aa04-a270-4314-9e82-90949cbe7791 | 491e761f-3c07-4775-b13f-99194d3bed2c | 35e042f8-a943-4d36-afb5-6cd61fa810f4 | b932052f-141f-4d78-9baf-7025e5302442
+
+  ΓöÇΓöÇ public.stock_ledger  (3 row(s)) ΓöÇΓöÇ
+    id | company_id | transaction_type | item_id | warehouse_id | location_id | quantity | uom_id | direction | reference_type | reference_id | reference_number | batch_id | notes | division_id
+    6b3a6b7f-5a66-4e62-a3ed-b736d77efeb0 | 7725aa04-a270-4314-9e82-90949cbe7791 | PRODUCTION_RECEIPT | 60bda253-330b-49db-8594-d417a1dd690a | 29e71f41-713e-45dc-bd69-4a3ce05a3801 | null | 21000.0000 | b932052f-141f-4d78-9baf-7025e5302442 | IN | PRODUCTION_ENTRY | 491e761f-3c07-4775-b13f-99194d3bed2c | PE-2026-00270 | null | Daily production receipt (SPK-01, 2026-10-08) | null
+    2c6de233-2693-4cf8-bb05-1770ef9014d9 | 7725aa04-a270-4314-9e82-90949cbe7791 | PRODUCTION_SCRAP | 60bda253-330b-49db-8594-d417a1dd690a | 29e71f41-713e-45dc-bd69-4a3ce05a3801 | null | 0.7350 | b932052f-141f-4d78-9baf-7025e5302442 | OUT | PRODUCTION_ENTRY | 491e761f-3c07-4775-b13f-99194d3bed2c | PE-2026-00270 | null | Scrap/rejection recorded for daily production ΓÇª | null
+    78af4f51-a67f-4d42-a646-8a1598858e8c | 7725aa04-a270-4314-9e82-90949cbe7791 | PRODUCTION_CONSUMPTION | 35e042f8-a943-4d36-afb5-6cd61fa810f4 | 2ec20775-616c-4c6e-818e-1f76912d6dfa | null | 21000.0000 | b932052f-141f-4d78-9baf-7025e5302442 | OUT | PRODUCTION_ENTRY | 491e761f-3c07-4775-b13f-99194d3bed2c | PE-2026-00270 | null | Routing-configured raw material consumption foΓÇª | null
+
+  TOTAL rows in this transaction: 6
+
+[DONE ΓÇö read-only, nothing was written]

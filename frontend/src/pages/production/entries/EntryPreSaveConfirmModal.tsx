@@ -23,7 +23,10 @@ export interface EntryPreSaveSummary {
   receiptWarehouseName?: string;
   receiptWarehouseCode?: string;
   actualQuantity: number;
+  uomCode?: string;
   scrapQuantityKg: number;
+  scrapQuantityPcs?: number | null;
+  processScrapKg?: number;
   shiftName?: string;
   machineName?: string;
   entryDate?: string;
@@ -57,7 +60,7 @@ export const EntryPreSaveConfirmModal: React.FC<EntryPreSaveConfirmModalProps> =
   return (
     <Modal
       open={open}
-      zIndex={3200}
+      zIndex={100000}
       centered
       width={640}
       destroyOnHidden
@@ -216,15 +219,28 @@ export const EntryPreSaveConfirmModal: React.FC<EntryPreSaveConfirmModalProps> =
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
                 <span style={{ fontSize: 12, color: 'var(--theme-text-muted, #94a3b8)' }}>Good Production:</span>
                 <span style={{ fontSize: 16, fontWeight: 800, color: '#38bdf8' }}>
-                  {formatNumber(summary.actualQuantity, 0)} <span style={{ fontSize: 12, fontWeight: 600 }}>PCS</span>
+                  {formatNumber(summary.actualQuantity, 0)} <span style={{ fontSize: 12, fontWeight: 600 }}>{summary.uomCode || 'PCS'}</span>
                 </span>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                <span style={{ fontSize: 12, color: 'var(--theme-text-muted, #94a3b8)' }}>Process Scrap / Rejection:</span>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: (summary.processScrapKg ?? 0) > 0 ? 4 : 0 }}>
+                <span style={{ fontSize: 12, color: 'var(--theme-text-muted, #94a3b8)' }}>Product Rejection:</span>
                 <span style={{ fontSize: 14, fontWeight: 700, color: summary.scrapQuantityKg > 0 ? '#f87171' : 'var(--theme-text-muted, #94a3b8)' }}>
                   {formatNumber(summary.scrapQuantityKg, 2)} <span style={{ fontSize: 11, fontWeight: 600 }}>KG</span>
+                  {summary.scrapQuantityPcs ? (
+                    <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #94a3b8)', marginLeft: 6 }}>
+                      ({formatNumber(summary.scrapQuantityPcs, 0)} PCS)
+                    </span>
+                  ) : null}
                 </span>
               </div>
+              {(summary.processScrapKg ?? 0) > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                  <span style={{ fontSize: 12, color: 'var(--theme-text-muted, #94a3b8)' }}>Process Cutting Scrap:</span>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: '#f59e0b' }}>
+                    {formatNumber(summary.processScrapKg, 2)} <span style={{ fontSize: 11, fontWeight: 600 }}>KG</span>
+                  </span>
+                </div>
+              )}
             </div>
           </Col>
 

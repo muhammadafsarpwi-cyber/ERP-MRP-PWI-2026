@@ -1,0 +1,113 @@
+﻿ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+  ORIGIN TRACE ΓÇö what did the DOCUMENT itself claim?
+  READ-ONLY. Nothing in this script writes to the database.
+ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+
+
+1. THE COINCIDENT RECEIPTS, JOINED BACK TO THEIR PRODUCTION ENTRY
+   Each row: a receipt ledger row that was written within 2 seconds of a
+   ghost balance row being created/updated. `doc_claims_wh` is the
+   warehouse stored on the production entry document itself.
+  item | doc | qty | ledger_in | document_claims | d_created_s | d_updated_s | doc_deleted
+  WIP-SP-002 | PE-2026-00298 | 39,005 | SPI-SPK-003 | SPI-SPK-003 | 0.000 | -2020.201 | null
+  WIP-SP-002 | PE-2026-00311 | 38,646 | SPI-SPK-003 | SPI-SPK-003 | 2020.201 | 0.000 | null
+  WIP-SP-005 | PE-2026-00301 | 42,700 | SPI-SPK-003 | SPI-SPK-003 | 0.000 | 0.000 | null
+  WIP-SP-010 | PE-2026-00290 | 32,000 | SPI-SPK-003 | SPI-SPK-003 | 0.000 | -2302.169 | null
+  WIP-SP-010 | PE-2026-00309 | 40,000 | SPI-SPK-003 | SPI-SPK-003 | 2302.169 | 0.000 | null
+  WIP-SP-013 | PE-2026-00293 | 45,078 | SPI-SPK-003 | SPI-SPK-003 | 0.000 | -235553.136 | null
+  WIP-SP-014 | PE-2026-00270 | 21,000 | SPI-SPK-003 | SPI-SPK-003 | 0.000 | -84840.832 | null
+
+   7/7 receipts agree with their own document's warehouse.
+   ΓåÆ The LEDGER matches the DOCUMENT. The balance row is the odd one out.
+
+
+2. DID ANY RECEIPT EVER LAND IN CCD-SP-002 FOR THESE ITEMS?
+   If empty: the ledger NEVER put a single unit of these items in CCD-SP-002.
+  (none)
+
+
+3. THE ONLY CCD-SP-002 JOURNAL ACTIVITY FOR THESE ITEMS
+  ledger_row | item_code | transaction_type | direction | quantity | reference_type | reference_number | created_at
+  7cbc96b2-cad3-4a31-b978-3942c151eec1 | WIP-SP-014 | PRODUCTION_REVERSAL | OUT | 18000.0000 | PRODUCTION_ENTRY | PE-2026-00308 | 2026-10-10T09:15:56.978Z
+  512ad63a-0af6-4406-ab80-ded1742cb371 | WIP-SP-014 | PRODUCTION_REVERSAL | IN | 1.1200 | PRODUCTION_ENTRY | PE-2026-00308 | 2026-10-10T09:15:56.978Z
+  7b8b9b0d-fd7c-4ea9-9a0c-12dee28b390a | WIP-SP-014 | PRODUCTION_REVERSAL | OUT | 18000.0000 | PRODUCTION_ENTRY | PE-2026-00308 | 2026-10-10T09:15:58.191Z
+  a37507c2-29ce-4eeb-9e7c-d3c5e4c82158 | WIP-SP-014 | PRODUCTION_REVERSAL | IN | 1.1200 | PRODUCTION_ENTRY | PE-2026-00308 | 2026-10-10T09:15:58.191Z
+
+
+4. ARE THE OWNING DOCUMENTS STILL ALIVE?
+   56 owning document(s); 49 still live, 7 deleted/inactive.
+   (The user reported "no live entries" ΓÇö this checks whether the
+    documents are truly gone or simply filtered out of the grid.)
+  doc | date | machine | qty | doc_wh | active | deleted_at | inv_ref
+  PE-2026-00463 | Thu Oct 01 2026 00:00:00 GMT+0500 (Pakistan Standard Time) | SPK-06 | 28,000 | SPI-SPK-003 | true | no | set
+  PE-2026-00114 | Thu Oct 01 2026 00:00:00 GMT+0500 (Pakistan Standard Time) | SPK-06 | 28,000 | SPI-SPK-003 | false | YES | NULL
+  PE-2026-00104 | Thu Oct 01 2026 00:00:00 GMT+0500 (Pakistan Standard Time) | SPK-02 | 26,500 | SPI-SPK-003 | true | no | set
+  PE-2026-00108 | Thu Oct 01 2026 00:00:00 GMT+0500 (Pakistan Standard Time) | SPK-06 | 3,264 | SPI-SPK-003 | true | no | set
+  PE-2026-00113 | Thu Oct 01 2026 00:00:00 GMT+0500 (Pakistan Standard Time) | SPK-05 | 30,000 | SPI-SPK-003 | false | YES | NULL
+  PE-2026-00103 | Thu Oct 01 2026 00:00:00 GMT+0500 (Pakistan Standard Time) | SPK-01 | 27,000 | SPI-SPK-003 | true | no | set
+  PE-2026-00462 | Thu Oct 01 2026 00:00:00 GMT+0500 (Pakistan Standard Time) | SPK-05 | 30,000 | SPI-SPK-003 | true | no | set
+  PE-2026-00106 | Thu Oct 01 2026 00:00:00 GMT+0500 (Pakistan Standard Time) | SPK-05 | 16,700 | SPI-SPK-003 | true | no | set
+  PE-2026-00107 | Thu Oct 01 2026 00:00:00 GMT+0500 (Pakistan Standard Time) | SPK-03 | 26,576 | SPI-SPK-003 | true | no | set
+  PE-2026-00156 | Fri Oct 02 2026 00:00:00 GMT+0500 (Pakistan Standard Time) | SPK-06 | 18,500 | SPI-SPK-003 | true | no | set
+  PE-2026-00153 | Fri Oct 02 2026 00:00:00 GMT+0500 (Pakistan Standard Time) | SPK-03 | 26,000 | SPI-SPK-003 | true | no | set
+  PE-2026-00151 | Fri Oct 02 2026 00:00:00 GMT+0500 (Pakistan Standard Time) | SPK-01 | 28,000 | SPI-SPK-003 | true | no | set
+  PE-2026-00155 | Fri Oct 02 2026 00:00:00 GMT+0500 (Pakistan Standard Time) | SPK-05 | 17,000 | SPI-SPK-003 | true | no | set
+  PE-2026-00171 | Sat Oct 03 2026 00:00:00 GMT+0500 (Pakistan Standard Time) | SPK-03 | 27,000 | SPI-SPK-003 | true | no | set
+  PE-2026-00169 | Sat Oct 03 2026 00:00:00 GMT+0500 (Pakistan Standard Time) | SPK-01 | 28,000 | SPI-SPK-003 | true | no | set
+  PE-2026-00176 | Sat Oct 03 2026 00:00:00 GMT+0500 (Pakistan Standard Time) | SPK-03 | 14,500 | SPI-SPK-003 | false | YES | NULL
+  PE-2026-00175 | Sat Oct 03 2026 00:00:00 GMT+0500 (Pakistan Standard Time) | SPK-01 | 5,000 | SPI-SPK-003 | false | YES | NULL
+  PE-2026-00217 | Mon Oct 05 2026 00:00:00 GMT+0500 (Pakistan Standard Time) | SPK-03 | 31,350 | SPI-SPK-003 | true | no | set
+  PE-2026-00461 | Mon Oct 05 2026 00:00:00 GMT+0500 (Pakistan Standard Time) | SPK-06 | 32,000 | SPI-SPK-003 | true | no | set
+  PE-2026-00228 | Mon Oct 05 2026 00:00:00 GMT+0500 (Pakistan Standard Time) | SPK-06 | 33,000 | SPI-SPK-003 | true | no | set
+  PE-2026-00227 | Mon Oct 05 2026 00:00:00 GMT+0500 (Pakistan Standard Time) | SPK-01 | 64,000 | SPI-SPK-003 | true | no | set
+  PE-2026-00218 | Mon Oct 05 2026 00:00:00 GMT+0500 (Pakistan Standard Time) | SPK-04 | 27,000 | SPI-SPK-003 | true | no | set
+  PE-2026-00220 | Mon Oct 05 2026 00:00:00 GMT+0500 (Pakistan Standard Time) | SPK-06 | 32,000 | SPI-SPK-003 | false | YES | NULL
+  PE-2026-00215 | Mon Oct 05 2026 00:00:00 GMT+0500 (Pakistan Standard Time) | SPK-01 | 64,000 | SPI-SPK-003 | true | no | set
+  PE-2026-00221 | Tue Oct 06 2026 00:00:00 GMT+0500 (Pakistan Standard Time) | SPK-01 | 40,010 | SPI-SPK-003 | true | no | set
+  PE-2026-00226 | Tue Oct 06 2026 00:00:00 GMT+0500 (Pakistan Standard Time) | SPK-06 | 5,468 | SPI-SPK-003 | true | no | set
+  PE-2026-00223 | Tue Oct 06 2026 00:00:00 GMT+0500 (Pakistan Standard Time) | SPK-03 | 44,681 | SPI-SPK-003 | true | no | set
+  PE-2026-00224 | Tue Oct 06 2026 00:00:00 GMT+0500 (Pakistan Standard Time) | SPK-04 | 32,502 | SPI-SPK-003 | true | no | set
+  PE-2026-00232 | Tue Oct 06 2026 00:00:00 GMT+0500 (Pakistan Standard Time) | SPK-01 | 40,000 | SPI-SPK-003 | true | no | set
+  PE-2026-00240 | Wed Oct 07 2026 00:00:00 GMT+0500 (Pakistan Standard Time) | SPK-02 | 2,890 | SPI-SPK-003 | true | no | set
+  PE-2026-00237 | Wed Oct 07 2026 00:00:00 GMT+0500 (Pakistan Standard Time) | SPK-05 | 20,500 | SPI-SPK-003 | true | no | set
+  PE-2026-00231 | Wed Oct 07 2026 00:00:00 GMT+0500 (Pakistan Standard Time) | SPK-01 | 42,000 | SPI-SPK-003 | true | no | set
+  PE-2026-00235 | Wed Oct 07 2026 00:00:00 GMT+0500 (Pakistan Standard Time) | SPK-03 | 32,000 | SPI-SPK-003 | true | no | set
+  PE-2026-00236 | Wed Oct 07 2026 00:00:00 GMT+0500 (Pakistan Standard Time) | SPK-04 | 37,000 | SPI-SPK-003 | true | no | set
+  PE-2026-00241 | Wed Oct 07 2026 00:00:00 GMT+0500 (Pakistan Standard Time) | SPK-05 | 25,046 | SPI-SPK-003 | true | no | set
+  PE-2026-00239 | Wed Oct 07 2026 00:00:00 GMT+0500 (Pakistan Standard Time) | SPK-01 | 40,000 | SPI-SPK-003 | true | no | set
+  PE-2026-00238 | Wed Oct 07 2026 00:00:00 GMT+0500 (Pakistan Standard Time) | SPK-06 | 17,200 | SPI-SPK-003 | true | no | set
+  PE-2026-00293 | Thu Oct 08 2026 00:00:00 GMT+0500 (Pakistan Standard Time) | SPK-03 | 45,078 | SPI-SPK-003 | true | no | set
+  PE-2026-00229 | Thu Oct 08 2026 00:00:00 GMT+0500 (Pakistan Standard Time) | SPK-01 | 40,000 | SPI-SPK-003 | false | no | set
+  PE-2026-00311 | Thu Oct 08 2026 00:00:00 GMT+0500 (Pakistan Standard Time) | SPK-05 | 38,646 | SPI-SPK-003 | true | no | set
+  PE-2026-00363 | Thu Oct 08 2026 00:00:00 GMT+0500 (Pakistan Standard Time) | SPK-01 | 18,000 | SPI-SPK-003 | true | no | set
+  PE-2026-00270 | Thu Oct 08 2026 00:00:00 GMT+0500 (Pakistan Standard Time) | SPK-01 | 21,000 | SPI-SPK-003 | true | no | set
+  PE-2026-00309 | Thu Oct 08 2026 00:00:00 GMT+0500 (Pakistan Standard Time) | SPK-02 | 40,000 | SPI-SPK-003 | true | no | set
+  PE-2026-00301 | Thu Oct 08 2026 00:00:00 GMT+0500 (Pakistan Standard Time) | SPK-06 | 42,700 | SPI-SPK-003 | true | no | set
+  PE-2026-00296 | Thu Oct 08 2026 00:00:00 GMT+0500 (Pakistan Standard Time) | SPK-04 | 42,000 | SPI-SPK-003 | true | no | set
+  PE-2026-00290 | Thu Oct 08 2026 00:00:00 GMT+0500 (Pakistan Standard Time) | SPK-02 | 32,000 | SPI-SPK-003 | true | no | set
+  PE-2026-00298 | Thu Oct 08 2026 00:00:00 GMT+0500 (Pakistan Standard Time) | SPK-05 | 39,005 | SPI-SPK-003 | true | no | set
+  PE-2026-00308 | Thu Oct 08 2026 00:00:00 GMT+0500 (Pakistan Standard Time) | SPK-01 | 18,000 | SPI-SPK-003 | false | no | NULL
+  PE-2026-00410 | Fri Oct 09 2026 00:00:00 GMT+0500 (Pakistan Standard Time) | SPK-05 | 40,000 | SPI-SPK-003 | true | no | set
+  PE-2026-00409 | Fri Oct 09 2026 00:00:00 GMT+0500 (Pakistan Standard Time) | SPK-03 | 40,000 | SPI-SPK-003 | true | no | set
+  PE-2026-00406 | Fri Oct 09 2026 00:00:00 GMT+0500 (Pakistan Standard Time) | SPK-04 | 27,864 | SPI-SPK-003 | true | no | set
+  PE-2026-00393 | Fri Oct 09 2026 00:00:00 GMT+0500 (Pakistan Standard Time) | SPK-01 | 25,000 | SPI-SPK-003 | true | no | set
+  PE-2026-00411 | Fri Oct 09 2026 00:00:00 GMT+0500 (Pakistan Standard Time) | SPK-06 | 40,000 | SPI-SPK-003 | true | no | set
+  PE-2026-00405 | Fri Oct 09 2026 00:00:00 GMT+0500 (Pakistan Standard Time) | SPK-03 | 28,000 | SPI-SPK-003 | true | no | set
+  PE-2026-00403 | Fri Oct 09 2026 00:00:00 GMT+0500 (Pakistan Standard Time) | SPK-02 | 23,500 | SPI-SPK-003 | true | no | set
+  PE-2026-00407 | Fri Oct 09 2026 00:00:00 GMT+0500 (Pakistan Standard Time) | SPK-05 | 33,500 | SPI-SPK-003 | true | no | set
+
+
+5. PER-ITEM SUM CHECK
+   ghost = balance under CCD-SP-002;  receipts = PRODUCTION_RECEIPT IN
+   rows in SPI-SPK-003 written within 2s of that balance row being
+   created or updated.
+  item | ghost | coincident_receipts | unexplained
+  WIP-SP-002 | 77,651 | 77,651 | 0
+  WIP-SP-005 | 42,700 | 42,700 | 0
+  WIP-SP-010 | 72,000 | 72,000 | 0
+  WIP-SP-013 | 114,942 | 45,078 | 69,864
+  WIP-SP-014 | 3,000 | 21,000 | -18,000
+
+   TOTAL ghost 310,293   explained by coincident receipts 258,429   unexplained 51,864
+
+[DONE ΓÇö read-only, nothing was written]

@@ -60,6 +60,7 @@ const ProductionSaveSuccessModal: React.FC<{
   return (
     <Modal
       open={open}
+      zIndex={100000}
       onCancel={saving ? undefined : onClose}
       centered
       closable={!saving}

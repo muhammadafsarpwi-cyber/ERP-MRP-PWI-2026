@@ -7,6 +7,7 @@ import { StockLedger, InventoryBalance } from '../../inventory/entities';
 import { StockLedgerService } from '../../inventory/services/stock-ledger.service';
 import { InventoryBalanceService } from '../../inventory/services/inventory-balance.service';
 import { applyDivisionScopeFilter } from '../../../common/division-scope.util';
+import { REVERSAL_ORIGIN_PATTERN } from '../../../common/stock-movement.classifier';
 import { PostProductionOpenStockDto, PostProductionStockAdjustmentDto } from '../dto/production-open-stock.dto';
 
 const PRODUCTION_ITEM_TYPES = [
@@ -17,6 +18,9 @@ const PRODUCTION_ITEM_TYPES = [
   'FINISHED_GOODS',
   ItemType.CONSUMABLE,
 ];
+
+/** Stable key for a (warehouse, item) pair — used by the reconciliation report. */
+const pairKey = (warehouseId: string, itemId: string): string => `${warehouseId}|${itemId}`;
 
 @Injectable()
 export class ProductionOpenStockService {
@@ -623,6 +627,14 @@ export class ProductionOpenStockService {
 
   /**
    * Reverse/Delete a posted opening stock or adjustment transaction by its ledger ID
+   *
+   * APPEND-ONLY. This used to `manager.remove(StockLedger, entry)` — deleting
+   * the journal row outright and clamping the balance at zero with
+   * `Math.max(0, …)`. Both were silent data loss: the journal lost the
+   * movement it was supposed to be the permanent record of, and the clamp
+   * discarded a genuine negative so the ledger and `inventory_balances` could
+   * drift apart with nothing to show for it. A reversal row is written instead,
+   * and the balance is allowed to go where the arithmetic actually puts it.
    */
   async reverseTransaction(companyId: string, id: string, userId?: string) {
     const entry = await this.ledgerRepo.findOne({
@@ -634,6 +646,38 @@ export class ProductionOpenStockService {
     }
 
     return await this.dataSource.transaction(async (manager) => {
+      // The family this row belongs to decides how the reversal is worded:
+      // a reversal row must name the family it undoes, or it is unreadable to
+      // every consumer that parses `Reversal of <FAMILY>`.
+      const family = entry.transactionType === 'PRODUCTION_REVERSAL'
+        ? (REVERSAL_ORIGIN_PATTERN.exec(String(entry.notes ?? ''))?.[1] ?? null)
+        : entry.transactionType;
+
+      const reversal = await this.stockLedgerService.create(
+        {
+          companyId,
+          transactionType: 'PRODUCTION_REVERSAL',
+          transactionDate: new Date(),
+          itemId: entry.itemId,
+          warehouseId: entry.warehouseId,
+          locationId: entry.locationId ?? undefined,
+          batchId: entry.batchId ?? undefined,
+          quantity: Number(entry.quantity),
+          uomId: entry.uomId,
+          // Opposite of the original: an IN comes back OUT, and vice versa.
+          direction: entry.direction === 'IN' ? 'OUT' : 'IN',
+          referenceType: entry.referenceType ?? undefined,
+          referenceId: entry.referenceId ?? undefined,
+          referenceNumber: entry.referenceNumber ?? undefined,
+          notes: family
+            ? `Reversal of ${family} for transaction ${entry.referenceNumber || entry.id}`
+            : `Reversal of transaction ${entry.referenceNumber || entry.id}`,
+          createdBy: userId ?? undefined,
+          divisionId: entry.divisionId,
+        },
+        manager,
+      );
+
       const balance = await manager.findOne(InventoryBalance, {
         where: {
           companyId,
@@ -643,20 +687,30 @@ export class ProductionOpenStockService {
       });
 
       if (balance) {
-        if (entry.direction === 'IN') {
-          balance.onHand = Math.max(0, Number(balance.onHand) - Number(entry.quantity));
-        } else if (entry.direction === 'OUT') {
-          balance.onHand = Number(balance.onHand) + Number(entry.quantity);
+        // NO `Math.max(0, …)`. If the balance cannot absorb the reversal that
+        // is a real, reportable condition — clamping it made the number look
+        // tidy while leaving the ledger permanently ahead of the books.
+        const delta = entry.direction === 'IN' ? -Number(entry.quantity) : Number(entry.quantity);
+        balance.onHand = Number(balance.onHand) + delta;
+        balance.available = Number(balance.available) + delta;
+        if (Number(balance.onHand) < 0) {
+          this.logger.warn(
+            `Reversing ledger row ${id} drove ${entry.itemId}@${entry.warehouseId} to ` +
+              `${balance.onHand} on-hand — the balance was already overstated.`,
+          );
         }
-        balance.available = balance.onHand;
         await manager.save(InventoryBalance, balance);
       }
-
-      await manager.remove(StockLedger, entry);
 
       return {
         success: true,
         message: `Transaction ${entry.referenceNumber || entry.id} reversed successfully.`,
+        // The original row is left in place (the journal is append-only); the
+        // id returned is the reversal row that neutralises it.
+        reversedLedgerId: reversal?.id,
+        // Surfaced so the UI can warn instead of leaving a negative to be
+        // discovered on a report later.
+        balanceAdjusted: !!balance,
       };
     });
   }
@@ -828,5 +882,299 @@ export class ProductionOpenStockService {
       .filter(Boolean);
 
     return rows;
+  }
+
+  // ─── Reconciliation ─────────────────────────────────────────────────────────
+
+  /**
+   * Report drift between `stock_ledger` and `inventory_balances`.
+   *
+   * WHY THIS EXISTS. `getDepartmentStockMatrix` above reads
+   * `inventory_balances` and presents it as "SYSTEM BOOK STOCK". That number
+   * is a SNAPSHOT, and a snapshot can only ever be as correct as the last
+   * write that touched it. Three separate code paths wrote the ledger without
+   * updating the balance (or updated the balance without leaving the ledger
+   * row), so for a while the snapshot quietly stopped meaning anything — and
+   * because it was never checked against its own source, nothing surfaced the
+   * drift until someone noticed the screen disagreed with the database.
+   *
+   * This is that check. For every (warehouse, item) pair it compares:
+   *
+   *   ledger net  = Σ over stock_ledger of the signed movement
+   *   balance     = inventory_balances.on_hand
+   *
+   * and reports the difference. It is the detector for the whole class of
+   * defect, not just the three instances known today.
+   *
+   * REPORT-ONLY BY DEFAULT, AND DELIBERATELY SO. Blindly reconciling in
+   * either direction is unsafe here, because the two sides are wrong by
+   * DIFFERENT amounts and in DIFFERENT directions: balances are overstated by
+   * stock that was never reversed off them, while the ledger is understated by
+   * rows that were hard-deleted. Picking either side as "the truth" and
+   * forcing the other to match would push several warehouses negative. The
+   * safe default is therefore to measure and report; writing is opt-in per
+   * call and requires an explicit flag in the request, so no scheduled job,
+   * no retry and no accidental double-submit can ever move a balance.
+   *
+   * `minAbsDrift` filters out float noise — a 0.0001 rounding artefact is not
+   * drift and reporting it buries the real findings.
+   */
+  async reconcileBalances(
+    companyId: string,
+    filter: {
+      divisionId?: string;
+      warehouseId?: string;
+      itemId?: string;
+      allowedDivisionIds?: string[];
+      minAbsDrift?: number;
+      /** MUST be the literal string 'APPLY'. Anything else is a report. */
+      apply?: string;
+    } = {},
+  ): Promise<{
+    applied: boolean;
+    scannedPairs: number;
+    driftPairs: number;
+    totalDrift: number;
+    negativeAfterApply: number;
+    rows: Array<Record<string, any>>;
+  }> {
+    const minAbsDrift = Number.isFinite(Number(filter.minAbsDrift)) ? Math.abs(Number(filter.minAbsDrift)) : 0.0001;
+    // The write path is armed by an explicit, unambiguous confirmation string
+    // rather than a boolean, because `?apply=true` is easy to send by accident
+    // and impossible to send by accident THIS way.
+    const applied = filter.apply === 'APPLY';
+
+    // Ledger net per (warehouse, item). `ledgerBalanceDelta` is the single
+    // rule set for "did this row move the balance, and which way?" — scrap is
+    // an audit row and contributes nothing, which is exactly what keeps this
+    // report honest against rows the balance never saw.
+    const params: any[] = [companyId];
+    let scopeSql = '';
+    if (filter.warehouseId) {
+      params.push(filter.warehouseId);
+      scopeSql += ` AND sl.warehouse_id = $${params.length}`;
+    }
+    if (filter.itemId) {
+      params.push(filter.itemId);
+      scopeSql += ` AND sl.item_id = $${params.length}`;
+    }
+    if (filter.divisionId && filter.divisionId !== 'ALL') {
+      params.push(filter.divisionId);
+      scopeSql += ` AND item.division_id = $${params.length}`;
+    }
+    if (filter.allowedDivisionIds !== undefined) {
+      // An EMPTY effective scope must match nothing, never everything.
+      params.push(filter.allowedDivisionIds);
+      scopeSql += filter.allowedDivisionIds.length
+        ? ` AND item.division_id = ANY($${params.length}::uuid[])`
+        : ' AND 1 = 0';
+    }
+
+    const ledgerRows: Array<Record<string, any>> = await this.dataSource.query(
+      `SELECT sl.warehouse_id, sl.item_id,
+              SUM(CASE
+                    WHEN sl.transaction_type = 'PRODUCTION_SCRAP' THEN 0
+                    WHEN sl.transaction_type = 'PRODUCTION_REVERSAL'
+                         AND COALESCE(sl.notes, '') ~ '^Reversal of PRODUCTION_SCRAP' THEN 0
+                    WHEN sl.direction = 'OUT' THEN -sl.quantity
+                    ELSE sl.quantity
+                  END) AS ledger_net,
+              COUNT(*)::int AS ledger_rows
+         FROM stock_ledger sl
+         JOIN items item ON item.id = sl.item_id
+        WHERE sl.company_id = $1${scopeSql}
+        GROUP BY sl.warehouse_id, sl.item_id`,
+      params,
+    );
+
+    const balanceParams: any[] = [companyId];
+    let balanceScope = '';
+    if (filter.warehouseId) {
+      balanceParams.push(filter.warehouseId);
+      balanceScope += ` AND ib.warehouse_id = $${balanceParams.length}`;
+    }
+    if (filter.itemId) {
+      balanceParams.push(filter.itemId);
+      balanceScope += ` AND ib.item_id = $${balanceParams.length}`;
+    }
+    if (filter.divisionId && filter.divisionId !== 'ALL') {
+      balanceParams.push(filter.divisionId);
+      balanceScope += ` AND item.division_id = $${balanceParams.length}`;
+    }
+    if (filter.allowedDivisionIds !== undefined) {
+      balanceParams.push(filter.allowedDivisionIds);
+      balanceScope += filter.allowedDivisionIds.length
+        ? ` AND item.division_id = ANY($${balanceParams.length}::uuid[])`
+        : ' AND 1 = 0';
+    }
+
+    const balanceRows: Array<Record<string, any>> = await this.dataSource.query(
+      `SELECT ib.warehouse_id, ib.item_id, ib.on_hand, ib.status, ib.uom_id,
+              (SELECT COUNT(*)::int FROM inventory_balances dup
+                WHERE dup.company_id = ib.company_id
+                  AND dup.item_id = ib.item_id
+                  AND dup.warehouse_id = ib.warehouse_id) AS balance_rows
+         FROM inventory_balances ib
+         JOIN items item ON item.id = ib.item_id
+        WHERE ib.company_id = $1${balanceScope}`,
+      balanceParams,
+    );
+
+    const byKey = new Map<string, Record<string, any>>();
+
+    for (const r of ledgerRows) {
+      byKey.set(pairKey(r.warehouse_id, r.item_id), {
+        warehouseId: r.warehouse_id,
+        itemId: r.item_id,
+        ledgerNet: Number(r.ledger_net) || 0,
+        ledgerRows: r.ledger_rows,
+        balanceOnHand: 0,
+        balanceRows: 0,
+        // The balance row's OWN uom, not the item's base UOM: the correction
+        // has to be written in the unit the row was already tracked in, or it
+        // forks the quantity rather than fixing it.
+        uomId: null as string | null,
+      });
+    }
+    for (const r of balanceRows) {
+      const k = pairKey(r.warehouse_id, r.item_id);
+      const existing = byKey.get(k);
+      const onHand = Number(r.on_hand) || 0;
+      if (existing) {
+        existing.balanceOnHand += onHand;
+        existing.balanceRows = r.balance_rows;
+        existing.uomId = existing.uomId ?? r.uom_id ?? null;
+      } else {
+        // A balance with NO ledger behind it is the tell-tale of the defect:
+        // stock on the books with no movement that can justify it.
+        byKey.set(k, {
+          warehouseId: r.warehouse_id,
+          itemId: r.item_id,
+          ledgerNet: 0,
+          ledgerRows: 0,
+          balanceOnHand: onHand,
+          balanceRows: r.balance_rows,
+          uomId: r.uom_id ?? null,
+        });
+      }
+    }
+
+    const detail = await this.loadReconcileDetail(
+      companyId,
+      [...byKey.values()].map((e) => ({ warehouseId: e.warehouseId, itemId: e.itemId })),
+    );
+
+    const rows: Array<Record<string, any>> = [];
+    let totalDrift = 0;
+    let driftPairs = 0;
+    let negativeAfterApply = 0;
+    let scannedPairs = 0;
+
+    for (const entry of byKey.values()) {
+      const drift = Number((entry.balanceOnHand - entry.ledgerNet).toFixed(4));
+      if (Math.abs(drift) < minAbsDrift) continue;
+
+      scannedPairs += 1;
+      driftPairs += 1;
+      totalDrift += drift;
+
+      const meta: { itemCode?: string | null; itemName?: string | null; warehouseCode?: string | null; warehouseName?: string | null; uomId?: string | null } =
+        detail.get(pairKey(entry.warehouseId, entry.itemId)) ?? {};
+      rows.push({
+        ...entry,
+        ...meta,
+        drift,
+        // Two distinct root causes, and they need different repairs:
+        //  - positive drift: the balance is ahead of the journal (unreversed
+        //    delete, or a balance write with no ledger row);
+        //  - negative drift: the journal is ahead of the balance (hard-deleted
+        //    ledger rows, or a clamp that discarded a negative).
+        direction: drift > 0 ? 'BALANCE_OVERSTATED' : 'LEDGER_OVERSTATED',
+      });
+
+      // Applying needs exactly one balance row (otherwise "the balance" is
+      // ambiguous and the fix would have to pick one) and a UOM to write in.
+      // Both are reported rather than assumed.
+      if (applied && entry.balanceRows === 1 && entry.uomId) {
+        const after = Number((entry.balanceOnHand - drift).toFixed(4));
+        if (after < 0) negativeAfterApply += 1;
+        await this.inventoryBalanceService.updateBalance(
+          companyId,
+          entry.itemId,
+          entry.warehouseId,
+          null,
+          null,
+          entry.uomId,
+          Math.abs(drift),
+          drift > 0 ? 'OUT' : 'IN',
+          undefined,
+          true,
+        );
+      }
+    }
+
+    rows.sort((a, b) => Math.abs(b.drift) - Math.abs(a.drift));
+
+    if (applied && driftPairs) {
+      this.logger.warn(
+        `Reconciliation APPLIED to ${driftPairs} pair(s) for company ${companyId} ` +
+          `(net ${totalDrift}). ${negativeAfterApply} went negative — investigate before ` +
+          'trusting any report built on these balances.',
+      );
+    }
+
+    return { applied, scannedPairs, driftPairs, totalDrift, negativeAfterApply, rows };
+  }
+
+  /**
+   * Human-readable context for a set of (warehouse, item) pairs, so a drift
+   * row names the item and warehouse rather than leaving two UUIDs to be
+   * looked up by hand — which is how a drift report ends up never being read.
+   *
+   * Also surfaces duplicate balance rows, which are their own defect: the
+   * report sums them, so a pair showing `balanceRows > 1` will drift for a
+   * reason that has nothing to do with the ledger.
+   */
+  private async loadReconcileDetail(
+    companyId: string,
+    pairs: Array<{ warehouseId: string; itemId: string }>,
+  ): Promise<Map<string, { itemCode: string; itemName: string; warehouseCode: string; warehouseName: string; uomId: string }>> {
+    const out = new Map<
+      string,
+      { itemCode: string; itemName: string; warehouseCode: string; warehouseName: string; uomId: string }
+    >();
+    if (!pairs.length) return out;
+
+    const itemIds = [...new Set(pairs.map((p) => p.itemId))];
+    const warehouseIds = [...new Set(pairs.map((p) => p.warehouseId))];
+
+    const items = await this.itemRepo
+      .createQueryBuilder('i')
+      .select(['i.id AS id', 'i.item_code AS "itemCode"', 'i.name AS "itemName"', 'i.base_uom_id AS "uomId"'])
+      .where('i.company_id = :companyId', { companyId })
+      .andWhere('i.id = ANY(:ids)', { ids: itemIds })
+      .getRawMany();
+    const warehouses = await this.warehouseRepo
+      .createQueryBuilder('w')
+      .select(['w.id AS id', 'w.warehouse_code AS "warehouseCode"', 'w.name AS "warehouseName"'])
+      .where('w.company_id = :companyId', { companyId })
+      .andWhere('w.id = ANY(:ids)', { ids: warehouseIds })
+      .getRawMany();
+
+    const itemById = new Map(items.map((i: any) => [i.id, i]));
+    const whById = new Map(warehouses.map((w: any) => [w.id, w]));
+
+    for (const p of pairs) {
+      const i = itemById.get(p.itemId) ?? {};
+      const w = whById.get(p.warehouseId) ?? {};
+      out.set(pairKey(p.warehouseId, p.itemId), {
+        itemCode: i.itemCode ?? null,
+        itemName: i.itemName ?? null,
+        warehouseCode: w.warehouseCode ?? null,
+        warehouseName: w.warehouseName ?? null,
+        uomId: i.uomId ?? null,
+      });
+    }
+    return out;
   }
 }

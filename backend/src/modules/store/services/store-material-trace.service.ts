@@ -1,10 +1,12 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { DataSource } from 'typeorm';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { DataSource, EntityManager } from 'typeorm';
 import {
   DivisionAccess,
   isUnrestricted,
   toDivisionList,
 } from '../../../common/division-scope.util';
+import { InventoryBalanceService } from '../../inventory/services/inventory-balance.service';
+import { ledgerBalanceDelta } from '../../../common/stock-movement.classifier';
 
 export interface MaterialLifecycleFilters {
   storeId?: string;
@@ -29,7 +31,12 @@ const normalize = (v: unknown): number => {
 
 @Injectable()
 export class StoreMaterialTraceService {
-  constructor(private readonly dataSource: DataSource) {}
+  private readonly logger = new Logger(StoreMaterialTraceService.name);
+
+  constructor(
+    private readonly dataSource: DataSource,
+    private readonly inventoryBalanceService: InventoryBalanceService,
+  ) {}
 
   async getItemLifecycle(
     companyId: string,
@@ -1061,61 +1068,184 @@ SUP.name AS supplier_name, w.name AS warehouse_name,
    * all, so they mutated rows in every tenant. Both now bind `company_id`, and
    * both bind the caller's effective division scope.
    */
+
+  /**
+   * DELETION SYNC.
+   *
+   * Deleting a `stock_ledger` row used to be a bare `DELETE`: the journal row
+   * vanished but `inventory_balances` kept the quantity it had put on the
+   * books, forever. That is exactly what filled the Production Item Open Stock
+   * matrix with "SYSTEM BOOK STOCK" that no document could explain — the
+   * numbers came from a decoupled snapshot table with no reversal path.
+   *
+   * Every row handed to this method is unwound from the balance, net per
+   * (item, warehouse, location, batch, uom) — the same key `updateBalance`
+   * writes against. Runs inside the caller's transaction, so the journal and
+   * the balance can never disagree mid-operation.
+   *
+   * `allowNegative` is deliberately TRUE: this is a correction, not a stock
+   * issue. If the balance cannot absorb the reversal the honest answer is a
+   * negative number plus a warning, not a thrown 500 that leaves the ledger
+   * half-deleted. Anything driven below zero is returned so the caller can
+   * surface it instead of rediscovering it on a report weeks later.
+   */
+  private async revertLedgerRowsFromBalance(
+    manager: EntityManager,
+    companyId: string,
+    rows: Array<Record<string, any>>,
+  ): Promise<Array<{ itemId: string; warehouseId: string; balanceAfter: number }>> {
+    const groups = new Map<
+      string,
+      { itemId: string; warehouseId: string; locationId: string | null; batchId: string | null; uomId: string; delta: number }
+    >();
+
+    for (const row of rows) {
+      const delta = ledgerBalanceDelta(row);
+      if (!delta || !row.item_id || !row.warehouse_id || !row.uom_id) continue;
+
+      const key = `${row.item_id}|${row.warehouse_id}|${row.location_id ?? ''}|${row.batch_id ?? ''}|${row.uom_id}`;
+      const group = groups.get(key) ?? {
+        itemId: row.item_id,
+        warehouseId: row.warehouse_id,
+        locationId: row.location_id ?? null,
+        batchId: row.batch_id ?? null,
+        uomId: row.uom_id,
+        delta: 0,
+      };
+      group.delta += delta;
+      groups.set(key, group);
+    }
+
+    const negatives: Array<{ itemId: string; warehouseId: string; balanceAfter: number }> = [];
+
+    for (const g of groups.values()) {
+      // Netting to zero means the rows already cancel out — nothing to undo.
+      if (Math.abs(g.delta) < 1e-9) continue;
+
+      // The rows are being REMOVED, so the balance moves opposite to their
+      // net impact: a net IN of 100 comes back OUT.
+      const direction: 'IN' | 'OUT' = g.delta > 0 ? 'OUT' : 'IN';
+      const updated = await this.inventoryBalanceService.updateBalance(
+        companyId,
+        g.itemId,
+        g.warehouseId,
+        g.locationId,
+        g.batchId,
+        g.uomId,
+        Math.abs(g.delta),
+        direction,
+        manager,
+        true, // allowNegative — see the docblock above
+      );
+
+      if (Number(updated.onHand) < 0) {
+        negatives.push({ itemId: g.itemId, warehouseId: g.warehouseId, balanceAfter: Number(updated.onHand) });
+        this.logger.warn(
+          `Ledger delete drove ${g.itemId}@${g.warehouseId} to ${updated.onHand} on-hand — the balance was already overstated.`,
+        );
+      }
+    }
+
+    return negatives;
+  }
+
+  /**
+   * Delete ONE ledger row. Reads it first (so the balance can be unwound in
+   * the SAME transaction) and clears the `production_entries` back-reference
+   * before the row goes, because `production_entries.inventory_reference_id`
+   * has a real FK onto `stock_ledger.id`.
+   *
+   * The UPDATE on `production_entries` is intentionally NOT division-scoped:
+   * the ledger row has already been authorised by the scoped SELECT, and the
+   * entry's own `division_id` can legitimately differ from the ledger row's
+   * (a legacy row predating the column), which would leave a dangling FK and
+   * fail the delete.
+   */
   async deleteLedgerRow(companyId: string, ledgerId: string, allowedDivisionIds?: DivisionAccess) {
     const scopeParams: any[] = [];
-    const scope = this.scopedDivision(allowedDivisionIds, scopeParams);
-    const scopeSql = scope ? ` AND ${scope}` : '';
+    // scopedDivision() ALREADY returns a clause beginning with `AND `
+    const scopeSql = this.scopedDivision(allowedDivisionIds, scopeParams);
     // [companyId, ledgerId] … then the scope array, so the placeholders line up.
     const params: any[] = [companyId, ledgerId, ...scopeParams];
 
-    await this.dataSource.query(
-      `UPDATE production_entries SET inventory_reference_id = NULL
-        WHERE inventory_reference_id = $2 AND company_id = $1${scopeSql}`,
-      params,
-    );
-    const res = await this.dataSource.query(
-      `DELETE FROM stock_ledger
-        WHERE id = $2 AND company_id = $1${scopeSql}
-        RETURNING id`,
-      params,
-    );
-    if (res.length === 0) {
-      // Either the row does not exist, is in another company, or belongs to a
-      // division the caller may not touch. All three must look identical.
-      throw new NotFoundException(`Stock ledger row '${ledgerId}' not found`);
-    }
-    return { success: true, deletedId: res[0]?.id || ledgerId };
+    return this.dataSource.transaction(async (manager) => {
+      const rows = await manager.query(
+        `SELECT * FROM stock_ledger
+          WHERE id = $2 AND company_id = $1${scopeSql}
+            FOR UPDATE`,
+        params,
+      );
+      if (rows.length === 0) {
+        // Either the row does not exist, is in another company, or belongs to a
+        // division the caller may not touch. All three must look identical.
+        throw new NotFoundException(`Stock ledger row '${ledgerId}' not found`);
+      }
+
+      const negativeBalances = await this.revertLedgerRowsFromBalance(manager, companyId, rows);
+
+      await manager.query(
+        `UPDATE production_entries SET inventory_reference_id = NULL
+          WHERE inventory_reference_id = $2 AND company_id = $1`,
+        [companyId, ledgerId],
+      );
+      const res = await manager.query(
+        `DELETE FROM stock_ledger
+          WHERE id = $2 AND company_id = $1${scopeSql}
+          RETURNING id`,
+        params,
+      );
+      return {
+        success: true,
+        deletedId: res[0]?.id || ledgerId,
+        balancesReverted: negativeBalances.length === 0,
+        negativeBalances,
+      };
+    });
   }
 
+  /**
+   * Delete the "dummy" (FT-04 / demo / test) ledger rows of one item.
+   * Same contract as `deleteLedgerRow`: the rows are unwound from
+   * `inventory_balances` before they are removed, in one transaction.
+   */
   async deleteDummyLedgerRows(companyId: string, itemId: string, allowedDivisionIds?: DivisionAccess) {
     const scopeParams: any[] = [];
-    const scope = this.scopedDivision(allowedDivisionIds, scopeParams);
-    const scopeSql = scope ? ` AND ${scope}` : '';
+    // scopedDivision() ALREADY returns a clause beginning with `AND `
+    const scopeSql = this.scopedDivision(allowedDivisionIds, scopeParams);
     // [companyId, itemId] … then the scope array.
     const base: any[] = [companyId, itemId, ...scopeParams];
 
-    const dummyRows = await this.dataSource.query(
-      `SELECT id FROM stock_ledger
-       WHERE item_id = $2 AND company_id = $1${scopeSql}
-       AND (notes ILIKE '%FT-04%' OR notes ILIKE '%demo%' OR notes ILIKE '%test%' OR notes ILIKE '%dummy%')`,
-      base,
-    );
-    const ids = dummyRows.map((r: any) => r.id);
-    if (ids.length > 0) {
+    return this.dataSource.transaction(async (manager) => {
+      const dummyRows = await manager.query(
+        `SELECT * FROM stock_ledger
+         WHERE item_id = $2 AND company_id = $1${scopeSql}
+         AND (notes ILIKE '%FT-04%' OR notes ILIKE '%demo%' OR notes ILIKE '%test%' OR notes ILIKE '%dummy%')
+           FOR UPDATE`,
+        base,
+      );
+      if (dummyRows.length === 0) return { success: true, deletedCount: 0, deletedIds: [], negativeBalances: [] };
+
+      const ids = dummyRows.map((r: any) => r.id);
+      const negativeBalances = await this.revertLedgerRowsFromBalance(manager, companyId, dummyRows);
+
       const writeParams: any[] = [companyId, ids];
-      await this.dataSource.query(
+      await manager.query(
         `UPDATE production_entries SET inventory_reference_id = NULL
           WHERE inventory_reference_id = ANY($2::uuid[]) AND company_id = $1`,
         writeParams,
       );
-      const res = await this.dataSource.query(
+      const res = await manager.query(
         `DELETE FROM stock_ledger
           WHERE id = ANY($2::uuid[]) AND company_id = $1
           RETURNING id`,
         writeParams,
       );
-      return { success: true, deletedCount: res.length, deletedIds: res.map((r: any) => r.id) };
-    }
-    return { success: true, deletedCount: 0, deletedIds: [] };
+      return {
+        success: true,
+        deletedCount: res.length,
+        deletedIds: res.map((r: any) => r.id),
+        negativeBalances,
+      };
+    });
   }
 }

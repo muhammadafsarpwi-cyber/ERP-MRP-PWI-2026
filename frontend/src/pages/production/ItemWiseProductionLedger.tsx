@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Alert, Button, Card, Checkbox, Col, DatePicker, Empty, Row, Select, Space, Spin, Table, Tag, Tooltip,
+  Alert, Button, Card, Checkbox, Col, DatePicker, Empty, Row, Segmented, Select, Space, Spin, Table, Tag, Tooltip,
   Typography, message,
 } from 'antd';
 import {
@@ -651,6 +651,9 @@ export const bucketDailyProduction = (
 
   const dayOf = (rawDate: unknown): string => {
     if (!rawDate) return '';
+    if (typeof rawDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(rawDate.trim())) {
+      return rawDate.trim();
+    }
     const dt = new Date(rawDate as any);
     if (!isNaN(dt.getTime())) {
       const pkt = new Date(dt.getTime() + 5 * 3600 * 1000);
@@ -1373,7 +1376,8 @@ const ItemWiseProductionLedger: React.FC = () => {
   // Tab id of this route — the key the shared global header is registered
   // under (MainLayout opens a workspace tab keyed by `location.pathname`).
   const { pathname: routePath } = useLocation();
-  const [range, setRange] = useState<[Dayjs, Dayjs]>([dayjs().startOf('month'), dayjs()]);
+  const [viewMode, setViewMode] = useState<'daily' | 'range'>('daily');
+  const [range, setRange] = useState<[Dayjs, Dayjs]>([dayjs(), dayjs()]);
   const [loading, setLoading] = useState(true);
   const [loadStatus, setLoadStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('loading');
   const [error, setError] = useState<string | null>(null);
@@ -1447,7 +1451,7 @@ const ItemWiseProductionLedger: React.FC = () => {
    * seamlessly becomes today's opening balance.
    */
   const monthFrom = useMemo(() => {
-    const isSingleDay = range[0].isSame(range[1], 'day');
+    const isSingleDay = viewMode === 'daily' || range[0].isSame(range[1], 'day');
     if (!isSingleDay) {
       return range[0].isAfter(range[1])
         ? range[1].startOf('month').format('YYYY-MM-DD')
@@ -1460,7 +1464,7 @@ const ItemWiseProductionLedger: React.FC = () => {
       return monthStart;
     }
     return endStr;
-  }, [range]);
+  }, [range, viewMode]);
 
   const chainDef = useMemo(
     () => filteredChains.find((c) => c.key === chainKey) ?? filteredChains[0] ?? null,
@@ -1473,19 +1477,19 @@ const ItemWiseProductionLedger: React.FC = () => {
     return found?.name || 'Selected Division';
   }, [selectedDivisionId, divisionsList]);
 
-  /** ±1 day: If viewing a single date, shifts both; if viewing a range, shifts the End Date. */
+  /** ±1 day: Shifts the active production date by delta days. */
   const shiftEndDay = useCallback((delta: number) => {
     setRows([]);
     setLoading(true);
     setLoadStatus('loading');
     setRange(([start, end]) => {
-      if (start.isSame(end, 'day')) {
-        const next = start.add(delta, 'day');
+      if (viewMode === 'daily' || start.isSame(end, 'day')) {
+        const next = end.add(delta, 'day');
         return [next, next];
       }
       return [start, end.add(delta, 'day')];
     });
-  }, []);
+  }, [viewMode]);
 
   const allChainsRef = useRef(allChains);
   allChainsRef.current = allChains;
@@ -1733,13 +1737,10 @@ const ItemWiseProductionLedger: React.FC = () => {
       // Buffer dateFrom by 1 day earlier to avoid UTC/PKT timezone offset dropping 19:00 UTC entries!
       const queryDateFrom = dayjs(monthFrom).subtract(1, 'day').format('YYYY-MM-DD');
       const queryDateTo = dayjs(endDate).add(1, 'day').format('YYYY-MM-DD');
-      const entriesReq =
-        monthFrom === endDate
-          ? Promise.resolve(null)
-          : apiService.get<{ data?: any[] }>(
-              '/production/entries',
-              { dateFrom: queryDateFrom, dateTo: queryDateTo, limit: 1000 },
-            );
+      const entriesReq = apiService.get<{ data?: any[] }>(
+        '/production/entries',
+        { dateFrom: queryDateFrom, dateTo: queryDateTo, limit: 1000 },
+      );
 
       const [dayRes, monthRes, baseRes, entriesRes] = await Promise.all([
         dayReq,
@@ -1761,14 +1762,14 @@ const ItemWiseProductionLedger: React.FC = () => {
       const weights = { ...STANDARD_ITEM_WEIGHTS, ...weightMapRef.current };
       const currentChains = allChainsRef.current.length > 0 ? allChainsRef.current : CHAIN_REGISTRY;
       const currentNames = itemNamesRef.current;
-      const isRange = range[0].format('YYYY-MM-DD') !== range[1].format('YYYY-MM-DD');
+      const isRange = viewMode === 'range' && range[0].format('YYYY-MM-DD') !== range[1].format('YYYY-MM-DD');
+
+      // Group entries by PKT YYYY-MM-DD -> itemCode -> pieces, split across
+      // each document's OUTPUT children so multi-item logs stay item-isolated.
+      const dailyProdMap = bucketDailyProduction(entriesList);
 
       // Multi-day rolling window: carry forward previous day's closing into next day's opening
       if (monthFrom !== endDate && baseItems.length > 0) {
-        // Group entries by PKT YYYY-MM-DD -> itemCode -> pieces, split across
-        // each document's OUTPUT children so multi-item logs stay item-isolated.
-        const dailyProdMap = bucketDailyProduction(entriesList);
-
         // Compute all days in sequence from monthFrom to endDate
         const days: string[] = [];
         let cur = dayjs(monthFrom);
@@ -1780,6 +1781,11 @@ const ItemWiseProductionLedger: React.FC = () => {
 
         let currentItemMap = new Map<string, ReportRow>();
         baseItems.forEach((r) => currentItemMap.set(r.itemCode, { ...r }));
+        dayItems.forEach((r) => {
+          if (!currentItemMap.has(r.itemCode)) {
+            currentItemMap.set(r.itemCode, { ...r, openingBalance: 0, totalIn: 0, totalOut: 0, produced: 0 });
+          }
+        });
 
         // Iterate through all days before endDate, rolling closing -> next day opening
         for (let i = 0; i < days.length - 1; i++) {
@@ -1792,7 +1798,10 @@ const ItemWiseProductionLedger: React.FC = () => {
             totalIn:
               r.itemType === 'RAW_MATERIAL' || r.itemCode.startsWith('RM-')
                 ? prodForDay.get(r.itemCode) ?? 0
-                : r.totalIn,
+                : 0,
+            totalOut: 0,
+            consumed: 0,
+            scrapOut: 0,
           }));
 
           const nextClosing = new Map<string, number>();
@@ -1818,6 +1827,17 @@ const ItemWiseProductionLedger: React.FC = () => {
           if (carried !== undefined) {
             targetRow.openingBalance = carried.openingBalance;
           }
+        });
+      }
+
+      // In daily ledger mode (single selected day):
+      // Production must strictly be ONLY the entries recorded on that exact date!
+      // If no entry was posted on endDate, production is strictly 0!
+      if (!isRange) {
+        const prodForEndDay = dailyProdMap.get(endDate) ?? new Map<string, number>();
+        dayItems.forEach((targetRow) => {
+          const dayProd = prodForEndDay.get(targetRow.itemCode);
+          targetRow.produced = dayProd ?? 0;
         });
       }
 
@@ -4056,20 +4076,55 @@ const ItemWiseProductionLedger: React.FC = () => {
             <Checkbox checked={showAll} onChange={(e) => setShowAll(e.target.checked)}>
               Show All Item Chains on One Page
             </Checkbox>
-            <RangePicker
-              value={range}
-              allowClear={false}
-              format="YYYY-MM-DD"
-              disabled={loading}
-              onChange={(v) => {
-                if (v && v[0] && v[1]) {
-                  setRows([]);
-                  setLoading(true);
-                  setLoadStatus('loading');
-                  setRange([v[0], v[1]]);
+            <Segmented
+              value={viewMode}
+              onChange={(val) => {
+                const nextMode = val as 'daily' | 'range';
+                setViewMode(nextMode);
+                setRows([]);
+                setLoading(true);
+                setLoadStatus('loading');
+                if (nextMode === 'daily') {
+                  setRange([range[1], range[1]]);
                 }
               }}
+              options={[
+                { label: '📅 Daily Ledger', value: 'daily' },
+                { label: '📊 Date Range', value: 'range' },
+              ]}
             />
+            {viewMode === 'daily' ? (
+              <DatePicker
+                value={range[1]}
+                allowClear={false}
+                format="YYYY-MM-DD"
+                disabled={loading}
+                style={{ width: 140 }}
+                onChange={(d) => {
+                  if (d) {
+                    setRows([]);
+                    setLoading(true);
+                    setLoadStatus('loading');
+                    setRange([d, d]);
+                  }
+                }}
+              />
+            ) : (
+              <RangePicker
+                value={range}
+                allowClear={false}
+                format="YYYY-MM-DD"
+                disabled={loading}
+                onChange={(v) => {
+                  if (v && v[0] && v[1]) {
+                    setRows([]);
+                    setLoading(true);
+                    setLoadStatus('loading');
+                    setRange([v[0], v[1]]);
+                  }
+                }}
+              />
+            )}
             {showAll && excludedCount > 0 ? (
               <div className="iwl-filters-note">
                 <Text type="secondary" style={{ fontSize: 12 }}>
@@ -4128,10 +4183,10 @@ const ItemWiseProductionLedger: React.FC = () => {
           </Col>
           <Col xs={24} lg={6}>
             <Card size="small">
-              <Text type="secondary">As-On (End Date)</Text>
+              <Text type="secondary">{viewMode === 'daily' ? 'Production Date' : 'As-On (End Date)'}</Text>
               <div style={{ fontSize: 20, fontWeight: 600 }}>{endDate}</div>
               <Text type="secondary" style={{ fontSize: 12 }}>
-                baseline {monthFrom}
+                {viewMode === 'daily' ? `baseline ${monthFrom}` : `${range[0].format('YYYY-MM-DD')} → ${endDate}`}
               </Text>
             </Card>
           </Col>
