@@ -257,8 +257,8 @@ export const PackingDepartmentHub: React.FC = () => {
       key: 'entryNo',
       render: (no: string, r: any) => (
         <Space direction="vertical" size={1}>
-          <Text strong style={{ color: '#0f172a' }}>{no || `PKG-${r.id?.slice(0, 8)}`}</Text>
-          <Text type="secondary" style={{ fontSize: 11 }}>
+          <Text strong style={{ color: 'var(--theme-text)' }}>{no || `PKG-${r.id?.slice(0, 8)}`}</Text>
+          <Text type="secondary" style={{ fontSize: 11, color: 'var(--theme-text-muted)' }}>
             {r.entryDate ? dayjs(r.entryDate).format('YYYY-MM-DD') : 'Today'}
           </Text>
         </Space>
@@ -270,7 +270,7 @@ export const PackingDepartmentHub: React.FC = () => {
       render: (_: any, r: any) => (
         <div>
           <Tag color="blue">{r.shift?.name || 'General Shift'}</Tag>
-          <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>{r.machineNo || 'Hand Packing Chain'}</div>
+          <div style={{ fontSize: 11, color: 'var(--theme-text-muted)', marginTop: 2 }}>{r.machineNo || 'Hand Packing Chain'}</div>
         </div>
       ),
     },
@@ -279,8 +279,8 @@ export const PackingDepartmentHub: React.FC = () => {
       key: 'finishedGood',
       render: (_: any, r: any) => (
         <div>
-          <Text strong style={{ color: '#0284c7' }}>{r.item?.itemCode || 'SPI-FG-SPK-007'}</Text>
-          <div style={{ fontSize: 11, color: '#334155' }}>
+          <Text strong style={{ color: 'var(--theme-accent, #0284c7)' }}>{r.item?.itemCode || 'SPI-FG-SPK-007'}</Text>
+          <div style={{ fontSize: 11, color: 'var(--theme-text)', marginTop: 2 }}>
             {r.item?.name || '300X17 S9 Inn / Out Spoke Straight__125-S9 Nipple'}
           </div>
         </div>
@@ -295,10 +295,10 @@ export const PackingDepartmentHub: React.FC = () => {
         const cartons = Math.round(gross / 10);
         return (
           <div>
-            <Text strong style={{ color: '#059669', fontSize: 13 }}>
+            <Text strong style={{ color: 'var(--theme-success, #059669)', fontSize: 13 }}>
               {cartons} Cartons
             </Text>
-            <div style={{ fontSize: 11, color: '#64748b' }}>
+            <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #64748b)' }}>
               {gross} Gross ({formatNumber(pcs, 0)} PCS)
             </div>
           </div>
@@ -337,8 +337,8 @@ export const PackingDepartmentHub: React.FC = () => {
       key: 'operator',
       render: (_: any, r: any) => (
         <div>
-          <span style={{ fontWeight: 600, color: '#334155' }}>{r.operatorName || 'Muhammad Afsar'}</span>
-          <div style={{ fontSize: 11, color: '#64748b' }}>{r.shift?.name || 'General Shift'}</div>
+          <span style={{ fontWeight: 600, color: 'var(--theme-text)' }}>{r.operatorName || 'Muhammad Afsar'}</span>
+          <div style={{ fontSize: 11, color: 'var(--theme-text-muted)' }}>{r.shift?.name || 'General Shift'}</div>
         </div>
       ),
     },
@@ -581,7 +581,7 @@ export const PackingDepartmentHub: React.FC = () => {
   // ─────────────────────────────────────────────────────────────────────────────
   const columnSettingsContent = (
     <div style={{ width: 230, padding: '4px 0' }}>
-      <div style={{ fontWeight: 800, fontSize: 12.5, color: '#1e293b', marginBottom: 8, borderBottom: '1px solid #e2e8f0', paddingBottom: 4 }}>
+      <div style={{ fontWeight: 800, fontSize: 12.5, color: 'var(--theme-text, #1e293b)', marginBottom: 8, borderBottom: '1px solid var(--theme-border, #e2e8f0)', paddingBottom: 4 }}>
         Column Display Settings
       </div>
       <Space direction="vertical" size={8} style={{ width: '100%' }}>
@@ -590,14 +590,14 @@ export const PackingDepartmentHub: React.FC = () => {
           onChange={(e) => setShowWarehouseColumn(e.target.checked)}
         >
           <span style={{ fontSize: 12, fontWeight: 600 }}>Warehouse Location</span>
-          <div style={{ fontSize: 10, color: '#94a3b8', marginLeft: 22 }}>(Already in section title)</div>
+          <div style={{ fontSize: 10, color: 'var(--theme-text-muted, #94a3b8)', marginLeft: 22 }}>(Already in section title)</div>
         </Checkbox>
         <Checkbox
           checked={showWeightColumns}
           onChange={(e) => setShowWeightColumns(e.target.checked)}
         >
           <span style={{ fontSize: 12, fontWeight: 600 }}>Weight Columns (KG)</span>
-          <div style={{ fontSize: 10, color: '#94a3b8', marginLeft: 22 }}>Per-pc & total weight</div>
+          <div style={{ fontSize: 10, color: 'var(--theme-text-muted, #94a3b8)', marginLeft: 22 }}>Per-pc & total weight</div>
         </Checkbox>
         <Checkbox
           checked={showStatusColumn}
@@ -1470,7 +1470,7 @@ export const PackingDepartmentHub: React.FC = () => {
       key: 'idx',
       width: 44,
       align: 'center' as const,
-      render: (_: any, __: any, index: number) => <span style={{ fontWeight: 700, color: '#64748b' }}>{index + 1}</span>,
+      render: (_: any, __: any, index: number) => <span style={{ fontWeight: 700, color: 'var(--theme-text-muted)' }}>{index + 1}</span>,
     },
     {
       title: 'Item Code',
@@ -1479,8 +1479,8 @@ export const PackingDepartmentHub: React.FC = () => {
       width: 140,
       render: (code: string) => (
         <Space direction="vertical" size={2}>
-          <Text strong style={{ color: '#0f172a' }}>{code}</Text>
-          <Tag color="orange" style={{ fontWeight: 700, fontSize: 10.5, margin: 0 }}>PLATED SPOKE</Tag>
+          <Text strong style={{ color: 'var(--theme-text)' }}>{code}</Text>
+          <Tag color="orange" style={{ fontWeight: 700, fontSize: 10.5, margin: 0, borderRadius: 0 }}>PLATED SPOKE</Tag>
         </Space>
       ),
     },
@@ -1490,8 +1490,8 @@ export const PackingDepartmentHub: React.FC = () => {
       key: 'name',
       render: (name: string, r: any) => (
         <div>
-          <Text strong style={{ color: '#1e293b', fontSize: 13 }}>{name}</Text>
-          <div style={{ fontSize: 11, color: '#0284c7', fontWeight: 600 }}>{r.role}</div>
+          <Text strong style={{ color: 'var(--theme-text)', fontSize: 13 }}>{name}</Text>
+          <div style={{ fontSize: 11, color: 'var(--theme-accent, #0284c7)', fontWeight: 600 }}>{r.role}</div>
         </div>
       ),
     },
@@ -1499,7 +1499,7 @@ export const PackingDepartmentHub: React.FC = () => {
       title: 'Department Warehouse / Store',
       dataIndex: 'whName',
       key: 'whName',
-      render: (wh: string) => <Tag color="cyan" style={{ fontWeight: 600 }}>{wh}</Tag>,
+      render: (wh: string) => <Tag color="cyan" style={{ fontWeight: 600, borderRadius: 0 }}>{wh}</Tag>,
     }] : []),
     {
       title: 'Available Balance (Gross)',
@@ -1508,7 +1508,7 @@ export const PackingDepartmentHub: React.FC = () => {
       width: 155,
       align: 'right' as const,
       render: (grs: number) => (
-        <Text strong style={{ color: '#c2410c', fontSize: 13.5 }}>
+        <Text strong style={{ color: '#ea580c', fontSize: 13.5 }}>
           {formatNumber(grs, grs % 1 === 0 ? 0 : 1)} GRS
         </Text>
       ),
@@ -1520,7 +1520,7 @@ export const PackingDepartmentHub: React.FC = () => {
       width: 155,
       align: 'right' as const,
       render: (pcs: number) => (
-        <span style={{ fontWeight: 800, color: '#0f172a', fontSize: 13 }}>
+        <span style={{ fontWeight: 800, color: 'var(--theme-text)', fontSize: 13 }}>
           {formatNumber(pcs, 0)} PCS
         </span>
       ),
@@ -1583,7 +1583,7 @@ export const PackingDepartmentHub: React.FC = () => {
       key: 'idx',
       width: 44,
       align: 'center' as const,
-      render: (_: any, __: any, index: number) => <span style={{ fontWeight: 700, color: '#64748b' }}>{index + 1}</span>,
+      render: (_: any, __: any, index: number) => <span style={{ fontWeight: 700, color: 'var(--theme-text-muted)' }}>{index + 1}</span>,
     },
     {
       title: 'Item Code',
@@ -1592,8 +1592,8 @@ export const PackingDepartmentHub: React.FC = () => {
       width: 140,
       render: (code: string) => (
         <Space direction="vertical" size={2}>
-          <Text strong style={{ color: '#0f172a' }}>{code}</Text>
-          <Tag color="blue" style={{ fontWeight: 700, fontSize: 10.5, margin: 0 }}>NIPPLE HARDWARE</Tag>
+          <Text strong style={{ color: 'var(--theme-text)' }}>{code}</Text>
+          <Tag color="blue" style={{ fontWeight: 700, fontSize: 10.5, margin: 0, borderRadius: 0 }}>NIPPLE HARDWARE</Tag>
         </Space>
       ),
     },
@@ -1603,7 +1603,7 @@ export const PackingDepartmentHub: React.FC = () => {
       key: 'name',
       render: (name: string, r: any) => (
         <div>
-          <Text strong style={{ color: '#1e293b', fontSize: 13 }}>{name}</Text>
+          <Text strong style={{ color: 'var(--theme-text)', fontSize: 13 }}>{name}</Text>
           <div style={{ fontSize: 11, color: '#059669', fontWeight: 600 }}>{r.role}</div>
         </div>
       ),
@@ -1612,7 +1612,7 @@ export const PackingDepartmentHub: React.FC = () => {
       title: 'Department Warehouse / Store',
       dataIndex: 'whName',
       key: 'whName',
-      render: (wh: string) => <Tag color="geekblue" style={{ fontWeight: 600 }}>{wh}</Tag>,
+      render: (wh: string) => <Tag color="geekblue" style={{ fontWeight: 600, borderRadius: 0 }}>{wh}</Tag>,
     }] : []),
     {
       title: 'Available Balance (Gross)',
@@ -1633,7 +1633,7 @@ export const PackingDepartmentHub: React.FC = () => {
       width: 155,
       align: 'right' as const,
       render: (pcs: number) => (
-        <span style={{ fontWeight: 800, color: '#0f172a', fontSize: 13 }}>
+        <span style={{ fontWeight: 800, color: 'var(--theme-text)', fontSize: 13 }}>
           {formatNumber(pcs, 0)} PCS
         </span>
       ),
@@ -1733,20 +1733,23 @@ export const PackingDepartmentHub: React.FC = () => {
       ),
       children: (
         <div style={{ marginTop: 12 }}>
-          {/* ── 1. Top Filter / Control Bar (Matching Image 2 & Mockup) ── */}
+          {/* ── 1. Top Filter / Control Bar (Zero-Border Edge-to-Edge Toolbar) ── */}
           <div
+            className="packing-control-toolbar"
             style={{
               display: 'flex',
               justifyContent: 'space-between',
               alignItems: 'center',
               flexWrap: 'wrap',
               gap: 10,
-              padding: '12px 16px',
-              background: '#ffffff',
-              border: '1.5px solid #e2e8f0',
-              borderRadius: 10,
+              padding: '12px 14px',
+              background: 'var(--theme-card-bg, #ffffff)',
+              border: '1px solid var(--theme-border)',
+              borderLeft: 'none',
+              borderRight: 'none',
+              borderRadius: 0,
               marginBottom: 16,
-              boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
+              boxShadow: 'none',
             }}
           >
             <Space wrap size={12}>
@@ -1755,9 +1758,9 @@ export const PackingDepartmentHub: React.FC = () => {
                 style={{
                   fontWeight: 700,
                   fontSize: 12.5,
-                  padding: '5px 10px',
-                  borderRadius: 6,
-                  border: '1px solid #a5f3fc',
+                  padding: '4px 10px',
+                  borderRadius: 0,
+                  border: '1px solid var(--theme-border)',
                   margin: 0,
                 }}
               >
@@ -1765,13 +1768,15 @@ export const PackingDepartmentHub: React.FC = () => {
               </Tag>
               <Input
                 placeholder="Filter customer, item or SOC..."
-                prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
+                prefix={<SearchOutlined style={{ color: 'var(--theme-text-muted)' }} />}
                 value={historySearchText}
                 onChange={(e) => setHistorySearchText(e.target.value)}
                 style={{
                   width: 270,
-                  borderRadius: 8,
-                  border: '1.5px solid #cbd5e1',
+                  borderRadius: 0,
+                  border: '1px solid var(--theme-border)',
+                  background: 'var(--theme-surface-alt, transparent)',
+                  color: 'var(--theme-text)',
                 }}
                 allowClear
               />
@@ -1780,10 +1785,11 @@ export const PackingDepartmentHub: React.FC = () => {
                 onClick={fetchPackingHistory}
                 loading={loadingHistory}
                 style={{
-                  borderRadius: 8,
-                  border: '1.5px solid #cbd5e1',
+                  borderRadius: 0,
+                  border: '1px solid var(--theme-border)',
                   fontWeight: 600,
-                  color: '#334155',
+                  color: 'var(--theme-text)',
+                  background: 'var(--theme-card-bg, transparent)',
                 }}
               >
                 Refresh
@@ -1794,29 +1800,29 @@ export const PackingDepartmentHub: React.FC = () => {
               {fgrViewMode === 'customer-hierarchy' && (
                 <>
                   <Button
-                    icon={<PlusCircleOutlined style={{ color: '#0284c7' }} />}
+                    icon={<PlusCircleOutlined style={{ color: 'var(--theme-accent, #0284c7)' }} />}
                     onClick={expandAllCustomers}
                     style={{
-                      borderRadius: 20,
-                      background: '#f0f9ff',
-                      borderColor: '#bae6fd',
+                      borderRadius: 0,
+                      background: 'rgba(2, 132, 199, 0.1)',
+                      borderColor: 'rgba(2, 132, 199, 0.3)',
                       fontWeight: 600,
-                      color: '#0369a1',
-                      boxShadow: '0 1px 2px rgba(2, 132, 199, 0.08)',
+                      color: 'var(--theme-accent, #0284c7)',
+                      boxShadow: 'none',
                     }}
                   >
                     Expand All
                   </Button>
                   <Button
-                    icon={<MinusCircleOutlined style={{ color: '#64748b' }} />}
+                    icon={<MinusCircleOutlined style={{ color: 'var(--theme-text-muted)' }} />}
                     onClick={collapseAllCustomers}
                     style={{
-                      borderRadius: 20,
-                      background: '#f8fafc',
-                      borderColor: '#cbd5e1',
+                      borderRadius: 0,
+                      background: 'var(--theme-surface-alt, rgba(255, 255, 255, 0.05))',
+                      borderColor: 'var(--theme-border)',
                       fontWeight: 600,
-                      color: '#475569',
-                      boxShadow: '0 1px 2px rgba(0, 0, 0, 0.04)',
+                      color: 'var(--theme-text)',
+                      boxShadow: 'none',
                     }}
                   >
                     Collapse All
@@ -1830,92 +1836,95 @@ export const PackingDepartmentHub: React.FC = () => {
                   { label: '🏢 Customer-Wise Packed Inventory', value: 'customer-hierarchy' },
                   { label: '📋 Batch Production Logs', value: 'batch-logs' },
                 ]}
+                style={{ borderRadius: 0 }}
               />
             </Space>
           </div>
 
-          {/* ── 2. Summary Stat KPI Cards (Directly Below Control Strip) ── */}
-          <Row gutter={[12, 12]} style={{ marginBottom: 18 }}>
-            <Col xs={12} sm={8} md={4} lg={4}>
-              <Card
-                size="small"
-                style={{
-                  borderRadius: 10,
-                  border: '1px solid #e2e8f0',
-                  textAlign: 'center',
-                  background: '#ffffff',
-                  boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
-                }}
-              >
-                <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Active Customers</div>
-                <div style={{ fontSize: 24, fontWeight: 800, color: '#0f172a', marginTop: 4 }}>{totalActiveCustomers}</div>
-              </Card>
-            </Col>
-            <Col xs={12} sm={8} md={5} lg={5}>
-              <Card
-                size="small"
-                style={{
-                  borderRadius: 10,
-                  border: '1px solid #e2e8f0',
-                  textAlign: 'center',
-                  background: '#ffffff',
-                  boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
-                }}
-              >
-                <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Items with Stock</div>
-                <div style={{ fontSize: 24, fontWeight: 800, color: '#0284c7', marginTop: 4 }}>{totalItemsCount} Items</div>
-              </Card>
-            </Col>
-            <Col xs={12} sm={8} md={5} lg={5}>
-              <Card
-                size="small"
-                style={{
-                  borderRadius: 10,
-                  border: '1px solid #e2e8f0',
-                  textAlign: 'center',
-                  background: '#ffffff',
-                  boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
-                }}
-              >
-                <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.4px' }}>⚖️ Total Weight (KG)</div>
-                <div style={{ fontSize: 22, fontWeight: 800, color: '#d97706', marginTop: 4 }}>{formatNumber(totalStockKg, 2)} KG</div>
-              </Card>
-            </Col>
-            <Col xs={12} sm={8} md={5} lg={5}>
-              <Card
-                size="small"
-                style={{
-                  borderRadius: 10,
-                  border: '1px solid #e2e8f0',
-                  textAlign: 'center',
-                  background: '#ffffff',
-                  boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
-                }}
-              >
-                <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.4px' }}>🔢 Total Pieces (PCS)</div>
-                <div style={{ fontSize: 22, fontWeight: 800, color: '#059669', marginTop: 4 }}>{formatNumber(totalStockPcs, 0)} PCS</div>
-              </Card>
-            </Col>
-            <Col xs={24} sm={8} md={5} lg={5}>
-              <Card
-                size="small"
-                style={{
-                  borderRadius: 10,
-                  border: '1px solid #e2e8f0',
-                  textAlign: 'center',
-                  background: '#ffffff',
-                  boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
-                }}
-              >
-                <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Total Valuation</div>
-                <div style={{ fontSize: 22, fontWeight: 800, color: '#b45309', marginTop: 4 }}>Rs. {formatNumber(totalStockValuation, 0)}</div>
-              </Card>
-            </Col>
-          </Row>
+          {/* ── 2. Summary Stat KPI Cards (Zero-Border Contained Metrics Row) ── */}
+          <div style={{ width: '100%', maxWidth: '100%', overflow: 'hidden', marginBottom: 18 }}>
+            <Row gutter={[10, 10]}>
+              <Col xs={12} sm={8} md={4} lg={4}>
+                <Card
+                  size="small"
+                  style={{
+                    borderRadius: 0,
+                    border: '1px solid var(--theme-border)',
+                    textAlign: 'center',
+                    background: 'var(--theme-card-bg, #ffffff)',
+                    boxShadow: 'none',
+                  }}
+                >
+                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--theme-text-muted)', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Active Customers</div>
+                  <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--theme-text)', marginTop: 4 }}>{totalActiveCustomers}</div>
+                </Card>
+              </Col>
+              <Col xs={12} sm={8} md={5} lg={5}>
+                <Card
+                  size="small"
+                  style={{
+                    borderRadius: 0,
+                    border: '1px solid var(--theme-border)',
+                    textAlign: 'center',
+                    background: 'var(--theme-card-bg, #ffffff)',
+                    boxShadow: 'none',
+                  }}
+                >
+                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--theme-text-muted)', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Items with Stock</div>
+                  <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--theme-accent, #0284c7)', marginTop: 4 }}>{totalItemsCount} Items</div>
+                </Card>
+              </Col>
+              <Col xs={12} sm={8} md={5} lg={5}>
+                <Card
+                  size="small"
+                  style={{
+                    borderRadius: 0,
+                    border: '1px solid var(--theme-border)',
+                    textAlign: 'center',
+                    background: 'var(--theme-card-bg, #ffffff)',
+                    boxShadow: 'none',
+                  }}
+                >
+                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--theme-text-muted)', textTransform: 'uppercase', letterSpacing: '0.4px' }}>⚖️ Total Weight (KG)</div>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: '#d97706', marginTop: 4 }}>{formatNumber(totalStockKg, 2)} KG</div>
+                </Card>
+              </Col>
+              <Col xs={12} sm={8} md={5} lg={5}>
+                <Card
+                  size="small"
+                  style={{
+                    borderRadius: 0,
+                    border: '1px solid var(--theme-border)',
+                    textAlign: 'center',
+                    background: 'var(--theme-card-bg, #ffffff)',
+                    boxShadow: 'none',
+                  }}
+                >
+                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--theme-text-muted)', textTransform: 'uppercase', letterSpacing: '0.4px' }}>🔢 Total Pieces (PCS)</div>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: '#059669', marginTop: 4 }}>{formatNumber(totalStockPcs, 0)} PCS</div>
+                </Card>
+              </Col>
+              <Col xs={24} sm={8} md={5} lg={5}>
+                <Card
+                  size="small"
+                  style={{
+                    borderRadius: 0,
+                    border: '1px solid var(--theme-border)',
+                    textAlign: 'center',
+                    background: 'var(--theme-card-bg, #ffffff)',
+                    boxShadow: 'none',
+                  }}
+                >
+                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--theme-text-muted)', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Total Valuation</div>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: '#b45309', marginTop: 4 }}>Rs. {formatNumber(totalStockValuation, 0)}</div>
+                </Card>
+              </Col>
+            </Row>
+          </div>
 
-          {/* ── View 1: Customer-Wise Packed Stock Hierarchy Matching Image 3 & 2 ── */}
+          {/* ── View 1: Customer-Wise Packed Stock Hierarchy (Zero-Border Edge-to-Edge) ── */}
           {fgrViewMode === 'customer-hierarchy' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div className="packing-customer-hierarchy-list" style={{ width: '100%', maxWidth: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column', gap: 12 }}>
               {CUSTOMER_STOCK_DATA.filter((c) => {
                 if (!historySearchText) return true;
                 const q = historySearchText.toLowerCase();
@@ -1936,14 +1945,23 @@ export const PackingDepartmentHub: React.FC = () => {
                     key={cust.id}
                     size="small"
                     style={{
-                      borderRadius: 10,
-                      border: isExpanded ? '2px solid #0284c7' : '1.5px solid #cbd5e1',
-                      boxShadow: isExpanded ? '0 4px 12px rgba(2, 132, 199, 0.08)' : '0 1px 3px rgba(0,0,0,0.02)',
+                      borderRadius: 0,
+                      border: '1px solid var(--theme-border)',
+                      borderLeft: 'none',
+                      borderRight: 'none',
+                      boxShadow: 'none',
+                      background: 'var(--theme-card-bg, #ffffff)',
                       transition: 'all 0.2s ease',
                     }}
                     styles={{
-                      header: { background: isExpanded ? '#f0f9ff' : '#ffffff', cursor: 'pointer', padding: '10px 14px' },
-                      body: { padding: isExpanded ? '12px 14px' : 0 },
+                      header: {
+                        background: isExpanded ? 'var(--theme-surface-alt, rgba(2, 132, 199, 0.05))' : 'var(--theme-card-bg, #ffffff)',
+                        cursor: 'pointer',
+                        padding: '10px 14px',
+                        borderBottom: isExpanded ? '1px solid var(--theme-border)' : 'none',
+                        borderRadius: 0,
+                      },
+                      body: { padding: isExpanded ? '8px 0' : 0, background: 'var(--theme-card-bg, #ffffff)' },
                     }}
                     title={
                       <div
@@ -1958,33 +1976,33 @@ export const PackingDepartmentHub: React.FC = () => {
                               isExpanded ? (
                                 <ShrinkOutlined style={{ fontSize: 16, color: '#059669' }} />
                               ) : (
-                                <ArrowsAltOutlined style={{ fontSize: 16, color: '#0284c7' }} />
+                                <ArrowsAltOutlined style={{ fontSize: 16, color: 'var(--theme-accent, #0284c7)' }} />
                               )
                             }
                             style={{
                               display: 'flex',
                               alignItems: 'center',
                               justifyContent: 'center',
-                              width: 32,
-                              height: 32,
-                              borderRadius: 6,
-                              background: isExpanded ? '#ecfdf5' : '#f0f9ff',
-                              border: isExpanded ? '1.5px solid #a7f3d0' : '1.5px solid #bae6fd',
+                              width: 30,
+                              height: 30,
+                              borderRadius: 0,
+                              background: isExpanded ? 'rgba(5, 150, 105, 0.1)' : 'rgba(2, 132, 199, 0.1)',
+                              border: '1px solid var(--theme-border)',
                             }}
                           />
-                          <Tag color="blue" style={{ fontWeight: 800 }}>
+                          <Tag color="blue" style={{ fontWeight: 800, borderRadius: 0 }}>
                             {cust.customerCode}
                           </Tag>
-                          <Text strong style={{ fontSize: 15, color: '#0f172a' }}>
+                          <Text strong style={{ fontSize: 15, color: 'var(--theme-text)' }}>
                             {cust.customerName}
                           </Text>
-                          <Tag color="purple" style={{ fontSize: 11, fontWeight: 700 }}>
+                          <Tag color="purple" style={{ fontSize: 11, fontWeight: 700, borderRadius: 0 }}>
                             {cust.socNo}
                           </Tag>
                         </Space>
 
                         <Space size={14} wrap align="center">
-                          <Tag color="cyan" style={{ fontWeight: 700 }}>
+                          <Tag color="cyan" style={{ fontWeight: 700, borderRadius: 0 }}>
                             🏷️ {cust.items.length} Items
                           </Tag>
                           <span style={{ fontSize: 13, fontWeight: 700, color: '#d97706' }}>
@@ -2004,169 +2022,172 @@ export const PackingDepartmentHub: React.FC = () => {
                     }
                   >
                     {isExpanded && (
-                      <Table
-                        dataSource={cust.items}
-                        rowKey="id"
-                        pagination={false}
-                        bordered
-                        size="small"
-                        className="customer-stock-table"
-                        columns={[
-                          {
-                            title: <span style={{ fontWeight: 800, fontSize: 13 }}>#</span>,
-                            key: 'idx',
-                            width: 45,
-                            align: 'center' as const,
-                            render: (_: any, __: any, index: number) => (
-                              <Tag color="default" style={{ fontWeight: 800, margin: 0 }}>
-                                {index + 1}
-                              </Tag>
-                            ),
-                          },
-                          {
-                            title: <span style={{ fontWeight: 800, fontSize: 13 }}>Item (Name & Code)</span>,
-                            key: 'item',
-                            width: 260,
-                            render: (_: any, r: any) => (
-                              <div>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                                  <span style={{ fontSize: 13, color: '#0284c7', fontWeight: 800 }}>
-                                    {r.itemCode}
-                                  </span>
-                                  <Tag color="green" style={{ fontSize: 10, margin: 0, padding: '1px 6px', fontWeight: 700, borderRadius: 4 }}>
-                                    Finished Good
-                                  </Tag>
-                                </div>
-                                <div style={{ fontSize: 12, color: '#1e293b', fontWeight: 600, marginTop: 3 }}>
-                                  {r.itemName}
-                                </div>
-                              </div>
-                            ),
-                          },
-                          {
-                            title: <span style={{ fontWeight: 800, fontSize: 13 }}>SOC & Packaging Style</span>,
-                            key: 'socAndPacking',
-                            width: 200,
-                            render: (_: any, r: any) => (
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                                <div>
-                                  <Tag color="purple" style={{ fontWeight: 800, fontSize: 11.5, margin: 0, padding: '2px 8px' }}>
-                                    {r.socNo || cust.socNo}
-                                  </Tag>
-                                </div>
-                                <div>
-                                  <Tag color="geekblue" style={{ fontWeight: 600, fontSize: 11, margin: 0, padding: '2px 8px', whiteSpace: 'normal', textAlign: 'left' }}>
-                                    {r.packagingStyle}
-                                  </Tag>
-                                </div>
-                              </div>
-                            ),
-                          },
-                          {
-                            title: <span style={{ fontWeight: 800, fontSize: 13 }}>Per-Piece Weight</span>,
-                            key: 'weightPerPc',
-                            width: 120,
-                            align: 'center' as const,
-                            render: (_: any, r: any) => (
-                              <Text strong style={{ fontSize: 12, color: '#475569' }}>
-                                {r.perPieceWeightKg.toFixed(4)} KG
-                              </Text>
-                            ),
-                          },
-                          {
-                            title: <span style={{ fontWeight: 800, fontSize: 13, color: '#064e3b' }}>Book Stock</span>,
-                            children: [
-                              {
-                                title: <span style={{ fontWeight: 700, fontSize: 12 }}>GRS</span>,
-                                key: 'gross',
-                                width: 90,
-                                align: 'center' as const,
-                                render: (_: any, r: any) => (
-                                  <Text strong style={{ color: '#059669', fontSize: 13 }}>
-                                    {formatNumber(r.gross, 0)} GRS
-                                  </Text>
-                                ),
-                              },
-                              {
-                                title: <span style={{ fontWeight: 700, fontSize: 12 }}>CTN</span>,
-                                key: 'cartons',
-                                width: 95,
-                                align: 'center' as const,
-                                render: (_: any, r: any) => (
-                                  <Tag color="blue" style={{ fontWeight: 700 }}>
-                                    {formatNumber(r.cartons, 0)} CTN
-                                  </Tag>
-                                ),
-                              },
-                            ],
-                          },
-                          {
-                            title: <span style={{ fontWeight: 800, fontSize: 13, color: '#064e3b' }}>Dual-Unit Breakdown</span>,
-                            children: [
-                              {
-                                title: <span style={{ fontWeight: 700, fontSize: 12 }}>Weight KG</span>,
-                                key: 'weightKg',
-                                width: 115,
-                                align: 'right' as const,
-                                render: (_: any, r: any) => (
-                                  <span style={{ fontSize: 12.5, color: '#d97706', fontWeight: 800 }}>
-                                    ⚖️ {formatNumber(r.weightKg, 2)} KG
-                                  </span>
-                                ),
-                              },
-                              {
-                                title: <span style={{ fontWeight: 700, fontSize: 12 }}>Pieces PCS</span>,
-                                key: 'pcs',
-                                width: 115,
-                                align: 'right' as const,
-                                render: (_: any, r: any) => (
-                                  <span style={{ fontSize: 12.5, color: '#0284c7', fontWeight: 800 }}>
-                                    🔢 {formatNumber(r.pcs, 0)} PCS
-                                  </span>
-                                ),
-                              },
-                            ],
-                          },
-                          {
-                            title: <span style={{ fontWeight: 800, fontSize: 13 }}>Unit Rate</span>,
-                            key: 'rate',
-                            width: 110,
-                            align: 'right' as const,
-                            render: (_: any, r: any) => (
-                              <span style={{ fontSize: 12, fontWeight: 700, color: '#475569' }}>
-                                Rs. {r.ratePkr.toFixed(2)}/pc
-                              </span>
-                            ),
-                          },
-                          {
-                            title: <span style={{ fontWeight: 800, fontSize: 13 }}>Total Valuation (PKR)</span>,
-                            key: 'valuation',
-                            width: 140,
-                            align: 'right' as const,
-                            render: (_: any, r: any) => (
-                              <span style={{ fontWeight: 800, color: '#096dd9', fontSize: 13.5 }}>
-                                Rs. {formatNumber(r.valuePkr, 0)}
-                              </span>
-                            ),
-                          },
-                          {
-                            title: <span style={{ fontWeight: 800, fontSize: 13 }}>Store / Status</span>,
-                            key: 'loc',
-                            width: 140,
-                            align: 'center' as const,
-                            render: (_: any, r: any) => (
-                              <div>
-                                <Tag color="success" icon={<CheckCircleFilled />} style={{ fontWeight: 700 }}>
-                                  {r.status}
+                      <div className="packing-table-responsive-wrapper" style={{ width: '100%', maxWidth: '100%', overflowX: 'auto', overflowY: 'hidden', WebkitOverflowScrolling: 'touch' }}>
+                        <Table
+                          dataSource={cust.items}
+                          rowKey="id"
+                          pagination={false}
+                          bordered={false}
+                          size="small"
+                          scroll={{ x: 'max-content' }}
+                          className="customer-stock-table packing-borderless-table"
+                          columns={[
+                            {
+                              title: <span style={{ fontWeight: 800, fontSize: 13, color: 'var(--theme-text)' }}>#</span>,
+                              key: 'idx',
+                              width: 45,
+                              align: 'center' as const,
+                              render: (_: any, __: any, index: number) => (
+                                <Tag color="default" style={{ fontWeight: 800, margin: 0, borderRadius: 0 }}>
+                                  {index + 1}
                                 </Tag>
-                                <div style={{ fontSize: 11, color: '#64748b', marginTop: 3 }}>
-                                  {r.warehouseName}
+                              ),
+                            },
+                            {
+                              title: <span style={{ fontWeight: 800, fontSize: 13, color: 'var(--theme-text)' }}>Item (Name & Code)</span>,
+                              key: 'item',
+                              width: 260,
+                              render: (_: any, r: any) => (
+                                <div>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                    <span style={{ fontSize: 13, color: 'var(--theme-accent, #0284c7)', fontWeight: 800 }}>
+                                      {r.itemCode}
+                                    </span>
+                                    <Tag color="green" style={{ fontSize: 10, margin: 0, padding: '1px 6px', fontWeight: 700, borderRadius: 0 }}>
+                                      Finished Good
+                                    </Tag>
+                                  </div>
+                                  <div style={{ fontSize: 12, color: 'var(--theme-text)', fontWeight: 600, marginTop: 3 }}>
+                                    {r.itemName}
+                                  </div>
                                 </div>
-                              </div>
-                            ),
-                          },
-                        ]}
-                      />
+                              ),
+                            },
+                            {
+                              title: <span style={{ fontWeight: 800, fontSize: 13, color: 'var(--theme-text)' }}>SOC & Packaging Style</span>,
+                              key: 'socAndPacking',
+                              width: 200,
+                              render: (_: any, r: any) => (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                  <div>
+                                    <Tag color="purple" style={{ fontWeight: 800, fontSize: 11.5, margin: 0, padding: '2px 8px', borderRadius: 0 }}>
+                                      {r.socNo || cust.socNo}
+                                    </Tag>
+                                  </div>
+                                  <div>
+                                    <Tag color="geekblue" style={{ fontWeight: 600, fontSize: 11, margin: 0, padding: '2px 8px', whiteSpace: 'normal', textAlign: 'left', borderRadius: 0 }}>
+                                      {r.packagingStyle}
+                                    </Tag>
+                                  </div>
+                                </div>
+                              ),
+                            },
+                            {
+                              title: <span style={{ fontWeight: 800, fontSize: 13, color: 'var(--theme-text)' }}>Per-Piece Weight</span>,
+                              key: 'weightPerPc',
+                              width: 120,
+                              align: 'center' as const,
+                              render: (_: any, r: any) => (
+                                <Text strong style={{ fontSize: 12, color: 'var(--theme-text-muted)' }}>
+                                  {r.perPieceWeightKg.toFixed(4)} KG
+                                </Text>
+                              ),
+                            },
+                            {
+                              title: <span style={{ fontWeight: 800, fontSize: 13, color: 'var(--theme-text)' }}>Book Stock</span>,
+                              children: [
+                                {
+                                  title: <span style={{ fontWeight: 700, fontSize: 12, color: 'var(--theme-text)' }}>GRS</span>,
+                                  key: 'gross',
+                                  width: 90,
+                                  align: 'center' as const,
+                                  render: (_: any, r: any) => (
+                                    <Text strong style={{ color: '#059669', fontSize: 13 }}>
+                                      {formatNumber(r.gross, 0)} GRS
+                                    </Text>
+                                  ),
+                                },
+                                {
+                                  title: <span style={{ fontWeight: 700, fontSize: 12, color: 'var(--theme-text)' }}>CTN</span>,
+                                  key: 'cartons',
+                                  width: 95,
+                                  align: 'center' as const,
+                                  render: (_: any, r: any) => (
+                                    <Tag color="blue" style={{ fontWeight: 700, borderRadius: 0 }}>
+                                      {formatNumber(r.cartons, 0)} CTN
+                                    </Tag>
+                                  ),
+                                },
+                              ],
+                            },
+                            {
+                              title: <span style={{ fontWeight: 800, fontSize: 13, color: 'var(--theme-text)' }}>Dual-Unit Breakdown</span>,
+                              children: [
+                                {
+                                  title: <span style={{ fontWeight: 700, fontSize: 12, color: 'var(--theme-text)' }}>Weight KG</span>,
+                                  key: 'weightKg',
+                                  width: 115,
+                                  align: 'right' as const,
+                                  render: (_: any, r: any) => (
+                                    <span style={{ fontSize: 12.5, color: '#d97706', fontWeight: 800 }}>
+                                      ⚖️ {formatNumber(r.weightKg, 2)} KG
+                                    </span>
+                                  ),
+                                },
+                                {
+                                  title: <span style={{ fontWeight: 700, fontSize: 12, color: 'var(--theme-text)' }}>Pieces PCS</span>,
+                                  key: 'pcs',
+                                  width: 115,
+                                  align: 'right' as const,
+                                  render: (_: any, r: any) => (
+                                    <span style={{ fontSize: 12.5, color: 'var(--theme-accent, #0284c7)', fontWeight: 800 }}>
+                                      🔢 {formatNumber(r.pcs, 0)} PCS
+                                    </span>
+                                  ),
+                                },
+                              ],
+                            },
+                            {
+                              title: <span style={{ fontWeight: 800, fontSize: 13, color: 'var(--theme-text)' }}>Unit Rate</span>,
+                              key: 'rate',
+                              width: 110,
+                              align: 'right' as const,
+                              render: (_: any, r: any) => (
+                                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--theme-text-muted)' }}>
+                                  Rs. {r.ratePkr.toFixed(2)}/pc
+                                </span>
+                              ),
+                            },
+                            {
+                              title: <span style={{ fontWeight: 800, fontSize: 13, color: 'var(--theme-text)' }}>Total Valuation (PKR)</span>,
+                              key: 'valuation',
+                              width: 140,
+                              align: 'right' as const,
+                              render: (_: any, r: any) => (
+                                <span style={{ fontWeight: 800, color: 'var(--theme-accent, #096dd9)', fontSize: 13.5 }}>
+                                  Rs. {formatNumber(r.valuePkr, 0)}
+                                </span>
+                              ),
+                            },
+                            {
+                              title: <span style={{ fontWeight: 800, fontSize: 13, color: 'var(--theme-text)' }}>Store / Status</span>,
+                              key: 'loc',
+                              width: 140,
+                              align: 'center' as const,
+                              render: (_: any, r: any) => (
+                                <div>
+                                  <Tag color="success" icon={<CheckCircleFilled />} style={{ fontWeight: 700, borderRadius: 0 }}>
+                                    {r.status}
+                                  </Tag>
+                                  <div style={{ fontSize: 11, color: 'var(--theme-text-muted)', marginTop: 3 }}>
+                                    {r.warehouseName}
+                                  </div>
+                                </div>
+                              ),
+                            },
+                          ]}
+                        />
+                      </div>
                     )}
                   </Card>
                 );
@@ -2174,26 +2195,47 @@ export const PackingDepartmentHub: React.FC = () => {
             </div>
           )}
 
-          {/* ── View 2: Raw Batch Production Logs ── */}
+          {/* ── View 2: Raw Batch Production Logs (Zero-Border Contained) ── */}
           {fgrViewMode === 'batch-logs' && (
             <Card
               size="small"
+              style={{
+                borderRadius: 0,
+                border: '1px solid var(--theme-border)',
+                borderLeft: 'none',
+                borderRight: 'none',
+                boxShadow: 'none',
+                background: 'var(--theme-card-bg, #ffffff)',
+              }}
+              styles={{
+                header: {
+                  background: 'var(--theme-surface-alt, rgba(0, 0, 0, 0.02))',
+                  borderBottom: '1px solid var(--theme-border)',
+                  borderRadius: 0,
+                  padding: '10px 14px',
+                },
+                body: { padding: 0, background: 'var(--theme-card-bg, #ffffff)' },
+              }}
               title={
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontWeight: 800, fontSize: 13.5 }}>Batch Production Entries & Component Logs</span>
-                  <Tag color="blue">{filteredHistory.length} Entries</Tag>
+                  <span style={{ fontWeight: 800, fontSize: 13.5, color: 'var(--theme-text)' }}>Batch Production Entries & Component Logs</span>
+                  <Tag color="blue" style={{ borderRadius: 0 }}>{filteredHistory.length} Entries</Tag>
                 </div>
               }
             >
-              <Table
-                dataSource={filteredHistory}
-                columns={historyColumns}
-                rowKey={(r) => r.id || r.entryNo || Math.random().toString()}
-                loading={loadingHistory}
-                pagination={{ pageSize: 10, showSizeChanger: true }}
-                size="middle"
-                bordered
-              />
+              <div className="packing-table-responsive-wrapper" style={{ width: '100%', maxWidth: '100%', overflowX: 'auto', overflowY: 'hidden', WebkitOverflowScrolling: 'touch' }}>
+                <Table
+                  dataSource={filteredHistory}
+                  columns={historyColumns}
+                  rowKey={(r) => r.id || r.entryNo || Math.random().toString()}
+                  loading={loadingHistory}
+                  pagination={{ pageSize: 10, showSizeChanger: true }}
+                  size="middle"
+                  bordered={false}
+                  scroll={{ x: 'max-content' }}
+                  className="packing-borderless-table"
+                />
+              </div>
             </Card>
           )}
         </div>
@@ -2208,165 +2250,170 @@ export const PackingDepartmentHub: React.FC = () => {
         </span>
       ),
       children: (
-        <div style={{ marginTop: 12 }}>
+        <div style={{ marginTop: 12, width: '100%', maxWidth: '100%', overflow: 'hidden' }}>
           {/* Top 3 KPI Summary Cards with Pieces, Gross, and KG in all categories */}
-          <Row gutter={[14, 14]} style={{ marginBottom: 16 }}>
-            <Col xs={24} md={8}>
-              <Card
-                size="small"
-                style={{
-                  background: 'linear-gradient(180deg, #fff7ed 0%, #ffffff 100%)',
-                  borderColor: '#fed7aa',
-                  borderRadius: 10,
-                  boxShadow: '0 2px 6px rgba(234, 88, 12, 0.08)',
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <Tag color="orange" style={{ fontWeight: 800, fontSize: 11, margin: 0 }}>STORE 1</Tag>
-                    <span style={{ fontWeight: 800, color: '#9a3412', fontSize: 13.5 }}>Plating Dept (SPI-PL-004)</span>
+          <div style={{ width: '100%', maxWidth: '100%', overflow: 'hidden', marginBottom: 16 }}>
+            <Row gutter={[12, 12]}>
+              <Col xs={24} md={8}>
+                <Card
+                  size="small"
+                  bordered={false}
+                  style={{
+                    background: 'var(--theme-card-bg, #ffffff)',
+                    border: '1px solid var(--theme-border, #e2e8f0)',
+                    borderRadius: 0,
+                    boxShadow: 'none',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <Tag color="orange" style={{ fontWeight: 800, fontSize: 11, margin: 0, borderRadius: 0 }}>STORE 1</Tag>
+                      <span style={{ fontWeight: 800, color: 'var(--theme-text, #0f172a)', fontSize: 13.5 }}>Plating Dept (SPI-PL-004)</span>
+                    </div>
+                    <Tag style={{ fontWeight: 700, fontSize: 11, borderRadius: 0, background: 'var(--theme-surface-alt, rgba(0,0,0,0.02))', color: 'var(--theme-text, #0f172a)', borderColor: 'var(--theme-border, #e2e8f0)' }}>{spokeStoreBalances.length} Spoke Items</Tag>
                   </div>
-                  <Tag color="default" style={{ fontWeight: 700, fontSize: 11 }}>{spokeStoreBalances.length} Spoke Items</Tag>
-                </div>
-                <Row gutter={[8, 8]}>
-                  <Col span={8}>
-                    <div style={{ background: '#ffffff', border: '1px solid #ffedd5', borderRadius: 8, padding: '8px 4px', textAlign: 'center' }}>
-                      <div style={{ fontSize: 10.5, color: '#7c2d12', fontWeight: 800, letterSpacing: 0.5 }}>PIECES</div>
-                      <div style={{ fontSize: 16, fontWeight: 900, color: '#ea580c', marginTop: 3 }}>
-                        {formatNumber(totalSpokePcs, 0)}
+                  <Row gutter={[8, 8]}>
+                    <Col span={8}>
+                      <div style={{ background: 'var(--theme-surface-alt, rgba(0,0,0,0.02))', border: '1px solid var(--theme-border, #e2e8f0)', borderRadius: 0, padding: '8px 4px', textAlign: 'center' }}>
+                        <div style={{ fontSize: 10.5, color: 'var(--theme-text-muted, #64748b)', fontWeight: 800, letterSpacing: 0.5 }}>PIECES</div>
+                        <div style={{ fontSize: 16, fontWeight: 900, color: '#ea580c', marginTop: 3 }}>
+                          {formatNumber(totalSpokePcs, 0)}
+                        </div>
+                        <div style={{ fontSize: 10, color: 'var(--theme-text-muted, #64748b)', fontWeight: 600 }}>PCS</div>
                       </div>
-                      <div style={{ fontSize: 10, color: '#9a3412', fontWeight: 600 }}>PCS</div>
-                    </div>
-                  </Col>
-                  <Col span={8}>
-                    <div style={{ background: '#ffffff', border: '1px solid #ffedd5', borderRadius: 8, padding: '8px 4px', textAlign: 'center' }}>
-                      <div style={{ fontSize: 10.5, color: '#7c2d12', fontWeight: 800, letterSpacing: 0.5 }}>GROSS</div>
-                      <div style={{ fontSize: 16, fontWeight: 900, color: '#c2410c', marginTop: 3 }}>
-                        {formatNumber(totalSpokeGrs, 1)}
+                    </Col>
+                    <Col span={8}>
+                      <div style={{ background: 'var(--theme-surface-alt, rgba(0,0,0,0.02))', border: '1px solid var(--theme-border, #e2e8f0)', borderRadius: 0, padding: '8px 4px', textAlign: 'center' }}>
+                        <div style={{ fontSize: 10.5, color: 'var(--theme-text-muted, #64748b)', fontWeight: 800, letterSpacing: 0.5 }}>GROSS</div>
+                        <div style={{ fontSize: 16, fontWeight: 900, color: '#c2410c', marginTop: 3 }}>
+                          {formatNumber(totalSpokeGrs, 1)}
+                        </div>
+                        <div style={{ fontSize: 10, color: 'var(--theme-text-muted, #64748b)', fontWeight: 600 }}>GRS</div>
                       </div>
-                      <div style={{ fontSize: 10, color: '#9a3412', fontWeight: 600 }}>GRS</div>
-                    </div>
-                  </Col>
-                  <Col span={8}>
-                    <div style={{ background: '#ffffff', border: '1px solid #ffedd5', borderRadius: 8, padding: '8px 4px', textAlign: 'center' }}>
-                      <div style={{ fontSize: 10.5, color: '#7c2d12', fontWeight: 800, letterSpacing: 0.5 }}>WEIGHT</div>
-                      <div style={{ fontSize: 16, fontWeight: 900, color: '#9a3412', marginTop: 3 }}>
-                        {formatNumber(totalSpokeKg, 1)}
+                    </Col>
+                    <Col span={8}>
+                      <div style={{ background: 'var(--theme-surface-alt, rgba(0,0,0,0.02))', border: '1px solid var(--theme-border, #e2e8f0)', borderRadius: 0, padding: '8px 4px', textAlign: 'center' }}>
+                        <div style={{ fontSize: 10.5, color: 'var(--theme-text-muted, #64748b)', fontWeight: 800, letterSpacing: 0.5 }}>WEIGHT</div>
+                        <div style={{ fontSize: 16, fontWeight: 900, color: '#ea580c', marginTop: 3 }}>
+                          {formatNumber(totalSpokeKg, 1)}
+                        </div>
+                        <div style={{ fontSize: 10, color: 'var(--theme-text-muted, #64748b)', fontWeight: 600 }}>KG</div>
                       </div>
-                      <div style={{ fontSize: 10, color: '#9a3412', fontWeight: 600 }}>KG</div>
-                    </div>
-                  </Col>
-                </Row>
-                <div style={{ marginTop: 8, fontSize: 11, color: '#78350f', textAlign: 'center' }}>
-                  Plated spokes waiting for Hand Packing assembly
-                </div>
-              </Card>
-            </Col>
+                    </Col>
+                  </Row>
+                  <div style={{ marginTop: 8, fontSize: 11, color: 'var(--theme-text-muted, #64748b)', textAlign: 'center' }}>
+                    Plated spokes waiting for Hand Packing assembly
+                  </div>
+                </Card>
+              </Col>
 
-            <Col xs={24} md={8}>
-              <Card
-                size="small"
-                style={{
-                  background: 'linear-gradient(180deg, #f0f9ff 0%, #ffffff 100%)',
-                  borderColor: '#bae6fd',
-                  borderRadius: 10,
-                  boxShadow: '0 2px 6px rgba(2, 132, 199, 0.08)',
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <Tag color="blue" style={{ fontWeight: 800, fontSize: 11, margin: 0 }}>STORE 2</Tag>
-                    <span style={{ fontWeight: 800, color: '#0369a1', fontSize: 13.5 }}>Main Warehouse (WH-002)</span>
+              <Col xs={24} md={8}>
+                <Card
+                  size="small"
+                  bordered={false}
+                  style={{
+                    background: 'var(--theme-card-bg, #ffffff)',
+                    border: '1px solid var(--theme-border, #e2e8f0)',
+                    borderRadius: 0,
+                    boxShadow: 'none',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <Tag color="blue" style={{ fontWeight: 800, fontSize: 11, margin: 0, borderRadius: 0 }}>STORE 2</Tag>
+                      <span style={{ fontWeight: 800, color: 'var(--theme-text, #0f172a)', fontSize: 13.5 }}>Main Warehouse (WH-002)</span>
+                    </div>
+                    <Tag style={{ fontWeight: 700, fontSize: 11, borderRadius: 0, background: 'var(--theme-surface-alt, rgba(0,0,0,0.02))', color: 'var(--theme-text, #0f172a)', borderColor: 'var(--theme-border, #e2e8f0)' }}>{nippleStoreBalances.length} Nipple Items</Tag>
                   </div>
-                  <Tag color="default" style={{ fontWeight: 700, fontSize: 11 }}>{nippleStoreBalances.length} Nipple Items</Tag>
-                </div>
-                <Row gutter={[8, 8]}>
-                  <Col span={8}>
-                    <div style={{ background: '#ffffff', border: '1px solid #e0f2fe', borderRadius: 8, padding: '8px 4px', textAlign: 'center' }}>
-                      <div style={{ fontSize: 10.5, color: '#075985', fontWeight: 800, letterSpacing: 0.5 }}>PIECES</div>
-                      <div style={{ fontSize: 16, fontWeight: 900, color: '#0284c7', marginTop: 3 }}>
-                        {formatNumber(totalNipplePcs, 0)}
+                  <Row gutter={[8, 8]}>
+                    <Col span={8}>
+                      <div style={{ background: 'var(--theme-surface-alt, rgba(0,0,0,0.02))', border: '1px solid var(--theme-border, #e2e8f0)', borderRadius: 0, padding: '8px 4px', textAlign: 'center' }}>
+                        <div style={{ fontSize: 10.5, color: 'var(--theme-text-muted, #64748b)', fontWeight: 800, letterSpacing: 0.5 }}>PIECES</div>
+                        <div style={{ fontSize: 16, fontWeight: 900, color: '#0284c7', marginTop: 3 }}>
+                          {formatNumber(totalNipplePcs, 0)}
+                        </div>
+                        <div style={{ fontSize: 10, color: 'var(--theme-text-muted, #64748b)', fontWeight: 600 }}>PCS</div>
                       </div>
-                      <div style={{ fontSize: 10, color: '#0369a1', fontWeight: 600 }}>PCS</div>
-                    </div>
-                  </Col>
-                  <Col span={8}>
-                    <div style={{ background: '#ffffff', border: '1px solid #e0f2fe', borderRadius: 8, padding: '8px 4px', textAlign: 'center' }}>
-                      <div style={{ fontSize: 10.5, color: '#075985', fontWeight: 800, letterSpacing: 0.5 }}>GROSS</div>
-                      <div style={{ fontSize: 16, fontWeight: 900, color: '#0369a1', marginTop: 3 }}>
-                        {formatNumber(totalNippleGrs, 1)}
+                    </Col>
+                    <Col span={8}>
+                      <div style={{ background: 'var(--theme-surface-alt, rgba(0,0,0,0.02))', border: '1px solid var(--theme-border, #e2e8f0)', borderRadius: 0, padding: '8px 4px', textAlign: 'center' }}>
+                        <div style={{ fontSize: 10.5, color: 'var(--theme-text-muted, #64748b)', fontWeight: 800, letterSpacing: 0.5 }}>GROSS</div>
+                        <div style={{ fontSize: 16, fontWeight: 900, color: '#0284c7', marginTop: 3 }}>
+                          {formatNumber(totalNippleGrs, 1)}
+                        </div>
+                        <div style={{ fontSize: 10, color: 'var(--theme-text-muted, #64748b)', fontWeight: 600 }}>GRS</div>
                       </div>
-                      <div style={{ fontSize: 10, color: '#0369a1', fontWeight: 600 }}>GRS</div>
-                    </div>
-                  </Col>
-                  <Col span={8}>
-                    <div style={{ background: '#ffffff', border: '1px solid #e0f2fe', borderRadius: 8, padding: '8px 4px', textAlign: 'center' }}>
-                      <div style={{ fontSize: 10.5, color: '#075985', fontWeight: 800, letterSpacing: 0.5 }}>WEIGHT</div>
-                      <div style={{ fontSize: 16, fontWeight: 900, color: '#0c4a6e', marginTop: 3 }}>
-                        {formatNumber(totalNippleKg, 1)}
+                    </Col>
+                    <Col span={8}>
+                      <div style={{ background: 'var(--theme-surface-alt, rgba(0,0,0,0.02))', border: '1px solid var(--theme-border, #e2e8f0)', borderRadius: 0, padding: '8px 4px', textAlign: 'center' }}>
+                        <div style={{ fontSize: 10.5, color: 'var(--theme-text-muted, #64748b)', fontWeight: 800, letterSpacing: 0.5 }}>WEIGHT</div>
+                        <div style={{ fontSize: 16, fontWeight: 900, color: '#0284c7', marginTop: 3 }}>
+                          {formatNumber(totalNippleKg, 1)}
+                        </div>
+                        <div style={{ fontSize: 10, color: 'var(--theme-text-muted, #64748b)', fontWeight: 600 }}>KG</div>
                       </div>
-                      <div style={{ fontSize: 10, color: '#0369a1', fontWeight: 600 }}>KG</div>
-                    </div>
-                  </Col>
-                </Row>
-                <div style={{ marginTop: 8, fontSize: 11, color: '#0369a1', textAlign: 'center' }}>
-                  Finished brass nipples available for assembly
-                </div>
-              </Card>
-            </Col>
+                    </Col>
+                  </Row>
+                  <div style={{ marginTop: 8, fontSize: 11, color: 'var(--theme-text-muted, #64748b)', textAlign: 'center' }}>
+                    Finished brass nipples available for assembly
+                  </div>
+                </Card>
+              </Col>
 
-            <Col xs={24} md={8}>
-              <Card
-                size="small"
-                style={{
-                  background: 'linear-gradient(180deg, #f0fdf4 0%, #ffffff 100%)',
-                  borderColor: '#bbf7d0',
-                  borderRadius: 10,
-                  boxShadow: '0 2px 6px rgba(22, 163, 74, 0.08)',
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <Tag color="green" style={{ fontWeight: 800, fontSize: 11, margin: 0 }}>MATCHED</Tag>
-                    <span style={{ fontWeight: 800, color: '#166534', fontSize: 13.5 }}>Assembly Ready Balance</span>
+              <Col xs={24} md={8}>
+                <Card
+                  size="small"
+                  bordered={false}
+                  style={{
+                    background: 'var(--theme-card-bg, #ffffff)',
+                    border: '1px solid var(--theme-border, #e2e8f0)',
+                    borderRadius: 0,
+                    boxShadow: 'none',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <Tag color="green" style={{ fontWeight: 800, fontSize: 11, margin: 0, borderRadius: 0 }}>MATCHED</Tag>
+                      <span style={{ fontWeight: 800, color: 'var(--theme-text, #0f172a)', fontSize: 13.5 }}>Assembly Ready Balance</span>
+                    </div>
+                    <Tag color="cyan" style={{ fontWeight: 700, fontSize: 11, borderRadius: 0 }}>Spoke + Nipple</Tag>
                   </div>
-                  <Tag color="cyan" style={{ fontWeight: 700, fontSize: 11 }}>Spoke + Nipple</Tag>
-                </div>
-                <Row gutter={[8, 8]}>
-                  <Col span={8}>
-                    <div style={{ background: '#ffffff', border: '1px solid #dcfce7', borderRadius: 8, padding: '8px 4px', textAlign: 'center' }}>
-                      <div style={{ fontSize: 10.5, color: '#14532d', fontWeight: 800, letterSpacing: 0.5 }}>PIECES</div>
-                      <div style={{ fontSize: 16, fontWeight: 900, color: '#16a34a', marginTop: 3 }}>
-                        {formatNumber(assemblyReadyWheels, 0)}
+                  <Row gutter={[8, 8]}>
+                    <Col span={8}>
+                      <div style={{ background: 'var(--theme-surface-alt, rgba(0,0,0,0.02))', border: '1px solid var(--theme-border, #e2e8f0)', borderRadius: 0, padding: '8px 4px', textAlign: 'center' }}>
+                        <div style={{ fontSize: 10.5, color: 'var(--theme-text-muted, #64748b)', fontWeight: 800, letterSpacing: 0.5 }}>PIECES</div>
+                        <div style={{ fontSize: 16, fontWeight: 900, color: '#16a34a', marginTop: 3 }}>
+                          {formatNumber(assemblyReadyWheels, 0)}
+                        </div>
+                        <div style={{ fontSize: 10, color: 'var(--theme-text-muted, #64748b)', fontWeight: 600 }}>Sets</div>
                       </div>
-                      <div style={{ fontSize: 10, color: '#166534', fontWeight: 600 }}>Sets</div>
-                    </div>
-                  </Col>
-                  <Col span={8}>
-                    <div style={{ background: '#ffffff', border: '1px solid #dcfce7', borderRadius: 8, padding: '8px 4px', textAlign: 'center' }}>
-                      <div style={{ fontSize: 10.5, color: '#14532d', fontWeight: 800, letterSpacing: 0.5 }}>GROSS</div>
-                      <div style={{ fontSize: 16, fontWeight: 900, color: '#15803d', marginTop: 3 }}>
-                        {formatNumber(assemblyReadyWheels / 144, 1)}
+                    </Col>
+                    <Col span={8}>
+                      <div style={{ background: 'var(--theme-surface-alt, rgba(0,0,0,0.02))', border: '1px solid var(--theme-border, #e2e8f0)', borderRadius: 0, padding: '8px 4px', textAlign: 'center' }}>
+                        <div style={{ fontSize: 10.5, color: 'var(--theme-text-muted, #64748b)', fontWeight: 800, letterSpacing: 0.5 }}>GROSS</div>
+                        <div style={{ fontSize: 16, fontWeight: 900, color: '#16a34a', marginTop: 3 }}>
+                          {formatNumber(assemblyReadyWheels / 144, 1)}
+                        </div>
+                        <div style={{ fontSize: 10, color: 'var(--theme-text-muted, #64748b)', fontWeight: 600 }}>GRS Sets</div>
                       </div>
-                      <div style={{ fontSize: 10, color: '#166534', fontWeight: 600 }}>GRS Sets</div>
-                    </div>
-                  </Col>
-                  <Col span={8}>
-                    <div style={{ background: '#ffffff', border: '1px solid #dcfce7', borderRadius: 8, padding: '8px 4px', textAlign: 'center' }}>
-                      <div style={{ fontSize: 10.5, color: '#14532d', fontWeight: 800, letterSpacing: 0.5 }}>CARTONS</div>
-                      <div style={{ fontSize: 16, fontWeight: 900, color: '#166534', marginTop: 3 }}>
-                        {formatNumber(assemblyReadyWheels / 1440, 1)}
+                    </Col>
+                    <Col span={8}>
+                      <div style={{ background: 'var(--theme-surface-alt, rgba(0,0,0,0.02))', border: '1px solid var(--theme-border, #e2e8f0)', borderRadius: 0, padding: '8px 4px', textAlign: 'center' }}>
+                        <div style={{ fontSize: 10.5, color: 'var(--theme-text-muted, #64748b)', fontWeight: 800, letterSpacing: 0.5 }}>CARTONS</div>
+                        <div style={{ fontSize: 16, fontWeight: 900, color: '#16a34a', marginTop: 3 }}>
+                          {formatNumber(assemblyReadyWheels / 1440, 1)}
+                        </div>
+                        <div style={{ fontSize: 10, color: 'var(--theme-text-muted, #64748b)', fontWeight: 600 }}>CTN (10 GRS)</div>
                       </div>
-                      <div style={{ fontSize: 10, color: '#166534', fontWeight: 600 }}>CTN (10 GRS)</div>
-                    </div>
-                  </Col>
-                </Row>
-                <div style={{ marginTop: 8, fontSize: 11, color: '#166534', textAlign: 'center' }}>
-                  Complete wheel sets ready for Hand Packing boxing
-                </div>
-              </Card>
-            </Col>
-          </Row>
+                    </Col>
+                  </Row>
+                  <div style={{ marginTop: 8, fontSize: 11, color: 'var(--theme-text-muted, #64748b)', textAlign: 'center' }}>
+                    Complete wheel sets ready for Hand Packing boxing
+                  </div>
+                </Card>
+              </Col>
+            </Row>
+          </div>
 
           {/* Document & Communication Action Toolbar */}
           <div
@@ -2374,20 +2421,23 @@ export const PackingDepartmentHub: React.FC = () => {
               display: 'flex',
               justifyContent: 'space-between',
               alignItems: 'center',
-              marginBottom: 14,
+              marginBottom: 16,
               padding: '10px 14px',
-              background: '#f8fafc',
-              border: '1px solid #e2e8f0',
-              borderRadius: 8,
+              background: 'var(--theme-card-bg, #ffffff)',
+              border: '1px solid var(--theme-border, #e2e8f0)',
+              borderRadius: 0,
               flexWrap: 'wrap',
               gap: 10,
+              width: '100%',
+              maxWidth: '100%',
+              boxSizing: 'border-box',
             }}
           >
             <Space wrap>
-              <Tag color="cyan" style={{ fontWeight: 700, fontSize: 12, padding: '4px 10px', margin: 0 }}>
+              <Tag color="cyan" style={{ fontWeight: 700, fontSize: 12, padding: '4px 10px', margin: 0, borderRadius: 0 }}>
                 Department Store Inventory
               </Tag>
-              <Text type="secondary" style={{ fontSize: 12 }}>
+              <Text type="secondary" style={{ fontSize: 12, color: 'var(--theme-text-muted, #64748b)' }}>
                 Live balances from Plating Dept (SPI-PL-004) & Main Warehouse (WH-002)
               </Text>
             </Space>
@@ -2397,7 +2447,7 @@ export const PackingDepartmentHub: React.FC = () => {
                 icon={<PrinterOutlined />}
                 onClick={handlePrint}
                 size="middle"
-                style={{ fontWeight: 600, borderRadius: 6 }}
+                style={{ fontWeight: 600, borderRadius: 0, borderColor: 'var(--theme-border, #e2e8f0)', background: 'var(--theme-card-bg, #ffffff)', color: 'var(--theme-text, #0f172a)' }}
               >
                 Print Report
               </Button>
@@ -2406,7 +2456,7 @@ export const PackingDepartmentHub: React.FC = () => {
                 onClick={handleExportPdf}
                 loading={exportingPdf}
                 size="middle"
-                style={{ fontWeight: 600, borderRadius: 6, color: '#dc2626', borderColor: '#fca5a5' }}
+                style={{ fontWeight: 600, borderRadius: 0, color: '#dc2626', borderColor: 'var(--theme-border, #e2e8f0)', background: 'var(--theme-card-bg, #ffffff)' }}
               >
                 Export PDF
               </Button>
@@ -2414,7 +2464,7 @@ export const PackingDepartmentHub: React.FC = () => {
                 icon={<FileExcelOutlined />}
                 onClick={handleExportCsv}
                 size="middle"
-                style={{ fontWeight: 600, borderRadius: 6, color: '#16a34a', borderColor: '#86efac' }}
+                style={{ fontWeight: 600, borderRadius: 0, color: '#16a34a', borderColor: 'var(--theme-border, #e2e8f0)', background: 'var(--theme-card-bg, #ffffff)' }}
               >
                 Export Excel (CSV)
               </Button>
@@ -2427,8 +2477,8 @@ export const PackingDepartmentHub: React.FC = () => {
                   background: '#25D366',
                   borderColor: '#25D366',
                   fontWeight: 700,
-                  borderRadius: 6,
-                  boxShadow: '0 2px 4px rgba(37, 211, 102, 0.3)',
+                  borderRadius: 0,
+                  boxShadow: 'none',
                 }}
               >
                 Share on WhatsApp
@@ -2437,7 +2487,7 @@ export const PackingDepartmentHub: React.FC = () => {
                 <Button
                   icon={<SettingOutlined />}
                   size="middle"
-                  style={{ fontWeight: 600, borderRadius: 6 }}
+                  style={{ fontWeight: 600, borderRadius: 0, borderColor: 'var(--theme-border, #e2e8f0)', background: 'var(--theme-card-bg, #ffffff)', color: 'var(--theme-text, #0f172a)' }}
                 >
                   Columns
                 </Button>
@@ -2449,7 +2499,7 @@ export const PackingDepartmentHub: React.FC = () => {
                   setSpokeStoreExpanded(nextState);
                   setNippleStoreExpanded(nextState);
                 }}
-                style={{ fontWeight: 600, borderRadius: 6 }}
+                style={{ fontWeight: 600, borderRadius: 0, borderColor: 'var(--theme-border, #e2e8f0)', background: 'var(--theme-card-bg, #ffffff)', color: 'var(--theme-text, #0f172a)' }}
               >
                 {spokeStoreExpanded && nippleStoreExpanded ? '− Collapse All' : '+ Expand All'}
               </Button>
@@ -2458,7 +2508,7 @@ export const PackingDepartmentHub: React.FC = () => {
                 onClick={fetchDepartmentStock}
                 loading={loadingStock}
                 size="middle"
-                style={{ fontWeight: 600, borderRadius: 6 }}
+                style={{ fontWeight: 600, borderRadius: 0, borderColor: 'var(--theme-border, #e2e8f0)', background: 'var(--theme-card-bg, #ffffff)', color: 'var(--theme-text, #0f172a)' }}
               >
                 Refresh
               </Button>
@@ -2468,16 +2518,23 @@ export const PackingDepartmentHub: React.FC = () => {
           {/* STORE 1: Plating Department Finished Stock */}
           <Card
             size="small"
-            style={{ marginBottom: 18, borderColor: '#fed7aa', borderRadius: 8, boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}
+            bordered={false}
+            style={{
+              marginBottom: 18,
+              border: '1px solid var(--theme-border, #e2e8f0)',
+              borderRadius: 0,
+              boxShadow: 'none',
+              background: 'var(--theme-card-bg, #ffffff)',
+            }}
             title={
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
                 <Space>
-                  <Tag color="orange" style={{ fontWeight: 800, fontSize: 12 }}>STORE 1</Tag>
-                  <span style={{ fontWeight: 800, fontSize: 13.5, color: '#9a3412' }}>
+                  <Tag color="orange" style={{ fontWeight: 800, fontSize: 12, borderRadius: 0 }}>STORE 1</Tag>
+                  <span style={{ fontWeight: 800, fontSize: 13.5, color: 'var(--theme-text, #0f172a)' }}>
                     Plating Department Stock (SPI-PL-004 — PL Production Department)
                   </span>
-                  <Tag color="default" style={{ fontWeight: 700 }}>{spokeStoreBalances.length} Items</Tag>
-                  <Tag color="green" style={{ fontWeight: 700 }}>
+                  <Tag style={{ fontWeight: 700, borderRadius: 0, background: 'var(--theme-surface-alt, rgba(0,0,0,0.02))', color: 'var(--theme-text, #0f172a)', borderColor: 'var(--theme-border, #e2e8f0)' }}>{spokeStoreBalances.length} Items</Tag>
+                  <Tag color="green" style={{ fontWeight: 700, borderRadius: 0 }}>
                     Total: {formatNumber(totalSpokeGrs, 1)} GRS ({formatNumber(totalSpokePcs, 0)} PCS) | {formatNumber(totalSpokeKg, 1)} KG
                   </Tag>
                 </Space>
@@ -2486,7 +2543,7 @@ export const PackingDepartmentHub: React.FC = () => {
                   type="text"
                   icon={spokeStoreExpanded ? <UpOutlined /> : <DownOutlined />}
                   onClick={() => setSpokeStoreExpanded(!spokeStoreExpanded)}
-                  style={{ fontWeight: 600, color: '#9a3412' }}
+                  style={{ fontWeight: 600, color: 'var(--theme-text, #0f172a)' }}
                 >
                   {spokeStoreExpanded ? '− Minimize Store' : '+ Expand Store'}
                 </Button>
@@ -2494,52 +2551,65 @@ export const PackingDepartmentHub: React.FC = () => {
             }
           >
             {spokeStoreExpanded ? (
-              <Table
-                dataSource={spokeStoreBalances}
-                columns={spokeColumns}
-                rowKey="code"
-                loading={loadingStock}
-                pagination={false}
-                size="middle"
-                bordered
-                summary={() => {
-                  const leadingColSpan = 3 + (showWarehouseColumn ? 1 : 0);
-                  const trailingColSpan = (showStatusColumn ? 1 : 0) + (showActionColumn ? 1 : 0);
-                  return (
-                    <Table.Summary fixed>
-                      <Table.Summary.Row style={{ background: '#fff7ed', fontWeight: 800 }}>
-                        <Table.Summary.Cell index={0} colSpan={leadingColSpan} align="right">
-                          <span style={{ color: '#9a3412', fontSize: 13 }}>STORE 1 TOTAL (PLATING SPOKES):</span>
-                        </Table.Summary.Cell>
-                        <Table.Summary.Cell index={1} align="right">
-                          <span style={{ color: '#c2410c', fontSize: 13 }}>{formatNumber(totalSpokeGrs, 1)} GRS</span>
-                        </Table.Summary.Cell>
-                        <Table.Summary.Cell index={2} align="right">
-                          <span style={{ color: '#ea580c', fontSize: 13.5 }}>{formatNumber(totalSpokePcs, 0)} PCS</span>
-                        </Table.Summary.Cell>
-                        {showWeightColumns && (
-                          <>
-                            <Table.Summary.Cell index={3} align="right">
-                              <span style={{ color: '#64748b', fontSize: 12 }}>Avg Wt</span>
-                            </Table.Summary.Cell>
-                            <Table.Summary.Cell index={4} align="right">
-                              <span style={{ color: '#9a3412', fontSize: 13.5 }}>{formatNumber(totalSpokeKg, 1)} KG</span>
-                            </Table.Summary.Cell>
-                          </>
-                        )}
-                        {trailingColSpan > 0 && (
-                          <Table.Summary.Cell index={5} colSpan={trailingColSpan} align="center">
-                            <Tag color="orange" style={{ fontWeight: 700 }}>{spokeStoreBalances.length} Items</Tag>
-                          </Table.Summary.Cell>
-                        )}
-                      </Table.Summary.Row>
-                    </Table.Summary>
-                  );
+              <div
+                className="packing-table-responsive-wrapper"
+                style={{
+                  width: '100%',
+                  maxWidth: '100%',
+                  overflowX: 'auto',
+                  overflowY: 'hidden',
+                  WebkitOverflowScrolling: 'touch',
                 }}
-              />
+              >
+                <Table
+                  dataSource={spokeStoreBalances}
+                  columns={spokeColumns}
+                  rowKey="code"
+                  loading={loadingStock}
+                  pagination={false}
+                  size="middle"
+                  bordered={false}
+                  scroll={{ x: 'max-content' }}
+                  className="packing-borderless-table"
+                  summary={() => {
+                    const leadingColSpan = 3 + (showWarehouseColumn ? 1 : 0);
+                    const trailingColSpan = (showStatusColumn ? 1 : 0) + (showActionColumn ? 1 : 0);
+                    return (
+                      <Table.Summary fixed>
+                        <Table.Summary.Row style={{ background: 'var(--theme-surface-alt, rgba(0,0,0,0.02))', fontWeight: 800 }}>
+                          <Table.Summary.Cell index={0} colSpan={leadingColSpan} align="right">
+                            <span style={{ color: 'var(--theme-text, #0f172a)', fontSize: 13 }}>STORE 1 TOTAL (PLATING SPOKES):</span>
+                          </Table.Summary.Cell>
+                          <Table.Summary.Cell index={1} align="right">
+                            <span style={{ color: '#c2410c', fontSize: 13 }}>{formatNumber(totalSpokeGrs, 1)} GRS</span>
+                          </Table.Summary.Cell>
+                          <Table.Summary.Cell index={2} align="right">
+                            <span style={{ color: '#ea580c', fontSize: 13.5 }}>{formatNumber(totalSpokePcs, 0)} PCS</span>
+                          </Table.Summary.Cell>
+                          {showWeightColumns && (
+                            <>
+                              <Table.Summary.Cell index={3} align="right">
+                                <span style={{ color: 'var(--theme-text-muted, #64748b)', fontSize: 12 }}>Avg Wt</span>
+                              </Table.Summary.Cell>
+                              <Table.Summary.Cell index={4} align="right">
+                                <span style={{ color: '#ea580c', fontSize: 13.5 }}>{formatNumber(totalSpokeKg, 1)} KG</span>
+                              </Table.Summary.Cell>
+                            </>
+                          )}
+                          {trailingColSpan > 0 && (
+                            <Table.Summary.Cell index={5} colSpan={trailingColSpan} align="center">
+                              <Tag color="orange" style={{ fontWeight: 700, borderRadius: 0 }}>{spokeStoreBalances.length} Items</Tag>
+                            </Table.Summary.Cell>
+                          )}
+                        </Table.Summary.Row>
+                      </Table.Summary>
+                    );
+                  }}
+                />
+              </div>
             ) : (
               <div
-                style={{ textAlign: 'center', padding: '12px 0', color: '#64748b', cursor: 'pointer', background: '#fffbeb', borderRadius: 4 }}
+                style={{ textAlign: 'center', padding: '12px 0', color: 'var(--theme-text-muted, #64748b)', cursor: 'pointer', background: 'var(--theme-surface-alt, rgba(0,0,0,0.02))', border: '1px solid var(--theme-border, #e2e8f0)', borderRadius: 0 }}
                 onClick={() => setSpokeStoreExpanded(true)}
               >
                 <b>Store Collapsed</b> — Click to Expand {spokeStoreBalances.length} Plated Spoke Wire Items
@@ -2550,16 +2620,22 @@ export const PackingDepartmentHub: React.FC = () => {
           {/* STORE 2: Nipple & Hardware Store */}
           <Card
             size="small"
-            style={{ borderColor: '#bae6fd', borderRadius: 8, boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}
+            bordered={false}
+            style={{
+              border: '1px solid var(--theme-border, #e2e8f0)',
+              borderRadius: 0,
+              boxShadow: 'none',
+              background: 'var(--theme-card-bg, #ffffff)',
+            }}
             title={
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
                 <Space>
-                  <Tag color="blue" style={{ fontWeight: 800, fontSize: 12 }}>STORE 2</Tag>
-                  <span style={{ fontWeight: 800, fontSize: 13.5, color: '#0369a1' }}>
+                  <Tag color="blue" style={{ fontWeight: 800, fontSize: 12, borderRadius: 0 }}>STORE 2</Tag>
+                  <span style={{ fontWeight: 800, fontSize: 13.5, color: 'var(--theme-text, #0f172a)' }}>
                     Nipple & Hardware Store (WH-002 — SPI Main Warehouse)
                   </span>
-                  <Tag color="default" style={{ fontWeight: 700 }}>{nippleStoreBalances.length} Items</Tag>
-                  <Tag color="cyan" style={{ fontWeight: 700 }}>
+                  <Tag style={{ fontWeight: 700, borderRadius: 0, background: 'var(--theme-surface-alt, rgba(0,0,0,0.02))', color: 'var(--theme-text, #0f172a)', borderColor: 'var(--theme-border, #e2e8f0)' }}>{nippleStoreBalances.length} Items</Tag>
+                  <Tag color="cyan" style={{ fontWeight: 700, borderRadius: 0 }}>
                     Total: {formatNumber(totalNippleGrs, 1)} GRS ({formatNumber(totalNipplePcs, 0)} PCS) | {formatNumber(totalNippleKg, 1)} KG
                   </Tag>
                 </Space>
@@ -2568,7 +2644,7 @@ export const PackingDepartmentHub: React.FC = () => {
                   type="text"
                   icon={nippleStoreExpanded ? <UpOutlined /> : <DownOutlined />}
                   onClick={() => setNippleStoreExpanded(!nippleStoreExpanded)}
-                  style={{ fontWeight: 600, color: '#0369a1' }}
+                  style={{ fontWeight: 600, color: 'var(--theme-text, #0f172a)' }}
                 >
                   {nippleStoreExpanded ? '− Minimize Store' : '+ Expand Store'}
                 </Button>
@@ -2576,52 +2652,65 @@ export const PackingDepartmentHub: React.FC = () => {
             }
           >
             {nippleStoreExpanded ? (
-              <Table
-                dataSource={nippleStoreBalances}
-                columns={nippleColumns}
-                rowKey="code"
-                loading={loadingStock}
-                pagination={false}
-                size="middle"
-                bordered
-                summary={() => {
-                  const leadingColSpan = 3 + (showWarehouseColumn ? 1 : 0);
-                  const trailingColSpan = (showStatusColumn ? 1 : 0) + (showActionColumn ? 1 : 0);
-                  return (
-                    <Table.Summary fixed>
-                      <Table.Summary.Row style={{ background: '#f0f9ff', fontWeight: 800 }}>
-                        <Table.Summary.Cell index={0} colSpan={leadingColSpan} align="right">
-                          <span style={{ color: '#0369a1', fontSize: 13 }}>STORE 2 TOTAL (ASSEMBLY NIPPLES):</span>
-                        </Table.Summary.Cell>
-                        <Table.Summary.Cell index={1} align="right">
-                          <span style={{ color: '#0369a1', fontSize: 13 }}>{formatNumber(totalNippleGrs, 1)} GRS</span>
-                        </Table.Summary.Cell>
-                        <Table.Summary.Cell index={2} align="right">
-                          <span style={{ color: '#0284c7', fontSize: 13.5 }}>{formatNumber(totalNipplePcs, 0)} PCS</span>
-                        </Table.Summary.Cell>
-                        {showWeightColumns && (
-                          <>
-                            <Table.Summary.Cell index={3} align="right">
-                              <span style={{ color: '#64748b', fontSize: 12 }}>0.00350</span>
-                            </Table.Summary.Cell>
-                            <Table.Summary.Cell index={4} align="right">
-                              <span style={{ color: '#0c4a6e', fontSize: 13.5 }}>{formatNumber(totalNippleKg, 1)} KG</span>
-                            </Table.Summary.Cell>
-                          </>
-                        )}
-                        {trailingColSpan > 0 && (
-                          <Table.Summary.Cell index={5} colSpan={trailingColSpan} align="center">
-                            <Tag color="blue" style={{ fontWeight: 700 }}>{nippleStoreBalances.length} Items</Tag>
-                          </Table.Summary.Cell>
-                        )}
-                      </Table.Summary.Row>
-                    </Table.Summary>
-                  );
+              <div
+                className="packing-table-responsive-wrapper"
+                style={{
+                  width: '100%',
+                  maxWidth: '100%',
+                  overflowX: 'auto',
+                  overflowY: 'hidden',
+                  WebkitOverflowScrolling: 'touch',
                 }}
-              />
+              >
+                <Table
+                  dataSource={nippleStoreBalances}
+                  columns={nippleColumns}
+                  rowKey="code"
+                  loading={loadingStock}
+                  pagination={false}
+                  size="middle"
+                  bordered={false}
+                  scroll={{ x: 'max-content' }}
+                  className="packing-borderless-table"
+                  summary={() => {
+                    const leadingColSpan = 3 + (showWarehouseColumn ? 1 : 0);
+                    const trailingColSpan = (showStatusColumn ? 1 : 0) + (showActionColumn ? 1 : 0);
+                    return (
+                      <Table.Summary fixed>
+                        <Table.Summary.Row style={{ background: 'var(--theme-surface-alt, rgba(0,0,0,0.02))', fontWeight: 800 }}>
+                          <Table.Summary.Cell index={0} colSpan={leadingColSpan} align="right">
+                            <span style={{ color: 'var(--theme-text, #0f172a)', fontSize: 13 }}>STORE 2 TOTAL (ASSEMBLY NIPPLES):</span>
+                          </Table.Summary.Cell>
+                          <Table.Summary.Cell index={1} align="right">
+                            <span style={{ color: '#0369a1', fontSize: 13 }}>{formatNumber(totalNippleGrs, 1)} GRS</span>
+                          </Table.Summary.Cell>
+                          <Table.Summary.Cell index={2} align="right">
+                            <span style={{ color: '#0284c7', fontSize: 13.5 }}>{formatNumber(totalNipplePcs, 0)} PCS</span>
+                          </Table.Summary.Cell>
+                          {showWeightColumns && (
+                            <>
+                              <Table.Summary.Cell index={3} align="right">
+                                <span style={{ color: 'var(--theme-text-muted, #64748b)', fontSize: 12 }}>0.00350</span>
+                              </Table.Summary.Cell>
+                              <Table.Summary.Cell index={4} align="right">
+                                <span style={{ color: '#0284c7', fontSize: 13.5 }}>{formatNumber(totalNippleKg, 1)} KG</span>
+                              </Table.Summary.Cell>
+                            </>
+                          )}
+                          {trailingColSpan > 0 && (
+                            <Table.Summary.Cell index={5} colSpan={trailingColSpan} align="center">
+                              <Tag color="blue" style={{ fontWeight: 700, borderRadius: 0 }}>{nippleStoreBalances.length} Items</Tag>
+                            </Table.Summary.Cell>
+                          )}
+                        </Table.Summary.Row>
+                      </Table.Summary>
+                    );
+                  }}
+                />
+              </div>
             ) : (
               <div
-                style={{ textAlign: 'center', padding: '12px 0', color: '#64748b', cursor: 'pointer', background: '#f0f9ff', borderRadius: 4 }}
+                style={{ textAlign: 'center', padding: '12px 0', color: 'var(--theme-text-muted, #64748b)', cursor: 'pointer', background: 'var(--theme-surface-alt, rgba(0,0,0,0.02))', border: '1px solid var(--theme-border, #e2e8f0)', borderRadius: 0 }}
                 onClick={() => setNippleStoreExpanded(true)}
               >
                 <b>Store Collapsed</b> — Click to Expand {nippleStoreBalances.length} Nipple Items
@@ -2702,8 +2791,21 @@ export const PackingDepartmentHub: React.FC = () => {
         </button>
       </div>
 
-      {/* ── Main Tabs Container (Theme-Halo Border with Persistent Tab Content) ── */}
-      <Card className="prod-open-stock-main-card" bordered={false}>
+      {/* ── Main Tabs Container (Zero-Border Flush Canvas) ── */}
+      <div
+        className="packing-hub-zero-border-canvas"
+        style={{
+          width: '100%',
+          maxWidth: '100%',
+          margin: 0,
+          padding: 0,
+          border: 'none',
+          borderRadius: 0,
+          boxShadow: 'none',
+          background: 'transparent',
+          overflow: 'hidden',
+        }}
+      >
         <Tabs
           activeKey={activeTab}
           onChange={handleTabChange}
@@ -2711,7 +2813,7 @@ export const PackingDepartmentHub: React.FC = () => {
           renderTabBar={() => <div style={{ display: 'none' }} />}
           items={tabItems}
         />
-      </Card>
+      </div>
 
       {/* ── WhatsApp Sharing Modal ── */}
       <Modal
@@ -2722,21 +2824,21 @@ export const PackingDepartmentHub: React.FC = () => {
             </div>
             <div>
               <div style={{ fontWeight: 800, fontSize: 15, color: '#065f46' }}>Share Store Stock Report via WhatsApp</div>
-              <div style={{ fontSize: 11, color: '#64748b', fontWeight: 400 }}>Send formatted stock summary directly to team or management</div>
+              <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #64748b)', fontWeight: 400 }}>Send formatted stock summary directly to team or management</div>
             </div>
           </div>
         }
         open={whatsAppModalVisible}
         onCancel={() => setWhatsAppModalVisible(false)}
         footer={[
-          <Button key="close" onClick={() => setWhatsAppModalVisible(false)}>
+          <Button key="close" onClick={() => setWhatsAppModalVisible(false)} style={{ borderRadius: 0 }}>
             Close
           </Button>,
           <Button
             key="copy"
             icon={copiedWhatsApp ? <CheckOutlined /> : <CopyOutlined />}
             onClick={handleCopyWhatsApp}
-            style={{ fontWeight: 600 }}
+            style={{ fontWeight: 600, borderRadius: 0 }}
           >
             {copiedWhatsApp ? 'Copied!' : 'Copy to Clipboard'}
           </Button>,
@@ -2745,7 +2847,7 @@ export const PackingDepartmentHub: React.FC = () => {
             type="primary"
             icon={<SendOutlined />}
             onClick={handleOpenWhatsApp}
-            style={{ background: '#25D366', borderColor: '#25D366', fontWeight: 700 }}
+            style={{ background: '#25D366', borderColor: '#25D366', fontWeight: 700, borderRadius: 0 }}
           >
             Open in WhatsApp
           </Button>,
@@ -2754,7 +2856,7 @@ export const PackingDepartmentHub: React.FC = () => {
       >
         <div style={{ padding: '8px 0' }}>
           <div style={{ marginBottom: 12 }}>
-            <label style={{ display: 'block', fontWeight: 700, fontSize: 12.5, marginBottom: 6, color: '#334155' }}>
+            <label style={{ display: 'block', fontWeight: 700, fontSize: 12.5, marginBottom: 6, color: 'var(--theme-text, #334155)' }}>
               Recipient WhatsApp Number (Optional)
             </label>
             <Input
@@ -2763,17 +2865,17 @@ export const PackingDepartmentHub: React.FC = () => {
               onChange={(e) => setWhatsAppPhone(e.target.value)}
               prefix={<WhatsAppOutlined style={{ color: '#25D366' }} />}
               allowClear
-              style={{ borderRadius: 6 }}
+              style={{ borderRadius: 0 }}
             />
-            <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>
+            <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', marginTop: 4 }}>
               If left blank, WhatsApp will prompt you to select any contact or group from your chats.
             </div>
           </div>
 
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-              <span style={{ fontWeight: 700, fontSize: 12.5, color: '#334155' }}>Formatted Message Preview</span>
-              <Tag color="success">Ready to Send</Tag>
+              <span style={{ fontWeight: 700, fontSize: 12.5, color: 'var(--theme-text, #334155)' }}>Formatted Message Preview</span>
+              <Tag color="success" style={{ borderRadius: 0 }}>Ready to Send</Tag>
             </div>
             <div
               style={{

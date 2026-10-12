@@ -1,9 +1,10 @@
 import React from 'react';
-import { render, screen, fireEvent, within, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, within, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import '@testing-library/jest-dom';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { App } from 'antd';
+import dayjs from 'dayjs';
 import EntryForm from './EntryForm';
 import apiService from '../../../services/api';
 import { formatNumber, formatDimension } from '../../../utils/numberFormat';
@@ -3098,6 +3099,67 @@ describe('TASK #37 — scrap-inclusive raw consumption + RAW_MATERIAL source sto
     await add37();
     await screen.findByTestId('material-flow-rawitem-1');
     await waitFor(() => expect(screen.queryByTestId('material-flow-store-1')).not.toBeInTheDocument());
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PRODUCTION ENTRY DATE — selection-lock regression (shared contract with
+// HandPackingEntry): a brand-new form defaults to the PREVIOUS day, but a
+// manually chosen day must persist. No lookup hydration, context patch, or
+// field remount may snap the picker back to the default value.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('EntryForm — Production Entry Date selection-lock regression', () => {
+  beforeEach(() => {
+    apiMock.get.mockReset();
+  });
+
+  it('defaults to the previous day and keeps a manually picked day through lookup hydration', async () => {
+    // Standard fixtures, but every lookup request is GATED: the operator can
+    // pick a day while the async lookups are still in flight — the exact
+    // window where a late writer would snap the field back to the default.
+    mockCommonApi();
+    const realImpl = apiMock.get.getMockImplementation()!;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    apiMock.get.mockImplementation((url: string, config?: any) => gate.then(() => realImpl(url, config)));
+
+    render(
+      <App>
+        <MemoryRouter initialEntries={['/production/entries/new']}>
+          <Routes>
+            <Route path="/production/entries/new" element={<EntryForm mode="create" />} />
+          </Routes>
+        </MemoryRouter>
+      </App>
+    );
+
+    const input = (await screen.findByLabelText(/production entry date/i)) as HTMLInputElement;
+    const yesterday = dayjs().subtract(1, 'day').format('YYYY-MM-DD');
+    const picked = dayjs().format('YYYY-MM-DD'); // any day ≠ previous-day default
+    expect(input.value).toBe(yesterday);
+
+    // Commit a real panel selection: rc-picker v4 opens on CLICK (not
+    // mousedown) and a cell click commits through triggerConfirm → onChange.
+    fireEvent.click(input);
+    const cell = await waitFor(() => {
+      const found = document.querySelector<HTMLElement>(`.ant-picker-dropdown [title="${picked}"]`);
+      if (!found) throw new Error(`date cell ${picked} not rendered yet`);
+      return found;
+    });
+    fireEvent.click(cell);
+    expect(input.value).toBe(picked);
+
+    // Release the lookups so every hydration effect completes AFTER the
+    // operator's pick — the picked day must remain untouched.
+    apiMock.get.mockImplementation(realImpl);
+    release();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+
+    expect((screen.getByLabelText(/production entry date/i) as HTMLInputElement).value).toBe(picked);
   });
 });
 

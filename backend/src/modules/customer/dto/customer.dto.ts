@@ -12,12 +12,12 @@ export class CreateCustomerDto {
   isActive?: boolean;
 
   @ApiPropertyOptional({ description: 'Company ID' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsOptional()
   companyId?: string;
 
   @ApiPropertyOptional({ description: 'Division ID' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsOptional()
   divisionId?: string;
 
@@ -226,7 +226,7 @@ export class CreateCustomerDto {
   leadSource?: string;
 
   @ApiPropertyOptional({ description: 'Assigned to user ID' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsOptional()
   assignedTo?: string;
 
@@ -409,12 +409,12 @@ export class CustomerFilterDto {
   search?: string;
 
   @ApiPropertyOptional({ description: 'Filter by company ID' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsOptional()
   companyId?: string;
 
   @ApiPropertyOptional({ description: 'Filter by division ID' })
-  @IsUUID()
+  @IsUUID('loose')
   @IsOptional()
   divisionId?: string;
 

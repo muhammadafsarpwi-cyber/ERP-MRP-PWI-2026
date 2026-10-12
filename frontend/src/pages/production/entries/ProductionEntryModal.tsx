@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Space, Button, Tooltip, Popconfirm, Tag, Modal } from 'antd';
+import { Space, Button, Tooltip, Popconfirm, Tag, Modal, message } from 'antd';
 import {
   MinusOutlined,
   FullscreenOutlined,
@@ -10,6 +10,7 @@ import {
   ThunderboltFilled,
   ExclamationCircleFilled,
   DeleteOutlined,
+  ReloadOutlined,
 } from '@ant-design/icons';
 import { useEntryDockStore } from './entryDockStore';
 import EntryForm from './EntryForm';
@@ -30,6 +31,17 @@ export const ProductionEntryModal: React.FC = () => {
   } = useEntryDockStore();
 
   const [closeConfirmOpen, setCloseConfirmOpen] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const handleRefresh = () => {
+    setIsRefreshing(true);
+    setRefreshKey((prev) => prev + 1);
+    setTimeout(() => {
+      setIsRefreshing(false);
+      message.success('Production entry data refreshed');
+    }, 400);
+  };
 
   // If the entry session is not active at all, do not render.
   // When minimized, we keep the component MOUNTED with display: none so all user input,
@@ -92,6 +104,27 @@ export const ProductionEntryModal: React.FC = () => {
 
             {/* Window Controls */}
             <div className="entry-window-controls" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              {/* Refresh Form & Data */}
+              <Tooltip title="Refresh Form & Reload Live Data">
+                <button
+                  type="button"
+                  className="entry-window-view-toggle"
+                  onClick={handleRefresh}
+                  disabled={isRefreshing}
+                  aria-label="Refresh Form"
+                  style={{
+                    background: 'rgba(56, 189, 248, 0.16)',
+                    borderColor: '#38bdf8',
+                    color: '#38bdf8',
+                    cursor: isRefreshing ? 'wait' : 'pointer',
+                    fontWeight: 600,
+                  }}
+                >
+                  <ReloadOutlined spin={isRefreshing} />
+                  <span>{isRefreshing ? 'Refreshing…' : 'Refresh'}</span>
+                </button>
+              </Tooltip>
+
               {/* View Details Toggle */}
               <button
                 type="button"
@@ -188,6 +221,7 @@ export const ProductionEntryModal: React.FC = () => {
           {/* ── Window Content: EntryForm in Modal Split-Book Mode ── */}
           <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
             <EntryForm
+              key={`entry-form-${refreshKey}`}
               mode={(entryParams?.mode as 'create' | 'edit') || 'create'}
               isModal={true}
               modalParams={entryParams || undefined}

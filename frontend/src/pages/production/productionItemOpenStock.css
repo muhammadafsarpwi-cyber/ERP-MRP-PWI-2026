@@ -830,3 +830,218 @@
   transform: translateY(-1px) !important;
 }
 
+/* ==========================================================================
+   PACKING DEPARTMENT HUB - 2026 ZERO-BORDER & EDGE-TO-EDGE OVERHAUL
+   Strict theme adherence, boundary containment & responsive touch scrollbar
+   ========================================================================== */
+
+/* Flush edge-to-edge container */
+.erp-packing-department-hub {
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  overflow-x: hidden !important;
+  box-sizing: border-box !important;
+}
+
+/* Breadcrumbs & Header Flush Alignment */
+.erp-packing-department-hub .erp-hub-breadcrumbs {
+  padding: 0 16px;
+}
+
+.erp-packing-department-hub .prod-open-stock-compact-header {
+  border-radius: 0 !important;
+  border-left: none !important;
+  border-right: none !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+/* Nav Folder Tabs edge-to-edge */
+.erp-packing-department-hub .prod-folder-nav-wrapper {
+  padding: 0 16px !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+/* Remove Outer Halo Border, double lines and box shadows */
+.erp-packing-department-hub .prod-open-stock-main-card,
+.erp-packing-department-hub .packing-hub-zero-border-canvas {
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  overflow: hidden !important;
+}
+
+.erp-packing-department-hub .ant-tabs-content-holder,
+.erp-packing-department-hub .ant-tabs-content,
+.erp-packing-department-hub .ant-tabs-tabpane {
+  width: 100% !important;
+  max-width: 100% !important;
+  overflow: hidden !important;
+  padding: 0 16px !important;
+  box-sizing: border-box !important;
+}
+
+/* Zero border radius & flush styling on all cards inside packing hub */
+.erp-packing-department-hub .ant-card {
+  border-radius: 0 !important;
+  border-left: none !important;
+  border-right: none !important;
+  box-shadow: none !important;
+  background: var(--theme-card-bg, #ffffff) !important;
+  border-color: var(--theme-border, #e2e8f0) !important;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.erp-packing-department-hub .ant-card-head {
+  border-radius: 0 !important;
+  border-bottom: 1px solid var(--theme-border, #e2e8f0) !important;
+  background: var(--theme-card-bg, #ffffff) !important;
+  color: var(--theme-text, #0f172a) !important;
+  padding: 0 16px !important;
+}
+
+.erp-packing-department-hub .ant-card-body {
+  border-radius: 0 !important;
+  padding: 16px !important;
+}
+
+/* Tag border radius reset */
+.erp-packing-department-hub .ant-tag {
+  border-radius: 0 !important;
+}
+
+/* Strict Component Overflow Containment & Touch Scrolling */
+.erp-packing-department-hub .packing-table-responsive-wrapper {
+  width: 100% !important;
+  max-width: 100% !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  -webkit-overflow-scrolling: touch !important;
+  position: relative !important;
+  scrollbar-width: thin;
+  scrollbar-color: var(--theme-border, #cbd5e1) transparent;
+}
+
+.erp-packing-department-hub .packing-table-responsive-wrapper::-webkit-scrollbar {
+  height: 6px;
+}
+
+.erp-packing-department-hub .packing-table-responsive-wrapper::-webkit-scrollbar-track {
+  background: var(--theme-surface-alt, rgba(0, 0, 0, 0.02));
+}
+
+.erp-packing-department-hub .packing-table-responsive-wrapper::-webkit-scrollbar-thumb {
+  background: var(--theme-border, #cbd5e1);
+  border-radius: 3px;
+}
+
+.erp-packing-department-hub .packing-table-responsive-wrapper::-webkit-scrollbar-thumb:hover {
+  background: var(--theme-text-muted, #94a3b8);
+}
+
+/* Zero-Border Data Table */
+.erp-packing-department-hub .ant-table,
+.erp-packing-department-hub .packing-borderless-table {
+  border-radius: 0 !important;
+  border: none !important;
+  background: var(--theme-card-bg, #ffffff) !important;
+  width: 100% !important;
+}
+
+.erp-packing-department-hub .ant-table-container {
+  border-radius: 0 !important;
+  border: none !important;
+}
+
+.erp-packing-department-hub .ant-table-header {
+  border-radius: 0 !important;
+}
+
+.erp-packing-department-hub .ant-table-thead > tr > th {
+  border-radius: 0 !important;
+  background: var(--theme-table-header-bg, var(--theme-surface-alt, #0b1e36)) !important;
+  color: var(--theme-table-header-color, #ffffff) !important;
+  border-bottom: 1px solid var(--theme-border, #334155) !important;
+  border-top: none !important;
+  border-left: none !important;
+  border-right: none !important;
+  font-weight: 700 !important;
+}
+
+.erp-packing-department-hub .ant-table-tbody > tr > td {
+  border-radius: 0 !important;
+  border-bottom: 1px solid var(--theme-border, #e2e8f0) !important;
+  border-top: none !important;
+  border-left: none !important;
+  border-right: none !important;
+  background: var(--theme-card-bg, #ffffff);
+  color: var(--theme-text, #0f172a);
+}
+
+.erp-packing-department-hub .ant-table-tbody > tr:hover > td {
+  background: var(--theme-table-row-hover, rgba(0, 0, 0, 0.04)) !important;
+}
+
+.erp-packing-department-hub .ant-table-summary {
+  background: var(--theme-surface-alt, rgba(0, 0, 0, 0.02)) !important;
+  border-top: 1px solid var(--theme-border, #e2e8f0) !important;
+  border-bottom: none !important;
+}
+
+.erp-packing-department-hub .ant-table-summary tr > td {
+  border-radius: 0 !important;
+  border-left: none !important;
+  border-right: none !important;
+  border-top: none !important;
+  border-bottom: 1px solid var(--theme-border, #e2e8f0) !important;
+}
+
+/* Dark Theme Overrides */
+[data-theme='dark'] .erp-packing-department-hub {
+  background: var(--theme-background, #0f172a) !important;
+  color: var(--theme-text, #f8fafc) !important;
+}
+
+[data-theme='dark'] .erp-packing-department-hub .ant-card {
+  background: var(--theme-card-bg, #1e293b) !important;
+  border-color: var(--theme-border, #334155) !important;
+}
+
+[data-theme='dark'] .erp-packing-department-hub .ant-card-head {
+  background: var(--theme-card-bg, #1e293b) !important;
+  border-color: var(--theme-border, #334155) !important;
+  color: var(--theme-text, #f8fafc) !important;
+}
+
+[data-theme='dark'] .erp-packing-department-hub .ant-table-tbody > tr > td {
+  background: var(--theme-card-bg, #1e293b) !important;
+  border-color: var(--theme-border, #334155) !important;
+  color: var(--theme-text, #f8fafc) !important;
+}
+
+[data-theme='dark'] .erp-packing-department-hub .ant-table-tbody > tr:hover > td {
+  background: rgba(255, 255, 255, 0.06) !important;
+}
+
+[data-theme='dark'] .erp-packing-department-hub .ant-table-summary {
+  background: var(--theme-surface-alt, #1e293b) !important;
+  border-color: var(--theme-border, #334155) !important;
+}
+
+[data-theme='dark'] .erp-packing-department-hub .ant-table-summary tr > td {
+  border-color: var(--theme-border, #334155) !important;
+}
+
+

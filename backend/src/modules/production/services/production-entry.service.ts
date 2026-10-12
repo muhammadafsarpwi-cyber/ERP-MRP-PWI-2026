@@ -37,6 +37,31 @@ const ENTRY_REFERENCE_TYPE = 'PRODUCTION_ENTRY';
 const HAND_PACKING_PCS_PER_GROSS = 144;
 const HAND_PACKING_PCS_PER_CARTON = 1440;
 
+/**
+ * Component-wise packing rejection / scrap line (Hand Packing). The rejected
+ * pieces of ONE BOM component are ADDED to that component's consumption
+ * requirement, so its source store is deducted Required + Rejected. The packed
+ * Finished Good output quantity is never reduced by component scrap.
+ */
+interface ComponentRejectionLine {
+  itemId: string;
+  componentItemCode?: string;
+  componentItemName?: string;
+  warehouseId?: string | null;
+  /** Rejected quantity in whole pieces (PCS) of this component. */
+  quantityPcs?: number;
+  /** Rejected quantity converted to KG via the component's per-piece weight. */
+  quantityKg?: number;
+  /** Item Master per-piece weight (KG) of the component (audit). */
+  weightPerPieceKg?: number;
+  /** Row rejection % on KG: RejKG ÷ (ReqKG + RejKG) × 100 (audit). */
+  rejectionPct?: number;
+  /** Short operator scrap reason for THIS component row (e.g. "Head Crack"). */
+  remarks?: string | null;
+  /** Alias of `remarks` — clients may send either field name. */
+  scrapReason?: string | null;
+}
+
 /** `production_entry_items` lines holding the posting path's raw-material consumption audit start here. */
 const INPUT_AUDIT_LINE_NUMBER = 1000;
 
@@ -1415,6 +1440,13 @@ addToDept(org, {
   ): Promise<ProductionEntry> {
     // §19 — never trust a client-supplied division id.
     this.assertDivisionAccess(allowedDivisionIds, dto.divisionId, 'production entry');
+    // Production Entry Date: `productionDate` is the operator-facing alias for
+    // the calendar day the production occurred — when provided it wins over
+    // `entryDate` and is normalized ONCE here so target resolution, duplicate
+    // prevention and the stored row all agree on the same day.
+    if (dto.productionDate?.trim()) {
+      dto.entryDate = dto.productionDate.trim();
+    }
     let ot = dto.overtimeHours ? Number(dto.overtimeHours) : 0;
     if (ot <= 0) {
       const match = dto.remarks?.match(/OT:\s*(\d+(?:\.\d+)?)\s*h/i);
@@ -1532,7 +1564,7 @@ addToDept(org, {
       downtimeReasonText: dto.downtimeReason ?? null,
       scrapQuantity: dto.scrapQuantity,
       processScrapKg: dto.processScrapKg ?? 0,
-      remarks: dto.remarks ?? null,
+      remarks: this.withRejectionRemarks(dto.remarks, dto.rejectionRemarks),
       rawMaterialWarehouseId: sourceStoreId,
       warehouseId: resolved.warehouseId ?? dto.warehouseId ?? null,
       createdBy: userId ?? null,
@@ -1550,6 +1582,7 @@ addToDept(org, {
         await this.postInventoryAndConsume(
           manager, companyId, saved, resolved.warehouseId!, sourceStoreId,
           onlyOutputLines(dto.items) ?? [], userId, dto.componentWarehouses,
+          dto.componentRejections,
         );
         return saved;
       });
@@ -1591,7 +1624,8 @@ addToDept(org, {
       divisionId: dto.divisionId ?? entry.divisionId,
       sectionId: dto.sectionId ?? entry.sectionId,
       departmentId: dto.departmentId ?? entry.departmentId,
-      entryDate: dto.entryDate ?? entry.entryDate,
+      // Production Entry Date alias wins over entryDate on update as well.
+      entryDate: dto.productionDate?.trim() || dto.entryDate || entry.entryDate,
       shiftId: dto.shiftId ?? entry.shiftId,
       machineId: dto.machineId !== undefined ? dto.machineId : entry.machineId,
       machineNo: dto.machineNo ?? entry.machineNo,
@@ -1717,7 +1751,10 @@ addToDept(org, {
       achievementPercentage: this.computeAchievement(merged.actualQuantity, merged.targetQuantity),
       efficiencyPercentage: this.computeEfficiency(effectiveRunning, totalPlanned > 0 ? totalPlanned : resolved.plannedHours),
       downtimeReasonText: dto.downtimeReason !== undefined ? (dto.downtimeReason ?? null) : entry.downtimeReasonText,
-      remarks: dto.remarks !== undefined ? (dto.remarks ?? null) : entry.remarks,
+      remarks: this.withRejectionRemarks(
+        dto.remarks !== undefined ? dto.remarks : entry.remarks,
+        dto.rejectionRemarks,
+      ),
       updatedBy: userId ?? null,
     });
 
@@ -1760,7 +1797,7 @@ addToDept(org, {
         if (quantityOrItemChanged) {
           await this.postInventoryAndConsume(
             manager, companyId, updated, resolved.warehouseId, merged.rawMaterialWarehouseId,
-            outputLines, userId,
+            outputLines, userId, undefined, dto.componentRejections,
           );
         }
         return updated;
@@ -1769,6 +1806,7 @@ addToDept(org, {
       if (previous.reliable) {
         const plan = await this.planInventoryPostings(
           manager, companyId, updated, merged.rawMaterialWarehouseId, outputLines, userId,
+          undefined, dto.componentRejections,
         );
         await this.applyInventoryDelta(
           manager, companyId, updated, outputLines, resolved.warehouseId,
@@ -1777,7 +1815,7 @@ addToDept(org, {
       } else {
         await this.postInventoryAndConsume(
           manager, companyId, updated, resolved.warehouseId, merged.rawMaterialWarehouseId,
-          outputLines, userId,
+          outputLines, userId, undefined, dto.componentRejections,
         );
       }
       return updated;
@@ -1982,6 +2020,7 @@ addToDept(org, {
     lines: OutputLine[],
     userId?: string,
     componentWarehouses?: Array<{ itemId: string; warehouseId: string }>,
+    componentRejections?: ComponentRejectionLine[],
   ): Promise<{
     lines: Array<{ itemId: string; uomId: string | null; warehouseId: string; quantity: number }>;
     routingCode: string | null;
@@ -1995,6 +2034,7 @@ addToDept(org, {
       const configuredInputs = this.resolveRoutingInputsForOutput(routing, output.itemId);
       const consumed = await this.consumeForProductionItem(
         manager, companyId, output, entry, sourceStoreId, configuredInputs, userId, componentWarehouses, true,
+        componentRejections,
       );
       for (const line of consumed) {
         planned.push({ itemId: line.itemId, uomId: line.uomId, warehouseId: line.warehouseId, quantity: line.required });
@@ -2832,6 +2872,7 @@ addToDept(org, {
     }>,
     userId?: string,
     componentWarehouses?: Array<{ itemId: string; warehouseId: string }>,
+    componentRejections?: ComponentRejectionLine[],
   ): Promise<void> {
     // TASK #35/#37: idempotency guard — inventory movement happens EXACTLY ONCE per
     // production entry. When the receipt ledger id is already recorded this entry
@@ -2851,7 +2892,7 @@ addToDept(org, {
     // Each production item posts independently (input OUT → output IN).
     const outputs = this.buildProductionOutputs(entry, lines);
 
-    const consumedInputs: Array<{ itemId: string; uomId: string | null; required: number; warehouseId: string }> = [];
+    const consumedInputs: Array<{ itemId: string; uomId: string | null; required: number; warehouseId: string; scrap?: number }> = [];
 
     for (const output of outputs) {
       if (Number(output.actualQuantity) <= 0 && Number(output.scrapQuantity || 0) <= 0) {
@@ -2861,6 +2902,7 @@ addToDept(org, {
       const configuredInputs = this.resolveRoutingInputsForOutput(routing, output.itemId);
       const consumed = await this.consumeForProductionItem(
         manager, companyId, output, entry, sourceStoreId, configuredInputs, userId, componentWarehouses,
+        false, componentRejections,
       );
       consumedInputs.push(...consumed);
 
@@ -2909,14 +2951,20 @@ addToDept(org, {
 
     // Audit the exact configured inputs that were consumed as INPUT-kind entry
     // lines (deduplicated by item + source warehouse, quantities summed). These
-    // rows carry the routing-configured item IDs — never the BOM guess.
+    // rows carry the routing-configured item IDs — never the BOM guess. The
+    // quantity is the TOTAL deduction (requirement + component rejection) and
+    // `scrapQuantity` isolates the component-level rejected pieces within it.
     if (consumedInputs.length) {
-      const byItem = new Map<string, { itemId: string; uomId: string | null; required: number; warehouseId: string }>();
+      const byItem = new Map<string, { itemId: string; uomId: string | null; required: number; warehouseId: string; scrap: number }>();
       for (const c of consumedInputs) {
         const key = `${c.itemId}|${c.warehouseId}`;
         const existing = byItem.get(key);
-        if (existing) existing.required += c.required;
-        else byItem.set(key, { ...c });
+        if (existing) {
+          existing.required += c.required;
+          existing.scrap += Number(c.scrap || 0);
+        } else {
+          byItem.set(key, { itemId: c.itemId, uomId: c.uomId, required: c.required, warehouseId: c.warehouseId, scrap: Number(c.scrap || 0) });
+        }
       }
       const rows = [...byItem.values()].map((c, idx) => {
         const row = this.entryItemRepo.create({
@@ -2929,10 +2977,12 @@ addToDept(org, {
           sourceWarehouseId: c.warehouseId,
           targetQuantity: this.round4(c.required),
           actualQuantity: this.round4(c.required),
-          scrapQuantity: 0,
+          scrapQuantity: this.round4(c.scrap || 0),
           runningHours: 0,
           routingCode: (routing as any)?.routingCode ?? null,
-          remarks: 'Routing-configured raw material consumption (exact item)',
+          remarks: c.scrap > 0
+            ? 'Raw material consumption (incl. component-level packing scrap)'
+            : 'Routing-configured raw material consumption (exact item)',
           createdBy: userId ?? null,
           updatedBy: userId ?? null,
         });
@@ -3005,7 +3055,8 @@ addToDept(org, {
     userId?: string,
     componentWarehouses?: Array<{ itemId: string; warehouseId: string }>,
     plan = false,
-  ): Promise<Array<{ itemId: string; uomId: string | null; required: number; warehouseId: string }>> {
+    componentRejections?: ComponentRejectionLine[],
+  ): Promise<Array<{ itemId: string; uomId: string | null; required: number; warehouseId: string; scrap?: number }>> {
     // Routing-configured materials take precedence (exact Item IDs + source
     // warehouses from the operation's inputs, scaled by good + scrap).
     // Manual Hand Packing entries always use the BOM configuration per Finished Good carton.
@@ -3034,23 +3085,60 @@ addToDept(org, {
     }
 
     const compWarehouseMap = new Map((componentWarehouses || []).map((cw) => [cw.itemId, cw.warehouseId]));
+    // Component-wise packing scrap: itemId → rejected PCS to ADD to that
+    // component's consumption (its source store loses Required + Rejected).
+    // The packed FG output quantity is never reduced by component scrap.
+    const compRejectionMap = new Map<string, number>();
+    // itemId → operator scrap reason for the audit trail ("Head Crack", …).
+    const compRejectionRemarksMap = new Map<string, string>();
+    for (const cr of componentRejections || []) {
+      const pcs = Number(cr?.quantityPcs || 0);
+      if (cr?.itemId && pcs > 0) {
+        compRejectionMap.set(cr.itemId, (compRejectionMap.get(cr.itemId) || 0) + pcs);
+        const reason = String(cr?.remarks || cr?.scrapReason || '').trim();
+        if (reason) {
+          const prior = compRejectionRemarksMap.get(cr.itemId);
+          compRejectionRemarksMap.set(cr.itemId, prior ? `${prior}; ${reason}` : reason);
+        }
+      }
+    }
     const lines = bom ? await this.bomLineRepo.find({ where: { bomId: bom.id }, order: { lineNumber: 'ASC' } }) : [];
     // Production basis includes scrap: both the good output and the rejected
     // output consumed raw material.
     const productionQty = Number(output.actualQuantity) + Number(output.scrapQuantity || 0);
 
     // Hand Packing: BOM is defined per 1 Finished Good Carton (10 GRS / 1,440 PCS).
+    // The carton basis is the packed production quantity (good + entry-level
+    // scrap, if any — the entry form now reports scrap per COMPONENT, so
+    // entry-level scrapQuantity is 0 and productionQty == actualQuantity).
+    // Component-level rejected pieces are added per line below, never by
+    // shrinking the finished output.
     const isHandPacking = this.isHandPackingRef(entryRef);
     const handPackingCartons = isHandPacking && bom
-      ? (await this.toPcs(output.uomId, Number(output.actualQuantity))) / HAND_PACKING_PCS_PER_CARTON / Number(bom.baseQuantity || 1)
+      ? (await this.toPcs(output.uomId, productionQty)) / HAND_PACKING_PCS_PER_CARTON / Number(bom.baseQuantity || 1)
       : 0;
 
-    const requirements: Array<{ line: BomLine; required: number; uomCode: string; available: number; warehouseId: string }> = [];
+    const requirements: Array<{ line: BomLine; required: number; uomCode: string; available: number; warehouseId: string; scrapPcs: number; scrapQty: number; scrapRemarks: string }> = [];
     for (const line of lines) {
-      const required = isHandPacking
+      let required = isHandPacking
         ? await this.computeHandPackingRequirement(line, handPackingCartons)
         : await this.computeBomRequirement(companyId, output, bom!, line, productionQty);
       const component = await this.itemRepo.findOne({ where: { id: line.itemId }, relations: ['baseUom'] });
+      // Component-level rejection / scrap: convert the rejected PCS quantity
+      // into the component's stock UOM (PCS→unit factor, or KG via the Item
+      // Master per-piece weight) and ADD it to the requirement. `scrapPcs` is
+      // kept for human-readable notes; `scrapQty` is the same scrap expressed
+      // in the component's stock UOM so every ledger/audit quantity stays in
+      // the SAME unit as the consumption line it belongs to.
+      const scrapPcs = compRejectionMap.get(line.itemId) || 0;
+      // Operator-entered scrap reason for this component row ("Head Crack",
+      // "Bent Wire", …) — carried into the PRODUCTION_SCRAP audit note below.
+      const scrapRemarks = compRejectionRemarksMap.get(line.itemId) || '';
+      let scrapQty = 0;
+      if (scrapPcs > 0) {
+        scrapQty = this.convertComponentScrapPcsToBaseUom(component?.baseUom?.code, component?.weightPerPiece, scrapPcs);
+        required = this.round4(required + scrapQty);
+      }
       const uomCode = component?.baseUom?.code ?? (await this.uomRepo.findOne({ where: { id: line.uomId } }))?.code ?? '';
       let effectiveWh = compWarehouseMap.get(line.itemId);
       if (!effectiveWh && componentWarehouses && componentWarehouses.length > 0) {
@@ -3117,7 +3205,7 @@ addToDept(org, {
           }
         }
       }
-      requirements.push({ line, required, uomCode, available, warehouseId: effectiveWh });
+      requirements.push({ line, required, uomCode, available, warehouseId: effectiveWh, scrapPcs, scrapQty, scrapRemarks });
     }
 
     // The exact IN Item is always consumed. When the ACTIVE BOM does not already
@@ -3166,6 +3254,11 @@ addToDept(org, {
         uomCode,
         available,
         warehouseId: effectiveInWh,
+        scrapPcs: 0,
+        scrapQty: 0,
+        // Single IN-item consumption path: component-level packing scrap is
+        // BOM-component based and never maps onto this legacy fallback row.
+        scrapRemarks: '',
       });
     }
 
@@ -3179,13 +3272,16 @@ addToDept(org, {
       );
     }
 
-    const consumed: Array<{ itemId: string; uomId: string | null; required: number; warehouseId: string }> = [];
+    const consumed: Array<{ itemId: string; uomId: string | null; required: number; warehouseId: string; scrap?: number }> = [];
     for (const r of requirements) {
       const effectiveWh = r.warehouseId || sourceStoreId!;
       const compItem = await this.itemRepo.findOne({ where: { id: r.line.itemId }, select: ['id', 'baseUomId'] });
       const targetUomId = compItem?.baseUomId || r.line.uomId;
-      consumed.push({ itemId: r.line.itemId, uomId: targetUomId ?? null, required: r.required, warehouseId: effectiveWh });
+      consumed.push({ itemId: r.line.itemId, uomId: targetUomId ?? null, required: r.required, warehouseId: effectiveWh, scrap: r.scrapQty });
       if (plan) continue;
+      // NOTE: `r.required` is the TOTAL deduction (BOM requirement for the
+      // packed production + the component-level rejected pieces), so the
+      // source store loses exactly Required + Rejected for this component.
       await this.stockLedgerService.create({
         companyId,
         transactionType: 'PRODUCTION_CONSUMPTION',
@@ -3198,12 +3294,39 @@ addToDept(org, {
         referenceType: ENTRY_REFERENCE_TYPE,
         referenceId: entryRef.id,
         referenceNumber: entryRef.entryNumber || undefined,
-        notes: `Automatic raw material consumption for production entry (${entryRef.machineNo}, ${entryRef.entryDate})`,
+        notes: r.scrapPcs > 0
+          ? `Automatic raw material consumption for production entry (${entryRef.machineNo}, ${entryRef.entryDate}) — includes ${this.round4(r.scrapPcs)} PCS component rejection/scrap`
+          : `Automatic raw material consumption for production entry (${entryRef.machineNo}, ${entryRef.entryDate})`,
         createdBy: userId ?? undefined,
       }, manager);
       await this.inventoryBalanceService.updateBalance(
         companyId, r.line.itemId, effectiveWh, null, null, targetUomId, r.required, 'OUT', manager,
       );
+      // Component-level production scrap: audit trail only (the rejected
+      // pieces are already part of the consumption deduction above — no
+      // balance impact here, mirroring the FG-level scrap posting). The
+      // quantity is expressed in the component's stock UOM so it stays
+      // consistent with the consumption line; the note carries the PCS count
+      // operators entered on the packing form.
+      if (r.scrapPcs > 0) {
+        await this.stockLedgerService.create({
+          companyId,
+          transactionType: 'PRODUCTION_SCRAP',
+          transactionDate: this.resolveBusinessTransactionDate(entryRef.entryDate),
+          itemId: r.line.itemId,
+          warehouseId: effectiveWh,
+          quantity: this.round4(r.scrapQty),
+          uomId: targetUomId,
+          direction: 'OUT',
+          referenceType: ENTRY_REFERENCE_TYPE,
+          referenceId: entryRef.id,
+          referenceNumber: entryRef.entryNumber || undefined,
+          notes: r.scrapRemarks
+            ? `Component-level packing rejection/scrap for production entry (${entryRef.machineNo}, ${entryRef.entryDate}) — ${this.round4(r.scrapPcs)} PCS; reason: ${r.scrapRemarks}; audit trail, quantity already deducted with the component consumption`
+            : `Component-level packing rejection/scrap for production entry (${entryRef.machineNo}, ${entryRef.entryDate}) — ${this.round4(r.scrapPcs)} PCS; audit trail, quantity already deducted with the component consumption`,
+          createdBy: userId ?? undefined,
+        }, manager);
+      }
     }
     // INPUT audit lines are only written by the real posting path; planning
     // returns them so the reconciliation can diff against the original state.
@@ -3366,6 +3489,53 @@ addToDept(org, {
       return this.round4(await this.convertQty(line.uomId, component.baseUomId, qtyInLineUom));
     }
     return this.round4(qtyInLineUom);
+  }
+
+  /**
+   * Converts a component-level rejected quantity expressed in PCS into the
+   * component's stock (base) UOM:
+   *   · count UOMs (PCS / GRS / CTN) → PCS ÷ unit factor
+   *   · weight UOMs (KG) → PCS × the Item Master per-piece weight
+   * Unknown UOMs pass the piece count through unchanged.
+   */
+  private convertComponentScrapPcsToBaseUom(
+    baseUomCode: string | null | undefined,
+    weightPerPiece: number | null | undefined,
+    scrapPcs: number,
+  ): number {
+    const factor = this.packingFactorToPcs(baseUomCode || '');
+    if (factor !== null) return this.round4(scrapPcs / factor);
+    const code = (baseUomCode || '').toUpperCase();
+    if (code === 'KG' || code === 'KILOGRAM') {
+      const wpp = Number(weightPerPiece || 0);
+      return this.round4(wpp > 0 ? scrapPcs * wpp : 0);
+    }
+    return this.round4(scrapPcs);
+  }
+
+  /**
+   * Merges the operator's free-form rejection remarks into the entry remarks
+   * as a "| Rejection Remarks: …" fragment (machine entry log audit string).
+   *   · `undefined`/omitted → passthrough: any existing fragment is preserved
+   *     (clients that do not manage the field never lose the audit string).
+   *   · `null` / empty      → the fragment is REMOVED (explicit clear).
+   *   · value               → the fragment is REPLACED, never stacked, so
+   *     repeated edits cannot duplicate it.
+   */
+  private withRejectionRemarks(
+    remarks: string | null | undefined,
+    rejectionRemarks?: string | null,
+  ): string | null {
+    const base = String(remarks || '').trim();
+    if (rejectionRemarks === undefined) return base || null;
+    const cleaned = base
+      .replace(/\s*\|\s*Rejection Remarks:[^|]*/gi, '')
+      .replace(/\s*\|\s*$/, '')
+      .trim();
+    const reason = String(rejectionRemarks || '').trim();
+    if (!reason) return cleaned || null;
+    const fragment = `Rejection Remarks: ${reason}`;
+    return cleaned ? `${cleaned} | ${fragment}` : fragment;
   }
 
   /**

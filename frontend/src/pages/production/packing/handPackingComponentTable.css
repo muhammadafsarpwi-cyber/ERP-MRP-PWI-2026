@@ -1,0 +1,380 @@
+/* ============================================================================
+   HAND PACKING — BOM COMPONENT DEDUCTION TABLE (Layout, Responsiveness & Theme)
+   ----------------------------------------------------------------------------
+   Scoped styles for the component tables of HandPackingEntry (Full layout
+   expanded row + Executive layout breakdown card).
+
+   · EDGE-TO-EDGE : the panel / shell / table carry NO outer border, radius,
+                    shadow or side margin — the grid runs flush into the parent
+                    card canvas (single lines only, never a box-in-box). The
+                    table keeps its internal cell grid (compact 8px gutters)
+                    for the ledger look; only the PERIMETER frame is stripped.
+   · CONTAINMENT  : every table still lives inside `.hp-comp-shell`, which
+                    clips the table to the parent. The antd Table renders with
+                    `scroll={{ x: 'max-content' }}`, so wide layouts fill the
+                    available width and narrow screens get a smooth, fully
+                    contained horizontal swipe — never a page overflow.
+   · HEADERS      : `.hp-col-head` renders long titles as a two-tier stack
+                    ("REQUIRED" / "QUANTITY") at a reduced font size so a
+                    header can never stretch its column.
+   · ITEM NAMES   : `.hp-item-code` (bold accent, top tier) over
+                    `.hp-item-name` (larger, category-tinted via
+                    .hp-item-name--{spoke|nipple|rim|…} tokens) so different
+                    material types are instantly recognisable.
+   · THEME        : every colour derives from the GLOBAL theme context tokens
+                    (--theme-*) plus the --hp-* companions below. Tone tokens
+                    are deep tones on light surfaces / bright pastels on dark
+                    surfaces — the same palette logic the core system uses.
+   · MOBILE       : touch-first scrolling, iOS focus-zoom prevention and
+                    tighter paddings under 768px.
+   ============================================================================ */
+
+/* ── Value-text companions of the global semantic tokens ─────────────────── */
+:root {
+  --hp-value-danger: #b91c1c;
+  --hp-value-warning: #b45309;
+  --hp-value-success: #047857;
+  --hp-value-info: #1d4ed8;
+
+  /* Category accent palette for stacked Item Names (light surfaces) */
+  --hp-tone-spoke: #0369a1; /* sky-700     — spokes          */
+  --hp-tone-nipple: #a16207; /* yellow-700  — nipples         */
+  --hp-tone-rim: #6d28d9; /* violet-700  — rims           */
+  --hp-tone-wire: #0f766e; /* teal-700    — wires          */
+  --hp-tone-valve: #4338ca; /* indigo-700  — valves         */
+  --hp-tone-tube: #be123c; /* rose-700    — tubes / tyres  */
+  --hp-tone-fastener: #475569; /* slate-600   — nuts / clips   */
+}
+
+[data-theme='dark'] {
+  --hp-value-danger: #fca5a5;
+  --hp-value-warning: #fdba74;
+  --hp-value-success: #4ade80;
+  --hp-value-info: #93c5fd;
+
+  /* Category accent palette — bright pastels for dark surfaces */
+  --hp-tone-spoke: #7dd3fc;
+  --hp-tone-nipple: #fcd34d;
+  --hp-tone-rim: #c4b5fd;
+  --hp-tone-wire: #5eead4;
+  --hp-tone-valve: #a5b4fc;
+  --hp-tone-tube: #fda4af;
+  --hp-tone-fastener: #cbd5e1;
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   1 · EDGE-TO-EDGE — zero frame, zero radius, zero side margins
+   The panel and shell are pure canvas: the table blends into the parent
+   screen without double lines or rigid boxes.
+   ════════════════════════════════════════════════════════════════════════ */
+
+.hp-comp-panel {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  margin: 8px 0;
+  max-width: 100%;
+  overflow: hidden;
+  transition: background-color 0.25s ease;
+}
+
+/* Toolbar / instruction strip above the component table. It owns the SINGLE
+   separator line between prose and grid (the shell below has no border), and
+   its 10px inset optically aligns with the first table cell's gutter. */
+.hp-comp-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0;
+  padding: 4px 10px 8px;
+  border-bottom: 1.5px solid var(--theme-border, #e4e7f1);
+  flex-wrap: wrap;
+  gap: 8px;
+  transition: border-color 0.25s ease;
+}
+
+/* Accent note explaining the Required + Scrap deduction model */
+.hp-comp-hint {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--hp-value-warning);
+}
+
+/* Table shell: containment WITHOUT any framing */
+.hp-comp-shell {
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  background: var(--theme-card-bg, #ffffff);
+  box-shadow: none;
+  transition: background-color 0.25s ease;
+}
+
+/* Strip the TABLE's own outer frame (antd `bordered` draws a 1px box around
+   the container + the outermost cell edges). Inner cell separators stay —
+   only the perimeter is removed so the grid reads edge-to-edge. */
+.hp-comp-shell .ant-table.ant-table-bordered > .ant-table-container {
+  border: 0 !important;
+}
+
+.hp-comp-shell .ant-table.ant-table-bordered .ant-table-content {
+  border: 0 !important;
+}
+
+.hp-comp-shell .ant-table-bordered table > thead > tr > th {
+  border-top: 0 !important;
+}
+
+.hp-comp-shell .ant-table-bordered table > thead > tr > th:first-child,
+.hp-comp-shell .ant-table-bordered table > tbody > tr > td:first-child {
+  border-left: 0 !important;
+  border-inline-start: 0 !important;
+}
+
+.hp-comp-shell .ant-table-bordered table > thead > tr > th:last-child,
+.hp-comp-shell .ant-table-bordered table > tbody > tr > td:last-child {
+  border-right: 0 !important;
+  border-inline-end: 0 !important;
+}
+
+.hp-comp-shell .ant-table-bordered table > tbody > tr:last-child > td {
+  border-bottom: 0 !important;
+}
+
+/* Horizontal scroll lives strictly INSIDE the table (touch-smooth on mobile) */
+.hp-comp-shell .ant-table-body {
+  overflow-x: auto !important;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--theme-border-strong, #cdd3e6) transparent;
+}
+
+.hp-comp-shell .ant-table-body::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+
+.hp-comp-shell .ant-table-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.hp-comp-shell .ant-table-body::-webkit-scrollbar-thumb {
+  background: var(--theme-border-strong, #cdd3e6);
+  border-radius: 4px;
+  transition: background 0.2s ease;
+}
+
+.hp-comp-shell .ant-table-body::-webkit-scrollbar-thumb:hover {
+  background: var(--theme-accent, #4f46e5);
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   2 · COMPACT GRID — tight gutters + two-tier column headers
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* Dense, ledger-like gutters: headers sit close to their cells and long
+   titles can no longer stretch a column horizontally. */
+.hp-comp-shell .ant-table-thead > tr > th {
+  padding: 8px 8px !important;
+}
+
+.hp-comp-shell .ant-table-tbody > tr > td {
+  padding: 10px 8px !important;
+}
+
+/* Two-tier header stack: "REQUIRED" over "QUANTITY" at a reduced font size.
+   The block fills the FULL header width, so `align` positions the stack
+   without touching the body cells' alignment. */
+.hp-col-head {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+  line-height: 1.18;
+}
+
+.hp-col-head--left {
+  align-items: flex-start;
+  text-align: left;
+}
+
+.hp-col-head--center {
+  align-items: center;
+  text-align: center;
+}
+
+.hp-col-head--right {
+  align-items: flex-end;
+  text-align: right;
+}
+
+.hp-col-head__line {
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--theme-text-secondary);
+}
+
+.hp-col-head__line--sub {
+  font-weight: 700;
+  color: var(--theme-text-muted);
+}
+
+/* Optional third micro-line (formula hints: "KG ⇄ PCS entry", …) */
+.hp-col-head__hint {
+  margin-top: 1px;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  color: var(--theme-text-muted);
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   3 · STACKED COMPONENT ITEM CELL — bold accent code + category-tinted name
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* Top tier: the Component Item Code — compact, bold, secondary accent. */
+.hp-item-code {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 800;
+  letter-spacing: 0.2px;
+  line-height: 1.25;
+  color: var(--theme-accent, #0284c7);
+}
+
+/* Bottom tier: the product/item name — larger and prominent, tinted by the
+   material category (componentToneKey) so spokes, nipples, rims … are all
+   instantly recognisable at a glance. */
+.hp-item-name {
+  display: block;
+  margin-top: 2px;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.3;
+  word-break: break-word;
+  color: var(--theme-text);
+}
+
+.hp-item-name--spoke {
+  color: var(--hp-tone-spoke);
+}
+
+.hp-item-name--nipple {
+  color: var(--hp-tone-nipple);
+}
+
+.hp-item-name--rim {
+  color: var(--hp-tone-rim);
+}
+
+.hp-item-name--wire {
+  color: var(--hp-tone-wire);
+}
+
+.hp-item-name--valve {
+  color: var(--hp-tone-valve);
+}
+
+.hp-item-name--tube {
+  color: var(--hp-tone-tube);
+}
+
+.hp-item-name--fastener {
+  color: var(--hp-tone-fastener);
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   4 · REJECTION INPUTS (KG / PCS) — value colour + focus ring
+   (Box sizing + always-visible spinner hit-boxes live in
+    styles/rejectionEntry.css so BOTH rejection interfaces share them.)
+   ════════════════════════════════════════════════════════════════════════ */
+.hp-rej-input {
+  font-weight: 700;
+}
+
+.hp-rej-input input {
+  color: var(--hp-value-danger);
+  font-weight: 700;
+}
+
+.hp-rej-input:hover {
+  border-color: var(--theme-accent-hover, #6467f2) !important;
+}
+
+.hp-rej-input:focus-within,
+.hp-rej-input.ant-input-number-focused {
+  border-color: var(--theme-accent, #4f46e5) !important;
+  box-shadow: 0 0 0 2px var(--theme-focus, rgba(79, 70, 229, 0.35)) !important;
+}
+
+/* Small captions under the inputs (per-piece weight, KG denominator, …) */
+.hp-rej-hint {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--theme-text-muted);
+  margin-top: 2px;
+  line-height: 1.3;
+}
+
+/* Em-dash placeholder in the Rejection % column */
+.hp-dash {
+  color: var(--theme-text-muted);
+}
+
+/* ── Master line quantity inputs (Cartons / Gross) ───────────────────────── */
+.hp-num-input {
+  font-weight: 700;
+}
+
+.hp-num-input--success input {
+  color: var(--hp-value-success);
+}
+
+.hp-num-input--info input {
+  color: var(--hp-value-info);
+}
+
+.hp-num-input:focus-within,
+.hp-num-input.ant-input-number-focused {
+  border-color: var(--theme-accent, #4f46e5) !important;
+  box-shadow: 0 0 0 2px var(--theme-focus, rgba(79, 70, 229, 0.35)) !important;
+}
+
+/* ── Bare card: the Executive breakdown card frames nothing ──────────────── */
+.hp-comp-bare-card .ant-card-body {
+  padding: 0 !important;
+}
+
+/* ── Mobile (≤768px): tighter chrome, contained swipe, no iOS focus-zoom ─── */
+@media (max-width: 768px) {
+  .hp-comp-toolbar {
+    padding: 4px 6px 8px;
+  }
+
+  /* 16px+ input text prevents iOS Safari from auto-zooming on focus */
+  .hp-rej-input input,
+  .hp-num-input input {
+    font-size: 16px;
+  }
+
+  .hp-col-head__line {
+    font-size: 11px;
+  }
+
+  .hp-col-head__hint {
+    font-size: 10px;
+  }
+
+  .hp-item-name {
+    font-size: 14.5px;
+  }
+}

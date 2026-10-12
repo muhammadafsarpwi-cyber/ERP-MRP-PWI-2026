@@ -762,7 +762,7 @@ const CustomerManagement: React.FC = () => {
     const user = useUserStore.getState().user;
     const resolvedCompanyId = editingCustomer?.companyId || user?.defaultCompanyId || user?.defaultCompany?.id || '7725aa04-a270-4314-9e82-90949cbe7791';
     payload.companyId = resolvedCompanyId;
-    payload.divisionId = values.divisionId || null;
+    payload.divisionId = (values.divisionId && values.divisionId !== 'div-wd') ? values.divisionId : null;
     delete payload.divisionName;
     if (!payload.email) delete payload.email;
     if (!payload.website) delete payload.website;
@@ -1948,7 +1948,7 @@ const CustomerManagement: React.FC = () => {
                     </span>
                   }
                   rules={[{ required: true, message: 'Please select division' }]}
-                  initialValue={divisions[0]?.id || 'div-wd'}
+                  initialValue={divisions[0]?.id || DEFAULT_DIVISIONS[0]?.id}
                 >
                   <Select
                     placeholder="Select division..."

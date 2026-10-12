@@ -1,13 +1,27 @@
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { BrowserRouter } from 'react-router-dom';
 import { App } from 'antd';
+import dayjs from 'dayjs';
+import { tabSessionCache } from '../../../services/tabSessionCache';
+import apiService from '../../../services/api';
 import HandPackingEntry, {
   PCS_PER_GROSS,
   GROSS_PER_CARTON,
   PCS_PER_CARTON,
+  DEFAULT_PER_PIECE_WEIGHT_KG,
+  computeComponentRejection,
+  convertRejectionQtyUnit,
+  filterCustomersByDivision,
 } from './HandPackingEntry';
+
+// Captured at MODULE scope, before the first test runs: CRA's jest config sets
+// `resetMocks: true`, which wipes every jest.fn implementation in beforeEach —
+// so reading api.get.getMockImplementation() INSIDE a test always yields
+// `undefined` (and the gate helper below would then throw
+// "realImpl is not a function" for every queued request).
+const REAL_API_GET = (apiService.get as jest.Mock).getMockImplementation() as (url: string, config?: any) => any;
 
 beforeAll(() => {
   window.matchMedia = (query: string) =>
@@ -505,5 +519,253 @@ describe('Hand Packing Entry — BOM Source-of-Truth & Architectural Verificatio
         expect(screen.getByText(/\+ Add Another Finished Good/i)).toBeInTheDocument();
       });
     });
+  });
+
+  describe('7. Component-Wise Rejection / Scrap — KG ⇄ PCS & Row KG-Based Percentage', () => {
+    test('converts a component rejection entered in PCS to KG using THAT component\'s Per Piece Weight', () => {
+      const r = computeComponentRejection({ unit: 'PCS', quantity: 120, perPieceWeightKg: 0.009, requiredPcs: 36000 });
+      expect(r.rejectionPcs).toBe(120);
+      expect(r.rejectionKg).toBeCloseTo(1.08, 4);
+    });
+
+    test('converts a component rejection entered in KG to PCS using THAT component\'s Per Piece Weight', () => {
+      const r = computeComponentRejection({ unit: 'KG', quantity: 1.08, perPieceWeightKg: 0.009, requiredPcs: 36000 });
+      expect(r.rejectionKg).toBeCloseTo(1.08, 4);
+      expect(r.rejectionPcs).toBe(120);
+    });
+
+    test('uses a heavier component\'s own weight (not a global weight) for the conversion', () => {
+      // e.g. a nipple weighing 0.02 KG/PC: 50 PCS = 1.0 KG, but 50 PCS at 0.009 = 0.45 KG
+      const heavy = computeComponentRejection({ unit: 'PCS', quantity: 50, perPieceWeightKg: 0.02, requiredPcs: 72000 });
+      expect(heavy.rejectionKg).toBeCloseTo(1.0, 4);
+      const light = computeComponentRejection({ unit: 'PCS', quantity: 50, perPieceWeightKg: 0.009, requiredPcs: 72000 });
+      expect(light.rejectionKg).toBeCloseTo(0.45, 4);
+    });
+
+    test('computes the ROW Rejection % strictly on KG: RejKG ÷ (ReqKG + RejKG) × 100', () => {
+      // Required 36,000 PCS × 0.009 = 324 KG · Rejection 720 PCS × 0.009 = 6.48 KG
+      const r = computeComponentRejection({ unit: 'PCS', quantity: 720, perPieceWeightKg: 0.009, requiredPcs: 36000 });
+      expect(r.requiredKg).toBeCloseTo(324, 4);
+      expect(r.rejectionKg).toBeCloseTo(6.48, 4);
+      expect(r.totalKg).toBeCloseTo(330.48, 4);
+      expect(r.rejectionPct).toBeCloseTo(1.96, 2);
+    });
+
+    test('ADDS the rejected pieces to the required consumption (Total Deducted = Required + Rejected)', () => {
+      const r = computeComponentRejection({ unit: 'PCS', quantity: 100, perPieceWeightKg: 0.009, requiredPcs: 36000 });
+      expect(r.rejectionPcs).toBe(100);
+      expect(r.totalDeductPcs).toBe(36100); // never subtracted from production
+    });
+
+    test('flags rejection that exceeds the row required quantity for operator correction', () => {
+      const r = computeComponentRejection({ unit: 'PCS', quantity: 40000, perPieceWeightKg: 0.009, requiredPcs: 36000 });
+      expect(r.exceedsRequired).toBe(true);
+      // Rejection is NOT silently capped — the operator must correct the entry.
+      expect(r.rejectionPcs).toBe(40000);
+    });
+
+    test('falls back to the factory default per-piece weight when the component has none', () => {
+      const r = computeComponentRejection({ unit: 'PCS', quantity: 144, perPieceWeightKg: 0, requiredPcs: 36000 });
+      expect(r.perPieceWeightKg).toBe(DEFAULT_PER_PIECE_WEIGHT_KG);
+      expect(r.rejectionKg).toBeCloseTo(1.296, 4); // 144 × 0.009
+    });
+
+    test('produces a 0% rejection and unchanged deduction when no scrap is entered', () => {
+      const r = computeComponentRejection({ unit: 'KG', quantity: 0, perPieceWeightKg: 0.009, requiredPcs: 36000 });
+      expect(r.rejectionPcs).toBe(0);
+      expect(r.rejectionKg).toBe(0);
+      expect(r.rejectionPct).toBe(0);
+      expect(r.totalDeductPcs).toBe(36000);
+      expect(r.exceedsRequired).toBe(false);
+    });
+  });
+
+  describe('8. [KG | PCS] Toggle — Mode Switch Keeps the Physical Scrap Constant', () => {
+    test('KG → PCS re-expresses the typed weight as whole pieces (1.08 KG → 120 PCS)', () => {
+      expect(convertRejectionQtyUnit(1.08, 'KG', 'PCS', 0.009)).toBe(120);
+    });
+
+    test('PCS → KG re-expresses the typed pieces as weight (120 PCS → 1.08 KG)', () => {
+      expect(convertRejectionQtyUnit(120, 'PCS', 'KG', 0.009)).toBeCloseTo(1.08, 3);
+    });
+
+    test('round-trips KG → PCS → KG without losing the physical amount', () => {
+      const asKg = convertRejectionQtyUnit(2.5, 'KG', 'PCS', 0.02); // 125 PCS
+      expect(asKg).toBe(125);
+      const backToKg = convertRejectionQtyUnit(asKg, 'PCS', 'KG', 0.02);
+      expect(backToKg).toBeCloseTo(2.5, 3);
+    });
+
+    test('same-unit toggle passes the value through unchanged (no phantom conversion)', () => {
+      expect(convertRejectionQtyUnit(7, 'KG', 'KG', 0.009)).toBe(7);
+      expect(convertRejectionQtyUnit(7, 'PCS', 'PCS', 0.009)).toBe(7);
+    });
+
+    test('zero stays zero when flipping modes (empty rows never gain scrap)', () => {
+      expect(convertRejectionQtyUnit(0, 'KG', 'PCS', 0.009)).toBe(0);
+      expect(convertRejectionQtyUnit(0, 'PCS', 'KG', 0.009)).toBe(0);
+    });
+
+    test('falls back to the factory default per-piece weight when the component has none', () => {
+      expect(convertRejectionQtyUnit(144, 'PCS', 'KG', undefined)).toBeCloseTo(1.296, 3);
+      expect(convertRejectionQtyUnit(1.296, 'KG', 'PCS', 0)).toBe(144);
+    });
+  });
+
+  describe('9. Division → Customer Cascade — Strict Account Filtering', () => {
+    const SPT = 'div-spt-0001';
+    const CITY = 'div-city-0002';
+    const customers = [
+      { name: 'SPT Alpha Traders', divisionId: SPT },
+      { name: 'SPT Beta Wheels', divisionId: SPT },
+      { name: 'City CT Motors', divisionId: CITY },
+      { name: 'Unassigned General Co', divisionId: null },
+    ];
+
+    test('selecting SPT lists ONLY SPT accounts', () => {
+      const list = filterCustomersByDivision(customers, SPT).map((c) => c.name);
+      expect(list).toEqual(['SPT Alpha Traders', 'SPT Beta Wheels']);
+    });
+
+    test('selecting City/CT lists ONLY City division accounts', () => {
+      const list = filterCustomersByDivision(customers, CITY).map((c) => c.name);
+      expect(list).toEqual(['City CT Motors']);
+    });
+
+    test('cross-division AND unassigned accounts NEVER leak into another division', () => {
+      const sptNames = filterCustomersByDivision(customers, SPT).map((c) => c.name);
+      expect(sptNames).not.toContain('City CT Motors');
+      expect(sptNames).not.toContain('Unassigned General Co');
+      const cityNames = filterCustomersByDivision(customers, CITY).map((c) => c.name);
+      expect(cityNames).not.toContain('SPT Alpha Traders');
+      expect(cityNames).not.toContain('Unassigned General Co');
+    });
+
+    test('no division selected passes the full customer list through unchanged', () => {
+      expect(filterCustomersByDivision(customers, '')).toHaveLength(4);
+      expect(filterCustomersByDivision(customers, undefined)).toHaveLength(4);
+    });
+
+    test('switching divisions swaps the visible account book instantly', () => {
+      // The reset-on-switch contract: after a division change the previously
+      // selected customer is cleared (handleDivisionChange) and the recomputed
+      // options contain ONLY the new division's accounts — zero leakage of the
+      // old division's or unassigned rows into the new dropdown.
+      const afterSwitch = filterCustomersByDivision(customers, CITY).map((c) => c.name);
+      expect(afterSwitch).toEqual(['City CT Motors']);
+    });
+  });
+
+  describe('10. Production Entry Date — Manual Selection Persists (No Auto-Reset)', () => {
+    // Deterministic async-initializer gate: every lookup request blocks until
+    // released, so the operator's pick can be made WHILE the initializer is
+    // still awaiting its lookups — exactly the window where the old code
+    // snapped the date back to yesterday after the awaits resolved.
+    const gateLookups = () => {
+      const api = apiService as unknown as { get: jest.Mock };
+      const realImpl = REAL_API_GET;
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      api.get.mockImplementation((url: string, config?: any) => gate.then(() => realImpl(url, config)));
+      return () => {
+        api.get.mockImplementation(realImpl);
+        release();
+      };
+    };
+
+    // Opens the antd calendar panel and clicks the cell for `value`.
+    // rc-picker v4 opens the panel on CLICK (not mousedown) and a panel
+    // selection commits through triggerConfirm → onChange.
+    const pickFromPanel = async (input: HTMLInputElement, value: string) => {
+      fireEvent.click(input);
+      const cell = await waitFor(() => {
+        const found = document.querySelector<HTMLElement>(`.ant-picker-dropdown [title="${value}"]`);
+        if (!found) throw new Error(`date cell ${value} not rendered yet`);
+        return found;
+      });
+      fireEvent.click(cell);
+    };
+
+    // Safety net: if a test dies between gateLookups() and its release(), the
+    // stuck gate must never leak into the next test (it would wrap its own
+    // "real" implementation around a dead gate and hang the whole suite).
+    let forceRelease: (() => void) | null = null;
+    afterEach(() => {
+      if (forceRelease) {
+        forceRelease();
+        forceRelease = null;
+      }
+    });
+
+    test('full layout: manually picked day survives the async lookup initializer (no snap-back to yesterday)', async () => {
+      // Fresh-form path: no cached draft may short-circuit the initializer.
+      tabSessionCache.clear();
+      forceRelease = gateLookups();
+
+      render(
+        <BrowserRouter>
+          <App>
+            <HandPackingEntry />
+          </App>
+        </BrowserRouter>
+      );
+
+      const input = screen.getByLabelText(/production entry date/i) as HTMLInputElement;
+      const yesterday = dayjs().subtract(1, 'day').format('YYYY-MM-DD');
+      const picked = dayjs().format('YYYY-MM-DD'); // any day ≠ previous-day default
+      expect(input.value).toBe(yesterday);
+
+      // Pick the day from the calendar panel while the lookups are still
+      // blocked — reproducing the original late-initializer race exactly.
+      await pickFromPanel(input, picked);
+      expect(input.value).toBe(picked);
+
+      // Release the lookups: the async initializer now completes AFTER the
+      // operator's selection — pre-fix it re-wrote entryDate to yesterday.
+      forceRelease!();
+      forceRelease = null;
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      });
+
+      expect((screen.getByLabelText(/production entry date/i) as HTMLInputElement).value).toBe(picked);
+    }, 30000);
+
+    test('executive layout: header picker keeps the operator selection through the async initializer too', async () => {
+      tabSessionCache.clear();
+      forceRelease = gateLookups();
+
+      render(
+        <BrowserRouter>
+          <App>
+            <HandPackingEntry layoutMode="executive" />
+          </App>
+        </BrowserRouter>
+      );
+
+      const input = await waitFor(() => {
+        const el = document.querySelector<HTMLInputElement>('.ant-picker-input input');
+        if (!el) throw new Error('executive header date picker not rendered yet');
+        return el;
+      });
+      const yesterday = dayjs().subtract(1, 'day').format('YYYY-MM-DD');
+      const picked = dayjs().format('YYYY-MM-DD');
+      expect(input.value).toBe(yesterday); // default display (previous day)
+
+      // The executive header binds the picker to the entryDate React state —
+      // a real panel selection must update that state and keep it.
+      await pickFromPanel(input, picked);
+      expect(input.value).toBe(picked);
+
+      forceRelease!();
+      forceRelease = null;
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      });
+
+      expect(document.querySelector<HTMLInputElement>('.ant-picker-input input')!.value).toBe(picked);
+    }, 30000);
   });
 });

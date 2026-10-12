@@ -1,0 +1,317 @@
+/* ============================================================================
+   REJECTION ENTRY — SHARED KG ⇄ PCS CONTROL & REMARKS STYLES
+   Used by BOTH rejection interfaces:
+      · Flattening Machine Form      (pages/production/entries/EntryForm.tsx)
+      · Hand Packing Component Table (pages/production/packing/HandPackingEntry.tsx)
+
+   Design contract (matches the ERP enterprise table system):
+      · The [KG | PCS] Segmented toggle sits directly ABOVE the paired inputs.
+      · The pair is a strict 2-TRACK CSS GRID (gap: 12px): every box owns one
+        `minmax(0, 1fr)` track, so the two inputs can never overlap, collide or
+        run into each other — the tracks are clamped at min-width: 0 and the
+        antd box inside is forced to fill them.
+      · Each unit caption ("KG" / "Pieces") is stacked directly above ITS OWN
+        box, so caption + input stay one aligned stack per track.
+      · The ACTIVE unit's input is editable; the PEER input is auto-populated
+        and read-only — a QUIET dimmed surface (never a red/green "active"
+        glow, never the global .erp-field-* validation paint) whose value colour
+        comes from --theme-*, keeping it high-contrast in Light AND Dark.
+      · The caption / warning strip rides on its OWN trailing full-width grid
+        row directly under the input row, so it can appear, swap or wrap to a
+        second line WITHOUT pushing, re-flowing or overlapping the boxes above.
+      · Every colour derives from the GLOBAL theme tokens (--theme-*) so Light
+        and Dark themes render flawlessly; focus rings use --theme-focus.
+      · Mobile-first: 16px input text prevents iOS focus-zoom, the pair stacks
+        on ultra-narrow screens, and touch targets stay ≥ 32px.
+    ============================================================================ */
+
+/* ── Block wrapper: toggle row + input pair ───────────────────────────────── */
+.rej-entry-block {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+}
+
+/* ── Toggle row above the inputs ─────────────────────────────────────────── */
+.rej-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.rej-toggle-row .ant-segmented {
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+/* Small caption next to the toggle (conversion formula, weight source) …… */
+.rej-toggle-hint {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--theme-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── The paired inputs — 2-track CSS grid, 12px gutter ─────────────────────
+   Two explicit tracks sized `minmax(0, 1fr)`: the 0 minimum lets a track
+   shrink below its content's intrinsic width instead of blowing the row out,
+   which is exactly what used to make the boxes bleed into one another. */
+.rej-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  align-items: stretch;
+  width: 100%;
+  min-width: 0;
+}
+
+.rej-pair > * {
+  min-width: 0;
+}
+
+/* One stack per track: unit caption ON TOP of its own box. */
+.rej-field {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  width: 100%;
+  min-width: 0;
+}
+
+/* Unit caption ("KG" / "Pieces") — same optical weight as the other
+   Production Figures labels; accent-coloured while it is the ACTIVE unit. */
+.rej-field-label {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  font-size: 10px;
+  line-height: 14px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--theme-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rej-field-label.is-active {
+  color: var(--theme-accent, #4f46e5);
+}
+
+/* Belt & braces: the box must fill — never exceed — the track it was given. */
+.rej-field > .ant-input-number {
+  width: 100% !important;
+  min-width: 0;
+}
+
+.rej-field .ant-input-number-input {
+  width: 100%;
+  min-width: 0;
+}
+
+/* ── Sized-up numeric boxes + ALWAYS-VISIBLE touch spinners ───────────────
+   antd hides the up/down strip (width: handleVisibleWidth ≈ 0, opacity: 0)
+   until the input is hovered or focused — inside a narrow table cell that
+   made the counter buttons clip, jump or vanish entirely. Within the
+   rejection block the strip is always shown at an ergonomic 34px, the box
+   grows to 40px tall and the input reserves right padding so typed digits
+   never slide underneath the arrows. Disabled / read-only peers keep antd's
+   `display: none` (the auto-computed value has no stepper). */
+.rej-entry-block .ant-input-number {
+  min-height: 40px;
+}
+
+.rej-entry-block .ant-input-number-input {
+  height: 38px !important;
+  /* 44px on the trailing side clears the 34px spinner strip + breathing room */
+  padding: 0 44px 0 12px !important;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.rej-entry-block
+  .ant-input-number:not(.ant-input-number-disabled):not(.ant-input-number-readonly)
+  .ant-input-number-handler-wrap {
+  display: flex !important;
+  flex-direction: column;
+  justify-content: center;
+  width: 34px !important;
+  opacity: 1 !important;
+  border-left: 1px solid var(--theme-border, #e4e7f1);
+}
+
+/* Each arrow button: one half of the 40px strip → ≥ 19px tall × 34px wide
+   hit-row, comfortable for both pointer and touch. */
+.rej-entry-block
+  .ant-input-number:not(.ant-input-number-disabled)
+  .ant-input-number-handler {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 19px;
+}
+
+.rej-entry-block .ant-input-number-handler:hover {
+  background: var(--theme-bg-subtle, rgba(15, 23, 42, 0.07));
+}
+
+.rej-entry-block .ant-input-number-handler-up-inner,
+.rej-entry-block .ant-input-number-handler-down-inner {
+  font-size: 12px;
+}
+
+.rej-entry-block .ant-input-number-handler-up:hover .ant-input-number-handler-up-inner,
+.rej-entry-block .ant-input-number-handler-down:hover .ant-input-number-handler-down-inner {
+  color: var(--theme-accent, #4f46e5);
+}
+
+/* ── Read-only peer ────────────────────────────────────────────────────────
+   Deliberately OUT-SPECIFIES the global .erp-field-filled / .erp-field-unfilled
+   heuristics (they paint the box red/green + a glow, which is "validated", not
+   "read-only"). The value colour is a THEME token so it keeps real contrast on
+   the dimmed surface in both themes — the number is never hidden. */
+.rej-entry-block .rej-input-ro,
+.rej-entry-block .rej-input-ro.ant-input-number,
+.rej-entry-block .rej-input-ro.ant-input-number-group,
+.rej-entry-block .rej-input-ro.ant-input-number-group-wrapper,
+[data-theme='dark'] .rej-entry-block .rej-input-ro,
+[data-theme='dark'] .rej-entry-block .rej-input-ro.ant-input-number,
+[data-theme='dark'] .rej-entry-block .rej-input-ro.ant-input-number-group,
+[data-theme='dark'] .rej-entry-block .rej-input-ro.ant-input-number-group-wrapper,
+.dark .rej-entry-block .rej-input-ro,
+.dark .rej-entry-block .rej-input-ro.ant-input-number {
+  background: var(--theme-bg-subtle, #f1f3f9) !important;
+  border-color: var(--theme-border, #e4e7f1) !important;
+  box-shadow: none !important;
+  cursor: not-allowed;
+}
+
+.rej-entry-block .rej-input-ro .ant-input-number-input,
+[data-theme='dark'] .rej-entry-block .rej-input-ro .ant-input-number-input,
+.dark .rej-entry-block .rej-input-ro .ant-input-number-input {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  color: var(--theme-text, rgba(15, 23, 42, 0.88)) !important;
+  -webkit-text-fill-color: var(--theme-text, rgba(15, 23, 42, 0.88)) !important;
+  font-weight: 600;
+  opacity: 1;
+  cursor: not-allowed;
+}
+
+.rej-entry-block .rej-input-ro .ant-input-number-input::placeholder,
+[data-theme='dark'] .rej-entry-block .rej-input-ro .ant-input-number-input::placeholder {
+  color: var(--theme-text-muted) !important;
+  -webkit-text-fill-color: var(--theme-text-muted) !important;
+  opacity: 1;
+}
+
+.rej-entry-block .rej-input-ro .ant-input-number-handler-wrap {
+  display: none;
+}
+
+.rej-entry-block .rej-input-ro:focus-within,
+.rej-entry-block .rej-input-ro.ant-input-number-focused {
+  border-color: var(--theme-border, #e4e7f1) !important;
+  box-shadow: none !important;
+}
+
+/* ── Caption / warning strip ───────────────────────────────────────────────
+   Rendered as the LAST child of the Production Figures grid on its own
+   full-width row (grid-column: 1 / -1), directly beneath the input row.
+   Being a real, in-flow grid row it is laid out AFTER those cells: it can
+   grow to two lines, swap messages or appear at all without ever pushing,
+   re-flowing or overlapping the boxes above it. The reserved min-height keeps
+   everything below it perfectly still when the message changes. */
+.rej-hint {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  margin-top: 2px;
+  padding: 5px 9px;
+  border: 1px solid rgba(100, 116, 139, 0.22);
+  border-radius: 6px;
+  background: rgba(100, 116, 139, 0.08);
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--theme-text-secondary, rgba(15, 23, 42, 0.72));
+}
+
+.rej-hint .anticon {
+  flex: 0 0 auto;
+  font-size: 12px;
+  color: var(--theme-text-muted);
+}
+
+.rej-hint > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Danger variant — soft surface + strong left rail, but the TEXT colour is
+   tuned per theme so it always clears AA against the soft background. */
+.rej-hint-danger {
+  border-color: rgba(229, 72, 77, 0.4);
+  border-left: 3px solid var(--theme-danger, #ff4d4f);
+  background: var(--theme-danger-soft, #ffecec);
+  color: #cf1322;
+}
+
+.rej-hint-danger .anticon {
+  color: var(--theme-danger, #ff4d4f);
+}
+
+[data-theme='dark'] .rej-hint-danger,
+.dark .rej-hint-danger {
+  border-color: rgba(229, 72, 77, 0.45);
+  border-left-color: var(--theme-danger, #e5484d);
+  color: #ff9296;
+}
+
+[data-theme='dark'] .rej-hint-danger .anticon {
+  color: #ff9296;
+}
+
+/* ── Scrap reason (Rejection Remarks) field styling ──────────────────────── */
+.rej-remarks-input::placeholder {
+  color: var(--theme-text-muted);
+  font-style: italic;
+}
+
+/* ── Mobile (≤768px): bigger touch text, 16px inputs kill iOS focus-zoom ── */
+@media (max-width: 768px) {
+  .rej-toggle-row .ant-segmented,
+  .rej-hint,
+  .rej-toggle-hint {
+    font-size: 12px;
+  }
+
+  .rej-field .ant-input-number-input,
+  .rej-entry-block .ant-input-number-input {
+    font-size: 16px;
+  }
+
+  /* Slightly taller hit-rows for thumbs on small screens */
+  .rej-entry-block
+    .ant-input-number:not(.ant-input-number-disabled)
+    .ant-input-number-handler {
+    min-height: 21px;
+  }
+}
+
+/* ── Ultra-narrow (≤420px): stack the pair instead of squeezing two boxes ── */
+@media (max-width: 420px) {
+  .rej-pair {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+}

@@ -21,6 +21,7 @@ import { useLookups, ItemLk } from './lookups';
 import { useEntryDockStore, EntryContextParams } from './entryDockStore';
 import { splitEntryItemLines, consumedQuantityFromAuditLines } from './entryLines';
 import './productionEntryModal.css';
+import '../../../styles/rejectionEntry.css';
 import {
   DowntimeMode, deriveFromRunning, rebalancePair,
   effectiveRunning, effectiveDowntime, round2, sumDowntimeLines,
@@ -37,6 +38,38 @@ import { GlobalLoading } from '../../../components/shared';
 import PageHeader from '../../../components/shared/PageHeader';
 import ProductionSaveSuccessModal, { SavedEntrySummary } from './ProductionSaveSuccessModal';
 import EntryPreSaveConfirmModal, { type EntryPreSaveSummary } from './EntryPreSaveConfirmModal';
+
+/**
+ * Reads the "| Rejection Remarks: …" audit fragment the save path writes into
+ * the entry remarks (machine entry log). Used to hydrate the dedicated form
+ * field when editing an existing entry.
+ */
+const extractRejectionRemarks = (remarks?: string | null): string | undefined => {
+  const m = /(?:^|\|)\s*Rejection Remarks:\s*([^|]*)/i.exec(String(remarks || ''));
+  return m ? m[1].trim() || undefined : undefined;
+};
+
+/**
+ * Removes the "| Rejection Remarks: …" fragment from the hydrated remarks so
+ * the generic Remarks field and the dedicated field never double-store the
+ * same audit string (the backend re-appends the fragment on every save).
+ */
+const stripRejectionRemarks = (remarks?: string | null): string | undefined => {
+  const raw = String(remarks || '');
+  if (!raw.includes('Rejection Remarks:')) return raw || undefined;
+  return raw
+    .replace(/\s*\|\s*Rejection Remarks:[^|]*/gi, '')
+    .replace(/\s*\|\s*$/, '')
+    .trim() || undefined;
+};
+
+/**
+ * Default Production Entry Date for a BRAND-NEW form: the PREVIOUS production
+ * day (today − 1). Seeded once via `initialValue` when the field registers —
+ * the picker stays fully editable, so any date the operator selects is kept in
+ * the form store and persisted exactly as chosen (never overridden back).
+ */
+const defaultProductionEntryDate = () => dayjs().subtract(1, 'day');
 
 const { Title, Text } = Typography;
 
@@ -293,6 +326,16 @@ const EntryForm: React.FC<EntryFormProps> = ({
   const targetQty = Form.useWatch('targetQuantity', form);
   const scrapQty = Form.useWatch('scrapQuantity', form);
   const processScrapQty = Form.useWatch('processScrapKg', form);
+
+  // ── Product Rejection entry mode [KG | PCS] ───────────────────────────────
+  // `scrapQuantity` stays the canonical KG value the whole form (Rejection %,
+  // KPIs, posting service) already consumes. The toggle only decides which
+  // physical field the operator types into: the ACTIVE field is editable and
+  // the PEER field is auto-populated (read-only) through the FG's own
+  // Per Piece Weight. PCS-mode typing keeps an exact local draft so KG
+  // rounding can never drift the piece count the operator saw on the scale.
+  const [rejectionUnit, setRejectionUnit] = useState<'KG' | 'PCS'>('KG');
+  const [rejectionPcsDraft, setRejectionPcsDraft] = useState<number | null>(null);
   const rawMatWarehouseWatch = Form.useWatch('rawMaterialWarehouseId', form);
   const warehouseWatch = Form.useWatch('warehouseId', form);
   const postToInventoryWatch = Form.useWatch('postToInventory', form);
@@ -301,8 +344,26 @@ const EntryForm: React.FC<EntryFormProps> = ({
   const downtimeEntriesWatch = Form.useWatch('downtimeEntries', form);
   const productionItemsWatch = Form.useWatch('productionItems', form);
   const machineNoWatch = Form.useWatch('machineNo', form);
-  const entryDateWatch = Form.useWatch('entryDate', form);
   const coilSizeWatch = Form.useWatch('coilSize', form);
+
+  // ── Production Entry Date: PURE CONTROLLED STATE ──────────────────────────
+  // Form.useWatch('entryDate') only reports a field while a
+  // <Form.Item name="entryDate"> is REGISTERED: it returns `undefined` the
+  // moment the compact context summary replaces the legacy fields or the
+  // details pane is collapsed — and rc-field-form RESETS a non-preserved field
+  // to its `initialValue` (yesterday) on unmount. Both used to wipe a manual
+  // calendar pick. React state is therefore the single source of truth: the
+  // picker is rendered value={formDate} / onChange={commitEntryDate}, and every
+  // consumer (ctxIds, payload) reads it. The antd store copy is mirrored on the
+  // same write path only so the required rule and onFinish values agree.
+  const [formDate, setFormDate] = useState<dayjs.Dayjs>(() => defaultProductionEntryDate());
+
+  /** Single write path: controlled state + form store are always the same day. */
+  const commitEntryDate = useCallback((date?: dayjs.Dayjs | null) => {
+    const next = date && dayjs.isDayjs(date) && date.isValid() ? date : defaultProductionEntryDate();
+    setFormDate(next);
+    form.setFieldValue('entryDate', next);
+  }, [form]);
 
   // Auto-fill Supervisor Name from currently logged-in user
   const currentUser = useUserStore((s) => s.user);
@@ -337,7 +398,13 @@ const EntryForm: React.FC<EntryFormProps> = ({
       if (qSectionId && !form.getFieldValue('sectionId')) updates.sectionId = qSectionId;
       if (qDepartmentId && !form.getFieldValue('departmentId')) updates.departmentId = qDepartmentId;
       if (qShiftId && !form.getFieldValue('shiftId')) updates.shiftId = qShiftId;
-      if (qDate && !form.getFieldValue('entryDate')) updates.entryDate = dayjs(qDate);
+      if (qDate && !form.getFieldValue('entryDate')) {
+        const queryDay = dayjs(qDate);
+        if (queryDay.isValid()) {
+          updates.entryDate = queryDay;
+          setFormDate(queryDay);
+        }
+      }
       if (qMachineCode && !form.getFieldValue('machineNo')) {
         updates.machineNo = qMachineCode;
       } else if (qMachineId && !form.getFieldValue('machineNo')) {
@@ -427,20 +494,32 @@ const EntryForm: React.FC<EntryFormProps> = ({
         machineNo: undefined,
       };
     }
-    // Legacy free-form flow — those Form.Items are registered here.
-    const d = entryDateWatch as dayjs.Dayjs | undefined;
+    // Legacy free-form flow — those Form.Items are registered here. The
+    // Production Entry Date comes from the controlled `formDate` state (never
+    // from a registered-field watch, which reports `undefined` as soon as the
+    // field unmounts and used to drop the date from the payload).
+    const d = formDate;
     return {
       divisionId: s(divisionId),
       sectionId: s(sectionId),
       departmentId: s(departmentId),
       shiftId: s(shiftId),
-      entryDate: d && typeof d.format === 'function' ? d.format('YYYY-MM-DD') : undefined,
+      entryDate: d && d.isValid() ? d.format('YYYY-MM-DD') : undefined,
       machineId: undefined,
       machineNo: s(machineNoWatch),
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, lockedContext, entry, qDivisionId, qSectionId, qDepartmentId, qShiftId, qDate, qMachineId, divisionId, sectionId, departmentId, shiftId, machineNoWatch, entryDateWatch]);
+  }, [mode, lockedContext, entry, qDivisionId, qSectionId, qDepartmentId, qShiftId, qDate, qMachineId, divisionId, sectionId, departmentId, shiftId, machineNoWatch, formDate]);
   const ctxShiftId = ctxIds.shiftId;
+
+  // Edit mode: hydrate the STORED production day into the controlled state too
+  // (the store copy is written by the entry loader below), so state, form store
+  // and submitted payload can never describe three different days.
+  useEffect(() => {
+    if (mode !== 'edit' || !entry?.entryDate) return;
+    const storedDay = dayjs(entry.entryDate);
+    if (storedDay.isValid()) setFormDate(storedDay);
+  }, [mode, entry?.entryDate]);
 
   useEffect(() => {
     void (async () => {
@@ -669,7 +748,15 @@ const EntryForm: React.FC<EntryFormProps> = ({
       postToInventory: true,
       downtimeEntries: [{ confirmed: false }],
     };
-    if (qDate) patch.entryDate = dayjs(qDate);
+    if (qDate) {
+      const queryDay = dayjs(qDate);
+      if (queryDay.isValid()) {
+        patch.entryDate = queryDay;
+        // Mirror into the controlled state so the picker, ctxIds and payload
+        // all resolve the same day as soon as the query context is applied.
+        setFormDate(queryDay);
+      }
+    }
     if (qShiftId) patch.shiftId = qShiftId;
     if (qDivisionId) patch.divisionId = qDivisionId;
     if (qSectionId) patch.sectionId = qSectionId;
@@ -801,7 +888,11 @@ const EntryForm: React.FC<EntryFormProps> = ({
 
         form.setFieldsValue({
           id: e.id,
-          entryDate: dayjs(e.entryDate),
+          // Edit mode hydrates the STORED date (never the new-form default);
+          // a malformed legacy value falls back to the previous-day default
+          // instead of seeding an invalid/empty picker.
+          entryDate:
+            e.entryDate && dayjs(e.entryDate).isValid() ? dayjs(e.entryDate) : defaultProductionEntryDate(),
           divisionId: e.divisionId, sectionId: e.sectionId, departmentId: e.departmentId,
           shiftId: e.shiftId ?? undefined,
           machineNo: e.machineNo,
@@ -821,7 +912,8 @@ const EntryForm: React.FC<EntryFormProps> = ({
           overtimeHours: entryOvertimeHours(e as any),
           scrapQuantity: toNum(e.scrapQuantity),
           processScrapKg: toNum(e.processScrapKg ?? 0),
-          remarks: e.remarks ?? undefined,
+          remarks: stripRejectionRemarks(e.remarks),
+          rejectionRemarks: extractRejectionRemarks(e.remarks),
           productionOrderId: e.productionOrderId ?? undefined,
           productionOrderOperationId: e.productionOrderOperationId ?? undefined,
           postToInventory: !!e.inventoryReferenceId,
@@ -1474,6 +1566,59 @@ const EntryForm: React.FC<EntryFormProps> = ({
     return round2(toNum(scrapQty));
   }, [scrapQty]);
 
+  // FG Per Piece Weight (KG) — drives the KG ⇄ PCS conversion of the Product
+  // Rejection entry. 0 = not configured in the Item Master → the PCS field is
+  // disabled with a configuration hint (KG entry always works).
+  const fgWeightPerPiece = useMemo(() => {
+    const wpp = toNum(primaryItem?.weightPerPiece);
+    return wpp > 0 ? wpp : 0;
+  }, [primaryItem]);
+
+  // Derived values for the paired [KG | PCS] rejection inputs. The KG value is
+  // the canonical form field (scrapQuantity); PCS is derived through the FG's
+  // own weight, or locally drafted while typing in PCS mode (drift-free).
+  const rejectionKgDerived = Math.max(0, toNum(scrapQty));
+  const rejectionPcsDerived = fgWeightPerPiece > 0
+    ? Math.round((rejectionKgDerived / fgWeightPerPiece) * 100) / 100
+    : null;
+  const rejectionPcsDisplay = rejectionUnit === 'PCS'
+    ? (rejectionPcsDraft ?? rejectionPcsDerived)
+    : rejectionPcsDerived;
+
+  // [KG | PCS] toggle: keeps the PHYSICAL rejection amount constant when the
+  // operator switches modes (0 stays 0 — no phantom conversion appears).
+  const handleRejectionUnitToggle = (next: 'KG' | 'PCS') => {
+    if (next === rejectionUnit) return;
+    if (next === 'PCS' && fgWeightPerPiece > 0) {
+      setRejectionPcsDraft(rejectionPcsDerived ?? 0);
+    }
+    setRejectionUnit(next);
+  };
+
+  const handleRejectionKgChange = (v: number | null) => {
+    form.setFieldValue('scrapQuantity', v);
+    setRejectionPcsDraft(null);
+  };
+
+  const handleRejectionPcsChange = (v: number | null) => {
+    setRejectionPcsDraft(v === null ? null : Math.max(0, Number(v) || 0));
+    const pcs = Math.max(0, Number(v) || 0);
+    // Canonical KG value the whole form + posting service consume.
+    form.setFieldValue('scrapQuantity', fgWeightPerPiece > 0 ? Math.round(pcs * fgWeightPerPiece * 10000) / 10000 : 0);
+  };
+
+  // PCS picked but the Item Master has no Per Piece Weight → nothing to
+  // convert with, so the KG box stays the only way in and the caption strip
+  // under the pair flips to the danger warning.
+  const rejectionPcsBlocked = rejectionUnit === 'PCS' && fgWeightPerPiece <= 0;
+
+  // Caption strip under the paired inputs — always rendered (constant height,
+  // its own grid row) so swapping between the two messages never re-flows,
+  // pushes or overlaps the boxes above it.
+  const rejectionHint = rejectionPcsBlocked
+    ? 'Per-piece weight missing — enter the rejection in KG or configure Item Master weight/piece.'
+    : 'Only the active unit is editable — KG and Pieces stay in sync automatically.';
+
   const maxProductionItems = 4;
   const productionItemsCount = (productionItemsWatch ?? []).length;
   const maxItemsReached = productionItemsCount >= maxProductionItems;
@@ -1688,6 +1833,18 @@ const EntryForm: React.FC<EntryFormProps> = ({
         payload.runningHours = 0;
       } else if (isActualAuto) {
         payload.actualQuantity = round2(multiItemAggregate?.totalActual ?? 0);
+      }
+      // Production Entry Date — the operator-adjustable calendar day of the
+      // production event. Sent as the explicit `productionDate` alias accepted
+      // by the Create/Update DTOs (the canonical entryDate field carries the
+      // same value from the form store). Falls back to ctxIds.entryDate, which
+      // resolves the controlled picker state, so the alias can never disagree
+      // with the canonical field — even when the picker's Form.Item is not
+      // registered (compact summary / collapsed details pane).
+      const productionDaySource = (values.entryDate as dayjs.Dayjs | string | undefined) ?? ctxIds.entryDate;
+      if (productionDaySource) {
+        const productionDay = dayjs(productionDaySource as any);
+        if (productionDay.isValid()) payload.productionDate = productionDay.format('YYYY-MM-DD');
       }
       delete payload.id;
       delete payload.__computed;
@@ -2359,8 +2516,25 @@ const EntryForm: React.FC<EntryFormProps> = ({
           </Form.Item>
         </Col>
         <Col xs={24} md={12} lg={8}>
-          <Form.Item name="entryDate" label="Date" initialValue={dayjs()} rules={[{ required: true, message: 'Date is required' }]}>
-            <DatePicker style={{ width: '100%' }} />
+          <Form.Item
+            name="entryDate"
+            label="Production Entry Date"
+            initialValue={defaultProductionEntryDate()}
+            // Keep the store copy when this pane unmounts (context summary /
+            // "Hide Details"): rc-field-form resets a non-preserved field back
+            // to its `initialValue` on unmount — the classic "snaps back to
+            // yesterday" behaviour.
+            preserve
+            rules={[{ required: true, message: 'Production Entry Date is required' }]}
+          >
+            {/* Strict controlled pattern: React state drives the calendar and
+                every change is mirrored into the store in the same handler —
+                the selection is absolute once picked. */}
+            <DatePicker
+              style={{ width: '100%' }}
+              value={formDate}
+              onChange={commitEntryDate}
+            />
           </Form.Item>
         </Col>
         <Col xs={24} md={12} lg={8}>
@@ -2844,8 +3018,12 @@ const EntryForm: React.FC<EntryFormProps> = ({
                 {/* ── Production Figures: ONE strict horizontal row of five
                     equal-width cells (Shift · OT · Running · Product Rejection
                     · Process Cutting Scrap). They share one label metric and
-                    one compact 32px box height, so all five inputs sit on a
-                    single, perfectly straight line. */}
+                    one compact 32px box height, and `align-items: end` pins all
+                    of them to the same baseline, so the five boxes sit on a
+                    single, perfectly straight line. Product Rejection spans two
+                    tracks for its [KG | PCS] pair; its caption strip rides on a
+                    separate trailing full-width row (see `.rej-hint`) so a
+                    warning can never disturb that line. */}
                 <div style={{ marginBottom: 0 }}>
                   <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <span>Shift & Production Hours</span>
@@ -2886,24 +3064,95 @@ const EntryForm: React.FC<EntryFormProps> = ({
                       <div style={figRunningBoxStyle}>{formatNumber(derivedRunning, 2)} h</div>
                     </Form.Item>
 
-                    {/* 4 — Product Rejection (KG) [STOCK-DEDUCTING]: fully
-                        formed items that failed the dimensional/visual audit.
-                        Keeps the ORIGINAL behaviour — it subtracts from good
-                        output and drives the raw-material consumption basis in
-                        the posting service. Same compact width/height as the
-                        hour cells so all five stay on one straight line. */}
+                    {/* 4 — Product Rejection [STOCK-DEDUCTING] with a dynamic
+                        [KG | PCS] entry toggle: fully formed items that failed
+                        the dimensional/visual audit. Keeps the ORIGINAL
+                        behaviour — it subtracts from good output and drives the
+                        raw-material consumption basis in the posting service.
+                        The ACTIVE unit's field is editable; the PEER field is
+                        read-only and auto-populated through the FG's own Per
+                        Piece Weight. The `scrapQuantity` form field always
+                        holds the canonical KG value. */}
                     <Form.Item
-                      name="scrapQuantity"
-                      label={<span style={{ ...figLabelStyle, fontWeight: 600 }}>Product Rejection (KG) <Tag color={isFullDowntime ? 'green' : 'red'} style={figTagStyle}>{isFullDowntime ? 'Auto' : 'Stock-Deducting'}</Tag></span>}
-                      rules={isFullDowntime ? [] : [{ required: true, message: 'Required' }, { type: 'number', min: 0, message: 'Must be ≥ 0' }]}
-                      style={{ marginBottom: 0 }}
+                      label={
+                        <span style={{ ...figLabelStyle, fontWeight: 600 }}>
+                          Product Rejection <Tag color={isFullDowntime ? 'green' : 'red'} style={figTagStyle}>{isFullDowntime ? 'Auto' : 'Stock-Deducting'}</Tag>
+                        </span>
+                      }
+                      // The name (and the auto id) lives on the inner noStyle
+                      // Form.Item wrapping the KG input — re-associate the
+                      // visible label with it so screen readers / label-based
+                      // queries still resolve the editable field.
+                      htmlFor="scrapQuantity"
+                      style={{ marginBottom: 0, gridColumn: 'span 2', minWidth: 0 }}
                     >
-                      <InputNumber
-                        style={{ width: '100%' }}
-                        min={0}
-                        placeholder={isFullDowntime ? '0' : undefined}
-                        className={(scrapQty !== undefined && scrapQty !== null && scrapQty !== '') || isFullDowntime ? 'erp-field-filled' : 'erp-field-unfilled'}
-                      />
+                      <div className="rej-entry-block">
+                        {/* Row 1 — entry unit switch + conversion caption */}
+                        <div className="rej-toggle-row">
+                          <Segmented
+                            size="small"
+                            value={rejectionUnit}
+                            onChange={(v) => handleRejectionUnitToggle(v as 'KG' | 'PCS')}
+                            options={[
+                              { label: 'KG', value: 'KG' },
+                              { label: 'PCS', value: 'PCS' },
+                            ]}
+                          />
+                          <span className="rej-toggle-hint">
+                            {fgWeightPerPiece > 0
+                              ? `1 PC = ${formatNumber(fgWeightPerPiece, 4)} KG`
+                              : 'Set Wt/Pc in Item Master'}
+                          </span>
+                        </div>
+
+                        {/* Row 2 — the pair. Each unit owns ONE grid track
+                            (2 × minmax(0,1fr), gap 12px) with its caption stacked
+                            directly above its own box: equal width, side by side,
+                            and structurally incapable of overlapping — the tracks
+                            are clamped (min-width: 0) so neither box can bleed
+                            into the other one's gutter. */}
+                        <div className="rej-pair">
+                          <div className="rej-field">
+                            <span
+                              className={`rej-field-label${rejectionUnit === 'KG' ? ' is-active' : ''}`}
+                            >
+                              KG
+                            </span>
+                            <Form.Item
+                              name="scrapQuantity"
+                              noStyle
+                              rules={isFullDowntime ? [] : [{ required: true, message: 'Required' }, { type: 'number', min: 0, message: 'Must be ≥ 0' }]}
+                            >
+                              <InputNumber
+                                style={{ width: '100%' }}
+                                min={0}
+                                placeholder="0"
+                                disabled={rejectionUnit === 'PCS'}
+                                className={`${(scrapQty !== undefined && scrapQty !== null && scrapQty !== '') || isFullDowntime ? 'erp-field-filled' : 'erp-field-unfilled'}${rejectionUnit === 'PCS' ? ' rej-input-ro' : ''}`}
+                              />
+                            </Form.Item>
+                          </div>
+
+                          <div className="rej-field">
+                            <span
+                              className={`rej-field-label${rejectionUnit === 'PCS' ? ' is-active' : ''}`}
+                            >
+                              Pieces
+                            </span>
+                            <InputNumber
+                              style={{ width: '100%' }}
+                              min={0}
+                              inputMode="numeric"
+                              placeholder="0"
+                              aria-label="Rejected pieces"
+                              disabled={rejectionUnit === 'KG' || fgWeightPerPiece <= 0}
+                              value={rejectionPcsDisplay}
+                              onChange={handleRejectionPcsChange}
+                              className={`${(rejectionPcsDisplay ?? 0) > 0 ? 'erp-field-filled' : 'erp-field-unfilled'}${rejectionUnit === 'KG' || fgWeightPerPiece <= 0 ? ' rej-input-ro' : ''}`}
+                            />
+                          </div>
+                        </div>
+                      </div>
                     </Form.Item>
 
                     {/* 5 — Process Cutting Scrap (KG) [REPORT-ONLY]: raw metal
@@ -2925,12 +3174,51 @@ const EntryForm: React.FC<EntryFormProps> = ({
                         className={(processScrapQty !== undefined && processScrapQty !== null && processScrapQty !== '') || isFullDowntime ? 'erp-field-filled' : 'erp-field-unfilled'}
                       />
                     </Form.Item>
+
+                    {/* Caption strip for Product Rejection. It is the LAST child
+                        of the grid on its OWN full-width row (grid-column:
+                        1 / -1), directly beneath the input row — so it is laid
+                        out AFTER the five cells and can never push, re-flow or
+                        overlap them. Always rendered with a reserved height,
+                        so the message swapping between the neutral hint and the
+                        danger warning moves nothing above it. */}
+                    <div
+                      className={`rej-hint${rejectionPcsBlocked ? ' rej-hint-danger' : ''}`}
+                      role={rejectionPcsBlocked ? 'alert' : undefined}
+                      title={rejectionHint}
+                    >
+                      {rejectionPcsBlocked
+                        ? <WarningOutlined aria-hidden />
+                        : <InfoCircleOutlined aria-hidden />}
+                      <span>{rejectionHint}</span>
+                    </div>
                   </div>
 
                   {/* Hidden alias preserving antd form state / onFinish contract */}
                   <Form.Item name="runningHours" noStyle>
                     <Input type="hidden" />
                   </Form.Item>
+
+                  {/* Rejection Remarks — short operator audit string for the
+                      machine entry log (e.g. "Head Crack", "Bent Wire"). Sent
+                      as the dedicated `rejectionRemarks` DTO field and stored
+                      by the backend as a "| Rejection Remarks: …" fragment in
+                      the entry remarks (no schema change, travels with every
+                      remarks export / list view). */}
+                  <div style={{ marginTop: 8, maxWidth: 560 }}>
+                    <Form.Item
+                      name="rejectionRemarks"
+                      label={<span style={{ ...figLabelStyle, fontWeight: 600 }}>Rejection Remarks <Tag color="purple" style={figTagStyle}>Audit</Tag></span>}
+                      style={{ marginBottom: 0 }}
+                    >
+                      <Input
+                        className="rej-remarks-input"
+                        maxLength={200}
+                        placeholder="e.g. Head Crack, Bent Wire, Overheated Wire — why the product was rejected"
+                        allowClear
+                      />
+                    </Form.Item>
+                  </div>
 
                   <div style={{ marginTop: 4, fontSize: 10.5, color: 'var(--theme-text-muted, #64748b)' }}>
                     Target based on: {formatNumber(derivedRunning, 2)}h running ({plannedHours}h shift + {overtimeHours}h OT - {totalDowntime}h downtime)
@@ -4434,8 +4722,13 @@ const RawMaterialAvailability: React.FC<{
           //    entry service auto-consumes exactly that) — a mapped item is never
           //    reported as "No raw material". Routing inputQuantity is used only
           //    for the routing fallback path.
-          const bomRes = await apiService.get<{ data?: ActiveBomLk | null }>(`/bom/product/${itemId}`);
-          const bom = bomRes.data;
+          let bom: ActiveBomLk | null | undefined = null;
+          try {
+            const bomRes = await apiService.get<{ data?: ActiveBomLk | null }>(`/bom/product/${itemId}`);
+            bom = bomRes?.data ?? null;
+          } catch {
+            bom = null;
+          }
           if (cancelled) return;
           const baseQuantity = Math.max(1, toNum(bom?.baseQuantity, 1));
           const units = qtyInBase / baseQuantity;

@@ -115,6 +115,17 @@ export class CreateProductionEntryDto {
   @IsDateString({}, { message: 'entryDate must be a valid date (YYYY-MM-DD)' })
   entryDate!: string;
 
+  /**
+   * Production Entry Date — the exact calendar day the production event
+   * occurred, as logged by the operator. Accepted as an authoritative ALIAS of
+   * `entryDate`: when provided it wins and becomes the stored entry date, so
+   * clients can post the shop-floor production day explicitly without relying
+   * on the generic entry-date field.
+   */
+  @IsOptional()
+  @IsDateString({}, { message: 'productionDate must be a valid date (YYYY-MM-DD)' })
+  productionDate?: string;
+
   @IsUUID('loose')
   shiftId!: string;
 
@@ -208,6 +219,17 @@ export class CreateProductionEntryDto {
   remarks?: string | null;
 
   /**
+   * Global rejection remarks for the machine entry log (Flattening / Drawing /
+   * Cutting). A short operator audit string describing WHY the Product
+   * Rejection happened (e.g. "Head Crack", "Bent Wire"). Stored with the entry
+   * as a "| Rejection Remarks: ..." fragment in `remarks` — no separate column,
+   * so it travels with every export / list view that already shows remarks.
+   */
+  @IsOptional()
+  @IsString()
+  rejectionRemarks?: string | null;
+
+  /**
    * Inventory posting for make-to-stock entries (no production order).
    * Rejected when productionOrderId is set — order completion is the single
    * authoritative posting point for order-driven production.
@@ -228,6 +250,34 @@ export class CreateProductionEntryDto {
   @IsOptional()
   @IsArray()
   componentWarehouses?: Array<{ itemId: string; warehouseId: string }>;
+
+  /**
+   * Component-wise packing rejections / scrap (Hand Packing). Each entry adds
+   * the rejected quantity of ONE BOM component to that component's consumption
+   * requirement (Total Deducted = Required + Rejected from its source store).
+   * The packed Finished Good output quantity is NEVER reduced: scrap is
+   * recorded per component, not on the finished assembly.
+   */
+  @IsOptional()
+  @IsArray()
+  componentRejections?: Array<{
+    itemId: string;
+    componentItemCode?: string;
+    componentItemName?: string;
+    warehouseId?: string | null;
+    /** Rejected quantity in whole pieces (PCS) of this component. */
+    quantityPcs?: number;
+    /** Rejected quantity converted to KG via the component's per-piece weight. */
+    quantityKg?: number;
+    /** Item Master per-piece weight (KG) of the component. */
+    weightPerPieceKg?: number;
+    /** Row rejection % on KG: RejKG ÷ (ReqKG + RejKG) × 100 (audit only). */
+    rejectionPct?: number;
+    /** Short operator scrap reason for THIS component row (e.g. "Head Crack"). */
+    remarks?: string | null;
+    /** Alias of `remarks` — clients may send either field name. */
+    scrapReason?: string | null;
+  }>;
 
   /** Repeatable production item lines (multi-item shift; max 4 independent production items). */
   @IsOptional()
@@ -269,6 +319,15 @@ export class UpdateProductionEntryDto {
   @IsOptional()
   @IsDateString({}, { message: 'entryDate must be a valid date (YYYY-MM-DD)' })
   entryDate?: string;
+
+  /**
+   * Production Entry Date — authoritative alias of `entryDate` (see
+   * CreateProductionEntryDto); when provided on update it wins and becomes the
+   * stored entry date.
+   */
+  @IsOptional()
+  @IsDateString({}, { message: 'productionDate must be a valid date (YYYY-MM-DD)' })
+  productionDate?: string;
 
   @IsOptional()
   @IsUUID('loose')
@@ -361,6 +420,14 @@ export class UpdateProductionEntryDto {
   @IsString()
   remarks?: string | null;
 
+  /**
+   * Global rejection remarks for the machine entry log (Flattening / Drawing /
+   * Cutting) — resend on edit so the audit string stays in sync with the form.
+   */
+  @IsOptional()
+  @IsString()
+  rejectionRemarks?: string | null;
+
   /** Warehouse the consumed BOM raw materials are deducted from (postToInventory only). */
   @IsOptional()
   @IsUUID('loose')
@@ -368,6 +435,28 @@ export class UpdateProductionEntryDto {
   @IsOptional()
   @IsUUID('loose')
   warehouseId?: string | null;
+
+  /**
+   * Component-wise packing rejections / scrap (Hand Packing) — resend on edit
+   * so the delta reconciliation keeps the Required + Rejected consumption.
+   * When omitted, an edited entry is re-planned WITHOUT the component scrap.
+   */
+  @IsOptional()
+  @IsArray()
+  componentRejections?: Array<{
+    itemId: string;
+    componentItemCode?: string;
+    componentItemName?: string;
+    warehouseId?: string | null;
+    quantityPcs?: number;
+    quantityKg?: number;
+    weightPerPieceKg?: number;
+    rejectionPct?: number;
+    /** Short operator scrap reason for THIS component row (e.g. "Head Crack"). */
+    remarks?: string | null;
+    /** Alias of `remarks` — clients may send either field name. */
+    scrapReason?: string | null;
+  }>;
 
 
   /** Repeatable production item lines (multi-item shift; max 4 independent production items). */

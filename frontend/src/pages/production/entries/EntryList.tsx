@@ -838,8 +838,7 @@ const isRequestAbort = (err: unknown): boolean => {
 const GRID_COLUMN_LABELS: string[] = [
   'Sr #',
   'Date',
-  'Division',
-  'Department',
+  'Division / Dept',
   'Warehouse',
   'Shift',
   'Machine',
@@ -1968,36 +1967,40 @@ const EntryList: React.FC = () => {
       title: (
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
           <ApartmentOutlined style={{ color: 'var(--theme-primary, #2563eb)' }} />
-          <span>Division</span>
+          <span>Division / Dept</span>
         </span>
       ),
-      width: 130,
+      width: 155,
       ellipsis: true,
-      responsive: ['xl'],
       render: (_t, r: ProductionEntryRow) => {
         const divName = r.division?.name || r.division?.divisionCode || '—';
         return (
-          <Tooltip title={r.division?.divisionCode ? `${divName} (${r.division.divisionCode})` : divName}>
-            <span style={{ whiteSpace: 'nowrap', color: 'var(--theme-text-secondary, #475569)' }}>{divName}</span>
-          </Tooltip>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0, lineHeight: 1.25 }}>
+            <Tooltip title={r.division?.divisionCode ? `${divName} (${r.division.divisionCode})` : divName}>
+              <span
+                style={{
+                  fontSize: 11.5,
+                  fontWeight: 600,
+                  color: 'var(--theme-text, #1e293b)',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  display: 'inline-block',
+                  maxWidth: '100%',
+                }}
+              >
+                {divName}
+              </span>
+            </Tooltip>
+            <div style={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
+              <DepartmentBadge
+                department={r.department}
+                fallback={r.departmentId ? r.departmentId.slice(0, 8) : '—'}
+              />
+            </div>
+          </div>
         );
       },
-    },
-    {
-      title: (
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-          <TeamOutlined style={{ color: 'var(--theme-primary, #2563eb)' }} />
-          <span>Department</span>
-        </span>
-      ),
-      width: 140,
-      ellipsis: true,
-      render: (_t, r) => (
-        <DepartmentBadge
-          department={r.department}
-          fallback={r.departmentId ? r.departmentId.slice(0, 8) : '—'}
-        />
-      ),
     },
     {
       title: (
@@ -2277,47 +2280,50 @@ const EntryList: React.FC = () => {
     {
       title: (
         <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6, width: '100%' }}>
-          <AimOutlined style={{ color: '#0284c7', fontSize: 13 }} />
+          <AimOutlined style={{ color: '#0284c7', fontSize: 13.5 }} />
           <span style={{ fontWeight: 700, letterSpacing: '0.3px' }}>TARGET</span>
         </span>
       ),
       align: 'right',
-      // PRO-RATA STACK — line 1 is a sentence ("4,320 /h (For 14 hrs Run)"),
-      // so this cell needs ~145px where the bare number needed 95.
-      width: 158,
+      width: 165,
       ellipsis: true,
       sorter: true,
       dataIndex: 'targetQuantity',
       render: (_t, r) => {
         const uom = r.uom?.code || '';
-        // THE LOCKED PLANNED HOURLY RATE, read straight from this entry's
-        // Target Master row (server-hydrated `targetPerHour`, e.g. 4,320 /h),
-        // multiplied by the hours the machine was really on the floor
-        // (Planned + OT − Downtime). Nothing is re-derived here from floor
-        // output, from an assumed 8-hour basis, or by blindly dividing the
-        // stored snapshot — and it is applied ONCE so the grid, the printed
-        // report and the PDF can never show two different targets for the
-        // same entry.
         const prorata = proRataTarget(r.targetQuantity, displayRunningHours(r), masterRateOf(r));
         return (
-          <div style={{ textAlign: 'right', lineHeight: 1.2, whiteSpace: 'nowrap' }}>
-            {/* Muted top tier: the locked rate + the runtime it scaled over.
-                NO icon here — the 🎯 lives solely in the TARGET column header
-                so it can never be mistaken for a product marker. */}
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'flex-end',
+              justifyContent: 'center',
+              lineHeight: 1.25,
+            }}
+          >
             <div
               style={{
                 fontSize: 10,
                 color: 'var(--theme-text-muted, #94a3b8)',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {targetTopText(prorata)}
+            </div>
+            <div
+              style={{
+                fontSize: 12.5,
+                fontWeight: 700,
+                color: 'var(--theme-text, #0f172a)',
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: 4,
-                justifyContent: 'flex-end',
+                whiteSpace: 'nowrap',
               }}
             >
-              <span>{targetTopText(prorata)}</span>
-            </div>
-            <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--theme-text, #0f172a)' }}>
-              {targetBottomText(prorata, uom)}
+              <AimOutlined style={{ color: '#0284c7', fontSize: 12.5, flexShrink: 0 }} />
+              <span>{targetBottomText(prorata, uom)}</span>
             </div>
           </div>
         );

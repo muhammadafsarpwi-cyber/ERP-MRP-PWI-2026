@@ -13,7 +13,7 @@ import {
   CheckCircleOutlined, ClockCircleOutlined,
   SwapOutlined, FileTextOutlined, AppstoreOutlined,
   ExclamationCircleOutlined, TeamOutlined,
-  EnvironmentOutlined, RetweetOutlined,
+  EnvironmentOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import apiService from '../../../services/api';
@@ -22,6 +22,8 @@ import { tabSessionCache } from '../../../services/tabSessionCache';
 import { getLookupsSnapshot, prefetchAllLookups } from '../../../services/lookupsCache';
 import { formatNumber, toNum } from '../../../utils/numberFormat';
 import PageHeader from '../../../components/shared/PageHeader';
+import './handPackingComponentTable.css';
+import '../../../styles/rejectionEntry.css';
 
 const { Title, Text } = Typography;
 
@@ -33,6 +35,10 @@ export const PCS_PER_CARTON = 1440; // 10 Gross * 144 PCS
 export const DEFAULT_PCS_PER_GROSS = PCS_PER_GROSS;
 export const DEFAULT_GROSS_PER_CARTON = GROSS_PER_CARTON;
 export const DEFAULT_PCS_PER_CARTON = PCS_PER_CARTON;
+
+// Factory standard per-piece weight (KG) — used ONLY when the Item Master has no
+// weightPerPiece for the selected Finished Good (spokes ≈ 9 grams each).
+export const DEFAULT_PER_PIECE_WEIGHT_KG = 0.009;
 
 // Authoritative Spoke Division, Section and Department UUIDs from database
 export const SPD_DIVISION_ID = 'd1000000-0000-0000-0000-000000000001';
@@ -55,6 +61,11 @@ export interface RecentPackingLog {
   gross: number;
   pcs: number;
   weightKg: number;
+  rejectionPcs: number;
+  rejectionKg: number;
+  rejectionPct: number | null;
+  /** Per-component scrap breakdown ("CODE=pcs, CODE=pcs") from the structured remarks. */
+  rejectionDetail?: string;
   overtimeHours: number;
   shiftName: string;
   status: string;
@@ -73,9 +84,27 @@ const parseHandPackingEntry = (e: any): RecentPackingLog | null => {
     return m ? m[1].trim() : '';
   };
   const qtyMatch = remarks.match(/Cartons:\s*([\d.]+)\s*\(([\d.]+)\s*Gross\s*\/\s*([\d.]+)\s*PCS/i);
-  const pcs = toNum(e.actualQuantity ?? e.actual_quantity) || (qtyMatch ? toNum(qtyMatch[3]) : 0);
-  const gross = qtyMatch ? toNum(qtyMatch[2]) : Math.round((pcs / PCS_PER_GROSS) * 100) / 100;
-  const cartons = qtyMatch ? toNum(qtyMatch[1]) : Math.round((pcs / PCS_PER_CARTON) * 100) / 100;
+  // Legacy global rejection (v1): "| Rejection: 120 PCS (1.08 KG, 1.2%)" — the
+  // rejected PCS had been subtracted from the production quantity.
+  const legacyRejMatch = remarks.match(/Rejection:\s*([\d.]+)\s*PCS\s*\(\s*([\d.]+)\s*KG(?:\s*,\s*([\d.]+)\s*%)?\s*\)/i);
+  // Component-wise rejection (current): "| Component Scrap: 146 PCS (1.314 KG) | Scrap Detail: WIP-SPL-013=73, SPI-FG-NP-005=73"
+  const compRejMatch = remarks.match(/Component Scrap:\s*([\d.]+)\s*PCS\s*\(\s*([\d.]+)\s*KG/i);
+  const scrapDetail = remarks.match(/Scrap Detail:\s*([^|]+)/i)?.[1]?.trim() || '';
+  // Per-component operator scrap reasons (audit string written at save time):
+  // "| Scrap Reasons: SPI-SPOKE-01=Head Crack; SPI-NIP-02=Bent Wire"
+  const scrapReasons = remarks.match(/Scrap Reasons:\s*([^|]+)/i)?.[1]?.trim() || '';
+  const netPcs = toNum(e.actualQuantity ?? e.actual_quantity);
+  const packedFromRemarks = qtyMatch ? toNum(qtyMatch[3]) : 0;
+  // Component-wise scrap never reduces the packed production quantity: the FG
+  // store receives the FULL packed quantity (actualQuantity). Legacy global
+  // rejection rows restore the packed figure as net good + rejection.
+  const legacyRejectionPcs = legacyRejMatch ? toNum(legacyRejMatch[1]) : 0;
+  const rejectionPcs = compRejMatch ? toNum(compRejMatch[1]) : legacyRejectionPcs;
+  const packedPcs = packedFromRemarks > 0
+    ? packedFromRemarks
+    : (compRejMatch ? netPcs : netPcs + legacyRejectionPcs);
+  const gross = qtyMatch ? toNum(qtyMatch[2]) : Math.round((packedPcs / PCS_PER_GROSS) * 100) / 100;
+  const cartons = qtyMatch ? toNum(qtyMatch[1]) : Math.round((packedPcs / PCS_PER_CARTON) * 100) / 100;
   const created = dayjs(e.createdAt || e.created_at || e.entryDate || e.entry_date);
   const entryDay = dayjs(e.entryDate || e.entry_date || e.createdAt);
   return {
@@ -89,8 +118,14 @@ const parseHandPackingEntry = (e: any): RecentPackingLog | null => {
     fgItemName: e.item?.name || '',
     cartons,
     gross,
-    pcs,
-    weightKg: Math.round(pcs * 0.009 * 10) / 10,
+    pcs: packedPcs,
+    weightKg: Math.round(packedPcs * DEFAULT_PER_PIECE_WEIGHT_KG * 10) / 10,
+    rejectionPcs,
+    rejectionKg: compRejMatch ? toNum(compRejMatch[2]) : (legacyRejMatch ? toNum(legacyRejMatch[2]) : 0),
+    rejectionPct: compRejMatch
+      ? null // component-wise scrap % is per-row (each component has its own denominator)
+      : (legacyRejMatch && legacyRejMatch[3] !== undefined ? toNum(legacyRejMatch[3]) : null),
+    rejectionDetail: scrapReasons ? `${scrapDetail} (${scrapReasons})` : scrapDetail,
     overtimeHours: parseFloat(pick('OT')) || 0,
     shiftName: e.shift?.name || 'General (8:30 AM - 5:30 PM)',
     status: 'SAVED',
@@ -123,6 +158,14 @@ export interface BomComponentItem {
   stockStatus: 'AVAILABLE' | 'INSUFFICIENT';
   stockLoading?: boolean;
   remarks?: string;
+  /** Per-piece weight (KG) of THIS component from the Item Master (weightPerPiece). */
+  weightPerPieceKg?: number;
+  /** Unit the operator entered this component row's rejection in (KG or PCS). */
+  rejectionUnit: 'KG' | 'PCS';
+  /** Rejection / Scrap quantity for this component row, as typed (in rejectionUnit). */
+  rejectionQty: number;
+  /** Short operator scrap reason for this component row (e.g. "Head Crack"). */
+  rejectionRemarks?: string;
 }
 
 export interface PackingMasterItemRow {
@@ -188,6 +231,192 @@ const extractArray = (res: any): any[] => {
   return [];
 };
 
+export interface PackingComponentRejectionInput {
+  /** Unit the operator typed the component rejection quantity in. */
+  unit: 'KG' | 'PCS';
+  /** Rejection quantity as typed. */
+  quantity: number;
+  /** Per-piece weight (KG) of THIS component — Item Master weightPerPiece. */
+  perPieceWeightKg?: number | null;
+  /** BOM required quantity of this component row for net good production (PCS). */
+  requiredPcs: number;
+}
+
+export interface PackingComponentRejectionCalc {
+  /** Effective per-piece weight (falls back to the factory default when unset). */
+  perPieceWeightKg: number;
+  /** Rejection in whole pieces of this component (scrap pieces). */
+  rejectionPcs: number;
+  /** Rejection in PCS as typed (before rounding). */
+  rawRejectionPcs: number;
+  /** Rejection converted to KG — the unit the percentage is computed in. */
+  rejectionKg: number;
+  /** Row required consumption in KG (BOM requirement for net good production). */
+  requiredKg: number;
+  /** Required KG + Rejection KG (percentage denominator). */
+  totalKg: number;
+  /** Row Rejection % strictly on KG: RejKG ÷ (ReqKG + RejKG) × 100. */
+  rejectionPct: number;
+  /** Required + Rejected pieces — the TOTAL deducted from the component's source store. */
+  totalDeductPcs: number;
+  /** True when the entered rejection exceeds this row's required consumption. */
+  exceedsRequired: boolean;
+}
+
+const round4 = (v: number) => Math.round(v * 10000) / 10000;
+
+/**
+ * Component-wise Rejection / Scrap calculations for a Hand Packing batch.
+ *
+ * Packing produces COMPLETE final-good assemblies, so the packed production
+ * quantity is NEVER reduced by rejection. Instead, each raw-material component
+ * row (Spokes, Nipples, …) carries its own rejection entry which is ADDED to
+ * that component's consumption:
+ *
+ *   Total Deducted from the component's Source Store = Required + Rejected
+ *
+ * Interconversion between KG and PCS uses the component's OWN Per Piece Weight
+ * (Item Master weightPerPiece):
+ *   · entered in PCS → Rejection KG = PCS × per-piece weight
+ *   · entered in KG  → Rejection PCS = KG ÷ per-piece weight
+ *
+ * The Rejection % for the row is strictly KG-based (verified Edit Form
+ * convention): Rejection KG ÷ (Required KG + Rejection KG) × 100.
+ */
+export function computeComponentRejection({
+  unit,
+  quantity,
+  perPieceWeightKg,
+  requiredPcs,
+}: PackingComponentRejectionInput): PackingComponentRejectionCalc {
+  const wpp = toNum(perPieceWeightKg) > 0 ? toNum(perPieceWeightKg) : DEFAULT_PER_PIECE_WEIGHT_KG;
+  const qty = Math.max(0, toNum(quantity));
+  const required = Math.max(0, toNum(requiredPcs));
+
+  const rawRejectionPcs = unit === 'PCS'
+    ? Math.round(qty)
+    : (wpp > 0 ? Math.round(qty / wpp) : 0);
+  const rejectionPcs = rawRejectionPcs;
+  const rejectionKg = unit === 'KG' ? round4(qty) : round4(rejectionPcs * wpp);
+  const requiredKg = round4(required * wpp);
+  const totalKg = round4(requiredKg + rejectionKg);
+  const rejectionPct = totalKg > 0 ? Math.round((rejectionKg / totalKg) * 10000) / 100 : 0;
+
+  return {
+    perPieceWeightKg: wpp,
+    rejectionPcs,
+    rawRejectionPcs,
+    rejectionKg,
+    requiredKg,
+    totalKg,
+    rejectionPct,
+    totalDeductPcs: required + rejectionPcs,
+    exceedsRequired: required > 0 && rawRejectionPcs > required,
+  };
+}
+
+/**
+ * Re-expresses a typed rejection quantity when the operator flips the
+ * [KG | PCS] toggle, keeping the PHYSICAL scrap amount constant:
+ *   · KG → PCS : pieces = KG ÷ per-piece weight (whole pieces, like the scale read)
+ *   · PCS → KG : KG = pieces × per-piece weight (3-decimal precision)
+ * The factory default per-piece weight is the fallback when the component has
+ * none configured in the Item Master. Same-unit passes the value through.
+ */
+export function convertRejectionQtyUnit(
+  qty: number,
+  fromUnit: 'KG' | 'PCS',
+  toUnit: 'KG' | 'PCS',
+  perPieceWeightKg?: number,
+): number {
+  const value = Math.max(0, toNum(qty));
+  if (fromUnit === toUnit) return value;
+  const wpp = toNum(perPieceWeightKg) > 0 ? toNum(perPieceWeightKg) : DEFAULT_PER_PIECE_WEIGHT_KG;
+  if (toUnit === 'PCS') return Math.round(value / wpp);
+  return Math.round(value * wpp * 1000) / 1000;
+}
+
+/**
+ * STRICT Division → Customer cascade filter. With a Division selected, ONLY
+ * the customer accounts assigned to THAT division in the Customer Master are
+ * returned (SPT → SPT accounts, City/CT → City accounts). Cross-division AND
+ * unassigned (null `divisionId`) accounts never leak into another division's
+ * dropdown; with no division selected the full list passes through.
+ */
+export function filterCustomersByDivision<
+  T extends { divisionId?: string | null },
+>(rows: T[], divisionId?: string | null): T[] {
+  const divId = String(divisionId || '').trim();
+  if (!divId) return rows;
+  return rows.filter((c) => String(c?.divisionId || '') === divId);
+}
+
+/**
+ * Default Production Entry Date for a BRAND-NEW form: the PREVIOUS production
+ * day (today − 1). Every initializer and empty-value fallback uses this single
+ * source of truth; the picker itself stays fully editable — once the operator
+ * picks a date the form store holds it and nothing overrides it back.
+ */
+const defaultProductionEntryDate = () => dayjs().subtract(1, 'day');
+
+/**
+ * Two-tier compact column header. Long titles ("REQUIRED QUANTITY") split
+ * across two rows at a reduced font size so a header can never stretch its
+ * column horizontally. `hint` adds an optional third micro-line (formula
+ * notes such as "KG ⇄ PCS entry"); `align` positions the stack inside the
+ * FULL header width without touching the body cells' own alignment.
+ */
+const SplitHead = ({
+  top,
+  bottom,
+  hint,
+  align = 'left',
+}: {
+  top: React.ReactNode;
+  bottom?: React.ReactNode;
+  hint?: string;
+  align?: 'left' | 'center' | 'right';
+}) => (
+  <span className={`hp-col-head hp-col-head--${align}`}>
+    <span className="hp-col-head__line">{top}</span>
+    {bottom != null ? <span className="hp-col-head__line hp-col-head__line--sub">{bottom}</span> : null}
+    {hint ? <span className="hp-col-head__hint">{hint}</span> : null}
+  </span>
+);
+
+/**
+ * Dynamic accent class for a component's Item Name based on its material
+ * category, so different product types are instantly recognisable in the
+ * combined Component Item cell (spokes = sky, nipples = amber, rims =
+ * violet …). Heuristic over Item Name + Item Code; falls back to `generic`
+ * (plain theme text) when no rule matches.
+ */
+export function componentToneKey(comp?: { componentItemCode?: string; componentItemName?: string } | null): string {
+  const haystack = `${comp?.componentItemName || ''} ${comp?.componentItemCode || ''}`.toLowerCase();
+  if (/spoke|\bspk\b|[-_]spk/.test(haystack)) return 'spoke';
+  if (/nipple|\bnpl\b|(^|[^a-z])np[-_\d]/.test(haystack)) return 'nipple';
+  if (/\brim|\brims\b|[-_]rim/.test(haystack)) return 'rim';
+  if (/\bwire\b|[-_]wr\b/.test(haystack)) return 'wire';
+  if (/valve/.test(haystack)) return 'valve';
+  if (/tube|tyre|tire|flap|butyl/.test(haystack)) return 'tube';
+  if (/\bring\b|washer|(^|[^a-z])nut\b|bolt|(^|[^a-z])clip\b/.test(haystack)) return 'fastener';
+  return 'generic';
+}
+
+/**
+ * Combined "Component Item" cell shared by BOTH component tables: bold
+ * accent ITEM CODE on the top tier, larger category-tinted Item Name
+ * underneath (stacked ledger layout — one column instead of two).
+ */
+const ComponentItemCell = ({ comp }: { comp: BomComponentItem }) => (
+  <div style={{ minWidth: 0 }}>
+    <span className="hp-item-code">{comp.componentItemCode}</span>
+    <span className={`hp-item-name hp-item-name--${componentToneKey(comp)}`}>
+      {comp.componentItemName || '—'}
+    </span>
+  </div>
+);
+
 export interface HandPackingEntryProps {
   isSubTab?: boolean;
   layoutMode?: 'full' | 'executive';
@@ -204,6 +433,42 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
   const urlProductId = searchParams.get('productId') || searchParams.get('id');
   const { message } = App.useApp();
   const [form] = Form.useForm();
+  // Live form watch driving the top-panel Division control that STRICTLY
+  // cascades the Customer dropdown (SPT → SPT accounts, City/CT → City accounts).
+  const watchedDivisionId = Form.useWatch('divisionId', form);
+
+  // ── Production Entry Date: PURE CONTROLLED STATE ──────────────────────────
+  // Form.useWatch('entryDate') only reports a field that is REGISTERED by a
+  // <Form.Item name="entryDate">. The executive layout returns early (see
+  // `if (layoutMode === 'executive')`) and never renders that <Form> tree, so
+  // the watch was permanently `undefined` there: the header picker kept
+  // re-reading the hardcoded `defaultProductionEntryDate()` (yesterday) on
+  // every commit and snapped straight back after each manual selection.
+  // React state is now the single source of truth for the displayed day; it is
+  // mirrored into the form store so the save payload keeps carrying it.
+  const [entryDate, setEntryDate] = useState<dayjs.Dayjs>(() => defaultProductionEntryDate());
+  // Latched on the first manual calendar click — every async initializer
+  // (lookup hydration / draft restore) is then forbidden from re-seeding it.
+  const entryDateTouchedRef = useRef(false);
+
+  /** Single write path for the Production Entry Date: state + form store. */
+  const commitEntryDate = useCallback((date?: dayjs.Dayjs | null) => {
+    const next = date && dayjs.isDayjs(date) && date.isValid() ? date : defaultProductionEntryDate();
+    setEntryDate(next);
+    form.setFieldValue('entryDate', next);
+  }, [form]);
+
+  /** Manual calendar/keyboard selection — locks the operator's choice in. */
+  const handleEntryDateChange = useCallback((date: dayjs.Dayjs | null) => {
+    entryDateTouchedRef.current = true;
+    commitEntryDate(date);
+  }, [commitEntryDate]);
+
+  /** Initializer seed (default day / restored draft) — never overrides a pick. */
+  const seedEntryDate = (value?: dayjs.Dayjs | null) => {
+    if (entryDateTouchedRef.current) return;
+    commitEntryDate(value);
+  };
 
   // Current logged in user
   const loggedUser = useUserStore((s) => s.user);
@@ -273,6 +538,15 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
   const [selectedShiftId, setSelectedShiftId] = useState<string | undefined>(undefined);
   const [saveReviewModalVisible, setSaveReviewModalVisible] = useState<boolean>(false);
 
+  // Customer List master data (fetched dynamically from the official Customer
+  // List module — /customer/customers — replacing the old hardcoded entries)
+  const [customers, setCustomers] = useState<any[]>([]);
+  const [customersLoading, setCustomersLoading] = useState<boolean>(false);
+
+  // Rejection / Scrap is captured PER COMPONENT row (inside the BOM component
+  // table) — packing produces complete final-good assemblies, so rejection is
+  // never applied globally to the packed Finished Good quantity.
+
   // Big Success Result Dialog State (Corporate Standard)
   const [packingSuccessModal, setPackingSuccessModal] = useState<{
     open: boolean;
@@ -281,6 +555,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
     fgName: string;
     customerName: string;
     packedText: string;
+    rejectionText: string;
     deductionsSummary: string;
     department: string;
   }>({
@@ -290,6 +565,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
     fgName: '',
     customerName: '',
     packedText: '',
+    rejectionText: '',
     deductionsSummary: '',
     department: '',
   });
@@ -340,6 +616,42 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
   useEffect(() => {
     loadRecentEntries();
   }, [loadRecentEntries]);
+
+  // Load ACTIVE customers from the official Customer List master
+  // (Customer Management module → customers table). Only ACTIVE records are
+  // listed; the customer NAME is stored on the packing entry so history,
+  // ledger cross-references and existing saved batches stay fully compatible.
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      setCustomersLoading(true);
+      try {
+        const res: any = await apiService.get('/customer/customers', {
+          status: 'ACTIVE',
+          page: 1,
+          limit: 500,
+          sortField: 'name',
+          sortOrder: 'ASC',
+        });
+        const rows = extractArray(res).filter(
+          (c: any) => !c?.status || String(c.status).toUpperCase() === 'ACTIVE'
+        );
+        const seen = new Set<string>();
+        const unique = rows.filter((c: any) => {
+          const name = String(c?.name || '').trim();
+          if (!name || seen.has(name.toLowerCase())) return false;
+          seen.add(name.toLowerCase());
+          return true;
+        });
+        if (active) setCustomers(unique);
+      } catch (err) {
+        console.warn('Failed to load Customer List for the packing Customer dropdown', err);
+      } finally {
+        if (active) setCustomersLoading(false);
+      }
+    })();
+    return () => { active = false; };
+  }, []);
 
   /** Clear every entry field (customer, SOC, bag style, OT, FG item, cartons, BOM). Shift & Line are kept. */
   const clearEntryForm = (nextBatchNo?: string) => {
@@ -680,6 +992,12 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
             stockStatus,
             stockLoading: false,
             remarks: line.remarks || '',
+            // Component-wise rejection / scrap: per-piece weight (KG) of THIS
+            // component from the Item Master drives its own KG ⇄ PCS conversion.
+            weightPerPieceKg: toNum(line.item?.weightPerPiece),
+            rejectionUnit: 'KG' as const,
+            rejectionQty: 0,
+            rejectionRemarks: '',
           };
         })
       );
@@ -774,6 +1092,12 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
               remainingPcs: remPcs,
               stockLoading: false,
               stockStatus: remGross >= 0 ? 'AVAILABLE' : 'INSUFFICIENT',
+              // Component-wise rejection / scrap (drafts saved before this
+              // feature carry none → default to zero KG entry).
+              weightPerPieceKg: comp.weightPerPieceKg,
+              rejectionUnit: comp.rejectionUnit === 'PCS' ? 'PCS' : 'KG',
+              rejectionQty: Math.max(0, Number(comp.rejectionQty) || 0),
+              rejectionRemarks: typeof comp.rejectionRemarks === 'string' ? comp.rejectionRemarks : '',
             };
           }),
         }));
@@ -800,13 +1124,14 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         });
         if (existingDraft.formValues) {
           const restoredValues = { ...existingDraft.formValues };
-          if (restoredValues.entryDate) {
-            const parsed = dayjs(restoredValues.entryDate);
-            restoredValues.entryDate = parsed.isValid() ? parsed : dayjs();
-          } else {
-            restoredValues.entryDate = dayjs();
-          }
+          // The entry date has its own guarded write path (seedEntryDate) so a
+          // day the operator already picked is never overwritten by the draft,
+          // and so the controlled picker state follows the restored value too.
+          const rawRestoredDate = restoredValues.entryDate;
+          delete restoredValues.entryDate;
           form.setFieldsValue(restoredValues);
+          const parsedRestored = rawRestoredDate ? dayjs(rawRestoredDate) : null;
+          seedEntryDate(parsedRestored && parsedRestored.isValid() ? parsedRestored : defaultProductionEntryDate());
         }
       }
 
@@ -880,9 +1205,16 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
 
         if (!existingDraft) {
           const autoNo = `PKG-${dayjs().format('YYYY')}-${String(Math.floor(Math.random() * 900) + 100).padStart(4, '0')}`;
+          // PRODUCTION ENTRY DATE is seeded ONCE by <Form initialValues> at
+          // mount. This initializer can run AFTER awaited lookups — long after
+          // the operator already picked a custom day — so it must NEVER
+          // overwrite the field (that was the "picker snaps back to yesterday"
+          // selection-lock bug). Only fill it when the field is still empty.
+          if (!form.getFieldValue('entryDate')) {
+            form.setFieldValue('entryDate', defaultProductionEntryDate());
+          }
           form.setFieldsValue({
             packingNo: autoNo,
-            entryDate: dayjs(),
             shiftId: defaultShift?.id,
             divisionId: defaultDivision?.id,
             sectionId: defaultSection?.id,
@@ -1031,9 +1363,16 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         const autoNo = `PKG-${dayjs().format('YYYY')}-${String(Math.floor(Math.random() * 900) + 100).padStart(4, '0')}`;
 
         if (!existingDraft) {
+          // PRODUCTION ENTRY DATE — the async lookup path resolves AFTER
+          // network awaits, so an operator may already have chosen another
+          // day on the picker. Writing a fallback here would "snap" the field
+          // back to yesterday (the reported selection-lock bug); only seed it
+          // when the operator has not set anything yet.
+          if (!form.getFieldValue('entryDate')) {
+            form.setFieldValue('entryDate', defaultProductionEntryDate());
+          }
           form.setFieldsValue({
             packingNo: autoNo,
-            entryDate: dayjs(),
             shiftId: defaultShift?.id,
             divisionId: defaultDivision?.id,
             sectionId: defaultSection?.id,
@@ -1096,9 +1435,12 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
     const draft = {
       formValues: {
         ...currentValues,
+        // Controlled picker state is the fallback (never `dayjs()`/today): an
+        // empty store must not silently store a different day than the one on
+        // screen — a restored draft would then show tomorrow's "wrong" date.
         entryDate: currentValues.entryDate
           ? (dayjs.isDayjs(currentValues.entryDate) ? currentValues.entryDate.toISOString() : String(currentValues.entryDate))
-          : dayjs().toISOString(),
+          : entryDate.toISOString(),
       },
       header: {
         currentBatchNo,
@@ -1116,7 +1458,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
       inspectedItemId,
     };
     tabSessionCache.set(TAB_CACHE_KEY, draft);
-  }, [masterItems, targetCartons, targetUnit, expandedKeys, inspectedItemId, form,
+  }, [masterItems, targetCartons, targetUnit, expandedKeys, inspectedItemId, form, entryDate,
       currentBatchNo, socNo, selectedCustomer, selectedBagStyle, selectedLine, overtimeHours, selectedShiftId]);
 
   // Filtered sections and departments based on user selection
@@ -1136,6 +1478,10 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
   // Handle Division Change in Form
   const handleDivisionChange = (divId: string) => {
     setSelectedDivisionId(divId);
+    // Division → Customer cascade: a division switch invalidates the previously
+    // selected customer (it belongs to a different division's account book).
+    // Cleared immediately so the form can never submit a mismatched pair.
+    setSelectedCustomer(undefined);
     const firstSec = sections.find((s) => s.divisionId === divId);
     setSelectedSectionId(firstSec?.id || '');
     const firstDept = departments.find((d) => d.sectionId === firstSec?.id) || departments.find((d) => d.divisionId === divId);
@@ -1143,6 +1489,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
       divisionId: divId,
       sectionId: firstSec?.id || null,
       departmentId: firstDept?.id || null,
+      customerName: undefined,
     });
   };
 
@@ -1232,9 +1579,75 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
     );
   }, [masterItems, fetchComponentStock, conversionFactors]);
 
+  // Handle rejection / scrap entry for ONE component row. Only the ACTIVE
+  // unit's input (per the row's [KG | PCS] toggle) can be typed into; the
+  // peer input is read-only and auto-populated through the component's own
+  // Per Piece Weight via computeRowRejection.
+  const handleComponentRejectionChange = useCallback(
+    (masterKey: string, compKey: string, unit: 'KG' | 'PCS', val: number | null) => {
+      const qty = Math.max(0, Number(val) || 0);
+      setMasterItems((prev) =>
+        prev.map((m) => {
+          if (m.key !== masterKey) return m;
+          return {
+            ...m,
+            components: m.components.map((c) =>
+              c.key === compKey ? { ...c, rejectionUnit: unit, rejectionQty: qty } : c
+            ),
+          };
+        })
+      );
+    },
+    []
+  );
+
+  // Flip the [KG | PCS] entry mode for ONE component row: the typed quantity
+  // is re-expressed in the new unit so the physical scrap amount never jumps
+  // when the operator switches modes (0 stays 0 — no phantom conversion).
+  const handleComponentRejectionUnitChange = useCallback(
+    (masterKey: string, compKey: string, nextUnit: 'KG' | 'PCS') => {
+      setMasterItems((prev) =>
+        prev.map((m) => {
+          if (m.key !== masterKey) return m;
+          return {
+            ...m,
+            components: m.components.map((c) => {
+              if (c.key !== compKey) return c;
+              const currentUnit = c.rejectionUnit || 'KG';
+              if (currentUnit === nextUnit) return c;
+              const nextQty = c.rejectionQty > 0
+                ? convertRejectionQtyUnit(c.rejectionQty, currentUnit, nextUnit, c.weightPerPieceKg)
+                : 0;
+              return { ...c, rejectionUnit: nextUnit, rejectionQty: nextQty };
+            }),
+          };
+        })
+      );
+    },
+    []
+  );
+
+  // Short operator scrap reason per component row ("Head Crack", "Bent Wire").
+  const handleComponentRemarksChange = useCallback(
+    (masterKey: string, compKey: string, val: string) => {
+      const remarks = (val || '').slice(0, 60);
+      setMasterItems((prev) =>
+        prev.map((m) => {
+          if (m.key !== masterKey) return m;
+          return {
+            ...m,
+            components: m.components.map((c) =>
+              c.key === compKey ? { ...c, rejectionRemarks: remarks } : c
+            ),
+          };
+        })
+      );
+    },
+    []
+  );
+
   // Handle change in header default component store
-  const handleHeaderSourceStoreChange = async (newWhId: string) => {
-    form.setFieldsValue({ rawMaterialWarehouseId: newWhId });
+  const handleHeaderSourceStoreChange = async (newWhId: string) => {    form.setFieldsValue({ rawMaterialWarehouseId: newWhId });
     setMasterItems((prev) =>
       prev.map((m) => ({
         ...m,
@@ -1512,6 +1925,144 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
     };
   }, [masterItems, targetInCartons, conversionFactors]);
 
+  // ── Per Piece Weight (KG) of the primary Finished Good ─────────────────────
+  // Authoritative value from the Item Master (weightPerPiece); the factory
+  // standard default is only used when the item carries no weight at all.
+  const primaryItemId = masterItems[0]?.itemId;
+  const fgPerPieceWeightKg = useMemo(() => {
+    const fromMaster = toNum(fgItems.find((f) => f.id === primaryItemId)?.weightPerPiece);
+    return fromMaster > 0 ? fromMaster : DEFAULT_PER_PIECE_WEIGHT_KG;
+  }, [fgItems, primaryItemId]);
+
+  // ── Component-wise Rejection / Scrap (KG ⇄ PCS via each component's weight) ─
+  // Packing produces complete final-good assemblies: rejection is captured per
+  // raw-material row and ADDED to that component's consumption (Required +
+  // Rejected deducted from its source store). The packed FG quantity is never
+  // reduced. Row Rejection % = RejKG ÷ (ReqKG + RejKG) × 100.
+  const computeRowRejection = useCallback(
+    (comp: BomComponentItem): PackingComponentRejectionCalc =>
+      computeComponentRejection({
+        unit: comp.rejectionUnit || 'KG',
+        quantity: comp.rejectionQty,
+        perPieceWeightKg: comp.weightPerPieceKg,
+        requiredPcs: comp.requiredPcs,
+      }),
+    []
+  );
+
+  // Aggregated component-wise scrap across all Finished Good rows (for summary
+  // tags, the success modal and the structured remarks). Rows carrying an
+  // operator scrap reason also aggregate into `reasons` for the audit string.
+  const componentScrap = useMemo(() => {
+    let pcs = 0;
+    let kg = 0;
+    let rowsWithScrap = 0;
+    const detail: string[] = [];
+    const reasons: string[] = [];
+    for (const m of masterItems) {
+      for (const c of m.components) {
+        const r = computeRowRejection(c);
+        if (r.rejectionPcs > 0) {
+          pcs += r.rejectionPcs;
+          kg += r.rejectionKg;
+          rowsWithScrap += 1;
+          detail.push(`${c.componentItemCode}=${r.rejectionPcs}`);
+          const reason = (c.rejectionRemarks || '').trim();
+          if (reason) reasons.push(`${c.componentItemCode}: ${reason}`);
+        }
+      }
+    }
+    return {
+      pcs,
+      kg: Math.round(kg * 1000) / 1000,
+      rowsWithScrap,
+      detail: detail.join(', '),
+      reasons: reasons.join('; '),
+    };
+  }, [masterItems, computeRowRejection]);
+
+  // ── Shared cell renderers: [KG | PCS] toggle + paired inputs + remarks ────
+  // Used by BOTH rejection tables (Full layout expanded row and Executive
+  // layout breakdown). The active unit's input is editable; the peer input is
+  // auto-populated (read-only) through the component's own Per Piece Weight.
+  const renderRejectionEntryCell = (masterKey: string, comp: BomComponentItem) => {
+    const r = computeRowRejection(comp);
+    const unit = comp.rejectionUnit || 'KG';
+    return (
+      <div className="rej-entry-block">
+        <div className="rej-toggle-row">
+          <Segmented
+            size="small"
+            value={unit}
+            onChange={(v) => handleComponentRejectionUnitChange(masterKey, comp.key, v as 'KG' | 'PCS')}
+            options={[
+              { label: 'KG', value: 'KG' },
+              { label: 'PCS', value: 'PCS' },
+            ]}
+          />
+          <span className="rej-toggle-hint">
+            {r.perPieceWeightKg > 0
+              ? `1 PC = ${formatNumber(r.perPieceWeightKg, 4)} KG`
+              : 'Set Wt/Pc in Item Master'}
+          </span>
+        </div>
+        <div className="rej-pair">
+          <InputNumber
+            min={0}
+            inputMode="decimal"
+            className={`hp-rej-input${unit === 'PCS' ? ' rej-input-ro' : ''}`}
+            disabled={unit === 'PCS'}
+            style={{ width: '100%', fontSize: 13 }}
+            value={unit === 'KG' ? comp.rejectionQty : r.rejectionKg}
+            onChange={(v) => handleComponentRejectionChange(masterKey, comp.key, 'KG', v)}
+            addonAfter="KG"
+          />
+          <InputNumber
+            min={0}
+            inputMode="numeric"
+            className={`hp-rej-input${unit === 'KG' ? ' rej-input-ro' : ''}`}
+            disabled={unit === 'KG'}
+            style={{ width: '100%', fontSize: 13 }}
+            value={unit === 'PCS' ? comp.rejectionQty : r.rejectionPcs}
+            onChange={(v) => handleComponentRejectionChange(masterKey, comp.key, 'PCS', v)}
+            addonAfter="PCS"
+          />
+        </div>
+      </div>
+    );
+  };
+
+  const renderRejectionRemarksCell = (masterKey: string, comp: BomComponentItem) => (
+    <Input
+      size="small"
+      className="rej-remarks-input"
+      value={comp.rejectionRemarks || ''}
+      maxLength={60}
+      placeholder="e.g. Head Crack"
+      allowClear
+      onChange={(e) => handleComponentRemarksChange(masterKey, comp.key, e.target.value)}
+    />
+  );
+
+  // ── Dynamic Customer dropdown options (ACTIVE records from Customer List) ──
+  // STRICT Division cascade: with a Division selected the list contains ONLY
+  // that division's customer accounts — cross-division and not-yet-assigned
+  // (null divisionId) rows never leak in. Switching Division clears the
+  // selection — see handleDivisionChange — so a mismatched customer can never
+  // be saved.
+  const customerOptions = useMemo(() => {
+    const opts = filterCustomersByDivision(customers, watchedDivisionId || selectedDivisionId).map((c) => ({
+      value: String(c.name),
+      label: c.customerCode ? `${c.customerCode} — ${c.name}` : String(c.name),
+    }));
+    // Keep a previously saved / draft-selected customer visible even when it is
+    // no longer part of the active master list (e.g. legacy "Open Market" batches).
+    if (selectedCustomer && !opts.some((o) => o.value === selectedCustomer)) {
+      opts.unshift({ value: selectedCustomer, label: selectedCustomer });
+    }
+    return opts;
+  }, [customers, selectedCustomer, watchedDivisionId, selectedDivisionId]);
+
   // Load Inventory & Sales Order impact for the inspected item
   useEffect(() => {
     if (!inspectedItemId) return;
@@ -1576,6 +2127,16 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
       );
       return;
     }
+    const overRejected = masterItems
+      .flatMap((m) => m.components)
+      .find((c) => computeRowRejection(c).exceedsRequired);
+    if (overRejected) {
+      const r = computeRowRejection(overRejected);
+      message.error(
+        `Component Rejection for ${overRejected.componentItemCode} (${formatNumber(r.rawRejectionPcs, 0)} PCS) exceeds its required quantity (${formatNumber(overRejected.requiredPcs, 0)} PCS). Please correct the Rejection entry in the component table.`
+      );
+      return;
+    }
     setSaveReviewModalVisible(true);
   };
 
@@ -1619,35 +2180,71 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         }))
       );
 
+      // Component-wise Rejection / Scrap: rejected pieces of each raw-material
+      // component are ADDED to that component's consumption requirement, so the
+      // component's source store is deducted Required + Rejected. The packed
+      // Finished Good quantity is NEVER reduced (packing produces complete
+      // final-good assemblies) — actualQuantity = full packed PCS, and the
+      // entry-level scrapQuantity stays 0.
+      const componentRejections = masterItems.flatMap((m) =>
+        m.components
+          .map((c) => ({ comp: c, calc: computeRowRejection(c) }))
+          .filter(({ calc }) => calc.rejectionPcs > 0)
+          .map(({ comp, calc }) => ({
+            itemId: comp.componentItemId,
+            componentItemCode: comp.componentItemCode,
+            componentItemName: comp.componentItemName,
+            warehouseId: comp.sourceWarehouseId || formValues.rawMaterialWarehouseId,
+            quantityPcs: calc.rejectionPcs,
+            quantityKg: calc.rejectionKg,
+            weightPerPieceKg: calc.perPieceWeightKg,
+            rejectionPct: calc.rejectionPct,
+            // Operator scrap reason for THIS component row ("Head Crack", …)
+            // — persisted by the backend into the PRODUCTION_SCRAP audit note.
+            remarks: (comp.rejectionRemarks || '').trim() || undefined,
+          }))
+      );
+      const hasComponentScrap = componentRejections.length > 0;
+      const componentScrapRemarks = hasComponentScrap
+        ? ` | Component Scrap: ${componentScrap.pcs} PCS (${componentScrap.kg} KG) | Scrap Detail: ${componentScrap.detail}`
+        : '';
+      const componentScrapReasonsRemarks = componentScrap.reasons
+        ? ` | Scrap Reasons: ${componentScrap.reasons}`
+        : '';
+
       // Organization hierarchy resolution: Division (SPD) -> Section (SEC-013) -> Department (SPD-DEPT008) -> Shift
       // 1. Division: Strictly Spoke Division
+      // 1. Division: the OPERATOR'S selection is authoritative (SPT, City/CT,
+      //    …) — resolved straight from the form. SPD stays the fallback for
+      //    drafts / restored sessions that carry no division yet.
       const packingDiv = divisions.find((d: any) =>
         d.id === SPD_DIVISION_ID ||
         (d.divisionCode || '').toUpperCase() === 'DIV-SPD' ||
         (d.divisionCode || '').toUpperCase() === 'SPD' ||
         (d.name || '').toLowerCase().includes('spoke')
       ) || divisions[0];
-      const resolvedDivisionId = formValues.divisionId && divisions.some((d: any) => d.id === formValues.divisionId && ((d.divisionCode || '').toUpperCase().includes('SPD') || (d.name || '').toLowerCase().includes('spoke')))
+      const resolvedDivisionId = formValues.divisionId && divisions.some((d: any) => d.id === formValues.divisionId)
         ? formValues.divisionId
         : (packingDiv?.id || SPD_DIVISION_ID);
 
-      // 2. Section: Strictly SPD Packing Section (SEC-013) belonging to Spoke Division
+      // 2. Section: belonging to the resolved Division — the operator's pick
+      //    wins; else the division's first Packing section, else SPD SEC-013.
       const packingSec = sections.find((s: any) =>
-        s.id === SPD_PACKING_SECTION_ID ||
-        ((s.sectionCode || '').toUpperCase() === 'SEC-013' && (!s.divisionId || s.divisionId === resolvedDivisionId)) ||
-        (s.divisionId === resolvedDivisionId && (s.name || '').toLowerCase().includes('pack'))
-      ) || sections.find((s: any) => s.id === SPD_PACKING_SECTION_ID) || sections.find((s: any) => s.divisionId === resolvedDivisionId) || sections[0];
-      const resolvedSectionId = formValues.sectionId && sections.some((s: any) => s.id === formValues.sectionId && s.divisionId === resolvedDivisionId)
+        s.divisionId === resolvedDivisionId &&
+        (((s.sectionCode || '').toUpperCase() === 'SEC-013') || (s.name || '').toLowerCase().includes('pack'))
+      ) || sections.find((s: any) => s.divisionId === resolvedDivisionId) || sections.find((s: any) => s.id === SPD_PACKING_SECTION_ID) || sections[0];
+      const resolvedSectionId = formValues.sectionId && sections.some((s: any) => s.id === formValues.sectionId && (!s.divisionId || s.divisionId === resolvedDivisionId))
         ? formValues.sectionId
         : (packingSec?.id || SPD_PACKING_SECTION_ID);
 
-      // 3. Department: Strictly SPD Packing Department (SPD-DEPT008) belonging to Spoke Division — NEVER Cutting & Packing
+      // 3. Department: belonging to the resolved Section/Division — the
+      //    operator's pick wins; SPD Packing (SPD-DEPT008) stays the fallback.
       const packingDept = departments.find((d: any) =>
-        d.id === SPD_PACKING_DEPT_ID ||
-        ((d.departmentCode || '').toUpperCase() === 'SPD-DEPT008' && (!d.divisionId || d.divisionId === resolvedDivisionId)) ||
-        (d.divisionId === resolvedDivisionId && (d.sectionId === resolvedSectionId || !d.sectionId) && (d.name || '').toLowerCase().includes('pack'))
-      ) || departments.find((d: any) => d.id === SPD_PACKING_DEPT_ID) || departments.find((d: any) => d.divisionId === resolvedDivisionId) || departments[0];
-      const resolvedDepartmentId = formValues.departmentId && departments.some((d: any) => d.id === formValues.departmentId && d.divisionId === resolvedDivisionId)
+        d.divisionId === resolvedDivisionId &&
+        (d.sectionId === resolvedSectionId || !d.sectionId) &&
+        ((d.departmentCode || '').toUpperCase() === 'SPD-DEPT008' || (d.name || '').toLowerCase().includes('pack'))
+      ) || departments.find((d: any) => d.divisionId === resolvedDivisionId) || departments.find((d: any) => d.id === SPD_PACKING_DEPT_ID) || departments[0];
+      const resolvedDepartmentId = formValues.departmentId && departments.some((d: any) => d.id === formValues.departmentId && (!d.divisionId || d.divisionId === resolvedDivisionId))
         ? formValues.departmentId
         : (packingDept?.id || SPD_PACKING_DEPT_ID);
 
@@ -1659,12 +2256,24 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
       const activeSocNo = socNo || formValues.customerSocNo || 'N/A';
       const activeCust = selectedCustomer || formValues.customerName || 'Open Market / General Stock';
       const activeStyle = selectedBagStyle || formValues.packagingStyle || 'White Poly Bag with Brand Sticker';
+      // Production Entry Date — the operator-adjustable calendar day of the
+      // production event (both the canonical entryDate field and its explicit
+      // `productionDate` alias accepted by the Create/Update DTOs carry it).
+      // Store value first (the Form.Item picker writes it), controlled state
+      // second (the executive header picker drives it) — the day the operator
+      // sees on screen is ALWAYS the day that gets submitted.
+      const entryDateSource = formValues.entryDate || entryDate;
+      const parsedEntryDate = dayjs.isDayjs(entryDateSource) ? entryDateSource : dayjs(entryDateSource);
+      const activeEntryDate = parsedEntryDate.isValid()
+        ? parsedEntryDate.format('YYYY-MM-DD')
+        : defaultProductionEntryDate().format('YYYY-MM-DD');
 
       const payload: any = {
         divisionId: resolvedDivisionId,
         sectionId: resolvedSectionId,
         departmentId: resolvedDepartmentId,
-        entryDate: formValues.entryDate ? dayjs(formValues.entryDate).format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD'),
+        entryDate: activeEntryDate,
+        productionDate: activeEntryDate,
         shiftId: resolvedShiftId,
         machineId: null,
         machineNo: activeBatchNo ? `HAND-PACK-${activeBatchNo}-${Date.now().toString().slice(-4)}` : `HAND-PACK-01-${Date.now().toString().slice(-4)}`,
@@ -1673,6 +2282,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         itemId: primaryItem.itemId,
         uomId: pcsUom?.id,
         targetQuantity: primaryItem.targetCartons * conversionFactors.pcsPerCarton,
+        // Full packed quantity: component-wise scrap never reduces the FG output.
         actualQuantity: primaryItem.quantityPcs,
         scrapQuantity: 0,
         runningHours: 8 + Number(overtimeHours || 0),
@@ -1682,18 +2292,23 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         warehouseId: primaryItem.destinationWarehouseId || formValues.warehouseId || '2f6aabde-69c1-4068-a0ea-b0fe1b8fb0b5',
         rawMaterialWarehouseId: formValues.rawMaterialWarehouseId || warehouses[1]?.id || warehouses[0]?.id,
         componentWarehouses: compWarehouseMap,
-        remarks: `[HAND PACKING] Batch: ${activeBatchNo} | SOC: ${activeSocNo} | Customer: ${activeCust} | Style: ${activeStyle} | Line: ${selectedLine} | OT: ${overtimeHours}h | Cartons: ${primaryItem.cartons} (${primaryItem.gross} Gross / ${primaryItem.quantityPcs} PCS)`.trim(),
-        items: masterItems.map((it, idx) => ({
-          lineNumber: idx + 1,
-          itemId: it.itemId,
-          uomId: pcsUom?.id,
-          targetQuantity: it.targetCartons * conversionFactors.pcsPerCarton,
-          actualQuantity: it.quantityPcs,
-          scrapQuantity: 0,
-          runningHours: 8 + Number(overtimeHours || 0),
-          overtimeHours: Number(overtimeHours || 0),
-          remarks: `${it.cartons} Cartons (${it.gross} Gross) — Customer: ${activeCust} (SOC: ${activeSocNo}) | OT: ${overtimeHours}h`,
-        })),
+        componentRejections,
+        remarks: `[HAND PACKING] Batch: ${activeBatchNo} | SOC: ${activeSocNo} | Customer: ${activeCust} | Style: ${activeStyle} | Line: ${selectedLine} | OT: ${overtimeHours}h | Cartons: ${primaryItem.cartons} (${primaryItem.gross} Gross / ${primaryItem.quantityPcs} PCS)${componentScrapRemarks}${componentScrapReasonsRemarks}`.trim(),
+        items: masterItems.map((it, idx) => {
+          const itemScrap = it.components.reduce((s, c) => s + computeRowRejection(c).rejectionPcs, 0);
+          const itemScrapKg = Math.round(it.components.reduce((s, c) => s + computeRowRejection(c).rejectionKg, 0) * 1000) / 1000;
+          return {
+            lineNumber: idx + 1,
+            itemId: it.itemId,
+            uomId: pcsUom?.id,
+            targetQuantity: it.targetCartons * conversionFactors.pcsPerCarton,
+            actualQuantity: it.quantityPcs,
+            scrapQuantity: 0,
+            runningHours: 8 + Number(overtimeHours || 0),
+            overtimeHours: Number(overtimeHours || 0),
+            remarks: `${it.cartons} Cartons (${it.gross} Gross) — Customer: ${activeCust} (SOC: ${activeSocNo}) | OT: ${overtimeHours}h${itemScrap > 0 ? ` | Component Scrap: ${itemScrap} PCS (${itemScrapKg} KG)` : ''}`,
+          };
+        }),
       };
 
       let res: any = null;
@@ -1729,11 +2344,11 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
       const newSavedLog: RecentPackingLog = {
         id: String(savedId),
         batchNo: activeBatchNo,
-        entryDate: formValues.entryDate ? dayjs(formValues.entryDate).format('DD/MM/YYYY') : dayjs().format('DD/MM/YYYY'),
+        entryDate: dayjs(activeEntryDate).format('DD/MM/YYYY'),
         entryTime: dayjs().format('hh:mm A'),
         overtimeHours: overtimeHours,
         shiftName: activeShift?.name || 'General (8:30 AM - 5:30 PM)',
-        weightKg: Math.round(primaryItem.quantityPcs * 0.0090 * 10) / 10,
+        weightKg: Math.round(primaryItem.quantityPcs * fgPerPieceWeightKg * 10) / 10,
         customerName: activeCust,
         socNo: activeSocNo,
         fgItemCode: primaryItem.itemCode || '',
@@ -1741,6 +2356,10 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         cartons: primaryItem.cartons,
         gross: primaryItem.gross,
         pcs: primaryItem.quantityPcs,
+        rejectionPcs: componentScrap.pcs,
+        rejectionKg: componentScrap.kg,
+        rejectionPct: null,
+        rejectionDetail: componentScrap.detail,
         status: 'SAVED',
         createdAtMs: Date.now(),
         components: primaryItem.components.map((c) => ({
@@ -1766,8 +2385,11 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         fgName: primaryItem.itemName || primaryItem.itemCode,
         customerName: `${activeCust} | ${activeSocNo}`,
         packedText: `${primaryItem.cartons} Cartons (${primaryItem.gross} Gross / ${formatNumber(primaryItem.quantityPcs)} PCS)`,
+        rejectionText: hasComponentScrap
+          ? `Component Scrap: ${formatNumber(componentScrap.pcs, 0)} PCS (${formatNumber(componentScrap.kg, 3)} KG) across ${componentScrap.rowsWithScrap} component(s) — added to component consumption, FG quantity unchanged${componentScrap.reasons ? ` · Reasons: ${componentScrap.reasons}` : ''}`
+          : '',
         deductionsSummary: `${primaryItem.components?.length || 0} Components Deducted (Spokes & Nipples)`,
-        department: 'Spoke Division (SPD) > SPD Packing Dept',
+        department: `${divisions.find((d: any) => d.id === resolvedDivisionId)?.name || 'Spoke Division (SPD)'} > ${departments.find((dpt: any) => dpt.id === resolvedDepartmentId)?.name || 'SPD Packing Dept'}`,
       });
 
       if (!isSubTab && layoutMode !== 'executive') {
@@ -1813,7 +2435,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
       width: 44,
       align: 'center' as const,
       render: (_: any, __: any, index: number) => (
-        <span style={{ fontWeight: 700, color: '#475569' }}>{index + 1}</span>
+        <span style={{ fontWeight: 700, color: 'var(--theme-text-secondary)' }}>{index + 1}</span>
       ),
     },
     {
@@ -1852,11 +2474,11 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
       key: 'itemName',
       render: (name: string, record: PackingMasterItemRow) => (
         <div>
-          <Text strong style={{ fontSize: 13, color: '#0f172a' }}>
+          <Text strong style={{ fontSize: 13, color: 'var(--theme-text)' }}>
             {name}
           </Text>
           {record.bom && (
-            <div style={{ fontSize: 11, color: '#0284c7', display: 'flex', alignItems: 'center', gap: 4, marginTop: 2 }}>
+            <div style={{ fontSize: 11, color: 'var(--hp-value-info)', display: 'flex', alignItems: 'center', gap: 4, marginTop: 2 }}>
               <span>BOM: <strong>{record.bom.bomCode}</strong> ({record.bom.name})</span>
             </div>
           )}
@@ -1907,7 +2529,8 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         <InputNumber
           min={0}
           step={1}
-          style={{ width: '100%', fontWeight: 800, color: '#059669', fontSize: 13 }}
+          className="hp-num-input hp-num-input--success"
+          style={{ width: '100%', fontSize: 13 }}
           value={record.cartons}
           onChange={(v) => handleItemValueChange(record.key, 'cartons', v)}
         />
@@ -1921,7 +2544,8 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         <InputNumber
           min={0}
           step={10}
-          style={{ width: '100%', fontWeight: 700, color: '#0284c7', fontSize: 13 }}
+          className="hp-num-input hp-num-input--info"
+          style={{ width: '100%', fontSize: 13 }}
           value={record.gross}
           onChange={(v) => handleItemValueChange(record.key, 'gross', v)}
         />
@@ -2012,7 +2636,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
   const expandedRowRender = (record: PackingMasterItemRow) => {
     if (record.bomLoading) {
       return (
-        <div style={{ padding: '20px 24px', textAlign: 'center', background: '#f8fafc', borderRadius: 6, border: '1px solid #e2e8f0' }}>
+        <div className="hp-comp-shell" style={{ padding: '20px 24px', textAlign: 'center' }}>
           <Spin tip="Resolving authoritative BOM and checking live store balances..." />
         </div>
       );
@@ -2020,7 +2644,15 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
 
     if (record.bomError) {
       return (
-        <div style={{ padding: '12px 16px', background: '#fff1f0', borderLeft: '4px solid #ff4d4f', borderRadius: 6 }}>
+        <div
+          className="hp-comp-shell"
+          style={{
+            padding: '12px 16px',
+            background: 'var(--theme-danger-soft)',
+            borderLeft: '4px solid var(--theme-danger)',
+            borderRadius: 6,
+          }}
+        >
           <Alert
             message="No Active BOM Configured"
             description={
@@ -2054,36 +2686,30 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         render: (_: any, __: any, idx: number) => idx + 1,
       },
       {
-        title: 'Component Item Code',
-        dataIndex: 'componentItemCode',
-        key: 'componentItemCode',
-        width: 165,
-        render: (code: string) => (
-          <Tag color="cyan" style={{ fontWeight: 800, fontSize: 12 }}>
-            {code}
-          </Tag>
-        ),
-      },
-      {
-        title: 'Component Description / Material',
-        dataIndex: 'componentItemName',
-        key: 'componentItemName',
-        render: (name: string) => (
-          <Text strong style={{ fontSize: 13 }}>
-            {name}
-          </Text>
-        ),
+        title: <SplitHead top="Component" bottom="Item" />,
+        key: 'componentItem',
+        // Stacked ledger cell (ComponentItemCell): bold accent code over the
+        // larger category-tinted Item Name — one column instead of two.
+        width: 240,
+        render: (_: any, comp: BomComponentItem) => <ComponentItemCell comp={comp} />,
       },
       {
         title: (
-          <span>
-            <Tag color="volcano" style={{ fontSize: 10, marginRight: 4, fontWeight: 800 }}>📤 OUT</Tag>
-            Source Store / Warehouse
-          </span>
+          <SplitHead
+            top={
+              <>
+                <Tag color="volcano" style={{ fontSize: 9.5, marginRight: 4, fontWeight: 800, padding: '1px 5px', lineHeight: 1.4 }}>
+                  📤 OUT
+                </Tag>
+                Source Store
+              </>
+            }
+            bottom="Warehouse"
+          />
         ),
         dataIndex: 'sourceWarehouseId',
         key: 'sourceWarehouseId',
-        width: 250,
+        width: 225,
         render: (_: any, comp: BomComponentItem) => {
           const whOptions = warehouses.map((w) => ({
             value: w.id,
@@ -2104,7 +2730,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                 onChange={(newWh) => handleComponentWarehouseChange(record.key, comp.key, newWh)}
                 options={whOptions}
               />
-              <div style={{ fontSize: 11, color: '#c2410c', marginTop: 3, display: 'flex', alignItems: 'center', gap: 4, fontWeight: 600 }}>
+              <div style={{ fontSize: 11, color: 'var(--theme-text-secondary)', marginTop: 3, display: 'flex', alignItems: 'center', gap: 4, fontWeight: 600 }}>
                 <SwapOutlined />
                 <span>Deducted OUT of this store</span>
               </div>
@@ -2113,9 +2739,9 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         },
       },
       {
-        title: 'BOM Ratio',
+        title: <SplitHead top="BOM" bottom="Ratio" align="center" />,
         key: 'bomRatio',
-        width: 140,
+        width: 120,
         align: 'center' as const,
         render: (_: any, comp: BomComponentItem) => {
           const isNipple = comp.componentItemName?.toLowerCase().includes('nipple') || comp.componentItemCode?.toLowerCase().includes('np');
@@ -2123,10 +2749,10 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
           const ratioPcs = comp.bomRatio || (grossPerCtn / conversionFactors.grossPerCarton);
           return (
             <div>
-              <div style={{ fontSize: 13, fontWeight: 800, color: '#0f172a' }}>
+              <div style={{ fontSize: 13, fontWeight: 800, color: 'var(--theme-text)' }}>
                 {grossPerCtn} GRS / CTN
               </div>
-              <div style={{ fontSize: 11, color: '#0284c7', fontWeight: 600 }}>
+              <div style={{ fontSize: 11, color: 'var(--hp-value-info)', fontWeight: 600 }}>
                 ({parseFloat(ratioPcs.toFixed(3))} PCS / FG)
               </div>
             </div>
@@ -2134,9 +2760,9 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         },
       },
       {
-        title: 'Required Quantity',
+        title: <SplitHead top="Required" bottom="Quantity" align="center" />,
         key: 'requiredQuantity',
-        width: 160,
+        width: 140,
         render: (_: any, comp: BomComponentItem) => {
           const isNipple = comp.componentItemName?.toLowerCase().includes('nipple') || comp.componentItemCode?.toLowerCase().includes('np');
           const grossPerCtn = comp.grossPerCarton || (comp.bomRatio ? Math.round(comp.bomRatio * conversionFactors.grossPerCarton) : (isNipple ? 10 : 5));
@@ -2144,10 +2770,10 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
           const reqPcs = comp.requiredPcs || Math.round(reqGross * conversionFactors.pcsPerGross);
           return (
             <div>
-              <Text strong style={{ fontSize: 13.5, color: '#2563eb' }}>
+              <Text strong style={{ fontSize: 13.5, color: 'var(--hp-value-info)' }}>
                 {formatNumber(reqGross, reqGross % 1 === 0 ? 0 : 1)} GRS
               </Text>
-              <div style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>
+              <div style={{ fontSize: 11, color: 'var(--theme-text-muted)', fontWeight: 600 }}>
                 ({formatNumber(reqPcs, 0)} PCS)
               </div>
             </div>
@@ -2155,9 +2781,67 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         },
       },
       {
-        title: 'Available Stock',
+        title: <SplitHead top="Rejection" bottom="Scrap" hint="KG ⇄ PCS entry" />,
+        key: 'rejectionEntry',
+        width: 300,
+        render: (_: any, comp: BomComponentItem) => renderRejectionEntryCell(record.key, comp),
+      },
+      {
+        title: <SplitHead top="Rejection" bottom="Remarks" />,
+        key: 'rejectionRemarks',
+        width: 140,
+        render: (_: any, comp: BomComponentItem) => renderRejectionRemarksCell(record.key, comp),
+      },
+      {
+        title: <SplitHead top="Rejection" bottom="% (KG)" align="center" />,
+        key: 'rejectionPct',
+        width: 112,
+        align: 'center' as const,
+        render: (_: any, comp: BomComponentItem) => {
+          const r = computeRowRejection(comp);
+          if (r.rejectionPcs <= 0) {
+            return <span className="hp-dash" style={{ fontSize: 12.5 }}>—</span>;
+          }
+          return (
+            <div>
+              <Tag color="red" style={{ fontWeight: 800, fontSize: 11.5, margin: 0 }}>
+                {formatNumber(r.rejectionPct, 2)}%
+              </Tag>
+              <div className="hp-rej-hint" style={{ fontSize: 10 }}>
+                {formatNumber(r.rejectionKg, 3)} / {formatNumber(r.totalKg, 3)} KG
+              </div>
+            </div>
+          );
+        },
+      },
+      {
+        title: <SplitHead top="Total" bottom="Deduction" hint="Required + Scrap" />,
+        key: 'totalDeduction',
+        width: 150,
+        render: (_: any, comp: BomComponentItem) => {
+          const r = computeRowRejection(comp);
+          const totalGross = Math.round((comp.requiredGross + r.rejectionPcs / conversionFactors.pcsPerGross) * 100) / 100;
+          return (
+            <div>
+              <Text strong style={{ fontSize: 13.5, color: 'var(--hp-value-warning)' }}>
+                {formatNumber(totalGross, totalGross % 1 === 0 ? 0 : 1)} GRS
+              </Text>
+              <div style={{ fontSize: 11, color: 'var(--theme-text-secondary)', fontWeight: 600 }}>
+                ({formatNumber(r.totalDeductPcs, 0)} PCS)
+              </div>
+              {r.rejectionPcs > 0 && (
+                <div style={{ fontSize: 10, color: 'var(--hp-value-danger)', fontWeight: 700, marginTop: 1 }}>
+                  incl. {formatNumber(r.rejectionPcs, 0)} scrap
+                </div>
+              )}
+            </div>
+          );
+        },
+      },
+      {
+        title: <SplitHead top="Available" bottom="Stock" align="center" />,
         key: 'availableStock',
-        width: 175,
+        width: 145,
         render: (_: any, comp: BomComponentItem) => {
           const availGross = toNum(comp.availableGross ?? comp.availableStock);
           const availPcs = toNum(comp.availablePcs ?? (availGross * conversionFactors.pcsPerGross));
@@ -2167,10 +2851,10 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
           const isZero = availGross <= 0;
           return (
             <div>
-              <span style={{ fontSize: 13, fontWeight: 800, color: isZero ? '#dc2626' : '#059669' }}>
+              <span style={{ fontSize: 13, fontWeight: 800, color: isZero ? 'var(--hp-value-danger)' : 'var(--hp-value-success)' }}>
                 {formatNumber(availGross, availGross % 1 === 0 ? 0 : 1)} GRS
               </span>
-              <div style={{ fontSize: 11, color: isZero ? '#b91c1c' : '#64748b', fontWeight: 600 }}>
+              <div style={{ fontSize: 11, color: isZero ? 'var(--hp-value-danger)' : 'var(--theme-text-muted)', fontWeight: 600 }}>
                 ({formatNumber(availPcs, 0)} PCS in store)
               </div>
               {isZero && comp.totalCompanyGross && comp.totalCompanyGross > 0 ? (
@@ -2183,25 +2867,23 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         },
       },
       {
-        title: 'Remaining After Packing',
+        title: <SplitHead top="Remaining" bottom="After Packing" align="center" />,
         key: 'remaining',
-        width: 175,
+        width: 145,
         render: (_: any, comp: BomComponentItem) => {
-          const isNipple = comp.componentItemName?.toLowerCase().includes('nipple') || comp.componentItemCode?.toLowerCase().includes('np');
-          const grossPerCtn = comp.grossPerCarton || (comp.bomRatio ? Math.round(comp.bomRatio * conversionFactors.grossPerCarton) : (isNipple ? 10 : 5));
-          const reqGross = comp.requiredGross || Math.round(grossPerCtn * (record.cartons || 50));
-          const reqPcs = comp.requiredPcs || Math.round(reqGross * conversionFactors.pcsPerGross);
+          const r = computeRowRejection(comp);
+          const totalDeductGross = comp.requiredGross + r.rejectionPcs / conversionFactors.pcsPerGross;
           const availGross = toNum(comp.availableGross ?? comp.availableStock);
           const availPcs = toNum(comp.availablePcs ?? (availGross * conversionFactors.pcsPerGross));
-          const remGross = comp.remainingGross !== undefined ? comp.remainingGross : (availGross - reqGross);
-          const remPcs = comp.remainingPcs !== undefined ? comp.remainingPcs : (availPcs - reqPcs);
+          const remGross = Math.round((availGross - totalDeductGross) * 10) / 10;
+          const remPcs = Math.round(availPcs - r.totalDeductPcs);
           const isOk = remGross >= 0;
           return (
             <div>
-              <span style={{ fontWeight: 800, color: isOk ? '#059669' : '#dc2626', fontSize: 13 }}>
+              <span style={{ fontWeight: 800, color: isOk ? 'var(--hp-value-success)' : 'var(--hp-value-danger)', fontSize: 13 }}>
                 {isOk ? '+' : ''}{formatNumber(remGross, remGross % 1 === 0 ? 0 : 1)} GRS
               </span>
-              <div style={{ fontSize: 11, color: isOk ? '#047857' : '#b91c1c', fontWeight: 600 }}>
+              <div style={{ fontSize: 11, color: isOk ? 'var(--theme-text-secondary)' : 'var(--hp-value-danger)', fontWeight: 600 }}>
                 ({isOk ? '+' : ''}{formatNumber(remPcs, 0)} PCS)
               </div>
             </div>
@@ -2209,44 +2891,36 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         },
       },
       {
-        title: 'Stock Status',
+        title: <SplitHead top="Stock" bottom="Status" align="center" />,
         dataIndex: 'stockStatus',
         key: 'stockStatus',
-        width: 130,
-        render: (st: string) => (
-          <Tag
-            color={st === 'AVAILABLE' ? 'success' : 'error'}
-            style={{ fontWeight: 800, fontSize: 11.5 }}
-          >
-            {st === 'AVAILABLE' ? 'Available' : 'Insufficient Stock'}
-          </Tag>
-        ),
+        width: 115,
+        render: (st: string, comp: BomComponentItem) => {
+          // Effective status considers the component scrap on top of the BOM requirement
+          const r = computeRowRejection(comp);
+          const availGross = toNum(comp.availableGross ?? comp.availableStock);
+          const totalDeductGross = comp.requiredGross + r.rejectionPcs / conversionFactors.pcsPerGross;
+          const effective = availGross >= totalDeductGross ? 'AVAILABLE' : 'INSUFFICIENT';
+          return (
+            <Tag
+              color={effective === 'AVAILABLE' ? 'success' : 'error'}
+              style={{ fontWeight: 800, fontSize: 11.5 }}
+            >
+              {effective === 'AVAILABLE' ? 'Available' : 'Insufficient Stock'}
+            </Tag>
+          );
+        },
       },
     ];
 
     return (
-      <div style={{
-        background: '#f8fafc',
-        border: '1.5px solid #cbd5e1',
-        borderRadius: 8,
-        padding: '12px 16px',
-        margin: '8px 0',
-      }}>
-        <div style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          marginBottom: 10,
-          borderBottom: '1.5px solid #e2e8f0',
-          paddingBottom: 8,
-          flexWrap: 'wrap',
-          gap: 8,
-        }}>
+      <div className="hp-comp-panel" style={{ margin: '8px 0' }}>
+        <div className="hp-comp-toolbar">
           <Space align="center" wrap>
             <Tag color="volcano" style={{ fontWeight: 800, fontSize: 12, padding: '3px 10px' }}>
               📤 DEDUCT FROM STORE (OUT) — RAW MATERIALS & COMPONENTS
             </Tag>
-            <span style={{ fontWeight: 800, fontSize: 13 }}>
+            <span style={{ fontWeight: 800, fontSize: 13, color: 'var(--theme-text)' }}>
               Finished Good: {record.itemCode}
             </span>
             <Tag color="blue" style={{ fontSize: 11, fontWeight: 700 }}>
@@ -2268,18 +2942,24 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
             </Button>
           </Space>
           <Text type="secondary" style={{ fontSize: 12 }}>
-            Consumption for: <strong style={{ color: '#0f172a' }}>{record.cartons} Cartons</strong> ({record.gross} Gross / {formatNumber(record.quantityPcs, 0)} PCS)
+            Consumption for: <strong style={{ color: 'var(--theme-text)' }}>{record.cartons} Cartons</strong> ({record.gross} Gross / {formatNumber(record.quantityPcs, 0)} PCS)
+            <span className="hp-comp-hint">
+              Rejection is entered per component row — rejected pieces are ADDED to that component's requirement (Required + Scrap deducted from its Source Store).
+            </span>
           </Text>
         </div>
 
-        <Table
-          dataSource={record.components}
-          columns={detailColumns}
-          pagination={false}
-          size="middle"
-          bordered
-          rowKey="key"
-        />
+        <div className="hp-comp-shell">
+          <Table
+            dataSource={record.components}
+            columns={detailColumns}
+            pagination={false}
+            size="middle"
+            bordered
+            rowKey="key"
+            scroll={{ x: 'max-content' }}
+          />
+        </div>
       </div>
     );
   };
@@ -2381,43 +3061,83 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
             </Tag>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+            <Text type="secondary">Recorded Output → FG Inventory:</Text>
+            <Tag color="green" style={{ fontWeight: 800, fontSize: 13 }}>
+              {formatNumber(masterItems[0]?.quantityPcs || 0, 0)} PCS (full packed — scrap never reduces FG)
+            </Tag>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+            <Text type="secondary">Component Scrap (Rejection):</Text>
+            {componentScrap.pcs > 0 ? (
+              <div style={{ textAlign: 'right', maxWidth: 420 }}>
+                <Text strong style={{ color: '#dc2626' }}>
+                  {formatNumber(componentScrap.pcs, 0)} PCS ({formatNumber(componentScrap.kg, 3)} KG) · {componentScrap.rowsWithScrap} component(s)
+                </Text>
+                {componentScrap.reasons && (
+                  <div style={{ fontSize: 11, color: 'var(--theme-text-secondary)', fontWeight: 600, marginTop: 2 }}>
+                    Reasons: {componentScrap.reasons}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <Text type="secondary">None</Text>
+            )}
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
             <Text type="secondary">Division / Section / Dept:</Text>
             <Tag color="cyan" style={{ fontWeight: 700, fontSize: 11.5 }}>
-              Spoke Division (SPD) &gt; SEC-013 &gt; SPD-DEPT008 (SPD Packing)
+              {(() => {
+                const divId = watchedDivisionId || form.getFieldValue('divisionId');
+                const divName = divisions.find((d: any) => d.id === divId)?.name || 'Spoke Division (SPD)';
+                const secName = sections.find((s: any) => s.id === form.getFieldValue('sectionId'))?.name || 'SEC-013';
+                const deptName = departments.find((dpt: any) => dpt.id === form.getFieldValue('departmentId'))?.name || 'SPD-DEPT008 (SPD Packing)';
+                return `${divName} > ${secName} > ${deptName}`;
+              })()}
             </Tag>
           </div>
 
           <Divider style={{ margin: '10px 0' }} />
           <div style={{ fontSize: 12, fontWeight: 700, color: '#334155', marginBottom: 6 }}>
-            BOM Inventory Deductions ({masterItems[0]?.components?.length || 0} Components):
+            BOM Inventory Deductions ({masterItems[0]?.components?.length || 0} Components — Required + Component Scrap):
           </div>
           <div style={{ maxHeight: 160, overflowY: 'auto' }}>
-            {(masterItems[0]?.components || []).map((c, idx) => (
-              <div
-                key={c.key || idx}
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  padding: '5px 8px',
-                  background: idx % 2 === 0 ? '#ffffff' : 'transparent',
-                  borderRadius: 4,
-                  fontSize: 12,
-                }}
-              >
-                <span style={{ fontWeight: 600, color: '#1e293b' }}>
-                  {c.componentItemName || c.componentItemCode}
-                </span>
-                <Space size={8}>
-                  <Tag color="blue" style={{ fontWeight: 700 }}>
-                    {c.requiredGross} GRS
-                  </Tag>
-                  <span style={{ color: '#0284c7', fontSize: 11, fontWeight: 600 }}>
-                    ({formatNumber(c.requiredPcs)} PCS)
+            {(masterItems[0]?.components || []).map((c, idx) => {
+              const r = computeRowRejection(c);
+              const totalGross = Math.round((c.requiredGross + r.rejectionPcs / conversionFactors.pcsPerGross) * 100) / 100;
+              return (
+                <div
+                  key={c.key || idx}
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: '5px 8px',
+                    background: idx % 2 === 0 ? '#ffffff' : 'transparent',
+                    borderRadius: 4,
+                    fontSize: 12,
+                  }}
+                >
+                  <span style={{ fontWeight: 600, color: '#1e293b' }}>
+                    {c.componentItemName || c.componentItemCode}
                   </span>
-                </Space>
-              </div>
-            ))}
+                  <Space size={8} wrap>
+                    <Tag color="blue" style={{ fontWeight: 700 }}>
+                      {c.requiredGross} GRS req
+                    </Tag>
+                    {r.rejectionPcs > 0 && (
+                      <Tooltip title={(c.rejectionRemarks || '').trim() || 'No scrap reason entered'}>
+                        <Tag color="red" style={{ fontWeight: 700 }}>
+                          +{formatNumber(r.rejectionPcs, 0)} PCS scrap{(c.rejectionRemarks || '').trim() ? ` — ${c.rejectionRemarks}` : ''}
+                        </Tag>
+                      </Tooltip>
+                    )}
+                    <span style={{ color: '#9a3412', fontSize: 11.5, fontWeight: 800 }}>
+                      → {formatNumber(totalGross, totalGross % 1 === 0 ? 0 : 1)} GRS ({formatNumber(r.totalDeductPcs, 0)} PCS)
+                    </span>
+                  </Space>
+                </div>
+              );
+            })}
           </div>
 
           <div
@@ -2542,6 +3262,14 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
             {packingSuccessModal.packedText}
           </span>
         </div>
+        {packingSuccessModal.rejectionText && (
+          <div className="prod-result-details-row">
+            <span className="prod-result-details-label">Component Scrap:</span>
+            <span className="prod-result-details-val" style={{ color: '#dc2626', fontSize: 12 }}>
+              {packingSuccessModal.rejectionText}
+            </span>
+          </div>
+        )}
         <div className="prod-result-details-row">
           <span className="prod-result-details-label">BOM Deductions:</span>
           <span className="prod-result-details-val" style={{ fontSize: 12, color: '#475569' }}>
@@ -2669,6 +3397,41 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
             </Col>
           </Row>
 
+          {/* Row 1b: Division (STRICTLY cascades the Customer dropdown) and the
+              Production Entry Date — the operator-adjustable calendar day of
+              the production event (persisted as the entry date). */}
+          <Row gutter={[16, 12]} align="middle">
+            <Col xs={24} sm={8}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontWeight: 700, fontSize: 13, color: '#334155', minWidth: 62 }}>
+                  Division:
+                </span>
+                <Select
+                  showSearch
+                  optionFilterProp="label"
+                  style={{ width: '100%', fontWeight: 700 }}
+                  placeholder="Select Division"
+                  value={watchedDivisionId || undefined}
+                  onChange={(val) => val && handleDivisionChange(val)}
+                  options={divisions.map((d: any) => ({ value: d.id, label: `${d.name} (${d.divisionCode || 'DIV'})` }))}
+                />
+              </div>
+            </Col>
+            <Col xs={24} sm={8}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontWeight: 700, fontSize: 13, color: '#334155', minWidth: 70 }}>
+                  Production Entry Date:
+                </span>
+                <DatePicker
+                  style={{ width: '100%' }}
+                  format="YYYY-MM-DD"
+                  value={entryDate}
+                  onChange={handleEntryDateChange}
+                />
+              </div>
+            </Col>
+          </Row>
+
           {/* Row 2: Customer, SOC #, and Packaging Style / Spec (Requested by User!) */}
           <Divider style={{ margin: '10px 0' }} />
           <Row gutter={[16, 12]} align="middle">
@@ -2680,21 +3443,25 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                 <Select
                   showSearch
                   allowClear
-                  placeholder="Select Customer..."
+                  optionFilterProp="label"
+                  placeholder={customersLoading ? 'Loading customers...' : 'Select Customer...'}
                   style={{ width: '100%', fontWeight: 700 }}
                   value={selectedCustomer}
+                  loading={customersLoading}
+                  notFoundContent={
+                    customersLoading ? (
+                      <Spin size="small" />
+                    ) : watchedDivisionId ? (
+                      'No ACTIVE customers assigned to this Division — set a Division on the customer in Customer List'
+                    ) : (
+                      'No active customers found in Customer List'
+                    )
+                  }
                   onChange={(val) => {
                     setSelectedCustomer(val || undefined);
                     form.setFieldsValue({ customerName: val });
                   }}
-                  options={[
-                    { value: 'Crown Motors (Pvt) Ltd', label: 'Crown Motors (Pvt) Ltd' },
-                    { value: 'United Auto Industries', label: 'United Auto Industries' },
-                    { value: 'Super Asia Motors', label: 'Super Asia Motors' },
-                    { value: 'Sohrab Cycles Ltd', label: 'Sohrab Cycles Ltd' },
-                    { value: 'Road Prince Motorcycles', label: 'Road Prince Motorcycles' },
-                    { value: 'Open Market / General Stock', label: 'Open Market / General Stock' },
-                  ]}
+                  options={customerOptions}
                 />
               </div>
             </Col>
@@ -2818,46 +3585,37 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         {/* ── CARD 3: BOM Component Deduction Breakdown (Exact Mockup Table) ── */}
         <Card
           size="small"
+          className="hp-comp-bare-card"
           title={
-            <span style={{ fontWeight: 800, fontSize: 14, color: '#0f172a' }}>
+            <span style={{ fontWeight: 800, fontSize: 14, color: 'var(--theme-text)' }}>
               BOM Component Deduction Breakdown
             </span>
           }
           style={{
-            borderRadius: 8,
-            border: '1.5px solid #e2e8f0',
-            background: '#ffffff',
+            borderRadius: 0,
+            border: 'none',
+            background: 'var(--theme-card-bg)',
             marginBottom: 16,
-            boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
+            boxShadow: 'none',
           }}
         >
+          <div className="hp-comp-shell">
           <Table
             dataSource={primaryItem.components}
+            scroll={{ x: 'max-content' }}
             columns={[
               {
-                title: 'Component Item Code',
-                dataIndex: 'componentItemCode',
-                key: 'componentItemCode',
-                render: (code: string) => (
-                  <span style={{ fontWeight: 700, fontSize: 13, color: '#0f172a' }}>
-                    {code}
-                  </span>
-                ),
-              },
-              {
-                title: 'Item Description',
-                dataIndex: 'componentItemName',
-                key: 'componentItemName',
-                render: (name: string) => (
-                  <span style={{ fontWeight: 600, color: '#334155' }}>
-                    {name}
-                  </span>
-                ),
-              },
-              {
-                title: 'Source Store (Deduct OUT)',
-                key: 'sourceWarehouse',
+                title: <SplitHead top="Component" bottom="Item" />,
+                key: 'componentItem',
+                // Shared stacked cell: bold accent code over the larger
+                // category-tinted Item Name (mirrors the expanded-row table).
                 width: 240,
+                render: (_: any, comp: BomComponentItem) => <ComponentItemCell comp={comp} />,
+              },
+              {
+                title: <SplitHead top="Source Store" bottom="Deduct OUT" />,
+                key: 'sourceWarehouse',
+                width: 215,
                 render: (_: any, c: any) => (
                   <Select
                     size="small"
@@ -2872,63 +3630,116 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                 ),
               },
               {
-                title: 'UoM',
+                title: <SplitHead top="UoM" align="center" />,
                 key: 'uom',
+                width: 70,
                 align: 'center' as const,
-                render: () => <span style={{ fontWeight: 700, color: '#475569' }}>GRS</span>,
+                render: () => <span style={{ fontWeight: 700, color: 'var(--theme-text-secondary)' }}>GRS</span>,
               },
               {
-                title: 'Required Quantity',
+                title: <SplitHead top="Required" bottom="Quantity" align="center" />,
                 key: 'reqQuantity',
+                width: 135,
                 align: 'center' as const,
                 render: (_: any, c: any) => (
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                    <span style={{ fontWeight: 800, fontSize: 13.5, color: '#0f172a' }}>
+                    <span style={{ fontWeight: 800, fontSize: 13.5, color: 'var(--hp-value-info)' }}>
                       {c.requiredGross} GRS
                     </span>
-                    <span style={{ fontSize: 11.5, color: '#64748b', fontWeight: 600 }}>
+                    <span style={{ fontSize: 11.5, color: 'var(--theme-text-muted)', fontWeight: 600 }}>
                       ({formatNumber(c.requiredPcs)} PCS)
                     </span>
                   </div>
                 ),
               },
               {
-                title: 'Available Stock',
+                title: <SplitHead top="Available" bottom="Stock" align="center" />,
                 key: 'availStock',
+                width: 105,
                 align: 'center' as const,
                 render: (_: any, c: any) => (
-                  <span style={{ fontWeight: 800, fontSize: 13.5, color: '#0f172a' }}>
+                  <span style={{ fontWeight: 800, fontSize: 13.5, color: 'var(--theme-text)' }}>
                     {c.availableGross}
                   </span>
                 ),
               },
               {
-                title: 'Status',
-                key: 'status',
-                align: 'center' as const,
-                render: (_: any, c: any) => (
-                  <Tag
-                    color={c.stockStatus === 'AVAILABLE' ? 'success' : 'error'}
-                    style={{
-                      fontWeight: 700,
-                      fontSize: 12,
-                      padding: '2px 14px',
-                      borderRadius: 4,
-                    }}
-                  >
-                    {c.stockStatus === 'AVAILABLE' ? 'Green' : 'Insufficient'}
-                  </Tag>
-                ),
+                title: <SplitHead top="Rejection" bottom="Scrap" hint="KG ⇄ PCS entry" />,
+                key: 'rejectionEntry',
+                width: 300,
+                render: (_: any, c: BomComponentItem) => renderRejectionEntryCell(primaryItem.key, c),
               },
               {
-                title: 'Deduction Mode',
-                key: 'deductionMode',
+                title: <SplitHead top="Rejection" bottom="Remarks" />,
+                key: 'rejectionRemarks',
+                width: 140,
+                render: (_: any, c: BomComponentItem) => renderRejectionRemarksCell(primaryItem.key, c),
+              },
+              {
+                title: <SplitHead top="Rejection" bottom="% (KG)" align="center" />,
+                key: 'rejectionPct',
+                width: 110,
                 align: 'center' as const,
-                render: () => (
-                  <span style={{ fontWeight: 600, color: '#334155' }}>
-                    Automatic
-                  </span>
-                ),
+                render: (_: any, c: BomComponentItem) => {
+                  const r = computeRowRejection(c);
+                  return r.rejectionPcs > 0 ? (
+                    <Tag color="red" style={{ fontWeight: 800, fontSize: 11.5 }}>
+                      {formatNumber(r.rejectionPct, 2)}%
+                    </Tag>
+                  ) : (
+                    <span className="hp-dash">—</span>
+                  );
+                },
+              },
+              {
+                title: <SplitHead top="Total" bottom="Deduction" hint="Required + Scrap" align="center" />,
+                key: 'totalDeduction',
+                width: 140,
+                align: 'center' as const,
+                render: (_: any, c: BomComponentItem) => {
+                  const r = computeRowRejection(c);
+                  const totalGross = Math.round((c.requiredGross + r.rejectionPcs / conversionFactors.pcsPerGross) * 100) / 100;
+                  return (
+                    <div>
+                      <span style={{ fontWeight: 800, fontSize: 13, color: 'var(--hp-value-warning)' }}>
+                        {formatNumber(totalGross, totalGross % 1 === 0 ? 0 : 1)} GRS
+                      </span>
+                      <div style={{ fontSize: 11, color: 'var(--theme-text-secondary)', fontWeight: 600 }}>
+                        ({formatNumber(r.totalDeductPcs, 0)} PCS)
+                      </div>
+                      {r.rejectionPcs > 0 && (
+                        <div style={{ fontSize: 10, color: 'var(--hp-value-danger)', fontWeight: 700, marginTop: 1 }}>
+                          incl. {formatNumber(r.rejectionPcs, 0)} scrap
+                        </div>
+                      )}
+                    </div>
+                  );
+                },
+              },
+              {
+                title: <SplitHead top="Stock" bottom="Status" align="center" />,
+                key: 'status',
+                width: 110,
+                align: 'center' as const,
+                render: (_: any, c: BomComponentItem) => {
+                  const r = computeRowRejection(c);
+                  const availGross = toNum(c.availableGross ?? c.availableStock);
+                  const totalDeductGross = c.requiredGross + r.rejectionPcs / conversionFactors.pcsPerGross;
+                  const effective = availGross >= totalDeductGross ? 'AVAILABLE' : 'INSUFFICIENT';
+                  return (
+                    <Tag
+                      color={effective === 'AVAILABLE' ? 'success' : 'error'}
+                      style={{
+                        fontWeight: 700,
+                        fontSize: 12,
+                        padding: '2px 14px',
+                        borderRadius: 4,
+                      }}
+                    >
+                      {effective === 'AVAILABLE' ? 'Green' : 'Insufficient'}
+                    </Tag>
+                  );
+                },
               },
             ]}
             pagination={false}
@@ -2936,6 +3747,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
             size="middle"
             rowKey="key"
           />
+          </div>
         </Card>
 
         {/* ── CARD 4: Actions Footer ── */}
@@ -3066,10 +3878,36 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                   <div>
                     <Tag color="green" style={{ fontWeight: 800, fontSize: 12 }}>{r.cartons} CTN</Tag>
                     <span style={{ fontSize: 12, fontWeight: 700, color: '#065f46', marginLeft: 4 }}>
-                      {r.gross} GRS / {formatNumber(r.pcs, 0)} PCS
+                      {r.gross} GRS / {formatNumber(toNum(r.pcs), 0)} PCS
                     </span>
                   </div>
                 ),
+              },
+              {
+                title: <span style={{ fontWeight: 800 }}>Component Scrap</span>,
+                key: 'rejection',
+                width: 170,
+                align: 'center',
+                render: (_: any, r: any) =>
+                  toNum(r.rejectionPcs) > 0 ? (
+                    <div>
+                      <Tag color="red" style={{ fontWeight: 800, fontSize: 11.5, margin: 0 }}>
+                        {formatNumber(r.rejectionPcs, 0)} PCS
+                      </Tag>
+                      <div style={{ fontSize: 10.5, color: '#64748b', fontWeight: 600, marginTop: 2 }}>
+                        {formatNumber(r.rejectionKg, 3)} KG{r.rejectionPct != null ? ` · ${formatNumber(r.rejectionPct, 2)}%` : ''}
+                      </div>
+                      {r.rejectionDetail ? (
+                        <Tooltip title={r.rejectionDetail}>
+                          <div style={{ fontSize: 10, color: '#9a3412', fontWeight: 600, marginTop: 1, cursor: 'help' }}>
+                            {r.rejectionDetail.length > 28 ? `${r.rejectionDetail.slice(0, 28)}…` : r.rejectionDetail}
+                          </div>
+                        </Tooltip>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <Tag color="default" style={{ fontSize: 10.5 }}>None</Tag>
+                  ),
               },
               {
                 title: <span style={{ fontWeight: 800 }}>Total Weight</span>,
@@ -3078,7 +3916,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                 align: 'center',
                 render: (_: any, r: any) => (
                   <Tag color="cyan" style={{ fontWeight: 800, fontSize: 12, padding: '2px 8px' }}>
-                    {r.weightKg ? `${formatNumber(r.weightKg, 1)} KG` : `${formatNumber(Math.round((r.pcs || 0) * 0.0090 * 10) / 10, 1)} KG`}
+                    {r.weightKg ? `${formatNumber(r.weightKg, 1)} KG` : `${formatNumber(Math.round((r.pcs || 0) * DEFAULT_PER_PIECE_WEIGHT_KG * 10) / 10, 1)} KG`}
                   </Tag>
                 ),
               },
@@ -3168,7 +4006,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         form={form}
         layout="vertical"
         initialValues={{
-          entryDate: dayjs(),
+          entryDate: defaultProductionEntryDate(),
           packingStation: 'Hand Packing Line 01 (8-Worker Chain)',
         }}
       >
@@ -3195,16 +4033,25 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                 <Col xs={24} sm={12} md={6}>
                   <Form.Item
                     name="entryDate"
-                    label={<span style={{ fontWeight: 700, fontSize: 12 }}>Packing Date *</span>}
-                    rules={[{ required: true, message: 'Packing Date is required' }]}
+                    label={<span style={{ fontWeight: 700, fontSize: 12 }}>Production Entry Date *</span>}
+                    rules={[{ required: true, message: 'Production Entry Date is required' }]}
                     getValueProps={(value) => {
-                      if (!value) return { value: dayjs() };
+                      if (!value) return { value: defaultProductionEntryDate() };
                       if (dayjs.isDayjs(value)) return { value };
                       const parsed = dayjs(value);
-                      return { value: parsed.isValid() ? parsed : dayjs() };
+                      return { value: parsed.isValid() ? parsed : defaultProductionEntryDate() };
                     }}
                   >
-                    <DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" />
+                    {/* Controlled both ways: the Form.Item owns the store copy
+                        (validation + payload) and the same pick is mirrored into
+                        the component's entryDate state, so the executive header
+                        picker and this one can never disagree. */}
+                    <DatePicker
+                      style={{ width: '100%' }}
+                      format="YYYY-MM-DD"
+                      value={entryDate}
+                      onChange={handleEntryDateChange}
+                    />
                   </Form.Item>
                 </Col>
                 <Col xs={24} sm={12} md={6}>
@@ -3517,11 +4364,11 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         {/* ── Section D: Master-Detail Packing Items & BOM Component Expansion ── */}
         <Card
           size="small"
-          style={{ marginTop: 14, borderRadius: 8, border: '1.5px solid #cbd5e1' }}
+          style={{ marginTop: 14, borderRadius: 8, border: '1.5px solid var(--theme-border)', background: 'var(--theme-card-bg)' }}
           title={
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-              <span style={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 6, fontSize: 13.5, color: '#1e293b' }}>
-                <FileTextOutlined style={{ color: '#0284c7' }} />
+              <span style={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 6, fontSize: 13.5, color: 'var(--theme-text)' }}>
+                <FileTextOutlined style={{ color: 'var(--theme-accent)' }} />
                 Packing Items & Quantities (BOM-Based Master-Detail)
               </span>
               <Space wrap>
@@ -3541,6 +4388,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
             size="middle"
             bordered
             rowKey="key"
+            scroll={{ x: 'max-content' }}
             expandable={{
               expandedRowRender,
               expandedRowKeys: expandedKeys,
@@ -3550,15 +4398,15 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
 
           <div style={{
             display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-            marginTop: 12, paddingTop: 10, borderTop: '1.5px solid #e2e8f0', flexWrap: 'wrap', gap: 12
+            marginTop: 12, paddingTop: 10, borderTop: '1.5px solid var(--theme-border)', flexWrap: 'wrap', gap: 12
           }}>
             <Button icon={<PlusOutlined />} onClick={handleAddMasterItem} style={{ fontWeight: 700 }}>
               + Add Another Finished Good
             </Button>
-            <div style={{ fontSize: 13, color: '#475569' }}>
-              Total Cartons: <strong style={{ color: '#059669', fontSize: 14 }}>{formatNumber(totals.totalCartons, 1)}</strong> &nbsp;|&nbsp;
-              Total Gross: <strong style={{ color: '#0284c7', fontSize: 14 }}>{formatNumber(totals.totalGross, 0)}</strong> &nbsp;|&nbsp;
-              Total PCS: <strong style={{ fontSize: 14 }}>{formatNumber(totals.totalPcs, 0)}</strong>
+            <div style={{ fontSize: 13, color: 'var(--theme-text-secondary)' }}>
+              Total Cartons: <strong style={{ color: 'var(--hp-value-success)', fontSize: 14 }}>{formatNumber(totals.totalCartons, 1)}</strong> &nbsp;|&nbsp;
+              Total Gross: <strong style={{ color: 'var(--hp-value-info)', fontSize: 14 }}>{formatNumber(totals.totalGross, 0)}</strong> &nbsp;|&nbsp;
+              Total PCS: <strong style={{ fontSize: 14, color: 'var(--theme-text)' }}>{formatNumber(totals.totalPcs, 0)}</strong>
             </div>
           </div>
         </Card>
@@ -3576,6 +4424,11 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                 </Text>
                 <div style={{ marginTop: 4, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   <Tag color="cyan" style={{ fontWeight: 700 }}>BOM Components: {totals.totalComponentsCount} Items</Tag>
+                  {componentScrap.pcs > 0 && (
+                    <Tag color="red" style={{ fontWeight: 700 }}>
+                      Component Scrap: {formatNumber(componentScrap.pcs, 0)} PCS ({formatNumber(componentScrap.kg, 3)} KG) added to component consumption · FG output unchanged
+                    </Tag>
+                  )}
                   {totals.hasMissingBom ? (
                     <Tag color="error" icon={<ExclamationCircleOutlined />} style={{ fontWeight: 700 }}>
                       Action Required: One or more Finished Goods have no active BOM
