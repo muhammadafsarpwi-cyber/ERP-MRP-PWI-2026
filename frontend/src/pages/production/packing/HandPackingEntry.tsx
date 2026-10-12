@@ -2008,6 +2008,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         </div>
         <div className="rej-pair">
           <InputNumber
+            controls={false}
             min={0}
             inputMode="decimal"
             className={`hp-rej-input${unit === 'PCS' ? ' rej-input-ro' : ''}`}
@@ -2018,6 +2019,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
             addonAfter="KG"
           />
           <InputNumber
+            controls={false}
             min={0}
             inputMode="numeric"
             className={`hp-rej-input${unit === 'KG' ? ' rej-input-ro' : ''}`}
@@ -2527,6 +2529,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
       width: 120,
       render: (_: any, record: PackingMasterItemRow) => (
         <InputNumber
+          controls={false}
           min={0}
           step={1}
           className="hp-num-input hp-num-input--success"
@@ -2542,6 +2545,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
       width: 120,
       render: (_: any, record: PackingMasterItemRow) => (
         <InputNumber
+          controls={false}
           min={0}
           step={10}
           className="hp-num-input hp-num-input--info"
@@ -2557,6 +2561,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
       width: 140,
       render: (_: any, record: PackingMasterItemRow) => (
         <InputNumber
+          controls={false}
           min={0}
           step={conversionFactors.pcsPerGross}
           style={{ width: '100%', fontWeight: 700, fontSize: 13 }}
@@ -2955,7 +2960,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
             columns={detailColumns}
             pagination={false}
             size="middle"
-            bordered
+            bordered={false}
             rowKey="key"
             scroll={{ x: 'max-content' }}
           />
@@ -3314,12 +3319,13 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         {/* ── CARD 1: Batch Metadata Bar ── */}
         <Card
           size="small"
+          bordered={false}
           style={{
             borderRadius: 8,
-            border: '1.5px solid #e2e8f0',
-            background: '#ffffff',
+            border: 'none',
+            background: 'var(--theme-card-bg)',
             marginBottom: 12,
-            boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
+            boxShadow: 'none',
           }}
         >
           <Row gutter={[12, 12]} align="middle">
@@ -3511,17 +3517,18 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         {/* ── CARD 2: Finished Good Carton ── */}
         <Card
           size="small"
+          bordered={false}
           title={
-            <span style={{ fontWeight: 800, fontSize: 14, color: '#0f172a' }}>
+            <span style={{ fontWeight: 800, fontSize: 14, color: 'var(--theme-text)' }}>
               Finished Good Carton
             </span>
           }
           style={{
             borderRadius: 8,
-            border: '1.5px solid #e2e8f0',
-            background: '#ffffff',
+            border: 'none',
+            background: 'var(--theme-card-bg)',
             marginBottom: 12,
-            boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
+            boxShadow: 'none',
           }}
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
@@ -3545,6 +3552,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                   Cartons:
                 </span>
                 <InputNumber
+                  controls={false}
                   min={0}
                   inputMode="numeric"
                   value={primaryItem.cartons}
@@ -3585,6 +3593,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         {/* ── CARD 3: BOM Component Deduction Breakdown (Exact Mockup Table) ── */}
         <Card
           size="small"
+          bordered={false}
           className="hp-comp-bare-card"
           title={
             <span style={{ fontWeight: 800, fontSize: 14, color: 'var(--theme-text)' }}>
@@ -3743,7 +3752,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
               },
             ]}
             pagination={false}
-            bordered
+            bordered={false}
             size="middle"
             rowKey="key"
           />
@@ -4204,6 +4213,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                   <Text strong style={{ fontSize: 12 }}>Daily Total Packing Target:</Text>
                   <Space size={6}>
                     <InputNumber
+                      controls={false}
                       min={1}
                       value={targetCartons}
                       onChange={(v) => setTargetCartons(v || 50)}
@@ -4364,7 +4374,8 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         {/* ── Section D: Master-Detail Packing Items & BOM Component Expansion ── */}
         <Card
           size="small"
-          style={{ marginTop: 14, borderRadius: 8, border: '1.5px solid var(--theme-border)', background: 'var(--theme-card-bg)' }}
+          bordered={false}
+          style={{ marginTop: 14, borderRadius: 8, border: 'none', background: 'var(--theme-card-bg)', boxShadow: 'none' }}
           title={
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
               <span style={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 6, fontSize: 13.5, color: 'var(--theme-text)' }}>
@@ -4386,7 +4397,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
             columns={masterColumns}
             pagination={false}
             size="middle"
-            bordered
+            bordered={false}
             rowKey="key"
             scroll={{ x: 'max-content' }}
             expandable={{

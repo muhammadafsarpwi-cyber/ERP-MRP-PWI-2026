@@ -107,41 +107,47 @@
   width: 100%;
   max-width: 100%;
   overflow: hidden;
-  border: 0;
-  border-radius: 0;
+  border: 0 !important;
+  border-radius: 0 !important;
   background: var(--theme-card-bg, #ffffff);
-  box-shadow: none;
+  box-shadow: none !important;
   transition: background-color 0.25s ease;
 }
 
-/* Strip the TABLE's own outer frame (antd `bordered` draws a 1px box around
-   the container + the outermost cell edges). Inner cell separators stay —
-   only the perimeter is removed so the grid reads edge-to-edge. */
-.hp-comp-shell .ant-table.ant-table-bordered > .ant-table-container {
+/* Strip outer perimeter borders completely (border: 0 on all 4 sides) */
+.hp-comp-shell .ant-table-wrapper,
+.hp-comp-shell .ant-table,
+.hp-comp-shell .ant-table-container,
+.hp-comp-shell .ant-table-content,
+.hp-comp-shell table {
   border: 0 !important;
+  border-left: 0 !important;
+  border-right: 0 !important;
+  border-top: 0 !important;
+  border-bottom: 0 !important;
+  outline: none !important;
+  box-shadow: none !important;
 }
 
-.hp-comp-shell .ant-table.ant-table-bordered .ant-table-content {
-  border: 0 !important;
-}
-
-.hp-comp-shell .ant-table-bordered table > thead > tr > th {
+.hp-comp-shell table > thead > tr > th {
   border-top: 0 !important;
 }
 
-.hp-comp-shell .ant-table-bordered table > thead > tr > th:first-child,
-.hp-comp-shell .ant-table-bordered table > tbody > tr > td:first-child {
+.hp-comp-shell table > thead > tr > th:first-child,
+.hp-comp-shell table > tbody > tr > td:first-child,
+.hp-comp-shell .ant-table-cell:first-child {
   border-left: 0 !important;
   border-inline-start: 0 !important;
 }
 
-.hp-comp-shell .ant-table-bordered table > thead > tr > th:last-child,
-.hp-comp-shell .ant-table-bordered table > tbody > tr > td:last-child {
+.hp-comp-shell table > thead > tr > th:last-child,
+.hp-comp-shell table > tbody > tr > td:last-child,
+.hp-comp-shell .ant-table-cell:last-child {
   border-right: 0 !important;
   border-inline-end: 0 !important;
 }
 
-.hp-comp-shell .ant-table-bordered table > tbody > tr:last-child > td {
+.hp-comp-shell table > tbody > tr:last-child > td {
   border-bottom: 0 !important;
 }
 
@@ -349,9 +355,21 @@
   box-shadow: 0 0 0 2px var(--theme-focus, rgba(79, 70, 229, 0.35)) !important;
 }
 
-/* ── Bare card: the Executive breakdown card frames nothing ──────────────── */
+/* ── Bare card: the Executive breakdown card frames nothing (zero border on all sides) ── */
+.hp-comp-bare-card,
+.hp-comp-bare-card.ant-card,
+.hp-comp-bare-card.ant-card-bordered,
+.hp-comp-bare-card .ant-card-head,
 .hp-comp-bare-card .ant-card-body {
-  padding: 0 !important;
+  border: 0 !important;
+  border-left: 0 !important;
+  border-right: 0 !important;
+  border-top: 0 !important;
+  border-bottom: 0 !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
 }
 
 /* ── Mobile (≤768px): tighter chrome, contained swipe, no iOS focus-zoom ─── */

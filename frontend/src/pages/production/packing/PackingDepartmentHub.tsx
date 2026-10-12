@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   Tabs, Card, Tag, Typography, Space, Button, Table, Input, Row, Col, Segmented,
-  Modal, message, Popover, Checkbox,
+  Modal, message, Popover, Checkbox, Empty,
 } from 'antd';
 import {
   InboxOutlined, SettingOutlined, HistoryOutlined,
@@ -56,141 +56,126 @@ export const PackingDepartmentHub: React.FC = () => {
   };
 
   // ─────────────────────────────────────────────────────────────────────────────
-  // TAB 3: CUSTOMER-WISE PACKED INVENTORY HIERARCHY (Matching Image 3 & 2)
+  // TAB 3: CUSTOMER-WISE PACKED INVENTORY HIERARCHY
+  // Strictly real DB data only — all dummy/mock data eliminated
   // ─────────────────────────────────────────────────────────────────────────────
   const [fgrViewMode, setFgrViewMode] = useState<string>('customer-hierarchy');
-  const [expandedCustomerIds, setExpandedCustomerIds] = useState<string[]>(['CUST-CRW']);
+  const [expandedCustomerIds, setExpandedCustomerIds] = useState<string[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState<boolean>(false);
+  const [historyLogs, setHistoryLogs] = useState<any[]>([]);
+  const [historySearchText, setHistorySearchText] = useState<string>('');
+  const [historyFetched, setHistoryFetched] = useState<boolean>(false);
 
-  const CUSTOMER_STOCK_DATA = [
-    {
-      id: 'CUST-CRW',
-      customerCode: 'CUST-CRW',
-      customerName: 'Crown Motors (Pvt) Ltd',
-      socNo: 'SOC-2026-0842',
-      items: [
-        {
-          id: 'spk-007-crw',
-          itemCode: 'SPI-FG-SPK-007',
-          itemName: '300X17 S9 Inn / Out Spoke Straight_125-S9 Nipple',
-          packagingStyle: 'White Poly Bag with Brand Sticker',
-          perPieceWeightKg: 0.0090,
-          cartons: 50,
-          gross: 500,
-          pcs: 72000,
-          weightKg: 648.0,
-          ratePkr: 5.0,
-          valuePkr: 360000,
-          warehouseName: 'SPI FG Dispatch Warehouse',
-          status: 'Ready',
-        },
-        {
-          id: 'spk-003-crw',
-          itemCode: 'SPI-FG-SPK-003',
-          itemName: '250X18 Inn / Out Spoke Butted_CD-250X17 Nipple',
-          packagingStyle: 'Plain White Poly Bag',
-          perPieceWeightKg: 0.0090,
-          cartons: 50,
-          gross: 500,
-          pcs: 72000,
-          weightKg: 648.0,
-          ratePkr: 5.0,
-          valuePkr: 360000,
-          warehouseName: 'SPI FG Dispatch Warehouse',
-          status: 'Ready',
-        },
-      ],
-    },
-    {
-      id: 'CUST-UAI',
-      customerCode: 'CUST-UAI',
-      customerName: 'United Auto Industries',
-      socNo: 'SOC-2026-0915',
-      items: [
-        {
-          id: 'spk-004-uai',
-          itemCode: 'SPI-FG-SPK-004',
-          itemName: 'CD-250*18 Outer Butted Spoke Assembly',
-          packagingStyle: 'Customer Branded Printed Bag',
-          perPieceWeightKg: 0.0075,
-          cartons: 80,
-          gross: 800,
-          pcs: 115200,
-          weightKg: 864.0,
-          ratePkr: 5.0,
-          valuePkr: 576000,
-          warehouseName: 'SPI FG Dispatch Warehouse',
-          status: 'Ready',
-        },
-        {
-          id: 'np-005-uai',
-          itemCode: 'SPI-FG-NP-005',
-          itemName: '125-S9 Nipple Master Cartons',
-          packagingStyle: 'OEM Blister Packing',
-          perPieceWeightKg: 0.0075,
-          cartons: 40,
-          gross: 400,
-          pcs: 57600,
-          weightKg: 432.0,
-          ratePkr: 5.0,
-          valuePkr: 288000,
-          warehouseName: 'WH-002 (SPI Main Warehouse)',
-          status: 'Ready',
-        },
-      ],
-    },
-    {
-      id: 'CUST-SAM',
-      customerCode: 'CUST-SAM',
-      customerName: 'Super Asia Motors',
-      socNo: 'SOC-2026-0773',
-      items: [
-        {
-          id: 'spk-011-sam',
-          itemCode: 'SPI-FG-SPK-011',
-          itemName: 'DS Front Inn / Out Spoke Straight_225X17 Nipple',
-          packagingStyle: 'Transparent Poly Bag with Barcode',
-          perPieceWeightKg: 0.0090,
-          cartons: 50,
-          gross: 500,
-          pcs: 72000,
-          weightKg: 648.0,
-          ratePkr: 5.0,
-          valuePkr: 360000,
-          warehouseName: 'SPI FG Dispatch Warehouse',
-          status: 'Ready',
-        },
-      ],
-    },
-    {
-      id: 'CUST-GEN',
-      customerCode: 'CUST-GEN',
-      customerName: 'Open Market / General Stock',
-      socNo: 'SOC-2026-0501',
-      items: [
-        {
-          id: 'spk-007-gen',
-          itemCode: 'SPI-FG-SPK-007',
-          itemName: '300X17 S9 Standard Retail Packs',
-          packagingStyle: 'Brown Export Master Carton',
-          perPieceWeightKg: 0.0090,
-          cartons: 100,
-          gross: 1000,
-          pcs: 144000,
-          weightKg: 1296.0,
-          ratePkr: 5.0,
-          valuePkr: 720000,
-          warehouseName: 'SPI FG Dispatch Warehouse',
-          status: 'Ready',
-        },
-      ],
-    },
-  ];
+  const fetchPackingHistory = useCallback(async () => {
+    setLoadingHistory(true);
+    try {
+      const res: any = await apiService.get('/production/entries?limit=100&sortBy=createdAt&sortDir=DESC').catch(() => null);
+      let list: any[] = [];
+      if (Array.isArray(res)) list = res;
+      else if (Array.isArray(res?.data)) list = res.data;
+      else if (Array.isArray(res?.items)) list = res.items;
+      else if (Array.isArray(res?.data?.items)) list = res.data.items;
 
-  const totalActiveCustomers = CUSTOMER_STOCK_DATA.length;
-  const totalItemsCount = CUSTOMER_STOCK_DATA.reduce((acc, c) => acc + c.items.length, 0);
-  const totalStockKg = CUSTOMER_STOCK_DATA.reduce((acc, c) => acc + c.items.reduce((sum, it) => sum + it.weightKg, 0), 0);
-  const totalStockPcs = CUSTOMER_STOCK_DATA.reduce((acc, c) => acc + c.items.reduce((sum, it) => sum + it.pcs, 0), 0);
-  const totalStockValuation = CUSTOMER_STOCK_DATA.reduce((acc, c) => acc + c.items.reduce((sum, it) => sum + it.valuePkr, 0), 0);
+      // Strictly filter only genuine packing entries
+      const packingEntries = list.filter((e) => {
+        const rem = String(e.remarks || '').toLowerCase();
+        const machine = String(e.machineNo || e.machine_no || '').toLowerCase();
+        const type = String(e.entryType || '').toLowerCase();
+        return (
+          rem.includes('[hand packing]') ||
+          rem.includes('customer:') ||
+          machine.startsWith('hand-pack') ||
+          type === 'packing'
+        );
+      });
+
+      // Pure DB truth — zero dummy fallback!
+      setHistoryLogs(packingEntries);
+      setHistoryFetched(true);
+    } catch (err) {
+      console.warn('Failed to load packing history', err);
+      setHistoryLogs([]);
+      setHistoryFetched(true);
+    } finally {
+      setLoadingHistory(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'packing-history' && !historyFetched) {
+      fetchPackingHistory();
+    }
+  }, [activeTab, fetchPackingHistory, historyFetched]);
+
+  // Compute Customer-Wise Packed Inventory from real packing entries
+  const customerStockData = useMemo(() => {
+    if (!historyLogs || historyLogs.length === 0) return [];
+
+    const map = new Map<string, {
+      id: string;
+      customerCode: string;
+      customerName: string;
+      socNo: string;
+      items: any[];
+    }>();
+
+    historyLogs.forEach((entry: any) => {
+      const remarks = String(entry.remarks || '');
+      const custMatch = remarks.match(/Customer:\s*([^|]+)/i);
+      const custName = custMatch ? custMatch[1].trim() : (entry.customer?.name || 'General Stock / Retail');
+      const custCode = (entry.customer?.customerCode || custName.slice(0, 8).toUpperCase()).replace(/\s+/g, '-');
+      const socMatch = remarks.match(/SOC:\s*([^|]+)/i);
+      const socNo = socMatch ? socMatch[1].trim() : (entry.socNo || '—');
+      const styleMatch = remarks.match(/Style:\s*([^|]+)/i);
+      const packagingStyle = styleMatch ? styleMatch[1].trim() : 'Standard Packing';
+
+      const pcs = toNum(entry.actualQuantity || entry.quantity || 0);
+      const ctnMatch = remarks.match(/Cartons:\s*([\d.]+)/i);
+      const grossMatch = remarks.match(/Gross:\s*([\d.]+)/i) || remarks.match(/\(([\d.]+)\s*Gross/i);
+      const cartons = ctnMatch ? Number(ctnMatch[1]) : Math.round(pcs / 1440);
+      const gross = grossMatch ? Number(grossMatch[1]) : Math.round(pcs / 144);
+      const perPieceWeightKg = toNum(entry.item?.perPieceWeightKg || entry.perPieceWeightKg || 0.009);
+      const weightKg = toNum(entry.totalWeightKg) || Math.round(pcs * perPieceWeightKg * 100) / 100;
+      const ratePkr = toNum(entry.item?.standardCost || 5.0);
+      const valuePkr = Math.round(pcs * ratePkr);
+
+      const itemRecord = {
+        id: entry.id || `${custCode}-${entry.itemId || Math.random()}`,
+        itemCode: entry.item?.itemCode || entry.itemCode || 'FG-ITEM',
+        itemName: entry.item?.name || entry.itemName || 'Packed Finished Good',
+        packagingStyle,
+        perPieceWeightKg,
+        cartons,
+        gross,
+        pcs,
+        weightKg,
+        ratePkr,
+        valuePkr,
+        warehouseName: entry.warehouse?.name || 'SPI FG Dispatch Warehouse',
+        status: entry.status || 'Ready',
+      };
+
+      if (!map.has(custName)) {
+        map.set(custName, {
+          id: `CUST-${custCode}`,
+          customerCode: custCode,
+          customerName: custName,
+          socNo,
+          items: [itemRecord],
+        });
+      } else {
+        map.get(custName)!.items.push(itemRecord);
+      }
+    });
+
+    return Array.from(map.values());
+  }, [historyLogs]);
+
+  const totalActiveCustomers = customerStockData.length;
+  const totalItemsCount = customerStockData.reduce((acc, c) => acc + c.items.length, 0);
+  const totalStockKg = customerStockData.reduce((acc, c) => acc + c.items.reduce((sum, it) => sum + it.weightKg, 0), 0);
+  const totalStockPcs = customerStockData.reduce((acc, c) => acc + c.items.reduce((sum, it) => sum + it.pcs, 0), 0);
+  const totalStockValuation = customerStockData.reduce((acc, c) => acc + c.items.reduce((sum, it) => sum + it.valuePkr, 0), 0);
 
   const toggleCustomerExpand = (custId: string) => {
     setExpandedCustomerIds((prev) =>
@@ -199,46 +184,12 @@ export const PackingDepartmentHub: React.FC = () => {
   };
 
   const expandAllCustomers = () => {
-    setExpandedCustomerIds(CUSTOMER_STOCK_DATA.map((c) => c.id));
+    setExpandedCustomerIds(customerStockData.map((c) => c.id));
   };
 
   const collapseAllCustomers = () => {
     setExpandedCustomerIds([]);
   };
-  const [loadingHistory, setLoadingHistory] = useState<boolean>(false);
-  const [historyLogs, setHistoryLogs] = useState<any[]>([]);
-  const [historySearchText, setHistorySearchText] = useState<string>('');
-
-  const fetchPackingHistory = useCallback(async () => {
-    setLoadingHistory(true);
-    try {
-      const res: any = await apiService.get('/production/entries?limit=50').catch(() => null);
-      let list: any[] = [];
-      if (Array.isArray(res)) list = res;
-      else if (Array.isArray(res?.data)) list = res.data;
-      else if (Array.isArray(res?.items)) list = res.items;
-      else if (Array.isArray(res?.data?.items)) list = res.data.items;
-
-      // Filter entries with packing remarks or hand packing
-      const packingEntries = list.filter((e) => {
-        const rem = (e.remarks || '').toLowerCase();
-        const machine = (e.machineNo || '').toLowerCase();
-        return rem.includes('packing') || machine.includes('hand packing') || e.entryType === 'PACKING';
-      });
-
-      setHistoryLogs(packingEntries.length > 0 ? packingEntries : list.slice(0, 15));
-    } catch (err) {
-      console.warn('Failed to load packing history', err);
-    } finally {
-      setLoadingHistory(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (activeTab === 'packing-history' && historyLogs.length === 0) {
-      fetchPackingHistory();
-    }
-  }, [activeTab, fetchPackingHistory, historyLogs.length]);
 
   const filteredHistory = historyLogs.filter((item) => {
     if (!historySearchText) return true;
@@ -257,9 +208,9 @@ export const PackingDepartmentHub: React.FC = () => {
       key: 'entryNo',
       render: (no: string, r: any) => (
         <Space direction="vertical" size={1}>
-          <Text strong style={{ color: 'var(--theme-text)' }}>{no || `PKG-${r.id?.slice(0, 8)}`}</Text>
+          <Text strong style={{ color: 'var(--theme-text)' }}>{no || r.batchNo || `PKG-${r.id?.slice(0, 8)}`}</Text>
           <Text type="secondary" style={{ fontSize: 11, color: 'var(--theme-text-muted)' }}>
-            {r.entryDate ? dayjs(r.entryDate).format('YYYY-MM-DD') : 'Today'}
+            {r.entryDate ? dayjs(r.entryDate).format('YYYY-MM-DD') : '—'}
           </Text>
         </Space>
       ),
@@ -270,7 +221,7 @@ export const PackingDepartmentHub: React.FC = () => {
       render: (_: any, r: any) => (
         <div>
           <Tag color="blue">{r.shift?.name || 'General Shift'}</Tag>
-          <div style={{ fontSize: 11, color: 'var(--theme-text-muted)', marginTop: 2 }}>{r.machineNo || 'Hand Packing Chain'}</div>
+          <div style={{ fontSize: 11, color: 'var(--theme-text-muted)', marginTop: 2 }}>{r.machineNo || 'Hand Packing'}</div>
         </div>
       ),
     },
@@ -279,9 +230,9 @@ export const PackingDepartmentHub: React.FC = () => {
       key: 'finishedGood',
       render: (_: any, r: any) => (
         <div>
-          <Text strong style={{ color: 'var(--theme-accent, #0284c7)' }}>{r.item?.itemCode || 'SPI-FG-SPK-007'}</Text>
+          <Text strong style={{ color: 'var(--theme-accent, #0284c7)' }}>{r.item?.itemCode || r.itemCode || '—'}</Text>
           <div style={{ fontSize: 11, color: 'var(--theme-text)', marginTop: 2 }}>
-            {r.item?.name || '300X17 S9 Inn / Out Spoke Straight__125-S9 Nipple'}
+            {r.item?.name || r.itemName || '—'}
           </div>
         </div>
       ),
@@ -290,7 +241,7 @@ export const PackingDepartmentHub: React.FC = () => {
       title: 'Quantity Packed',
       key: 'quantity',
       render: (_: any, r: any) => {
-        const pcs = toNum(r.actualQuantity || 72000);
+        const pcs = toNum(r.actualQuantity || r.quantity || 0);
         const gross = Math.round(pcs / 144);
         const cartons = Math.round(gross / 10);
         return (
@@ -309,18 +260,27 @@ export const PackingDepartmentHub: React.FC = () => {
       title: 'Consumed BOM Components',
       key: 'components',
       render: (_: any, r: any) => {
-        const pcs = toNum(r.actualQuantity || 72000);
-        const gross = Math.round(pcs / 144);
-        const innerGross = Math.round(gross * 0.5);
-        const outerGross = Math.round(gross * 0.5);
-        const nippleGross = gross;
-        return (
-          <Space direction="vertical" size={1} style={{ fontSize: 11 }}>
-            <span><Tag color="orange" style={{ margin: 0 }}>Inner:</Tag> {innerGross} GRS (WIP-SPL-013)</span>
-            <span><Tag color="orange" style={{ margin: 0 }}>Outer:</Tag> {outerGross} GRS (WIP-SPL-014)</span>
-            <span><Tag color="blue" style={{ margin: 0 }}>Nipple:</Tag> {nippleGross} GRS (SPI-FG-NP-005)</span>
-          </Space>
-        );
+        const rem = String(r.remarks || '');
+        const scrapMatch = rem.match(/Component Scrap:\s*([^|]+)/i);
+        const scrapDetail = rem.match(/Scrap Detail:\s*([^|]+)/i);
+        if (Array.isArray(r.components) && r.components.length > 0) {
+          return (
+            <Space direction="vertical" size={1} style={{ fontSize: 11 }}>
+              {r.components.map((c: any, i: number) => (
+                <span key={i}><Tag color="orange" style={{ margin: 0 }}>{c.item?.name || c.itemCode || 'Comp'}:</Tag> {c.quantity || c.consumedQuantity}</span>
+              ))}
+            </Space>
+          );
+        }
+        if (scrapMatch || scrapDetail) {
+          return (
+            <div style={{ fontSize: 11 }}>
+              {scrapMatch && <span style={{ color: 'var(--hp-value-danger)', fontWeight: 700 }}>{scrapMatch[0]}</span>}
+              {scrapDetail && <div style={{ color: 'var(--theme-text-muted)' }}>{scrapDetail[0]}</div>}
+            </div>
+          );
+        }
+        return <span style={{ color: 'var(--theme-text-muted)', fontSize: 11 }}>Auto-deducted via BOM</span>;
       },
     },
     {
@@ -337,7 +297,7 @@ export const PackingDepartmentHub: React.FC = () => {
       key: 'operator',
       render: (_: any, r: any) => (
         <div>
-          <span style={{ fontWeight: 600, color: 'var(--theme-text)' }}>{r.operatorName || 'Muhammad Afsar'}</span>
+          <span style={{ fontWeight: 600, color: 'var(--theme-text)' }}>{r.operatorName || r.supervisorName || '—'}</span>
           <div style={{ fontSize: 11, color: 'var(--theme-text-muted)' }}>{r.shift?.name || 'General Shift'}</div>
         </div>
       ),
@@ -1925,16 +1885,33 @@ export const PackingDepartmentHub: React.FC = () => {
           {/* ── View 1: Customer-Wise Packed Stock Hierarchy (Zero-Border Edge-to-Edge) ── */}
           {fgrViewMode === 'customer-hierarchy' && (
             <div className="packing-customer-hierarchy-list" style={{ width: '100%', maxWidth: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {CUSTOMER_STOCK_DATA.filter((c) => {
-                if (!historySearchText) return true;
-                const q = historySearchText.toLowerCase();
-                return (
-                  c.customerName.toLowerCase().includes(q) ||
-                  c.customerCode.toLowerCase().includes(q) ||
-                  c.socNo.toLowerCase().includes(q) ||
-                  c.items.some((it) => it.itemCode.toLowerCase().includes(q) || it.itemName.toLowerCase().includes(q))
-                );
-              }).map((cust) => {
+              {customerStockData.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '60px 16px', background: 'var(--theme-card-bg)', border: '1px dashed var(--theme-border)', borderRadius: 0 }}>
+                  <Empty
+                    image={Empty.PRESENTED_IMAGE_SIMPLE}
+                    description={
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--theme-text)' }}>
+                          No Customer-Wise Packed Inventory Found
+                        </div>
+                        <div style={{ fontSize: 12, color: 'var(--theme-text-muted)', marginTop: 4 }}>
+                          All dummy data has been removed. When you save a fresh packing entry from "1. Packing Production Entry", it will appear here automatically.
+                        </div>
+                      </div>
+                    }
+                  />
+                </div>
+              ) : (
+                customerStockData.filter((c) => {
+                  if (!historySearchText) return true;
+                  const q = historySearchText.toLowerCase();
+                  return (
+                    c.customerName.toLowerCase().includes(q) ||
+                    c.customerCode.toLowerCase().includes(q) ||
+                    c.socNo.toLowerCase().includes(q) ||
+                    c.items.some((it) => it.itemCode.toLowerCase().includes(q) || it.itemName.toLowerCase().includes(q))
+                  );
+                }).map((cust) => {
                 const isExpanded = expandedCustomerIds.includes(cust.id);
                 const custWeight = cust.items.reduce((s, it) => s + it.weightKg, 0);
                 const custPcs = cust.items.reduce((s, it) => s + it.pcs, 0);
@@ -2191,7 +2168,7 @@ export const PackingDepartmentHub: React.FC = () => {
                     )}
                   </Card>
                 );
-              })}
+              }))}
             </div>
           )}
 
@@ -2234,6 +2211,23 @@ export const PackingDepartmentHub: React.FC = () => {
                   bordered={false}
                   scroll={{ x: 'max-content' }}
                   className="packing-borderless-table"
+                  locale={{
+                    emptyText: (
+                      <Empty
+                        image={Empty.PRESENTED_IMAGE_SIMPLE}
+                        description={
+                          <div>
+                            <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--theme-text)' }}>
+                              No Packing Batch Entries Found
+                            </div>
+                            <div style={{ fontSize: 11.5, color: 'var(--theme-text-muted)', marginTop: 2 }}>
+                              All dummy entries have been removed. Fresh packing entries saved from Tab 1 will appear here.
+                            </div>
+                          </div>
+                        }
+                      />
+                    ),
+                  }}
                 />
               </div>
             </Card>

@@ -3404,6 +3404,7 @@ const EntryForm: React.FC<EntryFormProps> = ({
                             {/* KG Input */}
                             <div>
                               <InputNumber
+                                controls={false}
                                 style={{ width: '100%' }}
                                 min={0}
                                 step={0.01}
@@ -3422,6 +3423,7 @@ const EntryForm: React.FC<EntryFormProps> = ({
                             {/* Pieces Input */}
                             <div>
                               <InputNumber
+                                controls={false}
                                 style={{ width: '100%' }}
                                 min={0}
                                 step={1}

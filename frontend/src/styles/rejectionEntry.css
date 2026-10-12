@@ -124,51 +124,47 @@
    never slide underneath the arrows. Disabled / read-only peers keep antd's
    `display: none` (the auto-computed value has no stepper). */
 .rej-entry-block .ant-input-number {
-  min-height: 40px;
+  min-height: 38px;
 }
 
 .rej-entry-block .ant-input-number-input {
-  height: 38px !important;
-  /* 44px on the trailing side clears the 34px spinner strip + breathing room */
-  padding: 0 44px 0 12px !important;
+  height: 36px !important;
+  padding: 0 10px !important;
   font-size: 14px;
   font-weight: 700;
 }
 
-.rej-entry-block
-  .ant-input-number:not(.ant-input-number-disabled):not(.ant-input-number-readonly)
-  .ant-input-number-handler-wrap {
-  display: flex !important;
-  flex-direction: column;
-  justify-content: center;
-  width: 34px !important;
-  opacity: 1 !important;
-  border-left: 1px solid var(--theme-border, #e4e7f1);
+/* Stepper buttons (up/down counter arrows) removed per user requirement */
+.rej-entry-block .ant-input-number-handler-wrap,
+.hp-comp-shell .ant-input-number-handler-wrap,
+.erp-hand-packing-executive .ant-input-number-handler-wrap,
+.rej-entry-block .ant-input-number-handler {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
 }
 
-/* Each arrow button: one half of the 40px strip → ≥ 19px tall × 34px wide
-   hit-row, comfortable for both pointer and touch. */
-.rej-entry-block
-  .ant-input-number:not(.ant-input-number-disabled)
-  .ant-input-number-handler {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 19px;
+/* Strip native browser number spinners */
+.rej-entry-block input[type=number]::-webkit-inner-spin-button,
+.rej-entry-block input[type=number]::-webkit-outer-spin-button,
+.hp-comp-shell input[type=number]::-webkit-inner-spin-button,
+.hp-comp-shell input[type=number]::-webkit-outer-spin-button,
+.erp-hand-packing-executive input[type=number]::-webkit-inner-spin-button,
+.erp-hand-packing-executive input[type=number]::-webkit-outer-spin-button {
+  -webkit-appearance: none !important;
+  appearance: none !important;
+  margin: 0 !important;
 }
 
-.rej-entry-block .ant-input-number-handler:hover {
-  background: var(--theme-bg-subtle, rgba(15, 23, 42, 0.07));
-}
-
-.rej-entry-block .ant-input-number-handler-up-inner,
-.rej-entry-block .ant-input-number-handler-down-inner {
-  font-size: 12px;
-}
-
-.rej-entry-block .ant-input-number-handler-up:hover .ant-input-number-handler-up-inner,
-.rej-entry-block .ant-input-number-handler-down:hover .ant-input-number-handler-down-inner {
-  color: var(--theme-accent, #4f46e5);
+.rej-entry-block input[type=number],
+.hp-comp-shell input[type=number],
+.erp-hand-packing-executive input[type=number] {
+  -webkit-appearance: textfield !important;
+  -moz-appearance: textfield !important;
+  appearance: textfield !important;
 }
 
 /* ── Read-only peer ────────────────────────────────────────────────────────
@@ -298,13 +294,6 @@
   .rej-field .ant-input-number-input,
   .rej-entry-block .ant-input-number-input {
     font-size: 16px;
-  }
-
-  /* Slightly taller hit-rows for thumbs on small screens */
-  .rej-entry-block
-    .ant-input-number:not(.ant-input-number-disabled)
-    .ant-input-number-handler {
-    min-height: 21px;
   }
 }
 

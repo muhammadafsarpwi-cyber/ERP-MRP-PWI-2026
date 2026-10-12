@@ -771,18 +771,17 @@ export const buildChainGrid = (
     const stage = p.def.stage;
     const recordedOut = round4(num(p.src?.totalOut));
     const recordedConsumed = p.src?.consumed !== undefined ? round4(num(p.src?.consumed)) : 0;
-    // Outflows from returns, vendor return, direct issues outside automated consumption
-    const nonProdOut = p.src?.consumed !== undefined
+    // Outflows from vendor returns — ONLY RAW MATERIAL (RM) can ever have return outflows!
+    // In all WIP manufacturing stages (ST, SW, SP, PL, FG), issuance is STRICTLY driven by successor production.
+    const nonProdOut = stage === 'RM' && p.src?.consumed !== undefined
       ? Math.max(0, round4(recordedOut - recordedConsumed))
       : 0;
 
     const ledger = (rule: string): IssuanceResolution => {
-      const val = recordedOut;
+      const val = stage === 'RM' ? recordedOut : 0;
       let remarks = '—';
       if (val > 0) {
-        remarks = stage === 'RM'
-          ? `Return Out: ${fmtQty(val, 'KG')} KG`
-          : `Outflow: ${fmtQty(val, p.src?.uomCode)}`;
+        remarks = `Return Out: ${fmtQty(val, 'KG')} KG`;
       }
       return {
         value: val,
@@ -879,11 +878,7 @@ export const buildChainGrid = (
           remarks = `Prod Consumed: ${fmtQty(prodValue, 'KG')} KG`;
         }
       } else {
-        if (prodValue > 0 && nonProdOut > 0) {
-          remarks = `Issued to ${nextStage}: ${fmtQty(prodValue, p.src?.uomCode)} | Outflow: ${fmtQty(nonProdOut, p.src?.uomCode)}`;
-        } else if (nonProdOut > 0) {
-          remarks = `Outflow / Return: ${fmtQty(nonProdOut, p.src?.uomCode)}`;
-        } else if (prodValue > 0) {
+        if (prodValue > 0) {
           remarks = `Issued to ${nextStage}`;
         }
       }
@@ -892,7 +887,7 @@ export const buildChainGrid = (
         value: totalValue,
         rule: needsKg
           ? `${label} Production × weight (KG)${nonProdOut > 0 ? ` + Return Out (${nonProdOut} KG)` : ''}`
-          : `= ${label} Production${nonProdOut > 0 ? ` + Outflow (${nonProdOut})` : ''}`,
+          : `= ${label} Production`,
         driven: true,
         remarks,
         prodValue,
@@ -915,17 +910,23 @@ export const buildChainGrid = (
     const totalValue = round4(prodValue + nonProdOut);
 
     let remarks = '—';
-    if (prodValue > 0 && nonProdOut > 0) {
-      remarks = `Issued to ${nextStage}: ${fmtQty(prodValue, p.src?.uomCode)} | Outflow: ${fmtQty(nonProdOut, p.src?.uomCode)}`;
-    } else if (nonProdOut > 0) {
-      remarks = `Outflow / Return: ${fmtQty(nonProdOut, p.src?.uomCode)}`;
-    } else if (prodValue > 0) {
-      remarks = `Issued to ${nextStage}`;
+    if (stage === 'RM') {
+      if (prodValue > 0 && nonProdOut > 0) {
+        remarks = `Prod: ${fmtQty(prodValue, 'KG')} KG | Return Out: ${fmtQty(nonProdOut, 'KG')} KG`;
+      } else if (nonProdOut > 0) {
+        remarks = `Return Out: ${fmtQty(nonProdOut, 'KG')} KG`;
+      } else if (prodValue > 0) {
+        remarks = `Prod Consumed: ${fmtQty(prodValue, 'KG')} KG`;
+      }
+    } else {
+      if (prodValue > 0) {
+        remarks = `Issued to ${nextStage}`;
+      }
     }
 
     return {
       value: totalValue,
-      rule: `${nextStage} Production ${shareCount > 1 ? `÷ ${shareCount}` : ''} (shared)${nonProdOut > 0 ? ` + Outflow (${nonProdOut})` : ''}`,
+      rule: `${nextStage} Production ${shareCount > 1 ? `÷ ${shareCount}` : ''} (shared)`,
       driven: true,
       remarks,
       prodValue,
@@ -2074,16 +2075,16 @@ const ItemWiseProductionLedger: React.FC = () => {
                 </Tooltip>
               )}
             </div>
-            {row.returnOutValue > 0 && row.prodValue > 0 ? (
+            {row.stage === 'RM' && row.returnOutValue > 0 && row.prodValue > 0 ? (
               <div style={{ marginTop: 2, display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'center' }}>
                 <Tag color="cyan" style={{ fontSize: 10, margin: 0, padding: '0 4px', lineHeight: '16px' }}>
                   Prod: {fmtQty(row.prodValue, row.uomCode)}
                 </Tag>
                 <Tag color="error" style={{ fontSize: 10, margin: 0, padding: '0 4px', lineHeight: '16px' }}>
-                  Return: -{fmtQty(row.returnOutValue, row.uomCode)}
+                  Return Out: -{fmtQty(row.returnOutValue, row.uomCode)}
                 </Tag>
               </div>
-            ) : row.returnOutValue > 0 ? (
+            ) : row.stage === 'RM' && row.returnOutValue > 0 ? (
               <div style={{ marginTop: 2 }}>
                 <Tag color="error" style={{ fontSize: 10, margin: 0, padding: '0 4px', lineHeight: '16px' }}>
                   Return Out
@@ -2106,10 +2107,30 @@ const ItemWiseProductionLedger: React.FC = () => {
         align: 'center' as const,
         width: 140,
         onHeaderCell: () => ({ className: 'iwl-cell-num' }),
-        onCell: () => ({ className: 'iwl-cell-close iwl-cell-num' }),
+        onCell: (row: LedgerMetrics) => ({
+          className: `${row.closingPieces < 0 ? 'iwl-cell-close--negative' : 'iwl-cell-close'} iwl-cell-num`,
+        }),
         render: (v: number, row: LedgerMetrics) => (
           <Tooltip title="(Op Balance + Production) − Issuance">
-            <span>{fmtQty(v, row.uomCode)}</span>
+            {v < 0 ? (
+              <span
+                style={{
+                  color: '#dc2626',
+                  fontWeight: 800,
+                  fontSize: 14.5,
+                  display: 'inline-block',
+                  padding: '2px 8px',
+                  background: '#fee2e2',
+                  borderRadius: 4,
+                  border: '1px solid #f87171',
+                  boxShadow: '0 0 6px rgba(220, 38, 38, 0.25)',
+                }}
+              >
+                {fmtQty(v, row.uomCode)}
+              </span>
+            ) : (
+              <span style={{ fontWeight: 700, fontSize: 12.5 }}>{fmtQty(v, row.uomCode)}</span>
+            )}
           </Tooltip>
         ),
       },
@@ -2138,10 +2159,29 @@ const ItemWiseProductionLedger: React.FC = () => {
             row.stage === 'RM'
               ? `Total Weight: ${fmtKg(v)} KG (RM closing balance is already KG)`
               : `Total Weight: ${fmtKg(v)} KG\nPer Piece Weight: ${fmtPpw(ppw)} KG (${isCountUnit(uom) ? 'Closing Pieces × Weight' : 'Multiplier 1'})`;
+          const isNeg = v !== null && v < 0;
           return (
             <Tooltip title={<span style={{ whiteSpace: 'pre-line' }}>{tip}</span>}>
-              <div className="iwl-weight-stack">
-                <span className="iwl-weight-total">{fmtKg(v)}</span>
+              <div
+                className="iwl-weight-stack"
+                style={
+                  isNeg
+                    ? {
+                        background: '#fee2e2',
+                        borderRadius: 4,
+                        padding: '1px 6px',
+                        border: '1px solid #f87171',
+                        display: 'inline-flex',
+                      }
+                    : undefined
+                }
+              >
+                <span
+                  className="iwl-weight-total"
+                  style={isNeg ? { color: '#dc2626', fontWeight: 800, fontSize: 13.5 } : undefined}
+                >
+                  {fmtKg(v)}
+                </span>
                 <span className="iwl-weight-ppw">{fmtPpw(ppw)}</span>
               </div>
             </Tooltip>
@@ -2516,7 +2556,15 @@ const ItemWiseProductionLedger: React.FC = () => {
             if (idx === COL.production) {
               data.cell.styles.textColor = [4, 120, 87];
             } else if (idx === COL.closing) {
-              data.cell.styles.textColor = [180, 83, 9];
+              const rawStr = String(data.cell.raw ?? '').trim();
+              const isNeg = rawStr.startsWith('-');
+              if (isNeg) {
+                data.cell.styles.textColor = [220, 38, 38];
+                data.cell.styles.fillColor = [254, 226, 226];
+                data.cell.styles.fontSize = 13;
+              } else {
+                data.cell.styles.textColor = [180, 83, 9];
+              }
             } else if (idx === COL.scrapToday || idx === COL.scrapMonth) {
               data.cell.styles.textColor = [255, 77, 79];
             }
@@ -3367,6 +3415,18 @@ const ItemWiseProductionLedger: React.FC = () => {
           background: rgba(245, 158, 11, 0.20) !important;
           color: #b45309 !important; font-weight: 700 !important;
         }
+        .iwl-cell-close--negative {
+          background: rgba(254, 226, 226, 0.85) !important;
+          color: #dc2626 !important;
+          font-weight: 800 !important;
+          font-size: 14px !important;
+        }
+        [data-theme='dark'] .iwl-cell-close--negative {
+          background: rgba(220, 38, 38, 0.3) !important;
+          color: #fca5a5 !important;
+          font-weight: 800 !important;
+          font-size: 14px !important;
+        }
         .iwl-cell-scrap { color: #ff4d4f !important; font-weight: 700 !important; }
 
         [data-theme='dark'] .iwl-letterhead { background: #141b26; border-color: #2a3444; border-left-color: #1677ff; }
@@ -3915,6 +3975,14 @@ const ItemWiseProductionLedger: React.FC = () => {
           .iwl-grid .ant-table-tbody > tr > td.iwl-cell-close {
             color: #b45309 !important;
             font-weight: 800 !important;
+          }
+          .iwl-grid .ant-table-tbody > tr > td.iwl-cell-close--negative {
+            color: #dc2626 !important;
+            background-color: #fee2e2 !important;
+            font-weight: 800 !important;
+            font-size: 13.5px !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
           }
           .iwl-grid .ant-table-tbody > tr > td.iwl-cell-scrap {
             color: #ff4d4f !important;
