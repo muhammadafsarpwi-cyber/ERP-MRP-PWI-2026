@@ -709,11 +709,13 @@ export class ProductionInventoryReportService {
               shiftName: pe.shift?.name ?? null,
             }
           : null,
+        referenceNumber: r.referenceNumber || pe?.entryNumber || null,
         referenceType: r.referenceType,
         referenceId: r.referenceId,
         notes: r.notes,
         runningBalance: running,
       };
+
     });
 
     // Build Material Journey chain using fast targeted CTE (querying only related items instead of 3,800+ items)

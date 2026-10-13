@@ -439,6 +439,7 @@ export interface NestedProducedItem {
 
 export interface ProductionEntryRow {
   id: string;
+  entryNumber?: string | null;
   entryDate: string;
   divisionId: string;
   sectionId: string;
@@ -837,7 +838,7 @@ const isRequestAbort = (err: unknown): boolean => {
  *  `Column N` labels (see `columnLabel`) instead of ever crashing the grid. */
 const GRID_COLUMN_LABELS: string[] = [
   'Sr #',
-  'Date',
+  'Entry # / Date',
   'Division / Dept',
   'Warehouse',
   'Shift',
@@ -1937,11 +1938,10 @@ const EntryList: React.FC = () => {
   const columns: ColumnsType<ProductionEntryRow> = [
     {
       title: 'Sr',
-      width: 46,
+      width: 56,
       align: 'center',
-      ellipsis: true,
       render: (_t, _r, i) => (
-        <span style={{ color: 'var(--theme-text-muted, #64748b)', fontSize: 11 }}>
+        <span style={{ color: 'var(--theme-text-muted, #64748b)', fontSize: 11, fontWeight: 600 }}>
           {(page - 1) * pageSize + i + 1}
         </span>
       ),
@@ -1950,19 +1950,47 @@ const EntryList: React.FC = () => {
       title: (
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
           <CalendarOutlined style={{ color: 'var(--theme-primary, #2563eb)' }} />
-          <span>Date</span>
+          <span>Entry # / Date</span>
         </span>
       ),
       dataIndex: 'entryDate',
-      width: 105,
+      width: 145,
       sorter: true,
-      ellipsis: true,
-      render: (d: string) => {
+      render: (d: string, r: ProductionEntryRow) => {
         const dateObj = dayjs(d);
         const formatted = dateObj.isValid() ? dateObj.format('DD MMM YYYY') : (d?.slice(0, 10) || '—');
-        return <span style={{ whiteSpace: 'nowrap', fontWeight: 500 }}>{formatted}</span>;
+        const entryNum = r.entryNumber || (r as any).entry_number;
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'flex-start', minWidth: 0, lineHeight: 1.25 }}>
+            {entryNum ? (
+              <span
+                style={{
+                  fontFamily: 'monospace',
+                  fontWeight: 700,
+                  fontSize: 11.5,
+                  color: 'var(--theme-primary, #2563eb)',
+                  letterSpacing: '0.2px',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {entryNum}
+              </span>
+            ) : null}
+            <span
+              style={{
+                whiteSpace: 'nowrap',
+                fontWeight: entryNum ? 500 : 600,
+                fontSize: 12,
+                color: 'var(--theme-text, #1e293b)',
+              }}
+            >
+              {formatted}
+            </span>
+          </div>
+        );
       },
     },
+
     {
       title: (
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
@@ -2725,7 +2753,7 @@ const EntryList: React.FC = () => {
   const visibleColumnWidth = visibleColumns.reduce((sum, c) => sum + (Number(c.width) || 0), 0);
   // Ceiling = today's 1990px canvas, floor = a readable minimum: hiding
   // columns lets the remaining ones widen rather than leaving a dead gap.
-  const tableScrollX = Math.min(2130, Math.max(visibleColumnWidth, 1100));
+  const tableScrollX = Math.min(2350, Math.max(visibleColumnWidth, 1200));
 
   const reportColumns = [
     { title: 'Division', dataIndex: 'divisionName', key: 'divisionName', width: 140 },

@@ -1421,12 +1421,31 @@ const ProductionInventoryReport: React.FC = () => {
     {
       title: 'Reference',
       key: 'ref',
-      width: 160,
-      render: (_, r) => (
-        <span style={{ fontWeight: 600, fontSize: 12, fontFamily: 'monospace', color: 'var(--theme-text, #0f172a)' }}>
-          {r.referenceNumber || r.referenceType || 'SYSTEM'}
-        </span>
-      ),
+      width: 170,
+      render: (_, r: any) => {
+        const refNo = r.referenceNumber || r.productionEntry?.entryNumber;
+        const refTypeLabel = (r.referenceType || '').replace(/_/g, ' ');
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'flex-start' }}>
+            <span
+              style={{
+                fontWeight: 700,
+                fontSize: 12,
+                fontFamily: 'monospace',
+                color: refNo ? '#2563eb' : 'var(--theme-text, #0f172a)',
+                letterSpacing: '0.3px',
+              }}
+            >
+              {refNo || r.referenceType || 'SYSTEM'}
+            </span>
+            {refNo && r.referenceType && (
+              <span style={{ fontSize: 10, color: 'var(--theme-text-muted, #94a3b8)', textTransform: 'uppercase', letterSpacing: '0.2px' }}>
+                {refTypeLabel}
+              </span>
+            )}
+          </div>
+        );
+      },
     },
     {
       title: 'Warehouse',

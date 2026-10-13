@@ -291,3 +291,16 @@
   background: #f8fafc;
 }
 
+/* Ensure table headers and cells do not awkwardly truncate */
+.entry-page-container .ant-table-cell {
+  white-space: nowrap !important;
+}
+
+.entry-page-container .ant-table-thead > tr > th {
+  white-space: nowrap !important;
+  font-weight: 700 !important;
+  font-size: 11px !important;
+  letter-spacing: 0.3px !important;
+  text-transform: uppercase !important;
+}
+
