@@ -1456,14 +1456,20 @@
 }
 
 .rm-form-section-card .ant-table-thead > tr > th {
-  background: var(--theme-table-header-bg, var(--theme-surface-alt, #15182e)) !important;
-  color: var(--theme-table-header-color, #ffffff) !important;
-  border-bottom: 1px solid var(--theme-table-header-border, var(--theme-border)) !important;
+  background: var(--theme-table-header-bg, var(--ui-table-header-bg, #f1f5f9)) !important;
+  color: var(--theme-table-header-color, var(--ui-table-header-text, #0f172a)) !important;
+  border-bottom: 1px solid var(--theme-table-header-border, var(--ui-table-header-rule, #cbd5e1)) !important;
   font-size: 11px !important;
   font-weight: 700 !important;
   letter-spacing: 0.04em !important;
   text-transform: uppercase !important;
   padding: 8px 10px !important;
+}
+
+[data-theme="dark"] .rm-form-section-card .ant-table-thead > tr > th {
+  background: var(--theme-table-header-bg, #15182e) !important;
+  color: var(--theme-table-header-color, #f1f5f9) !important;
+  border-bottom: 1px solid var(--theme-table-header-border, var(--theme-border)) !important;
 }
 
 .rm-form-section-card .ant-table-tbody > tr > td {

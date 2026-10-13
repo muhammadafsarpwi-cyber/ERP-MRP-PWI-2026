@@ -76,38 +76,65 @@
 .erp-table-container .ant-table-thead > tr > th.ant-table-cell-fix-right-first,
 .ant-table-thead th[class*="ant-table-cell-fix-"],
 th.erp-th-navy {
-  background: var(--theme-table-header-bg, #0b1e36) !important;
-  background-color: var(--theme-table-header-bg, #0b1e36) !important;
-  color: var(--theme-table-header-color, #ffffff) !important;
+  background: var(--theme-table-header-bg, var(--ui-table-header-bg, #f1f5f9)) !important;
+  background-color: var(--theme-table-header-bg, var(--ui-table-header-bg, #f1f5f9)) !important;
+  color: var(--theme-table-header-color, var(--ui-table-header-text, #0f172a)) !important;
   font-weight: 700 !important;
   font-size: 11px !important;
   letter-spacing: 0.06em !important;
   text-transform: uppercase !important;
   padding: 10px 12px !important;
-  border-bottom: 1px solid var(--theme-table-header-border, #1e293b) !important;
+  border-bottom: 1px solid var(--theme-table-header-border, var(--ui-table-header-rule, #cbd5e1)) !important;
   white-space: nowrap !important;
   word-break: keep-all !important;
+}
+
+[data-theme="dark"] .ant-table-thead th[class*="ant-table-cell-fix-"],
+[data-theme="dark"] th.erp-th-navy {
+  background: var(--theme-table-header-bg, #0b1e36) !important;
+  background-color: var(--theme-table-header-bg, #0b1e36) !important;
+  color: var(--theme-table-header-color, #f1f5f9) !important;
+  border-bottom: 1px solid var(--theme-table-header-border, #1e293b) !important;
 }
 
 .erp-table-container .ant-table-thead > tr > th .ant-table-column-title,
 .ant-table-wrapper .ant-table-thead > tr > th .ant-table-column-title,
 .ant-table-thead > tr > th .ant-table-column-title,
 .ant-table-thead > tr > th.ant-table-cell-fix-left .ant-table-column-title,
-.ant-table-thead > tr > th.ant-table-cell-fix-right .ant-table-column-title {
-  color: var(--theme-table-header-color, #ffffff) !important;
+.ant-table-thead > tr > th.ant-table-cell-fix-right .ant-table-column-title,
+.ant-table-thead > tr > th .erp-th,
+.ant-table-thead > tr > th .erp-th__line,
+.ant-table-thead > tr > th .erp-th__icon,
+.erp-th,
+.erp-th__line,
+.erp-th__icon {
+  color: inherit !important;
   font-weight: 700 !important;
 }
 
 .erp-table-container .ant-table-thead > tr > th .ant-table-column-sorter,
 .ant-table-wrapper .ant-table-thead > tr > th .ant-table-column-sorter,
 .ant-table-thead > tr > th .ant-table-column-sorter {
-  color: rgba(255, 255, 255, 0.65) !important;
+  color: var(--theme-text-muted, #64748b) !important;
+}
+
+[data-theme="dark"] .erp-table-container .ant-table-thead > tr > th .ant-table-column-sorter,
+[data-theme="dark"] .ant-table-wrapper .ant-table-thead > tr > th .ant-table-column-sorter,
+[data-theme="dark"] .ant-table-thead > tr > th .ant-table-column-sorter {
+  color: rgba(241, 245, 249, 0.6) !important;
 }
 
 .erp-table-container .ant-table-thead > tr > th .ant-table-column-sorter-up.active,
 .erp-table-container .ant-table-thead > tr > th .ant-table-column-sorter-down.active,
 .ant-table-wrapper .ant-table-thead > tr > th .ant-table-column-sorter-up.active,
 .ant-table-wrapper .ant-table-thead > tr > th .ant-table-column-sorter-down.active {
+  color: var(--theme-accent, #2563eb) !important;
+}
+
+[data-theme="dark"] .erp-table-container .ant-table-thead > tr > th .ant-table-column-sorter-up.active,
+[data-theme="dark"] .erp-table-container .ant-table-thead > tr > th .ant-table-column-sorter-down.active,
+[data-theme="dark"] .ant-table-wrapper .ant-table-thead > tr > th .ant-table-column-sorter-up.active,
+[data-theme="dark"] .ant-table-wrapper .ant-table-thead > tr > th .ant-table-column-sorter-down.active {
   color: var(--theme-accent, #38bdf8) !important;
 }
 
@@ -115,7 +142,14 @@ th.erp-th-navy {
 .erp-table-container .ant-table-thead > tr > th::before,
 .ant-table-wrapper .ant-table-thead > tr > th::before,
 .ant-table-thead > tr > th::before {
-  background-color: rgba(255, 255, 255, 0.18) !important;
+  background-color: var(--theme-table-header-border, rgba(15, 23, 42, 0.12)) !important;
+  height: 50% !important;
+}
+
+[data-theme="dark"] .erp-table-container .ant-table-thead > tr > th::before,
+[data-theme="dark"] .ant-table-wrapper .ant-table-thead > tr > th::before,
+[data-theme="dark"] .ant-table-thead > tr > th::before {
+  background-color: var(--theme-table-header-border, rgba(255, 255, 255, 0.14)) !important;
   height: 50% !important;
 }
 
@@ -123,10 +157,17 @@ th.erp-th-navy {
 .erp-table-container .ant-table-thead > tr > th.ant-table-cell-scrollbar,
 .ant-table-wrapper .ant-table-thead > tr > th.ant-table-cell-scrollbar,
 .ant-table-thead > tr > th.ant-table-cell-scrollbar {
-  background: var(--theme-table-header-bg, #0b1e36) !important;
-  border-bottom: 2px solid var(--theme-table-header-border, #071324) !important;
+  background: var(--theme-table-header-bg, var(--ui-table-header-bg, #f1f5f9)) !important;
+  border-bottom: 2px solid var(--theme-table-header-border, var(--ui-table-header-rule, #cbd5e1)) !important;
   box-shadow: none !important;
   padding: 0 !important;
+}
+
+[data-theme="dark"] .erp-table-container .ant-table-thead > tr > th.ant-table-cell-scrollbar,
+[data-theme="dark"] .ant-table-wrapper .ant-table-thead > tr > th.ant-table-cell-scrollbar,
+[data-theme="dark"] .ant-table-thead > tr > th.ant-table-cell-scrollbar {
+  background: var(--theme-table-header-bg, #0b1e36) !important;
+  border-bottom: 2px solid var(--theme-table-header-border, #071324) !important;
 }
 
 /* Fixed/sticky table header container */
@@ -136,8 +177,14 @@ th.erp-th-navy {
   position: sticky !important;
   top: 0 !important;
   z-index: 15 !important;
-  background: var(--theme-table-header-bg, #0b1e36) !important;
+  background: var(--theme-table-header-bg, var(--ui-table-header-bg, #f1f5f9)) !important;
   overflow: hidden !important;
+}
+
+[data-theme="dark"] .erp-table-container .ant-table-header,
+[data-theme="dark"] .ant-table-wrapper .ant-table-header,
+[data-theme="dark"] .ant-table-header {
+  background: var(--theme-table-header-bg, #0b1e36) !important;
 }
 
 /* ── 2.5. Custom Enterprise Scrollbars (Vertical & Horizontal on Table Body) ── */
@@ -1115,15 +1162,15 @@ html:not([data-theme="dark"]) body .ant-table-tbody > tr:nth-child(odd):not(:hov
 .ant-table-thead th[class*="ant-table-cell-fix-"],
 .ant-table-wrapper .ant-table-thead th[class*="ant-table-cell-fix-"],
 .erp-table-container .ant-table-thead th[class*="ant-table-cell-fix-"] {
-  background: var(--theme-table-header-bg, #0b1e36) !important;
-  background-color: var(--theme-table-header-bg, #0b1e36) !important;
-  color: var(--theme-table-header-color, #ffffff) !important;
+  background: var(--theme-table-header-bg, var(--ui-table-header-bg, #f1f5f9)) !important;
+  background-color: var(--theme-table-header-bg, var(--ui-table-header-bg, #f1f5f9)) !important;
+  color: var(--theme-table-header-color, var(--ui-table-header-text, #0f172a)) !important;
   font-weight: 700 !important;
   font-size: 12px !important;
   letter-spacing: 0.04em !important;
   text-transform: uppercase !important;
   padding: 9px 12px !important;
-  border-bottom: 2px solid var(--theme-table-header-border, #071324) !important;
+  border-bottom: 2px solid var(--theme-table-header-border, var(--ui-table-header-rule, #cbd5e1)) !important;
   opacity: 1 !important;
   z-index: 10 !important;
 }
@@ -1132,7 +1179,7 @@ html:not([data-theme="dark"]) body .ant-table-tbody > tr:nth-child(odd):not(:hov
 .ant-table-thead > tr > th.ant-table-cell-fix-right .ant-table-column-title,
 .erp-table-container .ant-table-thead > tr > th.ant-table-cell-fix-left .ant-table-column-title,
 .erp-table-container .ant-table-thead > tr > th.ant-table-cell-fix-right .ant-table-column-title {
-  color: var(--theme-table-header-color, #ffffff) !important;
+  color: inherit !important;
   font-weight: 700 !important;
 }
 
@@ -1209,7 +1256,7 @@ html:not([data-theme="dark"]) body .ant-table-tbody > tr:nth-child(odd):not(:hov
 [data-theme="dark"] .erp-table-container .ant-table-thead th[class*="ant-table-cell-fix-"] {
   background: var(--theme-table-header-bg, #0b1e36) !important;
   background-color: var(--theme-table-header-bg, #0b1e36) !important;
-  color: var(--theme-table-header-color, #ffffff) !important;
+  color: var(--theme-table-header-color, #f1f5f9) !important;
   opacity: 1 !important;
   z-index: 10 !important;
 }

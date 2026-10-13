@@ -147,8 +147,8 @@ export function ERPTable<T extends object = any>({
         return {
           ...existing,
           style: {
-            backgroundColor: 'var(--theme-table-header-bg, #090e1a)',
-            color: 'var(--theme-table-header-color, #94a3b8)',
+            backgroundColor: 'var(--theme-table-header-bg, var(--ui-table-header-bg, #f1f5f9))',
+            color: 'var(--theme-table-header-color, var(--ui-table-header-text, #0f172a))',
             ...(existing?.style || {}),
           },
           className: `${existing?.className || ''} erp-th-navy erp-th-2027`.trim(),

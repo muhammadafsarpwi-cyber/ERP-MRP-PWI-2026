@@ -162,6 +162,7 @@ export interface JourneyStage {
 interface LedgerRow {
   id: string;
   transactionDate: string;
+  createdAt?: string | null;
   transactionType: string;
   direction: string;
   quantity: number;
@@ -180,6 +181,8 @@ interface LedgerRow {
     departmentName: string | null;
     itemCode: string | null;
     itemName: string | null;
+    machineNo?: string | null;
+    shiftName?: string | null;
   } | null;
   referenceType: string | null;
   referenceId: string | null;
@@ -308,6 +311,7 @@ const ProductionInventoryReport: React.FC = () => {
   const [ledger, setLedger] = useState<LedgerDetail | null>(null);
   const [ledgerVisible, setLedgerVisible] = useState(false);
   const [ledgerLoading, setLedgerLoading] = useState(false);
+  const ledgerCacheRef = useRef<Map<string, LedgerDetail>>(new Map());
   const [selectedRow, setSelectedRow] = useState<ReportRow | null>(null);
   const [isLedgerMaximized, setIsLedgerMaximized] = useState(false);
   const [isLedgerMinimized, setIsLedgerMinimized] = useState(false);
@@ -532,7 +536,7 @@ const ProductionInventoryReport: React.FC = () => {
   useEffect(() => {
     const handleGlobalRefresh = (e: Event) => {
       const detail = (e as CustomEvent).detail;
-      if (!detail?.tabId || detail.tabId.startsWith('/production/inventory-report')) {
+      if (detail?.tabId && detail.tabId.startsWith('/production/inventory-report')) {
         tabSessionCache.remove(tabKey);
         void loadReport(applied);
       }
@@ -567,16 +571,26 @@ const ProductionInventoryReport: React.FC = () => {
   const openLedger = async (row: ReportRow) => {
     setLedgerVisible(true);
     setIsLedgerMinimized(false);
-    setLedgerLoading(true);
-    setLedger(null);
     setSelectedRow(row);
     setLedgerModalPos({ x: 0, y: 0 });
+
+    const cacheKey = `${row.itemId}_${applied.dateFrom || ''}_${applied.dateTo || ''}_${applied.movementType || ''}`;
+    const cached = ledgerCacheRef.current.get(cacheKey);
+    if (cached) {
+      setLedger(cached);
+      setLedgerLoading(false);
+      return;
+    }
+
+    setLedgerLoading(true);
+    setLedger(null);
     const params: Record<string, string> = {};
     if (applied.dateFrom) params.dateFrom = applied.dateFrom;
     if (applied.dateTo) params.dateTo = applied.dateTo;
     if (applied.movementType) params.movementType = applied.movementType;
     try {
       const res = await apiService.get<{ data: LedgerDetail }>(`/production/inventory-report/${row.itemId}/ledger`, params);
+      ledgerCacheRef.current.set(cacheKey, res.data);
       setLedger(res.data);
     } catch (e: any) {
       setError(e?.response?.data?.message || 'Failed to load the stock ledger drill-down');
@@ -1115,130 +1129,210 @@ const ProductionInventoryReport: React.FC = () => {
   /* ── Table Columns with Modern 2027 Contextual Icons ──────────────────── */
   const columns: ColumnsType<ReportRow> = [
     {
-      title: <span><BarcodeOutlined className="erp-th-icon" />Item</span>,
+      title: (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+          <BarcodeOutlined className="erp-th-icon" />Item Name & Code
+        </span>
+      ),
       key: 'item',
       fixed: 'left',
-      width: 260,
+      width: 270,
+      align: 'left',
       render: (_, r) => (
-        <Space direction="vertical" size={0}>
-          <Text strong>{r.itemCode}</Text>
-          <Text type="secondary" style={{ fontSize: 11 }}>{r.itemName}</Text>
-          <Text type="secondary" style={{ fontSize: 10 }}>
-            {itemTypeLabel(r.itemType)} · {r.uomCode || '-'}{specLine(r) ? ` · ${specLine(r)}` : ''}
-          </Text>
-        </Space>
+        <div style={{ textAlign: 'left', lineHeight: 1.35 }}>
+          <div
+            style={{
+              fontSize: 13,
+              fontWeight: 700,
+              color: 'var(--theme-accent, #38bdf8)',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              maxWidth: 255,
+              letterSpacing: '0.2px',
+            }}
+            title={r.itemName}
+          >
+            {r.itemName || r.itemCode}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3, flexWrap: 'nowrap' }}>
+            <span
+              style={{
+                fontFamily: 'monospace',
+                fontWeight: 700,
+                fontSize: 11,
+                color: 'var(--theme-text-secondary, #94a3b8)',
+                background: 'rgba(148, 163, 184, 0.1)',
+                padding: '1px 5px',
+                borderRadius: 3,
+                border: '1px solid var(--theme-border, rgba(148, 163, 184, 0.2))',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {r.itemCode}
+            </span>
+            <span style={{ fontSize: 10.5, color: 'var(--theme-text-muted, #64748b)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 165 }}>
+              {itemTypeLabel(r.itemType)} · {r.uomCode || '-'}{specLine(r) ? ` · ${specLine(r)}` : ''}
+            </span>
+          </div>
+        </div>
       ),
     },
     {
-      title: <span><ApartmentOutlined className="erp-th-icon" />Division</span>,
-      key: 'div',
-      width: 140,
-      render: (_, r) => r.divisionName || '-',
+      title: (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+          <ApartmentOutlined className="erp-th-icon" />Division / Dept
+        </span>
+      ),
+      key: 'divDept',
+      width: 155,
+      align: 'left',
+      render: (_, r) => (
+        <div style={{ textAlign: 'left', lineHeight: 1.35 }}>
+          <div style={{ fontWeight: 600, fontSize: 12, color: 'var(--theme-text, #0f172a)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {r.divisionName || '—'}
+          </div>
+          <div style={{ marginTop: 2 }}>
+            <span
+              style={{
+                display: 'inline-block',
+                padding: '1px 7px',
+                borderRadius: 4,
+                fontSize: 10.5,
+                fontWeight: 600,
+                background: 'rgba(99, 102, 241, 0.12)',
+                color: 'var(--theme-accent, #6366f1)',
+                border: '1px solid rgba(99, 102, 241, 0.25)',
+                whiteSpace: 'nowrap',
+                maxWidth: 140,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+            >
+              {r.departmentName || '—'}
+            </span>
+          </div>
+        </div>
+      ),
     },
     {
-      title: <span><TeamOutlined className="erp-th-icon" />Department</span>,
-      key: 'dept',
-      width: 150,
-      render: (_, r) => r.departmentName || '-',
-    },
-    {
-      title: <span><FolderOpenOutlined className="erp-th-icon" />Opening</span>,
+      title: <span style={{ whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 4 }}><FolderOpenOutlined className="erp-th-icon" />Opening</span>,
       dataIndex: 'openingBalance',
       key: 'opening',
       align: 'right',
-      width: 100,
-      render: (v: number) => <span className={v < 0 ? 'erp-num--danger' : 'erp-num--bold'}>{formatInt(v)}</span>,
+      width: 120,
+      render: (v: number) => (
+        <span className={v < 0 ? 'erp-num--danger' : 'erp-num--bold'} style={{ whiteSpace: 'nowrap' }}>
+          {formatInt(v)}
+        </span>
+      ),
     },
     {
-      title: <span><ArrowDownOutlined className="erp-th-icon" />IN</span>,
+      title: <span style={{ whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 4 }}><ArrowDownOutlined className="erp-th-icon" />IN</span>,
       dataIndex: 'totalIn',
       key: 'in',
       align: 'right',
-      width: 90,
-      render: (v: number) => <span className="erp-num--success">{formatInt(v)}</span>,
+      width: 115,
+      render: (v: number) => <span className="erp-num--success" style={{ whiteSpace: 'nowrap' }}>{formatInt(v)}</span>,
     },
     {
-      title: <span><ArrowUpOutlined className="erp-th-icon" />OUT</span>,
+      title: <span style={{ whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 4 }}><ArrowUpOutlined className="erp-th-icon" />OUT</span>,
       dataIndex: 'totalOut',
       key: 'out',
       align: 'right',
-      width: 90,
-      render: (v: number) => <span className="erp-num--danger">{formatInt(v)}</span>,
+      width: 115,
+      render: (v: number) => <span className="erp-num--danger" style={{ whiteSpace: 'nowrap' }}>{formatInt(v)}</span>,
     },
     {
-      title: <span><CheckSquareOutlined className="erp-th-icon" />Closing</span>,
+      title: <span style={{ whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 4 }}><CheckSquareOutlined className="erp-th-icon" />Closing</span>,
       dataIndex: 'closingBalance',
       key: 'closing',
       align: 'right',
-      width: 100,
-      render: (v: number) => <span className={v < 0 ? 'erp-num--danger' : 'erp-num--bold'}>{formatInt(v)}</span>,
+      width: 120,
+      render: (v: number) => (
+        <span className={v < 0 ? 'erp-num--danger' : 'erp-num--bold'} style={{ whiteSpace: 'nowrap' }}>
+          {formatInt(v)}
+        </span>
+      ),
     },
     {
-      title: <span><DatabaseOutlined className="erp-th-icon" />On Hand</span>,
+      title: <span style={{ whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 4 }}><DatabaseOutlined className="erp-th-icon" />On Hand</span>,
       dataIndex: 'onHand',
       key: 'onHand',
       align: 'right',
-      width: 90,
-      render: (v: number) => <span className="erp-num--bold">{formatInt(v)}</span>,
+      width: 115,
+      render: (v: number) => <span className="erp-num--bold" style={{ whiteSpace: 'nowrap' }}>{formatInt(v)}</span>,
     },
     {
-      title: <span><CheckCircleOutlined className="erp-th-icon" />Available</span>,
+      title: <span style={{ whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 4 }}><CheckCircleOutlined className="erp-th-icon" />Available</span>,
       dataIndex: 'available',
       key: 'available',
       align: 'right',
-      width: 90,
-      render: (v: number) => <span className={v < 0 ? 'erp-num--danger' : 'erp-num--bold'}>{formatInt(v)}</span>,
+      width: 120,
+      render: (v: number) => (
+        <span className={v < 0 ? 'erp-num--danger' : 'erp-num--bold'} style={{ whiteSpace: 'nowrap' }}>
+          {formatInt(v)}
+        </span>
+      ),
     },
     {
-      title: <span><BuildOutlined className="erp-th-icon" />Produced</span>,
+      title: <span style={{ whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 4 }}><BuildOutlined className="erp-th-icon" />Produced</span>,
       dataIndex: 'produced',
       key: 'produced',
       align: 'right',
-      width: 90,
-      render: (v: number) => formatInt(v),
+      width: 120,
+      render: (v: number) => <span className="erp-num--bold" style={{ whiteSpace: 'nowrap' }}>{formatInt(v)}</span>,
     },
     {
-      title: <span><AimOutlined className="erp-th-icon" />Required</span>,
+      title: <span style={{ whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 4 }}><AimOutlined className="erp-th-icon" />Required</span>,
       dataIndex: 'required',
       key: 'required',
       align: 'right',
-      width: 90,
-      render: (v: number) => formatInt(v),
+      width: 120,
+      render: (v: number) => <span className="erp-num--bold" style={{ whiteSpace: 'nowrap' }}>{formatInt(v)}</span>,
     },
     {
-      title: <span><ThunderboltOutlined className="erp-th-icon" />Consumed</span>,
+      title: <span style={{ whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 4 }}><ThunderboltOutlined className="erp-th-icon" />Consumed</span>,
       dataIndex: 'consumed',
       key: 'consumed',
       align: 'right',
-      width: 90,
-      render: (v: number) => formatInt(v),
+      width: 120,
+      render: (v: number) => <span className="erp-num--bold" style={{ whiteSpace: 'nowrap' }}>{formatInt(v)}</span>,
     },
     {
-      title: <span><DeleteOutlined className="erp-th-icon" />Scrap</span>,
+      title: <span style={{ whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 4 }}><DeleteOutlined className="erp-th-icon" />Scrap</span>,
       dataIndex: 'scrapOut',
       key: 'scrap',
       align: 'right',
-      width: 80,
-      render: (v: number) => formatInt(v),
+      width: 105,
+      render: (v: number) => <span className="erp-num--bold" style={{ whiteSpace: 'nowrap' }}>{formatInt(v)}</span>,
     },
     {
-      title: <span><WarningOutlined className="erp-th-icon" />Shortage</span>,
+      title: <span style={{ whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 4 }}><WarningOutlined className="erp-th-icon" />Shortage</span>,
       key: 'shortage',
       align: 'right',
-      width: 110,
-      render: (_, r) => (r.shortage > 0 ? <Tag color="red">{formatInt(r.shortage)}</Tag> : <Text type="secondary">—</Text>),
+      width: 115,
+      render: (_, r) => (
+        <span style={{ whiteSpace: 'nowrap' }}>
+          {r.shortage > 0 ? <Tag color="red" style={{ fontWeight: 700 }}>{formatInt(r.shortage)}</Tag> : <Text type="secondary">—</Text>}
+        </span>
+      ),
     },
     {
-      title: <span><SafetyOutlined className="erp-th-icon" />Status</span>,
+      title: <span style={{ whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 4 }}><SafetyOutlined className="erp-th-icon" />Status</span>,
       key: 'status',
-      width: 90,
+      width: 95,
       align: 'center',
-      render: (_, r) => (r.status === 'SHORT' ? <Tag color="red">SHORT</Tag> : <Tag color="green">OK</Tag>),
+      render: (_, r) => (
+        <span style={{ whiteSpace: 'nowrap' }}>
+          {r.status === 'SHORT' ? <Tag color="red" style={{ fontWeight: 700 }}>SHORT</Tag> : <Tag color="green" style={{ fontWeight: 700 }}>OK</Tag>}
+        </span>
+      ),
     },
     {
-      title: <span><AuditOutlined className="erp-th-icon" />Balance</span>,
+      title: <span style={{ whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 4 }}><AuditOutlined className="erp-th-icon" />Balance</span>,
       key: 'reconciled',
-      width: 90,
+      width: 95,
       align: 'center',
       render: (_, r) => (r.reconciled == null ? <Text type="secondary">—</Text> : r.reconciled ? <Tag color="green">OK</Tag> : <Tag color="red">FAIL</Tag>),
     },
@@ -1280,11 +1374,37 @@ const ProductionInventoryReport: React.FC = () => {
   /* ── Ledger Columns ───────────────────────────────────────────────────── */
   const ledgerColumns: ColumnsType<LedgerRow> = [
     {
-      title: 'Date',
-      dataIndex: 'transactionDate',
+      title: 'Date & Time / Shift',
       key: 'date',
-      width: 145,
-      render: (v) => <span style={{ fontSize: 12, color: 'var(--theme-text-secondary, #64748b)', whiteSpace: 'nowrap' }}>{dateTime(v)}</span>,
+      width: 175,
+      render: (_, r) => {
+        const dateStr = dayjs(r.transactionDate).format('DD MMM YYYY');
+        const timeStr = r.createdAt
+          ? dayjs(r.createdAt).format('hh:mm A')
+          : (r.transactionDate ? dayjs(r.transactionDate).format('hh:mm A') : '-');
+        const shift = r.productionEntry?.shiftName;
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--theme-text, #0f172a)', whiteSpace: 'nowrap' }}>
+              {dateStr}
+            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 11, color: '#64748b' }}>
+                <ClockCircleOutlined style={{ marginRight: 3, fontSize: 10 }} />
+                {timeStr}
+              </span>
+              {shift && (
+                <Tag
+                  color={shift.toLowerCase().includes('night') ? 'purple' : 'blue'}
+                  style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0, borderRadius: 4 }}
+                >
+                  {shift}
+                </Tag>
+              )}
+            </div>
+          </div>
+        );
+      },
     },
     {
       title: 'Transaction',
@@ -1320,10 +1440,11 @@ const ProductionInventoryReport: React.FC = () => {
       width: 240,
       render: (_, r: any) => {
         const isOut = r.direction === 'OUT';
+        const isReversal = r.transactionType === 'PRODUCTION_REVERSAL';
         const deptLabel = r.destinationDepartment || r.department?.name || (isOut ? 'Production Floor' : 'Warehouse Stores');
         return (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 3, alignItems: 'flex-start' }}>
-            <span className={`erp-dest-badge ${isOut ? 'erp-dest-badge--out' : 'erp-dest-badge--in'}`}>
+            <span className={`erp-dest-badge ${isOut ? 'erp-dest-badge--out' : (isReversal ? 'erp-dest-badge--reversal' : 'erp-dest-badge--in')}`}>
               {isOut ? <ArrowRightOutlined style={{ fontSize: 10 }} /> : <ArrowLeftOutlined style={{ fontSize: 10 }} />}
               {deptLabel}
             </span>
@@ -1344,8 +1465,27 @@ const ProductionInventoryReport: React.FC = () => {
       dataIndex: 'quantity',
       key: 'qty',
       align: 'right',
-      width: 100,
-      render: (v: number) => <span className="erp-cell-num" style={{ fontWeight: 600 }}>{formatInt(v)}</span>,
+      width: 105,
+      render: (v: number, r: LedgerRow) => {
+        const isOut = r.direction === 'OUT';
+        return (
+          <span
+            className="erp-cell-num"
+            style={{
+              fontWeight: 700,
+              fontSize: 12.5,
+              color: isOut ? '#ef4444' : '#10b981',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'flex-end',
+              gap: 2,
+              letterSpacing: '0.2px',
+            }}
+          >
+            {isOut ? '−' : '+'}{formatInt(v)}
+          </span>
+        );
+      },
     },
     { title: 'UOM', key: 'uom', width: 65, render: (_, r) => r.uom?.code || '-' },
     {
@@ -1974,7 +2114,7 @@ const ProductionInventoryReport: React.FC = () => {
                 loading={false}
                 columns={columns}
                 dataSource={filteredItems}
-                scroll={{ x: 1950 }}
+                scroll={{ x: 2400 }}
                 rowSelection={{
                   selectedRowKeys,
                   onChange: (keys) => setSelectedRowKeys(keys),
@@ -2109,55 +2249,68 @@ const ProductionInventoryReport: React.FC = () => {
             )}
 
             {/* 2027 Executive Ledger Summary Banner */}
-            <div
-              className="erp-ledger-summary-banner"
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
-                gap: 10,
-                marginBottom: 12,
-                padding: '12px 14px',
-                background: 'var(--theme-surface-subtle, #f8fafc)',
-                borderRadius: 10,
-                border: '1px solid var(--theme-border, #e2e8f0)',
-              }}
-            >
-              <div>
-                <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--theme-text-secondary, #64748b)', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Division & Dept</div>
-                <div style={{ fontWeight: 700, fontSize: 13, marginTop: 2, color: 'var(--theme-text, #0f172a)' }}>
-                  {ledger.item?.department?.name || ledger.item?.division?.name || 'Stores Department'}
+            {(() => {
+              const hasPriorOpening = (ledger.openingBalance ?? 0) > 0;
+              const firstOpeningRow = ledger.rows.find((r) => r.referenceType === 'OPENING' || r.transactionType === 'OPENING');
+              const initialOpeningQty = firstOpeningRow ? Number(firstOpeningRow.quantity) : 0;
+              const displayOpeningStock = hasPriorOpening ? ledger.openingBalance : initialOpeningQty;
+              const displayOpeningLabel = hasPriorOpening ? 'Prior Balance' : (initialOpeningQty > 0 ? 'Initial Opening' : 'Opening Stock');
+              // Receipts: if initial opening is already included in totalIn, separate it so Opening + Receipts - Out = Closing
+              const periodReceipts = (!hasPriorOpening && initialOpeningQty > 0) ? Math.max(0, ledger.totalIn - initialOpeningQty) : ledger.totalIn;
+              const computedClosing = displayOpeningStock + periodReceipts - ledger.totalOut;
+
+              return (
+                <div
+                  className="erp-ledger-summary-banner"
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
+                    gap: 10,
+                    marginBottom: 12,
+                    padding: '12px 14px',
+                    background: 'var(--theme-surface-subtle, var(--theme-surface-alt, rgba(255, 255, 255, 0.04)))',
+                    borderRadius: 10,
+                    border: '1px solid var(--theme-border, rgba(255, 255, 255, 0.12))',
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--theme-text-muted, #94a3b8)', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Division & Dept</div>
+                    <div style={{ fontWeight: 700, fontSize: 13, marginTop: 2, color: 'var(--theme-text, #f8fafc)' }}>
+                      {ledger.item?.department?.name || ledger.item?.division?.name || 'Stores Department'}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #64748b)' }}>{ledger.item ? itemTypeLabel(ledger.item.itemType) : ''} • {ledger.item?.uom?.code || 'PCS'}</div>
+                  </div>
+                  <div style={{ borderLeft: '1px solid var(--theme-border, rgba(255, 255, 255, 0.12))', paddingLeft: 12 }}>
+                    <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--theme-text-muted, #94a3b8)', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Opening Stock</div>
+                    <div className="erp-cell-num" style={{ fontWeight: 700, fontSize: 16, marginTop: 2, color: 'var(--theme-text, #f8fafc)' }}>
+                      {formatInt(displayOpeningStock)}
+                    </div>
+                    <div style={{ fontSize: 10.5, color: 'var(--theme-text-muted, #64748b)' }}>{displayOpeningLabel}</div>
+                  </div>
+                  <div style={{ borderLeft: '1px solid var(--theme-border, rgba(255, 255, 255, 0.12))', paddingLeft: 12 }}>
+                    <div style={{ fontSize: 10.5, fontWeight: 700, color: '#10b981', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Total In (+)</div>
+                    <div className="erp-cell-num" style={{ fontWeight: 700, fontSize: 16, marginTop: 2, color: '#10b981' }}>
+                      +{formatInt(periodReceipts)}
+                    </div>
+                    <div style={{ fontSize: 10.5, color: '#059669' }}>Receipts & Inward</div>
+                  </div>
+                  <div style={{ borderLeft: '1px solid var(--theme-border, rgba(255, 255, 255, 0.12))', paddingLeft: 12 }}>
+                    <div style={{ fontSize: 10.5, fontWeight: 700, color: '#ef4444', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Total Out (−)</div>
+                    <div className="erp-cell-num" style={{ fontWeight: 700, fontSize: 16, marginTop: 2, color: '#ef4444' }}>
+                      −{formatInt(ledger.totalOut)}
+                    </div>
+                    <div style={{ fontSize: 10.5, color: '#f43f5e' }}>Consumption & Issues</div>
+                  </div>
+                  <div style={{ borderLeft: '1px solid var(--theme-border, rgba(255, 255, 255, 0.12))', paddingLeft: 12, background: 'rgba(99, 102, 241, 0.1)', borderRadius: 6, padding: '4px 10px' }}>
+                    <div style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--theme-accent, #818cf8)', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Closing Balance</div>
+                    <div className="erp-cell-num" style={{ fontWeight: 800, fontSize: 18, marginTop: 2, color: computedClosing < 0 ? '#ef4444' : 'var(--theme-accent, #818cf8)' }}>
+                      {formatInt(computedClosing)} <span style={{ fontSize: 11, fontWeight: 600 }}>{ledger.item?.uom?.code || 'PCS'}</span>
+                    </div>
+                    <div style={{ fontSize: 10.5, color: 'var(--theme-accent, #818cf8)' }}>On-Hand Net</div>
+                  </div>
                 </div>
-                <div style={{ fontSize: 11, color: '#64748b' }}>{ledger.item ? itemTypeLabel(ledger.item.itemType) : ''} • {ledger.item?.uom?.code || 'KG'}</div>
-              </div>
-              <div style={{ borderLeft: '1px solid var(--theme-border, #e2e8f0)', paddingLeft: 12 }}>
-                <div style={{ fontSize: 10.5, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Opening Stock</div>
-                <div className="erp-cell-num" style={{ fontWeight: 700, fontSize: 16, marginTop: 2, color: 'var(--theme-text, #0f172a)' }}>
-                  {formatInt(ledger.openingBalance)}
-                </div>
-                <div style={{ fontSize: 10.5, color: '#94a3b8' }}>Prior Balance</div>
-              </div>
-              <div style={{ borderLeft: '1px solid var(--theme-border, #e2e8f0)', paddingLeft: 12 }}>
-                <div style={{ fontSize: 10.5, fontWeight: 700, color: '#047857', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Total In (+)</div>
-                <div className="erp-cell-num" style={{ fontWeight: 700, fontSize: 16, marginTop: 2, color: '#047857' }}>
-                  +{formatInt(ledger.totalIn)}
-                </div>
-                <div style={{ fontSize: 10.5, color: '#059669' }}>Receipts & Inward</div>
-              </div>
-              <div style={{ borderLeft: '1px solid var(--theme-border, #e2e8f0)', paddingLeft: 12 }}>
-                <div style={{ fontSize: 10.5, fontWeight: 700, color: '#be123c', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Total Out (−)</div>
-                <div className="erp-cell-num" style={{ fontWeight: 700, fontSize: 16, marginTop: 2, color: '#be123c' }}>
-                  −{formatInt(ledger.totalOut)}
-                </div>
-                <div style={{ fontSize: 10.5, color: '#e11d48' }}>Consumption & Issues</div>
-              </div>
-              <div style={{ borderLeft: '1px solid var(--theme-border, #e2e8f0)', paddingLeft: 12, background: 'rgba(79, 70, 229, 0.05)', borderRadius: 6, padding: '4px 10px' }}>
-                <div style={{ fontSize: 10.5, fontWeight: 800, color: '#4338ca', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Closing Balance</div>
-                <div className="erp-cell-num" style={{ fontWeight: 800, fontSize: 18, marginTop: 2, color: ledger.closingBalance < 0 ? '#dc2626' : '#4338ca' }}>
-                  {formatInt(ledger.closingBalance)} <span style={{ fontSize: 11, fontWeight: 600 }}>{ledger.item?.uom?.code || 'KG'}</span>
-                </div>
-                <div style={{ fontSize: 10.5, color: '#6366f1' }}>On-Hand Net</div>
-              </div>
-            </div>
+              );
+            })()}
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginBottom: 8 }}>
               <Button

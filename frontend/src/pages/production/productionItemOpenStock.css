@@ -971,13 +971,19 @@
 
 .erp-packing-department-hub .ant-table-thead > tr > th {
   border-radius: 0 !important;
-  background: var(--theme-table-header-bg, var(--theme-surface-alt, #0b1e36)) !important;
-  color: var(--theme-table-header-color, #ffffff) !important;
-  border-bottom: 1px solid var(--theme-border, #334155) !important;
+  background: var(--theme-table-header-bg, var(--ui-table-header-bg, #f1f5f9)) !important;
+  color: var(--theme-table-header-color, var(--ui-table-header-text, #0f172a)) !important;
+  border-bottom: 1px solid var(--theme-table-header-border, var(--ui-table-header-rule, #cbd5e1)) !important;
   border-top: none !important;
   border-left: none !important;
   border-right: none !important;
   font-weight: 700 !important;
+}
+
+[data-theme="dark"] .erp-packing-department-hub .ant-table-thead > tr > th {
+  background: var(--theme-table-header-bg, #0b1e36) !important;
+  color: var(--theme-table-header-color, #f1f5f9) !important;
+  border-bottom: 1px solid var(--theme-border, #334155) !important;
 }
 
 .erp-packing-department-hub .ant-table-tbody > tr > td {

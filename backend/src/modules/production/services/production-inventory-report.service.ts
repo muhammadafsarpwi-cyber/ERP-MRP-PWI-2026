@@ -139,6 +139,8 @@ export class ProductionInventoryReportService {
     private readonly companyRepo: Repository<Company>,
   ) {}
 
+  private masterItemsCache: { companyId: string; timestamp: number; items: any[] } | null = null;
+
   /**
    * TASK #39 — the report's date filters are BUSINESS dates. The company's own
    * configured `companies.timezone` is the canonical business-timezone (this
@@ -199,10 +201,9 @@ export class ProductionInventoryReportService {
       .leftJoinAndSelect('i.section', 'section')
       .leftJoinAndSelect('i.department', 'department')
       .where('i.companyId = :companyId', { companyId })
-      .andWhere(`i.id IN (
-        SELECT sl."item_id" FROM stock_ledger sl WHERE sl."company_id" = :companyId
-        UNION
-        SELECT ib."item_id" FROM inventory_balances ib WHERE ib."company_id" = :companyId AND ib."status" = 'ACTIVE'
+      .andWhere(`(
+        EXISTS (SELECT 1 FROM stock_ledger sl WHERE sl.item_id = i.id AND sl.company_id = :companyId)
+        OR EXISTS (SELECT 1 FROM inventory_balances ib WHERE ib.item_id = i.id AND ib.company_id = :companyId AND ib.status = 'ACTIVE')
       )`);
 
     if (filters.divisionId) itemQb.andWhere('i.divisionId = :divisionId', { divisionId: filters.divisionId });
@@ -257,22 +258,29 @@ export class ProductionInventoryReportService {
 
     const itemIds = items.map((i) => i.id);
 
-    const rangeCondA = start ? 'AND sl.transactionDate >= :dateFrom' : '';
-    const rangeCondB = end ? 'AND sl.transactionDate < :dateTo' : '';
-    const rangeCond = `${rangeCondA} ${rangeCondB}`;
+    const openingInCond = start
+      ? 'sl.transactionDate < :dateFrom'
+      : `(sl.transactionType = 'OPENING' OR sl.referenceType = 'PRODUCTION_ITEM_OPEN_STOCK')`;
+    const openingOutCond = start
+      ? 'sl.transactionDate < :dateFrom'
+      : `(sl.transactionType = 'OPENING' AND sl.direction = 'OUT')`;
+    const inRangeCond = start
+      ? `AND sl.transactionDate >= :dateFrom ${end ? 'AND sl.transactionDate < :dateTo' : ''}`
+      : `AND sl.transactionType <> 'OPENING' AND (sl.referenceType IS NULL OR sl.referenceType <> 'PRODUCTION_ITEM_OPEN_STOCK')`;
+    const outRangeCond = start ? `AND sl.transactionDate >= :dateFrom ${end ? 'AND sl.transactionDate < :dateTo' : ''}` : '';
 
     // ── Stock ledger aggregates (one query for every item).
     const aggregateQb = this.ledgerRepo
       .createQueryBuilder('sl')
       .select('sl.itemId', 'itemId')
-      .addSelect(`COALESCE(SUM(CASE WHEN sl.direction = 'IN' AND sl.transactionType <> 'PRODUCTION_SCRAP' AND sl.transactionDate < :dateFrom THEN sl.quantity ELSE 0 END), 0)`, 'openingIn')
-      .addSelect(`COALESCE(SUM(CASE WHEN sl.direction = 'OUT' AND sl.transactionType <> 'PRODUCTION_SCRAP' AND sl.transactionDate < :dateFrom THEN sl.quantity ELSE 0 END), 0)`, 'openingOut')
-      .addSelect(`COALESCE(SUM(CASE WHEN sl.direction = 'IN' AND sl.transactionType <> 'PRODUCTION_SCRAP' ${rangeCond} THEN sl.quantity ELSE 0 END), 0)`, 'rangeIn')
-      .addSelect(`COALESCE(SUM(CASE WHEN sl.direction = 'OUT' AND sl.transactionType <> 'PRODUCTION_SCRAP' ${rangeCond} THEN sl.quantity ELSE 0 END), 0)`, 'rangeOut')
-      .addSelect(`COALESCE(SUM(CASE WHEN sl.direction = 'IN' AND sl.transactionType = :movementType ${rangeCond} THEN sl.quantity ELSE 0 END), 0)`, 'movIn')
-      .addSelect(`COALESCE(SUM(CASE WHEN sl.direction = 'OUT' AND sl.transactionType = :movementType ${rangeCond} THEN sl.quantity ELSE 0 END), 0)`, 'movOut')
-      .addSelect(`COALESCE(SUM(CASE WHEN sl.direction = 'OUT' AND sl.transactionType IN ('PRODUCTION_CONSUMPTION', 'PRODUCTION_ISSUE') ${rangeCond} THEN sl.quantity ELSE 0 END), 0)`, 'consumed')
-      .addSelect(`COALESCE(SUM(CASE WHEN sl.transactionType = 'PRODUCTION_SCRAP' ${rangeCond} THEN sl.quantity ELSE 0 END), 0)`, 'scrapOut')
+      .addSelect(`COALESCE(SUM(CASE WHEN sl.direction = 'IN' AND sl.transactionType <> 'PRODUCTION_SCRAP' AND ${openingInCond} THEN sl.quantity ELSE 0 END), 0)`, 'openingIn')
+      .addSelect(`COALESCE(SUM(CASE WHEN sl.direction = 'OUT' AND sl.transactionType <> 'PRODUCTION_SCRAP' AND ${openingOutCond} THEN sl.quantity ELSE 0 END), 0)`, 'openingOut')
+      .addSelect(`COALESCE(SUM(CASE WHEN sl.direction = 'IN' AND sl.transactionType <> 'PRODUCTION_SCRAP' ${inRangeCond} THEN sl.quantity ELSE 0 END), 0)`, 'rangeIn')
+      .addSelect(`COALESCE(SUM(CASE WHEN sl.direction = 'OUT' AND sl.transactionType <> 'PRODUCTION_SCRAP' ${outRangeCond} THEN sl.quantity ELSE 0 END), 0)`, 'rangeOut')
+      .addSelect(`COALESCE(SUM(CASE WHEN sl.direction = 'IN' AND sl.transactionType = :movementType ${inRangeCond} THEN sl.quantity ELSE 0 END), 0)`, 'movIn')
+      .addSelect(`COALESCE(SUM(CASE WHEN sl.direction = 'OUT' AND sl.transactionType = :movementType ${outRangeCond} THEN sl.quantity ELSE 0 END), 0)`, 'movOut')
+      .addSelect(`COALESCE(SUM(CASE WHEN sl.direction = 'OUT' AND sl.transactionType IN ('PRODUCTION_CONSUMPTION', 'PRODUCTION_ISSUE') ${outRangeCond} THEN sl.quantity ELSE 0 END), 0)`, 'consumed')
+      .addSelect(`COALESCE(SUM(CASE WHEN sl.transactionType = 'PRODUCTION_SCRAP' ${outRangeCond} THEN sl.quantity ELSE 0 END), 0)`, 'scrapOut')
       .addSelect('MAX(sl.transactionDate)', 'lastMovementDate')
       .where('sl.companyId = :companyId', { companyId })
       .andWhere('sl.itemId IN (:...itemIds)', { itemIds })
@@ -341,17 +349,30 @@ export class ProductionInventoryReportService {
 
     // TASK #39 — flow chain mapping across the whole company (not just the
     // current scope) so upstream sources / downstream consumers stay visible.
-    const masterQb = this.itemRepo
-      .createQueryBuilder('m')
-      .select(['m.id', 'm.itemCode', 'm.name', 'm.itemType', 'm.productionInItemId'])
-      .where('m.companyId = :companyId', { companyId });
+    // Cached in-memory for 5 minutes to avoid querying 3,800+ items every reload.
+    const masterItemsPromise = (async () => {
+      if (
+        this.masterItemsCache &&
+        this.masterItemsCache.companyId === companyId &&
+        Date.now() - this.masterItemsCache.timestamp < 300_000
+      ) {
+        return this.masterItemsCache.items;
+      }
+      const raw = await this.itemRepo
+        .createQueryBuilder('m')
+        .select(['m.id', 'm.itemCode', 'm.name', 'm.itemType', 'm.productionInItemId'])
+        .where('m.companyId = :companyId', { companyId })
+        .getMany();
+      this.masterItemsCache = { companyId, timestamp: Date.now(), items: raw };
+      return raw;
+    })();
 
     const [ledgerRows, balanceRows, producedRows, requiredRows, masterItems] = await Promise.all([
       aggregateQb.getRawMany(),
       balanceQb.getRawMany(),
       producedQb.getRawMany(),
       requiredQb.getRawMany(),
-      masterQb.getMany(),
+      masterItemsPromise,
     ]);
 
     const byItem = (rows: any[], key: string): Map<string, any> =>
@@ -502,16 +523,19 @@ export class ProductionInventoryReportService {
     const { start, end } = businessDayWindow(filters.dateFrom, filters.dateTo, timeZone);
 
     // Opening balance: everything before range, never including scrap.
-    const openingQb = this.ledgerRepo
-      .createQueryBuilder('sl')
-      .select(`COALESCE(SUM(CASE WHEN sl.direction = 'IN' THEN sl.quantity ELSE 0 END), 0)`, 'openingIn')
-      .addSelect(`COALESCE(SUM(CASE WHEN sl.direction = 'OUT' THEN sl.quantity ELSE 0 END), 0)`, 'openingOut')
-      .where('sl.companyId = :companyId', { companyId })
-      .andWhere('sl.itemId = :itemId', { itemId })
-      .andWhere(`sl.transactionType <> 'PRODUCTION_SCRAP'`);
-    if (start) openingQb.andWhere('sl.transactionDate < :dateFrom', { dateFrom: start });
-    const openingRow = await openingQb.getRawOne();
-    const openingBalance = R4(N(openingRow?.openingIn) - N(openingRow?.openingOut));
+    let openingBalance = 0;
+    if (start) {
+      const openingQb = this.ledgerRepo
+        .createQueryBuilder('sl')
+        .select(`COALESCE(SUM(CASE WHEN sl.direction = 'IN' THEN sl.quantity ELSE 0 END), 0)`, 'openingIn')
+        .addSelect(`COALESCE(SUM(CASE WHEN sl.direction = 'OUT' THEN sl.quantity ELSE 0 END), 0)`, 'openingOut')
+        .where('sl.companyId = :companyId', { companyId })
+        .andWhere('sl.itemId = :itemId', { itemId })
+        .andWhere(`sl.transactionType <> 'PRODUCTION_SCRAP'`)
+        .andWhere('sl.transactionDate < :dateFrom', { dateFrom: start });
+      const openingRow = await openingQb.getRawOne();
+      openingBalance = R4(N(openingRow?.openingIn) - N(openingRow?.openingOut));
+    }
 
     const qb = this.ledgerRepo
       .createQueryBuilder('sl')
@@ -550,7 +574,7 @@ export class ProductionInventoryReportService {
     const truncated = ledgers.length > MAX_ROWS;
     const visible = truncated ? ledgers.slice(-MAX_ROWS) : ledgers;
 
-    // Fetch associated Production Entries to resolve destination departments and produced items
+    // Fetch associated Production Entries to resolve destination departments, shifts and produced items
     const peIds = visible
       .filter((r) => r.referenceType?.toUpperCase() === 'PRODUCTION_ENTRY' && r.referenceId)
       .map((r) => r.referenceId as string);
@@ -558,11 +582,37 @@ export class ProductionInventoryReportService {
     let peMap = new Map<string, any>();
     if (peIds.length > 0) {
       try {
-        const pes = await this.entryRepo.find({
-          where: { id: In(peIds), companyId },
-          relations: ['department', 'item'],
-        });
-        peMap = new Map(pes.map((p) => [p.id, p]));
+        const pes = await this.entryRepo
+          .createQueryBuilder('pe')
+          .leftJoin('pe.department', 'dept')
+          .leftJoin('pe.item', 'item')
+          .leftJoin('pe.shift', 'shift')
+          .select([
+            'pe.id AS id',
+            'pe.entryNumber AS "entryNumber"',
+            'pe.machineNo AS "machineNo"',
+            'dept.name AS "departmentName"',
+            'item.itemCode AS "itemCode"',
+            'item.name AS "itemName"',
+            'shift.name AS "shiftName"',
+          ])
+          .where('pe.id IN (:...peIds)', { peIds })
+          .andWhere('pe.companyId = :companyId', { companyId })
+          .getRawMany();
+
+        peMap = new Map(
+          pes.map((p) => [
+            p.id,
+            {
+              id: p.id,
+              entryNumber: p.entryNumber,
+              machineNo: p.machineNo,
+              department: { name: p.departmentName },
+              item: { itemCode: p.itemCode, name: p.itemName },
+              shift: { name: p.shiftName },
+            },
+          ]),
+        );
       } catch {
         // Non-blocking fallback
       }
@@ -583,14 +633,16 @@ export class ProductionInventoryReportService {
 
       const pe = r.referenceId ? peMap.get(r.referenceId) : null;
 
-      // Extract machine code if present in notes, e.g. (ST-01), (FT-02), etc.
+      // Extract machine code if present in notes or production entry, e.g. (ST-01), (SW-02), (SPK-05), etc.
       let machineTag = '';
-      if (r.notes) {
+      if (pe?.machineNo) {
+        machineTag = ` (${pe.machineNo.toUpperCase()})`;
+      } else if (r.notes) {
         const mMatch = r.notes.match(/\b([A-Z]{2,4}-\d+)\b/i);
         if (mMatch) machineTag = ` (${mMatch[1].toUpperCase()})`;
       }
 
-      // Determine robust department / destination label so rows never display generic 'Production Floor' or '-'
+      // Determine robust department / destination label so rows never display generic 'Production Floor' or incorrect hardcoded depts
       let destDept: string | null = null;
       if (pe?.department?.name) {
         destDept = `${pe.department.name}${machineTag}`;
@@ -598,14 +650,18 @@ export class ProductionInventoryReportService {
         if (machineTag.includes('ST-')) destDept = `Straightener${machineTag}`;
         else if (machineTag.includes('FT-')) destDept = `Flattening${machineTag}`;
         else if (machineTag.includes('SW-')) destDept = `Swaging${machineTag}`;
+        else if (machineTag.includes('SPK-')) destDept = `Spoke${machineTag}`;
+        else if (machineTag.includes('PL-') || machineTag.includes('BL-')) destDept = `Plating${machineTag}`;
         else if (machineTag.includes('CC-')) destDept = `Control Cable${machineTag}`;
         else if (machineTag.includes('EXT-')) destDept = `Extrusion${machineTag}`;
       }
 
       // Explicit transaction type context
       if (!destDept) {
-        if (r.transactionType === 'PRODUCTION_ISSUE' || r.transactionType === 'PRODUCTION_CONSUMPTION') {
-          destDept = r.department?.name || 'Straightening Dept';
+        if (r.transactionType === 'PRODUCTION_REVERSAL') {
+          destDept = machineTag ? `Reversal${machineTag}` : (r.department?.name ? `${r.department.name} (Reversal)` : 'Reversal Adjustment');
+        } else if (r.transactionType === 'PRODUCTION_ISSUE' || r.transactionType === 'PRODUCTION_CONSUMPTION') {
+          destDept = r.department?.name || (item.department?.name ? `${item.department.name} Consumption` : 'Production Floor');
         } else if (r.transactionType === 'PRODUCTION_SCRAP') {
           destDept = 'Scrap / Rejection Yard';
         } else if (r.transactionType === 'PRODUCTION_RECEIPT') {
@@ -629,6 +685,7 @@ export class ProductionInventoryReportService {
       return {
         id: r.id,
         transactionDate: r.transactionDate,
+        createdAt: r.createdAt,
         transactionType: r.transactionType,
         direction: r.direction,
         quantity,
@@ -648,30 +705,54 @@ export class ProductionInventoryReportService {
               departmentName: pe.department?.name ?? null,
               itemCode: pe.item?.itemCode ?? null,
               itemName: pe.item?.name ?? null,
+              machineNo: pe.machineNo ?? null,
+              shiftName: pe.shift?.name ?? null,
             }
           : null,
         referenceType: r.referenceType,
         referenceId: r.referenceId,
-        referenceNumber: r.referenceNumber,
         notes: r.notes,
         runningBalance: running,
       };
     });
 
-    // Build Material Journey chain
+    // Build Material Journey chain using fast targeted CTE (querying only related items instead of 3,800+ items)
     const journey: any[] = [];
     try {
-      const allCompanyItems = await this.itemRepo
-        .createQueryBuilder('m')
-        .leftJoinAndSelect('m.department', 'dept')
-        .leftJoinAndSelect('m.baseUom', 'uom')
-        .where('m.companyId = :companyId', { companyId })
-        .select(['m.id', 'm.itemCode', 'm.name', 'm.itemType', 'm.productionInItemId', 'dept.id', 'dept.name', 'uom.id', 'uom.code'])
-        .getMany();
+      const chainRaw: any[] = await this.itemRepo.query(`
+        WITH RECURSIVE
+          upstream AS (
+            SELECT id, item_code, name, item_type, production_in_item_id, department_id, base_uom_id, 1 as level
+            FROM items WHERE id = $1
+            UNION ALL
+            SELECT i.id, i.item_code, i.name, i.item_type, i.production_in_item_id, i.department_id, i.base_uom_id, u.level + 1
+            FROM items i
+            INNER JOIN upstream u ON i.id = u.production_in_item_id
+            WHERE u.level < 10
+          ),
+          root_item AS (
+            SELECT id FROM upstream WHERE production_in_item_id IS NULL OR production_in_item_id NOT IN (SELECT id FROM items)
+            ORDER BY level DESC LIMIT 1
+          ),
+          downstream AS (
+            SELECT id, item_code, name, item_type, production_in_item_id, department_id, base_uom_id, 1 as depth
+            FROM items WHERE id IN (SELECT id FROM root_item)
+            UNION ALL
+            SELECT i.id, i.item_code, i.name, i.item_type, i.production_in_item_id, i.department_id, i.base_uom_id, d.depth + 1
+            FROM items i
+            INNER JOIN downstream d ON i.production_in_item_id = d.id
+            WHERE d.depth < 10
+          )
+        SELECT DISTINCT d.id, d.item_code as "itemCode", d.name, d.item_type as "itemType", d.production_in_item_id as "productionInItemId",
+               dept.name as "departmentName", uom.code as "uomCode"
+        FROM downstream d
+        LEFT JOIN departments dept ON dept.id = d.department_id
+        LEFT JOIN uoms uom ON uom.id = d.base_uom_id
+      `, [item.id]);
 
-      const itemMap = new Map(allCompanyItems.map((i) => [i.id, i]));
+      const itemMap = new Map(chainRaw.map((i) => [i.id, i]));
       const childrenOf = new Map<string, any[]>();
-      for (const m of allCompanyItems) {
+      for (const m of chainRaw) {
         if (m.productionInItemId) {
           const list = childrenOf.get(m.productionInItemId) ?? [];
           list.push(m);
@@ -680,7 +761,7 @@ export class ProductionInventoryReportService {
       }
 
       // Root item discovery (trace upstream)
-      let rootItem: any = item;
+      let rootItem: any = itemMap.get(item.id) || item;
       const visitedUp = new Set<string>([item.id]);
       while (rootItem.productionInItemId && itemMap.has(rootItem.productionInItemId)) {
         const parent = itemMap.get(rootItem.productionInItemId)!;
@@ -693,11 +774,11 @@ export class ProductionInventoryReportService {
         stageNumber: 1,
         stageKey: 'RM_RECEIPT',
         stageName: 'Raw Material Receipt & Stores',
-        departmentName: rootItem.department?.name || 'Raw Material Stores',
+        departmentName: rootItem.departmentName || rootItem.department?.name || 'Raw Material Stores',
         itemCode: rootItem.itemCode,
         itemName: rootItem.name,
         itemType: rootItem.itemType,
-        uom: rootItem.baseUom?.code || 'KG',
+        uom: rootItem.uomCode || rootItem.baseUom?.code || 'KG',
         isCurrentItem: rootItem.id === item.id,
       });
 
@@ -707,13 +788,13 @@ export class ProductionInventoryReportService {
           stageNumber: 2,
           stageKey: 'PRIMARY_PROCESS',
           stageName: 'Primary Processing / Straightening',
-          departmentName: l1[0]?.department?.name || 'Straightening Dept',
+          departmentName: l1[0]?.departmentName || l1[0]?.department?.name || 'Straightening Dept',
           itemCode: l1.map((c) => c.itemCode).join(', '),
           itemName: l1.map((c) => c.name).join(', '),
           itemType: 'SEMI_FINISHED',
-          uom: l1[0]?.baseUom?.code || 'KG',
+          uom: l1[0]?.uomCode || l1[0]?.baseUom?.code || 'KG',
           isCurrentItem: l1.some((c) => c.id === item.id),
-          items: l1.map((c) => ({ id: c.id, itemCode: c.itemCode, name: c.name, department: c.department?.name })),
+          items: l1.map((c) => ({ id: c.id, itemCode: c.itemCode, name: c.name, department: c.departmentName || c.department?.name })),
         });
 
         const l2: any[] = [];
@@ -726,13 +807,13 @@ export class ProductionInventoryReportService {
             stageNumber: 3,
             stageKey: 'INTERMEDIATE_PROCESS',
             stageName: 'Intermediate Processing / Swaging',
-            departmentName: l2[0]?.department?.name || 'Swaging Dept',
+            departmentName: l2[0]?.departmentName || l2[0]?.department?.name || 'Swaging Dept',
             itemCode: l2.map((c) => c.itemCode).join(', '),
             itemName: l2.map((c) => c.name).join(', '),
             itemType: 'SEMI_FINISHED',
-            uom: l2[0]?.baseUom?.code || 'KG',
+            uom: l2[0]?.uomCode || l2[0]?.baseUom?.code || 'KG',
             isCurrentItem: l2.some((c) => c.id === item.id),
-            items: l2.map((c) => ({ id: c.id, itemCode: c.itemCode, name: c.name, department: c.department?.name })),
+            items: l2.map((c) => ({ id: c.id, itemCode: c.itemCode, name: c.name, department: c.departmentName || c.department?.name })),
           });
 
           const l3: any[] = [];
@@ -745,13 +826,13 @@ export class ProductionInventoryReportService {
               stageNumber: 4,
               stageKey: 'FINISHED_GOOD',
               stageName: 'Finished Goods / Packing',
-              departmentName: l3[0]?.department?.name || 'Finished Goods Store',
+              departmentName: l3[0]?.departmentName || l3[0]?.department?.name || 'Finished Goods Store',
               itemCode: l3.map((c) => c.itemCode).join(', '),
               itemName: l3.map((c) => c.name).join(', '),
               itemType: l3[0]?.itemType || 'FINISHED_GOOD',
-              uom: l3[0]?.baseUom?.code || 'KG',
+              uom: l3[0]?.uomCode || l3[0]?.baseUom?.code || 'KG',
               isCurrentItem: l3.some((c) => c.id === item.id),
-              items: l3.map((c) => ({ id: c.id, itemCode: c.itemCode, name: c.name, department: c.department?.name })),
+              items: l3.map((c) => ({ id: c.id, itemCode: c.itemCode, name: c.name, department: c.departmentName || c.department?.name })),
             });
           }
         }

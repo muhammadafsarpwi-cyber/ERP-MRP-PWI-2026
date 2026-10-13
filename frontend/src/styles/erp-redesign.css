@@ -186,7 +186,10 @@ html th.erp-th-navy {
 /* The band's colour, restated here rather than only in the legacy sheet, so
    this layer is self-contained if erp-table.css is ever retired. */
 html .ant-table-wrapper .ant-table .ant-table-container .ant-table-thead > tr > th,
-html .erp-table-container .ant-table .ant-table-container .ant-table-thead > tr > th {
+html .erp-table-container .ant-table .ant-table-container .ant-table-thead > tr > th,
+html .ant-table-thead > tr > th,
+html .ant-table-thead th[class*='ant-table-cell-fix-'],
+html th.erp-th-navy {
   background: var(--ui-table-header-bg) !important;
   background-color: var(--ui-table-header-bg) !important;
   color: var(--ui-table-header-text) !important;
@@ -195,7 +198,14 @@ html .erp-table-container .ant-table .ant-table-container .ant-table-thead > tr 
 
 /* The title itself — legacy set it to white explicitly. */
 html .ant-table-wrapper .ant-table .ant-table-container .ant-table-thead > tr > th .ant-table-column-title,
-html .erp-table-container .ant-table .ant-table-container .ant-table-thead > tr > th .ant-table-column-title {
+html .erp-table-container .ant-table .ant-table-container .ant-table-thead > tr > th .ant-table-column-title,
+html .ant-table-thead > tr > th .ant-table-column-title,
+html .ant-table-thead > tr > th .erp-th,
+html .ant-table-thead > tr > th .erp-th__line,
+html .ant-table-thead > tr > th .erp-th__icon,
+html .erp-th,
+html .erp-th__line,
+html .erp-th__icon {
   color: var(--ui-table-header-text) !important;
   font-weight: 600 !important;
 }
