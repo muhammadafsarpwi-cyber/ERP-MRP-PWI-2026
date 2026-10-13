@@ -59,6 +59,11 @@ export interface InputMaterialSelectProps {
    * and the Item list is searched ONLY within this department.
    */
   departmentId?: string | null;
+  /**
+   * Pre-selected department ID for the internal Source / Store Department picker
+   * (e.g. when editing an item whose input item already has an owning department).
+   */
+  initialDepartmentId?: string | null;
   style?: React.CSSProperties;
   compact?: boolean;
   placeholder?: string;
@@ -85,6 +90,7 @@ const InputMaterialSelect: React.FC<InputMaterialSelectProps> = ({
   excludeItemId = null,
   departments = [],
   departmentId: forcedDept = null,
+  initialDepartmentId = null,
   style,
   compact = false,
   placeholder = 'Select the input material — search by code, name, SKU or barcode',
@@ -104,7 +110,9 @@ const InputMaterialSelect: React.FC<InputMaterialSelectProps> = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
-  const [dept, setDept] = useState<string | undefined>(undefined);
+  const [dept, setDept] = useState<string | undefined>(
+    () => (initialDepartmentId !== null && initialDepartmentId !== undefined ? initialDepartmentId : forcedDept ?? undefined)
+  );
 
   // Sync instant item when value or initial labels change
   useEffect(() => {
@@ -114,12 +122,20 @@ const InputMaterialSelect: React.FC<InputMaterialSelectProps> = ({
     }
   }, [instantItem]);
 
+  // Sync department when initialDepartmentId changes
+  useEffect(() => {
+    if (initialDepartmentId !== undefined && initialDepartmentId !== null) {
+      setDept(initialDepartmentId);
+    }
+  }, [initialDepartmentId]);
+
   // The effective department filter is the FORCED department (e.g. a route-stage
   // department) when provided, otherwise the user's internal Source/Store picker.
   const effectiveDept = forcedDept ?? dept;
 
   const seqRef = useRef(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fetchedIdsRef = useRef<Set<string>>(new Set());
 
   const runFetch = useCallback(
     async (opts: { reset: boolean; pageNum?: number; searchParam?: string; deptId?: string }) => {
@@ -138,14 +154,31 @@ const InputMaterialSelect: React.FC<InputMaterialSelectProps> = ({
         const kw = (searchParam ?? '').trim();
         if (kw) params.search = kw;
         if (deptId) params.departmentId = deptId;
-        const res = await apiService.get<{ data: Item[]; total: number }>('/master-data/items', params);
-        if (reqId !== seqRef.current) return;
-        const filtered = (res.data || []).filter(
-          (i) => i.id && i.id !== (excludeItemId ?? null) && !EXCLUDED_ITEM_TYPES.includes(i.itemType),
+
+        const res = await apiService.get<{ data: Item[]; total: number }>(
+          '/master-data/items',
+          params
         );
-        registerItemsInCache(filtered);
-        setOptions((prev) => (reset ? filtered : [...prev, ...filtered]));
-        setTotal(typeof res.total === 'number' ? res.total : 0);
+        if (reqId !== seqRef.current) return;
+        const rawList = res.data || [];
+        const itemsResult = rawList.filter(
+          (i) => i.id && i.id !== (excludeItemId ?? null) && !EXCLUDED_ITEM_TYPES.includes(i.itemType)
+        );
+        const totalCount = typeof res.total === 'number' ? res.total : itemsResult.length;
+
+        registerItemsInCache(itemsResult);
+
+        setOptions((prev) => {
+          const nextList = reset ? itemsResult : [...prev, ...itemsResult];
+          // Always preserve the currently selected item in options so the select never blanks or flashes
+          if (value && !nextList.some((o) => o.id === value)) {
+            const preserved = instantItem || detailsItem || prev.find((o) => o.id === value);
+            if (preserved) return [preserved, ...nextList];
+          }
+          return nextList;
+        });
+
+        setTotal(totalCount);
         setPageNum(targetPage);
       } catch (err: any) {
         if (reqId !== seqRef.current) return;
@@ -154,11 +187,10 @@ const InputMaterialSelect: React.FC<InputMaterialSelectProps> = ({
         if (reqId === seqRef.current) setLoading(false);
       }
     },
-    [excludeItemId],
+    [excludeItemId, value, instantItem, detailsItem]
   );
 
   // Initial fetch + refetch whenever the effective department filter changes
-  // (including when the parent's route-stage Department selection changes).
   useEffect(() => {
     runFetch({ reset: true, searchParam: '', deptId: effectiveDept });
     return () => {
@@ -175,15 +207,13 @@ const InputMaterialSelect: React.FC<InputMaterialSelectProps> = ({
   };
 
   const handleDeptChange = (v?: string) => {
-    // Internal picker is only used when no department is forced externally.
     if (forcedDept) return;
     setDept(v);
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    runFetch({ reset: true, searchParam: search, deptId: v });
   };
 
   const handleLoadMore = () => {
     if (loading) return;
+    if (effectiveDept) return; // Department lookup loads all department items in one fast batch
     if (options.length >= total) return;
     runFetch({ reset: false, pageNum: pageNum + 1, searchParam: search, deptId: effectiveDept });
   };
@@ -193,8 +223,7 @@ const InputMaterialSelect: React.FC<InputMaterialSelectProps> = ({
     if (el.scrollTop + el.clientHeight >= el.scrollHeight - 6) handleLoadMore();
   };
 
-  // Resolve the currently selected input item (even when it is not on the loaded
-  // page / filtered out) so its label and Item Master details always display.
+  // Resolve the currently selected input item so its label and Item Master details always display.
   const selectedDetail = useMemo<Item | null>(() => {
     if (!value) return null;
     return options.find((o) => o.id === value) ?? detailsItem ?? getInstantItem(value, initialItemCode, initialItemName) ?? null;
@@ -204,26 +233,37 @@ const InputMaterialSelect: React.FC<InputMaterialSelectProps> = ({
     onSelectDetail?.(selectedDetail);
   }, [selectedDetail, onSelectDetail]);
 
+  // Single-fire item detail resolver without infinite loop
   useEffect(() => {
     if (!value) {
       setDetailsItem(null);
       return;
     }
-    if (options.some((o) => o.id === value)) return;
+    const inCache = getInstantItem(value, initialItemCode, initialItemName);
+    if (inCache) {
+      setDetailsItem((prev) => prev || inCache);
+      setOptions((prev) => (prev.some((o) => o.id === value) ? prev : [inCache, ...prev]));
+      return;
+    }
+    if (fetchedIdsRef.current.has(value)) return;
+    fetchedIdsRef.current.add(value);
+
     let cancelled = false;
     apiService
       .get<{ data: Item }>(`/master-data/items/${value}`)
-      .then((res) => {
-        if (cancelled || !res?.data) return;
-        registerItemsInCache([res.data]);
-        setDetailsItem(res.data);
-        setOptions((prev) => (prev.some((o) => o.id === value) ? prev : [res.data, ...prev]));
+      .then((res: any) => {
+        if (cancelled) return;
+        const itemData = res?.data || res;
+        if (!itemData || !itemData.id) return;
+        registerItemsInCache([itemData]);
+        setDetailsItem(itemData);
+        setOptions((prev) => (prev.some((o) => o.id === value) ? prev : [itemData, ...prev]));
       })
       .catch(() => undefined);
     return () => {
       cancelled = true;
     };
-  }, [value, options]);
+  }, [value, initialItemCode, initialItemName]);
 
   const selectOptions = useMemo(() => {
     const list = [...options];
@@ -232,10 +272,13 @@ const InputMaterialSelect: React.FC<InputMaterialSelectProps> = ({
       if (cached) {
         list.unshift(cached);
       } else {
+        const fallbackLabel = initialItemCode
+          ? `${initialItemCode}${initialItemName ? ` — ${initialItemName}` : ''}`
+          : (initialItemName || 'Selected Material');
         list.unshift({
           id: value,
-          itemCode: '',
-          name: loading ? 'Loading item details...' : 'Selected Material',
+          itemCode: initialItemCode || '',
+          name: fallbackLabel,
         } as any);
       }
     }
@@ -243,7 +286,7 @@ const InputMaterialSelect: React.FC<InputMaterialSelectProps> = ({
       if (!o.itemCode) return { value: o.id, label: o.name };
       return { value: o.id, label: `${o.itemCode} — ${o.name}` };
     });
-  }, [options, value, detailsItem, initialItemCode, initialItemName, loading]);
+  }, [options, value, detailsItem, initialItemCode, initialItemName]);
 
   const departmentOptions = useMemo(
     () => departments.map((d) => ({ value: d.id, label: d.name })),

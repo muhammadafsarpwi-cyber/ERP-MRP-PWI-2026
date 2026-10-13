@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { Button, Select, Space, Tooltip, Badge, Tag, Grid } from 'antd';
-import { SearchOutlined, CloseOutlined, ReloadOutlined, FilterOutlined, ClearOutlined } from '@ant-design/icons';
+import { CalendarOutlined, SearchOutlined, CloseOutlined, ReloadOutlined, FilterOutlined, ClearOutlined } from '@ant-design/icons';
 import type { DashboardFilters as SystemFilters, FilterOption, MachinePerformanceItem } from '../../services/dashboardService';
+import { DATE_RANGE_PRESET_OPTIONS, DateRangePreset } from './dashboardShared';
 
 const { useBreakpoint } = Grid;
 
@@ -15,7 +16,11 @@ interface DashboardFiltersProps {
   appliedFilters: SystemFilters;
   optionsLoading: boolean;
   loading?: boolean;
+  /** Active date-range preset (defaults to "Yesterday" on the main dashboard). */
+  dateRangePreset: DateRangePreset;
   onChange: (key: string, value?: string) => void;
+  /** Fires immediately — the dashboard re-queries for the new range. */
+  onDateRangeChange: (preset: DateRangePreset) => void;
   onApply: () => void;
   onReset: () => void;
   onRemove: (key: string) => void;
@@ -55,7 +60,7 @@ const buildChips = (
 
 const DashboardFilters: React.FC<DashboardFiltersProps> = ({
   divisions, sections, departments, shifts, machines, filters, appliedFilters,
-  optionsLoading, loading, onChange, onApply, onReset, onRemove,
+  optionsLoading, loading, dateRangePreset, onChange, onDateRangeChange, onApply, onReset, onRemove,
 }) => {
   const screens = useBreakpoint();
   const [isOpen, setIsOpen] = useState(false);
@@ -160,17 +165,39 @@ const DashboardFilters: React.FC<DashboardFiltersProps> = ({
           )}
         </div>
 
-        {hasDraftChanges && !isOpen && (
-          <Button
-            type="primary"
-            size="small"
-            icon={<SearchOutlined />}
-            loading={loading}
-            onClick={onApply}
-          >
-            Apply Pending Filters
-          </Button>
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          {/* Single date-range selector: Today / Yesterday / This Month / This Quarter / Last Quarter */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <CalendarOutlined style={{ color: 'var(--theme-text-muted, #64748b)', fontSize: 13 }} />
+            <label
+              htmlFor="erp-dashboard-date-range"
+              style={{ fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', whiteSpace: 'nowrap' }}
+            >
+              Date Range
+            </label>
+            <Select
+              id="erp-dashboard-date-range"
+              aria-label="Date Range"
+              style={{ width: 140 }}
+              value={dateRangePreset}
+              loading={loading}
+              onChange={(v) => onDateRangeChange(v)}
+              options={DATE_RANGE_PRESET_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
+            />
+          </div>
+
+          {hasDraftChanges && !isOpen && (
+            <Button
+              type="primary"
+              size="small"
+              icon={<SearchOutlined />}
+              loading={loading}
+              onClick={onApply}
+            >
+              Apply Pending Filters
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* ── Collapsible Filters Panel ── */}

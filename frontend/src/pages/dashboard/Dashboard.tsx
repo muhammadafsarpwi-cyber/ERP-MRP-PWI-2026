@@ -17,6 +17,9 @@ import ProductionPerformance from '../../components/dashboard/ProductionPerforma
 import ProductionTrend from '../../components/dashboard/ProductionTrend';
 import QuickActions from '../../components/dashboard/QuickActions';
 import { GlobalLoading, TabKeepAlive } from '../../components/shared';
+import {
+  dateRangePresetToFilters, DateRangePreset, DEFAULT_DATE_RANGE_PRESET,
+} from '../../components/dashboard/dashboardShared';
 import './dashboard.css';
 import { filterItemOverview } from './itemSearch';
 import dashboardService, {
@@ -24,11 +27,25 @@ import dashboardService, {
   ItemOverview as ItemOverviewType, ItemRoute, MachinePerformanceItem,
   ProductionSummary, ProductionTrendDay, PurchaseOrderSummary, SalesOrderSummary,
 } from '../../services/dashboardService';
-import { tabSessionCache, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
+import { tabSessionCache } from '../../services/tabSessionCache';
 
 const { Text } = Typography;
 
 const MAIN_DASHBOARD_TAB_ID = '/dashboard';
+
+/**
+ * Default active division on load — "DIV-SPD Spoke Division" instead of
+ * "All Divisions". Users can still change or clear it from the Division
+ * filter dropdown at any time.
+ */
+const DEFAULT_DIVISION_CODE = 'DIV-SPD';
+const DEFAULT_DIVISION_NAME = 'Spoke Division';
+
+const findDefaultDivision = (
+  options: Array<{ id: string; name: string; divisionCode?: string }>,
+): { id: string; name: string; divisionCode?: string } | undefined =>
+  options.find((d) => (d.divisionCode ?? '').trim().toUpperCase() === DEFAULT_DIVISION_CODE)
+  ?? options.find((d) => d.name.trim().toLowerCase() === DEFAULT_DIVISION_NAME.toLowerCase());
 
 interface MainDashboardTabCache {
   summary: DashboardSummary | null;
@@ -42,6 +59,7 @@ interface MainDashboardTabCache {
   poSummary: PurchaseOrderSummary | null;
   soSummary: SalesOrderSummary | null;
   appliedFilters: DashboardFiltersType;
+  dateRangePreset: DateRangePreset;
 }
 
 const Dashboard: React.FC = () => {
@@ -49,8 +67,39 @@ const Dashboard: React.FC = () => {
   const cachedTab = useMemo(() => tabSessionCache.get<MainDashboardTabCache>(MAIN_DASHBOARD_TAB_ID), []);
 
   // ── Global Filters ──
-  const [appliedFilters, setAppliedFilters] = useState<DashboardFiltersType>(() => cachedTab?.appliedFilters ?? {});
-  const [draftFilters, setDraftFilters] = useState<DashboardFiltersType>(() => cachedTab?.appliedFilters ?? {});
+  // Requirement 4 — the dashboard opens on a single date-range preset
+  // ("Yesterday" by default) and Requirement 1 — the DIV-SPD Spoke Division
+  // is the default active division instead of "All Divisions".
+  const [dateRangePreset, setDateRangePreset] = useState<DateRangePreset>(
+    () => cachedTab?.dateRangePreset ?? DEFAULT_DATE_RANGE_PRESET,
+  );
+  const [appliedFilters, setAppliedFilters] = useState<DashboardFiltersType>(
+    () => cachedTab?.appliedFilters
+      ?? { ...dateRangePresetToFilters(cachedTab?.dateRangePreset ?? DEFAULT_DATE_RANGE_PRESET) },
+  );
+  const [draftFilters, setDraftFilters] = useState<DashboardFiltersType>(
+    () => cachedTab?.appliedFilters
+      ?? { ...dateRangePresetToFilters(cachedTab?.dateRangePreset ?? DEFAULT_DATE_RANGE_PRESET) },
+  );
+
+  // Mirror of the applied filters for use inside async loaders/callbacks.
+  const appliedFiltersRef = useRef(appliedFilters);
+  appliedFiltersRef.current = appliedFilters;
+
+  /**
+   * The very first fetch must wait until the division options have resolved,
+   * otherwise the default DIV-SPD division would arrive too late to filter it.
+   * Resolved by the filter-options effect below (always — even on fetch error).
+   */
+  const resolveDivisionsRef = useRef<(() => void) | null>(null);
+  const divisionsLoadedRef = useRef<Promise<void> | null>(null);
+  if (!divisionsLoadedRef.current) {
+    divisionsLoadedRef.current = new Promise<void>((resolve) => {
+      resolveDivisionsRef.current = resolve;
+    });
+  }
+  const defaultDivisionIdRef = useRef<string | undefined>(undefined);
+
   const [divisions, setDivisions] = useState<Array<{ id: string; name: string; divisionCode?: string }>>([]);
   const [sections, setSections] = useState<Array<{ id: string; name: string }>>([]);
   const [departments, setDepartments] = useState<Array<{ id: string; name: string }>>([]);
@@ -58,6 +107,9 @@ const Dashboard: React.FC = () => {
 
   // ── Data ──
   const [loading, setLoading] = useState(!cachedTab);
+  // Wave-2 (Procurement / Sales / Inventory / Machines / Alerts / Activity /
+  // Items) loading — never blocks the critical KPI + top-charts render.
+  const [secondaryLoading, setSecondaryLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [summary, setSummary] = useState<DashboardSummary | null>(() => cachedTab?.summary ?? null);
   const [prodSummary, setProdSummary] = useState<ProductionSummary | null>(() => cachedTab?.prodSummary ?? null);
@@ -83,9 +135,21 @@ const Dashboard: React.FC = () => {
       dashboardService.getFilterDivisions(),
       dashboardService.getFilterShifts(),
     ]).then(([divRes, shiftRes]) => {
-      if (divRes.status === 'fulfilled' && divRes.value.success) setDivisions(divRes.value.data);
+      if (divRes.status === 'fulfilled' && divRes.value.success) {
+        setDivisions(divRes.value.data);
+        // Requirement 1 — resolve the default division (DIV-SPD Spoke
+        // Division) for the initial fetch. A restored tab keeps whatever the
+        // user had applied before switching away.
+        defaultDivisionIdRef.current = cachedTab
+          ? cachedTab.appliedFilters?.divisionId
+          : findDefaultDivision(divRes.value.data)?.id;
+      }
       if (shiftRes.status === 'fulfilled' && shiftRes.value.success) setShifts(shiftRes.value.data);
+    }).finally(() => {
+      // Release the initial loader even when the options request fails.
+      resolveDivisionsRef.current?.();
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ── Cascading filter options: Division → Sections → Departments ──
@@ -111,85 +175,146 @@ const Dashboard: React.FC = () => {
   }, [draftFilters.divisionId, draftFilters.sectionId]);
 
   // ── Data Loading ──
+  /**
+   * Monotonic request token. Every `loadAll` invocation claims the next
+   * sequence number; a response whose sequence is no longer current is
+   * discarded, so a slow, stale (e.g. unfiltered) response can never
+   * overwrite the result of a newer filtered request — no racing fetches.
+   */
+  const fetchSeqRef = useRef(0);
+
   const loadAll = useCallback(async (f?: DashboardFiltersType) => {
+    const seq = ++fetchSeqRef.current;
     setLoading(true);
+    setSecondaryLoading(true);
     setError(null);
     const effectiveFilters = f ?? appliedFilters;
+
+    // Session cache writer — always persists the freshest slice we have.
+    const persistCache = (slice: Partial<MainDashboardTabCache>) => {
+      tabSessionCache.set<MainDashboardTabCache>(MAIN_DASHBOARD_TAB_ID, {
+        summary, prodSummary, trend, machinePerf, itemOverview, inventory,
+        alerts, activity, poSummary, soSummary,
+        appliedFilters: effectiveFilters,
+        dateRangePreset,
+        ...slice,
+      });
+    };
+
     try {
-      const [sumRes, prodRes, trendRes, machineRes, invRes, alertRes, actRes, poRes, soRes, itemRes] = await Promise.allSettled([
+      // ── Wave 1 — CRITICAL: KPI summary + top charts only ──
+      // These three endpoints hydrate the KPI strip, Production Performance,
+      // Achievement Overview, Production Trend and Department Performance.
+      // They are released as soon as they land, without waiting for the heavy
+      // lower sections below.
+      const [sumRes, prodRes, trendRes] = await Promise.allSettled([
         dashboardService.getSummary(effectiveFilters),
         dashboardService.getProduction(effectiveFilters),
         dashboardService.getProductionTrend(14, effectiveFilters),
-        dashboardService.getMachinePerformance(effectiveFilters),
-        dashboardService.getInventory(),
-        dashboardService.getAlerts(effectiveFilters),
-        dashboardService.getActivity(15),
-        dashboardService.getProcurement(),
-        dashboardService.getSales(),
-        dashboardService.getItemOverview(effectiveFilters),
       ]);
+      if (seq !== fetchSeqRef.current) return; // superseded by a newer request
+
+      const criticalFailed = [sumRes, prodRes, trendRes].some(r => r.status === 'rejected');
       if (sumRes.status === 'fulfilled' && sumRes.value.success) setSummary(sumRes.value.data);
       if (prodRes.status === 'fulfilled' && prodRes.value.success) setProdSummary(prodRes.value.data);
       if (trendRes.status === 'fulfilled' && trendRes.value.success) setTrend(trendRes.value.data);
-      if (machineRes.status === 'fulfilled' && machineRes.value.success) setMachinePerf(machineRes.value.data);
-      if (invRes.status === 'fulfilled' && invRes.value.success) setInventory(invRes.value.data);
-      if (alertRes.status === 'fulfilled' && alertRes.value.success) setAlerts(alertRes.value.data);
-      if (actRes.status === 'fulfilled' && actRes.value.success) setActivity(actRes.value.data);
-      if (poRes.status === 'fulfilled' && poRes.value.success) setPoSummary(poRes.value.data);
-      if (soRes.status === 'fulfilled' && soRes.value.success) setSoSummary(soRes.value.data);
-      if (itemRes.status === 'fulfilled' && itemRes.value.success) setItemOverview(itemRes.value.data);
 
-      const failed = [sumRes, prodRes, trendRes, machineRes, invRes, alertRes, actRes].filter(r => r.status === 'rejected');
-      if (failed.length > 0) {
-        setError('Some dashboard sections failed to load. Showing partial results.');
-      }
-
-      // Persist to session cache so switching back restores all metrics + charts
-      tabSessionCache.set<MainDashboardTabCache>(MAIN_DASHBOARD_TAB_ID, {
+      // Critical render is ready — drop the blocking spinner NOW.
+      setLoading(false);
+      persistCache({
         summary: sumRes.status === 'fulfilled' && sumRes.value.success ? sumRes.value.data : summary,
         prodSummary: prodRes.status === 'fulfilled' && prodRes.value.success ? prodRes.value.data : prodSummary,
         trend: trendRes.status === 'fulfilled' && trendRes.value.success ? trendRes.value.data : trend,
-        machinePerf: machineRes.status === 'fulfilled' && machineRes.value.success ? machineRes.value.data : machinePerf,
-        itemOverview: itemRes.status === 'fulfilled' && itemRes.value.success ? itemRes.value.data : itemOverview,
-        inventory: invRes.status === 'fulfilled' && invRes.value.success ? invRes.value.data : inventory,
-        alerts: alertRes.status === 'fulfilled' && alertRes.value.success ? alertRes.value.data : alerts,
-        activity: actRes.status === 'fulfilled' && actRes.value.success ? actRes.value.data : activity,
-        poSummary: poRes.status === 'fulfilled' && poRes.value.success ? poRes.value.data : poSummary,
-        soSummary: soRes.status === 'fulfilled' && soRes.value.success ? soRes.value.data : soSummary,
-        appliedFilters: effectiveFilters,
       });
+
+      // ── Wave 2 — SECONDARY: heavy lower sections, non-blocking ──
+      // Procurement, Sales and Inventory Overview (plus Machines, Alerts,
+      // Activity and Items) stream in right after in parallel and render into
+      // their own widgets with skeleton states — they never delay the KPI
+      // summary or the top charts above.
+      void (async () => {
+        const [machineRes, invRes, alertRes, actRes, poRes, soRes, itemRes] = await Promise.allSettled([
+          dashboardService.getMachinePerformance(effectiveFilters),
+          dashboardService.getInventory(),
+          dashboardService.getAlerts(effectiveFilters),
+          dashboardService.getActivity(15),
+          dashboardService.getProcurement(),
+          dashboardService.getSales(),
+          dashboardService.getItemOverview(effectiveFilters),
+        ]);
+        if (seq !== fetchSeqRef.current) return; // superseded — discard stale data
+
+        if (machineRes.status === 'fulfilled' && machineRes.value.success) setMachinePerf(machineRes.value.data);
+        if (invRes.status === 'fulfilled' && invRes.value.success) setInventory(invRes.value.data);
+        if (alertRes.status === 'fulfilled' && alertRes.value.success) setAlerts(alertRes.value.data);
+        if (actRes.status === 'fulfilled' && actRes.value.success) setActivity(actRes.value.data);
+        if (poRes.status === 'fulfilled' && poRes.value.success) setPoSummary(poRes.value.data);
+        if (soRes.status === 'fulfilled' && soRes.value.success) setSoSummary(soRes.value.data);
+        if (itemRes.status === 'fulfilled' && itemRes.value.success) setItemOverview(itemRes.value.data);
+
+        const secondaryFailed = [machineRes, invRes, alertRes, actRes, poRes, soRes, itemRes]
+          .some(r => r.status === 'rejected');
+        if (criticalFailed || secondaryFailed) {
+          setError('Some dashboard sections failed to load. Showing partial results.');
+        }
+
+        setSecondaryLoading(false);
+        // Persist the full payload so switching back to this tab restores
+        // every metric + chart instantly (no re-fetch).
+        persistCache({
+          machinePerf: machineRes.status === 'fulfilled' && machineRes.value.success ? machineRes.value.data : machinePerf,
+          inventory: invRes.status === 'fulfilled' && invRes.value.success ? invRes.value.data : inventory,
+          alerts: alertRes.status === 'fulfilled' && alertRes.value.success ? alertRes.value.data : alerts,
+          activity: actRes.status === 'fulfilled' && actRes.value.success ? actRes.value.data : activity,
+          poSummary: poRes.status === 'fulfilled' && poRes.value.success ? poRes.value.data : poSummary,
+          soSummary: soRes.status === 'fulfilled' && soRes.value.success ? soRes.value.data : soSummary,
+          itemOverview: itemRes.status === 'fulfilled' && itemRes.value.success ? itemRes.value.data : itemOverview,
+        });
+      })();
     } catch (e: unknown) {
+      if (seq !== fetchSeqRef.current) return;
       setError(e instanceof Error ? e.message : 'Failed to load dashboard');
-    } finally {
       setLoading(false);
+      setSecondaryLoading(false);
     }
-  }, [appliedFilters, summary, prodSummary, trend, machinePerf, itemOverview, inventory, alerts, activity, poSummary, soSummary]);
+  }, [appliedFilters, dateRangePreset, summary, prodSummary, trend, machinePerf, itemOverview, inventory, alerts, activity, poSummary, soSummary]);
 
   const loadAllRef = useRef(loadAll);
   loadAllRef.current = loadAll;
 
-  useEffect(() => {
-    // If the tab was already loaded in this session, DO NOT re-fetch when
-    // returning to it — the cached metrics/charts are already seeded into state.
-    if (!tabSessionCache.has(MAIN_DASHBOARD_TAB_ID)) {
-      void loadAllRef.current({});
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  /**
+   * Initial loader (also used by the global Refresh event and by TabKeepAlive
+   * when the tab has no cached payload). It waits for the division options so
+   * the default "DIV-SPD Spoke Division" is applied to the very first query,
+   * then always loads with the currently applied filters — which include the
+   * active date-range preset (default "Yesterday").
+   */
+  const loadInitial = useCallback(async () => {
+    await divisionsLoadedRef.current;
+    const next: DashboardFiltersType = {
+      ...appliedFiltersRef.current,
+      // Requirement 1 — default division, while still allowing the user to
+      // clear/change it from the Division dropdown afterwards.
+      divisionId: appliedFiltersRef.current.divisionId ?? defaultDivisionIdRef.current,
+    };
+    setDraftFilters(next);
+    setAppliedFilters(next);
+    await loadAllRef.current(next);
   }, []);
 
-  // Global header/tab refresh event listener
-  useEffect(() => {
-    const handleGlobalRefresh = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (!detail?.tabId || String(detail.tabId).startsWith(MAIN_DASHBOARD_TAB_ID)) {
-        tabSessionCache.remove(MAIN_DASHBOARD_TAB_ID);
-        void loadAllRef.current({});
-      }
-    };
-    window.addEventListener(TAB_REFRESH_EVENT, handleGlobalRefresh);
-    return () => window.removeEventListener(TAB_REFRESH_EVENT, handleGlobalRefresh);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  /**
+   * The ONE manual refresh path. Invoked by the global header "Refresh"
+   * button (via the TAB_REFRESH_EVENT that TabKeepAlive handles and forwards
+   * to `loadInitial`) and by the dashboard's own header refresh action.
+   *
+   * Requirement 3 — the dashboard is strictly static once loaded: the ONLY
+   * things that ever re-fetch data are (a) a user filter change (Division /
+   * Date Range preset / Apply / Clear) and (b) this manual Refresh action.
+   */
+  const handleManualRefresh = useCallback(async () => {
+    tabSessionCache.remove(MAIN_DASHBOARD_TAB_ID);
+    await loadInitial();
+  }, [loadInitial]);
 
   // ── Filter change handler (updates draft selections) ──
   const handleFilterChange = useCallback((key: string, value?: string) => {
@@ -206,14 +331,31 @@ const Dashboard: React.FC = () => {
   }, []);
 
   const handleApplyFilters = useCallback(() => {
-    setAppliedFilters(draftFilters);
-    void loadAllRef.current(draftFilters);
-  }, [draftFilters]);
+    // The date range is owned by its own preset dropdown — always re-resolve
+    // the concrete dates from the active preset when applying the others.
+    const next: DashboardFiltersType = { ...draftFilters, ...dateRangePresetToFilters(dateRangePreset) };
+    setDraftFilters(next);
+    setAppliedFilters(next);
+    void loadAllRef.current(next);
+  }, [draftFilters, dateRangePreset]);
 
   const handleResetFilters = useCallback(() => {
-    setDraftFilters({});
-    setAppliedFilters({});
-    void loadAllRef.current({});
+    // Clears every dimension filter (including the default division, so users
+    // can view all divisions) while keeping the active date-range preset.
+    const next: DashboardFiltersType = { ...dateRangePresetToFilters(dateRangePreset) };
+    setDraftFilters(next);
+    setAppliedFilters(next);
+    void loadAllRef.current(next);
+  }, [dateRangePreset]);
+
+  // Requirement 4 — switching the preset re-queries the dashboard immediately.
+  const handleDateRangeChange = useCallback((preset: DateRangePreset) => {
+    setDateRangePreset(preset);
+    const range = dateRangePresetToFilters(preset);
+    const next: DashboardFiltersType = { ...appliedFiltersRef.current, ...range };
+    setDraftFilters(prev => ({ ...prev, ...range }));
+    setAppliedFilters(next);
+    void loadAllRef.current(next);
   }, []);
 
   const handleRemoveFilter = useCallback((key: string) => {
@@ -282,11 +424,15 @@ const Dashboard: React.FC = () => {
   return (
     <TabKeepAlive
       tabId={MAIN_DASHBOARD_TAB_ID}
-      load={async () => { await loadAllRef.current({}); }}
-      serialize={() => ({ summary, prodSummary, trend, machinePerf, itemOverview, inventory, alerts, activity, poSummary, soSummary, appliedFilters })}
+      load={loadInitial}
+      serialize={() => ({ summary, prodSummary, trend, machinePerf, itemOverview, inventory, alerts, activity, poSummary, soSummary, appliedFilters, dateRangePreset })}
     >
       <div className="erp-dashboard">
-        <DashboardHeader status={status} refreshing={loading} onRefresh={() => loadAllRef.current()} />
+        <DashboardHeader
+          status={status}
+          refreshing={loading || secondaryLoading}
+          onRefresh={handleManualRefresh}
+        />
 
       {error && <Alert message={error} type="warning" showIcon closable className="erp-alert-bar" onClose={() => setError(null)} />}
 
@@ -300,7 +446,9 @@ const Dashboard: React.FC = () => {
         appliedFilters={appliedFilters}
         optionsLoading={false}
         loading={loading}
+        dateRangePreset={dateRangePreset}
         onChange={handleFilterChange}
+        onDateRangeChange={handleDateRangeChange}
         onApply={handleApplyFilters}
         onReset={handleResetFilters}
         onRemove={handleRemoveFilter}
@@ -322,13 +470,25 @@ const Dashboard: React.FC = () => {
       {/* ━━━ PRODUCTION TREND ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
       <ProductionTrend trend={trend} loading={loading} nav={navigate} />
 
+      {/* ━━━ DEPARTMENT PERFORMANCE + ACTIVITY ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+      {/* Sits directly underneath the Production Trend chart, before the
+          Alerts / Machine Performance sections. */}
+      <div className="erp-row erp-row--a">
+        <div className="erp-col erp-col--wide">
+          <DepartmentPerformance data={prodSummary} loading={loading} />
+        </div>
+        <div className="erp-col erp-col--narrow">
+          <ActivityFeed activity={activity} loading={secondaryLoading} />
+        </div>
+      </div>
+
       {/* ━━━ ALERTS + MACHINE PERFORMANCE ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
       <div className="erp-row erp-row--a">
         <div className="erp-col erp-col--narrow">
-          <AlertCenter alerts={alerts} loading={loading} />
+          <AlertCenter alerts={alerts} loading={secondaryLoading} />
         </div>
         <div className="erp-col erp-col--wide">
-          <MachinePerformance items={machinePerf} loading={loading} nav={navigate} />
+          <MachinePerformance items={machinePerf} loading={secondaryLoading} nav={navigate} />
         </div>
       </div>
 
@@ -338,7 +498,7 @@ const Dashboard: React.FC = () => {
           <ItemOverview
             items={visibleItems}
             totalItems={filteredItems.length}
-            loading={loading}
+            loading={secondaryLoading}
             search={itemSearch}
             onSearch={setItemSearch}
             onOpen={openItemDetail}
@@ -346,7 +506,7 @@ const Dashboard: React.FC = () => {
           />
         </div>
         <div className="erp-col erp-col--narrow">
-          <InventoryHealth inventory={inventory} loading={loading} nav={navigate} />
+          <InventoryHealth inventory={inventory} loading={secondaryLoading} nav={navigate} />
         </div>
       </div>
 
@@ -359,7 +519,7 @@ const Dashboard: React.FC = () => {
             subtitle={`${poTotal} total`}
             rows={poRows}
             breakdown={poSummary?.statusBreakdown ?? []}
-            loading={loading}
+            loading={secondaryLoading}
             emptyTitle="No purchase orders"
             emptyDesc="Open orders will appear here once procurement is configured"
             nav={() => navigate('/procurement/orders')}
@@ -372,21 +532,11 @@ const Dashboard: React.FC = () => {
             subtitle={`${soTotal} total`}
             rows={soRows}
             breakdown={soSummary?.statusBreakdown ?? []}
-            loading={loading}
+            loading={secondaryLoading}
             emptyTitle="No sales orders"
             emptyDesc="Open orders will appear here once sales is configured"
             nav={() => navigate('/sales/orders')}
           />
-        </div>
-      </div>
-
-      {/* ━━━ DEPARTMENT PERFORMANCE + ACTIVITY ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-      <div className="erp-row erp-row--a">
-        <div className="erp-col erp-col--wide">
-          <DepartmentPerformance data={prodSummary} loading={loading} />
-        </div>
-        <div className="erp-col erp-col--narrow">
-          <ActivityFeed activity={activity} loading={loading} />
         </div>
       </div>
 

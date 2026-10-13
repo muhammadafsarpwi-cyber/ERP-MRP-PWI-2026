@@ -13,6 +13,7 @@ import {
   BankOutlined, BuildOutlined, CheckCircleOutlined, CustomerServiceOutlined, FolderOutlined, SettingOutlined, ToolOutlined,
   MinusOutlined, WarningOutlined, TagOutlined, TagsOutlined, SyncOutlined, UploadOutlined, FileTextOutlined,
   BulbOutlined, ThunderboltOutlined, CheckOutlined, CloseOutlined, ClockCircleOutlined,
+  CopyOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType, TablePaginationConfig } from 'antd/es/table';
 import { jsPDF } from 'jspdf';
@@ -679,6 +680,7 @@ const ItemManagement: React.FC = () => {
   const { message } = App.useApp();
   const { can } = usePermission();
   const screens = Grid.useBreakpoint();
+  const location = useLocation();
   // ── Filter State Persistence via tabSessionCache ──────────────────────────
   // Saves filter/sort/pagination state on every change so it can be restored
   // when the user navigates back to this tab from another.
@@ -728,8 +730,26 @@ const ItemManagement: React.FC = () => {
   const [sortField, setSortField] = useState<string>(savedFilters?.sortField ?? 'itemCode');
   const [sortOrder, setSortOrder] = useState<'ASC' | 'DESC'>((savedFilters?.sortOrder as 'ASC' | 'DESC') ?? 'ASC');
 
-  const [searchInput, setSearchInput] = useState(savedFilters?.searchInput ?? '');
-  const [search, setSearch] = useState(savedFilters?.search ?? '');
+  // Support incoming URL query parameter (?search=...) so clicking an item in Journey/Flow jumps straight to it
+  const urlSearchParam = useMemo(() => {
+    try {
+      const q = new URLSearchParams(location.search).get('search');
+      return q ? q.trim() : null;
+    } catch {
+      return null;
+    }
+  }, [location.search]);
+
+  const [searchInput, setSearchInput] = useState(urlSearchParam ?? savedFilters?.searchInput ?? '');
+  const [search, setSearch] = useState(urlSearchParam ?? savedFilters?.search ?? '');
+
+  useEffect(() => {
+    if (urlSearchParam) {
+      setSearch(urlSearchParam);
+      setSearchInput(urlSearchParam);
+      setActiveTab('all');
+    }
+  }, [urlSearchParam]);
   const [showFilters, setShowFilters] = useState(savedFilters?.showFilters ?? false);
   const [deleteTargetItem, setDeleteTargetItem] = useState<Item | null>(null);
   const [deleteModalVisible, setDeleteModalVisible] = useState(false);
@@ -836,6 +856,7 @@ const ItemManagement: React.FC = () => {
 
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Item | null>(null);
+  const [isCloning, setIsCloning] = useState(false);
   const [saving, setSaving] = useState(false);
   const [autoFillMaterialRole, setAutoFillMaterialRole] = useState(true);
 
@@ -889,6 +910,7 @@ const ItemManagement: React.FC = () => {
   const watchedPackagingUnit = Form.useWatch('packagingUnit', form);
   const [selectedInputDetail, setSelectedInputDetail] = useState<Partial<Item> | null>(null);
   const [selectedInputDetail2, setSelectedInputDetail2] = useState<Partial<Item> | null>(null);
+  const [selectedInputDetail3, setSelectedInputDetail3] = useState<Partial<Item> | null>(null);
 
   // TASK 15: resolve output items referenced by route rows so the preview can
   // build stage info (dims, base UOM, department) without re-fetching each item.
@@ -968,7 +990,6 @@ const ItemManagement: React.FC = () => {
   const [barcodeModalItem, setBarcodeModalItem] = useState<Item | null>(null);
   const [barcodeModalBarcodes, setBarcodeModalBarcodes] = useState<any[]>([]);
   const barcodeModalSvgRef = useRef<SVGSVGElement>(null);
-  const location = useLocation();
 
   // Item History state
   const [stockLedger, setStockLedger] = useState<any[]>([]);
@@ -1639,6 +1660,7 @@ const ItemManagement: React.FC = () => {
     setIsFormMinimized(false);
     setShowLivePreview(false);
     setEditing(null);
+    setIsCloning(false);
     setSelectedInputDetail(null);
     setSelectedInputDetail2(null);
     setRouteItemDetails({});
@@ -1668,8 +1690,17 @@ const ItemManagement: React.FC = () => {
     setIsFormMinimized(false);
     setShowLivePreview(false);
     setEditing(record);
+    setIsCloning(false);
     setSelectedInputDetail(record.productionInItem ?? null);
     setSelectedInputDetail2(record.productionInItem2 ?? null);
+    setSelectedInputDetail3(record.productionInItem3 ?? null);
+    // Instant 0ms cache pre-fill: register the item and all input materials
+    registerItemsInCache([
+      record,
+      record.productionInItem,
+      record.productionInItem2,
+      record.productionInItem3,
+    ].filter(Boolean) as Item[]);
     // TASK 15: populate route-item-details for any output items already referenced
     // by the stored processes rows, so the preview resolves dims/UOM immediately.
     if (items && items.length > 0) {
@@ -1761,12 +1792,137 @@ const ItemManagement: React.FC = () => {
       sellingPrice: record.sellingPrice ?? undefined,
       productionInItemId: record.productionInItemId ?? undefined,
       productionInItemId2: record.productionInItemId2 ?? undefined,
+      productionInItemId3: record.productionInItemId3 ?? undefined,
       materialRoleUsage: record.materialRoleUsage ?? (((record.itemType === 'RAW_MATERIAL' || (record.itemType || '').toUpperCase().includes('RAW'))) ? 'Process Component Materials' : undefined),
     });
     const isRaw = record.itemType === 'RAW_MATERIAL' || String(record.itemType || '').toUpperCase().includes('RAW');
     const isAutoRole = isRaw ? (!record.materialRoleUsage || record.materialRoleUsage === 'Process Component Materials') : false;
     setAutoFillMaterialRole(isAutoRole);
     setFormOpen(true);
+  };
+
+  const openDuplicate = (record: Item) => {
+    setIsFormMinimized(false);
+    setShowLivePreview(false);
+    setEditing(null);
+    setIsCloning(true);
+    setSelectedInputDetail(record.productionInItem ?? null);
+    setSelectedInputDetail2(record.productionInItem2 ?? null);
+    setSelectedInputDetail3(record.productionInItem3 ?? null);
+    // Instant 0ms cache pre-fill: register the item and all input materials
+    registerItemsInCache([
+      record,
+      record.productionInItem,
+      record.productionInItem2,
+      record.productionInItem3,
+    ].filter(Boolean) as Item[]);
+    if (items && items.length > 0) {
+      registerItemsInCache(items);
+    }
+    if (record.processes && record.processes.length > 0) {
+      const detailsMap: Record<string, RouteStageSource | null> = {};
+      for (const p of record.processes) {
+        if (p.outputItemId && !detailsMap[p.outputItemId]) {
+          detailsMap[p.outputItemId] = null;
+        }
+      }
+      setRouteItemDetails(detailsMap);
+    } else {
+      setRouteItemDetails({});
+    }
+
+    const initialProcs = (record.processes && Array.isArray(record.processes) && record.processes.length > 0)
+      ? record.processes.map((p, idx) => ({
+          sequence: Number(p.sequence ?? (idx + 1)),
+          name: typeof p.name === 'string' ? p.name : '',
+          departmentId: typeof (p as any).departmentId === 'string' ? (p as any).departmentId : undefined,
+          departmentName: typeof (p as any).departmentName === 'string' ? (p as any).departmentName : undefined,
+          divisionId: typeof (p as any).divisionId === 'string' ? (p as any).divisionId : undefined,
+          divisionName: typeof (p as any).divisionName === 'string' ? (p as any).divisionName : undefined,
+          sectionId: typeof (p as any).sectionId === 'string' ? (p as any).sectionId : undefined,
+          sectionName: typeof (p as any).sectionName === 'string' ? (p as any).sectionName : undefined,
+          outputItemId: typeof (p as any).outputItemId === 'string' ? (p as any).outputItemId : undefined,
+          outputItemCode: typeof (p as any).outputItemCode === 'string' ? (p as any).outputItemCode : undefined,
+          outputItemName: typeof (p as any).outputItemName === 'string' ? (p as any).outputItemName : undefined,
+        }))
+      : [];
+
+    let suggestedCode = `${record.itemCode}-COPY`;
+    const codeMatch = record.itemCode.match(/^(.*?)(\d+)$/);
+    if (codeMatch) {
+      const prefix = codeMatch[1];
+      const numStr = codeMatch[2];
+      const nextNum = String(parseInt(numStr, 10) + 1).padStart(numStr.length, '0');
+      suggestedCode = `${prefix}${nextNum}`;
+    }
+
+    form.resetFields();
+    form.setFieldsValue({
+      itemCode: suggestedCode,
+      sku: record.sku ? `${record.sku}-COPY` : undefined,
+      name: `${record.name} (Copy)`,
+      shortName: record.shortName ?? undefined,
+      description: record.description ?? undefined,
+      notes: record.notes ?? undefined,
+      itemType: record.itemType,
+      categoryId: record.categoryId ?? undefined,
+      barcode: undefined,
+      manufacturerPartNumber: record.manufacturerPartNumber ?? undefined,
+      brand: record.brand ?? undefined,
+      model: record.model ?? undefined,
+      baseUomId: record.baseUomId ?? undefined,
+      purchaseUomId: record.purchaseUomId ?? undefined,
+      salesUomId: record.salesUomId ?? undefined,
+      divisionId: record.divisionId ?? undefined,
+      sectionId: record.sectionId ?? undefined,
+      departmentId: record.departmentId ?? undefined,
+      wireSizeMm: record.wireSizeMm ?? undefined,
+      diameterMm: record.diameterMm ?? (record.division?.name?.toLowerCase().includes('spoke') || record.name?.toLowerCase().includes('spoke') ? record.wireSizeMm ?? undefined : undefined),
+      thicknessMm: record.thicknessMm ?? undefined,
+      widthMm: record.widthMm ?? undefined,
+      routeType: record.routeType ?? undefined,
+      routeTypeId: record.routeTypeId ?? (record.routeType ? routeTypes.find((rt) => rt.routeCode === record.routeType)?.id : undefined),
+      process1: record.process1 ?? undefined,
+      process2: record.process2 ?? undefined,
+      process3: record.process3 ?? undefined,
+      process4: record.process4 ?? undefined,
+      process5: record.process5 ?? undefined,
+      process6: record.process6 ?? undefined,
+      processes: initialProcs,
+      finalProduct: record.finalProduct ?? undefined,
+      packingNextStep: record.packingNextStep ?? undefined,
+      packagingType: record.packagingType ?? undefined,
+      packagingSize: record.packagingSize ?? undefined,
+      packagingUnit: record.packagingUnit ?? undefined,
+      weightPerPiece: record.weightPerPiece ?? undefined,
+      piecesPerKg: record.piecesPerKg ?? undefined,
+      weightPerMeter: record.weightPerMeter ?? undefined,
+      lengthPerPiece: record.lengthPerPiece ?? undefined,
+      trackInventory: record.trackInventory ?? false,
+      batchTracked: record.batchTracked ?? false,
+      serialTracked: record.serialTracked ?? false,
+      expiryTracked: record.expiryTracked ?? false,
+      isPurchasable: record.isPurchasable ?? true,
+      isSellable: record.isSellable ?? true,
+      isManufacturable: record.isManufacturable ?? false,
+      isStockItem: record.isStockItem ?? true,
+      minimumStockLevel: record.minimumStockLevel ?? undefined,
+      maximumStockLevel: record.maximumStockLevel ?? undefined,
+      reorderLevel: record.reorderLevel ?? undefined,
+      safetyStockLevel: record.safetyStockLevel ?? undefined,
+      leadTimeDays: record.leadTimeDays ?? undefined,
+      costPrice: record.costPrice ?? undefined,
+      sellingPrice: record.sellingPrice ?? undefined,
+      productionInItemId: record.productionInItemId ?? undefined,
+      productionInItemId2: record.productionInItemId2 ?? undefined,
+      productionInItemId3: record.productionInItemId3 ?? undefined,
+      materialRoleUsage: record.materialRoleUsage ?? (((record.itemType === 'RAW_MATERIAL' || (record.itemType || '').toUpperCase().includes('RAW'))) ? 'Process Component Materials' : undefined),
+    });
+    const isRaw = record.itemType === 'RAW_MATERIAL' || String(record.itemType || '').toUpperCase().includes('RAW');
+    const isAutoRole = isRaw ? (!record.materialRoleUsage || record.materialRoleUsage === 'Process Component Materials') : false;
+    setAutoFillMaterialRole(isAutoRole);
+    setFormOpen(true);
+    message.info(`Cloned details from "${record.itemCode}". Modify code/name and save.`);
   };
 
   const handleSubmit = async () => {
@@ -1794,6 +1950,7 @@ const ItemManagement: React.FC = () => {
         'routeType',
         'productionInItemId',
         'productionInItemId2',
+        'productionInItemId3',
         'finalProduct',
         'packingNextStep',
         'packagingType',
@@ -1981,6 +2138,9 @@ const ItemManagement: React.FC = () => {
         }
         if (!values.productionInItemId2) {
           payload.productionInItemId2 = null;
+        }
+        if (!values.productionInItemId3) {
+          payload.productionInItemId3 = null;
         }
       } else if (companyId) {
         payload.companyId = companyId;
@@ -3453,11 +3613,17 @@ const ItemManagement: React.FC = () => {
     {
       title: <HeaderCell first="Row" second="Actions" />,
       key: 'actions',
-      width: 90,
+      width: 120,
       fixed: screens.md ? 'right' : undefined,
       align: 'center',
       render: (_: unknown, record: Item) => {
         const moreItems: MenuProps['items'] = [
+          ...(can('item.create') ? [{
+            key: 'duplicate',
+            icon: <CopyOutlined />,
+            label: 'Duplicate / Copy Item',
+            onClick: () => openDuplicate(record),
+          }] : []),
           ...(can('item.view') ? [{
             key: 'history',
             icon: <HistoryOutlined />,
@@ -3524,6 +3690,20 @@ const ItemManagement: React.FC = () => {
                     onClick={() => openEdit(record)}
                     className="erp-action-btn erp-action-btn--edit"
                     aria-label={`Edit ${record.itemCode}`}
+                  />
+                </span>
+              </Tooltip>
+            )}
+            {can('item.create') && (
+              <Tooltip title="Duplicate / Copy">
+                <span style={{ display: 'inline-flex' }}>
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={<CopyOutlined />}
+                    onClick={() => openDuplicate(record)}
+                    className="erp-action-btn erp-action-btn--copy"
+                    aria-label={`Duplicate ${record.itemCode}`}
                   />
                 </span>
               </Tooltip>
@@ -4207,6 +4387,11 @@ const ItemManagement: React.FC = () => {
               <Button icon={<EditOutlined />} onClick={() => { setDetailOpen(false); openEdit(detailItem); }}>
                 Edit
               </Button>
+              {can('item.create') && (
+                <Button icon={<CopyOutlined />} onClick={() => { setDetailOpen(false); openDuplicate(detailItem); }}>
+                  Duplicate
+                </Button>
+              )}
             </Space>
           )
         }
@@ -4485,6 +4670,18 @@ const ItemManagement: React.FC = () => {
                             : null,
                         },
                         {
+                          label: 'Input Material 3 (Component)',
+                          children: detailItem.productionInItem3
+                            ? (() => {
+                                const pi = detailItem.productionInItem3;
+                                const typeLabel = (pi.itemType && typeName(pi.itemType)) || null;
+                                const deptName = departments.find((d) => d.id === pi.departmentId)?.name ?? null;
+                                const wire = pi.wireSizeMm != null ? `${formatDimension(pi.wireSizeMm)} mm` : null;
+                                return `${pi.itemCode} — ${pi.name}${typeLabel ? ` · ${typeLabel}` : ''}${deptName ? ` · ${deptName}` : ''}${wire ? ` · ${wire}` : ''}`.trim();
+                              })()
+                            : null,
+                        },
+                        {
                           label: 'Output Product',
                           children: detailItem.productionOutItem
                             ? `${detailItem.productionOutItem.itemCode} — ${detailItem.productionOutItem.name}`
@@ -4724,11 +4921,11 @@ const ItemManagement: React.FC = () => {
         width={screens.md ? (showLivePreview && screens.lg ? 1240 : 880) : '96vw'}
         height={screens.md ? 720 : 640}
         wrapClassName="erp-mobile-modal"
-        okText={editing ? 'Save Changes' : 'Create Item'}
+        okText={editing ? 'Save Changes' : (isCloning ? 'Create Duplicate Item' : 'Create Item')}
         title={
           <Space>
-            {editing ? <EditOutlined /> : <FileAddOutlined />}
-            {editing ? `Edit Item — ${editing.itemCode}` : 'Add New Item'}
+            {editing ? <EditOutlined /> : (isCloning ? <CopyOutlined /> : <FileAddOutlined />)}
+            {editing ? `Edit Item — ${editing.itemCode}` : (isCloning ? 'Duplicate / Clone Item' : 'Add New Item')}
           </Space>
         }
         extra={
@@ -5464,6 +5661,9 @@ const ItemManagement: React.FC = () => {
                 <InputMaterialSelect
                   excludeItemId={editing?.id ?? null}
                   departments={departments}
+                  initialItemCode={editing?.productionInItem?.itemCode}
+                  initialItemName={editing?.productionInItem?.name}
+                  initialDepartmentId={editing?.productionInItem?.departmentId}
                   onSelectDetail={setSelectedInputDetail}
                   placeholder="Select Input Material 1 (Primary)..."
                 />
@@ -5477,13 +5677,37 @@ const ItemManagement: React.FC = () => {
                     <Tag color="cyan" style={{ fontSize: 10 }}>IN 2 (Optional)</Tag>
                   </Space>
                 }
-                extra="Optional second item consumed in this stage (e.g. Nipple, Outer Spoke, Chemical) for 2 Items IN ➔ 1 Item OUT assembly."
+                extra="Optional second item consumed in this stage (e.g. Nipple, Outer Spoke, Chemical) for multi-item assembly."
               >
                 <InputMaterialSelect
                   excludeItemId={editing?.id ?? null}
                   departments={departments}
+                  initialItemCode={editing?.productionInItem2?.itemCode}
+                  initialItemName={editing?.productionInItem2?.name}
+                  initialDepartmentId={editing?.productionInItem2?.departmentId}
                   onSelectDetail={setSelectedInputDetail2}
                   placeholder="Select Input Material 2 (Optional Component)..."
+                />
+              </Form.Item>
+
+              <Form.Item
+                name="productionInItemId3"
+                label={
+                  <Space>
+                    <span style={{ fontWeight: 600 }}>INPUT MATERIAL 3 (Tertiary / Packaging Component)</span>
+                    <Tag color="purple" style={{ fontSize: 10 }}>IN 3 (Optional)</Tag>
+                  </Space>
+                }
+                extra="Optional third item consumed in this stage (e.g. Nipple in 125 Inner + 125 Outer + 125 Nipple carton packing) for 3 Items IN ➔ 1 Item OUT assembly."
+              >
+                <InputMaterialSelect
+                  excludeItemId={editing?.id ?? null}
+                  departments={departments}
+                  initialItemCode={editing?.productionInItem3?.itemCode}
+                  initialItemName={editing?.productionInItem3?.name}
+                  initialDepartmentId={editing?.productionInItem3?.departmentId}
+                  onSelectDetail={setSelectedInputDetail3}
+                  placeholder="Select Input Material 3 (Optional Component, e.g. Nipple)..."
                 />
               </Form.Item>
 
@@ -5528,8 +5752,10 @@ const ItemManagement: React.FC = () => {
               const hasProductionFlow = Boolean(
                 selectedInputDetail ||
                 selectedInputDetail2 ||
+                selectedInputDetail3 ||
                 editing?.productionInItem ||
                 editing?.productionInItem2 ||
+                editing?.productionInItem3 ||
                 modalProcesses.length > 0 ||
                 watchedFinalProduct || editing?.finalProduct ||
                 watchedDiameterMm != null || editing?.diameterMm != null ||
@@ -5953,6 +6179,36 @@ const ItemManagement: React.FC = () => {
                       </>
                     )}
 
+                    {/* Tertiary Input Chip (if configured) */}
+                    {(selectedInputDetail3 || editing?.productionInItem3) && (
+                      <>
+                        <div style={{ color: '#a855f7', fontSize: 16, fontWeight: 700, flexShrink: 0, display: 'flex', alignItems: 'center' }}>+</div>
+                        <div
+                          style={{
+                            minWidth: 140,
+                            maxWidth: 180,
+                            flex: '0 0 auto',
+                            background: 'var(--theme-surface-alt, rgba(168, 85, 247, 0.08))',
+                            padding: '6px 8px',
+                            borderRadius: 6,
+                            border: '1px solid rgba(168, 85, 247, 0.35)',
+                          }}
+                        >
+                          <div style={{ fontSize: 9, fontWeight: 700, color: '#a855f7', textTransform: 'uppercase' }}>
+                            INPUT 3 (COMPONENT)
+                          </div>
+                          <div style={{ fontWeight: 600, fontSize: 12, color: 'var(--theme-text)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {selectedInputDetail3 ? selectedInputDetail3.name : editing?.productionInItem3?.name}
+                          </div>
+                          <div style={{ fontSize: 11, color: 'var(--theme-text-muted)', marginTop: 2 }}>
+                            <code style={{ background: 'var(--theme-hover, rgba(255,255,255,0.08))', color: '#a855f7', padding: '1px 4px', borderRadius: 3, fontSize: 10 }}>
+                              {selectedInputDetail3 ? selectedInputDetail3.itemCode : editing?.productionInItem3?.itemCode}
+                            </code>
+                          </div>
+                        </div>
+                      </>
+                    )}
+
                     {/* Middle: Processes Sequence */}
                     {modalProcesses.length > 0 ? (
                       modalProcesses.map((pName, pIdx) => (
@@ -6298,6 +6554,11 @@ const ItemManagement: React.FC = () => {
                   {(selectedInputDetail2 || editing?.productionInItem2) && (
                     <span style={{ color: '#0284c7', marginLeft: 6 }}>
                       + [{selectedInputDetail2 ? `${selectedInputDetail2.itemCode} — ${selectedInputDetail2.name}` : `${editing?.productionInItem2?.itemCode} — ${editing?.productionInItem2?.name}`}]
+                    </span>
+                  )}
+                  {(selectedInputDetail3 || editing?.productionInItem3) && (
+                    <span style={{ color: '#a855f7', marginLeft: 6 }}>
+                      + [{selectedInputDetail3 ? `${selectedInputDetail3.itemCode} — ${selectedInputDetail3.name}` : `${editing?.productionInItem3?.itemCode} — ${editing?.productionInItem3?.name}`}]
                     </span>
                   )}
                 </Descriptions.Item>

@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import '@testing-library/jest-dom';
 import InputMaterialSelect from './InputMaterialSelect';
-import type { Item } from './itemTypes';
+import { Item } from './itemTypes';
 import apiService from '../../../services/api';
 
 jest.mock('../../../services/api');
@@ -55,6 +55,14 @@ beforeEach(() => {
 
 function mockItemsEndpoint(allItems: typeof ALL = ALL) {
   apiMock.get.mockImplementation(async (url: string, params?: any) => {
+    if (url === '/master-data/items/lookup') {
+      const items = allItems.filter(
+        (i) =>
+          (!params?.departmentId || i.departmentId === params.departmentId) &&
+          !(params?.status && i.status !== params.status),
+      );
+      return { data: items, total: items.length };
+    }
     if (url === '/master-data/items') {
       const kw = params?.search ? String(params.search).toLowerCase() : '';
       const items = allItems.filter(

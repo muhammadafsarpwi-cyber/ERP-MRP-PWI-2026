@@ -499,6 +499,11 @@ export class CreateItemDto {
   @IsOptional()
   productionInItemId2?: string;
 
+  @ApiPropertyOptional({ description: 'Production IN Item 3 ID — optional tertiary component (3 Items IN -> 1 Item OUT carton packing)' })
+  @IsUUID('loose')
+  @IsOptional()
+  productionInItemId3?: string;
+
   @ApiPropertyOptional({ description: 'Production OUT Item ID — backward-compat column, server-owned: automatically equals the current Item ID when productionInItemId is set (NULL for root raw materials). Ignored when supplied.' })
   @IsUUID('loose')
   @IsOptional()
@@ -982,6 +987,11 @@ export class UpdateItemDto {
   @IsUUID('loose')
   @IsOptional()
   productionInItemId2?: string;
+
+  @ApiPropertyOptional({ description: 'Production IN Item 3 ID — optional tertiary component (3 Items IN -> 1 Item OUT carton packing)' })
+  @IsUUID('loose')
+  @IsOptional()
+  productionInItemId3?: string;
 
   @ApiPropertyOptional({ description: 'Production OUT Item ID — the output item produced by this item\'s production stage (usually self)' })
   @IsUUID('loose')

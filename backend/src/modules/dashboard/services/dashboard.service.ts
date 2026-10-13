@@ -21,6 +21,7 @@ import { ProductionRouting, RoutingOperation } from '../../production-routing/en
 import { ItemBarcode } from '../../item/entities/item-barcode.entity';
 import { UomConversion } from '../../item/entities/uom-conversion.entity';
 import { applyDivisionScopeFilter } from '../../../common/division-scope.util';
+import { sortDepartmentsFloorWise } from '../../../common/floor-wise-department.util';
 
 export interface DashboardFilters {
   divisionId?: string;
@@ -120,7 +121,14 @@ export class DashboardService {
     }
     applyDivisionScopeFilter(qb, 'd.divisionId', opts.allowedDivisionIds);
 
-    return qb.select(['d.id', 'd.name']).orderBy('d.name', 'ASC').getMany();
+    const departments = await qb
+      .select(['d.id', 'd.name'])
+      .orderBy('d.name', 'ASC')
+      .getMany();
+    // Department listings follow the fixed floor-wise shop-floor sequence
+    // (Straightener → Swaging → Spoke → Spoke Plating → Packing → Dispatch)
+    // instead of alphabetical ordering.
+    return sortDepartmentsFloorWise(departments, (d) => d.name);
   }
 
   async getFilterShifts(companyId: string) {
@@ -337,7 +345,9 @@ export class DashboardService {
 
     const num = (v: string | number | null | undefined) => Number(v ?? 0);
     const round4 = (v: number) => Math.round(v * 10000) / 10000;
-    const round2 = (v: number) => Math.round(v * 100 * 100) / 100;
+    // Round HALF-UP to 2 decimals. (A previous `* 100 * 100` typo inflated
+    // every 2-dp value 100× — achievement showed 8265.5% instead of 82.66%.)
+    const round2 = (v: number) => (Number.isFinite(v) ? Math.round(v * 100) / 100 : 0);
 
     const totalTarget = num(totals?.totalTarget);
     const totalActual = num(totals?.totalActual);
@@ -345,23 +355,28 @@ export class DashboardService {
     const totalRunningHours = num(totals?.totalRunningHours);
     const totalDowntimeHours = num(totals?.totalDowntimeHours);
 
-    const departments = deptRows.map((r) => {
-      const targetQuantity = num(r.targetQuantity);
-      const actualQuantity = num(r.actualQuantity);
-      return {
-        departmentId: r.departmentId,
-        departmentName: r.departmentName ?? 'Unknown',
-        targetQuantity,
-        actualQuantity,
-        scrapQuantity: num(r.scrapQuantity),
-        runningHours: num(r.runningHours),
-        downtimeHours: num(r.downtimeHours),
-        entryCount: num(r.entryCount),
-        achievementPercentage: targetQuantity > 0
-          ? Math.round((actualQuantity / targetQuantity) * 100 * 100) / 100
-          : 0,
-      };
-    });
+    const departments = sortDepartmentsFloorWise(
+      deptRows.map((r) => {
+        const targetQuantity = num(r.targetQuantity);
+        const actualQuantity = num(r.actualQuantity);
+        return {
+          departmentId: r.departmentId,
+          departmentName: r.departmentName ?? 'Unknown',
+          targetQuantity,
+          actualQuantity,
+          scrapQuantity: num(r.scrapQuantity),
+          runningHours: num(r.runningHours),
+          downtimeHours: num(r.downtimeHours),
+          entryCount: num(r.entryCount),
+          // Achievement per department = Actual ÷ Target × 100 with a
+          // division-by-zero guard (no target ⇒ 0%, never Infinity/NaN).
+          achievementPercentage: targetQuantity > 0
+            ? round2((actualQuantity / targetQuantity) * 100)
+            : 0,
+        };
+      }),
+      (d) => d.departmentName,
+    );
 
     return {
       dateRange: { dateFrom: filters?.dateFrom ?? null, dateTo: filters?.dateTo ?? null },
@@ -372,6 +387,8 @@ export class DashboardService {
         totalScrap: round4(totalScrap),
         totalRunningHours: round2(totalRunningHours),
         totalDowntimeHours: round2(totalDowntimeHours),
+        // Overall achievement = Actual ÷ Target × 100 with a
+        // division-by-zero guard (no target ⇒ 0%, never Infinity/NaN).
         achievementPercentage: totalTarget > 0 ? round2((totalActual / totalTarget) * 100) : 0,
         efficiencyPercentage: (totalRunningHours + totalDowntimeHours) > 0
           ? round2((totalRunningHours / (totalRunningHours + totalDowntimeHours)) * 100)

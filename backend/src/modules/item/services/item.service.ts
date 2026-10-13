@@ -515,9 +515,13 @@ export class ItemService implements OnModuleInit {
     const isRawMaterial = dto.itemType === ItemType.RAW_MATERIAL;
     const effectiveInItemId = isRawMaterial ? null : dto.productionInItemId;
     const effectiveInItemId2 = isRawMaterial ? null : dto.productionInItemId2;
-    const syncedOut = await this.resolveProductionFlowMapping(dto.companyId, effectiveInItemId || effectiveInItemId2, newItemId);
+    const effectiveInItemId3 = isRawMaterial ? null : dto.productionInItemId3;
+    const syncedOut = await this.resolveProductionFlowMapping(dto.companyId, effectiveInItemId || effectiveInItemId2 || effectiveInItemId3, newItemId);
     if (effectiveInItemId2) {
       await this.validateSecondaryInputItem(dto.companyId, effectiveInItemId2, effectiveInItemId, newItemId);
+    }
+    if (effectiveInItemId3) {
+      await this.validateSecondaryInputItem(dto.companyId, effectiveInItemId3, effectiveInItemId, newItemId);
     }
 
     const rt = await this.resolveRouteType(dto.companyId, dto.routeTypeId, dto.routeType);
@@ -539,6 +543,7 @@ export class ItemService implements OnModuleInit {
     if (isRawMaterial) {
       (cleanDto as any).productionInItemId = null;
       (cleanDto as any).productionInItemId2 = null;
+      (cleanDto as any).productionInItemId3 = null;
     }
 
     // TASK 15: the configured Production Route rows (DEPARTMENT + ITEM per stage)
@@ -613,9 +618,9 @@ export class ItemService implements OnModuleInit {
         const list = Array.isArray(itemTypes) ? itemTypes : String(itemTypes).split(',');
         rawTypes.push(...list.map((s) => s.trim()).filter(Boolean));
       }
-      // Requirement 2: When a specific departmentId is active, strictly restrict item_type to WIP or RM
+      // When a specific departmentId is active, allow all manufacturing/intermediate item types
       if (departmentId && rawTypes.length === 0) {
-        rawTypes.push('WIP', 'RM');
+        rawTypes.push('WIP', 'RM', 'SEMI_FINISHED', 'FINISHED_GOOD', 'PACKAGING_MATERIAL');
       }
 
       const resolvedTypes = Array.from(new Set(rawTypes.flatMap((t) => {
@@ -681,6 +686,7 @@ export class ItemService implements OnModuleInit {
           i.packaging_unit AS "packagingUnit",
           i.production_in_item_id AS "productionInItemId",
           i.production_in_item_id_2 AS "productionInItemId2",
+          i.production_in_item_id_3 AS "productionInItemId3",
           i.production_out_item_id AS "productionOutItemId"
         FROM items i
         LEFT JOIN uoms u ON u.id = i.base_uom_id
@@ -741,6 +747,8 @@ export class ItemService implements OnModuleInit {
         .leftJoinAndSelect('item.routeTypeRef', 'routeTypeRef')
         .leftJoinAndSelect('item.itemTypeRef', 'itemTypeRef')
         .leftJoinAndSelect('item.productionInItem', 'productionInItem')
+        .leftJoinAndSelect('item.productionInItem2', 'productionInItem2')
+        .leftJoinAndSelect('item.productionInItem3', 'productionInItem3')
         .leftJoinAndSelect('item.productionOutItem', 'productionOutItem');
     }
 
@@ -768,9 +776,9 @@ export class ItemService implements OnModuleInit {
       const list = String(itemType).split(',');
       requestedTypes.push(...list.map((s) => s.trim()).filter(Boolean));
     }
-    // Requirement 2: When a specific departmentId is active, strictly restrict item_type to WIP or RM
+    // When a specific departmentId is active, allow all manufacturing/intermediate item types
     if (departmentId && requestedTypes.length === 0) {
-      requestedTypes.push('WIP', 'RM');
+      requestedTypes.push('WIP', 'RM', 'SEMI_FINISHED', 'FINISHED_GOOD', 'PACKAGING_MATERIAL');
     }
 
     if (requestedTypes.length > 0) {
@@ -823,6 +831,7 @@ export class ItemService implements OnModuleInit {
 
     const [data, total] = await qb.getManyAndCount();
     data.forEach(item => this.ensureProcessesArray(item));
+    await this.enrichProcessesBatch(data);
     await populateAuditNames(this.dataSource, data);
 
     return { data, total };
@@ -831,13 +840,14 @@ export class ItemService implements OnModuleInit {
   async findOne(id: string, allowedDivisionIds?: string[]): Promise<Item> {
     const item = await this.itemRepository.findOne({
       where: { id },
-      relations: ['category', 'baseUom', 'purchaseUom', 'salesUom', 'company', 'division', 'section', 'department', 'routeTypeRef', 'itemTypeRef', 'barcodes', 'specifications', 'specifications.uom', 'documents', 'productionInItem', 'productionInItem2', 'productionOutItem'],
+      relations: ['category', 'baseUom', 'purchaseUom', 'salesUom', 'company', 'division', 'section', 'department', 'routeTypeRef', 'itemTypeRef', 'barcodes', 'specifications', 'specifications.uom', 'documents', 'productionInItem', 'productionInItem2', 'productionInItem3', 'productionOutItem'],
     });
     if (!item) throw new NotFoundException(`Item with ID '${id}' not found`);
     if (allowedDivisionIds && item.divisionId) {
       assertDivisionInScope(item.divisionId, allowedDivisionIds);
     }
     this.ensureProcessesArray(item);
+    await this.enrichProcesses(item);
     return item;
   }
 
@@ -1005,9 +1015,15 @@ export class ItemService implements OnModuleInit {
     const effectiveInItemId2 = isRawMaterial
       ? null
       : (dto.productionInItemId2 !== undefined ? dto.productionInItemId2 : item.productionInItemId2);
-    const syncedOut = await this.resolveProductionFlowMapping(item.companyId, effectiveInItemId || effectiveInItemId2, id);
+    const effectiveInItemId3 = isRawMaterial
+      ? null
+      : (dto.productionInItemId3 !== undefined ? dto.productionInItemId3 : item.productionInItemId3);
+    const syncedOut = await this.resolveProductionFlowMapping(item.companyId, effectiveInItemId || effectiveInItemId2 || effectiveInItemId3, id);
     if (effectiveInItemId2) {
       await this.validateSecondaryInputItem(item.companyId, effectiveInItemId2, effectiveInItemId, id);
+    }
+    if (effectiveInItemId3) {
+      await this.validateSecondaryInputItem(item.companyId, effectiveInItemId3, effectiveInItemId, id);
     }
 
     // Resolve route type if supplied
@@ -1058,6 +1074,7 @@ export class ItemService implements OnModuleInit {
     if (isRawMaterial) {
       scalarUpdate.productionInItemId = null;
       scalarUpdate.productionInItemId2 = null;
+      scalarUpdate.productionInItemId3 = null;
     }
 
     // TASK 15: validate the configured Production Route rows (DEPARTMENT + ITEM
@@ -2721,6 +2738,70 @@ export class ItemService implements OnModuleInit {
       }
     });
     item.processes = list;
+  }
+
+  async enrichProcesses(item: Item): Promise<void> {
+    if (!item || !Array.isArray(item.processes) || item.processes.length === 0) return;
+    const missingIds = item.processes
+      .filter((p: any) => p && p.outputItemId && (!p.outputItemCode || !p.outputItemName))
+      .map((p: any) => p.outputItemId);
+    if (missingIds.length === 0) return;
+
+    try {
+      const rows = await this.itemRepository.query(
+        `SELECT id, item_code AS "itemCode", name FROM items WHERE id = ANY($1::uuid[])`,
+        [missingIds],
+      );
+      const map = new Map<string, { itemCode: string; name: string }>();
+      for (const r of rows) {
+        map.set(r.id, { itemCode: r.itemCode, name: r.name });
+      }
+      for (const p of item.processes as any[]) {
+        if (p && p.outputItemId && map.has(p.outputItemId)) {
+          const found = map.get(p.outputItemId)!;
+          if (!p.outputItemCode) p.outputItemCode = found.itemCode;
+          if (!p.outputItemName) p.outputItemName = found.name;
+        }
+      }
+    } catch {
+      // Ignore enrichment errors gracefully
+    }
+  }
+
+  async enrichProcessesBatch(items: Item[]): Promise<void> {
+    if (!items || items.length === 0) return;
+    const allMissingIds = new Set<string>();
+    for (const item of items) {
+      if (item && Array.isArray(item.processes)) {
+        for (const p of item.processes as any[]) {
+          if (p && p.outputItemId && (!p.outputItemCode || !p.outputItemName)) {
+            allMissingIds.add(p.outputItemId);
+          }
+        }
+      }
+    }
+    if (allMissingIds.size === 0) return;
+    try {
+      const rows = await this.itemRepository.query(
+        `SELECT id, item_code AS "itemCode", name FROM items WHERE id = ANY($1::uuid[])`,
+        [Array.from(allMissingIds)],
+      );
+      const map = new Map<string, { itemCode: string; name: string }>();
+      for (const r of rows) map.set(r.id, { itemCode: r.itemCode, name: r.name });
+      for (const item of items) {
+        if (item && Array.isArray(item.processes)) {
+          for (const p of item.processes as any[]) {
+            if (p && p.outputItemId && map.has(p.outputItemId)) {
+              const found = map.get(p.outputItemId)!;
+              if (!p.outputItemCode) p.outputItemCode = found.itemCode;
+              if (!p.outputItemName) p.outputItemName = found.name;
+            }
+          }
+        }
+      }
+    } catch {
+      // Ignore enrichment errors gracefully
+    }
   }
 
   /**

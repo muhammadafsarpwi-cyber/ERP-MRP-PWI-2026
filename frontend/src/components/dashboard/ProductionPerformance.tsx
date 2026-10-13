@@ -6,7 +6,7 @@ import {
 } from 'recharts';
 import {
   ChartLegend, EmptyState, fmtCompact, fmtQty, percentCls, SectionCard, SkeletonChart,
-  TooltipCard, TooltipRow,
+  sortDepartmentsFloorWise, TooltipCard, TooltipRow,
 } from './dashboardShared';
 import type { ProductionSummary } from '../../services/dashboardService';
 
@@ -40,7 +40,9 @@ const BAR_RADIUS: [number, number, number, number] = [2, 2, 0, 0];
 
 const ProductionPerformance: React.FC<ProductionPerformanceProps> = ({ data, loading, nav }) => {
   const rows: DeptRow[] = useMemo(() => {
-    return (data?.departments ?? []).map((d) => ({
+    // Strict floor-wise order: Straightener → Swaging → Spoke → Spoke Plating
+    // → Packing → Dispatch (never alphabetical).
+    return sortDepartmentsFloorWise(data?.departments ?? []).map((d) => ({
       name: d.departmentName.length > 12 ? `${d.departmentName.slice(0, 12)}…` : d.departmentName,
       fullName: d.departmentName,
       Target: Math.round(d.targetQuantity),

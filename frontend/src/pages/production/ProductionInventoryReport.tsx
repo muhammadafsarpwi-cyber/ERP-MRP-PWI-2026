@@ -22,6 +22,7 @@ import {
   ClusterOutlined,
   DatabaseOutlined,
   DeleteOutlined,
+  EditOutlined,
   EyeOutlined,
   FileExcelOutlined,
   FilterOutlined,
@@ -45,12 +46,14 @@ import {
   WarningOutlined,
   WhatsAppOutlined,
 } from '@ant-design/icons';
+import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
 import dashboardService, { FilterOption } from '../../services/dashboardService';
 import { PageHeader, EmptyState, LargeLoadingBuffer } from '../../components/shared';
 import { tabSessionCache, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
+import { useWorkspaceTabStore } from '../../store/workspaceTabStore';
 import { formatDimension } from '../../utils/numberFormat';
 import { ITEM_TYPES } from '../master-data/items/itemTypes';
 import './productionInventoryReport.css';
@@ -230,10 +233,20 @@ const MovementTag: React.FC<{ value: string; direction: string }> = ({ value, di
   );
 };
 
-const FlowCell: React.FC<{ flow?: ReportRow['flow'] }> = ({ flow }) => {
+const FlowCell: React.FC<{ flow?: ReportRow['flow']; onOpenItem?: (code: string) => void }> = ({ flow, onOpenItem }) => {
   if (!flow) return <Text type="secondary">—</Text>;
   const refTag = (r: ReportFlowRef) => (
-    <Tag color={r.inScope ? 'blue' : 'default'} title={r.inScope ? r.itemName : `${r.itemName} (out of scope)`}>
+    <Tag
+      color={r.inScope ? 'blue' : 'default'}
+      title={onOpenItem ? `Click to view/edit ${r.itemCode} in Products & Items` : (r.inScope ? r.itemName : `${r.itemName} (out of scope)`)}
+      style={{ cursor: onOpenItem ? 'pointer' : 'default', userSelect: 'none' }}
+      onClick={(e) => {
+        if (onOpenItem) {
+          e.stopPropagation();
+          onOpenItem(r.itemCode);
+        }
+      }}
+    >
       {r.itemCode}
     </Tag>
   );
@@ -286,8 +299,23 @@ interface InventoryReportTabCache {
 }
 
 const ProductionInventoryReport: React.FC = () => {
+  const navigate = useNavigate();
   const tabKey = '/production/inventory-report';
   const cachedTab = useMemo(() => tabSessionCache.get<InventoryReportTabCache>(tabKey), []);
+
+  const handleOpenItemMaster = useCallback((itemCode: string) => {
+    if (!itemCode || itemCode === 'DISPATCH') return;
+    const firstCode = itemCode.split(',')[0].trim();
+    if (!firstCode) return;
+    useWorkspaceTabStore.getState().openTab({
+      id: '/master-data/items',
+      route: `/master-data/items?search=${encodeURIComponent(firstCode)}`,
+      pathname: '/master-data/items',
+      title: 'Products & Items',
+      closable: true,
+    });
+    navigate(`/master-data/items?search=${encodeURIComponent(firstCode)}`);
+  }, [navigate]);
 
   const [loading, setLoading] = useState(!cachedTab);
   const [error, setError] = useState<string | null>(null);
@@ -1369,7 +1397,7 @@ const ProductionInventoryReport: React.FC = () => {
       title: <span><BranchesOutlined className="erp-th-icon" />Flow</span>,
       key: 'flow',
       width: 220,
-      render: (_, r) => <FlowCell flow={r.flow} />,
+      render: (_, r) => <FlowCell flow={r.flow} onOpenItem={handleOpenItemMaster} />,
     },
     {
       title: <span><HistoryOutlined className="erp-th-icon" />Last Movement</span>,
@@ -2895,6 +2923,17 @@ const ProductionInventoryReport: React.FC = () => {
               </Space>
             </div>
 
+            <Alert
+              type="info"
+              showIcon
+              message={
+                <span>
+                  <strong>Production Routing:</strong> Click any Item Code below to jump directly to its record in <em>Products & Items</em> (Master Data) to view or adjust its configured route stages.
+                </span>
+              }
+              style={{ marginBottom: 14, fontSize: 12, borderRadius: 6 }}
+            />
+
             <div className="erp-journey-container">
               {journeyData.map((stage, idx) => (
                 <React.Fragment key={stage.stageNumber}>
@@ -2917,9 +2956,23 @@ const ProductionInventoryReport: React.FC = () => {
                       <Row gutter={[12, 6]} style={{ marginTop: 6 }}>
                         <Col xs={24} sm={12}>
                           <Text type="secondary" style={{ fontSize: 11 }}>Item Code & Name:</Text>
-                          <div style={{ fontWeight: 600, fontSize: 13 }}>
-                            {stage.itemCode}
-                            <span style={{ fontWeight: 400, color: '#64748b', marginLeft: 6 }}>{stage.itemName}</span>
+                          <div style={{ fontWeight: 600, fontSize: 13, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                            {stage.itemCode && stage.itemCode !== 'DISPATCH' ? (
+                              <Tooltip title={`Click to open ${stage.itemCode} in Products & Items`}>
+                                <Button
+                                  type="link"
+                                  size="small"
+                                  icon={<EditOutlined style={{ fontSize: 11 }} />}
+                                  style={{ padding: 0, fontWeight: 700, fontSize: 13, height: 'auto', color: '#3b82f6' }}
+                                  onClick={() => handleOpenItemMaster(stage.itemCode)}
+                                >
+                                  {stage.itemCode}
+                                </Button>
+                              </Tooltip>
+                            ) : (
+                              <span>{stage.itemCode || '—'}</span>
+                            )}
+                            <span style={{ fontWeight: 400, color: '#64748b' }}>{stage.itemName}</span>
                           </div>
                         </Col>
                         <Col xs={12} sm={6}>
@@ -2937,7 +2990,14 @@ const ProductionInventoryReport: React.FC = () => {
                           <Text type="secondary" style={{ fontSize: 11 }}>Produced Outward Variants / Consumers:</Text>
                           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
                             {stage.items.map((it) => (
-                              <Tag key={it.id || it.itemCode} color="purple">
+                              <Tag
+                                key={it.id || it.itemCode}
+                                color="purple"
+                                style={{ cursor: 'pointer' }}
+                                title={`Click to open ${it.itemCode} in Products & Items`}
+                                onClick={() => handleOpenItemMaster(it.itemCode)}
+                              >
+                                <EditOutlined style={{ marginRight: 4, fontSize: 10 }} />
                                 <strong>{it.itemCode}</strong>: {it.name} {it.department ? `(${it.department})` : ''}
                               </Tag>
                             ))}

@@ -65,8 +65,10 @@ interface LedgerMovement {
   direction: string;
   quantity: number | string;
   notes?: string | null;
-  item?: { itemCode: string; name: string } | null;
-  warehouse?: { name: string } | null;
+  itemId?: string | null;
+  item?: { id?: string; itemCode: string; name: string } | null;
+  warehouseId?: string | null;
+  warehouse?: { id?: string; name: string } | null;
   uom?: { code: string } | null;
   referenceId?: string | null;
 }
@@ -892,93 +894,122 @@ export const EntryDetail: React.FC<EntryDetailProps> = ({
   );
 
   // Material flow (Part A redesign): the raw material consumed in this stage →
-  // the current produced item (→ any extra output lines).
-  const flowUnits = entry.uom?.code ?? '';
+  // Material flow for all production output items:
+  // Each output item displays its own exact produced quantity and matched raw material consumption.
+  const activeOutputLines = outputItemLines.length > 0
+    ? outputItemLines
+    : [{ id: entry.id, item: entry.item, itemId: entry.itemId, actualQuantity: entry.actualQuantity, scrapQuantity: entry.scrapQuantity, uom: entry.uom }];
+
   const sectionMaterialFlow = (
-    <div>
-      <InventoryImpactReport
-        posted={posted}
-        rawItemCode={rawItem?.itemCode}
-        rawItemName={rawItem?.name}
-        rawStoreName={rawStoreName}
-        rawBefore={rawBefore}
-        rawConsumed={rawConsumed}
-        rawAfter={rawAfter}
-        rawUom={rawUom}
-        outItemCode={outItem?.itemCode}
-        outItemName={outItem?.name}
-        outStoreName={receiptStoreName}
-        outBefore={outBefore}
-        outProduced={outProduced}
-        outAfter={outAfter}
-        outUom={outUom}
-        outCompanyBefore={outCompanyBefore}
-        outCompanyTotal={outCompanyTotal}
-      />
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-        {productionInItem && (
-          <React.Fragment>
-            <div
-              style={{
-                display: 'flex', alignItems: 'center', gap: 8,
-                padding: '5px 8px', background: 'var(--theme-surface-alt)', borderRadius: 4,
-                border: '1px solid var(--theme-border)',
-              }}
-            >
-              <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 20, height: 20, borderRadius: 4, background: 'var(--theme-text-muted)', color: '#fff', fontSize: 11, fontWeight: 600, padding: '0 4px' }}>
-                IN
-              </span>
-              <Text strong style={{ fontSize: 12 }}>{productionInItem.itemCode}</Text>
-              <Text type="secondary" style={{ fontSize: 12 }}>— {productionInItem.name}</Text>
-              {productionInItem.wireSizeMm != null && (
-                <Text type="secondary" style={{ fontSize: 12 }}>· {formatDimension(productionInItem.wireSizeMm)} mm</Text>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {activeOutputLines.map((line, idx) => {
+        const lineItem = line.item || entry.item;
+        const lineProdQty = toNum(line.actualQuantity);
+        const lineScrapQty = toNum(line.scrapQuantity);
+        const lineUomCode = line.uom?.code || entry.uom?.code || 'PCS';
+        const lineRawItem = (lineItem as any)?.productionInItem || (line.itemId === entry.itemId ? entry.item?.productionInItem : null);
+
+        // Match movements specifically for this raw material item
+        const itemConsumptions = movements.filter((m) =>
+          m.transactionType === 'PRODUCTION_CONSUMPTION' &&
+          m.direction === 'OUT' &&
+          (lineRawItem ? (m.itemId === lineRawItem.id || (m.item && (m.item as any).id === lineRawItem.id) || (m.item && m.item.itemCode === lineRawItem.itemCode)) : true)
+        );
+        const lineRawConsumed = itemConsumptions.length > 0
+          ? itemConsumptions.reduce((s, m) => s + toNum(m.quantity), 0)
+          : (lineProdQty + lineScrapQty);
+        const lineRawUom = itemConsumptions[0]?.uom?.code
+          || (lineRawItem as any)?.baseUom?.code
+          || rawUom;
+
+        let lineRawBefore = posted ? rawCurrentAvail + lineRawConsumed : rawCurrentAvail;
+        if (posted && lineRawBefore < lineRawConsumed) {
+          lineRawBefore = lineRawConsumed;
+        }
+        const lineRawAfter = posted ? Math.max(0, lineRawBefore - lineRawConsumed) : Math.max(0, rawCurrentAvail - lineRawConsumed);
+
+        const lineOutBal = balances.find((b) => b.warehouse?.name === receiptStoreName)?.available ?? balances[0]?.available ?? 0;
+        const lineOutBefore = posted ? Math.max(0, toNum(lineOutBal) - lineProdQty) : toNum(lineOutBal);
+        const lineOutAfter = posted ? toNum(lineOutBal) : toNum(lineOutBal) + lineProdQty;
+
+        return (
+          <div key={line.id || idx}>
+            {activeOutputLines.length > 1 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                <Tag color="cyan" style={{ fontWeight: 700, borderRadius: 4, margin: 0 }}>Item {idx + 1}</Tag>
+                <Text strong style={{ fontSize: 13, color: 'var(--theme-text)' }}>
+                  {lineItem?.itemCode}{lineItem?.name ? ` — ${lineItem.name}` : ''}
+                </Text>
+              </div>
+            )}
+            <InventoryImpactReport
+              posted={posted}
+              rawItemCode={lineRawItem?.itemCode}
+              rawItemName={lineRawItem?.name}
+              rawStoreName={rawStoreName}
+              rawBefore={lineRawBefore}
+              rawConsumed={lineRawConsumed}
+              rawAfter={lineRawAfter}
+              rawUom={lineRawUom}
+              outItemCode={lineItem?.itemCode}
+              outItemName={lineItem?.name}
+              outStoreName={receiptStoreName}
+              outBefore={lineOutBefore}
+              outProduced={lineProdQty}
+              outAfter={lineOutAfter}
+              outUom={lineUomCode}
+              outCompanyBefore={outCompanyBefore}
+              outCompanyTotal={outCompanyTotal}
+            />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 0, marginTop: 4 }}>
+              {lineRawItem && (
+                <React.Fragment>
+                  <div
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 8,
+                      padding: '5px 8px', background: 'var(--theme-surface-alt)', borderRadius: 4,
+                      border: '1px solid var(--theme-border)',
+                    }}
+                  >
+                    <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 20, height: 20, borderRadius: 4, background: 'var(--theme-text-muted)', color: '#fff', fontSize: 11, fontWeight: 600, padding: '0 4px' }}>
+                      IN
+                    </span>
+                    <Text strong style={{ fontSize: 12 }}>{lineRawItem.itemCode}</Text>
+                    <Text type="secondary" style={{ fontSize: 12 }}>— {lineRawItem.name}</Text>
+                    {lineRawItem.wireSizeMm != null && (
+                      <Text type="secondary" style={{ fontSize: 12 }}>· {formatDimension(lineRawItem.wireSizeMm)} mm</Text>
+                    )}
+                  </div>
+                  <div style={{ textAlign: 'center', color: 'var(--theme-text-muted)', fontSize: 13, lineHeight: '18px', padding: '4px 0' }}>
+                    ▾ consumed <strong style={{ color: '#b91c1c' }}>{formatNumber(lineRawConsumed, 3)} {lineRawUom}</strong>{lineScrapQty > 0 ? ` (+ scrap ${formatNumber(lineScrapQty, 3)} KG)` : ''}
+                  </div>
+                </React.Fragment>
               )}
+              <div
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  padding: '5px 8px', background: 'var(--theme-success-soft)', borderRadius: 4,
+                  border: '1px solid var(--theme-success)',
+                }}
+              >
+                <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 20, height: 20, borderRadius: 4, background: 'var(--theme-success)', color: '#fff', fontSize: 11, fontWeight: 600, padding: '0 4px' }}>
+                  OUT
+                </span>
+                <Text strong style={{ fontSize: 12 }}>{lineItem?.itemCode}</Text>
+                <Text type="secondary" style={{ fontSize: 12 }}>— {lineItem?.name}</Text>
+                {lineItem?.wireSizeMm != null && (
+                  <Text type="secondary" style={{ fontSize: 12 }}>· {formatDimension(lineItem.wireSizeMm)} mm</Text>
+                )}
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  → {formatNumber(lineProdQty, 3)} {lineUomCode}{lineScrapQty > 0 ? ` + scrap ${formatNumber(lineScrapQty, 3)}` : ''}
+                </Text>
+              </div>
             </div>
-            <div style={{ textAlign: 'center', color: 'var(--theme-text-muted)', fontSize: 13, lineHeight: '18px', padding: '4px 0' }}>
-              ▾ consumed <strong style={{ color: '#b91c1c' }}>{formatNumber(rawConsumed, 3)} {rawUom}</strong>{toNum(entry.scrapQuantity) > 0 ? ` (+ scrap ${formatNumber(entry.scrapQuantity, 3)} KG)` : ''}
-            </div>
-          </React.Fragment>
-        )}
-        <div
-          style={{
-            display: 'flex', alignItems: 'center', gap: 8,
-            padding: '5px 8px', background: 'var(--theme-success-soft)', borderRadius: 4,
-            border: '1px solid var(--theme-success)',
-          }}
-        >
-          <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 20, height: 20, borderRadius: 4, background: 'var(--theme-success)', color: '#fff', fontSize: 11, fontWeight: 600, padding: '0 4px' }}>
-            OUT
-          </span>
-          <Text strong style={{ fontSize: 12 }}>{entry.item?.itemCode}</Text>
-          <Text type="secondary" style={{ fontSize: 12 }}>— {entry.item?.name}</Text>
-          <Text type="secondary" style={{ fontSize: 12 }}>· {wireSize}</Text>
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            → {formatNumber(toNum(entry.actualQuantity), 3)} {flowUnits}{toNum(entry.scrapQuantity) > 0 ? ` + scrap ${formatNumber(toNum(entry.scrapQuantity), 3)}` : ''}
-          </Text>
-        </div>
-        {outputItemLines.filter((l) => l.item && l.itemId !== entry.itemId).map((line) => (
-          <React.Fragment key={line.id}>
-            <div style={{ textAlign: 'center', color: 'var(--theme-text-muted)', fontSize: 14, lineHeight: '16px' }}>
-              <ArrowRightOutlined /> secondary output
-            </div>
-            <div
-              style={{
-                display: 'flex', alignItems: 'center', gap: 8,
-                padding: '5px 8px', background: 'var(--theme-surface-alt)', borderRadius: 4,
-                border: '1px solid var(--theme-border)',
-              }}
-            >
-              <Text strong style={{ fontSize: 12 }}>{line.item?.itemCode}</Text>
-              <Text type="secondary" style={{ fontSize: 12 }}>— {line.item?.name}</Text>
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                → {formatNumber(toNum(line.actualQuantity), 3)} {line.uom?.code ?? ''}
-              </Text>
-            </div>
-          </React.Fragment>
-        ))}
-      </div>
+          </div>
+        );
+      })}
       {entry.uom?.code && entry.item?.baseUom?.code && entry.uom.code !== entry.item.baseUom.code && (
-        <div style={{ marginTop: 6 }}>
+        <div style={{ marginTop: 4 }}>
           <Tag color="blue">UOM conversion: entry UOM {entry.uom.code} → base {entry.item.baseUom.code}</Tag>
         </div>
       )}

@@ -833,49 +833,11 @@ const EntryForm: React.FC<EntryFormProps> = ({
         const e = res.data;
         setEntry(e);
         // ── FIX 4 — snapshot what this document has ALREADY deducted ─────────
-        // Only a posted entry moved stock; a legacy row without audit lines
-        // falls back to its recorded consumption (good output + scrap when the
-        // raw material is weighed in KG).
-        {
-          const consumed: Record<string, number> = {};
-          if ((e as any).inventoryReferenceId) {
-            const inputs = splitEntryItemLines((e as any).items).inputs;
-            const inId = (e as any).item?.productionInItem?.id
-              || (e as any).item?.productionInItemId
-              || null;
-            if (inputs.length > 0) {
-              // Authoritative figure for the entry's production IN material…
-              const audited = consumedQuantityFromAuditLines(inputs, inId);
-              if (inId && audited !== null && audited > 0) consumed[String(inId)] = audited;
-              // …plus any other component this document issued from store.
-              for (const line of inputs) {
-                const key = String(line.itemId ?? '');
-                if (!key || (inId && key === String(inId))) continue;
-                consumed[key] = (consumed[key] ?? 0) + (Number(line.actualQuantity) || 0);
-              }
-            } else {
-              // Legacy row with no audit lines: use the recorded consumption
-              // (good output + scrap when the raw material is weighed in KG).
-              const rawCode = String((e as any).item?.productionInItem?.baseUom?.code || '').toUpperCase();
-              const basis = toNum((e as any).actualQuantity)
-                + (rawCode.startsWith('K') ? toNum((e as any).scrapQuantity) : 0);
-              if (inId && basis > 0) consumed[String(inId)] = basis;
-            }
-          }
-          setEntryConsumedByItem(consumed);
-        }
-        void lookups.loadMachines(e.departmentId);
-        if (e.productionOrderId) {
-          try {
-            const od = await apiService.get<OrderDetail>(`/production/orders/${e.productionOrderId}`);
-            setOrderDetail(od);
-          } catch { /* order may be inaccessible */ }
-        }
-        // Only scalar/field values go into the form store — spreading the whole
-        // entity (with division/section/item/uom relation objects) triggers
-        // antd's "circular references" clone warning.
+        // Read authoritative stock ledger movements for this entry if posted,
+        // and combine with audit lines to capture every item already consumed.
         let loadedWarehouseId = e.warehouseId;
-        if (!loadedWarehouseId && e.inventoryReferenceId) {
+        const consumed: Record<string, number> = {};
+        if ((e as any).inventoryReferenceId) {
           try {
             const ledgerRes = await apiService.get<{ data: any[] }>('/inventory/reports/ledger', {
               referenceId: e.id,
@@ -886,9 +848,50 @@ const EntryForm: React.FC<EntryFormProps> = ({
             if (receiptMov?.warehouseId) {
               loadedWarehouseId = receiptMov.warehouseId;
             }
+            for (const m of movements) {
+              const k = String(m.itemId || m.item?.id || '');
+              if (!k) continue;
+              if (m.transactionType === 'PRODUCTION_CONSUMPTION' && m.direction === 'OUT') {
+                consumed[k] = (consumed[k] ?? 0) + toNum(m.quantity);
+              } else if (m.transactionType === 'PRODUCTION_REVERSAL' && m.direction === 'IN') {
+                consumed[k] = Math.max(0, (consumed[k] ?? 0) - toNum(m.quantity));
+              }
+            }
           } catch {
-            // fallback lookup
+            // fallback to entry audit lines below
           }
+
+          const inputs = splitEntryItemLines((e as any).items).inputs;
+          const inId = (e as any).item?.productionInItem?.id
+            || (e as any).item?.productionInItemId
+            || null;
+          if (inputs.length > 0) {
+            const audited = consumedQuantityFromAuditLines(inputs, inId);
+            if (inId && audited !== null && audited > 0 && !consumed[String(inId)]) {
+              consumed[String(inId)] = audited;
+            }
+            for (const line of inputs) {
+              const key = String(line.itemId ?? '');
+              if (!key) continue;
+              if (!consumed[key]) {
+                consumed[key] = Number(line.actualQuantity) || 0;
+              }
+            }
+          } else if (Object.keys(consumed).length === 0) {
+            const rawCode = String((e as any).item?.productionInItem?.baseUom?.code || '').toUpperCase();
+            const basis = toNum((e as any).actualQuantity)
+              + (rawCode.startsWith('K') ? toNum((e as any).scrapQuantity) : 0);
+            if (inId && basis > 0) consumed[String(inId)] = basis;
+          }
+        }
+        setEntryConsumedByItem(consumed);
+
+        void lookups.loadMachines(e.departmentId);
+        if (e.productionOrderId) {
+          try {
+            const od = await apiService.get<OrderDetail>(`/production/orders/${e.productionOrderId}`);
+            setOrderDetail(od);
+          } catch { /* order may be inaccessible */ }
         }
 
         form.setFieldsValue({
@@ -909,11 +912,6 @@ const EntryForm: React.FC<EntryFormProps> = ({
           targetQuantity: toNum(e.targetQuantity),
           actualQuantity: toNum(e.actualQuantity),
           runningHours: toNum(e.runningHours),
-          // STEP 2 — canonical OT read: the persisted column first, the legacy
-          // remarks `OT: X h` fallback second. Hydrating 0 here collapsed Total
-          // Available from 10h (8h shift + 2h OT) to the bare 8h shift, so the
-          // "Total Available − Downtime" matrix re-derived Running as 6h and the
-          // save wrote both running_hours=6 and overtime_hours=0 back to the row.
           overtimeHours: entryOvertimeHours(e as any),
           scrapQuantity: toNum(e.scrapQuantity),
           processScrapKg: toNum(e.processScrapKg ?? 0),
@@ -924,33 +922,39 @@ const EntryForm: React.FC<EntryFormProps> = ({
           postToInventory: !!e.inventoryReferenceId,
           warehouseId: loadedWarehouseId ?? undefined,
           rawMaterialWarehouseId: (e as any).rawMaterialWarehouseId ?? undefined,
-      // Child lines: production items + downtime entries.
-      // INPUT audit lines (lineNumber >= 1000) record the raw material already
-      // consumed by this entry — they must never enter the editable list, or the
-      // form would show and re-save the consumption as extra production.
-      // ── FIX 2 — preserve the original rejection value ──────────────────────
-      // This wizard has no per-line scrap input, so a child OUTPUT line is
-      // written as 0 while the ENTRY row holds the audited rejection (2 KG).
-      // Hydrating the line as 0 hides that value on screen. Seed the silent
-      // line from the entry-level record so the audited scrap survives edit.
-      // (No-op for entries whose child lines already carry their own scrap.)
       productionItems: (() => {
         const outputs = splitEntryItemLines((e as any).items).outputs;
         const entryLevelScrap = toNum((e as any).scrapQuantity);
         const lineScrapTotal = outputs.reduce((s: number, it: any) => s + toNum(it.scrapQuantity), 0);
         const seed = (entryLevelScrap > 0 && lineScrapTotal <= 0) ? entryLevelScrap : 0;
-        return outputs.map((it: any, idx: number) => ({
-          id: it.id,
-          lineNumber: it.lineNumber,
-          itemId: it.itemId,
-          uomId: it.uomId,
-          targetQuantity: toNum(it.targetQuantity),
-          actualQuantity: toNum(it.actualQuantity),
-          scrapQuantity: toNum(it.scrapQuantity) + (idx === 0 ? seed : 0),
-          runningHours: toNum(it.runningHours),
-          routingCode: it.routingCode ?? undefined,
-          remarks: it.remarks ?? undefined,
-        }));
+        if (outputs.length > 0) {
+          return outputs.map((it: any, idx: number) => ({
+            id: it.id,
+            lineNumber: it.lineNumber,
+            itemId: it.itemId,
+            uomId: it.uomId,
+            targetQuantity: toNum(it.targetQuantity),
+            actualQuantity: toNum(it.actualQuantity),
+            scrapQuantity: toNum(it.scrapQuantity) + (idx === 0 ? seed : 0),
+            runningHours: toNum(it.runningHours),
+            routingCode: it.routingCode ?? undefined,
+            remarks: it.remarks ?? undefined,
+          }));
+        }
+        // Fallback for single-item entries where production_entry_items has no output rows
+        // so the edit form NEVER opens with empty items or resets figures to 0!
+        if (e.itemId) {
+          return [{
+            lineNumber: 1,
+            itemId: e.itemId,
+            uomId: e.uomId,
+            targetQuantity: toNum(e.targetQuantity),
+            actualQuantity: toNum(e.actualQuantity),
+            scrapQuantity: toNum(e.scrapQuantity),
+            runningHours: toNum(e.runningHours),
+          }];
+        }
+        return [];
       })() ?? [],
       downtimeEntries: (e as any).downtimes?.map((dt: any) => ({
         id: dt.id,
@@ -1464,6 +1468,7 @@ const EntryForm: React.FC<EntryFormProps> = ({
   // and ensure an item row exists so onFinish payload satisfies the backend contract.
   useEffect(() => {
     if (!isFullDowntime) return;
+    if (mode === 'edit') return; // NEVER reset quantities to zero when editing an existing saved entry
 
     // 1. Auto-fill scrap quantity to 0 if not entered
     const currentScrap = form.getFieldValue('scrapQuantity');
@@ -5272,29 +5277,45 @@ const RawMaterialAvailability: React.FC<{
             void (async () => {
               try {
                 const cacheKey = `raw_${line.rawItemId}_${warehouseId || ''}`;
+                const alreadyConsumed = consumedByItem?.[String(line.rawItemId)] ?? 0;
+                let rawCurrent = 0;
                 let available: number;
                 if (staticBaselinesRef.current[cacheKey] !== undefined) {
                   available = staticBaselinesRef.current[cacheKey];
                 } else {
                   const params: Record<string, unknown> = { itemId: line.rawItemId };
                   if (warehouseId) params.warehouseId = warehouseId;
-                  const alreadyConsumed = consumedByItem?.[String(line.rawItemId)] ?? 0;
                   const avail = await apiService.get<{ data?: number | { available?: number } }>(
                     '/inventory/balances/available',
                     params,
                   );
                   if (cancelled) return;
-                  const rawCurrent = toNum((avail.data as any)?.available ?? avail.data);
+                  rawCurrent = toNum((avail.data as any)?.available ?? avail.data);
                   available = Math.round((rawCurrent + alreadyConsumed) * 10000) / 10000;
                   staticBaselinesRef.current[cacheKey] = available;
                 }
-                const balance = available - line.required;
+                // When editing an already-posted entry (alreadyConsumed > 0):
+                // The material was ALREADY issued/deducted by this entry at creation.
+                // Demand is satisfied up to alreadyConsumed. Only excess demand requires new warehouse stock.
+                let shortage = 0;
+                let balance = available - line.required;
+                if (alreadyConsumed > 0) {
+                  if (line.required <= alreadyConsumed) {
+                    shortage = 0;
+                    balance = Math.max(0, available - line.required);
+                  } else {
+                    const extraDemand = line.required - alreadyConsumed;
+                    shortage = Math.max(0, extraDemand - Math.max(0, rawCurrent));
+                  }
+                } else {
+                  shortage = Math.max(0, -balance);
+                }
                 setData((prev) => ({
                   ...prev,
                   [itemId]: {
                     ...prev[itemId]!,
                     lines: prev[itemId]!.lines.map((l) => l.lineId === line.lineId
-                      ? { ...l, available, balance, shortage: Math.max(0, -balance), loadingAvailable: false, availableError: false }
+                      ? { ...l, available, balance, shortage, loadingAvailable: false, availableError: false }
                       : l),
                   },
                 }));
@@ -5617,7 +5638,7 @@ const RawMaterialAvailability: React.FC<{
                     ) : (
                       <span style={{ color: 'var(--theme-success, #52c41a)' }}>
                         <Text type="secondary">Available <Text strong data-testid={`material-flow-available-${index + 1}`}>{formatNumber(line.available, 3)} {line.uomCode}</Text></Text>
-                        <Text style={{ color: 'var(--theme-success)' }} data-testid={`material-flow-status-${index + 1}`}>· Balance <Text strong>{formatNumber(line.balance ?? 0, 3)} {line.uomCode}</Text> · Status <Text strong>AVAILABLE</Text></Text>
+                        <Text style={{ color: 'var(--theme-success)' }} data-testid={`material-flow-status-${index + 1}`}>· Balance <Text strong>{formatNumber(line.balance ?? 0, 3)} {line.uomCode}</Text> · Status <Text strong>{(consumedByItem?.[String(line.rawItemId)] ?? 0) > 0 ? 'AVAILABLE (ALREADY POSTED)' : 'AVAILABLE'}</Text></Text>
                       </span>
                     )}
                   </div>
@@ -5647,9 +5668,13 @@ const RawMaterialAvailability: React.FC<{
 
                 {/* Line 1: INPUT Raw Material */}
                 {info.lines.map((rawLine, rIdx) => {
-                  const rawBefore = rawLine.available ?? 0;
+                  const alreadyIssued = consumedByItem?.[String(rawLine.rawItemId)] ?? 0;
                   const rawConsumed = rawLine.required ?? 0;
-                  const rawAfter = rawLine.balance ?? (rawBefore - rawConsumed);
+                  let rawBefore = rawLine.available ?? 0;
+                  if (alreadyIssued > 0 && rawBefore < rawConsumed) {
+                    rawBefore = Math.max(rawConsumed, alreadyIssued);
+                  }
+                  const rawAfter = Math.max(0, rawBefore - rawConsumed);
                   const rawUom = rawLine.uomCode ?? rawLine.rawBaseUomCode ?? '';
                   return (
                     <div key={rawLine.lineId || rIdx} style={{

@@ -32,7 +32,24 @@ const AchievementCard: React.FC<AchievementCardProps> = ({ data, loading }) => {
     );
   }
 
-  const pct = data.summary.achievementPercentage;
+  // ── Defensive calculation guards ─────────────────────────────────────
+  // Achievement = Actual ÷ Target × 100, Efficiency = Running ÷ (Running +
+  // Downtime) × 100. Both are RECOMPUTED from the raw totals here (instead of
+  // trusting a pre-rounded percentage field) so a stale or incorrect payload
+  // can never render an inflated figure (e.g. 7711.8%). Division by zero and
+  // non-finite inputs cleanly return 0%.
+  const round2 = (v: number) => (Number.isFinite(v) ? Math.round(v * 100) / 100 : 0);
+
+  const totalTarget = Number(data.summary.totalTarget);
+  const totalActual = Number(data.summary.totalActual);
+  const pct = totalTarget > 0 ? round2((totalActual / totalTarget) * 100) : 0;
+
+  const runningHours = Number(data.summary.totalRunningHours);
+  const downtimeHours = Number(data.summary.totalDowntimeHours);
+  const efficiencyPct = runningHours + downtimeHours > 0
+    ? round2((runningHours / (runningHours + downtimeHours)) * 100)
+    : 0;
+
   const level = achLevel(pct);
   const ringPct = Math.max(0, Math.min(100, pct));
 
@@ -91,7 +108,7 @@ const AchievementCard: React.FC<AchievementCardProps> = ({ data, loading }) => {
             <span className="erp-achievement__metric-dot erp-achievement__metric-dot--efficiency" />
             <div className="erp-achievement__metric-content">
               <div className="erp-achievement__metric-label">Efficiency</div>
-              <div className="erp-achievement__metric-value">{data.summary.efficiencyPercentage.toFixed(1)}%</div>
+              <div className="erp-achievement__metric-value">{efficiencyPct.toFixed(1)}%</div>
             </div>
           </div>
         </div>

@@ -1,7 +1,7 @@
 import React from 'react';
 import { TeamOutlined } from '@ant-design/icons';
 import {
-  achLevel, EmptyState, fmtQty, levelColor, SectionCard, SkeletonRows,
+  achLevel, EmptyState, fmtQty, levelColor, SectionCard, SkeletonRows, sortDepartmentsFloorWise,
 } from './dashboardShared';
 import type { ProductionSummary } from '../../services/dashboardService';
 
@@ -25,7 +25,9 @@ const DepartmentPerformance: React.FC<DepartmentPerformanceProps> = ({ data, loa
     );
   }
 
-  const departments = data?.departments ?? [];
+  // Strict floor-wise order: Straightener → Swaging → Spoke → Spoke Plating
+  // → Packing → Dispatch (never alphabetical).
+  const departments = sortDepartmentsFloorWise(data?.departments ?? []);
 
   return (
     <SectionCard

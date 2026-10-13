@@ -370,7 +370,7 @@ export class ProductionInventoryReportService {
       }
       const raw = await this.itemRepo
         .createQueryBuilder('m')
-        .select(['m.id', 'm.itemCode', 'm.name', 'm.itemType', 'm.productionInItemId'])
+        .select(['m.id', 'm.itemCode', 'm.name', 'm.itemType', 'm.productionInItemId', 'm.productionInItemId2', 'm.productionInItemId3', 'm.processes'])
         .where('m.companyId = :companyId', { companyId })
         .getMany();
       this.masterItemsCache = { companyId, timestamp: Date.now(), items: raw };
@@ -392,15 +392,37 @@ export class ProductionInventoryReportService {
     const producedMap = byItem(producedRows, 'itemId');
     const requiredMap = byItem(requiredRows, 'itemId');
 
-    // TASK #39 — flow chain index over the whole company.
+    // TASK #39 & FLOW RECONCILIATION — comprehensive flow chain index over the company.
     const scopeItemIds = new Set(items.map((i) => i.id));
     const masterById = new Map(masterItems.map((m: any) => [m.id, m]));
     const consumersOf = new Map<string, any[]>();
+    const addConsumer = (inId: string | null | undefined, consumer: any) => {
+      if (!inId) return;
+      const list = consumersOf.get(inId) ?? [];
+      if (!list.some((existing: any) => existing.id === consumer.id)) {
+        list.push(consumer);
+        consumersOf.set(inId, list);
+      }
+    };
+
     for (const m of masterItems as any[]) {
-      if (!m.productionInItemId) continue;
-      const list = consumersOf.get(m.productionInItemId) ?? [];
-      list.push(m);
-      consumersOf.set(m.productionInItemId, list);
+      addConsumer(m.productionInItemId, m);
+      addConsumer(m.productionInItemId2, m);
+      addConsumer(m.productionInItemId3, m);
+
+      // Multi-stage configured process route (e.g. stage 4 output feeds stage 5 output)
+      if (Array.isArray(m.processes)) {
+        for (let i = 0; i < m.processes.length - 1; i++) {
+          const fromStage = m.processes[i];
+          const toStage = m.processes[i + 1];
+          if (fromStage?.outputItemId && toStage?.outputItemId) {
+            const nextItem = masterById.get(toStage.outputItemId);
+            if (nextItem) {
+              addConsumer(fromStage.outputItemId, nextItem);
+            }
+          }
+        }
+      }
     }
     const scopeByItemId = new Map(items.map((i) => [i.id, i]));
 
@@ -423,10 +445,21 @@ export class ProductionInventoryReportService {
       const totalOut = filters.movementType ? N(l?.movOut) : rangeOut;
       const shortage = Math.max(0, R4(-closingBalance));
 
-      // TASK #39 — explicit reconciliation + flow chain for this row.
-      const sourceItem = item.productionInItemId
+      // Upstream source resolution: scalar productionInItemId or previous stage in processes
+      let sourceItem = item.productionInItemId
         ? (scopeByItemId.get(item.productionInItemId) ?? masterById.get(item.productionInItemId) ?? null)
         : null;
+
+      if (!sourceItem && Array.isArray(item.processes)) {
+        const myStageIdx = item.processes.findIndex((pr: any) => pr?.outputItemId === item.id);
+        if (myStageIdx > 0) {
+          const prevOutputId = item.processes[myStageIdx - 1]?.outputItemId;
+          if (prevOutputId) {
+            sourceItem = scopeByItemId.get(prevOutputId) ?? masterById.get(prevOutputId) ?? null;
+          }
+        }
+      }
+
       const consumers = (consumersOf.get(item.id) ?? []).map((c: any) => ({
         itemId: c.id,
         itemCode: c.itemCode,
@@ -742,133 +775,161 @@ export class ProductionInventoryReportService {
 
     });
 
-    // Build Material Journey chain using fast targeted CTE (querying only related items instead of 3,800+ items)
+    // Authoritative Material Flow & Traceability Journey
     const journey: any[] = [];
     try {
-      const chainRaw: any[] = await this.itemRepo.query(`
-        WITH RECURSIVE
-          upstream AS (
-            SELECT id, item_code, name, item_type, production_in_item_id, department_id, base_uom_id, 1 as level
-            FROM items WHERE id = $1
-            UNION ALL
-            SELECT i.id, i.item_code, i.name, i.item_type, i.production_in_item_id, i.department_id, i.base_uom_id, u.level + 1
-            FROM items i
-            INNER JOIN upstream u ON i.id = u.production_in_item_id
-            WHERE u.level < 10
-          ),
-          root_item AS (
-            SELECT id FROM upstream WHERE production_in_item_id IS NULL OR production_in_item_id NOT IN (SELECT id FROM items)
-            ORDER BY level DESC LIMIT 1
-          ),
-          downstream AS (
-            SELECT id, item_code, name, item_type, production_in_item_id, department_id, base_uom_id, 1 as depth
-            FROM items WHERE id IN (SELECT id FROM root_item)
-            UNION ALL
-            SELECT i.id, i.item_code, i.name, i.item_type, i.production_in_item_id, i.department_id, i.base_uom_id, d.depth + 1
-            FROM items i
-            INNER JOIN downstream d ON i.production_in_item_id = d.id
-            WHERE d.depth < 10
-          )
-        SELECT DISTINCT d.id, d.item_code as "itemCode", d.name, d.item_type as "itemType", d.production_in_item_id as "productionInItemId",
-               dept.name as "departmentName", uom.code as "uomCode"
-        FROM downstream d
-        LEFT JOIN departments dept ON dept.id = d.department_id
-        LEFT JOIN uoms uom ON uom.id = d.base_uom_id
-      `, [item.id]);
+      let routeProcesses = Array.isArray(item.processes) && item.processes.length > 0 ? item.processes : null;
 
-      const itemMap = new Map(chainRaw.map((i) => [i.id, i]));
-      const childrenOf = new Map<string, any[]>();
-      for (const m of chainRaw) {
-        if (m.productionInItemId) {
-          const list = childrenOf.get(m.productionInItemId) ?? [];
-          list.push(m);
-          childrenOf.set(m.productionInItemId, list);
+      // If this item does not have a multi-step route configured directly on itself,
+      // find if any item in the same production chain has the full route
+      if (!routeProcesses || routeProcesses.length < 3) {
+        const candidateItems = await this.itemRepo.query(`
+          SELECT id, item_code, name, processes
+          FROM items
+          WHERE company_id = $1
+            AND processes IS NOT NULL
+            AND (
+              processes::text LIKE '%${item.id}%'
+              OR production_in_item_id = $2
+              OR production_in_item_id_2 = $2
+              OR production_in_item_id_3 = $2
+            )
+          LIMIT 5
+        `, [companyId, item.id]);
+
+        for (const cand of candidateItems) {
+          const parsed = typeof cand.processes === 'string' ? JSON.parse(cand.processes) : cand.processes;
+          if (Array.isArray(parsed) && parsed.length > (routeProcesses?.length || 0)) {
+            routeProcesses = parsed;
+          }
         }
       }
 
-      // Root item discovery (trace upstream)
-      let rootItem: any = itemMap.get(item.id) || item;
-      const visitedUp = new Set<string>([item.id]);
-      while (rootItem.productionInItemId && itemMap.has(rootItem.productionInItemId)) {
-        const parent = itemMap.get(rootItem.productionInItemId)!;
-        if (visitedUp.has(parent.id)) break;
-        visitedUp.add(parent.id);
-        rootItem = parent;
-      }
+      if (routeProcesses && routeProcesses.length > 0) {
+        // Collect all referenced output item IDs from the route
+        const outputIds: string[] = routeProcesses
+          .map((p: any) => p.outputItemId)
+          .filter((id: any): id is string => typeof id === 'string' && id.length > 0);
 
-      journey.push({
-        stageNumber: 1,
-        stageKey: 'RM_RECEIPT',
-        stageName: 'Raw Material Receipt & Stores',
-        departmentName: rootItem.departmentName || rootItem.department?.name || 'Raw Material Stores',
-        itemCode: rootItem.itemCode,
-        itemName: rootItem.name,
-        itemType: rootItem.itemType,
-        uom: rootItem.uomCode || rootItem.baseUom?.code || 'KG',
-        isCurrentItem: rootItem.id === item.id,
-      });
+        const stageItems = outputIds.length > 0
+          ? await this.itemRepo
+              .createQueryBuilder('it')
+              .leftJoinAndSelect('it.baseUom', 'uom')
+              .leftJoinAndSelect('it.department', 'dept')
+              .where('it.id IN (:...outputIds)', { outputIds })
+              .getMany()
+          : [];
+        const stageItemMap = new Map(stageItems.map((si) => [si.id, si]));
 
-      const l1 = childrenOf.get(rootItem.id) || [];
-      if (l1.length > 0) {
-        journey.push({
-          stageNumber: 2,
-          stageKey: 'PRIMARY_PROCESS',
-          stageName: 'Primary Processing / Straightening',
-          departmentName: l1[0]?.departmentName || l1[0]?.department?.name || 'Straightening Dept',
-          itemCode: l1.map((c) => c.itemCode).join(', '),
-          itemName: l1.map((c) => c.name).join(', '),
-          itemType: 'SEMI_FINISHED',
-          uom: l1[0]?.uomCode || l1[0]?.baseUom?.code || 'KG',
-          isCurrentItem: l1.some((c) => c.id === item.id),
-          items: l1.map((c) => ({ id: c.id, itemCode: c.itemCode, name: c.name, department: c.departmentName || c.department?.name })),
+        routeProcesses.forEach((p: any, idx: number) => {
+          const matchedItem = p.outputItemId ? stageItemMap.get(p.outputItemId) : null;
+          const stageDept = p.departmentName || matchedItem?.department?.name || 'Manufacturing';
+          const stageItemCode = matchedItem?.itemCode || (p.outputItemId === item.id ? item.itemCode : '');
+          const stageItemName = matchedItem?.name || (p.outputItemId === item.id ? item.name : p.name);
+          const stageItemType = matchedItem?.itemType || (idx === 0 ? 'RAW_MATERIAL' : 'WORK_IN_PROGRESS');
+          const stageUom = matchedItem?.baseUom?.code || (idx === 0 ? 'KG' : 'PCS');
+          const isCurrent = p.outputItemId === item.id || matchedItem?.id === item.id;
+
+          journey.push({
+            stageNumber: idx + 1,
+            stageKey: p.name?.toUpperCase().replace(/[^A-Z0-9]+/g, '_') || `STAGE_${idx + 1}`,
+            stageName: p.name,
+            departmentName: stageDept,
+            itemId: p.outputItemId || (isCurrent ? item.id : null),
+            itemCode: stageItemCode,
+            itemName: stageItemName,
+            itemType: stageItemType,
+            uom: stageUom,
+            isCurrentItem: isCurrent,
+          });
         });
 
-        const l2: any[] = [];
-        for (const c of l1) {
-          const next = childrenOf.get(c.id) || [];
-          l2.push(...next);
-        }
-        if (l2.length > 0) {
-          journey.push({
-            stageNumber: 3,
-            stageKey: 'INTERMEDIATE_PROCESS',
-            stageName: 'Intermediate Processing / Swaging',
-            departmentName: l2[0]?.departmentName || l2[0]?.department?.name || 'Swaging Dept',
-            itemCode: l2.map((c) => c.itemCode).join(', '),
-            itemName: l2.map((c) => c.name).join(', '),
-            itemType: 'SEMI_FINISHED',
-            uom: l2[0]?.uomCode || l2[0]?.baseUom?.code || 'KG',
-            isCurrentItem: l2.some((c) => c.id === item.id),
-            items: l2.map((c) => ({ id: c.id, itemCode: c.itemCode, name: c.name, department: c.departmentName || c.department?.name })),
+        // Check if there is a downstream Finished Good (Carton Packing) consuming the last stage
+        const lastStageOutputId = routeProcesses[routeProcesses.length - 1]?.outputItemId;
+        if (lastStageOutputId) {
+          const downstreamFG = await this.itemRepo.findOne({
+            where: [
+              { companyId, productionInItemId: lastStageOutputId },
+              { companyId, productionInItemId2: lastStageOutputId },
+              { companyId, productionInItemId3: lastStageOutputId },
+            ],
+            relations: ['baseUom', 'department'],
           });
-
-          const l3: any[] = [];
-          for (const c of l2) {
-            const next = childrenOf.get(c.id) || [];
-            l3.push(...next);
-          }
-          if (l3.length > 0) {
+          if (downstreamFG && !journey.some((j) => j.itemId === downstreamFG.id)) {
             journey.push({
-              stageNumber: 4,
+              stageNumber: journey.length + 1,
               stageKey: 'FINISHED_GOOD',
-              stageName: 'Finished Goods / Packing',
-              departmentName: l3[0]?.departmentName || l3[0]?.department?.name || 'Finished Goods Store',
-              itemCode: l3.map((c) => c.itemCode).join(', '),
-              itemName: l3.map((c) => c.name).join(', '),
-              itemType: l3[0]?.itemType || 'FINISHED_GOOD',
-              uom: l3[0]?.uomCode || l3[0]?.baseUom?.code || 'KG',
-              isCurrentItem: l3.some((c) => c.id === item.id),
-              items: l3.map((c) => ({ id: c.id, itemCode: c.itemCode, name: c.name, department: c.departmentName || c.department?.name })),
+              stageName: 'Finished Goods / Carton Packing',
+              departmentName: downstreamFG.department?.name || 'Finished Goods Store',
+              itemId: downstreamFG.id,
+              itemCode: downstreamFG.itemCode,
+              itemName: downstreamFG.name,
+              itemType: downstreamFG.itemType,
+              uom: downstreamFG.baseUom?.code || 'PCS',
+              isCurrentItem: downstreamFG.id === item.id,
             });
           }
         }
+      } else {
+        // Fallback: Strictly linear upstream and downstream (NO sister variants or sibling pooling)
+        const linearUpstream: any[] = [];
+        let currUp: any = item;
+        const visitedUp = new Set<string>([item.id]);
+        while (currUp.productionInItemId) {
+          if (visitedUp.has(currUp.productionInItemId)) break;
+          visitedUp.add(currUp.productionInItemId);
+          const parent = await this.itemRepo.findOne({
+            where: { id: currUp.productionInItemId, companyId },
+            relations: ['baseUom', 'department'],
+          });
+          if (!parent) break;
+          linearUpstream.unshift(parent);
+          currUp = parent;
+        }
+
+        // Downstream single child
+        const linearDownstream: any[] = [];
+        let currDown: any = item;
+        const visitedDown = new Set<string>([item.id]);
+        while (currDown) {
+          const child = await this.itemRepo.findOne({
+            where: [
+              { companyId, productionInItemId: currDown.id },
+              { companyId, productionInItemId2: currDown.id },
+              { companyId, productionInItemId3: currDown.id },
+            ],
+            relations: ['baseUom', 'department'],
+          });
+          if (!child || visitedDown.has(child.id)) break;
+          visitedDown.add(child.id);
+          linearDownstream.push(child);
+          currDown = child;
+        }
+
+        const fullChain = [...linearUpstream, item, ...linearDownstream];
+        fullChain.forEach((ch, idx) => {
+          journey.push({
+            stageNumber: idx + 1,
+            stageKey: ch.itemType || `STAGE_${idx + 1}`,
+            stageName: ch.department?.name || (idx === 0 ? 'Raw Material Stores' : idx === fullChain.length - 1 ? 'Finished Goods' : 'Production Process'),
+            departmentName: ch.department?.name || 'Manufacturing',
+            itemId: ch.id,
+            itemCode: ch.itemCode,
+            itemName: ch.name,
+            itemType: ch.itemType,
+            uom: ch.baseUom?.code || 'KG',
+            isCurrentItem: ch.id === item.id,
+          });
+        });
       }
 
+      // Final dispatch stage
       journey.push({
         stageNumber: journey.length + 1,
         stageKey: 'DISPATCH',
         stageName: 'Customer Dispatch & Sales',
         departmentName: 'Dispatch & Logistics',
+        itemId: null,
         itemCode: 'DISPATCH',
         itemName: 'Dispatched to Customer (Outward)',
         itemType: 'DISPATCH',
