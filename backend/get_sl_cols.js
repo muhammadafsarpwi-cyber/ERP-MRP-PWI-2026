@@ -10,17 +10,13 @@ const client = new Client({
 });
 async function main() {
   await client.connect();
-  const res = await client.query(`
-    SELECT id, item_code, name, processes, production_in_item_id
-    FROM items
-    WHERE item_code IN ('WIP-SP-009', 'WIP-SP-003', 'WIP-SP-004', 'WIP-SP-002', 'WIP-SPL-001', 'WIP-SPL-002')
-    ORDER BY item_code
+  const colRes = await client.query(`
+    SELECT column_name, data_type 
+    FROM information_schema.columns 
+    WHERE table_name = 'stock_ledger'
   `);
-  for (const row of res.rows) {
-    console.log(`=== ${row.item_code} (${row.name}) ===`);
-    console.log('processes:', JSON.stringify(row.processes, null, 2));
-    console.log('production_in_item_id:', row.production_in_item_id);
-  }
+  console.log('stock_ledger columns:');
+  console.log(colRes.rows.map(c => c.column_name).join(', '));
   await client.end();
 }
 main().catch(console.error);

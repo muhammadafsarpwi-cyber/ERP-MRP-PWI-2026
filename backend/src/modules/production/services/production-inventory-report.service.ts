@@ -410,16 +410,13 @@ export class ProductionInventoryReportService {
       addConsumer(m.productionInItemId2, m);
       addConsumer(m.productionInItemId3, m);
 
-      // Multi-stage configured process route (e.g. stage 4 output feeds stage 5 output)
-      if (Array.isArray(m.processes)) {
-        for (let i = 0; i < m.processes.length - 1; i++) {
-          const fromStage = m.processes[i];
-          const toStage = m.processes[i + 1];
-          if (fromStage?.outputItemId && toStage?.outputItemId) {
-            const nextItem = masterById.get(toStage.outputItemId);
-            if (nextItem) {
-              addConsumer(fromStage.outputItemId, nextItem);
-            }
+      // If m has configured multi-stage processes, its immediate preceding stage feeds m
+      if (Array.isArray(m.processes) && m.processes.length > 0) {
+        const myIdx = m.processes.findIndex((pr: any) => pr?.outputItemId === m.id);
+        if (myIdx > 0) {
+          const prevOutputId = m.processes[myIdx - 1]?.outputItemId;
+          if (prevOutputId) {
+            addConsumer(prevOutputId, m);
           }
         }
       }
@@ -445,12 +442,10 @@ export class ProductionInventoryReportService {
       const totalOut = filters.movementType ? N(l?.movOut) : rangeOut;
       const shortage = Math.max(0, R4(-closingBalance));
 
-      // Upstream source resolution: scalar productionInItemId or previous stage in processes
-      let sourceItem = item.productionInItemId
-        ? (scopeByItemId.get(item.productionInItemId) ?? masterById.get(item.productionInItemId) ?? null)
-        : null;
-
-      if (!sourceItem && Array.isArray(item.processes)) {
+      // Upstream source resolution: authoritative preceding stage in processes takes precedence,
+      // falling back to scalar productionInItemId when processes is not configured.
+      let sourceItem = null;
+      if (Array.isArray(item.processes) && item.processes.length > 0) {
         const myStageIdx = item.processes.findIndex((pr: any) => pr?.outputItemId === item.id);
         if (myStageIdx > 0) {
           const prevOutputId = item.processes[myStageIdx - 1]?.outputItemId;
@@ -458,6 +453,10 @@ export class ProductionInventoryReportService {
             sourceItem = scopeByItemId.get(prevOutputId) ?? masterById.get(prevOutputId) ?? null;
           }
         }
+      }
+
+      if (!sourceItem && item.productionInItemId) {
+        sourceItem = scopeByItemId.get(item.productionInItemId) ?? masterById.get(item.productionInItemId) ?? null;
       }
 
       const consumers = (consumersOf.get(item.id) ?? []).map((c: any) => ({
