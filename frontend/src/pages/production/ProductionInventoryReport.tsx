@@ -356,6 +356,7 @@ const ProductionInventoryReport: React.FC = () => {
     items: ReportRow[];
   } | null>(null);
   const [deptItemsSearchText, setDeptItemsSearchText] = useState('');
+  const [ledgerSearchTerm, setLedgerSearchTerm] = useState('');
 
   const handleViewDeptItems = (dept: {
     departmentId: string;
@@ -525,10 +526,10 @@ const ProductionInventoryReport: React.FC = () => {
   }, [divisions, movementTypes, masterItemTypes, cachedTab]);
 
   useEffect(() => {
-    if (tabSessionCache.has(tabKey)) {
-      return;
-    }
-    void loadReport({});
+    // Always fetch fresh data on mount so report is never frozen on stale session cache
+    tabSessionCache.remove(tabKey);
+    ledgerCacheRef.current.clear();
+    void loadReport(applied);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -573,6 +574,7 @@ const ProductionInventoryReport: React.FC = () => {
     setIsLedgerMinimized(false);
     setSelectedRow(row);
     setLedgerModalPos({ x: 0, y: 0 });
+    setLedgerSearchTerm('');
 
     const cacheKey = `${row.itemId}_${applied.dateFrom || ''}_${applied.dateTo || ''}_${applied.movementType || ''}`;
     const cached = ledgerCacheRef.current.get(cacheKey);
@@ -661,6 +663,33 @@ const ProductionInventoryReport: React.FC = () => {
     const set = new Set(selectedRowKeys);
     return report.items.filter((r) => set.has(r.itemId));
   }, [report?.items, selectedRowKeys]);
+
+  // Filtered Stock Ledger rows matching search query (Entry Number, Reference, Dept, Machine, etc.)
+  const filteredLedgerRows = useMemo(() => {
+    if (!ledger?.rows) return [];
+    if (!ledgerSearchTerm.trim()) return ledger.rows;
+    const q = ledgerSearchTerm.toLowerCase().trim();
+    return ledger.rows.filter((r: any) => {
+      const refNo = (r.referenceNumber || r.productionEntry?.entryNumber || '').toLowerCase();
+      const refType = (r.referenceType || '').toLowerCase();
+      const txType = (r.transactionType || '').toLowerCase();
+      const dept = (r.productionEntry?.departmentName || r.department?.name || '').toLowerCase();
+      const shift = (r.productionEntry?.shiftName || '').toLowerCase();
+      const mach = (r.productionEntry?.machineNo || '').toLowerCase();
+      const produced = (r.productionEntry?.producingItemCode || r.productionEntry?.producingItemName || '').toLowerCase();
+      const dateStr = dayjs(r.transactionDate).format('DD MMM YYYY').toLowerCase();
+      return (
+        refNo.includes(q) ||
+        refType.includes(q) ||
+        txType.includes(q) ||
+        dept.includes(q) ||
+        shift.includes(q) ||
+        mach.includes(q) ||
+        produced.includes(q) ||
+        dateStr.includes(q)
+      );
+    });
+  }, [ledger?.rows, ledgerSearchTerm]);
 
   const handleShareBatchWhatsApp = () => {
     if (selectedRows.length === 0) return;
@@ -1751,6 +1780,7 @@ const ProductionInventoryReport: React.FC = () => {
             icon={<ReloadOutlined spin={loading} />}
             onClick={() => {
               tabSessionCache.remove(tabKey);
+              ledgerCacheRef.current.clear();
               void loadReport(applied);
             }}
             loading={loading}
@@ -1804,8 +1834,12 @@ const ProductionInventoryReport: React.FC = () => {
 
           <div className="erp-pir__toolbar-right">
             <Button
-              icon={<ReloadOutlined />}
-              onClick={() => void loadReport(applied)}
+              icon={<ReloadOutlined spin={loading} />}
+              onClick={() => {
+                tabSessionCache.remove(tabKey);
+                ledgerCacheRef.current.clear();
+                void loadReport(applied);
+              }}
               title="Refresh Report Data"
             >
               Refresh
@@ -2331,24 +2365,42 @@ const ProductionInventoryReport: React.FC = () => {
               );
             })()}
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginBottom: 8 }}>
-              <Button
-                size="small"
-                icon={<NodeIndexOutlined style={{ color: '#16a34a' }} />}
-                onClick={() => openJourneyFromLedger(ledger)}
-              >
-                Material Flow Journey
-              </Button>
-              <Button
-                size="small"
-                icon={<WhatsAppOutlined style={{ color: '#16a34a' }} />}
-                onClick={() => {
-                  const text = `*PWI Stock Ledger Summary*\nItem: ${ledger.item?.itemCode} - ${ledger.item?.name}\nOpening: ${formatInt(ledger.openingBalance)}\nIN: ${formatInt(ledger.totalIn)}\nOUT: ${formatInt(ledger.totalOut)}\nClosing: ${formatInt(ledger.closingBalance)}`;
-                  window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
-                }}
-              >
-                Share on WhatsApp
-              </Button>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: '1 1 320px', maxWidth: 440 }}>
+                <Input
+                  size="small"
+                  allowClear
+                  placeholder="Search Entry # (PE-2026-XXXXX), Reference, Dept..."
+                  prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
+                  value={ledgerSearchTerm}
+                  onChange={(e) => setLedgerSearchTerm(e.target.value)}
+                  style={{ width: '100%', borderRadius: 6 }}
+                />
+                {ledgerSearchTerm.trim() && (
+                  <span style={{ fontSize: 11, color: '#64748b', whiteSpace: 'nowrap' }}>
+                    {filteredLedgerRows.length} of {ledger.rows.length} found
+                  </span>
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <Button
+                  size="small"
+                  icon={<NodeIndexOutlined style={{ color: '#16a34a' }} />}
+                  onClick={() => openJourneyFromLedger(ledger)}
+                >
+                  Material Flow Journey
+                </Button>
+                <Button
+                  size="small"
+                  icon={<WhatsAppOutlined style={{ color: '#16a34a' }} />}
+                  onClick={() => {
+                    const text = `*PWI Stock Ledger Summary*\nItem: ${ledger.item?.itemCode} - ${ledger.item?.name}\nOpening: ${formatInt(ledger.openingBalance)}\nIN: ${formatInt(ledger.totalIn)}\nOUT: ${formatInt(ledger.totalOut)}\nClosing: ${formatInt(ledger.closingBalance)}`;
+                    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+                  }}
+                >
+                  Share on WhatsApp
+                </Button>
+              </div>
             </div>
 
             <Table
@@ -2356,9 +2408,9 @@ const ProductionInventoryReport: React.FC = () => {
               size="small"
               className="erp-modern-ledger-table"
               columns={ledgerColumns}
-              dataSource={ledger.rows}
+              dataSource={filteredLedgerRows}
               scroll={{ x: 1000, y: isLedgerMaximized ? '60vh' : 380 }}
-              pagination={ledger.rows.length > 20 ? { pageSize: 20, showSizeChanger: true } : false}
+              pagination={filteredLedgerRows.length > 20 ? { pageSize: 20, showSizeChanger: true } : false}
               bordered
             />
             {ledger.truncated && (

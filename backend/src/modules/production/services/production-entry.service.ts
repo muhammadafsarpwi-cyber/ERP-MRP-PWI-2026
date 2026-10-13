@@ -403,7 +403,7 @@ export class ProductionEntryService {
     if (productionOrderId) qb.andWhere('pe.productionOrderId = :productionOrderId', { productionOrderId });
     if (search?.trim()) {
       qb.andWhere(
-        '(pe.operatorName ILIKE :search OR pe.machineNo ILIKE :search OR item.itemCode ILIKE :search OR item.name ILIKE :search OR pe.remarks ILIKE :search)',
+        '(pe.entryNumber ILIKE :search OR pe.operatorName ILIKE :search OR pe.machineNo ILIKE :search OR item.itemCode ILIKE :search OR item.name ILIKE :search OR pe.remarks ILIKE :search)',
         { search: `%${search.trim()}%` },
       );
     }
@@ -435,7 +435,7 @@ export class ProductionEntryService {
     if (productionOrderId) summaryQb.andWhere('pe.productionOrderId = :productionOrderId', { productionOrderId });
     if (search?.trim()) {
       summaryQb.andWhere(
-        '(pe.operatorName ILIKE :search OR pe.machineNo ILIKE :search OR item.itemCode ILIKE :search OR item.name ILIKE :search OR pe.remarks ILIKE :search)',
+        '(pe.entryNumber ILIKE :search OR pe.operatorName ILIKE :search OR pe.machineNo ILIKE :search OR item.itemCode ILIKE :search OR item.name ILIKE :search OR pe.remarks ILIKE :search)',
         { search: `%${search.trim()}%` },
       );
     }
@@ -1242,9 +1242,12 @@ addToDept(org, {
       uom?: string | null;
       achievementPercentage?: number | null;
       variance?: number | null;
+      primaryEntryId?: string | null;
       entries: Array<{
         id: string;
+        entryId?: string;
         itemId: string;
+        itemCode?: string | null;
         itemName: string | null;
         targetQuantity: number;
         actualQuantity: number;
@@ -1303,6 +1306,7 @@ addToDept(org, {
     if (sectionId) entriesQb.andWhere('pe.sectionId = :sectionId', { sectionId });
     if (departmentId) entriesQb.andWhere('pe.departmentId = :departmentId', { departmentId });
     const entries = await entriesQb.getMany();
+    await this.hydrateNestedItems(entries);
 
     let activeTargets: any[] = [];
     if (typeof (this.machineTargetService as any)?.findActiveTargetsForShift === 'function') {
@@ -1345,6 +1349,9 @@ addToDept(org, {
       if (hasEntries) {
         actualQuantity = machineEntries.reduce((sum, e) => sum + Number(e.actualQuantity || 0), 0);
         targetQuantity = machineEntries.reduce((sum, e) => sum + Number(e.targetQuantity || 0), 0);
+        if ((!targetQuantity || targetQuantity === 0) && targetRecord?.targetQuantity) {
+          targetQuantity = Number(targetRecord.targetQuantity);
+        }
         const firstWithUom = machineEntries.find((e: any) => e.uom?.code || e.uom?.symbol);
         uom = (firstWithUom as any)?.uom?.code ?? (firstWithUom as any)?.uom?.symbol ?? targetRecord?.uom?.code ?? null;
       } else {
@@ -1361,6 +1368,47 @@ addToDept(org, {
         ? Number((actualQuantity - targetQuantity).toFixed(4))
         : null;
 
+      const machineItems: Array<{
+        id: string;
+        entryId: string;
+        itemId: string;
+        itemCode?: string | null;
+        itemName: string | null;
+        targetQuantity: number;
+        actualQuantity: number;
+        uom?: string | null;
+      }> = [];
+
+      for (const e of machineEntries) {
+        if (e.nestedItems && e.nestedItems.length > 0) {
+          for (const ni of e.nestedItems) {
+            machineItems.push({
+              id: `${e.id}_${ni.lineNumber || ni.itemId}`,
+              entryId: e.id,
+              itemId: ni.itemId || e.itemId,
+              itemCode: ni.itemCode || null,
+              itemName: ni.itemName || (e.item as any)?.name || null,
+              targetQuantity: Number(ni.targetQuantity || 0),
+              actualQuantity: Number(ni.actualQuantity || 0),
+              uom: ni.uomCode ?? (e.uom as any)?.code ?? (e.uom as any)?.symbol ?? null,
+            });
+          }
+        } else {
+          machineItems.push({
+            id: e.id,
+            entryId: e.id,
+            itemId: e.itemId,
+            itemCode: (e.item as any)?.itemCode ?? null,
+            itemName: (e.item as any)?.name ?? null,
+            targetQuantity: Number(e.targetQuantity || 0),
+            actualQuantity: Number(e.actualQuantity || 0),
+            uom: (e.uom as any)?.code ?? (e.uom as any)?.symbol ?? null,
+          });
+        }
+      }
+
+      const primaryEntryId = machineEntries[0]?.id ?? null;
+
       return {
         id: m.id,
         systemCode: m.machineId,
@@ -1368,6 +1416,7 @@ addToDept(org, {
         name: m.name,
         status: (hasEntries ? 'ENTERED' : 'ENTRY_REQUIRED') as 'ENTERED' | 'ENTRY_REQUIRED',
         entryCount: machineEntries.length,
+        primaryEntryId,
         divisionId: m.divisionId,
         sectionId: m.sectionId,
         departmentId: m.departmentId,
@@ -1377,14 +1426,7 @@ addToDept(org, {
         uom,
         achievementPercentage,
         variance,
-        entries: machineEntries.map((e) => ({
-          id: e.id,
-          itemId: e.itemId,
-          itemName: (e.item as { name?: string } | null)?.name ?? null,
-          targetQuantity: Number(e.targetQuantity),
-          actualQuantity: Number(e.actualQuantity),
-          uom: (e.uom as any)?.code ?? (e.uom as any)?.symbol ?? null,
-        })),
+        entries: machineItems,
       };
     });
 

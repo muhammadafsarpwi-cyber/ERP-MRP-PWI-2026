@@ -1315,7 +1315,9 @@ export const ProductionItemOpenStock: React.FC = () => {
                   const itName = it.itemName || it.name || '';
                   return (
                     <Option key={it.id} value={it.id}>
-                      {itName ? `${itName} (${it.itemCode})` : it.itemCode}
+                      {itName
+                        ? `${itName} (${it.itemCode}${it.departmentName ? ` — ${it.departmentName}` : ''})`
+                        : it.itemCode}
                     </Option>
                   );
                 })}
@@ -1566,7 +1568,9 @@ export const ProductionItemOpenStock: React.FC = () => {
                 const itName = it.itemName || it.name || '';
                 return (
                   <Option key={it.id} value={it.id}>
-                    {itName ? `${itName} (${it.itemCode})` : it.itemCode}
+                    {itName
+                      ? `${itName} (${it.itemCode}${it.departmentName ? ` — ${it.departmentName}` : ''})`
+                      : it.itemCode}
                   </Option>
                 );
               })}
@@ -1825,6 +1829,20 @@ export const ProductionItemOpenStock: React.FC = () => {
     },
   ];
 
+  const handleDeleteHistoryRecord = async (id: string) => {
+    try {
+      const res = await apiService.delete<{ success: boolean; message: string }>(`/production/open-stock/history/${id}`);
+      if (res && res.success) {
+        message.success(res.message || 'Transaction deleted and stock reverted successfully.');
+        loadHistory(historyWarehouseId);
+        loadItems(selectedWarehouseId);
+        loadStats(selectedWarehouseId);
+      }
+    } catch (err: any) {
+      message.error(err?.message || 'Failed to delete transaction.');
+    }
+  };
+
   const handleReverseHistoryRecord = async (id: string) => {
     try {
       const res = await apiService.post<{ success: boolean; message: string }>(`/production/open-stock/history/${id}/reverse`, {});
@@ -1952,18 +1970,18 @@ export const ProductionItemOpenStock: React.FC = () => {
     {
       title: 'Action',
       key: 'action',
-      width: 90,
+      width: 100,
       render: (_, record: any) => (
         <Popconfirm
-          title="Reverse Entry"
-          description="Are you sure you want to reverse/cancel this entry? This will adjust the floor stock back."
-          onConfirm={() => handleReverseHistoryRecord(record.id)}
-          okText="Yes, Reverse"
+          title="Delete Entry"
+          description="Are you sure you want to delete this entry? This will remove the record from ledger and revert the floor stock."
+          onConfirm={() => handleDeleteHistoryRecord(record.id)}
+          okText="Yes, Delete"
           cancelText="No"
           okButtonProps={{ danger: true }}
         >
           <Button size="small" danger icon={<DeleteOutlined />}>
-            Reverse
+            Delete
           </Button>
         </Popconfirm>
       ),

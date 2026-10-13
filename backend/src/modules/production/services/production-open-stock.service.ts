@@ -716,6 +716,53 @@ export class ProductionOpenStockService {
   }
 
   /**
+   * Permanently delete a posted opening stock or adjustment ledger entry
+   * and revert its impact on inventory_balances.
+   */
+  async deleteTransaction(companyId: string, id: string, userId?: string) {
+    const entry = await this.ledgerRepo.findOne({
+      where: { id, companyId },
+      relations: ['item', 'warehouse'],
+    });
+    if (!entry) {
+      throw new BadRequestException('Transaction record not found.');
+    }
+
+    return await this.dataSource.transaction(async (manager) => {
+      const balance = await manager.findOne(InventoryBalance, {
+        where: {
+          companyId,
+          itemId: entry.itemId,
+          warehouseId: entry.warehouseId,
+        },
+      });
+
+      if (balance) {
+        // If entry was IN, deleting it removes qty from balance (-qty)
+        // If entry was OUT, deleting it restores qty back to balance (+qty)
+        const delta = entry.direction === 'IN' ? -Number(entry.quantity) : Number(entry.quantity);
+        balance.onHand = Number(balance.onHand) + delta;
+        balance.available = Number(balance.available) + delta;
+        await manager.save(InventoryBalance, balance);
+      }
+
+      await manager.remove(StockLedger, entry);
+
+      this.logger.log(
+        `Deleted stock ledger entry ${entry.referenceNumber || entry.id} (${entry.transactionType}, ${entry.quantity} ${entry.direction}) and reverted inventory balance.`,
+      );
+
+      return {
+        success: true,
+        message: `Transaction ${entry.referenceNumber || entry.id} deleted and stock balance updated successfully.`,
+        deletedLedgerId: id,
+        balanceAdjusted: !!balance,
+      };
+    });
+  }
+
+
+  /**
    * Dedicated Department Stock Breakdown & Hierarchy Matrix (Tab 5)
    * Groups items by department/warehouse with dual-unit (KG & PCS) conversion and division annotations.
    */

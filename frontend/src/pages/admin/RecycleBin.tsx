@@ -4,6 +4,7 @@ import {
   Button,
   Card,
   Empty,
+  Input,
   Popconfirm,
   Space,
   Table,
@@ -12,9 +13,16 @@ import {
   Typography,
 } from 'antd';
 import {
+  AppstoreOutlined,
+  CheckCircleOutlined,
+  ClockCircleOutlined,
   DeleteOutlined,
+  InfoCircleOutlined,
   ReloadOutlined,
   RollbackOutlined,
+  SafetyCertificateOutlined,
+  SearchOutlined,
+  UserOutlined,
   WarningOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
@@ -22,23 +30,12 @@ import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
 import { usePermission } from '../../hooks/usePermission';
 import { PageHeader } from '../../components/shared';
+import './recycleBin.css';
 
 const { Text, Paragraph } = Typography;
 
 // ─── Module contract (mirrors backend `modules/recycle-bin`) ────────────────
 
-/**
- * The trash matrices. `hand-packing` is a VIEW over production entries,
- * not a separate table — the Hand Packing screen writes ordinary production
- * entries tagged with a `HAND-PACK-*` machine number or a `[HAND PACKING]`
- * remark. The two production tabs are kept disjoint so the floor never counts
- * the same trashed lot twice.
- *
- * The Phase-2 entries exist because those screens already had a delete action
- * somewhere in the ERP (quotations were a hard delete; work orders, BOMs and
- * PM plans archived via `is_active = false`). The backend refuses any value
- * outside this union, so both sides must stay in step.
- */
 export type RecycleBinType =
   | 'production-entries'
   | 'job-cards'
@@ -73,32 +70,12 @@ export interface RecycleBinRow {
 interface TabSpec {
   key: RecycleBinType;
   emoji: string;
-  /** Full name — used in the grid heading and the empty-state sentence. */
   label: string;
-  /**
-   * Compact name for the pill bar. Deliberately short: the bar is a uniform
-   * grid of fixed-width blocks, and a long label would either wrap inside its
-   * block or force the whole row to reflow, which is exactly the distortion
-   * this field exists to prevent.
-   */
   shortLabel: string;
-  /** Owning department, rendered as a micro-label inside the pill. */
   dept: string;
   blurb: string;
 }
 
-/**
- * Ordered by department so the bar reads as a departmental switchboard.
- *
- * EVERY `shortLabel` is prefixed with its department's manufacturing glyph.
- * The bar renders as a SINGLE horizontal row (see `.erp-module-tabs` in
- * `styles/erp-redesign.css`), so a label
- * that had to wrap or shrink would break the block rhythm across all seventeen
- * buttons at once. The prefixes do double duty: they make the department
- * legible at a glance even when the micro-label line below is too small to
- * read, and they keep two similarly-named documents (a PM Plan vs a PM
- * Schedule, a Sales Order vs a Quotation) instantly distinguishable.
- */
 export const TABS: TabSpec[] = [
   // ── Production ─────────────────────────────────────────────────────────
   {
@@ -244,24 +221,15 @@ export const TABS: TabSpec[] = [
   },
 ];
 
-// ─── High-density compact tracking layout ───────────────────────────────────
-
-/**
- * Our `numCellStyle` tracking geometry, applied to EVERY body cell so the
- * recovery grids keep the same thin, dense row rhythm as the production
- * matrices. Tabular numerals keep counts aligned column-to-column even while
- * the list is being refilled.
- */
 export const numCellStyle: React.CSSProperties = {
   fontVariantNumeric: 'tabular-nums',
   fontSize: 12,
   fontWeight: 600,
   whiteSpace: 'nowrap',
-  padding: '3px 6px',
+  padding: '6px 8px',
   lineHeight: '18px',
 };
 
-/** Long-form text may wrap, but never adds a second line to a dense row. */
 const denseTextCellStyle: React.CSSProperties = {
   ...numCellStyle,
   fontWeight: 500,
@@ -279,59 +247,7 @@ const denseTableComponents = {
   body: { cell: DenseCell },
 };
 
-/**
- * Secondary restore action — deliberately not `primary`, never `danger`.
- *
- * Reads from the semantic `success` tokens rather than the old hard-coded
- * teal (`#00897b` / `#4db6ac` / `#e0f2f1`). The intent is identical — a
- * positive, reversible, non-destructive affordance — but the tokens now follow
- * the active palette and flip correctly in dark mode, where the previous
- * `#e0f2f1` fill was a light-teal block that glared against a dark surface.
- * Restore is the primary verb of this screen, so it has to stay legible in
- * both themes.
- */
-const restoreButtonStyle: React.CSSProperties = {
-  color: 'var(--theme-success)',
-  borderColor: 'var(--theme-success)',
-  backgroundColor: 'var(--theme-success-soft)',
-  fontSize: 12,
-  fontWeight: 600,
-  padding: '0 8px',
-};
-
-// ─── Industrial pill-button switchboard ─────────────────────────────────────
-
-/**
- * The department bar is a grid of uniform industrial BLOCKS, not antd's text
- * tabs — and it is a SINGLE HORIZONTAL ROW of seventeen of them.
- *
- * `gridAutoFlow: 'column'` is what enforces the single row: every button is
- * placed into the NEXT COLUMN rather than the next row, so the bar can never
- * wrap no matter how narrow the viewport gets. `gridAutoColumns` with a
- * `minmax()` floor keeps the blocks uniform — they grow together to fill the
- * available width, and when seventeen buttons can no longer share that width
- * without going below the floor they stop shrinking and the row scrolls
- * horizontally instead. Either way the block rhythm stays intact and the grid
- * never develops a ragged edge or an orphan button on a second line, which is
- * exactly the distortion a wrapping row of differently-sized text tabs
- * produces once a department name runs long.
- */
-/*
- * The switchboard's visual treatment now lives in `styles/erp-redesign.css`
- * under `.erp-module-tabs` / `.erp-module-tab*`.
- *
- * These used to be inline styles with hard-coded hex values (`#fafafa`,
- * `#595959`, `#00897b`). That had two real defects: none of them followed the
- * 34-palette theme system, and none of them followed dark mode — the light
- * teal active block and near-white idle blocks were unreadable on a dark
- * surface. Inline styles also could not be restyled by any stylesheet without
- * `!important` on every declaration.
- *
- * The active state is now keyed off `aria-selected` in CSS, so the styling
- * hook is the accessibility contract and the two cannot drift apart.
- */
-
-// ─── Page ───────────────────────────────────────────────────────────────────
+// ─── Main Page Component ────────────────────────────────────────────────────
 
 const RecycleBinPage: React.FC = () => {
   const { message } = App.useApp();
@@ -342,33 +258,13 @@ const RecycleBinPage: React.FC = () => {
   const [counts, setCounts] = useState<Partial<Record<RecycleBinType, number>>>({});
   const [loadingKey, setLoadingKey] = useState<RecycleBinType | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState<string>('');
 
-  /**
-   * `App.useApp()` hands back a FRESH `message` instance on every render, so
-   * any `useCallback` that closes over it changes identity each time and the
-   * fetch effects below would re-fire in a loop. It is read through a ref so
-   * the loaders stay referentially stable and a tab is fetched exactly once
-   * per activation.
-   */
   const messageRef = useRef(message);
   useEffect(() => {
     messageRef.current = message;
   }, [message]);
 
-  /**
-   * READ-ONLY BY DEFAULT. A floor operator may open the Recycle Bin and audit
-   * exactly what they and their colleagues deleted — that visibility is the
-   * point — but the 🔄 Restore control is not rendered at all without the
-   * `admin.recycle_bin.restore` guard. Hiding it rather than disabling it
-   * keeps the grid from filling up with greyed-out buttons an operator can
-   * never use.
-   *
-   * The trailing `admin.*.view` codes mirror the backend `PermissionGuard`'s
-   * admin-role bypass, so anyone the server would already treat as an admin
-   * sees the same controls the server would already allow them to press. This
-   * only decides RENDERING: the API remains the authority and refuses a
-   * non-admin restore regardless of what the DOM contains.
-   */
   const canRestore = useMemo(
     () =>
       canAny(
@@ -380,12 +276,6 @@ const RecycleBinPage: React.FC = () => {
     [canAny],
   );
 
-  /**
-   * Permanent deletion is server-enforced (`admin.recycle_bin.purge` + the
-   * backend's admin-role bypass). This only decides whether the red tray button
-   * is even rendered — the API remains the authority and refuses anyone who is
-   * not an admin regardless of what the UI shows.
-   */
   const canPurge = useMemo(
     () =>
       canAny(
@@ -441,9 +331,6 @@ const RecycleBinPage: React.FC = () => {
       try {
         const res: any = await apiService.post(`/admin/recycle-bin/${type}/${row.id}/restore`);
         messageRef.current?.success(res?.message || `${row.summary} restored`);
-        // Drop the row locally for an instant paint, then re-sync the server
-        // truth so a document that restored into the OTHER production tab
-        // (machine ⇄ hand packing) is reported accurately.
         setRows((prev) => ({
           ...prev,
           [type]: (prev[type] || []).filter((r) => r.id !== row.id),
@@ -481,12 +368,48 @@ const RecycleBinPage: React.FC = () => {
     [refresh],
   );
 
+  // ── KPI Metrics Calculations ──────────────────────────────────────────────
+  const totalTrashed = useMemo(
+    () => Object.values(counts).reduce((acc: number, val) => acc + (val || 0), 0),
+    [counts],
+  );
+
+  const activeModulesCount = useMemo(
+    () => Object.values(counts).filter((val) => (val || 0) > 0).length,
+    [counts],
+  );
+
+  const activeSpec = useMemo(
+    () => TABS.find((t) => t.key === activeTab) ?? TABS[0],
+    [activeTab],
+  );
+  const activeRows = rows[activeSpec.key] ?? [];
+  const activeIsLoading = loadingKey === activeSpec.key;
+  const activeCount = counts[activeSpec.key] ?? activeRows.length ?? 0;
+
+  // Search filter
+  const filteredRows = useMemo(() => {
+    if (!searchQuery.trim()) return activeRows;
+    const q = searchQuery.toLowerCase().trim();
+    return activeRows.filter((r) => {
+      const summaryMatch = (r.summary || '').toLowerCase().includes(q);
+      const detailMatch = (r.detail || '').toLowerCase().includes(q);
+      const compMatch = (r.componentName || '').toLowerCase().includes(q);
+      const byMatch = (r.deletedBy || '').toLowerCase().includes(q);
+      const ctxMatch = Object.values(r.context || {}).some((v) =>
+        String(v || '').toLowerCase().includes(q),
+      );
+      return summaryMatch || detailMatch || compMatch || byMatch || ctxMatch;
+    });
+  }, [activeRows, searchQuery]);
+
+  // ── High-Standard Enterprise Table Columns ─────────────────────────────────
   const buildColumns = useCallback(
     (type: RecycleBinType): ColumnsType<RecycleBinRow> => [
       {
         title: 'Date Deleted',
         key: 'deletedAt',
-        width: 168,
+        width: 160,
         sorter: (a, b) =>
           new Date(a.deletedAt || 0).getTime() - new Date(b.deletedAt || 0).getTime(),
         defaultSortOrder: 'descend',
@@ -494,78 +417,179 @@ const RecycleBinPage: React.FC = () => {
           if (!row.deletedAt) return <Text type="secondary">—</Text>;
           const when = new Date(row.deletedAt);
           return (
-            <Space size={0} direction="vertical">
-              <Text style={numCellStyle}>{when.toLocaleDateString()}</Text>
-              <Text type="secondary" style={{ ...numCellStyle, fontWeight: 400 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600 }}>
+                <ClockCircleOutlined style={{ fontSize: 12, color: 'var(--theme-text-secondary, #64748b)' }} />
+                <span>{when.toLocaleDateString()}</span>
+              </div>
+              <Text type="secondary" style={{ fontSize: 11, paddingLeft: 18 }}>
                 {when.toLocaleTimeString()}
               </Text>
-            </Space>
+            </div>
           );
         },
       },
       {
-        title: 'Source Component/Module',
+        title: 'Source Component / Item',
         key: 'componentName',
-        width: 240,
+        width: 230,
         render: (_, row) => (
-          <Text style={denseTextCellStyle} title={row.componentName}>
-            {row.componentName || '—'}
-          </Text>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span
+              style={{
+                fontWeight: 600,
+                fontSize: 12.5,
+                color: 'var(--theme-text, #f8fafc)',
+              }}
+              title={row.componentName}
+            >
+              {row.componentName || '—'}
+            </span>
+            {row.detail && row.detail !== row.componentName ? (
+              <span
+                style={{
+                  fontSize: 11,
+                  color: 'var(--theme-text-secondary, #64748b)',
+                }}
+                title={row.detail}
+              >
+                {row.detail}
+              </span>
+            ) : null}
+          </div>
         ),
       },
       {
-        title: 'Unique Record Summary (IDs/Codes)',
+        title: 'Record Summary & Parameters',
         key: 'summary',
-        width: 260,
+        width: 320,
         render: (_, row) => (
-          <Space size={0} direction="vertical">
-            <Text code style={numCellStyle}>
-              {row.summary}
-            </Text>
-            {row.detail ? (
-              <Text type="secondary" style={{ ...numCellStyle, fontWeight: 400 }} title={row.detail}>
-                {row.detail}
-              </Text>
-            ) : null}
-            <Space size={4} wrap>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              <span
+                style={{
+                  background: 'rgba(99, 102, 241, 0.15)',
+                  border: '1px solid rgba(99, 102, 241, 0.35)',
+                  color: '#818cf8',
+                  padding: '2px 8px',
+                  borderRadius: 5,
+                  fontFamily: 'monospace',
+                  fontSize: 11.5,
+                  fontWeight: 700,
+                }}
+              >
+                {row.summary}
+              </span>
+              {row.context?.machine ? (
+                <span
+                  style={{
+                    background: 'rgba(15, 23, 42, 0.6)',
+                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    padding: '2px 7px',
+                    borderRadius: 4,
+                    fontSize: 11,
+                    color: 'var(--theme-text-secondary, #94a3b8)',
+                  }}
+                >
+                  Machine: <strong>{String(row.context.machine)}</strong>
+                </span>
+              ) : null}
+              {row.context?.operator ? (
+                <span
+                  style={{
+                    background: 'rgba(15, 23, 42, 0.6)',
+                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    padding: '2px 7px',
+                    borderRadius: 4,
+                    fontSize: 11,
+                    color: 'var(--theme-text-secondary, #94a3b8)',
+                  }}
+                >
+                  Op: {String(row.context.operator)}
+                </span>
+              ) : null}
+              {row.context?.goodQty !== null && row.context?.goodQty !== undefined ? (
+                <span
+                  style={{
+                    background: 'rgba(16, 185, 129, 0.12)',
+                    border: '1px solid rgba(16, 185, 129, 0.25)',
+                    padding: '2px 7px',
+                    borderRadius: 4,
+                    fontSize: 11,
+                    color: '#34d399',
+                    fontWeight: 600,
+                  }}
+                >
+                  Good Qty: {Number(row.context.goodQty).toLocaleString()}
+                </span>
+              ) : null}
+            </div>
+            {/* Context chips */}
+            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
               {Object.entries(row.context || {})
+                .filter(([k]) => !['machine', 'operator', 'goodQty', 'source'].includes(k))
                 .slice(0, 3)
                 .map(([k, v]) => (
-                  <Tag key={k} style={{ ...numCellStyle, marginRight: 0 }}>
+                  <Tag
+                    key={k}
+                    style={{
+                      fontSize: 10.5,
+                      margin: 0,
+                      background: 'rgba(255, 255, 255, 0.04)',
+                      borderColor: 'rgba(255, 255, 255, 0.08)',
+                      color: 'var(--theme-text-muted, #94a3b8)',
+                    }}
+                  >
                     {k}: {v === null || v === '' ? '—' : String(v)}
                   </Tag>
                 ))}
-            </Space>
-          </Space>
+            </div>
+          </div>
         ),
       },
       {
         title: 'Deleted By',
         key: 'deletedBy',
-        width: 200,
+        width: 180,
         render: (_, row) =>
           row.deletedBy ? (
-            <Tooltip title={row.deletedById}>
-              <Text style={numCellStyle}>{row.deletedBy}</Text>
+            <Tooltip title={row.deletedById || 'User ID'}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div
+                  style={{
+                    width: 24,
+                    height: 24,
+                    borderRadius: '50%',
+                    background: 'rgba(99, 102, 241, 0.2)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: 11,
+                    color: '#818cf8',
+                  }}
+                >
+                  <UserOutlined />
+                </div>
+                <span style={{ fontSize: 12, fontWeight: 500 }}>{row.deletedBy}</span>
+              </div>
             </Tooltip>
           ) : (
             <Text type="secondary">—</Text>
           ),
       },
       {
-        title: 'Actions Bar',
+        title: 'Actions',
         key: 'actions',
-        width: 170,
+        width: 160,
         fixed: 'right',
         render: (_, row) => (
-          <Space size={6}>
+          <Space size={8}>
             {canRestore ? (
-              <Tooltip title="Push this record back into its live functional grid">
+              <Tooltip title="Restore this record back into active live operations">
                 <Button
                   size="small"
-                  type="default"
+                  className="rb-restore-btn"
                   icon={<RollbackOutlined />}
-                  style={restoreButtonStyle}
                   loading={busyId === row.id}
                   onClick={() => handleRestore(type, row)}
                 >
@@ -573,26 +597,17 @@ const RecycleBinPage: React.FC = () => {
                 </Button>
               </Tooltip>
             ) : (
-              // READ-ONLY SESSION. Operators without `admin.recycle_bin.restore`
-              // get the audit trail but no controls. Rendered as a muted hint
-              // rather than an empty cell so the Actions Bar still reads as a
-              // column and the grid does not visually collapse.
-              <Text type="secondary" style={{ ...numCellStyle, fontWeight: 400 }}>
+              <Text type="secondary" style={{ fontSize: 11 }}>
                 View only
               </Text>
             )}
             {canPurge ? (
-              // NOTE: no <Tooltip> here. In antd v5 a Tooltip wrapped AROUND a
-              // Popconfirm steals the trigger's ref/handlers, so the confirm
-              // popover can fail to open. The Popconfirm's own title plus the
-              // button's aria-label already name the action.
               <Popconfirm
-                title="Permanently delete this record?"
+                title="Permanently Delete Record?"
                 description={
                   <Paragraph style={{ maxWidth: 280, margin: 0 }}>
-                    This is a hard database purge and cannot be undone. The record must
-                    already be in the Recycle Bin. Records still referenced by other
-                    documents will be refused.
+                    This is an irreversible database purge. Records still referenced by other
+                    documents will be safely refused by the server.
                   </Paragraph>
                 }
                 okText="Yes, delete forever"
@@ -603,8 +618,8 @@ const RecycleBinPage: React.FC = () => {
                 <Button
                   size="small"
                   danger
-                  aria-label={`Permanently delete ${row.summary}`}
-                  title="ADMIN ONLY — hard purge"
+                  className="rb-purge-btn"
+                  title="Permanent purge"
                   icon={<DeleteOutlined />}
                   loading={busyId === row.id}
                 />
@@ -617,50 +632,138 @@ const RecycleBinPage: React.FC = () => {
     [busyId, canPurge, canRestore, handlePurge, handleRestore],
   );
 
-  /** The department currently on screen, plus its rows, count and load state. */
-  const activeSpec = useMemo(
-    () => TABS.find((t) => t.key === activeTab) ?? TABS[0],
-    [activeTab],
-  );
-  const activeRows = rows[activeSpec.key] ?? [];
-  const activeIsLoading = loadingKey === activeSpec.key;
-  const activeCount = counts[activeSpec.key] ?? activeRows.length ?? 0;
-
   return (
-    <div style={{ padding: 16 }}>
-      <PageHeader
-        icon={<DeleteOutlined />}
-        title="Recycle Bin"
-        subtitle="Universal soft-delete recovery — nothing is ever destroyed by mistake"
-        extra={
-          <Button icon={<ReloadOutlined />} onClick={() => refresh()}>
-            Refresh
+    <div className="recycle-bin-container">
+      {/* ── Top Header Section ─────────────────────────────────────────── */}
+      <div className="rb-header-wrap">
+        <div className="rb-title-section">
+          <div className="rb-title-heading">
+            <div className="rb-title-icon-badge">
+              <DeleteOutlined />
+            </div>
+            <div>
+              <h2
+                style={{
+                  margin: 0,
+                  fontSize: 22,
+                  fontWeight: 700,
+                  color: 'var(--theme-text, #f8fafc)',
+                  letterSpacing: '-0.02em',
+                }}
+              >
+                Universal Recycle Bin
+              </h2>
+              <p
+                style={{
+                  margin: '2px 0 0',
+                  fontSize: 12.5,
+                  color: 'var(--theme-text-secondary, #94a3b8)',
+                }}
+              >
+                Universal soft-delete recovery engine & audit trail — nothing is ever destroyed by mistake
+              </p>
+            </div>
+          </div>
+          <Button
+            type="primary"
+            icon={<ReloadOutlined />}
+            onClick={() => refresh()}
+            style={{
+              background: '#4f46e5',
+              borderColor: '#4338ca',
+              borderRadius: 8,
+              height: 36,
+              fontWeight: 600,
+              boxShadow: '0 2px 8px rgba(79, 70, 229, 0.3)',
+            }}
+          >
+            Refresh Data
           </Button>
-        }
-      />
+        </div>
 
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'flex-start',
-          gap: 8,
-          background: '#fffbe6',
-          border: '1px solid #ffe58f',
-          borderRadius: 6,
-          padding: '8px 12px',
-          margin: '0 0 12px',
-        }}
-      >
-        <WarningOutlined style={{ color: '#d48806', marginTop: 2 }} />
-        <Text style={{ fontSize: 12, color: '#613400' }}>
-          Deleting a record marks it inactive and hides it from every live grid — the row,
-          its child lines and its audit trail all survive untouched. Restore is instant and
-          reversible. <strong>Permanently Delete is admin-only</strong> and refuses any record
-          that is still referenced by another document.
-        </Text>
+        {/* ── 4 KPI Summary Cards ─────────────────────────────────────── */}
+        <div className="rb-kpi-grid">
+          <div className="rb-kpi-card" style={{ '--kpi-accent': '#ef4444', '--kpi-bg': 'rgba(239, 68, 68, 0.12)' } as any}>
+            <div className="rb-kpi-content">
+              <span className="rb-kpi-title">Total Trashed</span>
+              <span className="rb-kpi-value">{totalTrashed}</span>
+              <span className="rb-kpi-subtext">Across all enterprise modules</span>
+            </div>
+            <div className="rb-kpi-icon">
+              <DeleteOutlined />
+            </div>
+          </div>
+
+          <div className="rb-kpi-card" style={{ '--kpi-accent': '#3b82f6', '--kpi-bg': 'rgba(59, 130, 246, 0.12)' } as any}>
+            <div className="rb-kpi-content">
+              <span className="rb-kpi-title">Active Trays</span>
+              <span className="rb-kpi-value">{activeModulesCount}</span>
+              <span className="rb-kpi-subtext">Modules containing deleted items</span>
+            </div>
+            <div className="rb-kpi-icon">
+              <AppstoreOutlined />
+            </div>
+          </div>
+
+          <div className="rb-kpi-card" style={{ '--kpi-accent': '#10b981', '--kpi-bg': 'rgba(16, 185, 129, 0.12)' } as any}>
+            <div className="rb-kpi-content">
+              <span className="rb-kpi-title">Retention Policy</span>
+              <span className="rb-kpi-value">30 Days</span>
+              <span className="rb-kpi-subtext">Automated safety backup window</span>
+            </div>
+            <div className="rb-kpi-icon">
+              <ClockCircleOutlined />
+            </div>
+          </div>
+
+          <div className="rb-kpi-card" style={{ '--kpi-accent': '#f59e0b', '--kpi-bg': 'rgba(245, 158, 11, 0.12)' } as any}>
+            <div className="rb-kpi-content">
+              <span className="rb-kpi-title">Security Status</span>
+              <span className="rb-kpi-value" style={{ fontSize: 18, paddingTop: 3 }}>
+                Role Guarded
+              </span>
+              <span className="rb-kpi-subtext">Admin-only permanent purge</span>
+            </div>
+            <div className="rb-kpi-icon">
+              <SafetyCertificateOutlined />
+            </div>
+          </div>
+        </div>
+
+        {/* ── Enterprise Security / Audit Banner ──────────────────────── */}
+        <div className="rb-security-banner">
+          <SafetyCertificateOutlined className="rb-security-icon" />
+          <div className="rb-security-text">
+            <strong>Universal Data Protection:</strong> Deleting a record hides it from live operations while preserving its child lines and complete audit history.
+            <span className="rb-security-highlight"> 1-Click Restore</span> returns records back to their original workspace. Permanent database purge is restricted to system administrators.
+          </div>
+        </div>
+
+        {/* ── Controls Bar: Search & Quick Filter ─────────────────────── */}
+        <div className="rb-controls-bar">
+          <Input
+            placeholder="Search deleted records by slip, item code, machine, operator, or user..."
+            prefix={<SearchOutlined style={{ color: 'var(--theme-text-secondary, #94a3b8)' }} />}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            allowClear
+            className="rb-search-input"
+          />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 12, color: 'var(--theme-text-secondary, #94a3b8)' }}>
+              Showing: <strong style={{ color: 'var(--theme-text, #f8fafc)' }}>{activeSpec.label}</strong>
+            </span>
+            <Tag
+              color={activeCount > 0 ? 'volcano' : 'default'}
+              style={{ margin: 0, fontWeight: 700, borderRadius: 999 }}
+            >
+              {activeCount} {activeCount === 1 ? 'record' : 'records'}
+            </Tag>
+          </div>
+        </div>
       </div>
 
-      {/* ── Department switchboard ─────────────────────────────────────── */}
+      {/* ── Department Switchboard Tabs with High-Contrast Badges ──────── */}
       <div className="erp-module-tabs" role="tablist" aria-label="Recycle Bin departments">
         {TABS.map((tab) => {
           const selected = tab.key === activeSpec.key;
@@ -675,78 +778,87 @@ const RecycleBinPage: React.FC = () => {
               aria-selected={selected}
               aria-controls="rb-panel"
               onClick={() => setActiveTab(tab.key)}
-              // The active treatment is driven by `aria-selected` in CSS, not by
-              // a conditional class — see the note where the old inline style
-              // objects used to live.
-              className="erp-module-tab"
+              className="rb-tab-btn"
               title={`${tab.label} — ${tab.dept}`}
             >
-              <span className="erp-module-tab__label">
-                <span className="erp-module-tab__emoji" aria-hidden="true">
-                  {tab.emoji}
+              <div className="rb-tab-header">
+                <div className="rb-tab-title">
+                  <span aria-hidden="true">{tab.emoji}</span>
+                  <span>{tab.shortLabel}</span>
+                </div>
+                <span className={`rb-tab-badge ${n > 0 ? 'rb-tab-badge--active' : 'rb-tab-badge--zero'}`}>
+                  {n}
                 </span>
-                <span>{tab.shortLabel}</span>
-                {n > 0 ? (
-                  <Tag className="erp-module-tab__count">{n}</Tag>
-                ) : null}
-                {isLoading ? <ReloadOutlined spin style={{ fontSize: 11 }} /> : null}
-              </span>
-              <span className="erp-module-tab__dept">{tab.dept}</span>
+              </div>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  width: '100%',
+                }}
+              >
+                <span className="rb-tab-dept">{tab.dept}</span>
+                {isLoading ? <ReloadOutlined spin style={{ fontSize: 10, color: '#6366f1' }} /> : null}
+              </div>
             </button>
           );
         })}
       </div>
 
-      {/* ── Active department grid ─────────────────────────────────────── */}
-      {/*
-        Only the ACTIVE department is ever mounted. antd's Tabs keeps every
-        visited pane in the document unless it is told to destroy it, which
-        would leave a Production Entries row sitting in the DOM (invisible, but
-        present and queryable) while the operator reads Hand Packing Rows. One
-        panel keyed off `activeSpec` makes the two production tabs mutually
-        exclusive in the document, not merely on screen — the isolation rule
-        the bin exists to enforce.
-      */}
+      {/* ── Active Department Data Table ───────────────────────────────── */}
       <div id="rb-panel" role="tabpanel" aria-labelledby={`rb-tab-${activeSpec.key}`}>
-        <Card
-          size="small"
-          bordered={false}
-          style={{ padding: 0 }}
-          styles={{ body: { padding: 0 } }}
-        >
-          <Paragraph type="secondary" style={{ margin: '0 0 10px', fontSize: 12 }}>
-            <Text strong>{activeSpec.label}</Text> — {activeSpec.blurb}. Records here have left
-            every live grid but are fully intact
-            {canRestore
-              ? ' — Restore returns them to exactly the context they were deleted from.'
-              : '. You have read-only access to this tray.'}
-          </Paragraph>
+        <div className="rb-table-card">
+          <div className="rb-table-banner">
+            <div>
+              <Text strong style={{ fontSize: 13, color: 'var(--theme-text, #f8fafc)' }}>
+                {activeSpec.label}
+              </Text>
+              <Text
+                type="secondary"
+                style={{ fontSize: 12, marginLeft: 8, color: 'var(--theme-text-secondary, #94a3b8)' }}
+              >
+                — {activeSpec.blurb}
+              </Text>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              {canRestore ? (
+                <span style={{ fontSize: 11.5, color: '#10b981', display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <CheckCircleOutlined /> 1-Click Instant Restore Enabled
+                </span>
+              ) : (
+                <span style={{ fontSize: 11.5, color: '#94a3b8' }}>Read-only audit view</span>
+              )}
+            </div>
+          </div>
+
           <Table<RecycleBinRow>
             rowKey="id"
             size="small"
             components={denseTableComponents}
             loading={activeIsLoading}
             columns={buildColumns(activeSpec.key)}
-            dataSource={activeRows}
+            dataSource={filteredRows}
             pagination={
-              activeRows.length > 50
+              filteredRows.length > 50
                 ? { pageSize: 50, showSizeChanger: false, showTotal: (t) => `${t} records` }
                 : false
             }
-            scroll={{ x: 1040 }}
+            scroll={{ x: 1060 }}
             locale={{
               emptyText: (
                 <Empty
                   image={Empty.PRESENTED_IMAGE_SIMPLE}
-                  description={`No records in the ${activeSpec.label} recycle bin`}
+                  description={
+                    searchQuery
+                      ? `No deleted records match "${searchQuery}" in ${activeSpec.label}`
+                      : `No deleted records in ${activeSpec.label}`
+                  }
                 />
               ),
             }}
           />
-          <Text type="secondary" style={{ fontSize: 11 }}>
-            {activeCount} record{activeCount === 1 ? '' : 's'} in this tray
-          </Text>
-        </Card>
+        </div>
       </div>
     </div>
   );

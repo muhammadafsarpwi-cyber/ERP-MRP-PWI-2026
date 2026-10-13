@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Delete,
   Body,
   Query,
   Req,
@@ -268,6 +269,18 @@ export class ProductionOpenStockController {
     const companyId = this.getCompanyId(req);
     const userId = req.erpUser?.id || req.user?.id;
     return await this.openStockService.reverseTransaction(companyId, id, userId);
+  }
+
+  @Delete('history/:id')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('manufacturing.production.entries.create')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Permanently delete a posted production opening stock or adjustment and revert stock balance' })
+  async deleteTransaction(@Req() req: any, @Param('id') id: string) {
+    const companyId = this.getCompanyId(req);
+    const userId = req.erpUser?.id || req.user?.id;
+    return await this.openStockService.deleteTransaction(companyId, id, userId);
   }
 }
 

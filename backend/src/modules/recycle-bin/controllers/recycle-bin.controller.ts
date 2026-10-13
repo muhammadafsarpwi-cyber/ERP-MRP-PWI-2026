@@ -36,9 +36,12 @@ export class RecycleBinController {
 
   private companyId(req: any): string {
     return (
+      req?.headers?.['x-company-id'] ||
+      req?.query?.companyId ||
       req?.erpUser?.defaultCompanyId ||
+      req?.orgScopes?.[0]?.companyId ||
       req?.user?.defaultCompanyId ||
-      '00000000-0000-0000-0000-000000000001'
+      '7725aa04-a270-4314-9e82-90949cbe7791'
     );
   }
 

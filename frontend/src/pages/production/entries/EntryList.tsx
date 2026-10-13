@@ -3127,13 +3127,31 @@ const EntryList: React.FC = () => {
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
             <Input
               allowClear
-              placeholder="Search entries..."
+              placeholder="Search Entry # (PE-2026-XXXXX), Item, Operator..."
               prefix={<SearchOutlined style={{ color: 'var(--theme-text-muted, #94a3b8)' }} />}
               value={fSearch}
-              onChange={(e) => setFSearch(e.target.value)}
+              onChange={(e) => {
+                const val = e.target.value;
+                setFSearch(val);
+                if (!val && fSearch) {
+                  setPage(1);
+                  setTimeout(() => {
+                    void fetchRows(1, pageSize, activeChevronKey);
+                    void fetchReport();
+                  }, 0);
+                }
+              }}
               onPressEnter={handleSearch}
-              style={{ flex: '1 1 240px', maxWidth: 360 }}
+              style={{ flex: '1 1 260px', maxWidth: 360 }}
             />
+            <Button
+              type="primary"
+              icon={<SearchOutlined />}
+              onClick={handleSearch}
+              style={{ fontWeight: 600 }}
+            >
+              Search
+            </Button>
 
             {/* Single Unified "Filters" Button */}
             <Button

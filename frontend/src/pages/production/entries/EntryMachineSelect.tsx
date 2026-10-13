@@ -19,7 +19,9 @@ const { Title, Text } = Typography;
 
 interface MachineEntryMini {
   id: string;
+  entryId?: string;
   itemId: string;
+  itemCode?: string | null;
   itemName: string | null;
   targetQuantity: number;
   actualQuantity: number;
@@ -33,6 +35,7 @@ interface MachineStatusRow {
   name: string;
   status: 'ENTERED' | 'ENTRY_REQUIRED';
   entryCount: number;
+  primaryEntryId?: string | null;
   divisionId: string | null;
   sectionId: string | null;
   departmentId: string | null;
@@ -602,13 +605,13 @@ const MachineTile: React.FC<{
             </Text>
           </div>
           <Space size={4}>
-            <Button size="small" type="primary" ghost icon={<EditOutlined />} onClick={() => onEdit(e.id)}>
+            <Button size="small" type="primary" ghost icon={<EditOutlined />} onClick={() => onEdit(e.entryId || e.id)}>
               Edit
             </Button>
-            <Button size="small" icon={<EyeOutlined />} onClick={() => onView(e.id)}>
+            <Button size="small" icon={<EyeOutlined />} onClick={() => onView(e.entryId || e.id)}>
               View
             </Button>
-            <Button size="small" danger icon={<DeleteOutlined />} onClick={() => onDelete(e.id)} />
+            <Button size="small" danger icon={<DeleteOutlined />} onClick={() => onDelete(e.entryId || e.id)} />
           </Space>
         </div>
       ))}
@@ -724,6 +727,8 @@ const MachineTile: React.FC<{
             display: 'flex',
             flexDirection: 'column',
             gap: 4,
+            maxHeight: 140,
+            overflowY: machine.entries.length > 3 ? 'auto' : 'visible',
           }}
         >
           {machine.entries.map((itemEntry, idx) => (
@@ -793,7 +798,7 @@ const MachineTile: React.FC<{
 
       <div style={{ marginTop: 'auto', paddingTop: 4 }}>
         {entered ? (
-          machine.entries.length === 1 ? (
+          machine.entryCount <= 1 ? (
             <div style={{ display: 'flex', gap: 6, width: '100%' }}>
               <Button
                 size="small"
@@ -801,14 +806,14 @@ const MachineTile: React.FC<{
                 ghost
                 icon={<EditOutlined />}
                 style={{ flex: 1, fontWeight: 600 }}
-                onClick={() => onEdit(machine.entries[0].id)}
+                onClick={() => onEdit(machine.primaryEntryId || machine.entries[0]?.entryId || machine.entries[0]?.id)}
               >
                 Edit
               </Button>
               <Button
                 size="small"
                 icon={<EyeOutlined />}
-                onClick={() => onView(machine.entries[0].id)}
+                onClick={() => onView(machine.primaryEntryId || machine.entries[0]?.entryId || machine.entries[0]?.id)}
               >
                 View
               </Button>
@@ -817,7 +822,7 @@ const MachineTile: React.FC<{
                 danger
                 icon={<DeleteOutlined />}
                 title="Delete dummy / test entry"
-                onClick={() => onDelete(machine.entries[0].id)}
+                onClick={() => onDelete(machine.primaryEntryId || machine.entries[0]?.entryId || machine.entries[0]?.id)}
               />
             </div>
           ) : (

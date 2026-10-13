@@ -284,8 +284,18 @@ export class ProductionInventoryReportService {
       .addSelect('MAX(sl.transactionDate)', 'lastMovementDate')
       .where('sl.companyId = :companyId', { companyId })
       .andWhere('sl.itemId IN (:...itemIds)', { itemIds })
+      .andWhere(`(
+        sl.reference_type <> 'PRODUCTION_ENTRY'
+        OR sl.reference_id IS NULL
+        OR NOT EXISTS (
+          SELECT 1 FROM production_entries pe_chk
+          WHERE pe_chk.id = sl.reference_id
+            AND (pe_chk.is_active = false OR pe_chk.deleted_at IS NOT NULL)
+        )
+      )`)
       .setParameters({ dateFrom: start, dateTo: end, movementType: filters.movementType ?? '__NONE__' })
       .groupBy('sl.itemId');
+
 
     // ── Current inventory balances (one query for every item).
     const balanceQb = this.balanceRepo
@@ -523,6 +533,16 @@ export class ProductionInventoryReportService {
     const { start, end } = businessDayWindow(filters.dateFrom, filters.dateTo, timeZone);
 
     // Opening balance: everything before range, never including scrap.
+    const activeEntryCond = `(
+      sl.reference_type <> 'PRODUCTION_ENTRY'
+      OR sl.reference_id IS NULL
+      OR NOT EXISTS (
+        SELECT 1 FROM production_entries pe_chk
+        WHERE pe_chk.id = sl.reference_id
+          AND (pe_chk.is_active = false OR pe_chk.deleted_at IS NOT NULL)
+      )
+    )`;
+
     let openingBalance = 0;
     if (start) {
       const openingQb = this.ledgerRepo
@@ -532,6 +552,7 @@ export class ProductionInventoryReportService {
         .where('sl.companyId = :companyId', { companyId })
         .andWhere('sl.itemId = :itemId', { itemId })
         .andWhere(`sl.transactionType <> 'PRODUCTION_SCRAP'`)
+        .andWhere(activeEntryCond)
         .andWhere('sl.transactionDate < :dateFrom', { dateFrom: start });
       const openingRow = await openingQb.getRawOne();
       openingBalance = R4(N(openingRow?.openingIn) - N(openingRow?.openingOut));
@@ -548,7 +569,8 @@ export class ProductionInventoryReportService {
       .leftJoinAndSelect('sl.department', 'department')
       .where('sl.companyId = :companyId', { companyId })
       .andWhere('sl.itemId = :itemId', { itemId })
-      .andWhere(`sl.transactionType <> 'PRODUCTION_SCRAP'`);
+      .andWhere(`sl.transactionType <> 'PRODUCTION_SCRAP'`)
+      .andWhere(activeEntryCond);
     if (start) qb.andWhere('sl.transactionDate >= :dateFrom', { dateFrom: start });
     if (end) qb.andWhere('sl.transactionDate < :dateTo', { dateTo: end });
     if (filters.movementType) qb.andWhere('sl.transactionType = :movementType', { movementType: filters.movementType });
@@ -564,11 +586,13 @@ export class ProductionInventoryReportService {
       .addSelect(`COALESCE(SUM(CASE WHEN sl.direction = 'OUT' THEN sl.quantity ELSE 0 END), 0)`, 'aggOut')
       .where('sl.companyId = :companyId', { companyId })
       .andWhere('sl.itemId = :itemId', { itemId })
-      .andWhere(`sl.transactionType <> 'PRODUCTION_SCRAP'`);
+      .andWhere(`sl.transactionType <> 'PRODUCTION_SCRAP'`)
+      .andWhere(activeEntryCond);
     if (start) rangeAggQb.andWhere('sl.transactionDate >= :dateFrom', { dateFrom: start });
     if (end) rangeAggQb.andWhere('sl.transactionDate < :dateTo', { dateTo: end });
     if (filters.movementType) rangeAggQb.andWhere('sl.transactionType = :movementType', { movementType: filters.movementType });
     const aggRow = await rangeAggQb.getRawOne();
+
 
     const MAX_ROWS = 500;
     const truncated = ledgers.length > MAX_ROWS;

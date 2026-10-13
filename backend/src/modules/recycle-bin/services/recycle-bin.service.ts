@@ -606,7 +606,7 @@ export class RecycleBinService {
 
   private productionQb(companyId: string, handPackingOnly: boolean): SelectQueryBuilder<ProductionEntry> {
     const qb = this.entryRepo.createQueryBuilder('pe').withDeleted()
-      .leftJoin('pe.item', 'item')
+      .leftJoinAndSelect('pe.item', 'item')
       .where('pe.companyId = :companyId', { companyId })
       .andWhere('pe.deletedAt IS NOT NULL');
 
@@ -636,7 +636,7 @@ export class RecycleBinService {
       id: pe.id,
       module: handPackingOnly ? RecycleBinType.HAND_PACKING : RecycleBinType.PRODUCTION_ENTRIES,
       deletedAt: pe.deletedAt ? new Date(pe.deletedAt).toISOString() : null,
-      componentName: pe.item ? `${pe.item.name} (${pe.item.itemCode})` : 'Unknown item',
+      componentName: pe.item ? `${pe.item.name} (${pe.item.itemCode})` : (pe.remarks || 'Production Document'),
       summary: pe.entryNumber || pe.id,
       detail: pe.entryDate ? String(pe.entryDate).slice(0, 10) : null,
       deletedBy: null,
