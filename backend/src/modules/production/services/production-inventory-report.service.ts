@@ -4,7 +4,8 @@ import { Repository, In } from 'typeorm';
 import { Item } from '../../item/entities';
 import { StockLedger, InventoryBalance } from '../../inventory/entities';
 import { Company } from '../../organization/entities';
-import { ProductionEntry, ProductionEntryItem, ProductionEntryItemKind } from '../entities';
+import { ProductionEntry, ProductionEntryItem, ProductionEntryItemKind, ProductionOrder } from '../entities';
+import { BillOfMaterials, BomLine } from '../../bom/entities';
 import { businessDayWindow } from '../date/business-day';
 import { applyDivisionScopeFilter, isUnrestricted } from '../../../common/division-scope.util';
 
@@ -22,10 +23,13 @@ const R4 = (v: number): number => Math.round(v * 10000) / 10000;
  *    by the Traceability stock statement.
  *  * `production_entries` + `production_entry_items` → Produced, read strictly
  *    from the child OUTPUT lines so a multi-item entry is split into one row per
- *    part instead of pooling the document total on the parent item. Required
- *    comes from entries whose producing item's Item-Master `productionInItemId`
- *    is this item — the authoritative 1:1 raw-material requirement rule used by
- *    `ProductionEntryService.consumeRawMaterials`.
+ *    part instead of pooling the document total on the parent item.
+ *  * `production_orders` + `bill_of_materials` + `bom_lines` → Required is a
+ *    true PLANNING figure (Option A): every OPEN (non-terminal) production
+ *    order's `planned_quantity` multiplied by its BOM line quantity for this
+ *    item. The order's scheduled business day is bounded by the exact same
+ *    `[start, end)` business-day window the CONSUMED stock-ledger side uses,
+ *    so both columns always cover an identical report date range.
  *
  * No fabricated stock values are ever produced — an item appears only when it
  * has a stock ledger row or an inventory balance row in this company. No schema
@@ -264,10 +268,17 @@ export class ProductionInventoryReportService {
     const openingOutCond = start
       ? 'sl.transactionDate < :dateFrom'
       : `(sl.transactionType = 'OPENING' AND sl.direction = 'OUT')`;
+    // Business-day window [start, end) shared by CONSUMED (and every range
+    // aggregate below): the lower and UPPER bounds are applied independently —
+    // inclusive local-midnight start, exclusive next-local-midnight end — so
+    // the selected report range is honoured exactly even when only one side of
+    // the filter is supplied. `requiredQb` (Option A planning demand) binds the
+    // very same `start`/`end` instants, so REQUIRED and CONSUMED can never
+    // cover different date windows (Task #2: exact date alignment).
     const inRangeCond = start
       ? `AND sl.transactionDate >= :dateFrom ${end ? 'AND sl.transactionDate < :dateTo' : ''}`
-      : `AND sl.transactionType <> 'OPENING' AND (sl.referenceType IS NULL OR sl.referenceType <> 'PRODUCTION_ITEM_OPEN_STOCK')`;
-    const outRangeCond = start ? `AND sl.transactionDate >= :dateFrom ${end ? 'AND sl.transactionDate < :dateTo' : ''}` : '';
+      : `AND sl.transactionType <> 'OPENING' AND (sl.referenceType IS NULL OR sl.referenceType <> 'PRODUCTION_ITEM_OPEN_STOCK')${end ? ' AND sl.transactionDate < :dateTo' : ''}`;
+    const outRangeCond = `${start ? 'AND sl.transactionDate >= :dateFrom' : ''} ${end ? 'AND sl.transactionDate < :dateTo' : ''}`.trim();
 
     // ── Stock ledger aggregates (one query for every item).
     const aggregateQb = this.ledgerRepo
@@ -341,21 +352,41 @@ export class ProductionInventoryReportService {
     if (filters.dateTo) producedQb.andWhere('pe.entryDate <= :dateTo', { dateTo: filters.dateTo });
     producedQb.groupBy('pei.itemId');
 
-    // ── Required: entries consuming THIS item as their authoritative IN item
-    //    (Item-Master `productionInItemId` = this item). Real 1:1 requirement.
-    const requiredQb = this.itemRepo
-      .createQueryBuilder('ci')
-      .select('ci.productionInItemId', 'itemId')
-      .addSelect('COALESCE(SUM(pe.actualQuantity), 0)', 'required')
-      .addSelect('COUNT(*)', 'entryCount')
-      .innerJoin(ProductionEntry, 'pe', 'pe.itemId = ci.id')
-      .where('ci.companyId = :companyId', { companyId })
-      .andWhere('ci.productionInItemId IN (:...itemIds)', { itemIds })
-      .andWhere('pe.companyId = :companyId')
-      .andWhere('pe.isActive = true');
-    if (filters.dateFrom) requiredQb.andWhere('pe.entryDate >= :dateFrom', { dateFrom: filters.dateFrom });
-    if (filters.dateTo) requiredQb.andWhere('pe.entryDate <= :dateTo', { dateTo: filters.dateTo });
-    requiredQb.groupBy('ci.productionInItemId');
+    // ── Required: TRUE planning demand — Option A (Production Orders × BOM).
+    //
+    // `production_orders.planned_quantity × bom_lines.quantity`, summed per
+    // input item across the company's OPEN production orders (status NOT IN
+    // COMPLETED/CANCELLED — DRAFT, RELEASED and IN_PROGRESS all count as live
+    // demand). This is a forward-looking planning figure — what the active
+    // production plan still requires of the item — replacing the old
+    // retrospective production-entries aggregate that merely restated what
+    // production had already consumed via the 1:1 `production_in_item_id` rule.
+    //
+    // The INNER JOIN through the order's pinned BOM itself enforces
+    // `po.bom_id IS NOT NULL` (an order without a BOM has no component demand),
+    // and `bom.deletedAt IS NULL` keeps a recycled BOM from leaking demand back
+    // in, honouring the system-wide Recycle-Bin contract.
+    //
+    // Task #2 — date alignment: the order's scheduled business day
+    // (planned_start_date, falling back to planned_end_date) is bounded by the
+    // SAME [start, end) business-day instants the CONSUMED stock-ledger
+    // aggregate binds above — inclusive local-midnight start, exclusive
+    // next-local-midnight end in the company timezone — so both columns always
+    // cover exactly the selected report date range.
+    const requiredQb = this.entryRepo.manager
+      .createQueryBuilder(ProductionOrder, 'po')
+      .innerJoin(BillOfMaterials, 'bom', 'bom.id = po.bomId')
+      .innerJoin(BomLine, 'bl', 'bl.bomId = bom.id')
+      .select('bl.itemId', 'itemId')
+      .addSelect('COALESCE(SUM(po.plannedQuantity * bl.quantity), 0)', 'required')
+      .addSelect('COUNT(DISTINCT po.id)', 'entryCount')
+      .where('po.companyId = :companyId', { companyId })
+      .andWhere('bom.deletedAt IS NULL')
+      .andWhere('po.status NOT IN (:...closedStatuses)', { closedStatuses: ['COMPLETED', 'CANCELLED'] })
+      .andWhere('bl.itemId IN (:...itemIds)', { itemIds });
+    if (start) requiredQb.andWhere('COALESCE(po.plannedStartDate, po.plannedEndDate) >= :dateFrom', { dateFrom: start });
+    if (end) requiredQb.andWhere('COALESCE(po.plannedStartDate, po.plannedEndDate) < :dateTo', { dateTo: end });
+    requiredQb.groupBy('bl.itemId');
 
     // TASK #39 — flow chain mapping across the whole company (not just the
     // current scope) so upstream sources / downstream consumers stay visible.
@@ -486,6 +517,7 @@ export class ProductionInventoryReportService {
         scrapOut: R4(N(l?.scrapOut)),
         consumed: R4(N(l?.consumed)),
         produced: R4(N(p?.produced)),
+        // Option A planning demand: Σ (open production orders × BOM lines) from requiredQb.
         required: R4(N(r?.required)),
         closingBalance,
         onHand,
@@ -533,8 +565,10 @@ export class ProductionInventoryReportService {
         totalIn: sum('totalIn'),
         totalOut: sum('totalOut'),
         scrapOut: sum('scrapOut'),
+        // CONSUMED: Σ stock-ledger OUT (PRODUCTION_CONSUMPTION + PRODUCTION_ISSUE) inside the report window.
         consumed: sum('consumed'),
         produced: sum('produced'),
+        // REQUIRED: Σ Option A planning demand (open production orders × BOM lines), same window.
         required: sum('required'),
         shortItems: rows.filter((row) => row.status === 'SHORT').length,
         rawMaterialItems: rows.filter((row) => row.itemType === 'RAW_MATERIAL').length,
@@ -648,6 +682,7 @@ export class ProductionInventoryReportService {
             'pe.entryNumber AS "entryNumber"',
             'pe.machineNo AS "machineNo"',
             'dept.name AS "departmentName"',
+            'item.id AS "itemId"',
             'item.itemCode AS "itemCode"',
             'item.name AS "itemName"',
             'shift.name AS "shiftName"',
@@ -655,6 +690,33 @@ export class ProductionInventoryReportService {
           .where('pe.id IN (:...peIds)', { peIds })
           .andWhere('pe.companyId = :companyId', { companyId })
           .getRawMany();
+
+        // Also fetch output items for these production entries so multi-item documents
+        // map accurately to the EXACT product produced rather than just the document header
+        const peItemRows = await this.entryRepo.manager
+          .createQueryBuilder(ProductionEntryItem, 'pei')
+          .leftJoin('pei.item', 'it')
+          .select([
+            'pei.productionEntryId AS "peId"',
+            'it.id AS "itemId"',
+            'it.itemCode AS "itemCode"',
+            'it.name AS "itemName"',
+            'it.productionInItemId AS "productionInItemId"',
+          ])
+          .where('pei.productionEntryId IN (:...peIds)', { peIds })
+          .andWhere('pei.entryKind = :kind', { kind: ProductionEntryItemKind.OUTPUT })
+          .getRawMany();
+
+        const outputsByPeId = new Map<string, any[]>();
+        for (const row of peItemRows) {
+          if (!outputsByPeId.has(row.peId)) outputsByPeId.set(row.peId, []);
+          outputsByPeId.get(row.peId)!.push({
+            id: row.itemId,
+            itemCode: row.itemCode,
+            name: row.itemName,
+            productionInItemId: row.productionInItemId,
+          });
+        }
 
         peMap = new Map(
           pes.map((p) => [
@@ -664,8 +726,9 @@ export class ProductionInventoryReportService {
               entryNumber: p.entryNumber,
               machineNo: p.machineNo,
               department: { name: p.departmentName },
-              item: { itemCode: p.itemCode, name: p.itemName },
+              item: p.itemCode ? { id: p.itemId, itemCode: p.itemCode, name: p.itemName } : null,
               shift: { name: p.shiftName },
+              outputs: outputsByPeId.get(p.id) || [],
             },
           ]),
         );
@@ -733,9 +796,22 @@ export class ProductionInventoryReportService {
         }
       }
 
-      let producingItem = pe?.item ? { id: pe.item.id, itemCode: pe.item.itemCode, name: pe.item.name } : null;
-      if (!producingItem && (r.transactionType === 'PRODUCTION_CONSUMPTION' || r.transactionType === 'PRODUCTION_ISSUE') && machineTag.includes('ST-')) {
-        producingItem = { id: 'wip-st', itemCode: 'WIP-ST-011', name: '250*17 Outer Straight' };
+      // Determine the exact producing item:
+      // 1. For IN (receipt): The produced item entering stock is THIS item (never header of a parallel branch).
+      // 2. For OUT (consumption): Match the specific output item in the entry that consumes this item.
+      let producingItem: { id: string; itemCode: string; name: string } | null = null;
+      if (r.direction === 'IN') {
+        producingItem = { id: item.id, itemCode: item.itemCode, name: item.name };
+      } else if (r.direction === 'OUT') {
+        const outputs = pe?.outputs || [];
+        const matched = outputs.find((o: any) => o.productionInItemId === r.itemId || o.productionInItemId === item.id);
+        if (matched) {
+          producingItem = { id: matched.id, itemCode: matched.itemCode, name: matched.name };
+        } else if (outputs.length === 1) {
+          producingItem = { id: outputs[0].id, itemCode: outputs[0].itemCode, name: outputs[0].name };
+        } else if (pe?.item) {
+          producingItem = { id: pe.item.id, itemCode: pe.item.itemCode, name: pe.item.name };
+        }
       }
 
       return {

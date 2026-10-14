@@ -2,7 +2,8 @@ import { NotFoundException } from '@nestjs/common';
 import { Repository } from 'typeorm';
 import { Item, ItemType } from '../../item/entities';
 import { InventoryBalance, StockLedger } from '../../inventory/entities';
-import { ProductionEntry, ProductionEntryItem, ProductionEntryItemKind } from '../entities';
+import { ProductionEntry, ProductionEntryItem, ProductionEntryItemKind, ProductionOrder } from '../entities';
+import { BillOfMaterials, BomLine } from '../../bom/entities';
 import { ProductionInventoryReportService } from './production-inventory-report.service';
 
 const COMPANY_ID = 'a0000000-0000-4000-8000-000000000001';
@@ -78,9 +79,10 @@ const balanceRow = (over: any = {}) => ({ itemId: ITEM_ID, onHand: '5', reserved
 
 const serviceWith = (opts: { items?: Item[]; aggregate?: any[]; balance?: any[]; produced?: any[]; required?: any[]; masterItems?: any[]; item?: Item | null; ledgerRows?: any[]; openingRow?: any; aggRow?: any; company?: { timezone: string } | null }) => {
   const itemQb = makeQb({ getMany: opts.items ?? ONE_ITEM });
-  const requiredQb = makeQb({ getRawMany: opts.required ?? [{ itemId: ITEM_ID, required: '15', entryCount: 2 }] });
   const masterQb = makeQb({ getMany: opts.masterItems ?? [] });
-  const itemRepo = repoWithQbs([itemQb, requiredQb, masterQb]);
+  // itemRepo serves only the item scope (1st call) and the flow-chain master
+  // snapshot (2nd call) — REQUIRED no longer queries the item master.
+  const itemRepo = repoWithQbs([itemQb, masterQb]);
   (itemRepo as any).findOne = jest.fn().mockResolvedValue(opts.item === undefined ? makeItem() : opts.item);
 
   const { ledgerRepo, openingQb, detailQb, rangeAggQb } = (() => {
@@ -100,7 +102,11 @@ const serviceWith = (opts: { items?: Item[]; aggregate?: any[]; balance?: any[];
   const balanceQb = makeQb({ getRawMany: opts.balance ?? [balanceRow()] });
   const balanceRepo = repoWithQbs([balanceQb]);
   const producedQb = makeQb({ getRawMany: opts.produced ?? [{ itemId: ITEM_ID, produced: '10', entryCount: 1 }] });
+  // Option A: REQUIRED is built from production_orders × bom_lines through the
+  // entry repo's EntityManager (no constructor/DI change).
+  const requiredQb = makeQb({ getRawMany: opts.required ?? [{ itemId: ITEM_ID, required: '15', entryCount: 2 }] });
   const entryRepo = repoWithQbs([producedQb]);
+  (entryRepo as any).manager = { createQueryBuilder: jest.fn(() => requiredQb) };
 
   const companyRepo = { findOne: jest.fn().mockResolvedValue(opts.company === undefined ? { timezone: 'Asia/Karachi' } : opts.company) };
 
@@ -111,7 +117,7 @@ const serviceWith = (opts: { items?: Item[]; aggregate?: any[]; balance?: any[];
     entryRepo as unknown as Repository<ProductionEntry>,
     companyRepo as unknown as Repository<any>,
   ) as any;
-  service.__qbs = { itemQb, requiredQb, masterQb, balanceQb, producedQb, openingQb, detailQb, rangeAggQb, ledgerRepo, companyRepo };
+  service.__qbs = { itemQb, requiredQb, masterQb, balanceQb, producedQb, openingQb, detailQb, rangeAggQb, ledgerRepo, entryRepo, companyRepo };
   return service;
 };
 
@@ -278,7 +284,7 @@ describe('ProductionInventoryReportService report date semantics (TASK #39)', ()
     expect(endOnly.dateTo.toISOString()).toBe('2026-09-08T19:00:00.000Z');
   });
 
-  it('produced/required bind the raw business-date strings against entry_date (TZ-independent)', async () => {
+  it('produced keeps the raw entry_date strings; REQUIRED binds the shared business-day window', async () => {
     const service = serviceWith({});
     await service.getReport(COMPANY_ID, { dateFrom: '2026-09-06', dateTo: '2026-09-10' });
     const producedCalls = service.__qbs.producedQb.__andWhere.filter((x: any) => x.sql.includes('pe.entryDate'));
@@ -286,11 +292,22 @@ describe('ProductionInventoryReportService report date semantics (TASK #39)', ()
       { sql: 'pe.entryDate >= :dateFrom', params: { dateFrom: '2026-09-06' } },
       { sql: 'pe.entryDate <= :dateTo', params: { dateTo: '2026-09-10' } },
     ]);
-    const requiredCalls = service.__qbs.requiredQb.__andWhere.filter((x: any) => x.sql.includes('pe.entryDate'));
-    expect(requiredCalls).toEqual([
-      { sql: 'pe.entryDate >= :dateFrom', params: { dateFrom: '2026-09-06' } },
-      { sql: 'pe.entryDate <= :dateTo', params: { dateTo: '2026-09-10' } },
-    ]);
+
+    // Task #2 — REQUIRED no longer binds raw date strings against entry_date:
+    // it now binds the SAME [start, end) business-day instants as the CONSUMED
+    // ledger aggregate (dateFrom → local midnight of 2026-09-06 in the company
+    // timezone Asia/Karachi; dateTo → exclusive local midnight of 2026-09-11).
+    const requiredFrom = service.__qbs.requiredQb.__andWhere.find((x: any) => String(x.sql).includes('>= :dateFrom'));
+    const requiredTo = service.__qbs.requiredQb.__andWhere.find((x: any) => String(x.sql).includes('< :dateTo'));
+    expect(requiredFrom).toEqual({
+      sql: 'COALESCE(po.plannedStartDate, po.plannedEndDate) >= :dateFrom',
+      params: { dateFrom: new Date('2026-09-05T19:00:00.000Z') },
+    });
+    expect(requiredTo).toEqual({
+      sql: 'COALESCE(po.plannedStartDate, po.plannedEndDate) < :dateTo',
+      params: { dateTo: new Date('2026-09-10T19:00:00.000Z') },
+    });
+    expect(service.__qbs.requiredQb.__andWhere.some((x: any) => String(x.sql).includes('pe.entryDate'))).toBe(false);
   });
 
   it('falls back to legacy UTC when the company timezone is unset', async () => {
@@ -306,6 +323,70 @@ describe('ProductionInventoryReportService report date semantics (TASK #39)', ()
     await expect(service.getReport(COMPANY_ID, { dateFrom: '06-09-2026' })).rejects.toThrow(
       /YYYY-MM-DD/,
     );
+  });
+});
+
+describe('ProductionInventoryReportService — REQUIRED is Option A planning demand (Production Orders × BOM)', () => {
+  it('aggregates open production orders × their BOM lines per input item', async () => {
+    const service = serviceWith({});
+    await service.getReport(COMPANY_ID);
+
+    // Root entity is the production order; demand flows order → pinned BOM → component line.
+    expect(service.__qbs.entryRepo.manager.createQueryBuilder).toHaveBeenCalledWith(ProductionOrder, 'po');
+
+    const qb = service.__qbs.requiredQb;
+    expect(qb.select).toHaveBeenCalledWith('bl.itemId', 'itemId');
+    expect(qb.groupBy).toHaveBeenCalledWith('bl.itemId');
+
+    const joins = qb.innerJoin.mock.calls.map((c: any[]) => [c[0], c[1], String(c[2])]);
+    expect(joins).toEqual([
+      [BillOfMaterials, 'bom', expect.stringContaining('bom.id = po.bomId')],
+      [BomLine, 'bl', expect.stringContaining('bl.bomId = bom.id')],
+    ]);
+
+    // planned_quantity × bom_lines.quantity — never the old retrospective SUM(pe.actualQuantity).
+    const selects = qb.__addSelect.join(' | ');
+    expect(selects).toContain('SUM(po.plannedQuantity * bl.quantity)');
+    expect(selects).not.toContain('SUM(pe.actualQuantity)');
+
+    const clauses = qb.__andWhere.map((c: any) => ({ sql: String(c.sql), params: c.params }));
+    expect(String(qb.where.mock.calls[0]?.[0] ?? '')).toContain('po.companyId = :companyId');
+    expect(clauses.some((c: any) => c.sql.includes('bl.itemId IN (:...itemIds)'))).toBe(true);
+    // A recycled BOM must never leak demand back in (Recycle-Bin contract).
+    expect(clauses.some((c: any) => c.sql.includes('bom.deletedAt IS NULL'))).toBe(true);
+
+    // Active demand = every status except the terminal ones.
+    const statusClause = clauses.find((c: any) => c.sql.includes('po.status'));
+    expect(statusClause.params.closedStatuses).toEqual(['COMPLETED', 'CANCELLED']);
+
+    // The retrospective production-entry source is gone from REQUIRED.
+    expect(clauses.some((c: any) => c.sql.includes('pe.entryDate'))).toBe(false);
+    expect(qb.innerJoin).not.toHaveBeenCalledWith(ProductionEntry, expect.anything(), expect.anything());
+  });
+
+  it('binds the exact same [start, end) business-day window as the CONSUMED ledger side', async () => {
+    const service = serviceWith({});
+    await service.getReport(COMPANY_ID, { dateFrom: '2026-09-06', dateTo: '2026-09-06' });
+
+    const reqFrom = service.__qbs.requiredQb.__andWhere.find((c: any) => String(c.sql).includes('>= :dateFrom'));
+    const reqTo = service.__qbs.requiredQb.__andWhere.find((c: any) => String(c.sql).includes('< :dateTo'));
+    expect(reqFrom.params.dateFrom.toISOString()).toBe('2026-09-05T19:00:00.000Z');
+    expect(reqTo.params.dateTo.toISOString()).toBe('2026-09-06T19:00:00.000Z');
+
+    // The CONSUMED aggregate binds the identical instants: [start, end).
+    const ledger = (service.__qbs.ledgerRepo.createQueryBuilder as jest.Mock).mock.results[0].value;
+    const ledgerParams = ledger.__setParameters[0];
+    expect(ledgerParams.dateFrom).toEqual(reqFrom.params.dateFrom);
+    expect(ledgerParams.dateTo).toEqual(reqTo.params.dateTo);
+
+    // CONSUMED is the OUT (PRODUCTION_CONSUMPTION + PRODUCTION_ISSUE) sum inside that window.
+    const consumedSelect = ledger.__addSelect.find((s: string) =>
+      s.includes("transactionType IN ('PRODUCTION_CONSUMPTION', 'PRODUCTION_ISSUE')"),
+    );
+    expect(consumedSelect).toBeDefined();
+    expect(consumedSelect).toContain('transactionDate >= :dateFrom');
+    expect(consumedSelect).toContain('transactionDate < :dateTo');
+    expect(consumedSelect).not.toContain('transactionDate <= :dateTo');
   });
 });
 

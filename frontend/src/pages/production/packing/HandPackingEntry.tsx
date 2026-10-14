@@ -533,6 +533,48 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
   const [socNo, setSocNo] = useState<string>('');
   const [selectedCustomer, setSelectedCustomer] = useState<string | undefined>(undefined);
   const [selectedBagStyle, setSelectedBagStyle] = useState<string | undefined>(undefined);
+  const [bagStyleOptions, setBagStyleOptions] = useState<Array<{ value: string; label: string }>>(() => {
+    const DEFAULT_BAG_STYLES = [
+      { value: 'White Poly Bag with Brand Sticker', label: 'White Poly Bag with Brand Sticker' },
+      { value: 'Plain White Poly Bag (Without Sticker)', label: 'Plain White Poly Bag (Without Sticker)' },
+      { value: 'OEM Packing', label: 'OEM Packing' },
+      { value: 'Transparent Poly Bag with Barcode', label: 'Transparent Poly Bag with Barcode' },
+      { value: 'Customer Branded Printed Bag', label: 'Customer Branded Printed Bag' },
+      { value: 'Brown Export Master Carton', label: 'Brown Export Master Carton' },
+    ];
+    try {
+      const saved = localStorage.getItem('pwi_custom_bag_styles');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          // Clean out any old emoji / urdu labels
+          return parsed.map((p: any) => ({
+            value: p.value || p,
+            label: (p.value === 'Crown / Orion Packing' || p.value === 'OEM Packing') ? 'OEM Packing' : (p.value || p),
+          }));
+        }
+      }
+    } catch {}
+    return DEFAULT_BAG_STYLES;
+  });
+  const [newBagStyleInput, setNewBagStyleInput] = useState<string>('');
+
+  const handleAddCustomBagStyle = (e?: React.MouseEvent | React.KeyboardEvent) => {
+    e?.preventDefault();
+    if (!newBagStyleInput || !newBagStyleInput.trim()) return;
+    const trimmed = newBagStyleInput.trim();
+    if (!bagStyleOptions.some(o => o.value.toLowerCase() === trimmed.toLowerCase())) {
+      const newOpt = { value: trimmed, label: trimmed };
+      const updated = [...bagStyleOptions, newOpt];
+      setBagStyleOptions(updated);
+      try {
+        localStorage.setItem('pwi_custom_bag_styles', JSON.stringify(updated));
+      } catch {}
+    }
+    setSelectedBagStyle(trimmed);
+    form.setFieldsValue({ packagingStyle: trimmed });
+    setNewBagStyleInput('');
+  };
   const [selectedLine, setSelectedLine] = useState<string>('Hand Packing Line');
   const [overtimeHours, setOvertimeHours] = useState<number>(0);
   const [selectedShiftId, setSelectedShiftId] = useState<string | undefined>(undefined);
@@ -1124,6 +1166,11 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         });
         if (existingDraft.formValues) {
           const restoredValues = { ...existingDraft.formValues };
+          // Sanitize inactive/invalid department from previous draft sessions
+          if (restoredValues.departmentId === 'd3000000-0000-0000-0000-000000000007') {
+            restoredValues.departmentId = SPD_PACKING_DEPT_ID;
+            restoredValues.sectionId = SPD_PACKING_SECTION_ID;
+          }
           // The entry date has its own guarded write path (seedEntryDate) so a
           // day the operator already picked is never overwritten by the draft,
           // and so the controlled picker state follows the restored value too.
@@ -1194,14 +1241,29 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
           s.id === SPD_PACKING_SECTION_ID || (s.divisionId === defaultDivision?.id && (s.name || '').toLowerCase().includes('pack'))
         ) || loadedSecs.find((s: any) => s.divisionId === defaultDivision?.id) || loadedSecs[0];
         const defaultDept = loadedDeps.find((d: any) =>
-          d.id === SPD_PACKING_DEPT_ID || (d.divisionId === defaultDivision?.id && (d.name || '').toLowerCase().includes('pack'))
-        ) || loadedDeps.find((d: any) => d.divisionId === defaultDivision?.id) || loadedDeps[0];
+          d.status === 'ACTIVE' && (
+            d.id === SPD_PACKING_DEPT_ID ||
+            ((d.departmentCode || '').toUpperCase() === 'SPD-DEPT008') ||
+            (d.divisionId === defaultDivision?.id && (d.sectionId === defaultSection?.id || !d.sectionId) && (d.name || '').toLowerCase().includes('pack'))
+          )
+        ) || loadedDeps.find((d: any) => d.status === 'ACTIVE' && (d.id === SPD_PACKING_DEPT_ID || (d.name || '').toLowerCase().includes('pack')))
+          || loadedDeps.find((d: any) => d.status === 'ACTIVE' && d.divisionId === defaultDivision?.id)
+          || loadedDeps.find((d: any) => d.status === 'ACTIVE')
+          || loadedDeps[0];
         const defaultShift = loadedShifts[0];
         const fgWarehouse = loadedWhs.find((w: any) => w.warehouseCode === 'WH-001' || w.warehouseType === 'FINISHED_GOODS') || loadedWhs[0];
         const rmWarehouse = loadedWhs.find((w: any) => w.warehouseCode === 'SPI-PL-004' || w.warehouseType === 'WORK_IN_PROGRESS') || loadedWhs[1] || loadedWhs[0];
 
         setSelectedDivisionId(defaultDivision?.id || SPD_DIVISION_ID);
         setSelectedSectionId(defaultSection?.id || SPD_PACKING_SECTION_ID);
+
+        // Auto-correct departmentId if it currently holds an inactive department (e.g. Nipple Plating)
+        const currentDeptId = form.getFieldValue('departmentId');
+        const currentDeptObj = loadedDeps.find((d: any) => d.id === currentDeptId);
+        if (!currentDeptId || currentDeptId === 'd3000000-0000-0000-0000-000000000007' || (currentDeptObj && currentDeptObj.status !== 'ACTIVE')) {
+          form.setFieldValue('departmentId', defaultDept?.id || SPD_PACKING_DEPT_ID);
+          form.setFieldValue('sectionId', defaultSection?.id || SPD_PACKING_SECTION_ID);
+        }
 
         if (!existingDraft) {
           const autoNo = `PKG-${dayjs().format('YYYY')}-${String(Math.floor(Math.random() * 900) + 100).padStart(4, '0')}`;
@@ -1347,10 +1409,15 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         ) || loadedSecs.find((s: any) => s.id === SPD_PACKING_SECTION_ID) || loadedSecs.find((s: any) => s.divisionId === defaultDivision?.id) || loadedSecs[0];
 
         const defaultDept = loadedDeps.find((d: any) =>
-          d.id === SPD_PACKING_DEPT_ID ||
-          ((d.departmentCode || '').toUpperCase() === 'SPD-DEPT008' && (!d.divisionId || d.divisionId === defaultDivision?.id)) ||
-          (d.divisionId === defaultDivision?.id && (d.sectionId === defaultSection?.id || !d.sectionId) && (d.name || '').toLowerCase().includes('pack'))
-        ) || loadedDeps.find((d: any) => d.id === SPD_PACKING_DEPT_ID) || loadedDeps.find((d: any) => d.divisionId === defaultDivision?.id) || loadedDeps[0];
+          d.status === 'ACTIVE' && (
+            d.id === SPD_PACKING_DEPT_ID ||
+            ((d.departmentCode || '').toUpperCase() === 'SPD-DEPT008' && (!d.divisionId || d.divisionId === defaultDivision?.id)) ||
+            (d.divisionId === defaultDivision?.id && (d.sectionId === defaultSection?.id || !d.sectionId) && (d.name || '').toLowerCase().includes('pack'))
+          )
+        ) || loadedDeps.find((d: any) => d.status === 'ACTIVE' && (d.id === SPD_PACKING_DEPT_ID || (d.name || '').toLowerCase().includes('pack')))
+          || loadedDeps.find((d: any) => d.status === 'ACTIVE' && d.divisionId === defaultDivision?.id)
+          || loadedDeps.find((d: any) => d.status === 'ACTIVE')
+          || loadedDeps[0];
         const defaultShift = loadedShifts[0];
 
         // Default Warehouses
@@ -1359,6 +1426,14 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
 
         setSelectedDivisionId(defaultDivision?.id || SPD_DIVISION_ID);
         setSelectedSectionId(defaultSection?.id || SPD_PACKING_SECTION_ID);
+
+        // Auto-correct departmentId if it currently holds an inactive department (e.g. Nipple Plating)
+        const currDeptId = form.getFieldValue('departmentId');
+        const currDeptObj = loadedDeps.find((d: any) => d.id === currDeptId);
+        if (!currDeptId || currDeptId === 'd3000000-0000-0000-0000-000000000007' || (currDeptObj && currDeptObj.status !== 'ACTIVE')) {
+          form.setFieldValue('departmentId', defaultDept?.id || SPD_PACKING_DEPT_ID);
+          form.setFieldValue('sectionId', defaultSection?.id || SPD_PACKING_SECTION_ID);
+        }
 
         const autoNo = `PKG-${dayjs().format('YYYY')}-${String(Math.floor(Math.random() * 900) + 100).padStart(4, '0')}`;
 
@@ -1468,11 +1543,12 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
   }, [sections, selectedDivisionId]);
 
   const availableDepartments = useMemo(() => {
+    const activeDeps = departments.filter((d: any) => d.status === 'ACTIVE');
     if (!selectedSectionId) {
-      if (!selectedDivisionId) return departments;
-      return departments.filter((d) => d.divisionId === selectedDivisionId);
+      if (!selectedDivisionId) return activeDeps;
+      return activeDeps.filter((d) => d.divisionId === selectedDivisionId);
     }
-    return departments.filter((d) => d.sectionId === selectedSectionId || (!d.sectionId && d.divisionId === selectedDivisionId));
+    return activeDeps.filter((d) => d.sectionId === selectedSectionId || (!d.sectionId && d.divisionId === selectedDivisionId));
   }, [departments, selectedSectionId, selectedDivisionId]);
 
   // Handle Division Change in Form
@@ -1482,13 +1558,17 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
     // selected customer (it belongs to a different division's account book).
     // Cleared immediately so the form can never submit a mismatched pair.
     setSelectedCustomer(undefined);
-    const firstSec = sections.find((s) => s.divisionId === divId);
-    setSelectedSectionId(firstSec?.id || '');
-    const firstDept = departments.find((d) => d.sectionId === firstSec?.id) || departments.find((d) => d.divisionId === divId);
+    const packingSec = sections.find((s) => s.divisionId === divId && (((s.sectionCode || '').toUpperCase() === 'SEC-013') || (s.name || '').toLowerCase().includes('pack')))
+      || sections.find((s) => s.divisionId === divId);
+    setSelectedSectionId(packingSec?.id || '');
+    const packingDept = departments.find((d) => d.status === 'ACTIVE' && d.divisionId === divId && (d.sectionId === packingSec?.id || !d.sectionId) && ((d.departmentCode || '').toUpperCase() === 'SPD-DEPT008' || (d.name || '').toLowerCase().includes('pack')))
+      || departments.find((d) => d.status === 'ACTIVE' && (d.sectionId === packingSec?.id || d.divisionId === divId))
+      || departments.find((d) => d.status === 'ACTIVE' && ((d.departmentCode || '').toUpperCase() === 'SPD-DEPT008' || (d.name || '').toLowerCase().includes('pack')))
+      || departments.find((d) => d.status === 'ACTIVE');
     form.setFieldsValue({
       divisionId: divId,
-      sectionId: firstSec?.id || null,
-      departmentId: firstDept?.id || null,
+      sectionId: packingSec?.id || null,
+      departmentId: packingDept?.id || SPD_PACKING_DEPT_ID,
       customerName: undefined,
     });
   };
@@ -1496,10 +1576,13 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
   // Handle Section Change in Form
   const handleSectionChange = (secId: string) => {
     setSelectedSectionId(secId);
-    const firstDept = departments.find((d) => d.sectionId === secId);
+    const packingDept = departments.find((d) => d.status === 'ACTIVE' && d.sectionId === secId && ((d.departmentCode || '').toUpperCase() === 'SPD-DEPT008' || (d.name || '').toLowerCase().includes('pack')))
+      || departments.find((d) => d.status === 'ACTIVE' && d.sectionId === secId)
+      || departments.find((d) => d.status === 'ACTIVE' && ((d.departmentCode || '').toUpperCase() === 'SPD-DEPT008' || (d.name || '').toLowerCase().includes('pack')))
+      || departments.find((d) => d.status === 'ACTIVE');
     form.setFieldsValue({
       sectionId: secId,
-      departmentId: firstDept?.id || null,
+      departmentId: packingDept?.id || SPD_PACKING_DEPT_ID,
     });
   };
 
@@ -2239,16 +2322,30 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         ? formValues.sectionId
         : (packingSec?.id || SPD_PACKING_SECTION_ID);
 
-      // 3. Department: belonging to the resolved Section/Division — the
-      //    operator's pick wins; SPD Packing (SPD-DEPT008) stays the fallback.
-      const packingDept = departments.find((d: any) =>
+      // 3. Department: strictly an ACTIVE packing department (SPD-DEPT008 / Spoke Packing).
+      // Inactive departments like Nipple Plating must never be submitted.
+      const formDept = departments.find((d: any) => d.id === formValues.departmentId);
+      const isFormDeptValidAndActive = formDept && formDept.status === 'ACTIVE' && (!formDept.divisionId || formDept.divisionId === resolvedDivisionId);
+
+      const fallbackPackingDept = departments.find((d: any) =>
+        d.status === 'ACTIVE' &&
         d.divisionId === resolvedDivisionId &&
         (d.sectionId === resolvedSectionId || !d.sectionId) &&
         ((d.departmentCode || '').toUpperCase() === 'SPD-DEPT008' || (d.name || '').toLowerCase().includes('pack'))
-      ) || departments.find((d: any) => d.divisionId === resolvedDivisionId) || departments.find((d: any) => d.id === SPD_PACKING_DEPT_ID) || departments[0];
-      const resolvedDepartmentId = formValues.departmentId && departments.some((d: any) => d.id === formValues.departmentId && (!d.divisionId || d.divisionId === resolvedDivisionId))
+      ) || departments.find((d: any) =>
+        d.status === 'ACTIVE' &&
+        ((d.departmentCode || '').toUpperCase() === 'SPD-DEPT008' || (d.name || '').toLowerCase().includes('pack'))
+      ) || departments.find((d: any) => d.status === 'ACTIVE' && d.divisionId === resolvedDivisionId)
+        || departments.find((d: any) => d.status === 'ACTIVE')
+        || departments.find((d: any) => d.id === SPD_PACKING_DEPT_ID);
+
+      const resolvedDepartmentId = isFormDeptValidAndActive
         ? formValues.departmentId
-        : (packingDept?.id || SPD_PACKING_DEPT_ID);
+        : (fallbackPackingDept?.id || SPD_PACKING_DEPT_ID);
+
+      // Section alignment: ensure section matches resolvedDepartmentId's sectionId if defined
+      const resolvedDeptObj = departments.find((d: any) => d.id === resolvedDepartmentId);
+      const alignedSectionId = (resolvedDeptObj && resolvedDeptObj.sectionId) ? resolvedDeptObj.sectionId : resolvedSectionId;
 
       const activeShift = shifts.find((s: any) => s.id === (selectedShiftId || formValues.shiftId)) || shifts[0];
       const rawShiftId = selectedShiftId || formValues.shiftId || activeShift?.id;
@@ -2272,7 +2369,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
 
       const payload: any = {
         divisionId: resolvedDivisionId,
-        sectionId: resolvedSectionId,
+        sectionId: alignedSectionId,
         departmentId: resolvedDepartmentId,
         entryDate: activeEntryDate,
         productionDate: activeEntryDate,
@@ -2307,7 +2404,6 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
             actualQuantity: it.quantityPcs,
             scrapQuantity: 0,
             runningHours: 8 + Number(overtimeHours || 0),
-            overtimeHours: Number(overtimeHours || 0),
             remarks: `${it.cartons} Cartons (${it.gross} Gross) — Customer: ${activeCust} (SOC: ${activeSocNo}) | OT: ${overtimeHours}h${itemScrap > 0 ? ` | Component Scrap: ${itemScrap} PCS (${itemScrapKg} KG)` : ''}`,
           };
         }),
@@ -3494,20 +3590,39 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                 </span>
                 <Select
                   allowClear
-                  placeholder="Select Bag Style..."
+                  showSearch
+                  placeholder="Select or enter Bag Style..."
                   style={{ width: '100%', fontWeight: 600 }}
                   value={selectedBagStyle}
                   onChange={(val) => {
                     setSelectedBagStyle(val || undefined);
                     form.setFieldsValue({ packagingStyle: val });
                   }}
-                  options={[
-                    { value: 'White Poly Bag with Brand Sticker', label: '🏷️ White Poly Bag + Sticker' },
-                    { value: 'Plain White Poly Bag (Without Sticker)', label: '⚪ Plain White Poly Bag' },
-                    { value: 'Transparent Poly Bag with Barcode', label: '🏷️ Transparent + Barcode' },
-                    { value: 'Customer Branded Printed Bag', label: '🏢 Customer Branded Bag' },
-                    { value: 'Brown Export Master Carton', label: '📦 Export Master Carton' },
-                  ]}
+                  options={bagStyleOptions}
+                  dropdownRender={(menu) => (
+                    <>
+                      {menu}
+                      <Divider style={{ margin: '6px 0' }} />
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 8px 6px' }}>
+                        <Input
+                          size="small"
+                          placeholder="Add new packing style (e.g. Orion Packing)..."
+                          value={newBagStyleInput}
+                          onChange={(e) => setNewBagStyleInput(e.target.value)}
+                          onKeyDown={(e) => e.stopPropagation()}
+                          onPressEnter={handleAddCustomBagStyle}
+                        />
+                        <Button
+                          type="primary"
+                          size="small"
+                          icon={<PlusOutlined />}
+                          onClick={handleAddCustomBagStyle}
+                        >
+                          Add
+                        </Button>
+                      </div>
+                    </>
+                  )}
                 />
               </div>
             </Col>

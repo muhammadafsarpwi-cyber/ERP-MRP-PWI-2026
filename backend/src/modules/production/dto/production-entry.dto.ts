@@ -55,6 +55,12 @@ export class ProductionEntryItemDto {
   runningHours?: number;
 
   @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(24)
+  overtimeHours?: number;
+
+  @IsOptional()
   @IsString()
   @MaxLength(50)
   routingCode?: string | null;
