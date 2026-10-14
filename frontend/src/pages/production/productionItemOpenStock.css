@@ -830,6 +830,27 @@
   transform: translateY(-1px) !important;
 }
 
+[data-theme='dark'] .prod-result-details-card,
+body.dark .prod-result-details-card {
+  background: var(--theme-surface-alt, #0f172a);
+  border-color: var(--theme-border, #334155);
+}
+
+[data-theme='dark'] .prod-result-details-row,
+body.dark .prod-result-details-row {
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+[data-theme='dark'] .prod-result-details-label,
+body.dark .prod-result-details-label {
+  color: var(--theme-text-muted, #94a3b8);
+}
+
+[data-theme='dark'] .prod-result-details-val,
+body.dark .prod-result-details-val {
+  color: var(--theme-heading, #ffffff);
+}
+
 /* ==========================================================================
    PACKING DEPARTMENT HUB - 2026 ZERO-BORDER & EDGE-TO-EDGE OVERHAUL
    Strict theme adherence, boundary containment & responsive touch scrollbar

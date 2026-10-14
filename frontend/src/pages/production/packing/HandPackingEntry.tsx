@@ -6,14 +6,14 @@ import {
   Divider, Popconfirm, Spin, Badge, Modal,
 } from 'antd';
 import {
-  ArrowLeftOutlined, SaveOutlined, PlusOutlined, DeleteOutlined,
+  ArrowLeftOutlined, SearchOutlined, SaveOutlined, PlusOutlined, DeleteOutlined,
   InboxOutlined, CheckCircleFilled, SyncOutlined,
   InfoCircleOutlined, ShoppingCartOutlined, DatabaseOutlined,
   CalendarOutlined, UserOutlined, WarningFilled,
   CheckCircleOutlined, ClockCircleOutlined,
   SwapOutlined, FileTextOutlined, AppstoreOutlined,
   ExclamationCircleOutlined, TeamOutlined,
-  EnvironmentOutlined,
+  EnvironmentOutlined, EyeOutlined, EditOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import apiService from '../../../services/api';
@@ -55,6 +55,11 @@ export interface RecentPackingLog {
   entryTime: string;
   customerName: string;
   socNo: string;
+  packagingStyle?: string;
+  line?: string;
+  targetCartons?: number;
+  targetPcs?: number;
+  fgItemId?: string;
   fgItemCode: string;
   fgItemName: string;
   cartons: number;
@@ -71,6 +76,7 @@ export interface RecentPackingLog {
   status: string;
   createdAtMs: number;
   components: Array<{ code: string; gross: number }>;
+  rawEntry?: any;
 }
 
 /** Parse a saved Production Entry (hand packing) back into a shift-log row using its structured remarks. */
@@ -114,12 +120,22 @@ const parseHandPackingEntry = (e: any): RecentPackingLog | null => {
     entryTime: created.isValid() ? created.format('hh:mm A') : '',
     customerName: pick('Customer') || '—',
     socNo: pick('SOC') || '—',
+    packagingStyle: pick('Style') || 'OEM Packing',
+    line: pick('Line') || 'Spoke Boxing & Nipple Station A',
+    targetCartons: Math.round((toNum(e.targetQuantity ?? e.target_quantity) / PCS_PER_CARTON) * 100) / 100 || cartons,
+    targetPcs: toNum(e.targetQuantity ?? e.target_quantity) || packedPcs,
+    fgItemId: e.itemId || e.item_id || e.item?.id || '',
     fgItemCode: e.item?.itemCode || '',
     fgItemName: e.item?.name || '',
     cartons,
     gross,
     pcs: packedPcs,
-    weightKg: Math.round(packedPcs * DEFAULT_PER_PIECE_WEIGHT_KG * 10) / 10,
+    weightKg: (() => {
+      const weightMatch = remarks.match(/Weight:\s*([\d.]+)\s*KG/i);
+      const parsedWeight = weightMatch ? toNum(weightMatch[1]) : 0;
+      // Authoritative BOM component weight: 50 CTN = 946.8 KG (18.936 KG / Carton for Spoke + Nipple FG)
+      return parsedWeight > 0 ? parsedWeight : Math.round(cartons * 18.936 * 10) / 10;
+    })(),
     rejectionPcs,
     rejectionKg: compRejMatch ? toNum(compRejMatch[2]) : (legacyRejMatch ? toNum(legacyRejMatch[2]) : 0),
     rejectionPct: compRejMatch
@@ -127,10 +143,11 @@ const parseHandPackingEntry = (e: any): RecentPackingLog | null => {
       : (legacyRejMatch && legacyRejMatch[3] !== undefined ? toNum(legacyRejMatch[3]) : null),
     rejectionDetail: scrapReasons ? `${scrapDetail} (${scrapReasons})` : scrapDetail,
     overtimeHours: parseFloat(pick('OT')) || 0,
-    shiftName: e.shift?.name || 'General (8:30 AM - 5:30 PM)',
+    shiftName: (e.shift?.name || 'General (8:30 AM - 5:30 PM)').replace(/\(N\+OT\)/gi, '').replace(/\(N\)/gi, '').trim(),
     status: 'SAVED',
     createdAtMs: created.isValid() ? created.valueOf() : 0,
     components: [],
+    rawEntry: e,
   };
 };
 
@@ -580,6 +597,10 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
   const [selectedShiftId, setSelectedShiftId] = useState<string | undefined>(undefined);
   const [saveReviewModalVisible, setSaveReviewModalVisible] = useState<boolean>(false);
 
+  // Edit and View modal states
+  const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
+  const [viewModalData, setViewModalData] = useState<RecentPackingLog | null>(null);
+
   // Customer List master data (fetched dynamically from the official Customer
   // List module — /customer/customers — replacing the old hardcoded entries)
   const [customers, setCustomers] = useState<any[]>([]);
@@ -618,6 +639,9 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
     () => tabSessionCache.get<RecentPackingLog[]>(RECENT_CACHE_KEY) || []
   );
   const [recentLoading, setRecentLoading] = useState<boolean>(false);
+  const [entryModalOpen, setEntryModalOpen] = useState<boolean>(false);
+  const [registerSearchText, setRegisterSearchText] = useState<string>('');
+  const [registerDateFilter, setRegisterDateFilter] = useState<string | null>(null);
 
   const loadRecentEntries = useCallback(async () => {
     setRecentLoading(true);
@@ -1103,7 +1127,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
     let mounted = true;
     async function loadData() {
       // 1. Check if an active draft exists in tab session cache (user was working on this tab)
-      const existingDraft = tabSessionCache.get<any>(TAB_CACHE_KEY);
+      const existingDraft: any = null; // Clean initial state for new entries
       if (existingDraft && existingDraft.masterItems && existingDraft.masterItems.length > 0) {
         const sanitized = existingDraft.masterItems.map((item: any) => ({
           ...item,
@@ -1862,7 +1886,102 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         })
       );
     },
-    [conversionFactors, recalculateComponentsForQuantity]
+    [conversionFactors, recalculateComponentsForQuantity],
+  );
+
+  // Handle Editing an existing saved packing production entry
+  const handleEditEntry = useCallback(
+    (r: RecentPackingLog) => {
+      setEditingEntryId(r.id);
+      setCurrentBatchNo(r.batchNo);
+      if (r.entryDate) {
+        const parsed = dayjs(r.entryDate, 'DD/MM/YYYY');
+        if (parsed.isValid()) {
+          setEntryDate(parsed);
+          form.setFieldValue('entryDate', parsed);
+        }
+      }
+      setSelectedCustomer(r.customerName !== '—' ? r.customerName : undefined);
+      setSocNo(r.socNo !== '—' ? r.socNo : '');
+      setSelectedBagStyle(r.packagingStyle || 'OEM Packing');
+      if (r.line) setSelectedLine(r.line);
+      setOvertimeHours(r.overtimeHours || 0);
+      if (r.shiftName) {
+        const matchedShift = shifts.find((s) => s.name === r.shiftName || s.shiftCode === r.shiftName);
+        if (matchedShift) setSelectedShiftId(matchedShift.id);
+      }
+      const editTarget = r.targetCartons || 100;
+      setTargetCartons(editTarget);
+      form.setFieldsValue({
+        packingNo: r.batchNo,
+        customerName: r.customerName !== '—' ? r.customerName : undefined,
+        customerSocNo: r.socNo !== '—' ? r.socNo : '',
+        packagingStyle: r.packagingStyle || 'OEM Packing',
+      });
+      const rawId = r.fgItemId || r.rawEntry?.itemId || r.rawEntry?.item_id || r.rawEntry?.item?.id;
+      const matched = fgItems.find((f) => (rawId && f.id === rawId) || (r.fgItemCode && f.itemCode === r.fgItemCode)) ||
+        DEFAULT_SPOKE_FINISHED_GOODS.find((f) => (rawId && f.id === rawId) || (r.fgItemCode && f.itemCode === r.fgItemCode));
+      const targetItemId = matched?.id || rawId || '';
+      const targetItemCode = matched?.itemCode || r.fgItemCode || 'SPI-FG-SPK';
+      const targetItemName = matched?.name || r.fgItemName || 'Selected Finished Good';
+
+      const rowKey = masterItems[0]?.key || 'fg-primary-1';
+      const nextCartons = r.cartons || 50;
+      const nextGross = r.gross || Math.round(nextCartons * conversionFactors.grossPerCarton * 100) / 100;
+      const nextPcs = r.pcs || Math.round(nextGross * conversionFactors.pcsPerGross);
+
+      setMasterItems([
+        {
+          key: rowKey,
+          itemId: targetItemId,
+          itemCode: targetItemCode,
+          itemName: targetItemName,
+          unit: 'PCS',
+          destinationWarehouseId: form.getFieldValue('warehouseId') || warehouses[0]?.id,
+          quantityPcs: nextPcs,
+          gross: nextGross,
+          cartons: nextCartons,
+          targetCartons: editTarget,
+          status: 'IN_PROGRESS',
+          bom: null,
+          bomLoading: true,
+          bomError: null,
+          components: [],
+        },
+      ]);
+      setInspectedItemId(targetItemId);
+
+      if (targetItemId) {
+        expandBomForMasterItem(rowKey, targetItemId, nextPcs);
+      }
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      message.info(`Editing Packing Entry: ${r.batchNo}. Update details and click 'Update Packing Production Entry'`);
+    },
+    [form, fgItems, conversionFactors, warehouses, expandBomForMasterItem, shifts, message, masterItems]
+  );
+
+  const handleCancelEdit = useCallback(() => {
+    setEditingEntryId(null);
+    const autoNo = `PKG-${dayjs().format('YYYY')}-${String(Math.floor(Math.random() * 900) + 100).padStart(4, '0')}`;
+    setCurrentBatchNo(autoNo);
+    form.setFieldsValue({ packingNo: autoNo });
+    message.info('Edit mode cancelled');
+  }, [form, message]);
+
+  const handleDeleteEntry = useCallback(
+    async (entryId: string) => {
+      try {
+        await apiService.delete(`/production/entries/${entryId}`);
+        message.success('Packing production entry deleted and stock reversed successfully');
+        loadRecentEntries();
+        if (editingEntryId === entryId) {
+          handleCancelEdit();
+        }
+      } catch (err: any) {
+        message.error(err?.response?.data?.message || err?.message || 'Failed to delete packing entry');
+      }
+    },
+    [editingEntryId, handleCancelEdit, loadRecentEntries, message]
   );
 
   // Handle Finished Good selection change on a row
@@ -1957,21 +2076,27 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
     setMasterItems((prev) => prev.filter((r) => r.key !== key));
   }, [masterItems.length, message]);
 
-  // Derived Daily Target in Cartons, Gross, and PCS
-  const { targetInCartons, targetInGross, targetInPcs } = useMemo(() => {
-    let ctn = 0;
-    if (targetUnit === 'CTN') ctn = targetCartons;
-    else if (targetUnit === 'GRS') ctn = targetCartons / conversionFactors.grossPerCarton;
-    else if (targetUnit === 'PCS') ctn = targetCartons / conversionFactors.pcsPerCarton;
+  // Derived Daily Target in Cartons, Gross, and PCS (Automatically scaled with Overtime!)
+  const { targetInCartons, targetInGross, targetInPcs, baseTargetCartons, overtimeTargetCartons } = useMemo(() => {
+    let baseCtn = 0;
+    if (targetUnit === 'CTN') baseCtn = targetCartons;
+    else if (targetUnit === 'GRS') baseCtn = targetCartons / conversionFactors.grossPerCarton;
+    else if (targetUnit === 'PCS') baseCtn = targetCartons / conversionFactors.pcsPerCarton;
 
-    const grs = ctn * conversionFactors.grossPerCarton;
+    // Linear Overtime scaling: 8 hours base -> each OT hour adds (base / 8) cartons to target
+    const otCtn = overtimeHours > 0 ? (overtimeHours * (baseCtn / 8)) : 0;
+    const totalCtn = baseCtn + otCtn;
+
+    const grs = totalCtn * conversionFactors.grossPerCarton;
     const pcs = grs * conversionFactors.pcsPerGross;
     return {
-      targetInCartons: Math.round(ctn * 100) / 100,
+      baseTargetCartons: Math.round(baseCtn * 100) / 100,
+      overtimeTargetCartons: Math.round(otCtn * 100) / 100,
+      targetInCartons: Math.round(totalCtn * 100) / 100,
       targetInGross: Math.round(grs * 100) / 100,
       targetInPcs: Math.round(pcs),
     };
-  }, [targetCartons, targetUnit, conversionFactors]);
+  }, [targetCartons, targetUnit, conversionFactors, overtimeHours]);
 
   // Aggregated totals across all Finished Goods master lines
   const totals = useMemo(() => {
@@ -2380,7 +2505,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         supervisorName: formValues.supervisorName || currentUserName,
         itemId: primaryItem.itemId,
         uomId: pcsUom?.id,
-        targetQuantity: primaryItem.targetCartons * conversionFactors.pcsPerCarton,
+        targetQuantity: (targetCartons || primaryItem.targetCartons || 100) * conversionFactors.pcsPerCarton,
         // Full packed quantity: component-wise scrap never reduces the FG output.
         actualQuantity: primaryItem.quantityPcs,
         scrapQuantity: 0,
@@ -2392,7 +2517,14 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         rawMaterialWarehouseId: formValues.rawMaterialWarehouseId || warehouses[1]?.id || warehouses[0]?.id,
         componentWarehouses: compWarehouseMap,
         componentRejections,
-        remarks: `[HAND PACKING] Batch: ${activeBatchNo} | SOC: ${activeSocNo} | Customer: ${activeCust} | Style: ${activeStyle} | Line: ${selectedLine} | OT: ${overtimeHours}h | Cartons: ${primaryItem.cartons} (${primaryItem.gross} Gross / ${primaryItem.quantityPcs} PCS)${componentScrapRemarks}${componentScrapReasonsRemarks}`.trim(),
+        remarks: (() => {
+          const computedBatchWeightKg = Math.round(primaryItem.components.reduce((sum, c) => {
+            const r = computeRowRejection(c);
+            const wpp = r.perPieceWeightKg > 0 ? r.perPieceWeightKg : (c.componentItemName?.toLowerCase().includes('nipple') ? 0.0028 : 0.0105);
+            return sum + ((c.requiredPcs || 0) * wpp);
+          }, 0) * 10) / 10 || Math.round(primaryItem.cartons * 18.936 * 10) / 10;
+          return `[HAND PACKING] Batch: ${activeBatchNo} | SOC: ${activeSocNo} | Customer: ${activeCust} | Style: ${activeStyle} | Line: ${selectedLine} | OT: ${overtimeHours}h | Cartons: ${primaryItem.cartons} (${primaryItem.gross} Gross / ${primaryItem.quantityPcs} PCS) | Weight: ${computedBatchWeightKg} KG${componentScrapRemarks}${componentScrapReasonsRemarks}`.trim();
+        })(),
         items: masterItems.map((it, idx) => {
           const itemScrap = it.components.reduce((s, c) => s + computeRowRejection(c).rejectionPcs, 0);
           const itemScrapKg = Math.round(it.components.reduce((s, c) => s + computeRowRejection(c).rejectionKg, 0) * 1000) / 1000;
@@ -2400,7 +2532,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
             lineNumber: idx + 1,
             itemId: it.itemId,
             uomId: pcsUom?.id,
-            targetQuantity: it.targetCartons * conversionFactors.pcsPerCarton,
+            targetQuantity: (targetCartons || it.targetCartons || 100) * conversionFactors.pcsPerCarton,
             actualQuantity: it.quantityPcs,
             scrapQuantity: 0,
             runningHours: 8 + Number(overtimeHours || 0),
@@ -2410,23 +2542,35 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
       };
 
       let res: any = null;
-      try {
-        res = await apiService.post('/production/entries', payload);
-      } catch (postErr: any) {
-        console.warn('Backend rejected entry with error:', postErr);
-        const errMsg = postErr?.response?.data?.message || postErr?.message;
-        if (typeof errMsg === 'string' && errMsg.includes('UUID')) {
-          const normalizedPayload = {
-            ...payload,
-            divisionId: 'd1000000-0000-0000-0000-000000000001',
-            sectionId: 'd2000000-0000-0000-0000-000000000004',
-            departmentId: 'd3000000-0000-0000-0000-000000000008',
-            shiftId: '7b376b7c-e668-48ba-8914-ab04d06709d2',
-            warehouseId: '2f6aabde-69c1-4068-a0ea-b0fe1b8fb0b5',
-          };
-          res = await apiService.post('/production/entries', normalizedPayload).catch(() => null);
+      const wasEditing = !!editingEntryId;
+      if (editingEntryId) {
+        try {
+          res = await apiService.put(`/production/entries/${editingEntryId}`, payload);
+        } catch (updateErr: any) {
+          console.warn('Backend rejected update with error, falling back to delete+recreate:', updateErr);
+          await apiService.delete(`/production/entries/${editingEntryId}`).catch(() => null);
+          res = await apiService.post('/production/entries', payload);
         }
-        if (!res) throw postErr;
+        setEditingEntryId(null);
+      } else {
+        try {
+          res = await apiService.post('/production/entries', payload);
+        } catch (postErr: any) {
+          console.warn('Backend rejected entry with error:', postErr);
+          const errMsg = postErr?.response?.data?.message || postErr?.message;
+          if (typeof errMsg === 'string' && errMsg.includes('UUID')) {
+            const normalizedPayload = {
+              ...payload,
+              divisionId: 'd1000000-0000-0000-0000-000000000001',
+              sectionId: 'd2000000-0000-0000-0000-000000000004',
+              departmentId: 'd3000000-0000-0000-0000-000000000008',
+              shiftId: '7b376b7c-e668-48ba-8914-ab04d06709d2',
+              warehouseId: '2f6aabde-69c1-4068-a0ea-b0fe1b8fb0b5',
+            };
+            res = await apiService.post('/production/entries', normalizedPayload).catch(() => null);
+          }
+          if (!res) throw postErr;
+        }
       }
 
       // Auto-increment Batch Number (e.g. PKG-2026-0239 -> PKG-2026-0240)
@@ -2445,7 +2589,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         entryDate: dayjs(activeEntryDate).format('DD/MM/YYYY'),
         entryTime: dayjs().format('hh:mm A'),
         overtimeHours: overtimeHours,
-        shiftName: activeShift?.name || 'General (8:30 AM - 5:30 PM)',
+        shiftName: (activeShift?.name || 'General (8:30 AM - 5:30 PM)').replace(/\(N\+OT\)/gi, '').replace(/\(N\)/gi, '').trim(),
         weightKg: Math.round(primaryItem.quantityPcs * fgPerPieceWeightKg * 10) / 10,
         customerName: activeCust,
         socNo: activeSocNo,
@@ -2470,7 +2614,12 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
       // Clear the whole form for the next entry (Shift & Line are kept)
       clearEntryForm(nextBatchNo);
       setSaveReviewModalVisible(false);
-      message.success(`Packing entry ${activeBatchNo} saved successfully. Form cleared for next entry.`);
+      setEntryModalOpen(false);
+      if (wasEditing) {
+        message.success(`Packing Production Entry ${activeBatchNo} updated successfully!`);
+      } else {
+        message.success(`Packing entry ${activeBatchNo} saved successfully. Form cleared for next entry.`);
+      }
 
       // Re-sync the shift log with the database (shows ALL saved entries, not just this session)
       loadRecentEntries();
@@ -2882,6 +3031,84 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         },
       },
       {
+        title: <SplitHead top="Available" bottom="Stock" align="center" />,
+        key: 'availableStock',
+        width: 145,
+        render: (_: any, comp: BomComponentItem) => {
+          const availGross = toNum(comp.availableGross ?? comp.availableStock);
+          const availPcs = toNum(comp.availablePcs ?? (availGross * conversionFactors.pcsPerGross));
+          if (comp.stockLoading && availGross === 0 && !comp.sourceWarehouseId) {
+            return <Spin size="small" />;
+          }
+          const isZero = availGross <= 0;
+          return (
+            <div>
+              <span style={{ fontSize: 13, fontWeight: 800, color: isZero ? 'var(--hp-value-danger)' : 'var(--hp-value-success)' }}>
+                {formatNumber(availGross, availGross % 1 === 0 ? 0 : 1)} GRS
+              </span>
+              <div style={{ fontSize: 11, color: isZero ? 'var(--hp-value-danger)' : 'var(--theme-text-muted)', fontWeight: 600 }}>
+                ({formatNumber(availPcs, 0)} PCS in store)
+              </div>
+              {isZero && comp.totalCompanyGross && comp.totalCompanyGross > 0 ? (
+                <Tag color="cyan" style={{ fontSize: 10, marginTop: 2 }}>
+                  {formatNumber(comp.totalCompanyGross, 0)} GRS in other store
+                </Tag>
+              ) : null}
+            </div>
+          );
+        },
+      },
+      {
+        title: <SplitHead top="Total" bottom="Deduction" hint="Required + Scrap" />,
+        key: 'totalDeduction',
+        width: 150,
+        render: (_: any, comp: BomComponentItem) => {
+          const r = computeRowRejection(comp);
+          const totalGross = Math.round((comp.requiredGross + r.rejectionPcs / conversionFactors.pcsPerGross) * 100) / 100;
+          return (
+            <div>
+              <Text strong style={{ fontSize: 13.5, color: 'var(--hp-value-warning)' }}>
+                {formatNumber(totalGross, totalGross % 1 === 0 ? 0 : 1)} GRS
+              </Text>
+              <div style={{ fontSize: 11, color: 'var(--theme-text-secondary)', fontWeight: 600 }}>
+                ({formatNumber(r.totalDeductPcs, 0)} PCS)
+              </div>
+              {r.rejectionPcs > 0 && (
+                <div style={{ fontSize: 10, color: 'var(--hp-value-danger)', fontWeight: 700, marginTop: 1 }}>
+                  incl. {formatNumber(r.rejectionPcs, 0)} scrap
+                </div>
+              )}
+            </div>
+          );
+        },
+      },
+      {
+        title: <SplitHead top="Balance &" bottom="Stock Status" align="center" />,
+        key: 'remainingAndStatus',
+        width: 150,
+        align: 'center' as const,
+        render: (_: any, comp: BomComponentItem) => {
+          const r = computeRowRejection(comp);
+          const totalDeductGross = comp.requiredGross + r.rejectionPcs / conversionFactors.pcsPerGross;
+          const availGross = toNum(comp.availableGross ?? comp.availableStock);
+          const remGross = Math.round((availGross - totalDeductGross) * 10) / 10;
+          const isOk = remGross >= 0;
+          return (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+              <Tag
+                color={isOk ? 'success' : 'error'}
+                style={{ fontWeight: 800, fontSize: 11.5, padding: '2px 8px', borderRadius: 4, margin: 0 }}
+              >
+                {isOk ? '✔ OK' : '⚠ SHORT'}
+              </Tag>
+              <span style={{ fontWeight: 800, color: isOk ? '#22c55e' : '#ef4444', fontSize: 12, marginTop: 2 }}>
+                {isOk ? `+${formatNumber(remGross, 1)} GRS OK` : `-${formatNumber(Math.abs(remGross), 1)} GRS Short`}
+              </span>
+            </div>
+          );
+        },
+      },
+      {
         title: <SplitHead top="Rejection" bottom="Scrap" hint="KG ⇄ PCS entry" />,
         key: 'rejectionEntry',
         width: 300,
@@ -2912,103 +3139,6 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                 {formatNumber(r.rejectionKg, 3)} / {formatNumber(r.totalKg, 3)} KG
               </div>
             </div>
-          );
-        },
-      },
-      {
-        title: <SplitHead top="Total" bottom="Deduction" hint="Required + Scrap" />,
-        key: 'totalDeduction',
-        width: 150,
-        render: (_: any, comp: BomComponentItem) => {
-          const r = computeRowRejection(comp);
-          const totalGross = Math.round((comp.requiredGross + r.rejectionPcs / conversionFactors.pcsPerGross) * 100) / 100;
-          return (
-            <div>
-              <Text strong style={{ fontSize: 13.5, color: 'var(--hp-value-warning)' }}>
-                {formatNumber(totalGross, totalGross % 1 === 0 ? 0 : 1)} GRS
-              </Text>
-              <div style={{ fontSize: 11, color: 'var(--theme-text-secondary)', fontWeight: 600 }}>
-                ({formatNumber(r.totalDeductPcs, 0)} PCS)
-              </div>
-              {r.rejectionPcs > 0 && (
-                <div style={{ fontSize: 10, color: 'var(--hp-value-danger)', fontWeight: 700, marginTop: 1 }}>
-                  incl. {formatNumber(r.rejectionPcs, 0)} scrap
-                </div>
-              )}
-            </div>
-          );
-        },
-      },
-      {
-        title: <SplitHead top="Available" bottom="Stock" align="center" />,
-        key: 'availableStock',
-        width: 145,
-        render: (_: any, comp: BomComponentItem) => {
-          const availGross = toNum(comp.availableGross ?? comp.availableStock);
-          const availPcs = toNum(comp.availablePcs ?? (availGross * conversionFactors.pcsPerGross));
-          if (comp.stockLoading && availGross === 0 && !comp.sourceWarehouseId) {
-            return <Spin size="small" />;
-          }
-          const isZero = availGross <= 0;
-          return (
-            <div>
-              <span style={{ fontSize: 13, fontWeight: 800, color: isZero ? 'var(--hp-value-danger)' : 'var(--hp-value-success)' }}>
-                {formatNumber(availGross, availGross % 1 === 0 ? 0 : 1)} GRS
-              </span>
-              <div style={{ fontSize: 11, color: isZero ? 'var(--hp-value-danger)' : 'var(--theme-text-muted)', fontWeight: 600 }}>
-                ({formatNumber(availPcs, 0)} PCS in store)
-              </div>
-              {isZero && comp.totalCompanyGross && comp.totalCompanyGross > 0 ? (
-                <Tag color="cyan" style={{ fontSize: 10, marginTop: 2 }}>
-                  {formatNumber(comp.totalCompanyGross, 0)} GRS in other store
-                </Tag>
-              ) : null}
-            </div>
-          );
-        },
-      },
-      {
-        title: <SplitHead top="Remaining" bottom="After Packing" align="center" />,
-        key: 'remaining',
-        width: 145,
-        render: (_: any, comp: BomComponentItem) => {
-          const r = computeRowRejection(comp);
-          const totalDeductGross = comp.requiredGross + r.rejectionPcs / conversionFactors.pcsPerGross;
-          const availGross = toNum(comp.availableGross ?? comp.availableStock);
-          const availPcs = toNum(comp.availablePcs ?? (availGross * conversionFactors.pcsPerGross));
-          const remGross = Math.round((availGross - totalDeductGross) * 10) / 10;
-          const remPcs = Math.round(availPcs - r.totalDeductPcs);
-          const isOk = remGross >= 0;
-          return (
-            <div>
-              <span style={{ fontWeight: 800, color: isOk ? 'var(--hp-value-success)' : 'var(--hp-value-danger)', fontSize: 13 }}>
-                {isOk ? '+' : ''}{formatNumber(remGross, remGross % 1 === 0 ? 0 : 1)} GRS
-              </span>
-              <div style={{ fontSize: 11, color: isOk ? 'var(--theme-text-secondary)' : 'var(--hp-value-danger)', fontWeight: 600 }}>
-                ({isOk ? '+' : ''}{formatNumber(remPcs, 0)} PCS)
-              </div>
-            </div>
-          );
-        },
-      },
-      {
-        title: <SplitHead top="Stock" bottom="Status" align="center" />,
-        dataIndex: 'stockStatus',
-        key: 'stockStatus',
-        width: 115,
-        render: (st: string, comp: BomComponentItem) => {
-          // Effective status considers the component scrap on top of the BOM requirement
-          const r = computeRowRejection(comp);
-          const availGross = toNum(comp.availableGross ?? comp.availableStock);
-          const totalDeductGross = comp.requiredGross + r.rejectionPcs / conversionFactors.pcsPerGross;
-          const effective = availGross >= totalDeductGross ? 'AVAILABLE' : 'INSUFFICIENT';
-          return (
-            <Tag
-              color={effective === 'AVAILABLE' ? 'success' : 'error'}
-              style={{ fontWeight: 800, fontSize: 11.5 }}
-            >
-              {effective === 'AVAILABLE' ? 'Available' : 'Insufficient Stock'}
-            </Tag>
           );
         },
       },
@@ -3103,7 +3233,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
           style={{ marginBottom: 16 }}
         />
 
-        <div style={{ position: 'relative', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: 14, marginBottom: 16 }}>
+        <div style={{ position: 'relative', background: 'var(--theme-surface-alt, #0f172a)', border: '1px solid var(--theme-border, #334155)', borderRadius: 8, padding: 14, marginBottom: 16 }}>
           {saving && (
             <div
               style={{
@@ -3112,7 +3242,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                 left: 0,
                 right: 0,
                 bottom: 0,
-                background: 'rgba(255, 255, 255, 0.9)',
+                background: 'rgba(15, 23, 42, 0.92)',
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
@@ -3122,70 +3252,70 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
               }}
             >
               <Spin size="large" />
-              <div style={{ marginTop: 14, fontWeight: 700, fontSize: 15, color: '#059669' }}>
+              <div style={{ marginTop: 14, fontWeight: 700, fontSize: 15, color: '#10b981' }}>
                 Saving Packing Entry & Updating Stock...
               </div>
-              <div style={{ color: '#64748b', fontSize: 12, marginTop: 4 }}>
+              <div style={{ color: 'var(--theme-text-muted, #94a3b8)', fontSize: 12, marginTop: 4 }}>
                 Deducting WIP/Nipple components and recording Finished Goods inventory
               </div>
             </div>
           )}
 
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-            <Text type="secondary">Batch Number:</Text>
+            <Text type="secondary" style={{ color: 'var(--theme-text-muted, #94a3b8)' }}>Batch Number:</Text>
             <Tag color="blue" style={{ fontWeight: 800 }}>
               {currentBatchNo || '—'}
             </Tag>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-            <Text type="secondary">Customer & SOC:</Text>
-            <Text strong style={{ color: '#0f172a' }}>
+            <Text type="secondary" style={{ color: 'var(--theme-text-muted, #94a3b8)' }}>Customer & SOC:</Text>
+            <Text strong style={{ color: 'var(--theme-heading, #ffffff)' }}>
               {selectedCustomer || '—'} | {socNo || 'N/A'}
             </Text>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-            <Text type="secondary">Packaging Bag Style:</Text>
-            <Text strong style={{ color: '#0284c7' }}>
+            <Text type="secondary" style={{ color: 'var(--theme-text-muted, #94a3b8)' }}>Packaging Bag Style:</Text>
+            <Text strong style={{ color: '#38bdf8' }}>
               {selectedBagStyle || 'White Poly Bag with Brand Sticker'}
             </Text>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-            <Text type="secondary">Finished Good Item:</Text>
-            <Text strong style={{ color: '#0f172a', textAlign: 'right', maxWidth: 360 }}>
+            <Text type="secondary" style={{ color: 'var(--theme-text-muted, #94a3b8)' }}>Finished Good Item:</Text>
+            <Text strong style={{ color: 'var(--theme-heading, #ffffff)', textAlign: 'right', maxWidth: 360 }}>
               {masterItems[0]?.itemName || masterItems[0]?.itemCode}
             </Text>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-            <Text type="secondary">Cartons to Record:</Text>
+            <Text type="secondary" style={{ color: 'var(--theme-text-muted, #94a3b8)' }}>Cartons to Record:</Text>
             <Tag color="success" style={{ fontWeight: 800, fontSize: 13 }}>
               {masterItems[0]?.cartons || 0} Cartons ({masterItems[0]?.gross || 0} Gross / {formatNumber(masterItems[0]?.quantityPcs || 0)} PCS)
             </Tag>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-            <Text type="secondary">Recorded Output → FG Inventory:</Text>
+            <Text type="secondary" style={{ color: 'var(--theme-text-muted, #94a3b8)' }}>Recorded Output → FG Inventory:</Text>
             <Tag color="green" style={{ fontWeight: 800, fontSize: 13 }}>
               {formatNumber(masterItems[0]?.quantityPcs || 0, 0)} PCS (full packed — scrap never reduces FG)
             </Tag>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-            <Text type="secondary">Component Scrap (Rejection):</Text>
+            <Text type="secondary" style={{ color: 'var(--theme-text-muted, #94a3b8)' }}>Component Scrap (Rejection):</Text>
             {componentScrap.pcs > 0 ? (
               <div style={{ textAlign: 'right', maxWidth: 420 }}>
-                <Text strong style={{ color: '#dc2626' }}>
+                <Text strong style={{ color: '#ef4444' }}>
                   {formatNumber(componentScrap.pcs, 0)} PCS ({formatNumber(componentScrap.kg, 3)} KG) · {componentScrap.rowsWithScrap} component(s)
                 </Text>
                 {componentScrap.reasons && (
-                  <div style={{ fontSize: 11, color: 'var(--theme-text-secondary)', fontWeight: 600, marginTop: 2 }}>
+                  <div style={{ fontSize: 11, color: 'var(--theme-text-secondary, #94a3b8)', fontWeight: 600, marginTop: 2 }}>
                     Reasons: {componentScrap.reasons}
                   </div>
                 )}
               </div>
             ) : (
-              <Text type="secondary">None</Text>
+              <Text type="secondary" style={{ color: 'var(--theme-text-muted, #94a3b8)' }}>None</Text>
             )}
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-            <Text type="secondary">Division / Section / Dept:</Text>
+            <Text type="secondary" style={{ color: 'var(--theme-text-muted, #94a3b8)' }}>Division / Section / Dept:</Text>
             <Tag color="cyan" style={{ fontWeight: 700, fontSize: 11.5 }}>
               {(() => {
                 const divId = watchedDivisionId || form.getFieldValue('divisionId');
@@ -3197,8 +3327,8 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
             </Tag>
           </div>
 
-          <Divider style={{ margin: '10px 0' }} />
-          <div style={{ fontSize: 12, fontWeight: 700, color: '#334155', marginBottom: 6 }}>
+          <Divider style={{ margin: '10px 0', borderColor: 'var(--theme-border, #334155)' }} />
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--theme-text, #cbd5e1)', marginBottom: 6 }}>
             BOM Inventory Deductions ({masterItems[0]?.components?.length || 0} Components — Required + Component Scrap):
           </div>
           <div style={{ maxHeight: 160, overflowY: 'auto' }}>
@@ -3213,12 +3343,12 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                     justifyContent: 'space-between',
                     alignItems: 'center',
                     padding: '5px 8px',
-                    background: idx % 2 === 0 ? '#ffffff' : 'transparent',
+                    background: idx % 2 === 0 ? 'rgba(255, 255, 255, 0.04)' : 'transparent',
                     borderRadius: 4,
                     fontSize: 12,
                   }}
                 >
-                  <span style={{ fontWeight: 600, color: '#1e293b' }}>
+                  <span style={{ fontWeight: 600, color: 'var(--theme-heading, #ffffff)' }}>
                     {c.componentItemName || c.componentItemCode}
                   </span>
                   <Space size={8} wrap>
@@ -3232,7 +3362,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                         </Tag>
                       </Tooltip>
                     )}
-                    <span style={{ color: '#9a3412', fontSize: 11.5, fontWeight: 800 }}>
+                    <span style={{ color: '#fb923c', fontSize: 11.5, fontWeight: 800 }}>
                       → {formatNumber(totalGross, totalGross % 1 === 0 ? 0 : 1)} GRS ({formatNumber(r.totalDeductPcs, 0)} PCS)
                     </span>
                   </Space>
@@ -3248,16 +3378,16 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
               alignItems: 'center',
               padding: '8px 12px',
               marginTop: 10,
-              background: '#ede9fe',
+              background: 'rgba(147, 51, 234, 0.12)',
               borderRadius: 6,
-              border: '1.5px solid #c4b5fd',
+              border: '1.5px solid rgba(168, 85, 247, 0.35)',
             }}
           >
             <div>
-              <span style={{ color: '#5b21b6', fontWeight: 800, fontSize: 13 }}>
+              <span style={{ color: '#c084fc', fontWeight: 800, fontSize: 13 }}>
                 Finished Good Output:
               </span>
-              <div style={{ color: '#6d28d9', fontSize: 11.5, fontWeight: 600 }}>
+              <div style={{ color: '#e9d5ff', fontSize: 11.5, fontWeight: 600 }}>
                 1 Carton = 10 Gross Complete Sets = 1,440 Finished Pieces
               </div>
             </div>
@@ -3265,7 +3395,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
               <Tag color="purple" style={{ fontWeight: 800, fontSize: 13, padding: '2px 10px' }}>
                 {masterItems[0]?.cartons || 0} Cartons
               </Tag>
-              <div style={{ color: '#5b21b6', fontSize: 12, fontWeight: 800, marginTop: 2 }}>
+              <div style={{ color: '#c084fc', fontSize: 12, fontWeight: 800, marginTop: 2 }}>
                 {masterItems[0]?.gross || 0} GRS Set ({formatNumber(masterItems[0]?.quantityPcs || 0)} Sets)
               </div>
             </div>
@@ -3397,6 +3527,223 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
     </Modal>
   );
 
+  const renderViewModal = () => {
+    if (!viewModalData) return null;
+    return (
+      <Modal
+        open={!!viewModalData}
+        onCancel={() => setViewModalData(null)}
+        footer={[
+          <Button key="close" type="primary" onClick={() => setViewModalData(null)}>
+            Close
+          </Button>,
+        ]}
+        width={750}
+        title={
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <EyeOutlined style={{ color: '#0284c7', fontSize: 20 }} />
+            <span style={{ fontSize: 16, fontWeight: 700 }}>
+              Packing Production Entry Details — Batch {viewModalData.batchNo}
+            </span>
+          </div>
+        }
+      >
+        <div style={{ padding: '8px 0' }}>
+          <Row gutter={[16, 12]}>
+            <Col span={12}>
+              <Text type="secondary" style={{ color: 'var(--theme-text-muted, #94a3b8)' }}>Batch Number:</Text>
+              <div><Tag color="blue" style={{ fontWeight: 800 }}>{viewModalData.batchNo}</Tag></div>
+            </Col>
+            <Col span={12}>
+              <Text type="secondary" style={{ color: 'var(--theme-text-muted, #94a3b8)' }}>Date & Time:</Text>
+              <div style={{ fontWeight: 700, color: 'var(--theme-heading, var(--theme-text, #0f172a))' }}>
+                {viewModalData.entryDate} {viewModalData.entryTime}
+              </div>
+            </Col>
+            <Col span={12}>
+              <Text type="secondary" style={{ color: 'var(--theme-text-muted, #94a3b8)' }}>Customer & SOC #:</Text>
+              <div style={{ fontWeight: 700, color: 'var(--theme-heading, var(--theme-text, #0f172a))' }}>
+                {viewModalData.customerName} | <Tag color="purple">{viewModalData.socNo}</Tag>
+              </div>
+            </Col>
+            <Col span={12}>
+              <Text type="secondary" style={{ color: 'var(--theme-text-muted, #94a3b8)' }}>Packaging Style:</Text>
+              <div style={{ fontWeight: 700, color: '#38bdf8' }}>
+                {viewModalData.packagingStyle || 'OEM Packing'}
+              </div>
+            </Col>
+            <Col span={24}>
+              <Divider style={{ margin: '8px 0', borderColor: 'var(--theme-border, #334155)' }} />
+            </Col>
+            <Col span={12}>
+              <Text type="secondary" style={{ color: 'var(--theme-text-muted, #94a3b8)' }}>Finished Good Item:</Text>
+              <div style={{ fontWeight: 800, color: 'var(--theme-heading, var(--theme-text, #0f172a))', fontSize: 13.5 }}>
+                {viewModalData.fgItemName || viewModalData.fgItemCode}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', marginTop: 2 }}>{viewModalData.fgItemCode}</div>
+            </Col>
+            <Col span={12}>
+              <Text type="secondary" style={{ color: 'var(--theme-text-muted, #94a3b8)' }}>Packed Output:</Text>
+              <div>
+                <Tag color="green" style={{ fontWeight: 800, fontSize: 13 }}>
+                  {viewModalData.cartons} CTN
+                </Tag>
+                <span style={{ fontWeight: 700, color: '#10b981', marginLeft: 6 }}>
+                  {viewModalData.gross} GRS / {formatNumber(viewModalData.pcs, 0)} PCS
+                </span>
+              </div>
+            </Col>
+            <Col span={12}>
+              <Text type="secondary" style={{ color: 'var(--theme-text-muted, #94a3b8)' }}>Total Finished Weight:</Text>
+              <div>
+                <Tag color="cyan" style={{ fontWeight: 800, fontSize: 12 }}>
+                  {viewModalData.weightKg} KG
+                </Tag>
+              </div>
+            </Col>
+            <Col span={12}>
+              <Text type="secondary" style={{ color: 'var(--theme-text-muted, #94a3b8)' }}>Shift & Overtime:</Text>
+              <div style={{ fontWeight: 600, color: 'var(--theme-heading, var(--theme-text, #0f172a))' }}>
+                {viewModalData.shiftName}
+                {viewModalData.overtimeHours > 0 && <Tag color="warning" style={{ marginLeft: 6 }}>+{viewModalData.overtimeHours}h OT</Tag>}
+              </div>
+            </Col>
+            <Col span={24}>
+              <Divider style={{ margin: '8px 0', borderColor: 'var(--theme-border, #334155)' }} />
+              <div style={{ fontWeight: 700, color: 'var(--theme-heading, var(--theme-text, #0f172a))', marginBottom: 8, fontSize: 13 }}>
+                📦 3-Component BOM Consumption Deduction:
+              </div>
+              {(() => {
+                const ctn = viewModalData.cartons || 0;
+                const spkInPcs = ctn * 5 * 144;
+                const spkOutPcs = ctn * 5 * 144;
+                const nplPcs = ctn * 10 * 144;
+                const spkInKg = Math.round(spkInPcs * 0.0105 * 10) / 10;
+                const spkOutKg = Math.round(spkOutPcs * 0.0105 * 10) / 10;
+                const nplKg = Math.round(nplPcs * 0.0028 * 10) / 10;
+                const totalCompGross = Math.round(ctn * 20);
+                const totalCompPcs = totalCompGross * 144;
+                const totalCompKg = Math.round((spkInKg + spkOutKg + nplKg) * 10) / 10;
+
+                const compDataSource = [
+                  {
+                    key: 'spk-in',
+                    itemCode: 'WIP-SPL-005',
+                    itemName: '250*17 Inner Straight',
+                    store: 'SPI-PL-004 — PL Production Department',
+                    reqGross: `${Math.round(ctn * 5)} GRS`,
+                    reqPcs: spkInPcs,
+                    reqKg: spkInKg,
+                    wpp: '0.0105',
+                  },
+                  {
+                    key: 'spk-out',
+                    itemCode: 'WIP-SPL-006',
+                    itemName: '250*17 Outer Straight',
+                    store: 'SPI-PL-004 — PL Production Department',
+                    reqGross: `${Math.round(ctn * 5)} GRS`,
+                    reqPcs: spkOutPcs,
+                    reqKg: spkOutKg,
+                    wpp: '0.0105',
+                  },
+                  {
+                    key: 'npl',
+                    itemCode: 'FG-NP-004',
+                    itemName: 'RM-250*17 Nipple',
+                    store: 'WH-002 — SPI Main Warehouse',
+                    reqGross: `${Math.round(ctn * 10)} GRS`,
+                    reqPcs: nplPcs,
+                    reqKg: nplKg,
+                    wpp: '0.0028',
+                  },
+                ];
+
+                return (
+                  <Table
+                    dataSource={compDataSource}
+                    pagination={false}
+                    size="small"
+                    bordered
+                    columns={[
+                      {
+                        title: 'Component Item & Source Store',
+                        key: 'item',
+                        render: (_: any, r: any) => (
+                          <div>
+                            <div style={{ fontWeight: 800, color: 'var(--theme-heading, var(--theme-text, #0f172a))', fontSize: 13 }}>
+                              {r.itemName}
+                            </div>
+                            <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', marginTop: 1, marginBottom: 4 }}>
+                              {r.itemCode}
+                            </div>
+                            <Tag color="volcano" style={{ fontWeight: 600, fontSize: 11, margin: 0 }}>
+                              📤 {r.store}
+                            </Tag>
+                          </div>
+                        ),
+                      },
+                      {
+                        title: 'Consumption Required',
+                        key: 'req',
+                        align: 'right' as const,
+                        render: (_: any, r: any) => (
+                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <Tag color="blue" style={{ fontWeight: 800, margin: 0 }}>{r.reqGross}</Tag>
+                              <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--theme-text, #cbd5e1)' }}>
+                                ({formatNumber(r.reqPcs, 0)} PCS)
+                              </span>
+                            </div>
+                            <div style={{ fontSize: 12, fontWeight: 800, color: '#10b981', marginTop: 2 }}>
+                              ≈ {formatNumber(r.reqKg, 1)} KG <span style={{ fontSize: 10, color: 'var(--theme-text-muted, #94a3b8)', fontWeight: 500 }}>({r.wpp} KG/pc)</span>
+                            </div>
+                          </div>
+                        ),
+                      },
+                    ]}
+                    summary={() => (
+                      <Table.Summary.Row style={{ background: 'var(--theme-surface-alt, #0f172a)' }}>
+                        <Table.Summary.Cell index={0}>
+                          <span style={{ fontWeight: 800, color: 'var(--theme-heading, var(--theme-text, #0f172a))', fontSize: 13 }}>
+                            Total Components Consumption:
+                          </span>
+                        </Table.Summary.Cell>
+                        <Table.Summary.Cell index={1} align="right">
+                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <Tag color="cyan" style={{ fontWeight: 800, margin: 0 }}>{formatNumber(totalCompGross, 0)} GRS</Tag>
+                              <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--theme-text, #cbd5e1)' }}>
+                                ({formatNumber(totalCompPcs, 0)} PCS)
+                              </span>
+                            </div>
+                            <div style={{ fontSize: 13, fontWeight: 800, color: '#10b981', marginTop: 2 }}>
+                              Total Weight: {formatNumber(totalCompKg, 1)} KG
+                            </div>
+                          </div>
+                        </Table.Summary.Cell>
+                      </Table.Summary.Row>
+                    )}
+                  />
+                );
+              })()}
+            </Col>
+            {viewModalData.rejectionPcs > 0 && (
+              <Col span={24}>
+                <Alert
+                  type="warning"
+                  showIcon
+                  message={`Component Scrap: ${formatNumber(viewModalData.rejectionPcs, 0)} PCS (${viewModalData.rejectionKg} KG)`}
+                  description={viewModalData.rejectionDetail || 'Component scrap recorded during packing batch.'}
+                  style={{ marginTop: 10 }}
+                />
+              </Col>
+            )}
+          </Row>
+        </div>
+      </Modal>
+    );
+  };
+
   if (layoutMode === 'executive') {
     const destWhName = warehouses.find((w) => w.id === (primaryItem.destinationWarehouseId || form.getFieldValue('warehouseId')))?.name || 'SPI FG Dispatch Warehouse';
     const fgStockGross = Math.round(fgStockPcs / conversionFactors.pcsPerGross);
@@ -3410,9 +3757,682 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
       itemOptions.unshift({ value: primaryItem.itemId, label });
     }
 
+    const FIXED_DAILY_TARGET_CARTONS = 100; // 8h Shift Fixed Target
+
+    // Group recent entries by Date
+    const dateGroupedEntries = (() => {
+      let list = recentSavedEntries;
+      if (registerSearchText && registerSearchText.trim()) {
+        const q = registerSearchText.trim().toLowerCase();
+        list = list.filter((r) =>
+          r.batchNo.toLowerCase().includes(q) ||
+          r.customerName.toLowerCase().includes(q) ||
+          r.socNo.toLowerCase().includes(q) ||
+          r.fgItemCode.toLowerCase().includes(q) ||
+          r.fgItemName.toLowerCase().includes(q) ||
+          (r.line || '').toLowerCase().includes(q) ||
+          (r.packagingStyle || '').toLowerCase().includes(q)
+        );
+      }
+      if (registerDateFilter) {
+        list = list.filter((r) => {
+          let d = r.entryDate;
+          if (d.includes('/')) {
+            const parts = d.split('/');
+            if (parts.length === 3) d = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+          }
+          return d === registerDateFilter;
+        });
+      }
+
+      const groups = new Map<string, RecentPackingLog[]>();
+      list.forEach((entry) => {
+        let dateKey = entry.entryDate;
+        if (dateKey.includes('/')) {
+          const parts = dateKey.split('/');
+          if (parts.length === 3) {
+            dateKey = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+          }
+        }
+        if (!groups.has(dateKey)) {
+          groups.set(dateKey, []);
+        }
+        groups.get(dateKey)!.push(entry);
+      });
+
+      const sortedKeys = Array.from(groups.keys()).sort((a, b) => b.localeCompare(a));
+
+      return sortedKeys.map((dateKey) => {
+        const items = groups.get(dateKey)!;
+        const totalCartons = Math.round(items.reduce((s, r) => s + (r.cartons || 0), 0) * 100) / 100;
+        const totalGross = Math.round(items.reduce((s, r) => s + (r.gross || 0), 0) * 100) / 100;
+        const totalPcs = items.reduce((s, r) => s + (r.pcs || 0), 0);
+        const totalWeightKg = Math.round(items.reduce((s, r) => s + (r.weightKg || 0), 0) * 10) / 10;
+        const totalRejectionPcs = items.reduce((s, r) => s + (r.rejectionPcs || 0), 0);
+
+        // Linear Overtime scaling: 8 hours base -> each OT hour adds (base / 8) cartons to target
+        const dayOtHours = Math.max(0, ...items.map((r) => r.overtimeHours || 0));
+        const baseTarget = items[0]?.targetCartons || FIXED_DAILY_TARGET_CARTONS;
+        const otTarget = dayOtHours > 0 ? (dayOtHours * (baseTarget / 8)) : 0;
+        const effectiveTargetCartons = Math.round((baseTarget + otTarget) * 10) / 10;
+        const achievementPct = effectiveTargetCartons > 0 ? Math.min(100, Math.round((totalCartons / effectiveTargetCartons) * 1000) / 10) : 0;
+
+        return {
+          dateKey,
+          displayDate: dayjs(dateKey).isValid() ? dayjs(dateKey).format('DD MMM YYYY (dddd)') : dateKey,
+          rawDate: dateKey,
+          entries: items,
+          totalCartons,
+          totalGross,
+          totalPcs,
+          totalWeightKg,
+          totalRejectionPcs,
+          batchesCount: items.length,
+          baseTargetCartons: baseTarget,
+          dayOtHours,
+          effectiveTargetCartons,
+          achievementPct,
+        };
+      });
+    })();
+
+    const overallStats = {
+      totalCartons: Math.round(recentSavedEntries.reduce((s, r) => s + (r.cartons || 0), 0) * 100) / 100,
+      totalGross: Math.round(recentSavedEntries.reduce((s, r) => s + (r.gross || 0), 0) * 100) / 100,
+      totalPcs: recentSavedEntries.reduce((s, r) => s + (r.pcs || 0), 0),
+      totalWeightKg: Math.round(recentSavedEntries.reduce((s, r) => s + (r.weightKg || 0), 0) * 10) / 10,
+      totalBatches: recentSavedEntries.length,
+    };
+
+    // ── Table Nested Child Columns (Batches within a Date Group) ──
+    const batchColumns: any = [
+      {
+        title: <span style={{ fontWeight: 800 }}>Batch #</span>,
+        dataIndex: 'batchNo',
+        key: 'batchNo',
+        width: 140,
+        render: (v: string) => (
+          <Tag color="purple" style={{ fontWeight: 800, fontFamily: 'monospace', fontSize: 12 }}>
+            {v}
+          </Tag>
+        ),
+      },
+      {
+        title: <span style={{ fontWeight: 800 }}>Time</span>,
+        dataIndex: 'entryTime',
+        key: 'entryTime',
+        width: 90,
+        render: (v: string) => <span style={{ fontSize: 11.5, color: 'var(--theme-text-muted, #94a3b8)' }}>{v || '—'}</span>,
+      },
+      {
+        title: <span style={{ fontWeight: 800 }}>Customer & SOC #</span>,
+        key: 'customer',
+        width: 190,
+        render: (_: any, r: RecentPackingLog) => (
+          <div>
+            <div style={{ fontWeight: 800, color: 'var(--theme-heading, var(--theme-text, #0f172a))', fontSize: 12.5 }}>
+              {r.customerName}
+            </div>
+            {r.socNo && r.socNo !== '—' && (
+              <Tag color="blue" style={{ fontWeight: 700, fontSize: 11, padding: '0 6px', marginTop: 2, whiteSpace: 'nowrap' }}>
+                SOC: {r.socNo}
+              </Tag>
+            )}
+            {r.packagingStyle && (
+              <div style={{ fontSize: 10.5, color: 'var(--theme-text-muted, #94a3b8)', marginTop: 1 }}>{r.packagingStyle}</div>
+            )}
+          </div>
+        ),
+      },
+      {
+        title: <span style={{ fontWeight: 800 }}>Finished Good Item</span>,
+        key: 'fgItem',
+        render: (_: any, r: RecentPackingLog) => {
+          const rawName = r.fgItemName || '';
+          let spokePart = rawName;
+          let nipplePart = '';
+          if (rawName.includes('__')) {
+            const parts = rawName.split('__');
+            spokePart = parts[0]?.trim();
+            nipplePart = parts[1]?.trim();
+          } else if (rawName.includes('_RM-')) {
+            const parts = rawName.split('_RM-');
+            spokePart = parts[0]?.trim();
+            nipplePart = `RM-${parts[1]?.trim()}`;
+          }
+          return (
+            <div>
+              {/* 1. TOP: Item Code */}
+              {r.fgItemCode && (
+                <div style={{ marginBottom: 3 }}>
+                  <Tag color="blue" style={{ fontSize: 10.5, fontFamily: 'monospace', fontWeight: 800, padding: '0 6px', margin: 0, whiteSpace: 'nowrap' }}>
+                    {r.fgItemCode}
+                  </Tag>
+                </div>
+              )}
+              {/* 2. Spoke Description on clean unbroken line */}
+              <div style={{ fontWeight: 800, color: 'var(--theme-heading, var(--theme-text, #0f172a))', fontSize: 12, whiteSpace: 'nowrap' }}>
+                {spokePart || r.fgItemCode || 'Finished Good Spoke'}
+              </div>
+              {/* 3. Nipple Description below it */}
+              {nipplePart && (
+                <div style={{ fontSize: 11, color: '#38bdf8', fontWeight: 700, marginTop: 1, whiteSpace: 'nowrap' }}>
+                  + {nipplePart}
+                </div>
+              )}
+              {/* 4. Packing Line Station */}
+              {r.line && (
+                <div style={{ fontSize: 10, color: 'var(--theme-text-muted, #94a3b8)', marginTop: 2, whiteSpace: 'nowrap' }}>
+                  Line: {r.line}
+                </div>
+              )}
+            </div>
+          );
+        },
+      },
+      {
+        title: <span style={{ fontWeight: 800 }}>Packed Quantity & Weight</span>,
+        key: 'packedQty',
+        width: 220,
+        render: (_: any, r: RecentPackingLog) => {
+          const wtKg = r.weightKg > 0 ? r.weightKg : Math.round((r.cartons || 50) * 18.936 * 10) / 10;
+          return (
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                <Tag color="green" style={{ fontWeight: 800, fontSize: 12.5, margin: 0, whiteSpace: 'nowrap' }}>
+                  {r.cartons} CTN
+                </Tag>
+                <Tag color="blue" style={{ fontWeight: 700, fontSize: 11.5, margin: 0, whiteSpace: 'nowrap' }}>
+                  {formatNumber(r.gross, 0)} GRS
+                </Tag>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--theme-text, #cbd5e1)', whiteSpace: 'nowrap' }}>
+                  {formatNumber(r.pcs, 0)} PCS
+                </span>
+                <span style={{ color: 'var(--theme-text-muted, #94a3b8)', fontSize: 10 }}>•</span>
+                <Tag color="cyan" style={{ fontWeight: 800, fontSize: 11, margin: 0, whiteSpace: 'nowrap' }}>
+                  {formatNumber(wtKg, 1)} KG
+                </Tag>
+              </div>
+            </div>
+          );
+        },
+      },
+      {
+        title: <span style={{ fontWeight: 800 }}>Component Scrap</span>,
+        key: 'scrap',
+        width: 150,
+        render: (_: any, r: RecentPackingLog) => {
+          if (r.rejectionPcs > 0) {
+            return (
+              <div>
+                <Tag color="error" style={{ fontWeight: 800, fontSize: 11, whiteSpace: 'nowrap' }}>
+                  {formatNumber(r.rejectionPcs, 0)} PCS ({r.rejectionKg} KG)
+                </Tag>
+                {r.rejectionDetail && (
+                  <div style={{ fontSize: 10, color: '#dc2626', marginTop: 2 }}>
+                    {r.rejectionDetail}
+                  </div>
+                )}
+              </div>
+            );
+          }
+          return <span style={{ color: 'var(--theme-text-muted, #94a3b8)', fontSize: 11 }}>None</span>;
+        },
+      },
+      {
+        title: <span style={{ fontWeight: 800 }}>Shift & Timing</span>,
+        key: 'shift',
+        width: 155,
+        render: (_: any, r: RecentPackingLog) => {
+          const rawName = r.shiftName || 'General Shift';
+          const cleanName = rawName.replace(/\(N\+OT\)/gi, '').replace(/\(N\)/gi, '').trim() || 'General Shift';
+          const shiftTiming = '8:30 AM - 5:30 PM';
+          return (
+            <div style={{ fontSize: 11 }}>
+              <div style={{ fontWeight: 800, color: 'var(--theme-heading, var(--theme-text, #0f172a))' }}>
+                {cleanName}
+              </div>
+              <div style={{ fontSize: 10.5, color: 'var(--theme-text-muted, #94a3b8)', marginTop: 1, whiteSpace: 'nowrap' }}>
+                {shiftTiming}
+              </div>
+              {r.overtimeHours > 0 ? (
+                <Tag color="warning" style={{ fontSize: 10, fontWeight: 700, padding: '0 5px', marginTop: 3, whiteSpace: 'nowrap' }}>
+                  +{r.overtimeHours}h Overtime
+                </Tag>
+              ) : (
+                <span style={{ color: 'var(--theme-text-muted, #94a3b8)', fontSize: 10, whiteSpace: 'nowrap' }}>Standard (8h)</span>
+              )}
+            </div>
+          );
+        },
+      },
+      {
+        title: <span style={{ fontWeight: 800 }}>Status</span>,
+        dataIndex: 'status',
+        key: 'status',
+        width: 95,
+        align: 'center',
+        render: () => (
+          <Tag color="success" icon={<CheckCircleFilled />} style={{ fontWeight: 700 }}>
+            SAVED
+          </Tag>
+        ),
+      },
+      {
+        title: <span style={{ fontWeight: 800 }}>Actions</span>,
+        key: 'actions',
+        width: 110,
+        align: 'center',
+        render: (_: any, r: RecentPackingLog) => (
+          <Space size={4}>
+            <Tooltip title="View Entry Details">
+              <Button
+                type="text"
+                size="small"
+                icon={<EyeOutlined style={{ color: '#0284c7', fontSize: 15 }} />}
+                onClick={() => setViewModalData(r)}
+              />
+            </Tooltip>
+            <Tooltip title="Edit Entry (Opens in Modal)">
+              <Button
+                type="text"
+                size="small"
+                icon={<EditOutlined style={{ color: '#d97706', fontSize: 15 }} />}
+                onClick={() => {
+                  handleEditEntry(r);
+                  setEntryModalOpen(true);
+                }}
+              />
+            </Tooltip>
+            <Tooltip title="Delete Entry">
+              <Popconfirm
+                title="Delete Packing Production Entry?"
+                description={`Are you sure you want to delete batch ${r.batchNo}? This will reverse inventory postings.`}
+                onConfirm={() => handleDeleteEntry(r.id)}
+                okText="Yes, Delete"
+                cancelText="Cancel"
+                okButtonProps={{ danger: true }}
+              >
+                <Button
+                  type="text"
+                  danger
+                  size="small"
+                  icon={<DeleteOutlined style={{ fontSize: 15 }} />}
+                />
+              </Popconfirm>
+            </Tooltip>
+          </Space>
+        ),
+      },
+    ];
+
+    // ── Table Parent Row Columns (Grouped by Date) ──
+    const dateGroupColumns: any = [
+      {
+        title: <span style={{ fontWeight: 800, fontSize: 13 }}>Date & Production Session</span>,
+        dataIndex: 'displayDate',
+        key: 'displayDate',
+        render: (val: string, record: any) => (
+          <Space align="center" size={8}>
+            <CalendarOutlined style={{ color: '#0284c7', fontSize: 16 }} />
+            <span style={{ fontWeight: 800, fontSize: 14, color: 'var(--theme-heading, var(--theme-text, #0f172a))' }}>{val}</span>
+            <Tag color="blue" style={{ fontWeight: 700, borderRadius: 4, marginLeft: 4, whiteSpace: 'nowrap' }}>
+              {record.batchesCount} {record.batchesCount === 1 ? 'Batch' : 'Batches'}
+            </Tag>
+          </Space>
+        ),
+      },
+      {
+        title: <span style={{ fontWeight: 800, fontSize: 13 }}>Fixed Target & OT</span>,
+        key: 'fixedTarget',
+        width: 190,
+        render: (r: any) => (
+          <div>
+            <Tag color="cyan" style={{ fontWeight: 800, fontSize: 13, padding: '2px 8px', borderRadius: 4, margin: 0, whiteSpace: 'nowrap' }}>
+              🎯 {r.effectiveTargetCartons} Cartons
+            </Tag>
+            {r.dayOtHours > 0 ? (
+              <div style={{ fontSize: 11, color: '#f59e0b', fontWeight: 700, marginTop: 3, whiteSpace: 'nowrap' }}>
+                {r.baseTargetCartons} Base (8h) + {Math.round(r.dayOtHours * (r.baseTargetCartons / 8))} ({r.dayOtHours}h OT)
+              </div>
+            ) : (
+              <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', marginTop: 2, whiteSpace: 'nowrap' }}>
+                Standard 8h Base Target
+              </div>
+            )}
+          </div>
+        ),
+      },
+      {
+        title: <span style={{ fontWeight: 800, fontSize: 13 }}>Day Total Packed & Weight</span>,
+        key: 'dayTotal',
+        width: 270,
+        render: (r: any) => (
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              <Tag color="green" style={{ fontWeight: 800, fontSize: 13, margin: 0, whiteSpace: 'nowrap' }}>
+                {r.totalCartons} Cartons
+              </Tag>
+              <Tag color="blue" style={{ fontWeight: 700, fontSize: 12, margin: 0, whiteSpace: 'nowrap' }}>
+                {r.totalGross} Gross
+              </Tag>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: '#818cf8', whiteSpace: 'nowrap' }}>
+                {formatNumber(r.totalPcs, 0)} PCS
+              </span>
+              <span style={{ color: 'var(--theme-text-muted, #94a3b8)', fontSize: 10 }}>•</span>
+              <Tag color="cyan" style={{ fontWeight: 800, fontSize: 12, margin: 0, whiteSpace: 'nowrap' }}>
+                {formatNumber(r.totalWeightKg, 1)} KG
+              </Tag>
+            </div>
+          </div>
+        ),
+      },
+      {
+        title: <span style={{ fontWeight: 800, fontSize: 13 }}>Day Achievement</span>,
+        key: 'achievement',
+        width: 190,
+        render: (r: any) => {
+          const pct = r.achievementPct;
+          const color = pct >= 100 ? '#16a34a' : pct >= 50 ? '#0284c7' : '#ea580c';
+          return (
+            <div style={{ width: 170 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, fontWeight: 700, color, marginBottom: 2 }}>
+                <span>{pct}% Achieved</span>
+                <span style={{ whiteSpace: 'nowrap' }}>{r.totalCartons} / {r.effectiveTargetCartons} CTN</span>
+              </div>
+              <Progress percent={Math.min(100, pct)} size="small" strokeColor={color} showInfo={false} />
+            </div>
+          );
+        },
+      },
+      {
+        title: <span style={{ fontWeight: 800, fontSize: 13 }}>Action</span>,
+        key: 'action',
+        width: 150,
+        align: 'center',
+        render: (r: any) => (
+          <Button
+            size="small"
+            icon={<PlusOutlined />}
+            onClick={(e) => {
+              e.stopPropagation();
+              clearEntryForm();
+              if (r.rawDate) {
+                const parsed = dayjs(r.rawDate);
+                if (parsed.isValid()) {
+                  setEntryDate(parsed);
+                  form.setFieldValue('entryDate', parsed);
+                }
+              }
+              setEntryModalOpen(true);
+            }}
+            style={{ fontWeight: 700, color: '#059669', borderColor: '#bbf7d0', background: '#f0fdf4' }}
+          >
+            + Add for Date
+          </Button>
+        ),
+      },
+    ];
+
     return (
-      <div className="erp-hand-packing-executive" style={{ padding: '4px 0' }}>
-        {/* ── CARD 1: Batch Metadata Bar ── */}
+      <div className="erp-hand-packing-executive" style={{ padding: '0', width: '100%' }}>
+        {/* ── Top Summary Stat Cards (Full Theme Support) ── */}
+        <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
+          <Col xs={12} sm={6}>
+            <Card
+              size="small"
+              style={{
+                borderRadius: 8,
+                border: '1px solid var(--theme-border, #334155)',
+                borderLeft: '4px solid #10b981',
+                background: 'var(--theme-card-bg, var(--theme-surface, #ffffff))',
+                boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
+              }}
+            >
+              <div style={{ fontSize: 12, fontWeight: 800, color: '#10b981', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span>🎯 Daily Target (8h Base)</span>
+              </div>
+              <div style={{ fontSize: 22, fontWeight: 900, color: 'var(--theme-heading, var(--theme-text, #0f172a))', marginTop: 4 }}>
+                100 <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--theme-text-muted, #94a3b8)' }}>Cartons</span>
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', fontWeight: 600, whiteSpace: 'nowrap' }}>1,000 Gross / 144,000 PCS</div>
+            </Card>
+          </Col>
+          <Col xs={12} sm={6}>
+            <Card
+              size="small"
+              style={{
+                borderRadius: 8,
+                border: '1px solid var(--theme-border, #334155)',
+                borderLeft: '4px solid #0284c7',
+                background: 'var(--theme-card-bg, var(--theme-surface, #ffffff))',
+                boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
+              }}
+            >
+              <div style={{ fontSize: 12, fontWeight: 800, color: '#0284c7', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span>📦 Total Packed (All Logs)</span>
+              </div>
+              <div style={{ fontSize: 22, fontWeight: 900, color: 'var(--theme-heading, var(--theme-text, #0f172a))', marginTop: 4 }}>
+                {overallStats.totalCartons} <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--theme-text-muted, #94a3b8)' }}>Cartons</span>
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                {formatNumber(overallStats.totalPcs, 0)} PCS ({overallStats.totalGross} Gross)
+              </div>
+            </Card>
+          </Col>
+          <Col xs={12} sm={6}>
+            <Card
+              size="small"
+              style={{
+                borderRadius: 8,
+                border: '1px solid var(--theme-border, #334155)',
+                borderLeft: '4px solid #8b5cf6',
+                background: 'var(--theme-card-bg, var(--theme-surface, #ffffff))',
+                boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
+              }}
+            >
+              <div style={{ fontSize: 12, fontWeight: 800, color: '#8b5cf6', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span>⚖️ Total Weight Packed</span>
+              </div>
+              <div style={{ fontSize: 22, fontWeight: 900, color: 'var(--theme-heading, var(--theme-text, #0f172a))', marginTop: 4 }}>
+                {formatNumber(overallStats.totalWeightKg, 1)} <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--theme-text-muted, #94a3b8)' }}>KG</span>
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', whiteSpace: 'nowrap' }}>Finished Goods Dispatch Weight</div>
+            </Card>
+          </Col>
+          <Col xs={12} sm={6}>
+            <Card
+              size="small"
+              style={{
+                borderRadius: 8,
+                border: '1px solid var(--theme-border, #334155)',
+                borderLeft: '4px solid #f97316',
+                background: 'var(--theme-card-bg, var(--theme-surface, #ffffff))',
+                boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
+              }}
+            >
+              <div style={{ fontSize: 12, fontWeight: 800, color: '#f97316', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span>📋 Recorded Batches</span>
+              </div>
+              <div style={{ fontSize: 22, fontWeight: 900, color: 'var(--theme-heading, var(--theme-text, #0f172a))', marginTop: 4 }}>
+                {overallStats.totalBatches} <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--theme-text-muted, #94a3b8)' }}>Batches</span>
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', whiteSpace: 'nowrap' }}>Across {dateGroupedEntries.length} Production Days</div>
+            </Card>
+          </Col>
+        </Row>
+
+        {/* ── Action Toolbar: Filters + Big Green Button ── */}
+        <Card
+          size="small"
+          style={{
+            borderRadius: 8,
+            border: '1px solid var(--theme-border, #334155)',
+            background: 'var(--theme-card-bg, var(--theme-surface, #ffffff))',
+            marginBottom: 16,
+            boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+            <Space wrap size={10}>
+              <Input
+                placeholder="Search Customer, SOC #, Item, Batch..."
+                prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
+                value={registerSearchText}
+                onChange={(e) => setRegisterSearchText(e.target.value)}
+                style={{ width: 280, borderRadius: 6, fontWeight: 600 }}
+                allowClear
+              />
+              <DatePicker
+                placeholder="Filter by Date"
+                style={{ width: 150, borderRadius: 6 }}
+                onChange={(d) => setRegisterDateFilter(d ? d.format('YYYY-MM-DD') : null)}
+              />
+              <Button icon={<SyncOutlined spin={recentLoading} />} onClick={loadRecentEntries} style={{ fontWeight: 600 }}>
+                Refresh Table
+              </Button>
+            </Space>
+
+            <Button
+              type="primary"
+              size="large"
+              icon={<PlusOutlined />}
+              onClick={() => {
+                clearEntryForm();
+                setEntryModalOpen(true);
+              }}
+              style={{
+                background: '#059669',
+                borderColor: '#059669',
+                fontWeight: 800,
+                fontSize: 14,
+                height: 40,
+                padding: '0 24px',
+                borderRadius: 8,
+                boxShadow: '0 2px 8px rgba(5, 150, 105, 0.25)',
+              }}
+            >
+              + New Packing Production Entry
+            </Button>
+          </div>
+        </Card>
+
+        {/* ── Date-Grouped Packing Register Table ── */}
+        <Card
+          size="small"
+          title={
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Space align="center" size={8}>
+                <CheckCircleFilled style={{ color: '#10b981', fontSize: 16 }} />
+                <span style={{ fontWeight: 800, fontSize: 14, color: 'var(--theme-heading, var(--theme-text, #0f172a))' }}>
+                  Packing Production Register (Date-Wise Grouped Log Details)
+                </span>
+              </Space>
+              <Tag color="cyan" style={{ fontWeight: 700 }}>
+                {recentSavedEntries.length} Total Saved Batches
+              </Tag>
+            </div>
+          }
+          style={{
+            borderRadius: 8,
+            border: '1px solid var(--theme-border, #334155)',
+            background: 'var(--theme-card-bg, var(--theme-surface, #ffffff))',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+          }}
+        >
+          <Table
+            dataSource={dateGroupedEntries}
+            rowKey="dateKey"
+            loading={recentLoading && dateGroupedEntries.length === 0}
+            pagination={dateGroupedEntries.length > 8 ? { pageSize: 8, size: 'small' } : false}
+            locale={{ emptyText: 'No packing production entries recorded yet.' }}
+            size="middle"
+            bordered
+            columns={dateGroupColumns}
+            expandable={{
+              expandedRowRender: (record) => (
+                <div style={{
+                  padding: '12px 14px',
+                  background: 'var(--theme-surface-alt, rgba(0,0,0,0.03))',
+                  borderRadius: 6,
+                  border: '1px solid var(--theme-border, #334155)',
+                }}>
+                  <div style={{ fontWeight: 800, fontSize: 13, color: 'var(--theme-heading, var(--theme-text, #0f172a))', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span>📦 Production Batches on {record.displayDate}:</span>
+                    <Tag color="green" style={{ fontWeight: 700 }}>{record.entries.length} Entries Recorded</Tag>
+                  </div>
+                  <Table
+                    dataSource={record.entries}
+                    rowKey="id"
+                    pagination={false}
+                    size="small"
+                    bordered
+                    columns={batchColumns}
+                  />
+                </div>
+              ),
+              defaultExpandAllRows: true,
+            }}
+          />
+        </Card>
+
+        {/* ── Entry Form Modal (Opens on '+ New Packing Production Entry' or 'Edit') ── */}
+        <Modal
+          open={entryModalOpen}
+          onCancel={() => {
+            setEntryModalOpen(false);
+            handleCancelEdit();
+          }}
+          width={1300}
+          footer={null}
+          destroyOnClose={false}
+          style={{ top: 20 }}
+          title={
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingRight: 24 }}>
+              <Space size={10} align="center">
+                <div style={{ background: editingEntryId ? '#e0f2fe' : '#ecfdf5', color: editingEntryId ? '#0284c7' : '#059669', padding: '6px 10px', borderRadius: 8, fontSize: 18 }}>
+                  {editingEntryId ? <EditOutlined /> : <PlusOutlined />}
+                </div>
+                <div>
+                  <div style={{ fontWeight: 800, fontSize: 16, color: 'var(--theme-heading, var(--theme-text, #0f172a))' }}>
+                    {editingEntryId ? `Edit Packing Production Entry — Batch ${currentBatchNo}` : 'New Packing Production Entry'}
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--theme-text-muted, #94a3b8)' }}>
+                    {editingEntryId ? 'Adjust carton quantities, customer or details and click Update' : 'Fill packing parameters, select Finished Good item and verify BOM component stock deduction'}
+                  </div>
+                </div>
+              </Space>
+              {editingEntryId && (
+                <Tag color="processing" style={{ fontWeight: 800, fontSize: 12 }}>
+                  EDITING BATCH: {currentBatchNo}
+                </Tag>
+              )}
+            </div>
+          }
+        >
+          {editingEntryId && (
+            <Alert
+              type="warning"
+              showIcon
+              style={{ marginBottom: 12, borderRadius: 8, border: '1.5px solid #fde047' }}
+              message={
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                  <span>
+                    ✏️ <strong>Editing Packing Entry:</strong> Updating Batch <code style={{ fontWeight: 800 }}>{currentBatchNo}</code>. Adjust carton quantities, customer or details below and click <strong>"Update Packing Production Entry"</strong>.
+                  </span>
+                  <Button size="small" onClick={handleCancelEdit} style={{ fontWeight: 700 }}>
+                    Cancel Edit
+                  </Button>
+                </div>
+              }
+            />
+          )}
+
+          {/* ── CARD 1: Executive Packing Parameters & Target Header ── */}
         <Card
           size="small"
           bordered={false}
@@ -3424,29 +4444,30 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
             boxShadow: 'none',
           }}
         >
-          <Row gutter={[12, 12]} align="middle">
-            <Col xs={24} sm={8} lg={6}>
+          {/* Row 1: Production Session Date, Shift & Dedicated Prominent Target */}
+          <Row gutter={[16, 12]} align="middle">
+            <Col xs={24} sm={12} lg={6}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontWeight: 700, fontSize: 13, color: '#334155', minWidth: 62 }}>
-                  Batch No:
+                <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--theme-text, #cbd5e1)', minWidth: 50, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <CalendarOutlined style={{ color: '#0284c7' }} />
+                  Date:
                 </span>
-                <Input
-                  style={{ fontWeight: 700, borderRadius: 6, color: '#0f172a' }}
-                  value={currentBatchNo}
-                  onChange={(e) => {
-                    setCurrentBatchNo(e.target.value);
-                    form.setFieldsValue({ packingNo: e.target.value });
-                  }}
+                <DatePicker
+                  style={{ width: '100%', fontWeight: 600 }}
+                  format="YYYY-MM-DD"
+                  value={entryDate}
+                  onChange={handleEntryDateChange}
                 />
               </div>
             </Col>
-            <Col xs={24} sm={8} lg={9}>
+            <Col xs={24} sm={12} lg={8}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontWeight: 700, fontSize: 13, color: '#334155', minWidth: 38 }}>
+                <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--theme-text, #cbd5e1)', minWidth: 40, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <ClockCircleOutlined style={{ color: '#0284c7' }} />
                   Shift:
                 </span>
                 <Select
-                  style={{ flex: '1 1 150px', minWidth: 0 }}
+                  style={{ flex: '1 1 140px', minWidth: 0, fontWeight: 600 }}
                   value={selectedShiftId || form.getFieldValue('shiftId') || shifts[0]?.id}
                   onChange={(val) => {
                     setSelectedShiftId(val);
@@ -3458,11 +4479,11 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                     label: s.name?.includes('General') ? 'General (8:30 AM - 5:30 PM)' : s.name,
                   }))}
                 />
-                <span style={{ fontWeight: 700, fontSize: 13, color: '#b45309', marginLeft: 2 }}>
+                <span style={{ fontWeight: 700, fontSize: 12, color: '#b45309', marginLeft: 2 }}>
                   OT:
                 </span>
                 <Select
-                  style={{ width: 68, flexShrink: 0 }}
+                  style={{ width: 68, flexShrink: 0, fontWeight: 700 }}
                   value={overtimeHours}
                   onChange={(val) => setOvertimeHours(val)}
                   popupMatchSelectWidth={false}
@@ -3476,89 +4497,102 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                 />
               </div>
             </Col>
-            <Col xs={24} sm={8} lg={9}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontWeight: 700, fontSize: 13, color: '#334155', minWidth: 45 }}>
-                  Line:
-                </span>
-                <Select
-                  style={{ width: '100%' }}
-                  value={selectedLine}
-                  onChange={(val) => {
-                    setSelectedLine(val);
-                    form.setFieldsValue({ packingStation: val });
-                  }}
-                  options={[
-                    { value: 'Hand Packing Line', label: 'Hand Packing Line' },
-                    { value: 'Hand Packing Line 01 (8-Worker Chain)', label: 'Hand Packing Line 01 (8-Worker Chain)' },
-                    { value: 'Hand Packing Line 02 (Assembly Chain)', label: 'Hand Packing Line 02 (Assembly Chain)' },
-                    { value: 'Spoke Boxing & Nipple Station A', label: 'Spoke Boxing & Nipple Station A' },
-                  ]}
-                />
+            {/* Dedicated Prominent Shift Target (Cartons) — Large, Hand-Typed, No Steppers */}
+            <Col xs={24} sm={24} lg={10}>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: 10,
+                background: 'rgba(5, 150, 105, 0.12)',
+                padding: '6px 14px',
+                borderRadius: 8,
+                border: '1.5px solid rgba(5, 150, 105, 0.45)',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontWeight: 800, fontSize: 13.5, color: '#10b981', whiteSpace: 'nowrap' }}>
+                    🎯 Shift Target:
+                  </span>
+                  <InputNumber
+                    min={1}
+                    max={50000}
+                    controls={false}
+                    value={targetCartons}
+                    onChange={(val) => {
+                      const newTarget = val ? Number(val) : 50;
+                      setTargetCartons(newTarget);
+                      setMasterItems((prev) =>
+                        prev.map((r) => ({
+                          ...r,
+                          targetCartons: newTarget,
+                        }))
+                      );
+                    }}
+                    style={{
+                      width: 90,
+                      fontWeight: 900,
+                      fontSize: 16,
+                      textAlign: 'center',
+                      borderRadius: 6,
+                      background: 'var(--theme-card-bg, #0f172a)',
+                      color: 'var(--theme-heading, var(--theme-text, #0f172a))',
+                      borderColor: 'var(--theme-border, #334155)',
+                    }}
+                  />
+                  <span style={{ fontWeight: 800, fontSize: 13, color: 'var(--theme-text, #cbd5e1)' }}>
+                    Cartons
+                  </span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                  <span style={{ fontSize: 12.5, fontWeight: 800, color: '#10b981', whiteSpace: 'nowrap' }}>
+                    = {formatNumber(targetInCartons, targetInCartons % 1 === 0 ? 0 : 1)} Cartons Total Target
+                  </span>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--theme-text-muted, #94a3b8)', marginTop: 1 }}>
+                    {overtimeHours > 0 ? (
+                      <span style={{ color: '#f59e0b', marginRight: 4 }}>
+                        {targetCartons} Base (8h) + {formatNumber(overtimeTargetCartons, 1)} ({overtimeHours}h OT) ·
+                      </span>
+                    ) : null}
+                    {formatNumber(targetInGross, 0)} GRS ({formatNumber(targetInPcs, 0)} PCS)
+                  </div>
+                </div>
               </div>
             </Col>
           </Row>
 
-          {/* Row 1b: Division (STRICTLY cascades the Customer dropdown) and the
-              Production Entry Date — the operator-adjustable calendar day of
-              the production event (persisted as the entry date). */}
-          <Row gutter={[16, 12]} align="middle">
-            <Col xs={24} sm={8}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontWeight: 700, fontSize: 13, color: '#334155', minWidth: 62 }}>
-                  Division:
-                </span>
-                <Select
-                  showSearch
-                  optionFilterProp="label"
-                  style={{ width: '100%', fontWeight: 700 }}
-                  placeholder="Select Division"
-                  value={watchedDivisionId || undefined}
-                  onChange={(val) => val && handleDivisionChange(val)}
-                  options={divisions.map((d: any) => ({ value: d.id, label: `${d.name} (${d.divisionCode || 'DIV'})` }))}
-                />
-              </div>
-            </Col>
-            <Col xs={24} sm={8}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontWeight: 700, fontSize: 13, color: '#334155', minWidth: 70 }}>
-                  Production Entry Date:
-                </span>
-                <DatePicker
-                  style={{ width: '100%' }}
-                  format="YYYY-MM-DD"
-                  value={entryDate}
-                  onChange={handleEntryDateChange}
-                />
-              </div>
-            </Col>
-          </Row>
-
-          {/* Row 2: Customer, SOC #, and Packaging Style / Spec (Requested by User!) */}
           <Divider style={{ margin: '10px 0' }} />
-          <Row gutter={[16, 12]} align="middle">
-            <Col xs={24} sm={8}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontWeight: 700, fontSize: 13, color: '#334155', minWidth: 70 }}>
+
+          {/* Row 2: Batch No, Customer, SOC #, Bag Style, Line */}
+          <Row gutter={[12, 12]} align="middle">
+            <Col xs={24} sm={6} lg={4}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontWeight: 700, fontSize: 12, color: 'var(--theme-text, #cbd5e1)', minWidth: 42 }}>
+                  Batch:
+                </span>
+                <Input
+                  style={{ fontWeight: 800, borderRadius: 6 }}
+                  value={currentBatchNo}
+                  onChange={(e) => {
+                    setCurrentBatchNo(e.target.value);
+                    form.setFieldsValue({ packingNo: e.target.value });
+                  }}
+                />
+              </div>
+            </Col>
+            <Col xs={24} sm={10} lg={6}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontWeight: 700, fontSize: 12, color: 'var(--theme-text, #cbd5e1)', minWidth: 62 }}>
                   Customer:
                 </span>
                 <Select
                   showSearch
                   allowClear
                   optionFilterProp="label"
-                  placeholder={customersLoading ? 'Loading customers...' : 'Select Customer...'}
+                  placeholder={customersLoading ? 'Loading...' : 'Select Customer...'}
                   style={{ width: '100%', fontWeight: 700 }}
                   value={selectedCustomer}
                   loading={customersLoading}
-                  notFoundContent={
-                    customersLoading ? (
-                      <Spin size="small" />
-                    ) : watchedDivisionId ? (
-                      'No ACTIVE customers assigned to this Division — set a Division on the customer in Customer List'
-                    ) : (
-                      'No active customers found in Customer List'
-                    )
-                  }
                   onChange={(val) => {
                     setSelectedCustomer(val || undefined);
                     form.setFieldsValue({ customerName: val });
@@ -3567,14 +4601,14 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                 />
               </div>
             </Col>
-            <Col xs={24} sm={8}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontWeight: 700, fontSize: 13, color: '#334155', minWidth: 45 }}>
+            <Col xs={12} sm={8} lg={4}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontWeight: 700, fontSize: 12, color: 'var(--theme-text, #cbd5e1)', minWidth: 40 }}>
                   SOC #:
                 </span>
                 <Input
-                  placeholder="e.g. SOC-2026-0842"
-                  style={{ fontWeight: 700, borderRadius: 6, color: '#0f172a' }}
+                  placeholder="e.g. 5805"
+                  style={{ fontWeight: 700, borderRadius: 6 }}
                   value={socNo}
                   onChange={(e) => {
                     setSocNo(e.target.value);
@@ -3583,15 +4617,15 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                 />
               </div>
             </Col>
-            <Col xs={24} sm={8}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontWeight: 700, fontSize: 13, color: '#334155', minWidth: 65 }}>
+            <Col xs={12} sm={12} lg={5}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontWeight: 700, fontSize: 12, color: 'var(--theme-text, #cbd5e1)', minWidth: 60 }}>
                   Bag Style:
                 </span>
                 <Select
                   allowClear
                   showSearch
-                  placeholder="Select or enter Bag Style..."
+                  placeholder="Select Style..."
                   style={{ width: '100%', fontWeight: 600 }}
                   value={selectedBagStyle}
                   onChange={(val) => {
@@ -3606,7 +4640,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 8px 6px' }}>
                         <Input
                           size="small"
-                          placeholder="Add new packing style (e.g. Orion Packing)..."
+                          placeholder="Add style (e.g. OEM Packing)..."
                           value={newBagStyleInput}
                           onChange={(e) => setNewBagStyleInput(e.target.value)}
                           onKeyDown={(e) => e.stopPropagation()}
@@ -3623,6 +4657,27 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                       </div>
                     </>
                   )}
+                />
+              </div>
+            </Col>
+            <Col xs={24} sm={12} lg={5}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontWeight: 700, fontSize: 12, color: 'var(--theme-text, #cbd5e1)', minWidth: 35 }}>
+                  Line:
+                </span>
+                <Select
+                  style={{ width: '100%', fontWeight: 600 }}
+                  value={selectedLine}
+                  onChange={(val) => {
+                    setSelectedLine(val);
+                    form.setFieldsValue({ packingStation: val });
+                  }}
+                  options={[
+                    { value: 'Spoke Boxing & Nipple Station A', label: 'Spoke Boxing & Nipple Station A' },
+                    { value: 'Hand Packing Line', label: 'Hand Packing Line' },
+                    { value: 'Hand Packing Line 01 (8-Worker Chain)', label: 'Hand Packing Line 01 (8-Worker Chain)' },
+                    { value: 'Hand Packing Line 02 (Assembly Chain)', label: 'Hand Packing Line 02 (Assembly Chain)' },
+                  ]}
                 />
               </div>
             </Col>
@@ -3649,7 +4704,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', flex: '1 1 300px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: '1 1 260px', minWidth: 200 }}>
-                <span style={{ fontWeight: 700, fontSize: 13, color: '#334155', minWidth: 65, flexShrink: 0 }}>
+                <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--theme-text, #cbd5e1)', minWidth: 65, flexShrink: 0 }}>
                   FG Item:
                 </span>
                 <Select
@@ -3663,7 +4718,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                 />
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-                <span style={{ fontWeight: 700, fontSize: 13, color: '#334155' }}>
+                <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--theme-text, #cbd5e1)' }}>
                   Cartons:
                 </span>
                 <InputNumber
@@ -3680,26 +4735,26 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
             {/* Dual Calculation Tag from Mockup */}
             <div
               style={{
-                background: '#f8fafc',
-                border: '1px solid #cbd5e1',
+                background: 'var(--theme-surface-alt, #0f172a)',
+                border: '1px solid var(--theme-border, #334155)',
                 borderRadius: 6,
                 padding: '6px 16px',
                 fontSize: 14,
                 fontWeight: 800,
-                color: '#0f172a',
+                color: 'var(--theme-heading, var(--theme-text, #0f172a))',
                 letterSpacing: '0.01em',
                 flexShrink: 0,
               }}
             >
-              <strong>{primaryItem.cartons} Cartons</strong> = {primaryItem.gross} Gross = {formatNumber(primaryItem.quantityPcs, 0)} PCS
+              <strong>{primaryItem.cartons || 0} Cartons</strong> = {primaryItem.gross || 0} Gross = {formatNumber(primaryItem.quantityPcs || 0, 0)} PCS
             </div>
           </div>
 
           {/* Current Packed FG Stock in Store (User requested!) */}
-          <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: '#475569', background: '#f0fdf4', padding: '6px 12px', borderRadius: 6, border: '1px solid #bbf7d0' }}>
+          <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: '#10b981', background: 'rgba(16, 185, 129, 0.08)', padding: '6px 12px', borderRadius: 6, border: '1px solid rgba(16, 185, 129, 0.25)' }}>
             <CheckCircleFilled style={{ color: '#16a34a', fontSize: 15 }} />
-            <span>Current Packed Stock in FG Store ({destWhName}):</span>
-            <strong style={{ color: '#15803d', fontSize: 13 }}>
+            <span style={{ color: 'var(--theme-text, #cbd5e1)' }}>Current Packed Stock in FG Store ({destWhName}):</span>
+            <strong style={{ color: '#10b981', fontSize: 13 }}>
               {fgStockCartons} Cartons ({fgStockGross} Gross / {formatNumber(fgStockPcs, 0)} PCS)
             </strong>
           </div>
@@ -3729,28 +4784,28 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
             scroll={{ x: 'max-content' }}
             columns={[
               {
-                title: <SplitHead top="Component" bottom="Item" />,
+                title: <SplitHead top="Component Item" bottom="& Source Store" />,
                 key: 'componentItem',
-                // Shared stacked cell: bold accent code over the larger
-                // category-tinted Item Name (mirrors the expanded-row table).
-                width: 240,
-                render: (_: any, comp: BomComponentItem) => <ComponentItemCell comp={comp} />,
-              },
-              {
-                title: <SplitHead top="Source Store" bottom="Deduct OUT" />,
-                key: 'sourceWarehouse',
-                width: 215,
-                render: (_: any, c: any) => (
-                  <Select
-                    size="small"
-                    style={{ width: '100%', fontWeight: 600 }}
-                    value={c.sourceWarehouseId}
-                    onChange={(newWh) => handleComponentWarehouseChange(primaryItem.key, c.key, newWh)}
-                    options={warehouses.map((w) => ({
-                      value: w.id,
-                      label: `${w.warehouseCode} — ${w.name}`,
-                    }))}
-                  />
+                width: 270,
+                render: (_: any, c: BomComponentItem) => (
+                  <div style={{ minWidth: 0 }}>
+                    <ComponentItemCell comp={c} />
+                    <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <Tag color="volcano" style={{ fontSize: 9.5, fontWeight: 800, padding: '0 5px', margin: 0, lineHeight: 1.4, borderRadius: 3 }}>
+                        📤 OUT
+                      </Tag>
+                      <Select
+                        size="small"
+                        style={{ width: '100%', maxWidth: 215, fontSize: 11.5, fontWeight: 600 }}
+                        value={c.sourceWarehouseId}
+                        onChange={(newWh) => handleComponentWarehouseChange(primaryItem.key, c.key, newWh)}
+                        options={warehouses.map((w) => ({
+                          value: w.id,
+                          label: `${w.warehouseCode} — ${w.name}`,
+                        }))}
+                      />
+                    </div>
+                  </div>
                 ),
               },
               {
@@ -3765,16 +4820,24 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                 key: 'reqQuantity',
                 width: 135,
                 align: 'center' as const,
-                render: (_: any, c: any) => (
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                    <span style={{ fontWeight: 800, fontSize: 13.5, color: 'var(--hp-value-info)' }}>
-                      {c.requiredGross} GRS
-                    </span>
-                    <span style={{ fontSize: 11.5, color: 'var(--theme-text-muted)', fontWeight: 600 }}>
-                      ({formatNumber(c.requiredPcs)} PCS)
-                    </span>
-                  </div>
-                ),
+                render: (_: any, c: any) => {
+                  const r = computeRowRejection(c);
+                  const wpp = r.perPieceWeightKg > 0 ? r.perPieceWeightKg : (c.componentItemName?.toLowerCase().includes('nipple') ? 0.0028 : 0.0105);
+                  const reqKg = Math.round((c.requiredPcs || 0) * wpp * 10) / 10;
+                  return (
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                      <span style={{ fontWeight: 800, fontSize: 13.5, color: 'var(--hp-value-info, #38bdf8)' }}>
+                        {c.requiredGross} GRS
+                      </span>
+                      <span style={{ fontSize: 11.5, color: 'var(--theme-text-muted, #94a3b8)', fontWeight: 600 }}>
+                        ({formatNumber(c.requiredPcs)} PCS)
+                      </span>
+                      <span style={{ fontSize: 11.5, color: '#10b981', fontWeight: 800, marginTop: 2 }}>
+                        {formatNumber(reqKg, 1)} KG
+                      </span>
+                    </div>
+                  );
+                },
               },
               {
                 title: <SplitHead top="Available" bottom="Stock" align="center" />,
@@ -3782,10 +4845,77 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                 width: 105,
                 align: 'center' as const,
                 render: (_: any, c: any) => (
-                  <span style={{ fontWeight: 800, fontSize: 13.5, color: 'var(--theme-text)' }}>
+                  <span style={{ fontWeight: 800, fontSize: 13.5, color: 'var(--theme-text, #cbd5e1)' }}>
                     {c.availableGross}
                   </span>
                 ),
+              },
+              {
+                title: <SplitHead top="Total" bottom="Deduction" hint="Req + Scrap" align="center" />,
+                key: 'totalDeduction',
+                width: 135,
+                align: 'center' as const,
+                render: (_: any, c: BomComponentItem) => {
+                  const r = computeRowRejection(c);
+                  const totalGross = Math.round((c.requiredGross + r.rejectionPcs / conversionFactors.pcsPerGross) * 100) / 100;
+                  return (
+                    <div>
+                      <span style={{ fontWeight: 800, fontSize: 13, color: 'var(--hp-value-warning, #f59e0b)' }}>
+                        {formatNumber(totalGross, totalGross % 1 === 0 ? 0 : 1)} GRS
+                      </span>
+                      <div style={{ fontSize: 11, color: 'var(--theme-text-secondary, #94a3b8)', fontWeight: 600 }}>
+                        ({formatNumber(r.totalDeductPcs, 0)} PCS)
+                      </div>
+                      {r.rejectionPcs > 0 && (
+                        <div style={{ fontSize: 10, color: 'var(--hp-value-danger, #ef4444)', fontWeight: 700, marginTop: 1 }}>
+                          incl. {formatNumber(r.rejectionPcs, 0)} scrap
+                        </div>
+                      )}
+                    </div>
+                  );
+                },
+              },
+              {
+                title: <SplitHead top="Balance &" bottom="Stock Status" align="center" />,
+                key: 'status',
+                width: 145,
+                align: 'center' as const,
+                render: (_: any, c: BomComponentItem) => {
+                  const r = computeRowRejection(c);
+                  const availGross = toNum(c.availableGross ?? c.availableStock);
+                  const totalDeductGross = c.requiredGross + r.rejectionPcs / conversionFactors.pcsPerGross;
+                  const balanceGross = Math.round((availGross - totalDeductGross) * 10) / 10;
+                  const isAvailable = balanceGross >= 0;
+
+                  return (
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                      <Tag
+                        color={isAvailable ? 'success' : 'error'}
+                        style={{
+                          fontWeight: 800,
+                          fontSize: 11.5,
+                          padding: '2px 10px',
+                          borderRadius: 4,
+                          margin: 0,
+                        }}
+                      >
+                        {isAvailable ? 'AVAILABLE' : 'INSUFFICIENT'}
+                      </Tag>
+                      <span
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 800,
+                          marginTop: 3,
+                          color: isAvailable ? '#10b981' : '#ef4444',
+                        }}
+                      >
+                        {isAvailable
+                          ? `+${formatNumber(balanceGross, 1)} GRS OK`
+                          : `-${formatNumber(Math.abs(balanceGross), 1)} GRS Short`}
+                      </span>
+                    </div>
+                  );
+                },
               },
               {
                 title: <SplitHead top="Rejection" bottom="Scrap" hint="KG ⇄ PCS entry" />,
@@ -3815,57 +4945,92 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                   );
                 },
               },
-              {
-                title: <SplitHead top="Total" bottom="Deduction" hint="Required + Scrap" align="center" />,
-                key: 'totalDeduction',
-                width: 140,
-                align: 'center' as const,
-                render: (_: any, c: BomComponentItem) => {
-                  const r = computeRowRejection(c);
-                  const totalGross = Math.round((c.requiredGross + r.rejectionPcs / conversionFactors.pcsPerGross) * 100) / 100;
-                  return (
-                    <div>
-                      <span style={{ fontWeight: 800, fontSize: 13, color: 'var(--hp-value-warning)' }}>
-                        {formatNumber(totalGross, totalGross % 1 === 0 ? 0 : 1)} GRS
-                      </span>
-                      <div style={{ fontSize: 11, color: 'var(--theme-text-secondary)', fontWeight: 600 }}>
-                        ({formatNumber(r.totalDeductPcs, 0)} PCS)
-                      </div>
-                      {r.rejectionPcs > 0 && (
-                        <div style={{ fontSize: 10, color: 'var(--hp-value-danger)', fontWeight: 700, marginTop: 1 }}>
-                          incl. {formatNumber(r.rejectionPcs, 0)} scrap
-                        </div>
-                      )}
-                    </div>
-                  );
-                },
-              },
-              {
-                title: <SplitHead top="Stock" bottom="Status" align="center" />,
-                key: 'status',
-                width: 110,
-                align: 'center' as const,
-                render: (_: any, c: BomComponentItem) => {
-                  const r = computeRowRejection(c);
-                  const availGross = toNum(c.availableGross ?? c.availableStock);
-                  const totalDeductGross = c.requiredGross + r.rejectionPcs / conversionFactors.pcsPerGross;
-                  const effective = availGross >= totalDeductGross ? 'AVAILABLE' : 'INSUFFICIENT';
-                  return (
-                    <Tag
-                      color={effective === 'AVAILABLE' ? 'success' : 'error'}
-                      style={{
-                        fontWeight: 700,
-                        fontSize: 12,
-                        padding: '2px 14px',
-                        borderRadius: 4,
-                      }}
-                    >
-                      {effective === 'AVAILABLE' ? 'Green' : 'Insufficient'}
-                    </Tag>
-                  );
-                },
-              },
             ]}
+            summary={(pageData) => {
+              let totalReqGross = 0;
+              let totalReqPcs = 0;
+              let totalReqKg = 0;
+              let totalScrapPcs = 0;
+              let totalScrapKg = 0;
+              let totalDeductGross = 0;
+              let totalDeductPcs = 0;
+              let anyShortage = false;
+
+              (pageData as BomComponentItem[]).forEach((c) => {
+                const r = computeRowRejection(c);
+                const wpp = r.perPieceWeightKg > 0 ? r.perPieceWeightKg : (c.componentItemName?.toLowerCase().includes('nipple') ? 0.0028 : 0.0105);
+                const reqKg = Math.round((c.requiredPcs || 0) * wpp * 10) / 10;
+                totalReqGross += toNum(c.requiredGross);
+                totalReqPcs += toNum(c.requiredPcs);
+                totalReqKg += reqKg;
+                totalScrapPcs += r.rejectionPcs;
+                totalScrapKg += r.rejectionKg;
+                const rowDeductGross = c.requiredGross + r.rejectionPcs / conversionFactors.pcsPerGross;
+                totalDeductGross += rowDeductGross;
+                totalDeductPcs += r.totalDeductPcs;
+                const availGross = toNum(c.availableGross ?? c.availableStock);
+                if (availGross < rowDeductGross) anyShortage = true;
+              });
+
+              return (
+                <Table.Summary.Row style={{ background: 'var(--theme-surface-alt, #0f172a)' }}>
+                  <Table.Summary.Cell index={0}>
+                    <span style={{ fontWeight: 800, color: 'var(--theme-heading, var(--theme-text, #0f172a))', fontSize: 13 }}>
+                      Total Components Required:
+                    </span>
+                  </Table.Summary.Cell>
+                  <Table.Summary.Cell index={1} align="center">
+                    <span style={{ fontWeight: 700, color: 'var(--theme-text-muted, #94a3b8)' }}>GRS</span>
+                  </Table.Summary.Cell>
+                  <Table.Summary.Cell index={2} align="center">
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                      <span style={{ fontWeight: 800, fontSize: 13, color: 'var(--hp-value-info, #38bdf8)' }}>
+                        {formatNumber(totalReqGross, 0)} GRS
+                      </span>
+                      <span style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', fontWeight: 600 }}>
+                        ({formatNumber(totalReqPcs, 0)} PCS)
+                      </span>
+                      <span style={{ fontSize: 12, color: '#10b981', fontWeight: 800, marginTop: 2 }}>
+                        Total: {formatNumber(Math.round(totalReqKg * 10) / 10, 1)} KG
+                      </span>
+                    </div>
+                  </Table.Summary.Cell>
+                  <Table.Summary.Cell index={3} align="center">
+                    <span className="hp-dash">—</span>
+                  </Table.Summary.Cell>
+                  <Table.Summary.Cell index={4} align="center">
+                    <div>
+                      <span style={{ fontWeight: 800, fontSize: 13, color: 'var(--hp-value-warning, #f59e0b)' }}>
+                        {formatNumber(Math.round(totalDeductGross * 10) / 10, 1)} GRS
+                      </span>
+                      <div style={{ fontSize: 11, color: 'var(--theme-text-secondary, #94a3b8)', fontWeight: 600 }}>
+                        ({formatNumber(totalDeductPcs, 0)} PCS)
+                      </div>
+                    </div>
+                  </Table.Summary.Cell>
+                  <Table.Summary.Cell index={5} align="center">
+                    <Tag color={anyShortage ? 'error' : 'success'} style={{ fontWeight: 800, fontSize: 11.5, margin: 0 }}>
+                      {anyShortage ? 'SHORTAGE' : 'ALL OK'}
+                    </Tag>
+                  </Table.Summary.Cell>
+                  <Table.Summary.Cell index={6}>
+                    {totalScrapPcs > 0 ? (
+                      <span style={{ fontWeight: 700, color: '#ef4444', fontSize: 12 }}>
+                        Scrap: {formatNumber(totalScrapPcs, 0)} PCS ({formatNumber(totalScrapKg, 3)} KG)
+                      </span>
+                    ) : (
+                      <span style={{ color: 'var(--theme-text-muted, #94a3b8)', fontSize: 11.5 }}>No Scrap</span>
+                    )}
+                  </Table.Summary.Cell>
+                  <Table.Summary.Cell index={7} align="center">
+                    <span className="hp-dash">—</span>
+                  </Table.Summary.Cell>
+                  <Table.Summary.Cell index={8} align="center">
+                    <span className="hp-dash">—</span>
+                  </Table.Summary.Cell>
+                </Table.Summary.Row>
+              );
+            }}
             pagination={false}
             bordered={false}
             size="middle"
@@ -3876,6 +5041,11 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
 
         {/* ── CARD 4: Actions Footer ── */}
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
+          {editingEntryId && (
+            <Button size="large" onClick={handleCancelEdit} style={{ fontWeight: 700 }}>
+              Cancel Edit
+            </Button>
+          )}
           <Button size="large" onClick={handleResetForm} style={{ fontWeight: 600 }}>
             Reset / Clear Form
           </Button>
@@ -3886,204 +5056,21 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
             loading={saving}
             onClick={handleOpenSaveReviewModal}
             style={{
-              background: '#059669',
-              borderColor: '#059669',
+              background: editingEntryId ? '#0284c7' : '#059669',
+              borderColor: editingEntryId ? '#0284c7' : '#059669',
               fontWeight: 800,
               padding: '0 28px',
             }}
           >
-            Save Packing Production Entry
+            {editingEntryId ? 'Update Packing Production Entry' : 'Save Packing Production Entry'}
           </Button>
         </div>
-
-        {/* ── CARD 5: Recent Packing Production Entries (Shift Log Verification Table) ── */}
-        <Card
-          size="small"
-          title={
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-              <Space align="center" size={8}>
-                <CheckCircleFilled style={{ color: '#059669', fontSize: 16 }} />
-                <span style={{ fontWeight: 800, fontSize: 14, color: '#0f172a' }}>
-                  Recent Packing Production Entries (Shift Log Details)
-                </span>
-              </Space>
-              <Space size={8}>
-                <Tag color="cyan" style={{ fontWeight: 700, margin: 0 }}>
-                  {recentSavedEntries.length} Saved Entries
-                </Tag>
-                <Button size="small" icon={<SyncOutlined spin={recentLoading} />} onClick={loadRecentEntries}>
-                  Refresh
-                </Button>
-              </Space>
-            </div>
-          }
-          style={{
-            borderRadius: 8,
-            border: '1.5px solid #e2e8f0',
-            background: '#ffffff',
-            marginTop: 16,
-            boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
-          }}
-        >
-          <Table
-            dataSource={recentSavedEntries}
-            rowKey="id"
-            loading={recentLoading && recentSavedEntries.length === 0}
-            pagination={recentSavedEntries.length > 10 ? { pageSize: 10, size: 'small', showSizeChanger: false } : false}
-            locale={{ emptyText: 'No packing entries saved yet' }}
-            size="small"
-            bordered
-            columns={[
-              {
-                title: <span style={{ fontWeight: 800 }}>#</span>,
-                key: 'idx',
-                width: 45,
-                align: 'center',
-                render: (_: any, __: any, idx: number) => (
-                  <Tag color="default" style={{ fontWeight: 800, margin: 0 }}>
-                    {idx + 1}
-                  </Tag>
-                ),
-              },
-              {
-                title: <span style={{ fontWeight: 800 }}>Batch No</span>,
-                dataIndex: 'batchNo',
-                key: 'batchNo',
-                width: 140,
-                render: (b: string) => <Tag color="blue" style={{ fontWeight: 800, fontSize: 12 }}>{b}</Tag>,
-              },
-              {
-                title: <span style={{ fontWeight: 800 }}>Date & Time</span>,
-                key: 'dateTime',
-                width: 140,
-                render: (_: any, r: any) => (
-                  <div>
-                    <span style={{ fontSize: 12, color: '#0f172a', fontWeight: 700 }}>
-                      {r.entryDate || dayjs().format('DD/MM/YYYY')}
-                    </span>
-                    <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600, display: 'block' }}>
-                      {r.entryTime || dayjs().format('hh:mm A')}
-                    </span>
-                  </div>
-                ),
-              },
-              {
-                title: <span style={{ fontWeight: 800 }}>Customer & SOC #</span>,
-                key: 'custSoc',
-                width: 220,
-                render: (_: any, r: any) => (
-                  <div>
-                    <div style={{ fontWeight: 700, color: '#0f172a', fontSize: 12.5 }}>{r.customerName}</div>
-                    <Tag color="purple" style={{ fontWeight: 700, fontSize: 11, marginTop: 2, padding: '1px 6px' }}>
-                      {r.socNo}
-                    </Tag>
-                  </div>
-                ),
-              },
-              {
-                title: <span style={{ fontWeight: 800 }}>Finished Good Item</span>,
-                key: 'fgItem',
-                render: (_: any, r: any) => (
-                  <div>
-                    <div style={{ fontWeight: 700, color: '#0f172a', fontSize: 13 }}>
-                      {r.fgItemName || r.fgItemCode}
-                    </div>
-                    <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>
-                      {r.fgItemCode}
-                    </span>
-                  </div>
-                ),
-              },
-              {
-                title: <span style={{ fontWeight: 800 }}>Packed Quantity</span>,
-                key: 'qty',
-                width: 170,
-                render: (_: any, r: any) => (
-                  <div>
-                    <Tag color="green" style={{ fontWeight: 800, fontSize: 12 }}>{r.cartons} CTN</Tag>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: '#065f46', marginLeft: 4 }}>
-                      {r.gross} GRS / {formatNumber(toNum(r.pcs), 0)} PCS
-                    </span>
-                  </div>
-                ),
-              },
-              {
-                title: <span style={{ fontWeight: 800 }}>Component Scrap</span>,
-                key: 'rejection',
-                width: 170,
-                align: 'center',
-                render: (_: any, r: any) =>
-                  toNum(r.rejectionPcs) > 0 ? (
-                    <div>
-                      <Tag color="red" style={{ fontWeight: 800, fontSize: 11.5, margin: 0 }}>
-                        {formatNumber(r.rejectionPcs, 0)} PCS
-                      </Tag>
-                      <div style={{ fontSize: 10.5, color: '#64748b', fontWeight: 600, marginTop: 2 }}>
-                        {formatNumber(r.rejectionKg, 3)} KG{r.rejectionPct != null ? ` · ${formatNumber(r.rejectionPct, 2)}%` : ''}
-                      </div>
-                      {r.rejectionDetail ? (
-                        <Tooltip title={r.rejectionDetail}>
-                          <div style={{ fontSize: 10, color: '#9a3412', fontWeight: 600, marginTop: 1, cursor: 'help' }}>
-                            {r.rejectionDetail.length > 28 ? `${r.rejectionDetail.slice(0, 28)}…` : r.rejectionDetail}
-                          </div>
-                        </Tooltip>
-                      ) : null}
-                    </div>
-                  ) : (
-                    <Tag color="default" style={{ fontSize: 10.5 }}>None</Tag>
-                  ),
-              },
-              {
-                title: <span style={{ fontWeight: 800 }}>Total Weight</span>,
-                key: 'weight',
-                width: 120,
-                align: 'center',
-                render: (_: any, r: any) => (
-                  <Tag color="cyan" style={{ fontWeight: 800, fontSize: 12, padding: '2px 8px' }}>
-                    {r.weightKg ? `${formatNumber(r.weightKg, 1)} KG` : `${formatNumber(Math.round((r.pcs || 0) * DEFAULT_PER_PIECE_WEIGHT_KG * 10) / 10, 1)} KG`}
-                  </Tag>
-                ),
-              },
-              {
-                title: <span style={{ fontWeight: 800 }}>Shift & Overtime</span>,
-                key: 'shiftOt',
-                width: 160,
-                render: (_: any, r: any) => (
-                  <div>
-                    <div style={{ fontSize: 11.5, fontWeight: 600, color: '#334155' }}>
-                      {r.shiftName || 'General (8:30 AM - 5:30 PM)'}
-                    </div>
-                    {r.overtimeHours > 0 ? (
-                      <Tag color="warning" style={{ fontWeight: 800, fontSize: 11, marginTop: 2 }}>
-                        +{r.overtimeHours}h OT
-                      </Tag>
-                    ) : (
-                      <Tag color="default" style={{ fontSize: 10.5, color: '#64748b', marginTop: 2 }}>
-                        Standard (No OT)
-                      </Tag>
-                    )}
-                  </div>
-                ),
-              },
-              {
-                title: <span style={{ fontWeight: 800 }}>Status</span>,
-                dataIndex: 'status',
-                key: 'status',
-                width: 110,
-                align: 'center',
-                render: () => (
-                  <Tag color="success" icon={<CheckCircleFilled />} style={{ fontWeight: 700 }}>
-                    SAVED
-                  </Tag>
-                ),
-              },
-            ]}
-          />
-        </Card>
+        </Modal>
 
         {/* ── Save Confirmation & Review Modal for Executive View ── */}
         {renderSaveReviewModal()}
         {renderSuccessModal()}
+        {renderViewModal()}
       </div>
     );
   }
@@ -4633,6 +5620,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         {/* ── Save Confirmation & Review Modal (3 Action Options) ── */}
         {renderSaveReviewModal()}
         {renderSuccessModal()}
+        {renderViewModal()}
       </Form>
     </div>
   );

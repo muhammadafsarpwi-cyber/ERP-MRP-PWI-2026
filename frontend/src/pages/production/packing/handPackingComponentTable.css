@@ -396,3 +396,48 @@
     font-size: 14.5px;
   }
 }
+
+/* ── Flush Edge-to-Edge Container (Remove Left/Right Gaps & Borders) ─── */
+.erp-packing-department-hub {
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+
+.erp-packing-department-hub .prod-open-stock-compact-header,
+.erp-packing-department-hub .erp-hub-breadcrumbs,
+.erp-packing-department-hub .prod-folder-nav-wrapper {
+  margin-left: 16px !important;
+  margin-right: 16px !important;
+}
+
+.erp-packing-department-hub .packing-hub-zero-border-canvas,
+.erp-packing-department-hub .packing-hub-zero-border-canvas .ant-tabs,
+.erp-packing-department-hub .packing-hub-zero-border-canvas .ant-tabs-content-holder,
+.erp-packing-department-hub .packing-hub-zero-border-canvas .ant-tabs-content,
+.erp-packing-department-hub .packing-hub-zero-border-canvas .ant-tabs-tabpane {
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+  border-left: none !important;
+  border-right: none !important;
+}
+
+.erp-hand-packing-executive {
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+  width: 100% !important;
+}
+
+.erp-hand-packing-executive .ant-card {
+  border-left: none !important;
+  border-right: none !important;
+  border-radius: 0 !important;
+}
+
+.erp-hand-packing-executive .ant-table-wrapper {
+  border-left: none !important;
+  border-right: none !important;
+}

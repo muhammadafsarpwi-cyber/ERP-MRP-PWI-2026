@@ -10,7 +10,7 @@ import { StockLedger } from '../../inventory/entities/stock-ledger.entity';
 import { InventoryBalance } from '../../inventory/entities/inventory-balance.entity';
 import { ProductionEntry } from '../../production/entities/production-entry.entity';
 import { BarcodeService } from '../../barcode/services/barcode.service';
-import { ConflictException, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { ConflictException, NotFoundException, BadRequestException } from '@nestjs/common';
 import { ActivityLogService } from '../../audit/services/activity-log.service';
 
 describe('ItemService', () => {
@@ -94,8 +94,10 @@ describe('ItemService', () => {
     department: null as never,
     productionInItemId: null,
     productionInItemId2: null,
+    productionInItemId3: null,
     productionInItem: null as never,
     productionInItem2: null as never,
+    productionInItem3: null as never,
     productionOutItemId: null,
     productionOutItem: null as never,
     barcodes: [],
@@ -507,7 +509,10 @@ describe('ItemService', () => {
         return Promise.resolve([{ c: 0 }]);
       });
 
-      await expect(service.remove('item-001', { companyId: 'company-001' })).rejects.toThrow(/protected transactional history/);
+      await expect(service.remove('item-001', { companyId: 'company-001' })).rejects.toThrow(
+        /Hard delete blocked because this record has transactional history/,
+      );
+      await expect(service.remove('item-001', { companyId: 'company-001' })).rejects.toThrow(ConflictException);
     });
 
     it('should throw NotFoundException when the item does not exist', async () => {
@@ -516,14 +521,22 @@ describe('ItemService', () => {
       await expect(service.remove('missing', { companyId: 'company-001' })).rejects.toThrow(NotFoundException);
     });
 
-    it('should 403 force purge for non-SUPER_ADMIN', async () => {
+    it('force purge is not role-gated in the service (RBAC enforced by the item.delete route permission)', async () => {
       repository.findOne.mockResolvedValue(mockItem);
       zeroCounts();
+      // Even with no admin-role rows resolvable for this actor, force purge
+      // proceeds — the SUPER_ADMIN check was replaced by the controller-level
+      // `@RequirePermission('item.delete')` guard.
       wireSuperAdmin(false);
+      const runner = runnerMock();
+      wireTransaction(runner);
+      const auditLog = wireAudit();
 
       await expect(
         service.remove('item-001', { companyId: 'company-001', force: true, actor: { authUserId: 'auth-plain' } }),
-      ).rejects.toThrow(ForbiddenException);
+      ).resolves.toBeUndefined();
+      expect(runner.remove).toHaveBeenCalledWith(mockItem);
+      expect(auditLog).toHaveBeenCalledWith(expect.objectContaining({ action: 'ITEM_FORCE_DELETED' }));
     });
 
     it('should force purge eligible dependents for SUPER_ADMIN (audited, recursive)', async () => {
@@ -547,21 +560,28 @@ describe('ItemService', () => {
       );
     });
 
-    it('should block force purge when protected history exists (real data never purged)', async () => {
+    it('force purge overrides protected history (admin purge cascades transactional records too)', async () => {
       repository.findOne.mockResolvedValue(mockItem);
       repository.query = jest.fn().mockImplementation((sql: string) => {
         if (sql.includes('sales_order_lines')) return Promise.resolve([{ c: 4 }]);
         if (sql.includes('bom_lines')) return Promise.resolve([{ c: 2 }]);
         return Promise.resolve([{ c: 0 }]);
       });
-      wireSuperAdmin(true);
       const runner = runnerMock();
       wireTransaction(runner);
+      const auditLog = wireAudit();
 
       await expect(
         service.remove('item-001', { companyId: 'company-001', force: true, actor: { authUserId: 'auth-super' } }),
-      ).rejects.toThrow(/protected transactional history/);
-      expect(runner.remove).not.toHaveBeenCalled();
+      ).resolves.toBeUndefined();
+      expect(runner.remove).toHaveBeenCalledWith(mockItem);
+      // 4 protected sales order lines + 2 eligible BOM lines = 6 dependents purged.
+      expect(auditLog).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'ITEM_FORCE_DELETED',
+          details: expect.stringContaining('"deletedDependents":6'),
+        }),
+      );
     });
 
     it('should roll back and skip audit when the transaction fails', async () => {
@@ -597,9 +617,13 @@ describe('ItemService', () => {
 
       const result = await service.getDeleteEligibility('item-001', 'company-001');
       expect(result.canDeleteNormal).toBe(false);
-      expect(result.canDeleteForce).toBe(false);
+      // Force purge is an admin override: available even when protected history exists.
+      expect(result.canDeleteForce).toBe(true);
       expect(result.totalProtected).toBe(5);
-      expect(result.reason).toMatch(/protected transactional history/);
+      expect(result.protectedDependencies).toEqual([
+        expect.objectContaining({ table: 'production_entries', count: 5, isProtected: true }),
+      ]);
+      expect(result.reason).toMatch(/Administrator Force Delete will override blocks/);
     });
 
     it('should 404 cross-company eligibility lookups', async () => {
@@ -1738,7 +1762,7 @@ describe('ItemService', () => {
       expect(result[0].itemCode).toBe('WIP-SP-018');
     });
 
-    it('defaults to WIP and RM when departmentId is provided without itemTypes', async () => {
+    it('defaults to the manufacturing item types when departmentId is provided without itemTypes', async () => {
       service.invalidateLookupCache();
       repository.query.mockResolvedValue([
         { id: 'item-1', itemCode: 'WIP-SP-018', name: '225*17 Outer Straight', itemType: 'WORK_IN_PROGRESS', departmentId: 'dept-spk-2' },
@@ -1747,7 +1771,12 @@ describe('ItemService', () => {
       const result = await service.getLookupItems('dept-spk-2');
       expect(repository.query).toHaveBeenCalledWith(
         expect.stringContaining('i.department_id = $1 AND i.item_type = ANY($2)'),
-        expect.arrayContaining(['dept-spk-2', ['WORK_IN_PROGRESS', 'WIP', 'RAW_MATERIAL', 'RM']]),
+        expect.arrayContaining([
+          'dept-spk-2',
+          // WIP, RM, SEMI_FINISHED, FINISHED_GOOD and PACKAGING_MATERIAL, each
+          // expanded to every accepted alias of that type.
+          ['WORK_IN_PROGRESS', 'WIP', 'RAW_MATERIAL', 'RM', 'SEMI_FINISHED', 'SFG', 'FINISHED_GOOD', 'FINISHED_GOODS', 'FG', 'PACKAGING_MATERIAL'],
+        ]),
       );
       expect(result).toHaveLength(1);
     });

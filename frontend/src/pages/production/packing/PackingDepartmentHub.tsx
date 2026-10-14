@@ -2760,7 +2760,7 @@ export const PackingDepartmentHub: React.FC = () => {
           className={`prod-folder-tab-btn ${activeTab === 'packing-entry' ? 'is-active' : ''}`}
           onClick={() => handleTabChange('packing-entry')}
         >
-          <InboxOutlined /> 1. Packing Production Entry
+          <InboxOutlined /> 1. Packing Production Register & Detail Table
         </button>
         <button
           type="button"

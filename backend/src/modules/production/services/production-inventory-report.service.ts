@@ -609,20 +609,35 @@ export class ProductionInventoryReportService {
       )
     )`;
 
+    // Opening balance — mirrors getReport's opening semantics exactly:
+    //  • with a date range: every non-scrap movement strictly BEFORE the
+    //    business-day start;
+    //  • without one: the ledger's seed rows (OPENING / PRODUCTION_ITEM_OPEN_STOCK)
+    //    — the state carried into the system before recorded history — so the
+    //    all-time view reports a real opening instead of 0. The seeds are then
+    //    kept out of the range aggregates below (getReport's inRangeCond
+    //    fallback does the same), so they are never counted twice in the
+    //    running balance or the closing reconciliation.
     let openingBalance = 0;
+    const openingQb = this.ledgerRepo
+      .createQueryBuilder('sl')
+      .select(`COALESCE(SUM(CASE WHEN sl.direction = 'IN' THEN sl.quantity ELSE 0 END), 0)`, 'openingIn')
+      .addSelect(`COALESCE(SUM(CASE WHEN sl.direction = 'OUT' THEN sl.quantity ELSE 0 END), 0)`, 'openingOut')
+      .where('sl.companyId = :companyId', { companyId })
+      .andWhere('sl.itemId = :itemId', { itemId })
+      .andWhere(`sl.transactionType <> 'PRODUCTION_SCRAP'`)
+      .andWhere(activeEntryCond);
     if (start) {
-      const openingQb = this.ledgerRepo
-        .createQueryBuilder('sl')
-        .select(`COALESCE(SUM(CASE WHEN sl.direction = 'IN' THEN sl.quantity ELSE 0 END), 0)`, 'openingIn')
-        .addSelect(`COALESCE(SUM(CASE WHEN sl.direction = 'OUT' THEN sl.quantity ELSE 0 END), 0)`, 'openingOut')
-        .where('sl.companyId = :companyId', { companyId })
-        .andWhere('sl.itemId = :itemId', { itemId })
-        .andWhere(`sl.transactionType <> 'PRODUCTION_SCRAP'`)
-        .andWhere(activeEntryCond)
-        .andWhere('sl.transactionDate < :dateFrom', { dateFrom: start });
-      const openingRow = await openingQb.getRawOne();
-      openingBalance = R4(N(openingRow?.openingIn) - N(openingRow?.openingOut));
+      openingQb.andWhere('sl.transactionDate < :dateFrom', { dateFrom: start });
+    } else {
+      // No lower bound: opening = the seed rows (IN: OPENING or stock seeds;
+      // OUT: OPENING only) — the same fallback getReport uses when unbounded.
+      openingQb.andWhere(
+        `(sl.transactionType = 'OPENING' OR (sl.direction = 'IN' AND sl.referenceType = 'PRODUCTION_ITEM_OPEN_STOCK'))`,
+      );
     }
+    const openingRow = await openingQb.getRawOne();
+    openingBalance = R4(N(openingRow?.openingIn) - N(openingRow?.openingOut));
 
     const qb = this.ledgerRepo
       .createQueryBuilder('sl')
@@ -637,7 +652,16 @@ export class ProductionInventoryReportService {
       .andWhere('sl.itemId = :itemId', { itemId })
       .andWhere(`sl.transactionType <> 'PRODUCTION_SCRAP'`)
       .andWhere(activeEntryCond);
-    if (start) qb.andWhere('sl.transactionDate >= :dateFrom', { dateFrom: start });
+    if (start) {
+      qb.andWhere('sl.transactionDate >= :dateFrom', { dateFrom: start });
+    } else {
+      // Unbounded below: the seed rows are already part of the opening balance
+      // above — keep them out of the running list (mirrors getReport's
+      // inRangeCond fallback) so they are never applied twice.
+      qb.andWhere(
+        `sl.transactionType <> 'OPENING' AND (sl.referenceType IS NULL OR sl.referenceType <> 'PRODUCTION_ITEM_OPEN_STOCK')`,
+      );
+    }
     if (end) qb.andWhere('sl.transactionDate < :dateTo', { dateTo: end });
     if (filters.movementType) qb.andWhere('sl.transactionType = :movementType', { movementType: filters.movementType });
     qb.orderBy('sl.transactionDate', 'ASC').addOrderBy('sl.createdAt', 'ASC');
@@ -654,7 +678,15 @@ export class ProductionInventoryReportService {
       .andWhere('sl.itemId = :itemId', { itemId })
       .andWhere(`sl.transactionType <> 'PRODUCTION_SCRAP'`)
       .andWhere(activeEntryCond);
-    if (start) rangeAggQb.andWhere('sl.transactionDate >= :dateFrom', { dateFrom: start });
+    if (start) {
+      rangeAggQb.andWhere('sl.transactionDate >= :dateFrom', { dateFrom: start });
+    } else {
+      // Same unbounded-below seed exclusion as the detail query above, so
+      // fullDelta never double-counts what the opening balance already holds.
+      rangeAggQb.andWhere(
+        `sl.transactionType <> 'OPENING' AND (sl.referenceType IS NULL OR sl.referenceType <> 'PRODUCTION_ITEM_OPEN_STOCK')`,
+      );
+    }
     if (end) rangeAggQb.andWhere('sl.transactionDate < :dateTo', { dateTo: end });
     if (filters.movementType) rangeAggQb.andWhere('sl.transactionType = :movementType', { movementType: filters.movementType });
     const aggRow = await rangeAggQb.getRawOne();
