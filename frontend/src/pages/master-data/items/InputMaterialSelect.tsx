@@ -14,7 +14,19 @@ export function registerItemsInCache(items: Array<Partial<Item> & { id: string }
   if (!Array.isArray(items)) return;
   for (const it of items) {
     if (it && it.id) {
-      itemMemoryCache.set(it.id, { ...(itemMemoryCache.get(it.id) || {}), ...it } as Item);
+      const existing = itemMemoryCache.get(it.id) || ({} as Item);
+      const merged = { ...existing, ...it } as Item;
+      if (!merged.baseUomName) {
+        if (merged.baseUom?.name) {
+          merged.baseUomName = merged.baseUom.code ? `${merged.baseUom.name} (${merged.baseUom.code})` : merged.baseUom.name;
+        } else if (merged.baseUom?.code) {
+          merged.baseUomName = merged.baseUom.code;
+        } else if (merged.baseUomId) {
+          const u = getLookupsSnapshot().uoms.find((x) => x.id === merged.baseUomId);
+          if (u) merged.baseUomName = u.code && u.name ? `${u.name} (${u.code})` : (u.name || u.code);
+        }
+      }
+      itemMemoryCache.set(it.id, merged);
     }
   }
 }
@@ -53,6 +65,7 @@ export interface InputMaterialSelectProps {
   onSelectDetail?: (item: Item | null) => void;
   excludeItemId?: string | null;
   departments?: DepartmentOption[];
+  uoms?: Array<{ id: string; name?: string; code?: string; symbol?: string }>;
   /**
    * Forced department filter (e.g. the selected Department of a Production Route
    * stage). When set, it overrides the internal Source / Store Department picker
@@ -89,6 +102,7 @@ const InputMaterialSelect: React.FC<InputMaterialSelectProps> = ({
   onSelectDetail,
   excludeItemId = null,
   departments = [],
+  uoms = [],
   departmentId: forcedDept = null,
   initialDepartmentId = null,
   style,
@@ -299,6 +313,27 @@ const InputMaterialSelect: React.FC<InputMaterialSelectProps> = ({
   const departmentLabel = (item: Item) =>
     departments.find((d) => d.id === item.departmentId)?.name ?? item.departmentName ?? '—';
 
+  const uomLabel = (item?: Item | null) => {
+    if (!item) return '—';
+    if (item.baseUom?.name) {
+      return item.baseUom.code ? `${item.baseUom.name} (${item.baseUom.code})` : item.baseUom.name;
+    }
+    if (item.baseUom?.code) return item.baseUom.code;
+    if (item.baseUomName) return item.baseUomName;
+    const baseUomId = item.baseUomId || (item as any).uomId;
+    if (baseUomId) {
+      const fromProp = uoms?.find((u) => u.id === baseUomId);
+      if (fromProp) {
+        return fromProp.code && fromProp.name ? `${fromProp.name} (${fromProp.code})` : (fromProp.name || fromProp.code || '—');
+      }
+      const fromSnapshot = getLookupsSnapshot().uoms.find((u) => u.id === baseUomId);
+      if (fromSnapshot) {
+        return fromSnapshot.code && fromSnapshot.name ? `${fromSnapshot.name} (${fromSnapshot.code})` : (fromSnapshot.name || fromSnapshot.code || '—');
+      }
+    }
+    return '—';
+  };
+
   return (
     <Space direction="vertical" style={{ width: '100%', ...style }} size={6}>
       {!compact && !forcedDept && (
@@ -359,7 +394,7 @@ const InputMaterialSelect: React.FC<InputMaterialSelectProps> = ({
               label: 'Source / Store Department',
               children: departmentLabel(selectedDetail),
             },
-            { key: 'uom', label: 'Base UOM', children: selectedDetail.baseUomName || '—' },
+            { key: 'uom', label: 'Base UOM', children: uomLabel(selectedDetail) },
             {
               key: 'wire',
               label: 'Wire Size (mm)',

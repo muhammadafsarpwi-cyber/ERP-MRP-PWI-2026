@@ -39,7 +39,7 @@ import dayjs from 'dayjs';
 import type { ColumnsType } from 'antd/es/table';
 import { formatNumber, toNum } from '../../../utils/numberFormat';
 import type { ProductionEntryRow } from './EntryList';
-import { entryOvertimeHours, sumOvertime } from './overtimeHours';
+import { entryOvertimeHours, sumOvertime, aggregateOperatorOvertime } from './overtimeHours';
 import { DepartmentBadge, ShiftBadge } from '../../../components/shared';
 import { ChartFrame, Panel } from './analyticsUi';
 import apiService from '../../../services/api';
@@ -109,29 +109,73 @@ export const OvertimeDetails: React.FC<OvertimeDetailsProps> = ({ seed, buildFil
     );
   }, [otEntries, search]);
 
-  // Overall statistics
-  const totalOt = useMemo(() => sumOvertime(otEntries), [otEntries]);
+  // De-duplicated operator & overtime aggregation across multiple machines per date
+  const operatorSummary = useMemo(() => {
+    return aggregateOperatorOvertime(otEntries);
+  }, [otEntries]);
+
+  // Overall statistics (De-duplicated)
+  const totalOt = operatorSummary.trueTotalOvertime;
+  const uniqueOperatorsCount = operatorSummary.uniqueOperatorsCount;
   const totalOtEntries = otEntries.length;
   const avgOtPerEntry = totalOtEntries > 0 ? (totalOt / totalOtEntries).toFixed(1) : '0';
+  const avgOtPerOperator = operatorSummary.avgOtPerOperator.toFixed(1);
 
-  // 1. Department-wise rollup
+  // 1. Department-wise rollup (De-duplicated per operator-date)
   const deptRollup = useMemo<DeptOvertimeRollup[]>(() => {
-    const map = new Map<string, DeptOvertimeRollup>();
+    // Key: `${deptId}___${entryDate}___${operatorName}`
+    const deptOpMap = new Map<string, {
+      deptId: string;
+      deptName: string;
+      divName: string;
+      otHours: number;
+      actualQty: number;
+      machines: Set<string>;
+      shifts: Set<string>;
+      entriesCount: number;
+    }>();
 
     for (const r of otEntries) {
       const deptId = r.departmentId || 'unknown';
       const deptName = r.department?.name || 'General Production';
       const divName = r.division?.name || '—';
+      const date = r.entryDate || 'unknown';
+      const op = (r.operatorName || '').trim() || 'unknown';
       const ot = entryOvertimeHours(r);
       const actual = toNum(r.actualQuantity);
       const mName = r.machine?.name || r.machineNo || '';
       const sName = r.shift?.name || '';
 
-      if (!map.has(deptId)) {
-        map.set(deptId, {
-          departmentId: deptId,
-          departmentName: deptName,
-          divisionName: divName,
+      const key = `${deptId}___${date}___${op}`;
+      if (!deptOpMap.has(key)) {
+        deptOpMap.set(key, {
+          deptId,
+          deptName,
+          divName,
+          otHours: ot,
+          actualQty: actual,
+          machines: new Set(mName ? [mName] : []),
+          shifts: new Set(sName ? [sName] : []),
+          entriesCount: 1,
+        });
+      } else {
+        const rec = deptOpMap.get(key)!;
+        rec.entriesCount += 1;
+        rec.actualQty += actual;
+        // Take MAX so multiple machines for same operator in same dept don't multiply OT
+        rec.otHours = Math.max(rec.otHours, ot);
+        if (mName) rec.machines.add(mName);
+        if (sName) rec.shifts.add(sName);
+      }
+    }
+
+    const map = new Map<string, DeptOvertimeRollup>();
+    for (const item of deptOpMap.values()) {
+      if (!map.has(item.deptId)) {
+        map.set(item.deptId, {
+          departmentId: item.deptId,
+          departmentName: item.deptName,
+          divisionName: item.divName,
           entriesCount: 0,
           totalOtHours: 0,
           totalActualQty: 0,
@@ -139,13 +183,12 @@ export const OvertimeDetails: React.FC<OvertimeDetailsProps> = ({ seed, buildFil
           shifts: [],
         });
       }
-
-      const rec = map.get(deptId)!;
-      rec.entriesCount += 1;
-      rec.totalOtHours += ot;
-      rec.totalActualQty += actual;
-      if (mName && !rec.machinesUsed.includes(mName)) rec.machinesUsed.push(mName);
-      if (sName && !rec.shifts.includes(sName)) rec.shifts.push(sName);
+      const rec = map.get(item.deptId)!;
+      rec.entriesCount += item.entriesCount;
+      rec.totalOtHours += item.otHours;
+      rec.totalActualQty += item.actualQty;
+      item.machines.forEach((m) => { if (!rec.machinesUsed.includes(m)) rec.machinesUsed.push(m); });
+      item.shifts.forEach((s) => { if (!rec.shifts.includes(s)) rec.shifts.push(s); });
     }
 
     return Array.from(map.values()).sort((a, b) => b.totalOtHours - a.totalOtHours);
@@ -161,37 +204,36 @@ export const OvertimeDetails: React.FC<OvertimeDetailsProps> = ({ seed, buildFil
     }));
   }, [deptRollup]);
 
-  // 2. Date-wise / Timeline Overtime Trend
+  // 2. Date-wise / Timeline Overtime Trend (De-duplicated)
   const dailyOtSeries = useMemo(() => {
     const map = new Map<string, { date: string; otHours: number; entries: number }>();
-    for (const r of otEntries) {
-      const d = r.entryDate || 'Unknown';
-      const ot = entryOvertimeHours(r);
+    for (const item of operatorSummary.detailedBreakdown) {
+      const d = item.entryDate || 'Unknown';
       if (!map.has(d)) {
         map.set(d, { date: d, otHours: 0, entries: 0 });
       }
       const pt = map.get(d)!;
-      pt.otHours += ot;
-      pt.entries += 1;
+      pt.otHours += item.totalOtHours;
+      pt.entries += item.entriesCount;
     }
     return Array.from(map.values())
       .map((p) => ({ ...p, otHours: Math.round(p.otHours * 10) / 10 }))
       .sort((a, b) => a.date.localeCompare(b.date));
-  }, [otEntries]);
+  }, [operatorSummary.detailedBreakdown]);
 
-  // 3. Operator-wise Overtime (Top Contributors)
+  // 3. Operator-wise Overtime (Top Contributors — De-duplicated across machines)
   const operatorRollup = useMemo(() => {
-    const map = new Map<string, { operatorName: string; departmentName: string; totalOtHours: number; entriesCount: number }>();
-    for (const r of otEntries) {
-      const op = (r.operatorName || '').trim() || 'Unknown Operator';
-      const dept = r.department?.name || '—';
-      const ot = entryOvertimeHours(r);
+    const map = new Map<string, { operatorName: string; departmentName: string; totalOtHours: number; entriesCount: number; machinesCount: number }>();
+    for (const item of operatorSummary.detailedBreakdown) {
+      const op = item.operatorName;
+      const dept = item.departmentName || '—';
       if (!map.has(op)) {
-        map.set(op, { operatorName: op, departmentName: dept, totalOtHours: 0, entriesCount: 0 });
+        map.set(op, { operatorName: op, departmentName: dept, totalOtHours: 0, entriesCount: 0, machinesCount: 0 });
       }
       const rec = map.get(op)!;
-      rec.totalOtHours += ot;
-      rec.entriesCount += 1;
+      rec.totalOtHours += item.totalOtHours;
+      rec.entriesCount += item.entriesCount;
+      rec.machinesCount += item.machines.length;
     }
     return Array.from(map.values())
       .map((o) => ({
@@ -201,7 +243,7 @@ export const OvertimeDetails: React.FC<OvertimeDetailsProps> = ({ seed, buildFil
       }))
       .sort((a, b) => b.totalOtHours - a.totalOtHours)
       .slice(0, 7);
-  }, [otEntries]);
+  }, [operatorSummary.detailedBreakdown]);
 
   // 4. Machine-wise Overtime Distribution
   const machineRollup = useMemo(() => {
@@ -445,6 +487,11 @@ export const OvertimeDetails: React.FC<OvertimeDetailsProps> = ({ seed, buildFil
             <Statistic
               title={<span style={{ fontWeight: 600, color: '#1d4ed8' }}><AppstoreOutlined /> Overtime Entries</span>}
               value={totalOtEntries}
+              suffix={
+                <span style={{ fontSize: 11, fontWeight: 500, color: '#64748b', marginLeft: 4 }}>
+                  ({uniqueOperatorsCount} unique op.)
+                </span>
+              }
               valueStyle={{ color: '#2563eb', fontWeight: 700 }}
             />
           </Card>
@@ -461,8 +508,8 @@ export const OvertimeDetails: React.FC<OvertimeDetailsProps> = ({ seed, buildFil
         <Col xs={12} sm={6}>
           <Card size="small" style={{ borderRadius: 10, background: 'rgba(245, 158, 11, 0.05)', borderColor: 'rgba(245, 158, 11, 0.2)' }}>
             <Statistic
-              title={<span style={{ fontWeight: 600, color: '#b45309' }}><BarChartOutlined /> Avg OT / Entry</span>}
-              value={avgOtPerEntry}
+              title={<span style={{ fontWeight: 600, color: '#b45309' }}><BarChartOutlined /> Avg OT / Operator</span>}
+              value={avgOtPerOperator}
               suffix="h"
               valueStyle={{ color: '#d97706', fontWeight: 700 }}
             />
@@ -627,7 +674,10 @@ export const OvertimeDetails: React.FC<OvertimeDetailsProps> = ({ seed, buildFil
                       color: 'var(--theme-text, #0f172a)',
                       boxShadow: '0 4px 14px rgba(0, 0, 0, 0.08)',
                     }}
-                    formatter={(val: any) => [`${val ?? 0} Hours`, 'OT Worked']}
+                    formatter={(val: any, _name: any, item: any) => [
+                      `${val ?? 0} Hours`,
+                      `OT Worked (${item?.payload?.machinesCount || 1} machines, ${item?.payload?.entriesCount || 1} entries)`,
+                    ]}
                     labelFormatter={(_label, payload) => `${payload?.[0]?.payload?.operatorName} (${payload?.[0]?.payload?.departmentName})`}
                   />
                   <Bar dataKey="totalOtHours" fill="#10b981" radius={[6, 6, 0, 0]} />

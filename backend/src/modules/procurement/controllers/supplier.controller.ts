@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, Query, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query, HttpCode, HttpStatus, UseGuards, Req } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiParam, ApiQuery, ApiBearerAuth } from '@nestjs/swagger';
 import { SupplierService } from '../services/supplier.service';
 import { CreateSupplierDto, CreateSupplierItemDto } from '../dto';
@@ -16,8 +16,10 @@ export class SupplierController {
   @UseGuards(PermissionGuard)
   @RequirePermission('procurement.supplier.create')
   @ApiOperation({ summary: 'Create a supplier' })
-  async create(@Body() dto: CreateSupplierDto) {
-    const supplier = await this.supplierService.create(dto);
+  async create(@Body() dto: CreateSupplierDto, @Req() req: any) {
+    const companyId = req.erpUser?.defaultCompanyId || req.user?.defaultCompanyId || dto.companyId;
+    const userId = req.erpUser?.id || req.user?.id;
+    const supplier = await this.supplierService.create({ ...dto, companyId }, userId);
     return { success: true, data: supplier, message: 'Supplier created successfully' };
   }
 

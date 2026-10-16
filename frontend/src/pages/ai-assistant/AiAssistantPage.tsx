@@ -40,6 +40,15 @@ import {
   Cell,
 } from 'recharts';
 import { apiService } from '../../services/api';
+import {
+  aiAssistantService,
+  extractAiErrorMessage,
+  isAiBackendUnavailable,
+  AiAnswer,
+  AiEmptyStateSuggestion,
+} from '../../services/aiAssistantService';
+import { useVoiceRecorder, blobToBase64 } from '../../hooks/useVoiceRecorder';
+import AiAnswerCard from './AiAnswerCard';
 import { useThemeStore } from '../../theme/themeStore';
 import dayjs from 'dayjs';
 import weekOfYear from 'dayjs/plugin/weekOfYear';
@@ -73,6 +82,8 @@ interface ChatMessage {
     columns: AiColumn[];
     rows: any[];
   };
+  /** Real backend Text-to-SQL answer — rendered dynamically by AiAnswerCard. */
+  backendAnswer?: AiAnswer;
   auditTrail?: {
     dataSource: string;
     filters: string[];
@@ -181,10 +192,24 @@ const AiAssistantPage: React.FC = () => {
 
   const [inputText, setInputText] = useState('');
   const [loading, setLoading] = useState(false);
+  /** Which pipeline is in flight — shapes the loading placeholder text. */
+  const [loadingKind, setLoadingKind] = useState<'text' | 'voice'>('text');
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [isListening, setIsListening] = useState(false);
-  const recognitionRef = useRef<any>(null);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
+
+  // MediaRecorder voice capture → base64 JSON → POST /ai/assistant/voice
+  // (Whisper transcription server-side — no browser SpeechRecognition needed).
+  const {
+    isRecording,
+    elapsedSeconds,
+    error: recorderError,
+    start: startRecording,
+    stop: stopRecording,
+  } = useVoiceRecorder();
+  const isListening = isRecording;
+
+  // Last question, so empty-state suggestions can re-ask with context.
+  const lastQuestionRef = useRef<string>('');
 
   // Maintain conversation context for natural follow-up questions
   const conversationContextRef = useRef<ConversationContext>({
@@ -194,70 +219,10 @@ const AiAssistantPage: React.FC = () => {
     lastDimension: 'machine',
   });
 
-  // Voice recognition toggle (Urdu & English)
-  const toggleVoiceInput = () => {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      message.warning('Voice recognition is not supported in this browser. Please use Google Chrome or Microsoft Edge.');
-      return;
-    }
-
-    if (isListening) {
-      if (recognitionRef.current) {
-        try { recognitionRef.current.stop(); } catch {}
-      }
-      setIsListening(false);
-      return;
-    }
-
-    try {
-      const recognition = new SpeechRecognition();
-      recognition.lang = 'ur-PK'; // Urdu (Pakistan), naturally handles English and mixed Urdu
-      recognition.continuous = false;
-      recognition.interimResults = true;
-
-      recognition.onstart = () => {
-        setIsListening(true);
-        message.info('Listening... Speak now in Urdu or English (بولیں، سن رہا ہے)');
-      };
-
-      recognition.onresult = (event: any) => {
-        let currentTranscript = '';
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          currentTranscript += event.results[i][0].transcript;
-        }
-        if (currentTranscript) {
-          setInputText(currentTranscript);
-        }
-      };
-
-      recognition.onerror = (event: any) => {
-        console.warn('Speech recognition error:', event.error);
-        setIsListening(false);
-        if (event.error !== 'no-speech') {
-          message.warning(`Voice input message: ${event.error}`);
-        }
-      };
-
-      recognition.onend = () => {
-        setIsListening(false);
-      };
-
-      recognitionRef.current = recognition;
-      recognition.start();
-    } catch (err: any) {
-      console.error('Failed to start speech recognition:', err);
-      setIsListening(false);
-    }
-  };
-
+  // Surface recorder failures (microphone permission denied, unsupported browser…)
   useEffect(() => {
-    return () => {
-      if (recognitionRef.current) {
-        try { recognitionRef.current.stop(); } catch {}
-      }
-    };
-  }, []);
+    if (recorderError) message.warning(recorderError);
+  }, [recorderError]);
 
   // Fetch real active divisions from API
   useEffect(() => {
@@ -416,6 +381,13 @@ const AiAssistantPage: React.FC = () => {
     if (msg.tableData) {
       copyContent += '\n\n' + msg.tableData.rows.map((r) => JSON.stringify(r)).join('\n');
     }
+    if (msg.backendAnswer) {
+      const a = msg.backendAnswer;
+      copyContent += '\n\n' + [
+        a.columns.join('\t'),
+        ...a.rows.map((r) => a.columns.map((c) => String(r[c] ?? '')).join('\t')),
+      ].join('\n');
+    }
     navigator.clipboard.writeText(copyContent);
     setCopiedId(msg.id);
     message.success('Copied to clipboard');
@@ -423,8 +395,28 @@ const AiAssistantPage: React.FC = () => {
   };
 
   // ══════════════════════════════════════════════════════════════════════════
-  // NATURAL LANGUAGE QUERY ENGINE EXECUTION
+  // QUERY PIPELINE — backend Text-to-SQL first, legacy engine as fallback
   // ══════════════════════════════════════════════════════════════════════════
+
+  /** Map a backend AiAnswer into a chat bubble message. */
+  const buildAssistantMessage = (answer: AiAnswer, divisionCode: string): ChatMessage => {
+    const dimension = answer.chart && answer.chart.dimension !== 'none' ? answer.chart.dimension : null;
+    const dimensionLabel = dimension
+      ? `${dimension.charAt(0).toUpperCase()}${dimension.slice(1)}-wise`
+      : '';
+    return {
+      id: `b-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      sender: 'assistant',
+      text: [answer.explanation?.en, answer.explanation?.ur].filter(Boolean).join('\n'),
+      timestamp: dayjs().format('hh:mm A'),
+      divisionScope: divisionCode,
+      reportTitle: answer.mode === 'voice'
+        ? `🎙️ Voice Answer${dimensionLabel ? ` — ${dimensionLabel}` : ''}`
+        : `${dimensionLabel || 'AI Query'} Report`,
+      backendAnswer: answer,
+    };
+  };
+
   const handleSend = async (customText?: string, overrideCode?: string, overrideDept?: string) => {
     const query = (customText || inputText).trim();
     if (!query || loading) return;
@@ -442,10 +434,12 @@ const AiAssistantPage: React.FC = () => {
 
     setMessages((prev) => [...prev, userMsg]);
     if (!customText) setInputText('');
+    lastQuestionRef.current = query;
+    setLoadingKind('text');
     setLoading(true);
 
     try {
-      // 1. Parse natural language intent with context preservation
+      // 1. Local intent parse — write-guard + follow-up context (instant, offline)
       const intent = parseNaturalLanguageQuery(
         query,
         effectiveCode,
@@ -474,14 +468,7 @@ const AiAssistantPage: React.FC = () => {
         return;
       }
 
-      // 2. Fetch live data and aggregate report
-      const report: NormalizedReportResult = await generateReportData(
-        intent,
-        divisionsList,
-        isDark,
-      );
-
-      // 3. Update conversation context for next follow-up turns
+      // Update conversation context for next follow-up turns (both pipelines)
       conversationContextRef.current = {
         lastIntent: intent,
         lastDivisionCode: intent.divisionCode || effectiveCode,
@@ -489,6 +476,38 @@ const AiAssistantPage: React.FC = () => {
         lastPeriod: intent.period,
         lastDimension: intent.dimension,
       };
+
+      // 2. PRIMARY: backend Text-to-SQL (Gemini + read-only DB role, division-
+      //    scoped server-side — the response carries the validated `chart`
+      //    payload that AiAnswerCard renders dynamically).
+      try {
+        const answer = await aiAssistantService.askQuestion(query);
+        setMessages((prev) => [...prev, buildAssistantMessage(answer, effectiveCode)]);
+        return;
+      } catch (aiErr) {
+        if (!isAiBackendUnavailable(aiErr)) {
+          // Genuine AI failure (guard rejection, untranslatable question, 403…)
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `err-${Date.now()}`,
+              sender: 'assistant',
+              text: `⚠️ ${extractAiErrorMessage(aiErr)}`,
+              timestamp: dayjs().format('hh:mm A'),
+            },
+          ]);
+          return;
+        }
+        // AI routes unavailable (older backend / infra not configured) →
+        // fall through to the legacy client-side report engine below.
+      }
+
+      // 3. FALLBACK: legacy in-browser report generator (no AI backend needed)
+      const report: NormalizedReportResult = await generateReportData(
+        intent,
+        divisionsList,
+        isDark,
+      );
 
       const botMsg: ChatMessage = {
         id: `b-${Date.now()}`,
@@ -521,6 +540,87 @@ const AiAssistantPage: React.FC = () => {
       setLoading(false);
     }
   };
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // VOICE PIPELINE — MediaRecorder → base64 JSON → Whisper → Text-to-SQL
+  // ══════════════════════════════════════════════════════════════════════════
+
+  const submitVoiceBlob = async (blob: Blob, mimeType: string) => {
+    if (loading) return;
+    lastQuestionRef.current = '';
+    setLoadingKind('voice');
+    setLoading(true);
+    try {
+      const audioBase64 = await blobToBase64(blob);
+      const answer = await aiAssistantService.voiceQuery(
+        audioBase64,
+        mimeType || 'audio/webm',
+        'ur', // Whisper auto-detects English inside Urdu speech anyway
+      );
+      lastQuestionRef.current = answer.transcript || answer.question || '';
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `u-${Date.now()}-v`,
+          sender: 'user',
+          text: `🎤 ${answer.transcript || answer.question}`,
+          timestamp: dayjs().format('hh:mm A'),
+          divisionScope: selectedDivisionCode,
+        },
+        buildAssistantMessage(answer, selectedDivisionCode),
+      ]);
+    } catch (err) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `err-${Date.now()}-v`,
+          sender: 'assistant',
+          text: `🎙️ Voice request failed: ${extractAiErrorMessage(err)}`,
+          timestamp: dayjs().format('hh:mm A'),
+        },
+      ]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /** Mic button: click to record, click again to stop & send. */
+  const handleMicToggle = async () => {
+    if (loading) return;
+    if (isRecording) {
+      const captured = await stopRecording();
+      if (!captured) {
+        message.warning('No audio was captured. Please try again.');
+        return;
+      }
+      await submitVoiceBlob(captured.blob, captured.mimeType);
+    } else {
+      const started = await startRecording();
+      if (started) {
+        message.info('Recording… speak in Urdu or English, then click the mic to stop & send (بند کر کے بھیجیں).');
+      }
+    }
+  };
+
+  // ── Empty-state suggestion click → re-ask with the recommended scope ──────
+  const handleEmptySuggest = (suggestion: AiEmptyStateSuggestion) => {
+    if (suggestion.type === 'tip' || !suggestion.label) {
+      message.info(suggestion.labelUr || suggestion.label || 'Tip noted');
+      return;
+    }
+    if ((suggestion.type === 'division' || suggestion.type === 'department') && suggestion.value) {
+      const div = divisionsList.find((d) => d.id === suggestion.value || d.code === suggestion.value);
+      if (div) {
+        setSelectedDivisionCode(div.code);
+        setSelectedDepartment('ALL');
+        handleSend(`Show me production data for ${div.name}`, div.code, 'ALL');
+        return;
+      }
+    }
+    const base = lastQuestionRef.current;
+    handleSend(base ? `${base} — try ${suggestion.label}` : suggestion.label);
+  };
+
 
   const handleDivisionSwitch = (code: string) => {
     setSelectedDivisionCode(code);
@@ -1101,6 +1201,17 @@ const AiAssistantPage: React.FC = () => {
                         {msg.text}
                       </div>
 
+                      {/* Backend AI answer: dynamic chart / clean striped table /
+                          bilingual empty state — driven by the validated
+                          `chart` payload contract from the NestJS orchestrator. */}
+                      {msg.backendAnswer && (
+                        <AiAnswerCard
+                          answer={msg.backendAnswer}
+                          isDark={isDark}
+                          onSuggest={handleEmptySuggest}
+                        />
+                      )}
+
                       {/* Executive KPI Cards */}
                       {msg.kpiCards && msg.kpiCards.length > 0 && (
                         <div
@@ -1314,7 +1425,11 @@ const AiAssistantPage: React.FC = () => {
                     }}
                   >
                     <Spin size="small" />
-                    <span>Analyzing live ERP production, operator and machine metrics for {activeDivisionMeta.name}...</span>
+                    <span>
+                      {loadingKind === 'voice'
+                        ? `🎙️ Transcribing your audio & querying live ERP data for ${activeDivisionMeta.name}…`
+                        : `Analyzing live ERP production, operator and machine metrics for ${activeDivisionMeta.name}...`}
+                    </span>
                   </div>
                 </div>
               )}
@@ -1414,7 +1529,7 @@ const AiAssistantPage: React.FC = () => {
               variant="borderless"
               placeholder={
                 isListening
-                  ? 'Listening... Speak now in Urdu or English (بولیں، سن رہا ہے...)'
+                  ? `Recording ${elapsedSeconds}s… click the mic to stop & send (بند کر کے بھیجیں)`
                   : 'Ask me in Urdu, Roman Urdu or English (e.g. ٹاپ 5 کسٹمر، 5 نمبر سوگ جاب کارڈ، Top operators...)'
               }
               value={inputText}
@@ -1432,8 +1547,14 @@ const AiAssistantPage: React.FC = () => {
               disabled={loading}
             />
 
-            {/* Voice Input Microphone Button */}
-            <Tooltip title={isListening ? 'Stop listening (بولنا بند کریں)' : 'Voice Input / بول کر پوچھیں (Urdu & English)'}>
+            {/* Voice Input Microphone Button — MediaRecorder → Whisper pipeline */}
+            <Tooltip
+              title={
+                isListening
+                  ? `Stop & send (${elapsedSeconds}s) — بند کر کے بھیجیں`
+                  : 'Record a voice question in Urdu & English / بول کر پوچھیں'
+              }
+            >
               <Button
                 type="text"
                 shape="circle"
@@ -1442,7 +1563,7 @@ const AiAssistantPage: React.FC = () => {
                     ? <AudioMutedOutlined style={{ color: '#ffffff', fontSize: 16 }} />
                     : <AudioOutlined style={{ color: isDark ? '#93c5fd' : '#2563eb', fontSize: 16 }} />
                 }
-                onClick={toggleVoiceInput}
+                onClick={handleMicToggle}
                 disabled={loading}
                 style={{
                   background: isListening ? '#ef4444' : (isDark ? '#334155' : '#e2e8f0'),

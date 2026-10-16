@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, ConflictException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, DeepPartial } from 'typeorm';
 import { Supplier, SupplierItem } from '../entities';
 import { CreateSupplierDto, CreateSupplierItemDto, SupplierFilterDto } from '../dto';
 
@@ -15,19 +15,69 @@ export class SupplierService {
     private readonly itemRepo: Repository<SupplierItem>,
   ) {}
 
+  async generateSupplierCode(companyId: string): Promise<string> {
+    const prefix = 'SUP-';
+    try {
+      const result = await this.repo
+        .createQueryBuilder('s')
+        .select("MAX(CAST(SUBSTRING(s.supplier_code FROM 'SUP-([0-9]+)') AS INT))", 'maxNum')
+        .where('s.company_id = :companyId', { companyId })
+        .andWhere('s.supplier_code LIKE :prefix', { prefix: `${prefix}%` })
+        .getRawOne();
+      const nextNum = (result?.maxNum || 0) + 1;
+      return `${prefix}${String(nextNum).padStart(4, '0')}`;
+    } catch {
+      const count = await this.repo.count({ where: { companyId } });
+      return `${prefix}${String(count + 1).padStart(4, '0')}`;
+    }
+  }
+
+  async getValidCompanyId(companyId?: string): Promise<string> {
+    if (companyId && companyId !== '00000000-0000-0000-0000-000000000001') {
+      try {
+        const res = await this.repo.manager.query('SELECT id FROM companies WHERE id = $1 LIMIT 1', [companyId]);
+        if (res && res.length > 0) return res[0].id;
+      } catch { /* ignore */ }
+    }
+    try {
+      const defaultComp = await this.repo.manager.query("SELECT id FROM companies WHERE status = 'ACTIVE' LIMIT 1");
+      if (defaultComp && defaultComp.length > 0) return defaultComp[0].id;
+      const anyComp = await this.repo.manager.query('SELECT id FROM companies LIMIT 1');
+      if (anyComp && anyComp.length > 0) return anyComp[0].id;
+    } catch { /* ignore */ }
+    return '7725aa04-a270-4314-9e82-90949cbe7791';
+  }
+
   async create(dto: CreateSupplierDto, userId?: string): Promise<Supplier> {
+    const companyId = await this.getValidCompanyId(dto.companyId);
+    const finalCode = dto.supplierCode?.trim() || (await this.generateSupplierCode(companyId));
     const existing = await this.repo.findOne({
-      where: { supplierCode: dto.supplierCode, companyId: dto.companyId },
+      where: { supplierCode: finalCode, companyId },
     });
     if (existing) {
-      throw new ConflictException(`Supplier code '${dto.supplierCode}' already exists in this company`);
+      throw new ConflictException(`Supplier code '${finalCode}' already exists in this company`);
     }
+
+    const {
+      isActive,
+      divisionId,
+      divisionName,
+      openingBalance,
+      creditDays,
+      bankDetails,
+      address,
+      ...entityData
+    } = dto as any;
+
     const supplier = this.repo.create({
-      ...dto,
-      status: 'ACTIVE',
+      ...entityData,
+      companyId,
+      supplierCode: finalCode,
+      addressLine1: entityData.addressLine1 || address || null,
+      status: dto.status || (isActive !== false ? 'ACTIVE' : 'INACTIVE'),
       createdBy: userId || null,
       updatedBy: userId || null,
-    });
+    } as DeepPartial<Supplier>);
     return this.repo.save(supplier);
   }
 
@@ -35,7 +85,7 @@ export class SupplierService {
     const { page = 1, limit = 20, companyId, status, search, sortField = 'createdAt', sortOrder = 'DESC' } = filter;
     const qb = this.repo.createQueryBuilder('s');
     let hasWhere = false;
-    if (companyId) { qb.where('s.companyId = :companyId', { companyId }); hasWhere = true; }
+    if (companyId && companyId !== '00000000-0000-0000-0000-000000000001') { qb.where('s.companyId = :companyId', { companyId }); hasWhere = true; }
     if (status) { qb[hasWhere ? 'andWhere' : 'where']('s.status = :status', { status }); hasWhere = true; }
     if (search) { qb[hasWhere ? 'andWhere' : 'where']('(s.name ILIKE :search OR s.supplierCode ILIKE :search)', { search: `%${search}%` }); hasWhere = true; }
     const validSortFields = ['createdAt', 'supplierCode', 'name', 'status'];
@@ -58,7 +108,22 @@ export class SupplierService {
 
   async update(id: string, dto: Partial<CreateSupplierDto>, userId?: string): Promise<Supplier> {
     const supplier = await this.findOne(id);
-    Object.assign(supplier, dto, { updatedBy: userId || null });
+    const {
+      isActive,
+      divisionId,
+      divisionName,
+      openingBalance,
+      creditDays,
+      bankDetails,
+      address,
+      ...entityData
+    } = dto as any;
+
+    Object.assign(supplier, entityData);
+    if (address) supplier.addressLine1 = address;
+    if (dto.status) supplier.status = dto.status;
+    else if (isActive !== undefined) supplier.status = isActive ? 'ACTIVE' : 'INACTIVE';
+    supplier.updatedBy = userId || null;
     return this.repo.save(supplier);
   }
 

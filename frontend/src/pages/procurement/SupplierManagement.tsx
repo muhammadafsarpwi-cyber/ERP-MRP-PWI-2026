@@ -740,14 +740,39 @@ const SupplierManagement: React.FC = () => {
     setSaveResultPhase('loading');
     setSaveResultError(undefined);
 
-    const chosenDiv = divisions.find(d => d.id === values.divisionId);
+    // Sanitize values: remove empty strings so optional fields (e.g., email, supplierCode) don't trigger class-validator 400 errors
+    const sanitized: any = {};
+    for (const [k, v] of Object.entries(values || {})) {
+      if (typeof v === 'string') {
+        const trimmed = v.trim();
+        if (trimmed !== '') sanitized[k] = trimmed;
+      } else if (v !== undefined && v !== null) {
+        sanitized[k] = v;
+      }
+    }
+
+    const chosenDiv = divisions.find(d => d.id === sanitized.divisionId);
+    let companyId = editingItem?.companyId;
+    if (!companyId) {
+      try {
+        const stored = localStorage.getItem('erp_user') || localStorage.getItem('user');
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          companyId = parsed?.defaultCompanyId || parsed?.companyId;
+        }
+      } catch { /* ignore */ }
+    }
+    if (!companyId || companyId === '00000000-0000-0000-0000-000000000001') {
+      companyId = '7725aa04-a270-4314-9e82-90949cbe7791';
+    }
+
     const payload: any = {
-      ...values,
-      companyId: editingItem?.companyId || '00000000-0000-0000-0000-000000000001',
-      divisionId: values.divisionId || divisions[0]?.id || 'div-wd',
+      ...sanitized,
+      companyId,
+      divisionId: sanitized.divisionId || divisions[0]?.id || 'div-wd',
       divisionName: chosenDiv?.name || 'Wire Drawing Division',
-      status: values.isActive !== false ? 'ACTIVE' : 'INACTIVE',
-      isActive: values.isActive !== false,
+      status: sanitized.isActive !== false ? 'ACTIVE' : 'INACTIVE',
+      isActive: sanitized.isActive !== false,
     };
 
     try {
@@ -777,7 +802,9 @@ const SupplierManagement: React.FC = () => {
       setModalVisible(false);
       fetchSuppliers(page, pageSize);
     } catch (err: any) {
-      setSaveResultError(err?.message || 'Failed to save supplier profile');
+      const serverMsg = err?.response?.data?.message || err?.data?.message || err?.message || 'Failed to save supplier profile';
+      const formattedMsg = Array.isArray(serverMsg) ? serverMsg.join(', ') : serverMsg;
+      setSaveResultError(formattedMsg);
       setSaveResultRetry(() => () => executeSupplierSave(values));
       setSaveResultPhase('error');
     }

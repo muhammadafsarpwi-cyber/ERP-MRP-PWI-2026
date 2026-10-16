@@ -94,3 +94,113 @@ export function entryOvertimeHours(row?: OvertimeSource | null): number {
 export function sumOvertime(rows?: readonly OvertimeSource[] | null): number {
   return (rows ?? []).reduce((total, row) => total + entryOvertimeHours(row), 0);
 }
+
+/**
+ * Daily operator rollup representation after collapsing multi-machine entries
+ * for a single operator on the same date.
+ */
+export interface OperatorDailyRollup {
+  operatorName: string;
+  entryDate: string;
+  departmentName?: string;
+  totalOtHours: number;
+  entriesCount: number;
+  machines: string[];
+}
+
+export interface AggregatedOvertimeResult {
+  /** True de-duplicated overtime hours across all unique operators and dates */
+  trueTotalOvertime: number;
+  /** Number of unique operators active in the period */
+  uniqueOperatorsCount: number;
+  /** Average overtime hours per unique active operator */
+  avgOtPerOperator: number;
+  /** Grouped entries per operator and date with MAX overtime */
+  operatorDayMap: Map<string, OperatorDailyRollup>;
+  /** Array of operator rollups for charting and reporting */
+  detailedBreakdown: OperatorDailyRollup[];
+}
+
+/**
+ * Aggregates production entries by Operator Name and Date to eliminate
+ * duplicate counting when an operator works on multiple machines on the same date.
+ *
+ * Rule:
+ *  - Groups entries by `${entryDate}___${operatorName}`.
+ *  - Uses `Math.max` for overtime so an operator's daily overtime is not multiplied
+ *    across multiple machine slips.
+ *  - Returns unique operator count and de-duplicated overtime.
+ */
+export function aggregateOperatorOvertime(
+  entries: readonly (OvertimeSource & {
+    entryDate?: string;
+    operatorName?: string;
+    machineNo?: string;
+    machine?: { name?: string; machineCode?: string };
+    department?: { name?: string };
+  })[],
+): AggregatedOvertimeResult {
+  const operatorDayMap = new Map<string, {
+    operatorName: string;
+    entryDate: string;
+    departmentName: string;
+    totalOtHours: number;
+    entriesCount: number;
+    machines: Set<string>;
+  }>();
+
+  for (const entry of entries) {
+    const ot = entryOvertimeHours(entry);
+    if (ot <= 0) continue;
+
+    const date = entry.entryDate || 'Unknown';
+    const operator = (entry.operatorName || '').trim() || 'Unknown Operator';
+    const dept = entry.department?.name || '—';
+    const machine = (entry.machine?.name || entry.machineNo || '').trim();
+    const key = `${date}___${operator}`;
+
+    if (!operatorDayMap.has(key)) {
+      operatorDayMap.set(key, {
+        operatorName: operator,
+        entryDate: date,
+        departmentName: dept,
+        totalOtHours: ot,
+        entriesCount: 1,
+        machines: new Set(machine ? [machine] : []),
+      });
+    } else {
+      const rec = operatorDayMap.get(key)!;
+      rec.entriesCount += 1;
+      if (machine) rec.machines.add(machine);
+      // Take MAX of overtime across multiple machines on the same day to prevent duplication
+      rec.totalOtHours = Math.max(rec.totalOtHours, ot);
+    }
+  }
+
+  const detailedBreakdown: OperatorDailyRollup[] = Array.from(operatorDayMap.values()).map((r) => ({
+    operatorName: r.operatorName,
+    entryDate: r.entryDate,
+    departmentName: r.departmentName,
+    totalOtHours: Math.round(r.totalOtHours * 10) / 10,
+    entriesCount: r.entriesCount,
+    machines: Array.from(r.machines),
+  }));
+
+  const trueTotalOvertime = Math.round(
+    detailedBreakdown.reduce((sum, item) => sum + item.totalOtHours, 0) * 10,
+  ) / 10;
+
+  const uniqueOperatorsCount = new Set(detailedBreakdown.map((b) => b.operatorName)).size;
+  const avgOtPerOperator = uniqueOperatorsCount > 0
+    ? Math.round((trueTotalOvertime / uniqueOperatorsCount) * 10) / 10
+    : 0;
+
+  return {
+    trueTotalOvertime,
+    uniqueOperatorsCount,
+    avgOtPerOperator,
+    operatorDayMap: new Map(detailedBreakdown.map((b) => [`${b.entryDate}___${b.operatorName}`, b])),
+    detailedBreakdown,
+  };
+}
+

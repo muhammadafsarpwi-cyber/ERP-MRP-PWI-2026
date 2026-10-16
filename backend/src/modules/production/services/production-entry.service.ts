@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException, ConflictException, ForbiddenException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, EntityManager, DeepPartial, In } from 'typeorm';
+import { Repository, EntityManager, DeepPartial, In, DataSource } from 'typeorm';
 import {
   ProductionEntry,
   ProductionEntryItem,
@@ -443,6 +443,7 @@ export class ProductionEntryService {
     const summaryRow = await summaryQb
       .select([
         'COUNT(pe.id)::int AS "totalEntries"',
+        'COUNT(DISTINCT pe.operator_name)::int AS "uniqueOperatorsCount"',
         'COALESCE(SUM(pe.target_quantity), 0)::float AS "totalTargetRaw"',
         // Corrected total: Σ (locked Target Master rate × real run hours).
         // Kept separate from totalTargetRaw so nothing else silently changes
@@ -476,6 +477,7 @@ export class ProductionEntryService {
       overtime: Number(summaryRow?.totalOvertime || 0),
       downtime: Number(summaryRow?.totalDowntime || 0),
       efficiency: totalTarget > 0 ? Math.round((totalActual / totalTarget) * 10000) / 100 : Number(summaryRow?.avgEfficiency || 0),
+      uniqueOperators: Number(summaryRow?.uniqueOperatorsCount || 0),
       counts: {
         all: Number(summaryRow?.totalEntries || 0),
         COMPLETED: Number(summaryRow?.completedCount || 0),
@@ -1440,6 +1442,126 @@ addToDept(org, {
         entryDate,
         shiftId,
       },
+    };
+  }
+
+  /**
+   * Aggregates production entries by Operator and Date to eliminate duplicate
+   * operator counts and duplicate overtime when operators log multiple machine entries
+   * on the same date.
+   */
+  async getOperatorDailySummary(
+    companyId: string,
+    filters: {
+      entryDate?: string;
+      dateFrom?: string;
+      dateTo?: string;
+      departmentId?: string;
+      divisionId?: string;
+      shiftId?: string;
+    },
+  ) {
+    const qb = this.entryRepo.createQueryBuilder('pe');
+    qb.where('pe.company_id = :companyId', { companyId });
+
+    if (filters.entryDate) {
+      qb.andWhere('pe.entry_date = :entryDate', { entryDate: filters.entryDate });
+    } else {
+      if (filters.dateFrom) {
+        qb.andWhere('pe.entry_date >= :dateFrom', { dateFrom: filters.dateFrom });
+      }
+      if (filters.dateTo) {
+        qb.andWhere('pe.entry_date <= :dateTo', { dateTo: filters.dateTo });
+      }
+    }
+
+    if (filters.departmentId) {
+      qb.andWhere('pe.department_id = :departmentId', { departmentId: filters.departmentId });
+    }
+    if (filters.divisionId) {
+      qb.andWhere('pe.division_id = :divisionId', { divisionId: filters.divisionId });
+    }
+    if (filters.shiftId) {
+      qb.andWhere('pe.shift_id = :shiftId', { shiftId: filters.shiftId });
+    }
+
+    // LEVEL 1: Collapse multiple machine entries per operator and date
+    qb.select([
+      'pe.operator_name AS "operatorName"',
+      'pe.entry_date AS "entryDate"',
+      'COUNT(pe.id)::int AS "entriesCount"',
+      'COUNT(DISTINCT pe.machine_no)::int AS "machinesCount"',
+      'SUM(COALESCE(pe.actual_quantity, 0))::float AS "totalActualQty"',
+      'SUM(COALESCE(pe.running_hours, 0))::float AS "totalRunningHours"',
+      `MAX(${OVERTIME_SUM_SQL})::float AS "operatorOvertime"`,
+    ]);
+    qb.groupBy('pe.operator_name');
+    qb.addGroupBy('pe.entry_date');
+
+    const rawRows = await qb.getRawMany();
+
+    // LEVEL 2: Roll up per operator across dates in the filter
+    const operatorMap = new Map<string, {
+      operatorName: string;
+      totalActualQty: number;
+      totalRunningHours: number;
+      totalOtHours: number;
+      entriesCount: number;
+      machinesCount: number;
+      activeDays: number;
+    }>();
+
+    for (const r of rawRows) {
+      const op = (r.operatorName || '').trim() || 'Unknown Operator';
+      const ot = Number(r.operatorOvertime || 0);
+      const actual = Number(r.totalActualQty || 0);
+      const run = Number(r.totalRunningHours || 0);
+      const entries = Number(r.entriesCount || 0);
+      const machines = Number(r.machinesCount || 0);
+
+      if (!operatorMap.has(op)) {
+        operatorMap.set(op, {
+          operatorName: op,
+          totalActualQty: 0,
+          totalRunningHours: 0,
+          totalOtHours: 0,
+          entriesCount: 0,
+          machinesCount: 0,
+          activeDays: 0,
+        });
+      }
+      const item = operatorMap.get(op)!;
+      item.totalActualQty += actual;
+      item.totalRunningHours += run;
+      item.totalOtHours += ot; // Each date's max OT is added once per date
+      item.entriesCount += entries;
+      item.machinesCount = Math.max(item.machinesCount, machines);
+      item.activeDays += 1;
+    }
+
+    const operatorBreakdown = Array.from(operatorMap.values())
+      .map((o) => ({
+        ...o,
+        totalOtHours: Math.round(o.totalOtHours * 10) / 10,
+        totalActualQty: Math.round(o.totalActualQty * 100) / 100,
+        totalRunningHours: Math.round(o.totalRunningHours * 10) / 10,
+      }))
+      .sort((a, b) => b.totalOtHours - a.totalOtHours);
+
+    const uniqueActiveOperators = operatorMap.size;
+    const totalOvertimeHours = Math.round(
+      operatorBreakdown.reduce((sum, op) => sum + op.totalOtHours, 0) * 10,
+    ) / 10;
+    const avgOtPerOperator = uniqueActiveOperators > 0
+      ? Math.round((totalOvertimeHours / uniqueActiveOperators) * 10) / 10
+      : 0;
+
+    return {
+      uniqueActiveOperators,
+      totalOvertimeHours,
+      avgOtPerOperator,
+      operatorBreakdown,
+      dailyBreakdown: rawRows,
     };
   }
 
@@ -3886,3 +4008,46 @@ addToDept(org, {
     return `PE-${year}-${String(maxSeq + 1).padStart(5, '0')}`;
   }
 }
+
+/**
+ * Standalone TypeORM helper for extracting de-duplicated operator daily summary.
+ * Groups by Operator Name on a specific date to prevent multiple machine entries
+ * from inflating unique operator counts or duplicating overtime hours.
+ */
+export async function getOperatorDailySummary(
+  dataSource: DataSource,
+  companyId: string,
+  entryDate: string,
+) {
+  const operatorWiseTotals = await dataSource
+    .createQueryBuilder()
+    .select([
+      'pe.operator_name AS "operatorName"',
+      'COUNT(DISTINCT pe.machine_no)::int AS "machinesCount"',
+      'COUNT(pe.id)::int AS "entriesCount"',
+      'SUM(COALESCE(pe.actual_quantity, 0))::float AS "totalActualQty"',
+      'MAX(COALESCE(pe.overtime_hours, 0))::float AS "operatorOvertime"',
+    ])
+    .from(ProductionEntry, 'pe')
+    .where('pe.company_id = :companyId', { companyId })
+    .andWhere('pe.entry_date = :entryDate', { entryDate })
+    .groupBy('pe.operator_name')
+    .orderBy('"operatorOvertime"', 'DESC')
+    .getRawMany();
+
+  const uniqueActiveOperators = operatorWiseTotals.length;
+  const trueTotalOvertime = Math.round(
+    operatorWiseTotals.reduce((sum, op) => sum + Number(op.operatorOvertime || 0), 0) * 10,
+  ) / 10;
+  const avgOtPerOperator = uniqueActiveOperators > 0
+    ? Math.round((trueTotalOvertime / uniqueActiveOperators) * 10) / 10
+    : 0;
+
+  return {
+    uniqueActiveOperators,
+    totalOvertimeHours: trueTotalOvertime,
+    avgOtPerOperator,
+    operatorBreakdown: operatorWiseTotals,
+  };
+}
+

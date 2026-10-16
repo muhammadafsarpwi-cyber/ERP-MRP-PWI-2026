@@ -3,6 +3,7 @@ import {
   sumOvertime,
   OT_FROM_REMARKS_REGEX,
   OvertimeSource,
+  aggregateOperatorOvertime,
 } from './overtimeHours';
 
 /**
@@ -142,6 +143,80 @@ describe('Phase 3 — canonical overtime definition', () => {
       expect(entryOvertimeHours(runningOnly)).toBe(0);
       // Guard against anyone reintroducing `running - 8` in this helper.
       expect(entryOvertimeHours(runningOnly)).not.toBe(Number(runningOnly.runningHours) - 8);
+    });
+  });
+
+  describe('aggregateOperatorOvertime (multi-machine operator de-duplication)', () => {
+    it('de-duplicates an operator working across multiple machines on the same date', () => {
+      const entries = [
+        {
+          entryDate: '2026-10-14',
+          operatorName: 'Arshad Ali',
+          machineNo: 'M-01',
+          overtimeHours: 4,
+          department: { name: 'Wire Drawing' },
+        },
+        {
+          entryDate: '2026-10-14',
+          operatorName: 'Arshad Ali',
+          machineNo: 'M-02',
+          overtimeHours: 4,
+          department: { name: 'Wire Drawing' },
+        },
+        {
+          entryDate: '2026-10-14',
+          operatorName: 'Arshad Ali',
+          machineNo: 'M-03',
+          overtimeHours: 4,
+          department: { name: 'Wire Drawing' },
+        },
+      ];
+
+      const result = aggregateOperatorOvertime(entries);
+
+      // Total overtime should be 4h, NOT 12h
+      expect(result.trueTotalOvertime).toBe(4);
+      // Unique active operators should be 1, NOT 3
+      expect(result.uniqueOperatorsCount).toBe(1);
+      // Average OT per operator should be 4h
+      expect(result.avgOtPerOperator).toBe(4);
+      // Detailed breakdown has 1 record with 3 entries and all 3 machines
+      expect(result.detailedBreakdown).toHaveLength(1);
+      expect(result.detailedBreakdown[0].entriesCount).toBe(3);
+      expect(result.detailedBreakdown[0].machines).toEqual(
+        expect.arrayContaining(['M-01', 'M-02', 'M-03']),
+      );
+    });
+
+    it('correctly aggregates multiple operators and dates with MAX daily overtime', () => {
+      const entries = [
+        // Arshad on 2026-10-14: 2 machines, 4h OT
+        { entryDate: '2026-10-14', operatorName: 'Arshad Ali', machineNo: 'M-01', overtimeHours: 4 },
+        { entryDate: '2026-10-14', operatorName: 'Arshad Ali', machineNo: 'M-02', overtimeHours: 4 },
+        // Tariq on 2026-10-14: 1 machine, 2.5h OT
+        { entryDate: '2026-10-14', operatorName: 'Tariq Mehmood', machineNo: 'M-03', overtimeHours: 2.5 },
+        // Arshad on 2026-10-15: 1 machine, 3h OT
+        { entryDate: '2026-10-15', operatorName: 'Arshad Ali', machineNo: 'M-01', overtimeHours: 3 },
+      ];
+
+      const result = aggregateOperatorOvertime(entries);
+
+      // Total OT: (Arshad 10-14: 4) + (Tariq 10-14: 2.5) + (Arshad 10-15: 3) = 9.5h
+      expect(result.trueTotalOvertime).toBe(9.5);
+      // Unique operators: Arshad Ali, Tariq Mehmood = 2
+      expect(result.uniqueOperatorsCount).toBe(2);
+      // Average OT per operator: 9.5 / 2 = 4.75h rounded to 1 decimal place = 4.8h
+      expect(result.avgOtPerOperator).toBe(4.8);
+      // Breakdown should have 3 operator-date records
+      expect(result.detailedBreakdown).toHaveLength(3);
+    });
+
+    it('handles empty entries gracefully', () => {
+      const result = aggregateOperatorOvertime([]);
+      expect(result.trueTotalOvertime).toBe(0);
+      expect(result.uniqueOperatorsCount).toBe(0);
+      expect(result.avgOtPerOperator).toBe(0);
+      expect(result.detailedBreakdown).toEqual([]);
     });
   });
 });

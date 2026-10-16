@@ -54,6 +54,9 @@ export interface ItemMaster {
   baseUom?: { id?: string; code: string; symbol?: string; name?: string };
   costPrice?: number;
   status?: string;
+  packagingType?: string | null;
+  packagingSize?: number | string | null;
+  packagingUnit?: string | null;
 }
 
 export interface UomMaster {
@@ -204,17 +207,18 @@ const FinishedGoodBomSetup: React.FC<FinishedGoodBomSetupProps> = ({ isSubTab = 
   // Authoritative Spoke Finished Goods, Semi-Finished Components, and Nipples with exact database UUIDs
   const DEFAULT_BOM_FINISHED_GOODS = useMemo(() => [
     // Finished Goods (Spoke Division Packing Products)
-    { id: '1389aa89-8992-42f4-b776-befb35bf4f65', itemCode: 'SPI-FG-SPK-010', name: '125-300X18 Inn / Out Spoke Butted_125 - 300X17 Nipple', itemType: 'FINISHED_GOOD' },
-    { id: '729d4699-a0b9-4063-855d-4e4419511c79', itemCode: 'SPI-FG-SPK-009', name: '125-300X17 Inn / Out Spoke Butted_125 - 300X17 Nipple', itemType: 'FINISHED_GOOD' },
-    { id: '864dc17b-88c4-44ad-b9b8-dbeee8f15f09', itemCode: 'SPI-FG-SPK-008', name: '300X18 S9 Inn / Out Spoke Straight_125-S9 Nipple', itemType: 'FINISHED_GOOD' },
-    { id: '181fb5ac-40d6-4957-856f-3806ae3ee9dc', itemCode: 'SPI-FG-SPK-007', name: '300X17 S9 Inn / Out Spoke Straight_125-S9 Nipple', itemType: 'FINISHED_GOOD' },
-    { id: 'd9554c71-5037-451e-b639-4c6150aeb06c', itemCode: 'SPI-FG-SPK-006', name: 'RM -18 Inn / Out Spoke Straight_RM-100 Nipple', itemType: 'FINISHED_GOOD' },
-    { id: 'a57f61c3-2b99-4c91-9e55-89f5bc912345', itemCode: 'SPI-FG-SPK-005', name: 'RM Inn / Out Spoke Straight_RM-100 Nipple', itemType: 'FINISHED_GOOD' },
-    { id: '9aaa3aed-9198-4c08-a9ef-496ed0c6afea', itemCode: 'SPI-FG-SPK-004', name: '250*17 Inn / Out Spoke Straight__RM-250*17 Nipple', itemType: 'FINISHED_GOOD' },
-    { id: 'f8b141d9-7e0c-48a7-b2f0-60b8b32ff83d', itemCode: 'SPI-FG-SPK-003', name: '250X18 Inn / Out Spoke Butted_CD-250X17 Nipple', itemType: 'FINISHED_GOOD' },
-    { id: '6aaa54fe-6899-4b06-97c3-031c714f9155', itemCode: 'SPI-FG-SPK-002', name: '250X17 Inn / Out Spoke Butted_CD-250X17 Nipple', itemType: 'FINISHED_GOOD' },
-    { id: '044b1a9c-1230-450e-a38b-a8a7493c6c48', itemCode: 'SPI-FG-SPK-001', name: '250X17 INN / OUT Spoke Butted_225X17 Nipple', itemType: 'FINISHED_GOOD' },
-    { id: '1e9379be-18b1-4290-a4c3-d97ee928eefd', itemCode: 'SPI-FG-SPK-011', name: 'DS Front Inn / Out Spoke Straight_225X17 Nipple', itemType: 'FINISHED_GOOD' },
+    { id: '1389aa89-8992-42f4-b776-befb35bf4f65', itemCode: 'SPI-FG-SPK-010', name: '125-300X18 Inn / Out Spoke Butted_125 - 300X17 Nipple', itemType: 'FINISHED_GOOD', packagingSize: 10, packagingUnit: 'Carton' },
+    { id: '729d4699-a0b9-4063-855d-4e4419511c79', itemCode: 'SPI-FG-SPK-009', name: '125-300X17 Inn / Out Spoke Butted_125 - 300X17 Nipple', itemType: 'FINISHED_GOOD', packagingSize: 10, packagingUnit: 'Carton' },
+    { id: '864dc17b-88c4-44ad-b9b8-dbeee8f15f09', itemCode: 'SPI-FG-SPK-008', name: '300X18 S9 Inn / Out Spoke Straight_125-S9 Nipple', itemType: 'FINISHED_GOOD', packagingSize: 10, packagingUnit: 'Carton' },
+    { id: '181fb5ac-40d6-4957-856f-3806ae3ee9dc', itemCode: 'SPI-FG-SPK-007', name: '300X17 S9 Inn / Out Spoke Straight_125-S9 Nipple', itemType: 'FINISHED_GOOD', packagingSize: 10, packagingUnit: 'Carton' },
+    { id: 'd9554c71-5037-451e-b639-4c6150aeb06c', itemCode: 'SPI-FG-SPK-006', name: 'RM -18 Inn / Out Spoke Straight_RM-100 Nipple', itemType: 'FINISHED_GOOD', packagingSize: 10, packagingUnit: 'Carton' },
+    { id: 'a57f61c3-2b99-4c91-9e55-89f5bc912345', itemCode: 'SPI-FG-SPK-005', name: 'RM Inn / Out Spoke Straight_RM-100 Nipple', itemType: 'FINISHED_GOOD', packagingSize: 10, packagingUnit: 'Carton' },
+    { id: '9aaa3aed-9198-4c08-a9ef-496ed0c6afea', itemCode: 'SPI-FG-SPK-004', name: '250*17 Inn / Out Spoke Straight__RM-250*17 Nipple', itemType: 'FINISHED_GOOD', packagingSize: 10, packagingUnit: 'Carton' },
+    { id: 'f8b141d9-7e0c-48a7-b2f0-60b8b32ff83d', itemCode: 'SPI-FG-SPK-003', name: '250X18 Inn / Out Spoke Butted_CD-250X17 Nipple', itemType: 'FINISHED_GOOD', packagingSize: 10, packagingUnit: 'Carton' },
+    { id: '6aaa54fe-6899-4b06-97c3-031c714f9155', itemCode: 'SPI-FG-SPK-002', name: '250X17 Inn / Out Spoke Butted_CD-250X17 Nipple', itemType: 'FINISHED_GOOD', packagingSize: 10, packagingUnit: 'Carton' },
+    { id: '044b1a9c-1230-450e-a38b-a8a7493c6c48', itemCode: 'SPI-FG-SPK-001', name: '250X17 INN / OUT Spoke Butted_225X17 Nipple', itemType: 'FINISHED_GOOD', packagingSize: 10, packagingUnit: 'Carton' },
+    { id: '97c71e50-99a9-4ff4-8fa5-660a384e5870', itemCode: 'SPI-FG-SPK-011', name: '300X17 S9 Inn / Out Spoke Straight__125-S9 Nipple (CS)', itemType: 'FINISHED_GOOD', packagingSize: 10.556, packagingUnit: 'Carton' },
+
 
     // Semi-Finished Spokes (All factory codes WIP-SPL-001 to WIP-SPL-018)
     { id: 'e72d30e1-e0da-447c-af1e-6a57d9aad0af', itemCode: 'WIP-SPL-001', name: 'CD-250*17 Inner Butted', itemType: 'SEMI_FINISHED' },
@@ -458,6 +462,57 @@ const FinishedGoodBomSetup: React.FC<FinishedGoodBomSetupProps> = ({ isSubTab = 
     [uoms, conversionFactors, uomConversions]
   );
 
+  // Authoritative dynamic packaging standard calculated from Finished Good Item Master or Component lines
+  const activePackagingStandard = useMemo(() => {
+    let gross = 0;
+    let pcs = 0;
+
+    // 1. Try to read from selectedProduct packagingSize
+    const pkgSizeNum = Number(selectedProduct?.packagingSize);
+    if (pkgSizeNum > 0) {
+      gross = pkgSizeNum;
+      pcs = Math.round(gross * (conversionFactors.pcsPerGross || 144));
+    }
+
+    // 2. Check component lines (inner + outer spokes, or nipple)
+    let spokesPcs = 0;
+    let nipplePcs = 0;
+    for (const l of lines) {
+      const it = items.find((i) => i.id === l.itemId) || l.item;
+      const code = (it?.itemCode || '').toUpperCase();
+      const name = (it?.name || l.remarks || '').toLowerCase();
+      const pcsEq = calculatePcsEquivalent(Number(l.quantity) || 0, l.uomId);
+
+      if (name.includes('nipple') || code.includes('-NP') || code.startsWith('NP-') || code.includes('FG-NP')) {
+        nipplePcs = pcsEq;
+      } else if (name.includes('inner') || name.includes('outer') || code.includes('SPL-')) {
+        spokesPcs += pcsEq;
+      }
+    }
+
+    if (nipplePcs > 0 && (!pcs || lines.length > 0)) {
+      pcs = Math.round(nipplePcs);
+      gross = Math.round((pcs / (conversionFactors.pcsPerGross || 144)) * 1000) / 1000;
+    } else if (spokesPcs > 0 && (!pcs || lines.length > 0)) {
+      pcs = Math.round(spokesPcs);
+      gross = Math.round((pcs / (conversionFactors.pcsPerGross || 144)) * 1000) / 1000;
+    }
+
+    // 3. Fallback to conversion factors if still empty
+    if (!gross || gross <= 0) {
+      gross = conversionFactors.grossPerCarton || 10;
+    }
+    if (!pcs || pcs <= 0) {
+      pcs = Math.round(gross * (conversionFactors.pcsPerGross || 144));
+    }
+
+    return {
+      grossPerCarton: gross,
+      pcsPerCarton: pcs,
+    };
+  }, [selectedProduct, lines, items, calculatePcsEquivalent, conversionFactors]);
+
+
   // Authoritative UOM Options prioritized with PCS, GRS, KG, MTR, CTN at the top
   const uomOptions = useMemo(() => {
     const coreOrder = ['PCS', 'GRS', 'KG', 'MTR', 'CTN'];
@@ -524,6 +579,9 @@ const FinishedGoodBomSetup: React.FC<FinishedGoodBomSetupProps> = ({ isSubTab = 
               itemType: bom.product.itemType,
               baseUomId: bom.product.baseUomId || bom.product.baseUom?.id,
               baseUom: bom.product.baseUom,
+              packagingType: bom.product.packagingType,
+              packagingSize: bom.product.packagingSize,
+              packagingUnit: bom.product.packagingUnit,
             });
           }
           for (const l of bom.lines || []) {
@@ -613,8 +671,21 @@ const FinishedGoodBomSetup: React.FC<FinishedGoodBomSetupProps> = ({ isSubTab = 
   }, [selectedProductId, loadBomForProduct]);
 
   // Handle Finished Good selection from dropdown
-  const handleProductChange = (productId: string) => {
+  const handleProductChange = async (productId: string) => {
     setSelectedProductId(productId);
+    try {
+      const res: any = await apiService.get(`/master-data/items/${productId}`).catch(() => apiService.get(`/items/${productId}`));
+      const it = res?.data ?? res;
+      if (it && it.id) {
+        setItems((prev) => {
+          const map = new Map<string, ItemMaster>(prev.map((i) => [i.id, i]));
+          map.set(it.id, { ...map.get(it.id), ...it });
+          const merged = Array.from(map.values());
+          itemsRef.current = merged;
+          return merged;
+        });
+      }
+    } catch {}
   };
 
   // Add a blank component row
@@ -904,7 +975,7 @@ const FinishedGoodBomSetup: React.FC<FinishedGoodBomSetupProps> = ({ isSubTab = 
         bomName: bomName || 'Standard Assembly BOM',
         fgCode: savedFg?.itemCode || 'FG-SPK',
         fgName: savedFg?.name || 'Finished Product',
-        baseQtyText: `${baseQuantity} CTN (${baseQuantity * conversionFactors.grossPerCarton} GRS / ${baseQuantity * conversionFactors.pcsPerCarton} PCS)`,
+        baseQtyText: `${baseQuantity} CTN (${formatCleanQty(baseQuantity * activePackagingStandard.grossPerCarton)} GRS / ${formatCleanQty(baseQuantity * activePackagingStandard.pcsPerCarton)} PCS)`,
         componentsCount: lines.length,
         componentsSummary: summaryParts,
         statusText: existingBom ? 'BOM UPDATED & RE-ACTIVATED' : 'NEW BOM CREATED & ACTIVATED',
@@ -1162,18 +1233,60 @@ const FinishedGoodBomSetup: React.FC<FinishedGoodBomSetupProps> = ({ isSubTab = 
             return u?.code || 'GRS';
           };
 
+          // Authoritative Carton Gross and PCS capacity for this Finished Good
+          let cartonGross = Number(fgItem?.packagingSize);
+          let cartonPcs = 0;
+
+          // Check if lines have PCS or Gross equivalent
+          let spokesPcs = 0;
+          let nipplePcs = 0;
+          for (const l of activeLines) {
+            const lCode = (l.item?.itemCode || '').toUpperCase();
+            const lName = (l.item?.name || '').toLowerCase();
+            const lUomCode = (l.uom?.code || '').toUpperCase();
+            const lQty = Number(l.quantity) || 0;
+            const lPcs = (lUomCode === 'PCS' || lUomCode === 'PC' || lUomCode === 'NOS')
+              ? lQty
+              : (lUomCode === 'GRS' || lUomCode === 'GROSS')
+              ? lQty * 144
+              : lQty;
+
+            if (lName.includes('nipple') || lCode.includes('-NP') || lCode.startsWith('NP-') || lCode.includes('FG-NP')) {
+              nipplePcs = lPcs;
+            } else if (lName.includes('inner') || lName.includes('outer') || lCode.includes('SPL-')) {
+              spokesPcs += lPcs;
+            }
+          }
+
+          if (nipplePcs > 0) {
+            cartonPcs = Math.round(nipplePcs);
+            if (!cartonGross || cartonGross <= 0) {
+              cartonGross = Math.round((cartonPcs / 144) * 1000) / 1000;
+            }
+          } else if (spokesPcs > 0) {
+            cartonPcs = Math.round(spokesPcs);
+            if (!cartonGross || cartonGross <= 0) {
+              cartonGross = Math.round((cartonPcs / 144) * 1000) / 1000;
+            }
+          } else if (cartonGross > 0) {
+            cartonPcs = Math.round(cartonGross * 144);
+          } else {
+            cartonGross = 10;
+            cartonPcs = 1440;
+          }
+
           return {
             bomId: b.id,
             fgId,
             fgCode,
             fgName,
             bomCode: b.bomCode || 'ACTIVE',
-            baseUnit: `1 CTN (${formatCleanQty(b.baseQuantity || 10)} GRS / ${formatCleanQty(Number(b.baseQuantity || 10) * 144)} PCS)`,
-            innerQty: innerLine ? `${formatCleanQty(innerLine.quantity)} ${resolveLineUom(innerLine)} / CTN` : '5 GRS / CTN',
+            baseUnit: `1 CTN (${formatCleanQty(cartonGross)} GRS / ${cartonPcs.toLocaleString()} PCS)`,
+            innerQty: innerLine ? `${formatCleanQty(innerLine.quantity)} ${resolveLineUom(innerLine)} / CTN` : `${formatCleanQty(cartonGross / 2)} GRS / CTN`,
             innerCode: innerLine?.item?.itemCode || innerLine?.componentCode || 'WIP-SPL-013',
-            outerQty: outerLine ? `${formatCleanQty(outerLine.quantity)} ${resolveLineUom(outerLine)} / CTN` : '5 GRS / CTN',
+            outerQty: outerLine ? `${formatCleanQty(outerLine.quantity)} ${resolveLineUom(outerLine)} / CTN` : `${formatCleanQty(cartonGross / 2)} GRS / CTN`,
             outerCode: outerLine?.item?.itemCode || outerLine?.componentCode || 'WIP-SPL-014',
-            nippleQty: nippleLine ? `${formatCleanQty(nippleLine.quantity)} ${resolveLineUom(nippleLine)} / CTN` : '10 GRS / CTN',
+            nippleQty: nippleLine ? `${formatCleanQty(nippleLine.quantity)} ${resolveLineUom(nippleLine)} / CTN` : `${formatCleanQty(cartonGross)} GRS / CTN`,
             nippleCode: nippleLine?.item?.itemCode || nippleLine?.componentCode || 'SPI-FG-NP-005',
             linesCount: activeLines.length,
           };
@@ -1312,10 +1425,13 @@ const FinishedGoodBomSetup: React.FC<FinishedGoodBomSetupProps> = ({ isSubTab = 
                 const cleanLabel = label.replace(/spi-/gi, '').replace(/fg-/gi, '');
                 return cleanLabel.includes(cleanSearch);
               }}
-              options={finishedGoodItems.map((fg) => ({
-                value: fg.id,
-                label: `[${fg.itemCode}] ${fg.name} (${fg.baseUom?.code || 'PCS'})`,
-              }))}
+              options={finishedGoodItems.map((fg) => {
+                const uomCode = fg.baseUom?.code || fg.baseUom?.name || uoms.find((u) => u.id === fg.baseUomId)?.code || 'PCS';
+                return {
+                  value: fg.id,
+                  label: `[${fg.itemCode}] ${fg.name} (${uomCode})`,
+                };
+              })}
             />
           </Col>
 
@@ -1324,27 +1440,32 @@ const FinishedGoodBomSetup: React.FC<FinishedGoodBomSetupProps> = ({ isSubTab = 
             <Col xs={24} md={12}>
               <div
                 style={{
-                  background: 'var(--theme-surface-alt, #f8fafc)',
-                  border: '1px solid #e2e8f0',
+                  background: 'var(--erp-card-bg, #1e293b)',
+                  border: '1px solid var(--erp-border, #334155)',
                   borderRadius: 8,
                   padding: '10px 14px',
                 }}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                  <Text strong style={{ fontSize: 13 }}>
+                  <Text strong style={{ fontSize: 13, color: '#f1f5f9' }}>
                     {selectedProduct.name}
                   </Text>
                   <Tag color="cyan" style={{ fontWeight: 700 }}>
                     {selectedProduct.itemCode}
                   </Tag>
                 </div>
-                <Space size={16} wrap style={{ fontSize: 11.5, color: '#64748b' }}>
+                <Space size={16} wrap style={{ fontSize: 11.5, color: '#94a3b8' }}>
                   <span>
-                    Item Type: <strong>{selectedProduct.itemType || 'FINISHED_GOOD'}</strong>
+                    Item Type: <strong style={{ color: '#cbd5e1' }}>{selectedProduct.itemType || 'FINISHED_GOOD'}</strong>
                   </span>
                   <span>
-                    Base UOM: <strong>{selectedProduct.baseUom?.code || 'PCS'}</strong>
+                    Base UOM: <strong style={{ color: '#cbd5e1' }}>{selectedProduct.baseUom?.code || selectedProduct.baseUom?.name || uoms.find((u) => u.id === selectedProduct.baseUomId)?.code || 'PCS'}</strong>
                   </span>
+                  {selectedProduct.packagingSize ? (
+                    <span>
+                      Packaging Spec: <strong style={{ color: '#38bdf8' }}>{selectedProduct.packagingSize} GRS / {selectedProduct.packagingUnit || 'Carton'}</strong>
+                    </span>
+                  ) : null}
                   <span>
                     Status: <Badge status="success" text={selectedProduct.status || 'ACTIVE'} />
                   </span>
@@ -1441,8 +1562,8 @@ const FinishedGoodBomSetup: React.FC<FinishedGoodBomSetupProps> = ({ isSubTab = 
                 }}
               >
                 <InfoCircleOutlined style={{ color: '#0284c7', marginRight: 6 }} />
-                Packaging Standard: <strong>1 FG Carton = {conversionFactors.grossPerCarton} GRS = {conversionFactors.pcsPerCarton.toLocaleString()} PCS</strong>
-                <div style={{ color: '#64748b', fontSize: 11, marginTop: 2 }}>
+                Packaging Standard: <strong>1 FG Carton = {activePackagingStandard.grossPerCarton} GRS = {activePackagingStandard.pcsPerCarton.toLocaleString()} PCS</strong>
+                <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 2 }}>
                   Components defined in GRS or PCS scale automatically with target Carton quantity during Hand Packing.
                 </div>
               </div>
@@ -1588,9 +1709,9 @@ const FinishedGoodBomSetup: React.FC<FinishedGoodBomSetupProps> = ({ isSubTab = 
         style={{
           marginTop: 16,
           borderRadius: 8,
-          border: '1.5px solid #cbd5e1',
-          background: '#ffffff',
-          boxShadow: '0 2px 6px rgba(0,0,0,0.03)',
+          border: '1px solid var(--erp-border, #334155)',
+          background: 'var(--erp-card-bg, #1e293b)',
+          boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
         }}
       >
         <Table
@@ -1623,10 +1744,10 @@ const FinishedGoodBomSetup: React.FC<FinishedGoodBomSetupProps> = ({ isSubTab = 
               key: 'fgName',
               render: (name: string, r: any) => (
                 <div>
-                  <Text strong style={{ color: '#0f172a', fontSize: 13 }}>
+                  <Text strong style={{ color: 'var(--erp-text, #f1f5f9)', fontSize: 13 }}>
                     {name}
                   </Text>
-                  <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
+                  <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
                     Base: {r.baseUnit}
                   </div>
                 </div>
@@ -1637,8 +1758,8 @@ const FinishedGoodBomSetup: React.FC<FinishedGoodBomSetupProps> = ({ isSubTab = 
               key: 'innerSpoke',
               render: (_: any, r: any) => (
                 <div>
-                  <span style={{ fontWeight: 700, color: '#0f172a' }}>{r.innerQty}</span>
-                  <div style={{ fontSize: 11, color: '#64748b' }}>{r.innerCode}</div>
+                  <span style={{ fontWeight: 700, color: 'var(--erp-text, #f1f5f9)' }}>{r.innerQty}</span>
+                  <div style={{ fontSize: 11, color: '#94a3b8' }}>{r.innerCode}</div>
                 </div>
               ),
             },
@@ -1647,8 +1768,8 @@ const FinishedGoodBomSetup: React.FC<FinishedGoodBomSetupProps> = ({ isSubTab = 
               key: 'outerSpoke',
               render: (_: any, r: any) => (
                 <div>
-                  <span style={{ fontWeight: 700, color: '#0f172a' }}>{r.outerQty}</span>
-                  <div style={{ fontSize: 11, color: '#64748b' }}>{r.outerCode}</div>
+                  <span style={{ fontWeight: 700, color: 'var(--erp-text, #f1f5f9)' }}>{r.outerQty}</span>
+                  <div style={{ fontSize: 11, color: '#94a3b8' }}>{r.outerCode}</div>
                 </div>
               ),
             },
@@ -1657,8 +1778,8 @@ const FinishedGoodBomSetup: React.FC<FinishedGoodBomSetupProps> = ({ isSubTab = 
               key: 'nipple',
               render: (_: any, r: any) => (
                 <div>
-                  <span style={{ fontWeight: 700, color: '#0f172a' }}>{r.nippleQty}</span>
-                  <div style={{ fontSize: 11, color: '#64748b' }}>{r.nippleCode}</div>
+                  <span style={{ fontWeight: 700, color: 'var(--erp-text, #f1f5f9)' }}>{r.nippleQty}</span>
+                  <div style={{ fontSize: 11, color: '#94a3b8' }}>{r.nippleCode}</div>
                 </div>
               ),
             },
@@ -1956,7 +2077,7 @@ const FinishedGoodBomSetup: React.FC<FinishedGoodBomSetupProps> = ({ isSubTab = 
             style={{ marginBottom: 16 }}
           />
 
-          <div style={{ position: 'relative', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: 14, marginBottom: 16 }}>
+          <div style={{ position: 'relative', background: 'var(--erp-card-bg, #1e293b)', border: '1px solid var(--erp-border, #334155)', borderRadius: 8, padding: 14, marginBottom: 16 }}>
             {saving && (
               <div
                 style={{
@@ -1965,7 +2086,7 @@ const FinishedGoodBomSetup: React.FC<FinishedGoodBomSetupProps> = ({ isSubTab = 
                   left: 0,
                   right: 0,
                   bottom: 0,
-                  background: 'rgba(255, 255, 255, 0.92)',
+                  background: 'rgba(15, 23, 42, 0.88)',
                   display: 'flex',
                   flexDirection: 'column',
                   alignItems: 'center',
@@ -1978,30 +2099,30 @@ const FinishedGoodBomSetup: React.FC<FinishedGoodBomSetupProps> = ({ isSubTab = 
                 <div style={{ marginTop: 14, fontWeight: 700, fontSize: 15, color: '#10b981' }}>
                   Saving BOM Configuration & Activating Mapping...
                 </div>
-                <div style={{ color: '#64748b', fontSize: 12, marginTop: 4, textAlign: 'center', padding: '0 20px' }}>
+                <div style={{ color: '#94a3b8', fontSize: 12, marginTop: 4, textAlign: 'center', padding: '0 20px' }}>
                   Recording component consumption rules and updating Master BOM Catalog
                 </div>
               </div>
             )}
 
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-              <Text type="secondary">Finished Good:</Text>
-              <Text strong style={{ color: '#0f172a' }}>
+              <Text type="secondary" style={{ color: '#94a3b8' }}>Finished Good:</Text>
+              <Text strong style={{ color: '#f1f5f9' }}>
                 [{selectedProduct?.itemCode}] {selectedProduct?.name}
               </Text>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-              <Text type="secondary">BOM Name:</Text>
-              <Text strong>{bomName}</Text>
+              <Text type="secondary" style={{ color: '#94a3b8' }}>BOM Name:</Text>
+              <Text strong style={{ color: '#f1f5f9' }}>{bomName}</Text>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-              <Text type="secondary">Base Packaging Unit:</Text>
+              <Text type="secondary" style={{ color: '#94a3b8' }}>Base Packaging Unit:</Text>
               <Tag color="cyan" style={{ fontWeight: 700 }}>
-                {baseQuantity} CTN ({baseQuantity * conversionFactors.grossPerCarton} GRS / {baseQuantity * conversionFactors.pcsPerCarton} PCS)
+                {baseQuantity} CTN ({formatCleanQty(baseQuantity * activePackagingStandard.grossPerCarton)} GRS / {formatCleanQty(baseQuantity * activePackagingStandard.pcsPerCarton)} PCS)
               </Tag>
             </div>
-            <Divider style={{ margin: '10px 0' }} />
-            <div style={{ fontSize: 12, fontWeight: 700, color: '#334155', marginBottom: 6 }}>
+            <Divider style={{ margin: '10px 0', borderColor: '#334155' }} />
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#cbd5e1', marginBottom: 6 }}>
               Components to Save ({lines.length} items):
             </div>
             <div style={{ maxHeight: 180, overflowY: 'auto' }}>
@@ -2016,20 +2137,21 @@ const FinishedGoodBomSetup: React.FC<FinishedGoodBomSetupProps> = ({ isSubTab = 
                       display: 'flex',
                       justifyContent: 'space-between',
                       alignItems: 'center',
-                      padding: '5px 8px',
-                      background: idx % 2 === 0 ? '#ffffff' : 'transparent',
+                      padding: '6px 10px',
+                      background: idx % 2 === 0 ? 'rgba(255, 255, 255, 0.05)' : 'transparent',
                       borderRadius: 4,
                       fontSize: 12,
+                      color: '#e2e8f0',
                     }}
                   >
                     <span>
-                      <strong>#{idx + 1}</strong> [{it?.itemCode || 'COMP'}] {it?.name || 'Component'}
+                      <strong style={{ color: '#38bdf8' }}>#{idx + 1}</strong> [{it?.itemCode || 'COMP'}] {it?.name || 'Component'}
                     </span>
                     <Space size={8}>
                       <Tag color="blue" style={{ fontWeight: 700 }}>
                         {formatCleanQty(l.quantity)} {uom?.code || 'PCS'}
                       </Tag>
-                      <span style={{ color: '#0284c7', fontSize: 11, fontWeight: 600 }}>
+                      <span style={{ color: '#38bdf8', fontSize: 11, fontWeight: 600 }}>
                         ({formatCleanQty(pcs)} PCS)
                       </span>
                     </Space>

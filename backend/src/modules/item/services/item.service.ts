@@ -847,7 +847,22 @@ export class ItemService implements OnModuleInit {
     qb.skip((page - 1) * limit).take(limit);
 
     const [data, total] = await qb.getManyAndCount();
-    data.forEach(item => this.ensureProcessesArray(item));
+    data.forEach(item => {
+      this.ensureProcessesArray(item);
+      (item as any).baseUomName = item.baseUom?.name ?? item.baseUom?.code ?? null;
+      if (item.productionInItem) {
+        (item.productionInItem as any).baseUomName = item.productionInItem.baseUom?.name ?? item.productionInItem.baseUom?.code ?? null;
+      }
+      if (item.productionInItem2) {
+        (item.productionInItem2 as any).baseUomName = item.productionInItem2.baseUom?.name ?? item.productionInItem2.baseUom?.code ?? null;
+      }
+      if (item.productionInItem3) {
+        (item.productionInItem3 as any).baseUomName = item.productionInItem3.baseUom?.name ?? item.productionInItem3.baseUom?.code ?? null;
+      }
+      if (item.productionOutItem) {
+        (item.productionOutItem as any).baseUomName = item.productionOutItem.baseUom?.name ?? item.productionOutItem.baseUom?.code ?? null;
+      }
+    });
     await this.enrichProcessesBatch(data);
     await populateAuditNames(this.dataSource, data);
 
@@ -857,7 +872,14 @@ export class ItemService implements OnModuleInit {
   async findOne(id: string, allowedDivisionIds?: string[]): Promise<Item> {
     const item = await this.itemRepository.findOne({
       where: { id },
-      relations: ['category', 'baseUom', 'purchaseUom', 'salesUom', 'company', 'division', 'section', 'department', 'routeTypeRef', 'itemTypeRef', 'barcodes', 'specifications', 'specifications.uom', 'documents', 'productionInItem', 'productionInItem2', 'productionInItem3', 'productionOutItem'],
+      relations: [
+        'category', 'baseUom', 'purchaseUom', 'salesUom', 'company', 'division', 'section', 'department',
+        'routeTypeRef', 'itemTypeRef', 'barcodes', 'specifications', 'specifications.uom', 'documents',
+        'productionInItem', 'productionInItem.baseUom',
+        'productionInItem2', 'productionInItem2.baseUom',
+        'productionInItem3', 'productionInItem3.baseUom',
+        'productionOutItem', 'productionOutItem.baseUom',
+      ],
     });
     if (!item) throw new NotFoundException(`Item with ID '${id}' not found`);
     if (allowedDivisionIds && item.divisionId) {
@@ -865,6 +887,19 @@ export class ItemService implements OnModuleInit {
     }
     this.ensureProcessesArray(item);
     await this.enrichProcesses(item);
+    (item as any).baseUomName = item.baseUom?.name ?? item.baseUom?.code ?? null;
+    if (item.productionInItem) {
+      (item.productionInItem as any).baseUomName = item.productionInItem.baseUom?.name ?? item.productionInItem.baseUom?.code ?? null;
+    }
+    if (item.productionInItem2) {
+      (item.productionInItem2 as any).baseUomName = item.productionInItem2.baseUom?.name ?? item.productionInItem2.baseUom?.code ?? null;
+    }
+    if (item.productionInItem3) {
+      (item.productionInItem3 as any).baseUomName = item.productionInItem3.baseUom?.name ?? item.productionInItem3.baseUom?.code ?? null;
+    }
+    if (item.productionOutItem) {
+      (item.productionOutItem as any).baseUomName = item.productionOutItem.baseUom?.name ?? item.productionOutItem.baseUom?.code ?? null;
+    }
     return item;
   }
 

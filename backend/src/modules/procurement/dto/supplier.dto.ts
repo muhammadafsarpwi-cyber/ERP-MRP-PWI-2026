@@ -1,21 +1,41 @@
 import {
   IsString, IsNotEmpty, IsOptional, IsUUID, IsNumber, IsIn, IsEmail,
-  MaxLength, Min, IsArray, ValidateNested, IsDateString, Max,
+  MaxLength, Min, IsArray, ValidateNested, IsDateString, Max, IsBoolean, ValidateIf,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 
 export class CreateSupplierDto {
-  @ApiProperty({ description: 'Company ID' })
-  @IsUUID()
-  @IsNotEmpty()
-  companyId: string;
+  @ApiPropertyOptional({ description: 'Active toggle flag' })
+  @IsBoolean()
+  @IsOptional()
+  isActive?: boolean;
 
-  @ApiProperty({ description: 'Supplier code' })
+  @ApiPropertyOptional({ description: 'Status' })
   @IsString()
-  @IsNotEmpty()
+  @IsOptional()
+  status?: string;
+
+  @ApiPropertyOptional({ description: 'Company ID' })
+  @IsUUID('loose')
+  @IsOptional()
+  companyId?: string;
+
+  @ApiPropertyOptional({ description: 'Division ID' })
+  @IsString()
+  @IsOptional()
+  divisionId?: string;
+
+  @ApiPropertyOptional({ description: 'Division Name' })
+  @IsString()
+  @IsOptional()
+  divisionName?: string;
+
+  @ApiPropertyOptional({ description: 'Supplier code (auto if blank)' })
+  @IsString()
+  @IsOptional()
   @MaxLength(50)
-  supplierCode: string;
+  supplierCode?: string;
 
   @ApiProperty({ description: 'Supplier name' })
   @IsString()
@@ -36,9 +56,30 @@ export class CreateSupplierDto {
   contactPerson?: string;
 
   @ApiPropertyOptional({ description: 'Email' })
+  @ValidateIf((o) => !!o.email && typeof o.email === 'string' && o.email.trim() !== '')
   @IsEmail()
   @IsOptional()
   email?: string;
+
+  @ApiPropertyOptional({ description: 'Opening Balance' })
+  @IsNumber()
+  @IsOptional()
+  openingBalance?: number;
+
+  @ApiPropertyOptional({ description: 'Credit Days' })
+  @IsNumber()
+  @IsOptional()
+  creditDays?: number;
+
+  @ApiPropertyOptional({ description: 'Bank / UPI Details' })
+  @IsString()
+  @IsOptional()
+  bankDetails?: string;
+
+  @ApiPropertyOptional({ description: 'Address' })
+  @IsString()
+  @IsOptional()
+  address?: string;
 
   @ApiPropertyOptional({ description: 'Phone' })
   @IsString()

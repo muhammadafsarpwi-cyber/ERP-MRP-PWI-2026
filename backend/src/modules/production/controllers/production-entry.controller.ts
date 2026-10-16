@@ -152,6 +152,38 @@ export class ProductionEntryController {
     return { success: true, ...result };
   }
 
+  @Get('entries/operator-summary')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('manufacturing.production.entries.view')
+  @ApiQuery({ name: 'entryDate', required: false, description: 'Single date filter (YYYY-MM-DD)' })
+  @ApiQuery({ name: 'dateFrom', required: false })
+  @ApiQuery({ name: 'dateTo', required: false })
+  @ApiQuery({ name: 'departmentId', required: false })
+  @ApiQuery({ name: 'divisionId', required: false })
+  @ApiQuery({ name: 'shiftId', required: false })
+  @ApiOperation({ summary: 'Get de-duplicated operator daily overtime and active operator metrics' })
+  async getOperatorDailySummary(
+    @Req() req: any,
+    @Query('entryDate') entryDate?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+    @Query('departmentId') departmentId?: string,
+    @Query('divisionId') divisionId?: string,
+    @Query('shiftId') shiftId?: string,
+  ) {
+    const companyId = this.getCompanyId(req);
+    const result = await this.entryService.getOperatorDailySummary(companyId, {
+      entryDate,
+      dateFrom,
+      dateTo,
+      departmentId,
+      divisionId,
+      shiftId,
+    });
+    return { success: true, ...result };
+  }
+
   @Get('entries/machine-status')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()

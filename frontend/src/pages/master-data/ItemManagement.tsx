@@ -48,6 +48,7 @@ import InputMaterialSelect, { registerItemsInCache } from './items/InputMaterial
 import ProductionFlowCard, { StageBlock } from './items/ProductionFlowCard';
 import { buildRouteFlow, findRouteCycles, normalizeRouteRows, type RouteRow, type RouteStageSource } from './items/productionRoute';
 import { tabSessionCache, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
+import { getLookupsSnapshot } from '../../services/lookupsCache';
 import { useHeaderActions, type HeaderAction } from '../../components/layout/headerActionsStore';
 import './itemManagement.css';
 
@@ -1693,15 +1694,33 @@ const ItemManagement: React.FC = () => {
     setShowLivePreview(false);
     setEditing(record);
     setIsCloning(false);
-    setSelectedInputDetail(record.productionInItem ?? null);
-    setSelectedInputDetail2(record.productionInItem2 ?? null);
-    setSelectedInputDetail3(record.productionInItem3 ?? null);
+    const enrichItemUom = (it: any) => {
+      if (!it) return it;
+      const copy = { ...it };
+      if (!copy.baseUomName) {
+        if (copy.baseUom?.name) {
+          copy.baseUomName = copy.baseUom.code ? `${copy.baseUom.name} (${copy.baseUom.code})` : copy.baseUom.name;
+        } else if (copy.baseUom?.code) {
+          copy.baseUomName = copy.baseUom.code;
+        } else if (copy.baseUomId) {
+          const u = uoms.find((x: UomOption) => x.id === copy.baseUomId) || getLookupsSnapshot().uoms.find((x: any) => x.id === copy.baseUomId);
+          if (u) copy.baseUomName = u.code && u.name ? `${u.name} (${u.code})` : (u.name || u.code);
+        }
+      }
+      return copy;
+    };
+    const enrichedIn1 = enrichItemUom(record.productionInItem) ?? null;
+    const enrichedIn2 = enrichItemUom(record.productionInItem2) ?? null;
+    const enrichedIn3 = enrichItemUom(record.productionInItem3) ?? null;
+    setSelectedInputDetail(enrichedIn1);
+    setSelectedInputDetail2(enrichedIn2);
+    setSelectedInputDetail3(enrichedIn3);
     // Instant 0ms cache pre-fill: register the item and all input materials
     registerItemsInCache([
-      record,
-      record.productionInItem,
-      record.productionInItem2,
-      record.productionInItem3,
+      enrichItemUom(record),
+      enrichedIn1,
+      enrichedIn2,
+      enrichedIn3,
     ].filter(Boolean) as Item[]);
     // TASK 15: populate route-item-details for any output items already referenced
     // by the stored processes rows, so the preview resolves dims/UOM immediately.
@@ -5476,6 +5495,7 @@ const ItemManagement: React.FC = () => {
                             >
                               <InputMaterialSelect
                                 compact
+                                uoms={uoms}
                                 departmentId={rowDeptId ?? null}
                                 excludeItemId={null}
                                 initialItemCode={form.getFieldValue(['processes', index, 'outputItemCode'])}
@@ -5674,6 +5694,7 @@ const ItemManagement: React.FC = () => {
                 <InputMaterialSelect
                   excludeItemId={editing?.id ?? null}
                   departments={departments}
+                  uoms={uoms}
                   initialItemCode={editing?.productionInItem?.itemCode}
                   initialItemName={editing?.productionInItem?.name}
                   initialDepartmentId={editing?.productionInItem?.departmentId}
@@ -5695,6 +5716,7 @@ const ItemManagement: React.FC = () => {
                 <InputMaterialSelect
                   excludeItemId={editing?.id ?? null}
                   departments={departments}
+                  uoms={uoms}
                   initialItemCode={editing?.productionInItem2?.itemCode}
                   initialItemName={editing?.productionInItem2?.name}
                   initialDepartmentId={editing?.productionInItem2?.departmentId}
@@ -5716,6 +5738,7 @@ const ItemManagement: React.FC = () => {
                 <InputMaterialSelect
                   excludeItemId={editing?.id ?? null}
                   departments={departments}
+                  uoms={uoms}
                   initialItemCode={editing?.productionInItem3?.itemCode}
                   initialItemName={editing?.productionInItem3?.name}
                   initialDepartmentId={editing?.productionInItem3?.departmentId}
