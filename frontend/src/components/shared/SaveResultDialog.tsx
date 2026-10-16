@@ -92,7 +92,7 @@ const SaveResultDialog: React.FC<SaveResultDialogProps> = ({
     width={460}
     footer={null}
     destroyOnHidden
-    zIndex={3500}
+    zIndex={100000}
     wrapClassName="erp-save-result-modal-wrap"
     style={{ borderRadius: 16, overflow: 'hidden' }}
   >

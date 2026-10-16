@@ -37,7 +37,7 @@ import KpiPercentage from '../../../components/kpi/KpiPercentage';
 import { GlobalLoading } from '../../../components/shared';
 import PageHeader from '../../../components/shared/PageHeader';
 import ProductionSaveSuccessModal, { SavedEntrySummary } from './ProductionSaveSuccessModal';
-import EntryPreSaveConfirmModal, { type EntryPreSaveSummary } from './EntryPreSaveConfirmModal';
+import EntryPreSaveConfirmModal, { type EntryPreSaveSummary, type EditedFieldDiff } from './EntryPreSaveConfirmModal';
 
 /**
  * Reads the "| Rejection Remarks: …" audit fragment the save path writes into
@@ -2169,6 +2169,129 @@ const EntryForm: React.FC<EntryFormProps> = ({
         payload.items[0].scrapQuantity = formScrapKg;
       }
 
+      // Compute field-by-field diff if editing an existing entry
+      const changes: EditedFieldDiff[] = [];
+      if (mode === 'edit' && entry) {
+        // Output Quantity
+        const oldQty = toNum(entry.actualQuantity);
+        const newQty = toNum(goodQty);
+        if (Math.abs(oldQty - newQty) > 0.0001) {
+          changes.push({
+            label: 'Production Output Quantity',
+            oldValue: `${formatNumber(oldQty, 0)} ${uomCode}`,
+            newValue: `${formatNumber(newQty, 0)} ${uomCode}`,
+          });
+        }
+
+        // Running Hours
+        const oldRun = toNum(entry.runningHours);
+        const newRun = toNum(payload.runningHours ?? runningHours);
+        if (Math.abs(oldRun - newRun) > 0.01) {
+          changes.push({
+            label: 'Running Hours',
+            oldValue: `${formatNumber(oldRun, 2)} hrs`,
+            newValue: `${formatNumber(newRun, 2)} hrs`,
+          });
+        }
+
+        // Downtime Hours
+        const oldDt = toNum(entry.downtimeHours);
+        const newDt = toNum(payload.downtimeHours);
+        if (Math.abs(oldDt - newDt) > 0.01) {
+          changes.push({
+            label: 'Downtime Hours',
+            oldValue: `${formatNumber(oldDt, 2)} hrs`,
+            newValue: `${formatNumber(newDt, 2)} hrs`,
+          });
+        }
+
+        // Product Rejection
+        const oldScrap = toNum(entry.scrapQuantity);
+        const newScrap = formScrapKg;
+        if (Math.abs(oldScrap - newScrap) > 0.001) {
+          changes.push({
+            label: 'Product Rejection',
+            oldValue: `${formatNumber(oldScrap, 2)} KG`,
+            newValue: `${formatNumber(newScrap, 2)} KG`,
+          });
+        }
+
+        // Process Scrap
+        const oldProcScrap = toNum(entry.processScrapKg ?? 0);
+        const newProcScrap = formProcessScrapKg;
+        if (Math.abs(oldProcScrap - newProcScrap) > 0.001) {
+          changes.push({
+            label: 'Process Scrap',
+            oldValue: `${formatNumber(oldProcScrap, 2)} KG`,
+            newValue: `${formatNumber(newProcScrap, 2)} KG`,
+          });
+        }
+
+        // Overtime Hours
+        const oldOt = toNum(entryOvertimeHours(entry as any));
+        const newOt = toNum(overtimeHours);
+        if (Math.abs(oldOt - newOt) > 0.01) {
+          changes.push({
+            label: 'Overtime Hours',
+            oldValue: `${formatNumber(oldOt, 2)} hrs`,
+            newValue: `${formatNumber(newOt, 2)} hrs`,
+          });
+        }
+
+        // Manufactured Product Item
+        if (entry.itemId && payload.itemId && entry.itemId !== payload.itemId) {
+          const oldItem = lookups.items.find((i) => i.id === entry.itemId);
+          changes.push({
+            label: 'Manufactured Product',
+            oldValue: oldItem ? `${oldItem.name} (${oldItem.itemCode})` : String(entry.itemId),
+            newValue: itm ? `${itm.name} (${itm.itemCode})` : String(payload.itemId),
+          });
+        }
+
+        // Raw Material Warehouse
+        const oldRawWhId = (entry as any).rawMaterialWarehouseId;
+        if (oldRawWhId && payload.rawMaterialWarehouseId && oldRawWhId !== payload.rawMaterialWarehouseId) {
+          const oldWh = warehouses.find((w) => w.id === oldRawWhId);
+          changes.push({
+            label: 'Source Raw Material Store',
+            oldValue: oldWh ? `${oldWh.name} (${oldWh.warehouseCode})` : String(oldRawWhId),
+            newValue: rawWh ? `${rawWh.name} (${rawWh.warehouseCode})` : String(payload.rawMaterialWarehouseId),
+          });
+        }
+
+        // Receipt Warehouse
+        if (entry.warehouseId && payload.warehouseId && entry.warehouseId !== payload.warehouseId) {
+          const oldRecWh = warehouses.find((w) => w.id === entry.warehouseId);
+          changes.push({
+            label: 'Destination Store',
+            oldValue: oldRecWh ? `${oldRecWh.name} (${oldRecWh.warehouseCode})` : String(entry.warehouseId),
+            newValue: recWh ? `${recWh.name} (${recWh.warehouseCode})` : String(payload.warehouseId),
+          });
+        }
+
+        // Operator
+        const oldOp = String(entry.operatorName || '').trim();
+        const newOp = String(payload.operatorName || '').trim();
+        if (oldOp !== newOp && (oldOp || newOp)) {
+          changes.push({
+            label: 'Operator Name',
+            oldValue: oldOp || 'None',
+            newValue: newOp || 'None',
+          });
+        }
+
+        // Coil Size
+        const oldCoil = String((entry as any).coilSize || '').trim();
+        const newCoil = String(payload.coilSize || '').trim();
+        if (oldCoil !== newCoil && (oldCoil || newCoil)) {
+          changes.push({
+            label: 'Coil Size',
+            oldValue: oldCoil || 'None',
+            newValue: newCoil || 'None',
+          });
+        }
+      }
+
       setPreSaveSummary({
         mode: mode === 'edit' ? 'edit' : 'create',
         itemCode: itm?.itemCode,
@@ -2186,6 +2309,7 @@ const EntryForm: React.FC<EntryFormProps> = ({
         machineName: String(payload.machineNo ?? ''),
         shiftName: shift?.name,
         entryDate: String(payload.entryDate ?? ''),
+        changes,
       });
       setPendingSaveData({ payload, values });
       setPreSaveOpen(true);

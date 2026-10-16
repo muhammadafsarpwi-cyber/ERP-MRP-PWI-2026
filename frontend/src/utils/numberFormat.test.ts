@@ -43,10 +43,12 @@ describe('formatNumber — explicit zero vs empty', () => {
   });
 });
 
-describe('formatDecimal — fixed precision still available for specific needs', () => {
-  it('keeps fixed decimals when explicitly required', () => {
-    expect(formatDecimal(20.5, 2)).toBe('20.50');
-    expect(formatDecimal(20.0, 2)).toBe('20.00');
+describe('formatDecimal — thousand separators and precision', () => {
+  it('formats numbers with thousand separators and trims trailing zeros', () => {
+    expect(formatDecimal(4375, 0)).toBe('4,375');
+    expect(formatDecimal(4492260, 2)).toBe('4,492,260');
+    expect(formatDecimal(20.5, 2)).toBe('20.5');
+    expect(formatDecimal(20.0, 2)).toBe('20');
   });
 });
 

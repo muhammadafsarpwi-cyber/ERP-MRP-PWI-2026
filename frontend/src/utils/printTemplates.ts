@@ -1,4 +1,5 @@
-import { formatDecimal } from './numberFormat';
+import dayjs from 'dayjs';
+import { formatDecimal, formatQty } from './numberFormat';
 import { renderVisitorSlipHtml, type VisitorSlipAssets, type VisitorSlipData } from './visitorSlipHtml';
 
 function getLogoUrl(): string {
@@ -542,7 +543,7 @@ export function printPurchaseOrderDocument(po: any): void {
         <td style="text-align: center; padding: 6px 4px; width: 26px;">${idx + 1}</td>
         <td style="padding: 6px 8px;"><strong>${pName}</strong></td>
         <td style="text-align: center; padding: 6px 4px; color: #475569;">${hsn}</td>
-        <td style="text-align: right; padding: 6px 6px;">${qty}</td>
+        <td style="text-align: right; padding: 6px 6px;">${formatQty(qty)}</td>
         <td style="text-align: right; padding: 6px 6px;">${formatDecimal(rate)}</td>
         <td style="text-align: right; padding: 6px 6px;">${formatDecimal(taxable)}</td>
         <td style="text-align: center; padding: 6px 4px;">${taxPct}</td>
@@ -635,7 +636,7 @@ export function printPurchaseOrderDocument(po: any): void {
         ${rowsHtml}
         <tr style="border-top: 2px solid #181f2c; font-weight: 800; background: #f8fafc; font-size: 10.5px;">
           <td colspan="3" style="padding: 6px 8px;">Total</td>
-          <td style="padding: 6px 6px; text-align: right;">${totalQty}</td>
+          <td style="padding: 6px 6px; text-align: right;">${formatQty(totalQty)}</td>
           <td colspan="5"></td>
           <td style="padding: 6px 8px; text-align: right;">Rs ${formatDecimal(grandTotal)}</td>
         </tr>
@@ -725,7 +726,7 @@ export function printSalesOrderDocument(order: any): void {
       <tr>
         <td style="text-align: center; width: 32px;">${idx + 1}</td>
         <td><strong>${pName}</strong></td>
-        <td style="text-align: right;">${qty}</td>
+        <td style="text-align: right;">${formatQty(qty)}</td>
         <td style="text-align: right;">${formatDecimal(rate)}</td>
         <td style="text-align: right; font-weight: 700;">${formatDecimal(total)}</td>
       </tr>
@@ -821,7 +822,7 @@ export function printDeliveryNoteDocument(delivery: any): void {
       <tr>
         <td style="text-align: center; width: 32px;">${idx + 1}</td>
         <td><strong>${pName}</strong></td>
-        <td style="text-align: right;">${qty} ${uom}</td>
+        <td style="text-align: right;">${formatQty(qty)} ${uom}</td>
         <td>${it.batchNumber || it.serialNumber || 'Standard'}</td>
         <td>${it.remarks || 'Standard Dispatch'}</td>
       </tr>
@@ -942,12 +943,12 @@ export function printGatePassDocument(data: {
   });
 
   const physicalQtyTotalStr = Object.entries(uomTotals)
-    .map(([uom, q]) => `${formatDecimal(q)} ${uom}`)
+    .map(([uom, q]) => `${formatQty(q)} ${uom}`)
     .join(' + ') || '0 Units';
 
   const packagingTotalStr = Object.keys(pkgSummary).length > 0
-    ? Object.entries(pkgSummary).map(([unit, q]) => `${q} ${unit}`).join(', ')
-    : (totalPackageCount > 0 ? `${totalPackageCount} Packages` : 'Standard Packages');
+    ? Object.entries(pkgSummary).map(([unit, q]) => `${formatQty(q)} ${unit}`).join(', ')
+    : (totalPackageCount > 0 ? `${formatQty(totalPackageCount)} Packages` : 'Standard Packages');
 
   // Find unique SOCs and POs across line items
   const itemSocs = Array.from(new Set(items.map((i: any) => i.socNumber).filter(Boolean)));
@@ -961,36 +962,44 @@ export function printGatePassDocument(data: {
   const qrPayload = `${originUrl}/barcode-management/scan?code=${encodeURIComponent(passNo)}`;
 
   const rowsHtml = items.map((it: any, idx: number) => {
-    const pName = it.itemName || it.item?.name || it.description || 'Material / Item';
+    const rawName = it.itemName || it.item?.name || it.description || 'Material / Item';
+    const cleanName = rawName.replace(/\s*\[SOC:\s*[^\]]+\]/gi, '');
     const code = it.itemCode || it.item?.itemCode || `SKU-${idx + 1}`;
     const qty = it.quantity || it.receivedQuantity || it.deliveredQuantity || 0;
     const uom = it.uom || it.uomCode || 'Units';
     const pkg = it.packaging || (it.packageQuantity ? `${it.packageQuantity} ${it.packagingUnit || 'Coils'}` : 'Pallets / Bundles');
     const rem = it.remarks || '-';
 
+    const descSocMatch = (it.description || rawName || '').match(/\[SOC:\s*([^\]]+)\]/);
+    const rowSoc = it.socNumber || it.salesOrderNumber || (descSocMatch ? descSocMatch[1] : undefined) || (effectiveSoc !== '-' ? effectiveSoc : undefined) || '-';
+
     const orderQty = it.orderQuantity != null ? Number(it.orderQuantity) : null;
     const balanceQty = it.balanceQuantity != null ? Number(it.balanceQuantity) : (orderQty != null ? Math.max(0, orderQty - qty) : null);
 
     return `
       <tr>
-        <td style="text-align: center; width: 36px; vertical-align: top;">${idx + 1}</td>
+        <td style="text-align: center; width: 32px; vertical-align: top;">${idx + 1}</td>
+        <td style="text-align: center; width: 105px; vertical-align: top;">
+          <div style="font-size: 11px; font-weight: 800; color: #1d4ed8; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 4px; padding: 2px 6px; display: inline-block; white-space: nowrap;">
+            ${rowSoc}
+          </div>
+          ${it.customerPo ? `<div style="font-size: 9px; color: #92400e; background: #fef3c7; border: 1px solid #fde68a; border-radius: 3px; margin-top: 3px; font-weight: 700; padding: 1px 4px; display: inline-block;">PO: ${it.customerPo}</div>` : ''}
+        </td>
         <td style="vertical-align: top;">
           <div style="font-size: 11.5px; font-weight: 700; color: #0f172a;">
-            ${pName}
+            ${cleanName}
             <span style="color: #64748b; font-size: 11px; font-weight: normal;">[${code}]</span>
-            ${it.socNumber ? `<span style="display: inline-block; background: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd; padding: 1px 6px; border-radius: 3px; font-size: 10px; font-weight: 700; margin-left: 6px;">📋 SOC: ${it.socNumber}</span>` : ''}
-            ${it.customerPo ? `<span style="display: inline-block; background: #fef3c7; color: #92400e; border: 1px solid #fde68a; padding: 1px 6px; border-radius: 3px; font-size: 10px; font-weight: 700; margin-left: 4px;">🔖 PO: ${it.customerPo}</span>` : ''}
           </div>
           ${orderQty != null ? `
             <div style="font-size: 10px; color: #475569; margin-top: 3px; background: #f8fafc; padding: 2px 6px; border-radius: 3px; display: inline-block;">
-              Order Qty: <strong>${orderQty} ${uom}</strong> &nbsp;|&nbsp;
-              This Gate Pass: <strong style="color: #16a34a;">${qty} ${uom}</strong> &nbsp;|&nbsp;
-              Remaining Balance: <strong style="color: ${balanceQty && balanceQty > 0 ? '#ea580c' : '#16a34a'};">${balanceQty ?? 0} ${uom}</strong>
+              Order Qty: <strong>${formatQty(orderQty)} ${uom}</strong> &nbsp;|&nbsp;
+              This Gate Pass: <strong style="color: #16a34a;">${formatQty(qty)} ${uom}</strong> &nbsp;|&nbsp;
+              Remaining Balance: <strong style="color: ${balanceQty && balanceQty > 0 ? '#ea580c' : '#16a34a'};">${formatQty(balanceQty ?? 0)} ${uom}</strong>
             </div>
           ` : ''}
         </td>
         <td style="text-align: right; font-weight: 700; font-size: 12px; white-space: nowrap; vertical-align: top;">
-          ${qty} ${uom}
+          ${formatQty(qty)} ${uom}
         </td>
         <td style="text-align: center; font-weight: 600; vertical-align: top; background: #fafafa;">
           ${pkg}
@@ -1012,10 +1021,10 @@ export function printGatePassDocument(data: {
           <div class="company-tax">Division: ${data.divisionName || 'Wire Drawing Division'}</div>
         </div>
       </div>
-      <div class="doc-badge-box" style="display: flex; align-items: center; gap: 10px;">
+      <div class="doc-badge-box" style="display: flex; align-items: center; gap: 12px;">
         <div style="text-align: right;">
-          <div class="doc-badge" style="background: ${badgeColor};">${passTitle}</div>
-          <div class="doc-badge-sub">OFFICIAL SECURITY PERMIT</div>
+          <div style="font-size: 15px; font-weight: 900; color: #1d4ed8; letter-spacing: 0.6px; text-transform: uppercase; white-space: nowrap; line-height: 1.2;">${passTitle}</div>
+          <div style="font-size: 8.5px; font-weight: 700; color: #64748b; letter-spacing: 0.8px; margin-top: 2px;">OFFICIAL SECURITY PERMIT</div>
         </div>
         <div style="display: flex; flex-direction: column; align-items: center; background: #ffffff; padding: 3px; border: 1px solid #cbd5e1; border-radius: 4px; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
           <img src="https://api.qrserver.com/v1/create-qr-code/?size=85x85&margin=1&data=${encodeURIComponent(qrPayload)}" style="width: 65px; height: 65px; display: block;" alt="Gate Pass QR" onerror="this.style.display='none'" />
@@ -1030,13 +1039,13 @@ export function printGatePassDocument(data: {
         <div class="info-row"><span class="info-label">Gate Pass #:</span><span class="info-val font-bold" style="font-size: 12px; color: #0f172a;">${passNo}</span></div>
         <div class="info-row"><span class="info-label">Date & Time:</span><span class="info-val">${data.date || new Date().toISOString().split('T')[0]} ${data.time || new Date().toLocaleTimeString()}</span></div>
         <div class="info-row"><span class="info-label">Delivery Note Ref #:</span><span class="info-val font-bold">${data.referenceNo || '-'}</span></div>
-        <div class="info-row"><span class="info-label">SOC # / Sales Order:</span><span class="info-val font-bold" style="color: #0369a1;">${effectiveSoc}</span></div>
-        <div class="info-row"><span class="info-label">Dispatch Sequence:</span><span class="info-val font-bold" style="color: #4338ca;">${data.dispatchSequence || '1st Dispatch (Standard)'}</span></div>
-        <div class="info-row"><span class="info-label">Movement:</span><span class="info-val font-bold" style="color: ${badgeColor};">${passTitle}</span></div>
+        <div class="info-row"><span class="info-label">SOC # / Sales Order:</span><span class="info-val font-bold" style="color: #1d4ed8;">${effectiveSoc}</span></div>
+        <div class="info-row"><span class="info-label">Dispatch Sequence:</span><span class="info-val font-bold" style="color: #1d4ed8; background: #eff6ff; border: 1px solid #bfdbfe; padding: 1px 6px; border-radius: 3px; display: inline-block;">${data.dispatchSequence || '1st Dispatch (First Time)'}</span></div>
+        <div class="info-row"><span class="info-label">Movement:</span><span class="info-val font-bold" style="color: #1d4ed8;">${passTitle}</span></div>
       </div>
       <div class="info-card">
         <div class="info-card-title">VEHICLE & TRANSPORTER DETAILS</div>
-        <div class="info-row"><span class="info-label">${isOutward ? 'Customer / Consignee:' : 'Supplier / Consignor:'}</span><span class="info-val font-bold" style="font-size: 11.5px;">${data.partyName || 'Authorized Vendor'}</span></div>
+        <div class="info-row"><span class="info-label">${isOutward ? 'Customer / Consignee:' : 'Supplier / Consignor:'}</span><span class="info-val font-bold" style="font-size: 12.5px; color: #1d4ed8; font-weight: 800;">${data.partyName || 'Authorized Vendor'}</span></div>
         <div class="info-row"><span class="info-label">Customer PO #:</span><span class="info-val font-bold" style="color: #b45309; background: #fef3c7; padding: 1px 6px; border-radius: 3px; display: inline-block;">${effectivePo}</span></div>
         <div class="info-row"><span class="info-label">Vehicle / Truck #:</span><span class="info-val font-bold">${data.vehicleNumber || 'Pending Entry'}</span></div>
         <div class="info-row"><span class="info-label">Driver Name & CNIC:</span><span class="info-val">${data.driverName || 'Driver on Duty'} ${data.driverCnic ? `(${data.driverCnic})` : ''}</span></div>
@@ -1047,19 +1056,20 @@ export function printGatePassDocument(data: {
     <table class="print-table" style="margin-top: 10px;">
       <thead>
         <tr>
-          <th style="width: 36px; text-align: center;">#</th>
-          <th>Material / Product Description & SOC Details</th>
-          <th style="width: 130px; text-align: right;">Physical Qty</th>
-          <th style="width: 140px; text-align: center;">Packaging (Boxes / Coils)</th>
-          <th style="width: 140px;">Inspection / Security Remarks</th>
+          <th style="width: 32px; text-align: center;">#</th>
+          <th style="width: 105px; text-align: center;">SOC #</th>
+          <th>Material / Product Description</th>
+          <th style="width: 115px; text-align: right;">Physical Qty</th>
+          <th style="width: 125px; text-align: center;">Packaging (Boxes / Coils)</th>
+          <th style="width: 115px;">Inspection / Security Remarks</th>
         </tr>
       </thead>
       <tbody>
-        ${rowsHtml || '<tr><td colspan="5" style="text-align: center; padding: 16px;">No line items specified</td></tr>'}
+        ${rowsHtml || '<tr><td colspan="6" style="text-align: center; padding: 16px;">No line items specified</td></tr>'}
       </tbody>
       <tfoot>
         <tr style="background: #f8fafc; border-top: 2px solid #0f172a; border-bottom: 2px solid #0f172a;">
-          <td colspan="2" style="text-align: right; font-weight: 800; font-size: 12px; padding: 8px 10px; letter-spacing: 0.5px;">
+          <td colspan="3" style="text-align: right; font-weight: 800; font-size: 12px; padding: 8px 10px; letter-spacing: 0.5px;">
             TOTAL DISPATCHED:
           </td>
           <td style="text-align: right; font-weight: 800; font-size: 13px; color: #0f172a; padding: 8px 10px; background: #ffffff; border: 2px solid #0f172a;">
@@ -1081,7 +1091,7 @@ export function printGatePassDocument(data: {
         <span style="font-size: 11px; font-weight: 800; color: #0f172a; text-transform: uppercase;">
           📦 SOC Order Fulfillment & Dispatch Progress
         </span>
-        <span style="font-size: 10.5px; font-weight: 700; color: #4338ca; background: #e0e7ff; padding: 2px 8px; border-radius: 4px;">
+        <span style="font-size: 10.5px; font-weight: 800; color: #1d4ed8; background: #eff6ff; border: 1px solid #bfdbfe; padding: 2px 10px; border-radius: 4px;">
           ${data.dispatchSequence || '1st Dispatch (First Time)'}
         </span>
       </div>
@@ -1128,7 +1138,7 @@ export function printSalesReturnDocument(ret: any): void {
         <td style="text-align: center; width: 32px;">${idx + 1}</td>
         <td><strong>${pName}</strong></td>
         <td style="text-align: center; font-weight: 700; color: ${cond === 'GOOD' ? '#16a34a' : '#dc2626'};">${cond}</td>
-        <td style="text-align: right;">${qty}</td>
+        <td style="text-align: right;">${formatQty(qty)}</td>
         <td style="text-align: right;">${formatDecimal(rate)}</td>
         <td style="text-align: right; font-weight: 700;">${formatDecimal(total)}</td>
       </tr>
@@ -1227,7 +1237,7 @@ export function printQuotationDocument(q: any): void {
       <tr>
         <td style="text-align: center; width: 32px;">${idx + 1}</td>
         <td><strong>${pName}</strong></td>
-        <td style="text-align: right;">${qty}</td>
+        <td style="text-align: right;">${formatQty(qty)}</td>
         <td style="text-align: right;">${formatDecimal(rate)}</td>
         <td style="text-align: right; font-weight: 700;">${formatDecimal(total)}</td>
       </tr>
@@ -1487,4 +1497,152 @@ export function printVisitorSlipDocument(
     renderVisitorSlipHtml(slip, assets, getLogoUrl()),
   );
 }
+
+/**
+ * LOADING ADVICE & DISPATCH SLIP (لوڈنگ ایڈوائس)
+ */
+export function printLoadingAdviceSlip(delivery: any, order?: any): void {
+  if (!delivery) return;
+
+  const docNo = delivery.deliveryNumber || delivery.adviceNumber || 'DN-PENDING';
+  const socNo = order?.orderNumber || delivery.salesOrderNumber || delivery.salesOrder?.orderNumber || '-';
+  const customer = delivery.customer || order?.customer || {};
+  const custName = customer.companyName || customer.name || order?.companyName || 'Valued Customer';
+  const custCode = customer.customerCode || '';
+  const custPhone = customer.phone || customer.mobile || '-';
+  const address = delivery.shippingAddress || order?.shipToAddress || customer.address || 'Factory Pickup / Direct Delivery';
+  const carrier = delivery.carrier || delivery.vehicleNumber || 'Pending / Self Vehicle';
+  const tracking = delivery.trackingNumber || delivery.biltyNumber || '-';
+  const dateStr = dayjs(delivery.deliveryDate || new Date()).format('DD-MMM-YYYY');
+  const divisionName = order?.division?.name || 'Spoke Division';
+
+  const lines = delivery.lines || delivery.items || [];
+  let totalDispatchQty = 0;
+
+  const rowsHtml = lines.map((l: any, idx: number) => {
+    const itemObj = l.item || {};
+    const desc = l.description || itemObj.name || `Item #${idx + 1}`;
+    const code = itemObj.itemCode || l.itemCode || '-';
+    const uom = l.uom?.code || l.uomCode || 'GRS';
+    const dispatchQty = Number(l.quantity || 0);
+    totalDispatchQty += dispatchQty;
+
+    const ordered = Number(l.orderedQuantity || l.orderQuantity || 0);
+    const remaining = Number(l.remainingQuantity ?? Math.max(0, ordered - dispatchQty));
+
+    return `
+      <tr style="border-bottom: 1px solid #e2e8f0; font-size: 11px;">
+        <td style="padding: 7px 4px; text-align: center; color: #64748b;">${idx + 1}</td>
+        <td style="padding: 7px 6px; font-family: monospace; font-weight: 700; color: #1e3a8a;">${code}</td>
+        <td style="padding: 7px 8px; font-weight: 600; color: #0f172a;">${desc}</td>
+        <td style="padding: 7px 6px; text-align: right; color: #475569;">${ordered > 0 ? formatDecimal(ordered) : '-'}</td>
+        <td style="padding: 7px 8px; text-align: right; font-weight: 800; color: #059669; font-size: 12px;">${formatDecimal(dispatchQty)} ${uom}</td>
+        <td style="padding: 7px 6px; text-align: right; font-weight: 700; color: #ea580c;">${ordered > 0 ? formatDecimal(remaining) : '-'}</td>
+      </tr>
+    `;
+  }).join('');
+
+  const html = `
+    <div class="pwi-print-container" style="padding: 10px 15px; font-family: Arial, sans-serif; color: #0f172a;">
+      <!-- Header -->
+      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2.5px solid #0f172a; padding-bottom: 8px; margin-bottom: 12px;">
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <img src="${getLogoUrl()}" alt="Logo" style="height: 55px; object-fit: contain;" onerror="this.style.display='none'" />
+          <div>
+            <div style="font-size: 18px; font-weight: 900; letter-spacing: 0.5px; color: #0f172a;">PAKISTAN WIRE INDUSTRIES (PVT) LTD</div>
+            <div style="font-size: 10.5px; color: #475569; font-weight: 600;">Plot 14-16, Phase II, Industrial Estate, Hattar, Pakistan</div>
+            <div style="font-size: 10px; color: #64748b;">Tel: +92-995-617150 | Email: dispatch@pwi.com.pk</div>
+          </div>
+        </div>
+        <div style="text-align: right;">
+          <div style="background: #0284c7; color: #ffffff; padding: 4px 12px; border-radius: 4px; font-weight: 800; font-size: 13px; letter-spacing: 0.5px; display: inline-block;">
+            LOADING ADVICE / لوڈنگ ایڈوائس
+          </div>
+          <div style="font-size: 11px; font-weight: 700; color: #0f172a; margin-top: 5px;">Doc #: <span style="font-family: monospace; color: #0284c7;">${docNo}</span></div>
+          <div style="font-size: 10.5px; color: #475569;">Date: <strong>${dateStr}</strong></div>
+        </div>
+      </div>
+
+      <!-- Info Grid -->
+      <div style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 12px; margin-bottom: 14px;">
+        <div style="border: 1px solid #cbd5e1; border-radius: 6px; padding: 8px 12px; background: #f8fafc;">
+          <div style="font-size: 10px; font-weight: 800; color: #64748b; text-transform: uppercase; margin-bottom: 4px;">CONSIGNEE / CUSTOMER (کسٹمر)</div>
+          <div style="font-size: 13px; font-weight: 800; color: #0f172a;">${custName} ${custCode ? `[${custCode}]` : ''}</div>
+          <div style="font-size: 11px; color: #334155; margin-top: 3px;"><strong>Destination:</strong> ${address}</div>
+          <div style="font-size: 10.5px; color: #475569; margin-top: 2px;">Contact: ${custPhone}</div>
+        </div>
+
+        <div style="border: 1px solid #cbd5e1; border-radius: 6px; padding: 8px 12px; background: #f8fafc;">
+          <div style="font-size: 10px; font-weight: 800; color: #64748b; text-transform: uppercase; margin-bottom: 4px;">VEHICLE & DISPATCH (گاڑی اور بلٹی)</div>
+          <div style="display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 2px;">
+            <span style="color: #64748b;">SOC Reference:</span>
+            <strong style="color: #1e3a8a; font-family: monospace;">${socNo}</strong>
+          </div>
+          <div style="display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 2px;">
+            <span style="color: #64748b;">Vehicle / Transporter:</span>
+            <strong style="color: #0f172a;">${carrier}</strong>
+          </div>
+          <div style="display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 2px;">
+            <span style="color: #64748b;">Bilty / Tracking #:</span>
+            <strong>${tracking}</strong>
+          </div>
+          <div style="display: flex; justify-content: space-between; font-size: 11px;">
+            <span style="color: #64748b;">Division:</span>
+            <strong>${divisionName}</strong>
+          </div>
+        </div>
+      </div>
+
+      <!-- Line Items Table -->
+      <table style="width: 100%; border-collapse: collapse; margin-bottom: 14px;">
+        <thead>
+          <tr style="background: #0f172a; color: #ffffff; font-size: 10px; text-transform: uppercase; letter-spacing: 0.3px;">
+            <th style="padding: 7px 4px; text-align: center; width: 30px;">#</th>
+            <th style="padding: 7px 6px; text-align: left; width: 120px;">ITEM CODE</th>
+            <th style="padding: 7px 8px; text-align: left;">DESCRIPTION</th>
+            <th style="padding: 7px 6px; text-align: right; width: 85px;">ORDER QTY</th>
+            <th style="padding: 7px 8px; text-align: right; width: 110px;">THIS DISPATCH</th>
+            <th style="padding: 7px 6px; text-align: right; width: 90px;">REMAINING BAL</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rowsHtml}
+          <tr style="border-top: 2px solid #0f172a; background: #f1f5f9; font-weight: 800; font-size: 11px;">
+            <td colspan="4" style="padding: 8px 8px; text-align: right;">TOTAL DISPATCH QUANTITY:</td>
+            <td style="padding: 8px 8px; text-align: right; color: #059669; font-size: 12.5px;">${formatDecimal(totalDispatchQty)}</td>
+            <td></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <!-- Dispatch Instructions / Notes -->
+      <div style="border: 1px dashed #cbd5e1; border-radius: 4px; padding: 6px 10px; margin-bottom: 30px; font-size: 10.5px; color: #475569; background: #ffffff;">
+        <strong>Instructions / Remarks:</strong> ${delivery.notes || 'Please verify material count before exit. Transporter takes custody upon signature below.'}
+      </div>
+
+      <!-- Clearance Signatures -->
+      <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 30px;">
+        <div style="text-align: center; border-top: 1.5px solid #64748b; padding-top: 4px; font-size: 10px; font-weight: 700; color: #334155;">
+          <div>PREPARED BY</div>
+          <div style="font-size: 9px; color: #64748b; font-weight: normal;">(Sales / Dispatch)</div>
+        </div>
+        <div style="text-align: center; border-top: 1.5px solid #64748b; padding-top: 4px; font-size: 10px; font-weight: 700; color: #334155;">
+          <div>STORE INCHARGE</div>
+          <div style="font-size: 9px; color: #64748b; font-weight: normal;">(Loaded / Verified)</div>
+        </div>
+        <div style="text-align: center; border-top: 1.5px solid #64748b; padding-top: 4px; font-size: 10px; font-weight: 700; color: #334155;">
+          <div>GATE SECURITY</div>
+          <div style="font-size: 9px; color: #64748b; font-weight: normal;">(Outward Verified)</div>
+        </div>
+        <div style="text-align: center; border-top: 1.5px solid #64748b; padding-top: 4px; font-size: 10px; font-weight: 700; color: #334155;">
+          <div>DRIVER / TRANSPORTER</div>
+          <div style="font-size: 9px; color: #64748b; font-weight: normal;">(Received in Good Order)</div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  printHtmlContent(`Loading_Advice_${docNo}`, html);
+}
+
 

@@ -777,6 +777,14 @@ const CustomerManagement: React.FC = () => {
         res = await apiService.post('/customer/customers', payload);
       }
       const saved = res?.data || res || {};
+      if (isEdit && editingCustomer) {
+        setCustomers(prev => prev.map(c => c.id === editingCustomer.id ? {
+          ...c,
+          ...payload,
+          divisionId: payload.divisionId,
+          division: chosenDiv ? { id: chosenDiv.id, name: chosenDiv.name, divisionCode: chosenDiv.code } as any : null,
+        } : c));
+      }
       setSaveResultPhase('success');
       setSaveResultSuccessTitle(isEdit ? 'Customer Updated Successfully' : 'Customer Created Successfully');
       setSaveResultData({

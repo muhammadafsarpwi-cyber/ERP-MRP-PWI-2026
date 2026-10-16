@@ -18,6 +18,7 @@ import { usePermission } from '../../hooks/usePermission';
 import GlobalLoading from '../../components/shared/GlobalLoading';
 import { SaveResultDialog } from '../../components/shared';
 import type { SaveResultData, SaveResultPhase } from '../../components/shared/SaveResultDialog';
+import { renderItemNameWithParts } from './SalesAnalyticsDashboard';
 import './SalesInvoiceManagement.css';
 
 interface FinishedGoodsItem {
@@ -397,16 +398,7 @@ const FinishedGoodsInventory: React.FC = () => {
     {
       title: 'FINISHED GOOD ITEM',
       key: 'item',
-      render: (_, r) => (
-        <div>
-          <div style={{ fontWeight: 700, color: 'var(--inv-text-primary, #0f172a)' }}>
-            {r.itemName}
-          </div>
-          <div style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--inv-text-muted, #64748b)' }}>
-            {r.itemCode}
-          </div>
-        </div>
-      ),
+      render: (_, r) => renderItemNameWithParts(r.itemName, r.itemCode),
     },
     {
       title: 'UOM',

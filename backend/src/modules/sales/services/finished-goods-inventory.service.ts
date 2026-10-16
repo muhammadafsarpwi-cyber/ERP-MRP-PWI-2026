@@ -98,6 +98,25 @@ export class FinishedGoodsInventoryService {
   ) {}
 
   /**
+   * Helper to convert quantity between UOM codes for an item.
+   * Standard conversion: 1 GRS = 144 PCS.
+   */
+  private convertQty(qty: number, fromCode?: string, toCode?: string): number {
+    const n = Number(qty || 0);
+    if (!n || !fromCode || !toCode) return n;
+    const from = fromCode.toUpperCase().trim();
+    const to = toCode.toUpperCase().trim();
+    if (from === to) return n;
+    if ((from === 'PCS' || from === 'PC') && to === 'GRS') {
+      return Math.round((n / 144) * 10000) / 10000;
+    }
+    if (from === 'GRS' && (to === 'PCS' || to === 'PC')) {
+      return Math.round(n * 144);
+    }
+    return n;
+  }
+
+  /**
    * Retrieves comprehensive, company-scoped finished goods inventory intelligence.
    * Calculates physical stock, reservations from open sales orders, safety stock levels,
    * active production quantities, and accurate shortage projections item-wise & division-wise.
@@ -116,6 +135,7 @@ export class FinishedGoodsInventoryService {
       .leftJoinAndSelect('item.division', 'division')
       .leftJoinAndSelect('item.section', 'section')
       .leftJoinAndSelect('item.baseUom', 'uom')
+      .leftJoinAndSelect('item.salesUom', 'salesUom')
       .where('item.companyId = :companyId', { companyId })
       .andWhere('(item.itemType = :fgType OR item.itemType = :fgTypeLower)', {
         fgType: ItemType.FINISHED_GOOD,
@@ -259,7 +279,8 @@ export class FinishedGoodsInventoryService {
 
     // 6. Compute item availability metrics
     const computedItems: FinishedGoodsItemAvailability[] = allFilteredItems.map((item) => {
-      const physicalStock = physicalMap.get(item.id) || 0;
+      const basePhysical = physicalMap.get(item.id) || 0;
+      const physicalStock = this.convertQty(basePhysical, item.baseUom?.code, item.salesUom?.code || item.baseUom?.code);
       const committedStock = commitmentMap.get(item.id) || 0;
       const onProductionQty = productionMap.get(item.id) || 0;
 
@@ -309,8 +330,8 @@ export class FinishedGoodsInventoryService {
         statusLabel = 'Healthy Stock';
       }
 
-      const uomCode = item.baseUom?.code || 'PCS';
-      const uomName = item.baseUom?.name || uomCode;
+      const uomCode = item.salesUom?.code || item.baseUom?.code || 'PCS';
+      const uomName = item.salesUom?.name || item.baseUom?.name || uomCode;
 
       return {
         itemId: item.id,
@@ -438,10 +459,12 @@ export class FinishedGoodsInventoryService {
     orderQuantity: number = 0,
     companyId: string,
     allowedDivisionIds?: DivisionAccess,
+    customerId?: string,
+    orderId?: string,
   ): Promise<FinishedGoodsItemAvailability> {
     const item = await this.itemRepo.findOne({
       where: { id: itemId, companyId },
-      relations: ['division', 'section', 'baseUom'],
+      relations: ['division', 'section', 'baseUom', 'salesUom'],
     });
 
     if (!item) {
@@ -460,7 +483,12 @@ export class FinishedGoodsInventoryService {
       }
     }
 
-    // Physical stock
+    const baseUomCode = item.baseUom?.code || 'PCS';
+    const salesUomCode = item.salesUom?.code || baseUomCode;
+    const uomCode = salesUomCode;
+    const uomName = item.salesUom?.name || item.baseUom?.name || uomCode;
+
+    // Physical stock from inventory_balances (stored in base UOM, e.g. PCS)
     const rawBalance = await this.balanceRepo
       .createQueryBuilder('b')
       .select('SUM(b.onHand)', 'totalOnHand')
@@ -468,10 +496,57 @@ export class FinishedGoodsInventoryService {
       .andWhere('b.itemId = :itemId', { itemId })
       .andWhere('b.status = :activeStatus', { activeStatus: 'ACTIVE' })
       .getRawOne();
-    const physicalStock = Number(rawBalance?.totalOnHand || 0);
+    const rawOnHandBase = Number(rawBalance?.totalOnHand || 0);
 
-    // Existing commitments from other open sales orders
-    const rawCommitment = await this.soItemRepo
+    // Convert raw physical stock to Sales UOM (e.g. 72000 PCS / 144 = 500 GRS)
+    let physicalStock = this.convertQty(rawOnHandBase, baseUomCode, salesUomCode);
+
+    // Check customer-dedicated packed stock
+    // If packed goods are explicitly tagged for another customer in packing entries,
+    // they cannot be used as free stock for this customer!
+    let otherCustomerDedicatedStock = 0;
+    if (customerId) {
+      const custRows = await this.itemRepo.manager.query(
+        `SELECT id, name, customer_code FROM customers WHERE id = $1`,
+        [customerId],
+      );
+      const currentCustName = (custRows?.[0]?.name || '').toLowerCase().trim();
+      const currentCustCode = (custRows?.[0]?.customer_code || '').toLowerCase().trim();
+
+      const packingEntries = await this.itemRepo.manager.query(
+        `SELECT pe.remarks, pei.actual_quantity 
+         FROM production_entry_items pei
+         JOIN production_entries pe ON pe.id = pei.production_entry_id
+         WHERE pei.item_id = $1 AND pe.remarks ILIKE '%Customer:%'`,
+        [itemId],
+      );
+
+      for (const pe of packingEntries) {
+        const remarks = String(pe.remarks || '');
+        const custMatch = remarks.match(/Customer:\s*([^|]+)/i);
+        if (custMatch) {
+          const entryCust = custMatch[1].toLowerCase().trim();
+          if (
+            entryCust &&
+            !entryCust.includes('general') &&
+            !entryCust.includes('retail') &&
+            !entryCust.includes('safety') &&
+            !entryCust.includes(currentCustName) &&
+            (!currentCustCode || !entryCust.includes(currentCustCode))
+          ) {
+            const packedPcs = Number(pe.actual_quantity || 0);
+            otherCustomerDedicatedStock += this.convertQty(packedPcs, baseUomCode, salesUomCode);
+          }
+        }
+      }
+    }
+
+    if (otherCustomerDedicatedStock > 0) {
+      physicalStock = Math.max(0, physicalStock - otherCustomerDedicatedStock);
+    }
+
+    // Existing commitments from other open sales orders (excluding current order being edited)
+    const commitQb = this.soItemRepo
       .createQueryBuilder('soi')
       .innerJoin('soi.order', 'so')
       .select('SUM(GREATEST(0, soi.quantity - COALESCE(soi.shippedQuantity, 0)))', 'openQty')
@@ -479,8 +554,13 @@ export class FinishedGoodsInventoryService {
       .andWhere('soi.itemId = :itemId', { itemId })
       .andWhere('so.status IN (:...openStatuses)', {
         openStatuses: ['Draft', 'Confirmed', 'Processing', 'DRAFT', 'CONFIRMED', 'PROCESSING'],
-      })
-      .getRawOne();
+      });
+
+    if (orderId) {
+      commitQb.andWhere('so.id != :orderId', { orderId });
+    }
+
+    const rawCommitment = await commitQb.getRawOne();
     const committedStock = Number(rawCommitment?.openQty || 0);
 
     // Active production
@@ -532,9 +612,6 @@ export class FinishedGoodsInventoryService {
     } else if (projectedBalance < safetyStock && safetyStock > 0) {
       productionRequirementQty = safetyStock - projectedBalance;
     }
-
-    const uomCode = item.baseUom?.code || 'PCS';
-    const uomName = item.baseUom?.name || uomCode;
 
     let status: FinishedGoodsItemAvailability['status'] = 'AVAILABLE';
     let statusLabel = 'Available';

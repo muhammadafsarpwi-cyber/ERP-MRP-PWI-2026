@@ -1366,19 +1366,22 @@ export const ProductionItemOpenStock: React.FC = () => {
       title: 'Opening Qty',
       dataIndex: 'quantity',
       key: 'quantity',
-      width: 145,
+      width: 210,
       render: (val, record) => {
         const itemObj = itemsMap.get(record.itemId);
         const meta = getItemWeightMeta(itemObj);
         const uom = record.qtyUnitLabel || record.uomCode || itemObj?.uomCode || meta.qtyUnit || 'PCS';
         return (
           <InputNumber
+            controls={false}
+            className="prod-qty-input"
             min={0}
             step={uom.toUpperCase() === 'KG' ? 0.1 : 1}
-            value={val}
+            value={val === 0 ? null : val}
+            onFocus={(e) => e.target.select()}
             addonAfter={<span style={{ fontSize: 11, fontWeight: 700 }}>{uom}</span>}
-            onChange={(newVal) => handleUpdateLine(record.key, 'quantity', newVal || 0)}
-            style={{ width: '100%', borderColor: '#52c41a', fontWeight: 'bold' }}
+            onChange={(newVal) => handleUpdateLine(record.key, 'quantity', newVal !== null && newVal !== undefined ? newVal : 0)}
+            style={{ width: '100%', borderColor: '#52c41a', fontWeight: 'bold', fontSize: 14 }}
             placeholder="0"
           />
         );
@@ -1395,7 +1398,7 @@ export const ProductionItemOpenStock: React.FC = () => {
       ),
       dataIndex: 'weightPerPiece',
       key: 'weightPerPiece',
-      width: 160,
+      width: 170,
       render: (val, record) => {
         const itemObj = itemsMap.get(record.itemId);
         const meta = getItemWeightMeta(itemObj);
@@ -1404,6 +1407,8 @@ export const ProductionItemOpenStock: React.FC = () => {
         const unitLabel = record.weightUnitLabel || meta.weightUnit || (meta.mode === 'METER' ? 'Kg/M' : 'Kg/pc');
         return (
           <InputNumber
+            controls={false}
+            onFocus={(e) => e.target.select()}
             min={0}
             step={0.0001}
             precision={6}
@@ -1466,6 +1471,8 @@ export const ProductionItemOpenStock: React.FC = () => {
       width: 125,
       render: (val, record) => (
         <InputNumber
+          controls={false}
+          onFocus={(e) => e.target.select()}
           min={0}
           step={0.5}
           value={val}
@@ -1647,7 +1654,7 @@ export const ProductionItemOpenStock: React.FC = () => {
       ),
       dataIndex: 'physicalQuantity',
       key: 'physicalQuantity',
-      width: 175,
+      width: 210,
       render: (val, record) => {
         const itemObj = itemsMap.get(record.itemId);
         const meta = getItemWeightMeta(itemObj);
@@ -1661,13 +1668,17 @@ export const ProductionItemOpenStock: React.FC = () => {
         return (
           <div>
             <InputNumber
+              controls={false}
+              className="prod-qty-input"
               min={0}
               step={isKg ? 0.01 : 1}
               precision={isKg ? 4 : 0}
-              value={val}
+              value={val === 0 ? null : val}
+              onFocus={(e) => e.target.select()}
               addonAfter={record.uomCode || 'PCS'}
               onChange={(newVal) => handleUpdateAdjLine(record.key, 'physicalQuantity', newVal !== null && newVal !== undefined ? newVal : 0)}
-              style={{ width: '100%', fontWeight: 'bold' }}
+              style={{ width: '100%', fontWeight: 'bold', fontSize: 14 }}
+              placeholder="0"
             />
             {calculatedMeters !== undefined && calculatedMeters > 0 && (
               <div style={{ fontSize: 11, color: '#13c2c2', marginTop: 2, fontWeight: 600 }}>
@@ -1699,12 +1710,14 @@ export const ProductionItemOpenStock: React.FC = () => {
       ),
       dataIndex: 'weightPerPiece',
       key: 'weightPerPiece',
-      width: 155,
+      width: 165,
       render: (val, record) => {
         const meta = getItemWeightMeta(itemsMap.get(record.itemId));
         const unit = record.weightUnitLabel || meta.weightUnit || (meta.mode === 'METER' ? 'Kg/M' : 'Kg/pc');
         return (
           <InputNumber
+            controls={false}
+            onFocus={(e) => e.target.select()}
             min={0}
             step={0.0001}
             precision={6}

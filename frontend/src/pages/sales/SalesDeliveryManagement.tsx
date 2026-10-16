@@ -115,8 +115,11 @@ const SalesDeliveryManagement: React.FC = () => {
   const [form] = Form.useForm();
   const [lineItems, setLineItems] = useState<ERPLine[]>([]);
   const [companyId, setCompanyId] = useState('');
-  const [customers, setCustomers] = useState<Array<{ id: string; name?: string; companyName?: string; customerCode?: string }>>([]);
-  const [warehouses, setWarehouses] = useState<Array<{ id: string; warehouseCode: string; name: string }>>([]);
+  const [customers, setCustomers] = useState<Array<{ id: string; name?: string; companyName?: string; customerCode?: string; divisionId?: string }>>([]);
+  const [warehouses, setWarehouses] = useState<Array<{ id: string; warehouseCode: string; name: string; divisionId?: string }>>([]);
+
+  // Modal Division Filter state
+  const [modalDivisionId, setModalDivisionId] = useState<string | undefined>(undefined);
 
   // Sales Orders & PO Cascade state
   const [allSalesOrders, setAllSalesOrders] = useState<any[]>([]);
@@ -147,6 +150,7 @@ const SalesDeliveryManagement: React.FC = () => {
                 name: cust.companyName || cust.name || cust.legalName || 'Customer',
                 companyName: cust.companyName || cust.name,
                 customerCode: cust.customerCode,
+                divisionId: cust.divisionId || cust.division_id || cust.division?.id,
               });
             }
           });
@@ -162,6 +166,7 @@ const SalesDeliveryManagement: React.FC = () => {
                 name: cust.name || cust.companyName || cust.legalName || 'Unnamed Customer',
                 companyName: cust.companyName || cust.name,
                 customerCode: cust.customerCode,
+                divisionId: cust.divisionId || cust.division_id || cust.division?.id,
               });
             }
           });
@@ -170,8 +175,14 @@ const SalesDeliveryManagement: React.FC = () => {
         setCustomers(Array.from(combinedMap.values()));
       } catch { /* ignore */ }
       try {
-        const w = await apiService.get<{ data: Array<{ id: string; warehouseCode: string; name: string }> }>('/warehouses', { limit: 100 });
-        setWarehouses(w.data || []);
+        const w = await apiService.get<any>('/warehouses', { limit: 100 });
+        const wList = Array.isArray(w) ? w : (w?.data || w?.items || []);
+        setWarehouses(wList.map((wh: any) => ({
+          id: wh.id,
+          warehouseCode: wh.warehouseCode,
+          name: wh.name,
+          divisionId: wh.divisionId || wh.division_id || wh.division?.id,
+        })));
       } catch { /* ignore */ }
       try {
         const soRes = await apiService.get<any>('/sales/orders', { limit: 100 });
@@ -180,6 +191,21 @@ const SalesDeliveryManagement: React.FC = () => {
       } catch { /* ignore */ }
     })();
   }, []);
+
+  // Filter customers by selected division in modal
+  const modalCustomers = useMemo(() => {
+    if (!modalDivisionId) return customers;
+    return customers.filter(c => {
+      if (c.divisionId && c.divisionId === modalDivisionId) return true;
+      return allSalesOrders.some((so: any) => so.customerId === c.id && (so.divisionId === modalDivisionId || so.division?.id === modalDivisionId));
+    });
+  }, [customers, modalDivisionId, allSalesOrders]);
+
+  // Filter warehouses by selected division in modal
+  const modalWarehouses = useMemo(() => {
+    if (!modalDivisionId) return warehouses;
+    return warehouses.filter((w: any) => w.divisionId === modalDivisionId);
+  }, [warehouses, modalDivisionId]);
 
   const getCustomerDisplayName = useCallback((record: any): string => {
     if (!record) return '-';
@@ -385,12 +411,15 @@ const SalesDeliveryManagement: React.FC = () => {
     const dispatchSeqNum = dispatchIdx >= 0 ? dispatchIdx + 1 : (sameSoDeliveries.length > 0 ? sameSoDeliveries.length + 1 : 1);
     const dispatchSequenceText = `${dispatchSeqNum === 1 ? '1st Dispatch (First Time)' : dispatchSeqNum === 2 ? '2nd Dispatch' : dispatchSeqNum === 3 ? '3rd Dispatch' : `${dispatchSeqNum}th Dispatch`}`;
 
+    const matchedDiv = divisions.find(d => d.id === (record.divisionId || modalDivisionId || record.customer?.divisionId));
+
     printGatePassDocument({
       passType: 'OUTWARD',
       gatePassNo: `GP-OUT-${record.deliveryNumber?.replace(/[^a-zA-Z0-9]/g, '') || Date.now().toString().slice(-6)}`,
       referenceNo: record.deliveryNumber,
       customerPo: poDisplay,
       socNumber: socDisplay,
+      divisionName: matchedDiv?.name || record.divisionName || 'Wire Drawing Division',
       dispatchSequence: record.dispatchSequence || dispatchSequenceText,
       date: record.deliveryDate ? dayjs(record.deliveryDate).format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD'),
       time: dayjs().format('hh:mm A'),
@@ -406,10 +435,12 @@ const SalesDeliveryManagement: React.FC = () => {
         const bal = orderQty != null ? Math.max(0, orderQty - currentQty) : it.balanceQuantity;
         const pkgUnit = it.packagingUnit || 'Coils';
         const pkgQty = it.packageQuantity != null ? Number(it.packageQuantity) : undefined;
+        const descSocMatch = (it.description || '').match(/\[SOC:\s*([^\]]+)\]/);
+        const lineSoc = it.socNumber || it.salesOrderNumber || (descSocMatch ? descSocMatch[1] : undefined) || (uniqueSocs.length === 1 ? String(uniqueSocs[0]) : undefined);
         return {
           itemCode: it.itemCode || `SKU-00${idx + 1}`,
           itemName: it.itemName || it.description || `Delivered Product ${idx + 1}`,
-          socNumber: it.salesOrderNumber || (uniqueSocs.length === 1 ? String(uniqueSocs[0]) : undefined),
+          socNumber: lineSoc,
           customerPo: it.customerPo || (uniquePos.length === 1 ? String(uniquePos[0]) : undefined),
           orderQuantity: orderQty,
           quantity: currentQty,
@@ -422,15 +453,17 @@ const SalesDeliveryManagement: React.FC = () => {
         };
       }),
     });
-  }, [data, getCustomerDisplayName]);
+  }, [data, getCustomerDisplayName, divisions, modalDivisionId]);
 
   const handleCreate = useCallback(async () => {
     setEditingItem(null);
     setSelectedSoInfo(null);
     setCustomerSalesOrders([]);
     setCustomerPos([]);
+    setModalDivisionId(filterDivision || undefined);
     form.resetFields();
     form.setFieldsValue({
+      divisionId: filterDivision || undefined,
       subtotal: 0, taxAmount: 0, totalAmount: 0,
       deliveryDate: dayjs().format('YYYY-MM-DD'),
       expectedDate: dayjs().add(3, 'day').format('YYYY-MM-DD'),
@@ -442,7 +475,7 @@ const SalesDeliveryManagement: React.FC = () => {
       const list = Array.isArray(soRes) ? soRes : (soRes?.data || []);
       setAllSalesOrders(list);
     } catch { /* ignore */ }
-  }, [form]);
+  }, [form, filterDivision]);
 
   // Register action buttons into Main Header (Top Application Header)
   useEffect(() => {
@@ -503,14 +536,37 @@ const SalesDeliveryManagement: React.FC = () => {
     };
   }, [page, pageSize, handleCreate, handleExportCsv, handlePrint, fetchData]);
 
+  const handleModalDivisionChange = (divisionId?: string) => {
+    setModalDivisionId(divisionId);
+    form.setFieldsValue({
+      divisionId,
+      customerId: undefined,
+      warehouseId: undefined,
+      salesOrderId: undefined,
+      salesOrderIds: [],
+      customerPo: undefined,
+    });
+    setSelectedSoInfo(null);
+    setLineItems([]);
+    setCustomerSalesOrders([]);
+    setCustomerPos([]);
+  };
+
   const handleCustomerChange = (customerId: string) => {
     form.setFieldsValue({ customerId, salesOrderId: undefined, salesOrderIds: [], customerPo: undefined });
     setSelectedSoInfo(null);
     setLineItems([]);
 
+    const currentDivId = modalDivisionId || form.getFieldValue('divisionId');
+
     // Filter active orders for this customer (not cancelled, has balance or status != DELIVERED)
+    // AND matching division if division is selected
     const matchingOrders = allSalesOrders.filter((so: any) => {
       if (so.customerId !== customerId) return false;
+      if (currentDivId) {
+        const soDiv = so.divisionId || so.division_id || so.division?.id;
+        if (soDiv && soDiv !== currentDivId) return false;
+      }
       const status = (so.status || '').toUpperCase();
       if (status === 'CANCELLED') return false;
       if (so.items && Array.isArray(so.items) && so.items.length > 0) {
@@ -638,6 +694,7 @@ const SalesDeliveryManagement: React.FC = () => {
     const matchedOrders = allSalesOrders.filter(o => soIds.includes(o.id));
     const orderNumbers = matchedOrders.map(o => o.orderNumber).filter(Boolean).join(', ');
     const warehouse = warehouses.find(w => w.id === values.warehouseId);
+    const matchedDivision = divisions.find(d => d.id === (values.divisionId || modalDivisionId || matchedCustomer?.divisionId));
     const subtotal = lineItems.reduce((acc, it) => acc + (Number(it.lineTotal) || (Number(it.quantity) * Number(it.rate))), 0);
 
     return {
@@ -650,6 +707,8 @@ const SalesDeliveryManagement: React.FC = () => {
       customerId: values.customerId,
       companyName: custName,
       customer: matchedCustomer,
+      divisionId: values.divisionId || modalDivisionId,
+      divisionName: matchedDivision?.name,
       deliveryDate: values.deliveryDate || dayjs().format('YYYY-MM-DD'),
       expectedDate: values.expectedDate,
       warehouseId: values.warehouseId,
@@ -663,9 +722,15 @@ const SalesDeliveryManagement: React.FC = () => {
       status: editingItem?.status || 'DRAFT',
       lines: lineItems.map((l, idx) => ({
         id: l.id || `line-${idx}`,
+        itemId: l.itemId,
         itemCode: l.itemCode,
         description: (l.itemName || (l as any).description || 'Item') + (l.salesOrderNumber ? ` [SOC: ${l.salesOrderNumber}]` : ''),
         itemName: l.itemName || 'Item',
+        salesOrderNumber: l.salesOrderNumber,
+        socNumber: l.salesOrderNumber,
+        customerPo: l.customerPo,
+        orderQuantity: l.orderQuantity,
+        orderBalance: l.orderBalance,
         quantity: Number(l.quantity) || 1,
         packageQuantity: l.packageQuantity,
         packagingUnit: l.packagingUnit,
@@ -706,8 +771,21 @@ const SalesDeliveryManagement: React.FC = () => {
       // fallback to record
     }
 
+    const matchedCustomer = customers.find(c => c.id === fullDelivery.customerId);
+    const matchedWh = warehouses.find(w => w.id === fullDelivery.warehouseId);
+    const matchedOrder = allSalesOrders.find((o: any) => o.id === fullDelivery.salesOrderId);
+    const resolvedDivId = (fullDelivery as any).divisionId || matchedCustomer?.divisionId || (matchedOrder?.divisionId || matchedOrder?.division?.id) || matchedWh?.divisionId;
+    setModalDivisionId(resolvedDivId || undefined);
+
     if (fullDelivery.customerId) {
-      const orders = allSalesOrders.filter((o: any) => o.customerId === fullDelivery.customerId);
+      const orders = allSalesOrders.filter((o: any) => {
+        if (o.customerId !== fullDelivery.customerId) return false;
+        if (resolvedDivId) {
+          const soDiv = o.divisionId || o.division_id || o.division?.id;
+          if (soDiv && soDiv !== resolvedDivId) return false;
+        }
+        return true;
+      });
       setCustomerSalesOrders(orders);
       const pos = Array.from(new Set(orders.map((o: any) => o.customerPo).filter((p: any) => Boolean(p && String(p).trim())))) as string[];
       setCustomerPos(pos);
@@ -726,6 +804,7 @@ const SalesDeliveryManagement: React.FC = () => {
     }
 
     form.setFieldsValue({
+      divisionId: resolvedDivId,
       salesOrderId: fullDelivery.salesOrderId,
       salesOrderIds: fullDelivery.salesOrderId ? [fullDelivery.salesOrderId] : [],
       customerPo: (fullDelivery as any).customerPo || (fullDelivery as any).salesOrder?.customerPo,
@@ -832,8 +911,10 @@ const SalesDeliveryManagement: React.FC = () => {
         }
       });
 
+      const { divisionId, salesOrderIds, ...cleanValues } = values;
+
       const payload = {
-        ...values,
+        ...cleanValues,
         salesOrderId: primarySoId,
         customerPo: values.customerPo || null,
         deliveryDate: values.deliveryDate ? dayjs(values.deliveryDate).format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD'),
@@ -1516,23 +1597,36 @@ const SalesDeliveryManagement: React.FC = () => {
       >
         <Form form={form} layout="vertical">
           <Row gutter={16}>
-            <Col span={12}>
+            <Col span={8}>
+              <Form.Item name="divisionId" label="Division" rules={[{ required: true, message: 'Please select division' }]}>
+                <Select
+                  showSearch
+                  optionFilterProp="label"
+                  placeholder="Select division"
+                  onChange={handleModalDivisionChange}
+                  options={divisions.map((d) => ({ value: d.id, label: `${d.divisionCode ? `[${d.divisionCode}] ` : ''}${d.name}` }))}
+                />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
               <Form.Item name="customerId" label="Customer" rules={[{ required: true, message: 'Please select customer' }]}>
                 <Select
                   showSearch
                   optionFilterProp="label"
-                  placeholder="Select customer"
+                  placeholder={modalDivisionId ? "Select customer" : "Select Division first"}
                   onChange={handleCustomerChange}
-                  options={customers.map((c) => ({ value: c.id, label: `${c.customerCode ? `[${c.customerCode}] ` : ''}${c.companyName || c.name}` }))}
+                  options={modalCustomers.map((c) => ({ value: c.id, label: `${c.customerCode ? `[${c.customerCode}] ` : ''}${c.companyName || c.name}` }))}
                 />
               </Form.Item>
             </Col>
-            <Col span={12}>
+            <Col span={8}>
               <Form.Item name="warehouseId" label="Warehouse">
                 <Select
                   allowClear
-                  placeholder="Select warehouse"
-                  options={warehouses.map((w) => ({ value: w.id, label: `${w.warehouseCode} — ${w.name}` }))}
+                  showSearch
+                  optionFilterProp="label"
+                  placeholder={modalDivisionId ? "Select warehouse" : "Select Division first"}
+                  options={modalWarehouses.map((w) => ({ value: w.id, label: `${w.warehouseCode} — ${w.name}` }))}
                 />
               </Form.Item>
             </Col>
@@ -1669,7 +1763,7 @@ const SalesDeliveryManagement: React.FC = () => {
             </Col>
           </Row>
 
-          <ERPLineItems companyId={companyId} value={lineItems} onChange={setLineItems} showWarehouse={false} label="Delivery Items" currency="PKR" />
+          <ERPLineItems companyId={companyId} value={lineItems} onChange={setLineItems} showWarehouse={false} label="Delivery Items" currency="PKR" context="sales" />
           <Form.Item name="notes" label="Dispatch & Delivery Notes">
             <Input.TextArea rows={3} placeholder="Add any special handling or delivery instructions..." />
           </Form.Item>

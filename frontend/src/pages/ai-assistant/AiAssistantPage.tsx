@@ -21,6 +21,8 @@ import {
   FilterOutlined,
   ApartmentOutlined,
   SafetyCertificateOutlined,
+  AudioOutlined,
+  AudioMutedOutlined,
 } from '@ant-design/icons';
 import {
   BarChart,
@@ -180,6 +182,8 @@ const AiAssistantPage: React.FC = () => {
   const [inputText, setInputText] = useState('');
   const [loading, setLoading] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [isListening, setIsListening] = useState(false);
+  const recognitionRef = useRef<any>(null);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
 
   // Maintain conversation context for natural follow-up questions
@@ -189,6 +193,71 @@ const AiAssistantPage: React.FC = () => {
     lastPeriod: { type: 'this_month', label: 'September 2026', startDate: '2026-09-01', endDate: '2026-09-30' },
     lastDimension: 'machine',
   });
+
+  // Voice recognition toggle (Urdu & English)
+  const toggleVoiceInput = () => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      message.warning('Voice recognition is not supported in this browser. Please use Google Chrome or Microsoft Edge.');
+      return;
+    }
+
+    if (isListening) {
+      if (recognitionRef.current) {
+        try { recognitionRef.current.stop(); } catch {}
+      }
+      setIsListening(false);
+      return;
+    }
+
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.lang = 'ur-PK'; // Urdu (Pakistan), naturally handles English and mixed Urdu
+      recognition.continuous = false;
+      recognition.interimResults = true;
+
+      recognition.onstart = () => {
+        setIsListening(true);
+        message.info('Listening... Speak now in Urdu or English (بولیں، سن رہا ہے)');
+      };
+
+      recognition.onresult = (event: any) => {
+        let currentTranscript = '';
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          currentTranscript += event.results[i][0].transcript;
+        }
+        if (currentTranscript) {
+          setInputText(currentTranscript);
+        }
+      };
+
+      recognition.onerror = (event: any) => {
+        console.warn('Speech recognition error:', event.error);
+        setIsListening(false);
+        if (event.error !== 'no-speech') {
+          message.warning(`Voice input message: ${event.error}`);
+        }
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+      };
+
+      recognitionRef.current = recognition;
+      recognition.start();
+    } catch (err: any) {
+      console.error('Failed to start speech recognition:', err);
+      setIsListening(false);
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (recognitionRef.current) {
+        try { recognitionRef.current.stop(); } catch {}
+      }
+    };
+  }, []);
 
   // Fetch real active divisions from API
   useEffect(() => {
@@ -1278,12 +1347,16 @@ const AiAssistantPage: React.FC = () => {
             }}
           >
             {[
+              { label: '👑 Top 5 Customers', query: 'ٹاپ 5 کسٹمر بتا دو' },
+              { label: '📦 Top 5 Items', query: 'ٹاپ 5 ایٹم بتا دو' },
+              { label: '👷 Top 5 Operators', query: 'ٹاپ 5 اپریٹر بتا دو' },
+              { label: '🎫 Swag 5 Job Cards', query: '5 number swag pe is mahine kitne job card hain' },
+              { label: '📅 3 Mahine Job Cards', query: '3 mahine me kitna job card hai' },
               { label: '👤 Operator-wise', query: 'Show operator-wise production for September' },
               { label: '⚙️ Machine-wise', query: `Show ${activeDivisionMeta.name} machine-wise production, target and average report` },
               { label: '🏢 Department-wise', query: 'Show department-wise target vs actual production' },
               { label: '👥 Operator + Machine', query: 'Show operator + machine-wise production' },
               { label: '⏰ Shift-wise', query: 'Show operator-wise production by shift' },
-              { label: '📦 Product-wise', query: 'Show item-wise production for the current month' },
               { label: '🚚 Customer Dispatch', query: 'Show customer-wise dispatch this month' },
               { label: '⚖️ MoM Comparison', query: 'Compare August and September production' },
               { label: '📈 6-Month Trend', query: 'Show production trend for the last 6 months' },
@@ -1321,22 +1394,29 @@ const AiAssistantPage: React.FC = () => {
             ))}
           </div>
 
-          {/* Main Query Input */}
+          {/* Main Query Input with Voice Mic */}
           <div
             style={{
               display: 'flex',
               alignItems: 'center',
+              gap: 8,
               background: isDark ? '#1e293b' : '#f8fafc',
-              border: isDark ? '1.5px solid #3b82f6' : '1.5px solid #bfdbfe',
+              border: isListening ? '1.5px solid #ef4444' : (isDark ? '1.5px solid #3b82f6' : '1.5px solid #bfdbfe'),
               borderRadius: 24,
-              padding: '4px 6px 4px 16px',
+              padding: '4px 8px 4px 16px',
               transition: 'all 0.2s ease',
-              boxShadow: isDark ? '0 2px 8px rgba(0,0,0,0.3)' : 'none',
+              boxShadow: isListening
+                ? '0 0 14px rgba(239, 68, 68, 0.45)'
+                : (isDark ? '0 2px 8px rgba(0,0,0,0.3)' : 'none'),
             }}
           >
             <Input
               variant="borderless"
-              placeholder={`Ask me about production, dispatch, operators, machines, customers... (e.g. Show operator-wise production for September)`}
+              placeholder={
+                isListening
+                  ? 'Listening... Speak now in Urdu or English (بولیں، سن رہا ہے...)'
+                  : 'Ask me in Urdu, Roman Urdu or English (e.g. ٹاپ 5 کسٹمر، 5 نمبر سوگ جاب کارڈ، Top operators...)'
+              }
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
               onPressEnter={(e) => {
@@ -1352,6 +1432,30 @@ const AiAssistantPage: React.FC = () => {
               disabled={loading}
             />
 
+            {/* Voice Input Microphone Button */}
+            <Tooltip title={isListening ? 'Stop listening (بولنا بند کریں)' : 'Voice Input / بول کر پوچھیں (Urdu & English)'}>
+              <Button
+                type="text"
+                shape="circle"
+                icon={
+                  isListening
+                    ? <AudioMutedOutlined style={{ color: '#ffffff', fontSize: 16 }} />
+                    : <AudioOutlined style={{ color: isDark ? '#93c5fd' : '#2563eb', fontSize: 16 }} />
+                }
+                onClick={toggleVoiceInput}
+                disabled={loading}
+                style={{
+                  background: isListening ? '#ef4444' : (isDark ? '#334155' : '#e2e8f0'),
+                  width: 36,
+                  height: 36,
+                  flexShrink: 0,
+                  transition: 'all 0.2s ease',
+                  cursor: 'pointer',
+                }}
+              />
+            </Tooltip>
+
+            {/* Send Button */}
             <Button
               type="primary"
               shape="circle"

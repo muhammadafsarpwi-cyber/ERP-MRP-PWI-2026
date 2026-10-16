@@ -57,10 +57,21 @@ export class SalesOrderController {
   @RequireOrgScope()
   @RequirePermission('sales.orders.view')
   @ApiOperation({ summary: 'List sales customers for dropdowns' })
-  async getCustomers(@Req() req: any) {
+  async getCustomers(@Req() req: any, @Query('divisionId') divisionId?: string) {
     const companyId = req.erpUser?.defaultCompanyId;
-    const customers = await this.service.getCustomers(companyId);
+    const customers = await this.service.getCustomers(companyId, divisionId);
     return { success: true, data: customers };
+  }
+
+  @Get('meta/next-number')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('sales.orders.view')
+  @ApiOperation({ summary: 'Get next auto-generated SOC/order number' })
+  async getNextOrderNumber(@Req() req: any, @Query('prefix') prefix?: string) {
+    const companyId = req.erpUser?.defaultCompanyId;
+    const nextNumber = await this.service.getNextOrderNumber(companyId, prefix || 'SOC-');
+    return { success: true, data: nextNumber };
   }
 
   @Get(':id')
@@ -203,13 +214,16 @@ export class SalesOrderController {
     @Req() req: any,
     @Param('id') id: string,
     @Body() dto: {
-      orderItemId: string;
-      routingId: string;
+      orderItemId?: string;
+      salesOrderItemId?: string;
+      routingId?: string;
       bomId?: string;
       plannedQuantity?: number;
       rawMaterialWarehouseId?: string;
       finishedGoodsWarehouseId?: string;
       dueDate?: string;
+      plannedStartDate?: string;
+      plannedEndDate?: string;
       priority?: any;
       remarks?: string;
     },

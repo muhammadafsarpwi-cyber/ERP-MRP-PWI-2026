@@ -61,6 +61,7 @@ import {
   LoadingOutlined,
   ShopOutlined,
   TrophyOutlined,
+  WhatsAppOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
@@ -76,6 +77,7 @@ import {
   buildDailyProductionReport,
   buildDailyProductionCsv,
   buildPrintHtml,
+  buildDailyProductionWhatsApp,
   executiveKpis,
   grandTotalLabel,
   isMultiItemLine,
@@ -96,6 +98,7 @@ import {
   perUnitWeightValue,
 } from './dailyProductionReport';
 import type { ExecutiveKpi } from './dailyProductionReport';
+import DailyProductionWhatsAppModal from './DailyProductionWhatsAppModal';
 import DowntimeAnalytics from './DowntimeAnalytics';
 import RejectionScrapDetails from './RejectionScrapDetails';
 import OvertimeDetails from './OvertimeDetails';
@@ -1275,6 +1278,7 @@ const EntryList: React.FC = () => {
   const [filtersCollapsed, setFiltersCollapsed] = useState(false);
   const [importModalVisible, setImportModalVisible] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
+  const [whatsAppModalVisible, setWhatsAppModalVisible] = useState(false);
 
   const activeFilterCount = useMemo(() => {
     let count = 0;
@@ -1932,6 +1936,14 @@ const EntryList: React.FC = () => {
     const w = window.open(url, '_blank');
     if (!w) message.warning('Popup blocked — please allow popups for printing.');
     setTimeout(() => URL.revokeObjectURL(url), 60000);
+  };
+
+  const handleOpenWhatsAppModal = () => {
+    if (!displayedRows || displayedRows.length === 0) {
+      message.warning('No production entries to share on WhatsApp');
+      return;
+    }
+    setWhatsAppModalVisible(true);
   };
 
   // Table Columns
@@ -2900,6 +2912,13 @@ const EntryList: React.FC = () => {
               type: 'divider',
             },
             {
+              key: 'whatsapp',
+              icon: <WhatsAppOutlined style={{ color: '#25D366' }} />,
+              label: 'Share via WhatsApp',
+              onClick: handleOpenWhatsAppModal,
+              disabled: displayedRows.length === 0,
+            },
+            {
               key: 'print',
               icon: <PrinterOutlined style={{ color: 'var(--theme-primary, #1890ff)' }} />,
               label: 'Print Report View',
@@ -2914,12 +2933,29 @@ const EntryList: React.FC = () => {
           icon={<DownloadOutlined />}
           loading={pdfLoading}
           disabled={displayedRows.length === 0}
-          title="Export options: Excel, PDF, Print"
+          title="Export options: Excel, PDF, WhatsApp, Print"
           style={{ fontWeight: 600 }}
         >
           Export <DownOutlined style={{ fontSize: 10, marginLeft: 2 }} />
         </Button>
       </Dropdown>
+
+      {/* ── WhatsApp Dedicated 1-Click Button ───────────────────────── */}
+      <Button
+        icon={<WhatsAppOutlined style={{ color: '#25D366', fontSize: 15 }} />}
+        onClick={handleOpenWhatsAppModal}
+        disabled={displayedRows.length === 0}
+        title="Share Daily Production Report via WhatsApp (Machine-wise & Summary)"
+        style={{
+          fontWeight: 700,
+          borderColor: '#25D366',
+          color: '#166534',
+          background: '#f0fdf4',
+          boxShadow: '0 1px 3px rgba(37,211,102,0.15)',
+        }}
+      >
+        WhatsApp
+      </Button>
 
       {/* ── Manage Columns: instantly show/hide any grid column ───────── */}
       <Popover
@@ -2979,7 +3015,7 @@ const EntryList: React.FC = () => {
         Import
       </Button>
     </Space>
-  ), [navigate, handleRefresh, loading, exportToCsv, displayedRows.length, exportPdf, pdfLoading, handlePrint,
+  ), [navigate, handleRefresh, loading, exportToCsv, displayedRows.length, exportPdf, pdfLoading, handlePrint, handleOpenWhatsAppModal,
       hiddenColumnIdx, visibleColumns.length, toggleColumn, showAllColumns, columnLabel]);
 
   return (
@@ -3789,6 +3825,13 @@ const EntryList: React.FC = () => {
           void fetchRows();
           void fetchReport();
         }}
+      />
+
+      {/* ── WhatsApp Sharing Dialog for Daily Production Report ── */}
+      <DailyProductionWhatsAppModal
+        open={whatsAppModalVisible}
+        onClose={() => setWhatsAppModalVisible(false)}
+        reportModel={whatsAppModalVisible ? buildReportModel() : null}
       />
     </div>
   );

@@ -1387,6 +1387,7 @@ const SalesQuotationManagement: React.FC = () => {
           <ERPLineItems
             companyId={companyId}
             value={lineItems}
+            context="sales"
             onChange={(items) => {
               setLineItems(items);
               const sub = items.reduce((acc, curr) => acc + (curr.lineTotal || 0), 0);

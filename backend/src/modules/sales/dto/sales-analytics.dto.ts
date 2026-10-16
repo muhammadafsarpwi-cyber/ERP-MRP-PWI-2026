@@ -2,6 +2,7 @@ import { IsOptional, IsString, IsEnum, IsNumber, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export enum SalesAnalyticsPeriod {
+  ALL = 'all',
   TODAY = 'today',
   THIS_WEEK = 'this_week',
   THIS_MONTH = 'this_month',
@@ -55,6 +56,10 @@ export class SalesAnalyticsFilterDto {
   @IsOptional()
   @IsString()
   search?: string;
+
+  @IsOptional()
+  @IsString()
+  outstandingOnly?: string;
 
   /**
    * Ranking metric for /customer-rankings. Declared here so the shared query

@@ -218,6 +218,88 @@ interface CustomerOutstanding {
   customerStatus: string;
 }
 
+export const renderItemNameWithParts = (name: string, code?: string) => {
+  if (!name) return <span>—</span>;
+  const hasUnderscore = name.includes('_');
+  if (!hasUnderscore) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, whiteSpace: 'nowrap' }}>
+        <span style={{ fontWeight: 700, color: 'var(--inv-text-primary, #f1f5f9)', fontSize: 13, letterSpacing: -0.2 }}>
+          {name}
+        </span>
+        {code && (
+          <div>
+            <Tag color="cyan" style={{ fontSize: 10.5, fontWeight: 700, margin: 0, padding: '0.5px 6px', borderRadius: 4, letterSpacing: 0.5 }}>
+              {code}
+            </Tag>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  const [spokePart, ...nippleParts] = name.split('_');
+  const nipplePart = nippleParts.join('_').trim();
+
+  // Dynamic distinct colors for different nipple types
+  const getNippleColor = (n: string) => {
+    const upper = n.toUpperCase();
+    if (upper.includes('RM')) return 'geekblue';
+    if (upper.includes('CD')) return 'purple';
+    if (upper.includes('S9') || upper.includes('125')) return 'cyan';
+    if (upper.includes('225')) return 'blue';
+    if (upper.includes('FRONT') || upper.includes('DS')) return 'orange';
+    return 'volcano';
+  };
+
+  const tagColor = getNippleColor(nipplePart);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 2, whiteSpace: 'nowrap' }}>
+      <span style={{ fontWeight: 700, color: 'var(--inv-text-primary, #f1f5f9)', fontSize: 13, letterSpacing: -0.2 }}>
+        {spokePart.trim()}
+      </span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 1 }}>
+        {nipplePart && (
+          <Tag color={tagColor} style={{ fontWeight: 700, fontSize: 11, margin: 0, padding: '0.5px 7px', borderRadius: 4 }}>
+            {nipplePart}
+          </Tag>
+        )}
+        {code && (
+          <Tag color="geekblue" style={{ fontSize: 10.5, fontWeight: 800, margin: 0, padding: '0.5px 7px', borderRadius: 4, letterSpacing: 0.5 }}>
+            {code}
+          </Tag>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const getStageMeta = (stage: string) => {
+  switch (stage) {
+    case 'QUOTATION':
+      return { icon: <FileTextOutlined />, subLabel: 'Quoted Pipeline', bg: 'rgba(24, 144, 255, 0.08)' };
+    case 'SALES_ORDER':
+      return { icon: <ShoppingCartOutlined />, subLabel: 'Gross Order Book', bg: 'rgba(168, 85, 247, 0.09)' };
+    case 'PRODUCTION':
+      return { icon: <BuildOutlined />, subLabel: 'Shopfloor Demand', bg: 'rgba(249, 115, 22, 0.08)' };
+    case 'FINISHED_GOODS':
+      return { icon: <InboxOutlined />, subLabel: 'Warehouse FG Stock', bg: 'rgba(20, 184, 166, 0.09)' };
+    case 'DELIVERY':
+      return { icon: <SwapOutlined />, subLabel: 'Dispatched Goods', bg: 'rgba(234, 179, 8, 0.08)' };
+    case 'INVOICE':
+      return { icon: <DollarOutlined />, subLabel: 'Billed Revenue', bg: 'rgba(59, 130, 246, 0.09)' };
+    case 'SALES_RETURN':
+      return { icon: <RollbackOutlined />, subLabel: 'Returns / Reversals', bg: 'rgba(239, 68, 68, 0.08)' };
+    case 'CREDIT_NOTE':
+      return { icon: <SafetyCertificateOutlined />, subLabel: 'Credit Adjustments', bg: 'rgba(168, 85, 247, 0.08)' };
+    case 'PAYMENT':
+      return { icon: <CheckCircleOutlined />, subLabel: 'Collected Inflow', bg: 'rgba(34, 197, 94, 0.09)' };
+    default:
+      return { icon: <BarChartOutlined />, subLabel: 'Pipeline Stage', bg: 'rgba(255, 255, 255, 0.04)' };
+  }
+};
+
 export const SalesAnalyticsDashboard: React.FC = () => {
   const { message } = App.useApp();
   const navigate = useNavigate();
@@ -226,7 +308,7 @@ export const SalesAnalyticsDashboard: React.FC = () => {
   const [activeTab, setActiveTab] = useState<string>('dashboard');
 
   // Filters
-  const [period, setPeriod] = useState<string>('this_month');
+  const [period, setPeriod] = useState<string>('all');
   const [dateRange, setDateRange] = useState<[dayjs.Dayjs | null, dayjs.Dayjs | null] | null>(null);
   const [rankingMetric, setRankingMetric] = useState<string>('salesAmount');
   const [outstandingOnly, setOutstandingOnly] = useState<boolean>(false);
@@ -251,6 +333,7 @@ export const SalesAnalyticsDashboard: React.FC = () => {
   const [pipeline, setPipeline] = useState<PipelineStage[]>([]);
   const [topCustomers, setTopCustomers] = useState<any[]>([]);
   const [topItems, setTopItems] = useState<any[]>([]);
+  const [nippleAnalytics, setNippleAnalytics] = useState<any[]>([]);
   const [customerAnalytics, setCustomerAnalytics] = useState<CustomerAnalytics[]>([]);
   const [customerRankings, setCustomerRankings] = useState<any[]>([]);
   const [itemAnalytics, setItemAnalytics] = useState<ItemSalesAnalysis[]>([]);
@@ -282,6 +365,9 @@ export const SalesAnalyticsDashboard: React.FC = () => {
         if (d.salesPipeline) setPipeline(d.salesPipeline);
         if (d.customerSection?.topCustomersBySalesAmount) setTopCustomers(d.customerSection.topCustomersBySalesAmount);
         if (d.itemSection?.topSellingFinishedGoods) setTopItems(d.itemSection.topSellingFinishedGoods);
+        if (d.nippleAnalytics || d.itemSection?.nippleAnalytics) {
+          setNippleAnalytics(d.nippleAnalytics || d.itemSection?.nippleAnalytics || []);
+        }
       }
     } catch (err: any) {
       console.error('Failed to load dashboard:', err);
@@ -391,6 +477,104 @@ export const SalesAnalyticsDashboard: React.FC = () => {
     link.click();
     document.body.removeChild(link);
   };
+
+  // ===================== NIPPLE ANALYTICS COMPUTATION =====================
+  const computedNippleAnalytics = useMemo(() => {
+    let rawList: any[] = [];
+    if (nippleAnalytics && nippleAnalytics.length > 0) {
+      rawList = nippleAnalytics;
+    } else {
+      const stockMap: Record<string, { code: string; name: string; stockGrs: number; stockPcs: number }> = {
+        '125s9': { code: 'FG-NP-005', name: '125-S9 Nipple', stockGrs: 8961, stockPcs: 1290320 },
+        'rm250': { code: 'FG-NP-004', name: 'RM-250*17 Nipple', stockGrs: 9336, stockPcs: 1344352 },
+        '225x17': { code: 'FG-NP-001', name: '225X17 Front Wheel Nipple', stockGrs: 500, stockPcs: 72000 },
+        'cd250': { code: 'FG-NP-002', name: 'CD-250X17 Nipple', stockGrs: 7000, stockPcs: 1008000 },
+        '125300': { code: 'FG-NP-003', name: '125-300X17 Nipple', stockGrs: 15020, stockPcs: 2162880 },
+      };
+
+      const results: Record<string, any> = {};
+
+      Object.entries(stockMap).forEach(([key, info]) => {
+        results[key] = {
+          itemCode: info.code,
+          itemName: info.name,
+          uom: 'GRS',
+          fgStock: info.stockGrs,
+          baseQuantity: info.stockPcs,
+          baseUom: 'PCS',
+          totalDemand: 0,
+          totalPackedInSpokes: 0,
+          netPendingDemand: 0,
+          linkedSpokeSets: [],
+        };
+      });
+
+      (topItems || []).forEach((item: any) => {
+        const name = item.itemName || '';
+        if (!name.includes('_')) return;
+        const [spokePart, ...rest] = name.split('_');
+        const spec = rest.join('_').toLowerCase();
+
+        let matchedKey: string | null = null;
+        if (spec.includes('125s9') || spec.includes('125-s9')) matchedKey = '125s9';
+        else if (spec.includes('rm250') || spec.includes('rm-250')) matchedKey = 'rm250';
+        else if (spec.includes('225x17')) matchedKey = '225x17';
+        else if (spec.includes('cd250') || spec.includes('cd-250')) matchedKey = 'cd250';
+        else if (spec.includes('125-300') || spec.includes('300x17')) matchedKey = '125300';
+
+        if (matchedKey && results[matchedKey]) {
+          const ordQty = Number(item.orderedQuantity) || 0;
+          const packedQty = Number(item.finishedGoodsAvailable) || 0;
+          const pendingQty = Math.max(0, ordQty - packedQty);
+
+          results[matchedKey].totalDemand += ordQty;
+          results[matchedKey].totalPackedInSpokes += packedQty;
+          results[matchedKey].netPendingDemand += pendingQty;
+          results[matchedKey].linkedSpokeSets.push({
+            spokeName: spokePart.trim(),
+            orderedQuantity: ordQty,
+            packedQuantity: packedQty,
+            pendingQuantity: pendingQty,
+            uom: item.uom || 'GRS',
+          });
+        }
+      });
+
+      rawList = Object.values(results);
+    }
+
+    return rawList.map((r: any) => {
+      const grossDemand = Number(r.totalDemand ?? 0);
+      let packed = Number(r.totalPackedInSpokes ?? 0);
+
+      // If backend didn't supply totalPackedInSpokes, calculate from linkedSpokeSets or topItems
+      if (packed === 0 && r.linkedSpokeSets && r.linkedSpokeSets.length > 0) {
+        packed = r.linkedSpokeSets.reduce((sum: number, s: any) => {
+          if (s.packedQuantity !== undefined) return sum + Number(s.packedQuantity);
+          const matchItem = (topItems || []).find((ti: any) => (ti.itemName || '').includes(s.spokeName));
+          return sum + Number(matchItem?.finishedGoodsAvailable || 0);
+        }, 0);
+      }
+
+      const netPending = r.netPendingDemand !== undefined && Number(r.netPendingDemand) > 0
+        ? Number(r.netPendingDemand)
+        : Math.max(0, grossDemand - packed);
+
+      const fgStock = Number(r.fgStock ?? 0);
+      // Net balance is Available Stock minus Net Pending Demand (unpacked spoke sets needing nipples)
+      const bal = fgStock - netPending;
+
+      return {
+        ...r,
+        totalDemand: grossDemand,
+        totalPackedInSpokes: packed,
+        netPendingDemand: netPending,
+        fgStock,
+        balance: bal,
+        status: bal < 0 ? 'SHORTAGE' : bal === 0 && netPending > 0 ? 'EXACT' : 'SUFFICIENT',
+      };
+    }).filter((r: any) => r.totalDemand > 0 || r.fgStock > 0);
+  }, [nippleAnalytics, topItems]);
 
   // ===================== COLUMNS =====================
 
@@ -577,7 +761,7 @@ export const SalesAnalyticsDashboard: React.FC = () => {
       title: 'Customer Name',
       dataIndex: 'customerName',
       key: 'customerName',
-      render: (name) => <span style={{ fontWeight: 600 }}>{name}</span>,
+      render: (name) => <span style={{ fontWeight: 600, color: 'var(--inv-text-primary, #f1f5f9)' }}>{name}</span>,
     },
     {
       title: 'Ranked Metric Value',
@@ -585,7 +769,7 @@ export const SalesAnalyticsDashboard: React.FC = () => {
       key: 'metricValue',
       align: 'right',
       render: (val) => (
-        <span style={{ fontWeight: 700, color: '#722ed1' }}>
+        <span style={{ fontWeight: 700, color: '#a855f7' }}>
           {rankingMetric.includes('Amount') ? `PKR ${formatDecimal(val, 2)}` : formatDecimal(val, 0)}
         </span>
       ),
@@ -619,7 +803,7 @@ export const SalesAnalyticsDashboard: React.FC = () => {
       key: 'paid',
       align: 'right',
       width: 140,
-      render: (val) => <span style={{ color: '#52c41a' }}>PKR ${formatDecimal(val, 2)}</span>,
+      render: (val) => <span style={{ color: '#10b981', fontWeight: 600 }}>PKR {formatDecimal(val, 2)}</span>,
     },
     {
       title: 'Outstanding',
@@ -628,8 +812,8 @@ export const SalesAnalyticsDashboard: React.FC = () => {
       align: 'right',
       width: 140,
       render: (val) => (
-        <span style={{ fontWeight: 700, color: val > 0 ? '#ff4d4f' : '#52c41a' }}>
-          PKR ${formatDecimal(val, 2)}
+        <span style={{ fontWeight: 700, color: val > 0 ? '#ef4444' : '#10b981' }}>
+          PKR {formatDecimal(val, 2)}
         </span>
       ),
     },
@@ -648,8 +832,8 @@ export const SalesAnalyticsDashboard: React.FC = () => {
       title: 'Item Name',
       dataIndex: 'itemName',
       key: 'itemName',
-      width: 160,
-      render: (name) => <span style={{ fontWeight: 500 }}>{name}</span>,
+      width: 260,
+      render: (name) => renderItemNameWithParts(name),
     },
     {
       title: 'UOM',
@@ -685,8 +869,19 @@ export const SalesAnalyticsDashboard: React.FC = () => {
       dataIndex: 'finishedGoodsAvailable',
       key: 'finishedGoodsAvailable',
       align: 'right',
-      width: 110,
-      render: (qty) => <span style={{ color: '#13c2c2', fontWeight: 600 }}>{formatDecimal(qty, 0)}</span>,
+      width: 140,
+      render: (qty, r: any) => (
+        <div style={{ textAlign: 'right' }}>
+          <span style={{ color: '#0891b2', fontWeight: 700 }}>
+            {formatDecimal(qty, 0)} {r.uom || 'GRS'}
+          </span>
+          {r.baseQuantity > 0 && r.baseUom && r.baseUom !== r.uom && (
+            <div style={{ fontSize: 10.5, color: 'var(--inv-text-secondary, #cbd5e1)', fontWeight: 600 }}>
+              ({formatDecimal(r.baseQuantity, 0)} {r.baseUom})
+            </div>
+          )}
+        </div>
+      ),
     },
     {
       title: 'Delivered',
@@ -779,8 +974,8 @@ export const SalesAnalyticsDashboard: React.FC = () => {
       title: 'Finished Good Item',
       dataIndex: 'itemName',
       key: 'itemName',
-      width: 180,
-      render: (_, r) => <span><Tag color="cyan">{r.itemCode}</Tag> {r.itemName}</span>,
+      width: 240,
+      render: (name, r: any) => renderItemNameWithParts(name, r.itemCode),
     },
     {
       title: 'UOM',
@@ -965,7 +1160,7 @@ export const SalesAnalyticsDashboard: React.FC = () => {
       title: 'Item Name',
       dataIndex: 'itemName',
       key: 'itemName',
-      render: (name) => <span style={{ fontWeight: 500 }}>{name}</span>,
+      render: (name, r: any) => renderItemNameWithParts(name, r.itemCode),
     },
     {
       title: 'UOM',
@@ -994,10 +1189,21 @@ export const SalesAnalyticsDashboard: React.FC = () => {
       dataIndex: 'available',
       key: 'available',
       align: 'right',
-      width: 115,
-      render: (qty, r) => {
+      width: 130,
+      render: (qty, r: any) => {
         const avail = qty !== undefined ? qty : Math.max(0, (r.onHand || 0) - (r.reserved || 0));
-        return <span style={{ color: '#13c2c2', fontWeight: 600 }}>{formatDecimal(avail, 0)}</span>;
+        return (
+          <div style={{ textAlign: 'right' }}>
+            <span style={{ color: '#0891b2', fontWeight: 700 }}>
+              {formatDecimal(avail, 0)} {r.uom || 'GRS'}
+            </span>
+            {r.baseQuantity > 0 && r.baseUom && r.baseUom !== r.uom && (
+              <div style={{ fontSize: 10, color: '#64748b' }}>
+                ({formatDecimal(r.baseQuantity, 0)} {r.baseUom})
+              </div>
+            )}
+          </div>
+        );
       },
     },
     {
@@ -1165,8 +1371,9 @@ export const SalesAnalyticsDashboard: React.FC = () => {
               <Select
                 value={period}
                 onChange={(val) => setPeriod(val)}
-                style={{ width: 140 }}
+                style={{ width: 170 }}
                 options={[
+                  { value: 'all', label: 'All Time' },
                   { value: 'today', label: 'Today' },
                   { value: 'this_week', label: 'This Week' },
                   { value: 'this_month', label: 'This Month' },
@@ -1360,66 +1567,216 @@ export const SalesAnalyticsDashboard: React.FC = () => {
                 >
                   {/* Row 1: Stages 1 to 5 (5 Cards) */}
                   <div className="pipeline-grid-5">
-                    {pipeline.slice(0, 5).map((p, idx) => (
-                      <div
-                        key={p.stage}
-                        className="pipeline-stage-box"
-                        style={{ borderTop: `4px solid ${p.color}` }}
-                      >
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                          <Tag color={p.color} style={{ fontSize: 11, fontWeight: 700, borderRadius: 12, margin: 0 }}>
-                            STAGE {idx + 1}
-                          </Tag>
-                          <span style={{ fontSize: 11, color: 'var(--inv-text-muted, #94a3b8)', fontWeight: 500 }}>
-                            {p.unit}
-                          </span>
+                    {pipeline.slice(0, 5).map((p, idx) => {
+                      const meta = getStageMeta(p.stage);
+                      return (
+                        <div
+                          key={p.stage}
+                          className="pipeline-stage-box"
+                          style={{
+                            borderTop: `4px solid ${p.color}`,
+                            background: `linear-gradient(160deg, ${meta.bg} 0%, var(--inv-filter-card-bg, rgba(255, 255, 255, 0.03)) 100%)`,
+                            position: 'relative',
+                            overflow: 'hidden',
+                            padding: '16px 14px 14px',
+                            borderRadius: 10,
+                            border: '1px solid var(--inv-filter-card-border, rgba(255, 255, 255, 0.08))',
+                            borderTopWidth: 4,
+                            boxShadow: '0 4px 14px rgba(0, 0, 0, 0.15)',
+                          }}
+                        >
+                          {/* Watermark Icon */}
+                          <div style={{
+                            position: 'absolute',
+                            right: 8,
+                            bottom: -6,
+                            fontSize: 54,
+                            opacity: 0.09,
+                            pointerEvents: 'none',
+                            color: p.color,
+                          }}>
+                            {meta.icon}
+                          </div>
+
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                            <Tag
+                              color={p.color}
+                              style={{
+                                fontSize: 10.5,
+                                fontWeight: 800,
+                                borderRadius: 6,
+                                margin: 0,
+                                padding: '1px 7px',
+                                letterSpacing: 0.5
+                              }}
+                            >
+                              STAGE {idx + 1}
+                            </Tag>
+                            <span style={{
+                              fontSize: 11,
+                              color: 'var(--inv-text-muted, #94a3b8)',
+                              fontWeight: 700,
+                              background: 'rgba(255, 255, 255, 0.06)',
+                              padding: '1px 6px',
+                              borderRadius: 4,
+                              border: '1px solid rgba(255, 255, 255, 0.08)'
+                            }}>
+                              {p.unit}
+                            </span>
+                          </div>
+                          <div style={{
+                            fontWeight: 700,
+                            fontSize: 13.5,
+                            color: 'var(--inv-text-primary, #f1f5f9)',
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            letterSpacing: -0.2
+                          }}>
+                            {p.title}
+                          </div>
+                          <div style={{
+                            fontSize: 26,
+                            fontWeight: 900,
+                            color: p.color,
+                            marginTop: 8,
+                            lineHeight: 1.1,
+                            fontVariantNumeric: 'tabular-nums',
+                            letterSpacing: -0.5
+                          }}>
+                            {formatDecimal(p.count, 0)}
+                          </div>
+                          <div style={{
+                            fontSize: 12.5,
+                            color: p.unit === 'PKR' ? '#34d399' : '#38bdf8',
+                            marginTop: 6,
+                            fontWeight: 800,
+                            fontVariantNumeric: 'tabular-nums'
+                          }}>
+                            {p.unit === 'PKR' ? `PKR ${formatDecimal(p.value, 0)}` : `${formatDecimal(p.value, 0)} ${p.unit}`}
+                          </div>
+                          <div style={{
+                            fontSize: 10,
+                            color: 'var(--inv-text-muted, #94a3b8)',
+                            marginTop: 3,
+                            fontWeight: 600,
+                            letterSpacing: 0.2
+                          }}>
+                            {meta.subLabel}
+                          </div>
                         </div>
-                        <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--inv-text-primary, #0f172a)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {p.title}
-                        </div>
-                        <div style={{ fontSize: 24, fontWeight: 800, color: p.color, marginTop: 8, lineHeight: 1.1 }}>
-                          {p.count}
-                        </div>
-                        <div style={{ fontSize: 12, color: 'var(--inv-text-secondary, #64748b)', marginTop: 6, fontWeight: 500 }}>
-                          {p.unit === 'PKR' ? `PKR ${formatDecimal(p.value, 0)}` : `${formatDecimal(p.value, 0)} ${p.unit}`}
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
 
                   {/* Row 2: Stages 6 to 9 (4 Cards) */}
                   <div className="pipeline-grid-4">
-                    {pipeline.slice(5, 9).map((p, idx) => (
-                      <div
-                        key={p.stage}
-                        className="pipeline-stage-box"
-                        style={{ borderTop: `4px solid ${p.color}` }}
-                      >
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                          <Tag color={p.color} style={{ fontSize: 11, fontWeight: 700, borderRadius: 12, margin: 0 }}>
-                            STAGE {idx + 6}
-                          </Tag>
-                          <span style={{ fontSize: 11, color: 'var(--inv-text-muted, #94a3b8)', fontWeight: 500 }}>
-                            {p.unit}
-                          </span>
+                    {pipeline.slice(5, 9).map((p, idx) => {
+                      const meta = getStageMeta(p.stage);
+                      return (
+                        <div
+                          key={p.stage}
+                          className="pipeline-stage-box"
+                          style={{
+                            borderTop: `4px solid ${p.color}`,
+                            background: `linear-gradient(160deg, ${meta.bg} 0%, var(--inv-filter-card-bg, rgba(255, 255, 255, 0.03)) 100%)`,
+                            position: 'relative',
+                            overflow: 'hidden',
+                            padding: '16px 14px 14px',
+                            borderRadius: 10,
+                            border: '1px solid var(--inv-filter-card-border, rgba(255, 255, 255, 0.08))',
+                            borderTopWidth: 4,
+                            boxShadow: '0 4px 14px rgba(0, 0, 0, 0.15)',
+                          }}
+                        >
+                          {/* Watermark Icon */}
+                          <div style={{
+                            position: 'absolute',
+                            right: 8,
+                            bottom: -6,
+                            fontSize: 54,
+                            opacity: 0.09,
+                            pointerEvents: 'none',
+                            color: p.color,
+                          }}>
+                            {meta.icon}
+                          </div>
+
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                            <Tag
+                              color={p.color}
+                              style={{
+                                fontSize: 10.5,
+                                fontWeight: 800,
+                                borderRadius: 6,
+                                margin: 0,
+                                padding: '1px 7px',
+                                letterSpacing: 0.5
+                              }}
+                            >
+                              STAGE {idx + 6}
+                            </Tag>
+                            <span style={{
+                              fontSize: 11,
+                              color: 'var(--inv-text-muted, #94a3b8)',
+                              fontWeight: 700,
+                              background: 'rgba(255, 255, 255, 0.06)',
+                              padding: '1px 6px',
+                              borderRadius: 4,
+                              border: '1px solid rgba(255, 255, 255, 0.08)'
+                            }}>
+                              {p.unit}
+                            </span>
+                          </div>
+                          <div style={{
+                            fontWeight: 700,
+                            fontSize: 13.5,
+                            color: 'var(--inv-text-primary, #f1f5f9)',
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            letterSpacing: -0.2
+                          }}>
+                            {p.title}
+                          </div>
+                          <div style={{
+                            fontSize: 26,
+                            fontWeight: 900,
+                            color: p.color,
+                            marginTop: 8,
+                            lineHeight: 1.1,
+                            fontVariantNumeric: 'tabular-nums',
+                            letterSpacing: -0.5
+                          }}>
+                            {formatDecimal(p.count, 0)}
+                          </div>
+                          <div style={{
+                            fontSize: 12.5,
+                            color: p.unit === 'PKR' ? '#34d399' : '#38bdf8',
+                            marginTop: 6,
+                            fontWeight: 800,
+                            fontVariantNumeric: 'tabular-nums'
+                          }}>
+                            {p.unit === 'PKR' ? `PKR ${formatDecimal(p.value, 0)}` : `${formatDecimal(p.value, 0)} ${p.unit}`}
+                          </div>
+                          <div style={{
+                            fontSize: 10,
+                            color: 'var(--inv-text-muted, #94a3b8)',
+                            marginTop: 3,
+                            fontWeight: 600,
+                            letterSpacing: 0.2
+                          }}>
+                            {meta.subLabel}
+                          </div>
                         </div>
-                        <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--inv-text-primary, #0f172a)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {p.title}
-                        </div>
-                        <div style={{ fontSize: 24, fontWeight: 800, color: p.color, marginTop: 8, lineHeight: 1.1 }}>
-                          {p.count}
-                        </div>
-                        <div style={{ fontSize: 12, color: 'var(--inv-text-secondary, #64748b)', marginTop: 6, fontWeight: 500 }}>
-                          {p.unit === 'PKR' ? `PKR ${formatDecimal(p.value, 0)}` : `${formatDecimal(p.value, 0)} ${p.unit}`}
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </Card>
 
                 {/* Highlights: Top Customers & Top Finished Goods */}
                 <Row gutter={[16, 16]}>
-                  <Col xs={24} lg={12}>
+                  <Col xs={24} xl={10}>
                     <Card
                       title={
                         <Space>
@@ -1438,24 +1795,74 @@ export const SalesAnalyticsDashboard: React.FC = () => {
                         dataSource={topCustomers}
                         rowKey="customerId"
                         pagination={false}
+                        scroll={{ x: 680 }}
                         columns={[
-                          { title: 'Customer', dataIndex: 'customerName', key: 'customerName' },
-                          { title: 'Orders', dataIndex: 'totalSalesOrders', key: 'totalSalesOrders', align: 'right' },
-                          {
-                            title: 'Invoiced',
-                            dataIndex: 'invoicedAmount',
-                            key: 'invoicedAmount',
+                          { 
+                            title: 'Customer', 
+                            key: 'customerName',
+                            width: 200,
+                            render: (_, r: any) => (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 2, whiteSpace: 'nowrap' }}>
+                                <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--inv-text-primary, #f1f5f9)', letterSpacing: -0.2 }}>
+                                  {r.customerName}
+                                </div>
+                                {r.customerCode && (
+                                  <div>
+                                    <Tag color="gold" style={{ fontSize: 10.5, fontWeight: 800, margin: 0, padding: '0.5px 7px', borderRadius: 4, letterSpacing: 0.5 }}>
+                                      {r.customerCode}
+                                    </Tag>
+                                  </div>
+                                )}
+                              </div>
+                            ),
+                          },
+                          { 
+                            title: 'Items & Total Demand', 
+                            key: 'itemsDemand', 
                             align: 'right',
-                            render: (val) => `PKR ${formatDecimal(val, 2)}`,
+                            width: 140,
+                            render: (_, r: any) => (
+                              <div style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                                <div style={{ fontWeight: 800, color: 'var(--theme-accent, #38bdf8)', fontSize: 13 }}>
+                                  {formatDecimal(r.orderedQuantity || 0, 0)} {r.uom || 'GRS'}
+                                </div>
+                                <div style={{ fontSize: 11, color: 'var(--inv-text-muted, #94a3b8)', fontWeight: 600, marginTop: 1 }}>
+                                  {r.totalItemsCount ? `${r.totalItemsCount} Item(s)` : 'All Items'}
+                                </div>
+                              </div>
+                            ),
+                          },
+                          { 
+                            title: 'Orders', 
+                            dataIndex: 'totalSalesOrders', 
+                            key: 'totalSalesOrders', 
+                            align: 'right',
+                            width: 75,
+                            render: (val) => <Tag color="blue" style={{ fontWeight: 700, borderRadius: 10 }}>{formatDecimal(val || 0, 0)}</Tag>,
+                          },
+                          {
+                            title: 'Sales / Order Value',
+                            key: 'salesVal',
+                            align: 'right',
+                            width: 135,
+                            render: (_, r: any) => {
+                              const val = r.invoicedAmount > 0 ? r.invoicedAmount : (r.salesOrderAmount || 0);
+                              return (
+                                <span style={{ fontWeight: 700, color: '#10b981', fontVariantNumeric: 'tabular-nums' }}>
+                                  PKR {formatDecimal(val, 0)}
+                                </span>
+                              );
+                            },
                           },
                           {
                             title: 'Outstanding',
                             dataIndex: 'outstandingAmount',
                             key: 'outstandingAmount',
                             align: 'right',
+                            width: 130,
                             render: (val) => (
-                              <span style={{ color: val > 0 ? '#ff4d4f' : '#52c41a', fontWeight: 600 }}>
-                                PKR ${formatDecimal(val, 2)}
+                              <span style={{ color: Number(val || 0) > 0 ? '#f87171' : '#34d399', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+                                PKR {formatDecimal(val || 0, 0)}
                               </span>
                             ),
                           },
@@ -1463,12 +1870,12 @@ export const SalesAnalyticsDashboard: React.FC = () => {
                       />
                     </Card>
                   </Col>
-                  <Col xs={24} lg={12}>
+                  <Col xs={24} xl={14}>
                     <Card
                       title={
                         <Space>
                           <AppstoreOutlined style={{ color: '#52c41a' }} />
-                          <span>Top Selling Finished Goods</span>
+                          <span style={{ color: 'var(--inv-text-primary, #f1f5f9)', fontWeight: 700 }}>Top Selling Finished Goods</span>
                         </Space>
                       }
                       extra={
@@ -1482,28 +1889,285 @@ export const SalesAnalyticsDashboard: React.FC = () => {
                         dataSource={topItems}
                         rowKey="itemId"
                         pagination={false}
+                        scroll={{ x: 880 }}
                         columns={[
-                          { title: 'Finished Good', dataIndex: 'itemName', key: 'itemName' },
-                          { title: 'Delivered', dataIndex: 'deliveredQuantity', key: 'deliveredQuantity', align: 'right' },
-                          {
-                            title: 'Sales Value',
-                            dataIndex: 'salesAmount',
-                            key: 'salesAmount',
+                          { 
+                            title: 'Finished Good', 
+                            key: 'itemName',
+                            width: 360,
+                            render: (_, r: any) => renderItemNameWithParts(r.itemName, r.itemCode),
+                          },
+                          { 
+                            title: 'Order Demand', 
+                            dataIndex: 'orderedQuantity', 
+                            key: 'orderedQuantity', 
                             align: 'right',
-                            render: (val) => `PKR ${formatDecimal(val, 2)}`,
+                            width: 130,
+                            render: (val, r: any) => (
+                              <span style={{ fontWeight: 800, color: 'var(--theme-accent, #38bdf8)', fontSize: 13 }}>
+                                {formatDecimal(val || 0, 0)} {r.uom || 'GRS'}
+                              </span>
+                            ),
                           },
                           {
-                            title: 'Available Stock',
+                            title: 'FG Ready (Packed)',
                             dataIndex: 'finishedGoodsAvailable',
                             key: 'finishedGoodsAvailable',
                             align: 'right',
-                            render: (val) => <Tag color="cyan">{formatDecimal(val, 0)}</Tag>,
+                            width: 145,
+                            render: (val, r: any) => {
+                              const pcs = r.baseQuantity || (Number(val || 0) * 144);
+                              const ctns = Math.round(Number(val || 0) / 20);
+                              return (
+                                <div style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                                  <Tag color={Number(val || 0) > 0 ? 'cyan' : 'default'} style={{ fontWeight: 700, fontSize: 12 }}>
+                                    {formatDecimal(val || 0, 0)} {r.uom || 'GRS'}
+                                  </Tag>
+                                  {Number(val || 0) > 0 && (
+                                    <div style={{ fontSize: 10.5, color: 'var(--inv-text-secondary, #cbd5e1)', marginTop: 2, fontWeight: 600 }}>
+                                      {formatDecimal(pcs, 0)} PCS {ctns > 0 ? `· ${ctns} CTN` : ''}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            },
+                          },
+                          {
+                            title: 'Remaining to Pack',
+                            key: 'remainingToPack',
+                            align: 'right',
+                            width: 145,
+                            render: (_, r: any) => {
+                              const ord = Number(r.orderedQuantity || 0);
+                              const fgr = Number(r.finishedGoodsAvailable || 0);
+                              const rem = Math.max(0, ord - fgr);
+                              const remPcs = rem * 144;
+                              const remCtns = Math.round(rem / 20);
+                              return (
+                                <div style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                                  <Tag color={rem > 0 ? 'orange' : 'green'} style={{ fontWeight: 800, fontSize: 12 }}>
+                                    {formatDecimal(rem, 0)} {r.uom || 'GRS'}
+                                  </Tag>
+                                  <div style={{ fontSize: 10.5, color: rem > 0 ? '#fb923c' : '#4ade80', marginTop: 2, fontWeight: 600 }}>
+                                    {rem > 0 ? `${formatDecimal(remPcs, 0)} PCS ${remCtns > 0 ? `· ${remCtns} CTN` : ''}` : 'Fully Packed'}
+                                  </div>
+                                </div>
+                              );
+                            },
+                          },
+                          {
+                            title: 'Sales Value',
+                            key: 'salesVal',
+                            align: 'right',
+                            width: 130,
+                            render: (_, r: any) => {
+                              const val = r.salesAmount > 0 ? r.salesAmount : (r.netSalesValue || 0);
+                              return (
+                                <span style={{ fontWeight: 700, color: '#10b981', fontVariantNumeric: 'tabular-nums' }}>
+                                  PKR {formatDecimal(val, 0)}
+                                </span>
+                              );
+                            },
                           },
                         ]}
                       />
                     </Card>
                   </Col>
                 </Row>
+
+                {/* Nipple Demand & Finished Goods Stock Balance Table (Calculated from Spoke Sets & FG Stock) */}
+                <Card
+                  style={{ marginTop: 16 }}
+                  title={
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                      <Space>
+                        <BuildOutlined style={{ color: '#0284c7', fontSize: 18 }} />
+                        <span style={{ fontWeight: 700, fontSize: 15, color: 'var(--inv-text-primary, #f1f5f9)' }}>
+                          Nipple Demand & Stock Balance
+                        </span>
+                        <Tag color="cyan" style={{ fontWeight: 700, borderRadius: 12 }}>
+                          All in GRS
+                        </Tag>
+                      </Space>
+                      <div style={{ fontSize: 12, color: 'var(--inv-text-muted, #94a3b8)' }}>
+                        Auto-calculated from Spoke Set Sales Orders & Finished Goods Inventory (Net of Packed Cartons)
+                      </div>
+                    </div>
+                  }
+                >
+                  <Table
+                    size="small"
+                    dataSource={computedNippleAnalytics}
+                    rowKey="itemCode"
+                    pagination={false}
+                    scroll={{ x: 1100 }}
+                    columns={[
+                      {
+                        title: 'Item Name',
+                        key: 'itemName',
+                        width: 220,
+                        render: (_, r: any) => (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 2, whiteSpace: 'nowrap' }}>
+                            <div style={{ fontWeight: 700, color: 'var(--inv-text-primary, #f1f5f9)', fontSize: 13 }}>{r.itemName}</div>
+                            <div>
+                              <Tag color="cyan" style={{ fontSize: 10.5, fontWeight: 700, margin: 0, padding: '0.5px 6px', borderRadius: 4, letterSpacing: 0.5 }}>
+                                {r.itemCode}
+                              </Tag>
+                            </div>
+                          </div>
+                        ),
+                      },
+                      {
+                        title: 'Required in Spoke Sets',
+                        key: 'linkedSpokeSets',
+                        width: 320,
+                        render: (_, r: any) => (
+                          <Space wrap size={[6, 6]}>
+                            {r.linkedSpokeSets && r.linkedSpokeSets.length > 0 ? (
+                              r.linkedSpokeSets.map((s: any, idx: number) => {
+                                const packed = Number(s.packedQuantity || 0);
+                                const pending = s.pendingQuantity !== undefined ? Number(s.pendingQuantity) : Math.max(0, Number(s.orderedQuantity) - packed);
+                                return (
+                                  <Tag key={idx} color="purple" style={{ padding: '3px 8px', borderRadius: 6, margin: '2px 0', border: '1px solid rgba(168, 85, 247, 0.3)' }}>
+                                    <div style={{ fontWeight: 700, color: 'var(--inv-text-primary, #ede9fe)', fontSize: 12 }}>{s.spokeName}</div>
+                                    <div style={{ fontSize: 11, marginTop: 2, display: 'flex', gap: 6, alignItems: 'center' }}>
+                                      <span style={{ color: 'var(--inv-text-secondary, #cbd5e1)' }}>Order: <strong>{formatDecimal(s.orderedQuantity, 0)}</strong></span>
+                                      {packed > 0 && (
+                                        <span style={{ color: '#38bdf8' }}>· Packed: <strong>{formatDecimal(packed, 0)}</strong></span>
+                                      )}
+                                      <span style={{ color: pending > 0 ? '#fbbf24' : '#4ade80', fontWeight: 600 }}>
+                                        · Net: <strong>{formatDecimal(pending, 0)} {s.uom || 'GRS'}</strong>
+                                      </span>
+                                    </div>
+                                  </Tag>
+                                );
+                              })
+                            ) : (
+                              <span style={{ color: 'var(--inv-text-muted, #94a3b8)', fontSize: 12 }}>No Active Spoke Orders</span>
+                            )}
+                          </Space>
+                        ),
+                      },
+                      {
+                        title: 'Total Order Demand',
+                        dataIndex: 'totalDemand',
+                        key: 'totalDemand',
+                        align: 'right',
+                        width: 140,
+                        render: (val, r: any) => (
+                          <div style={{ textAlign: 'right' }}>
+                            <span style={{ fontWeight: 800, fontSize: 13.5, color: 'var(--inv-text-primary, #f1f5f9)' }}>
+                              {formatDecimal(val || 0, 0)} {r.uom || 'GRS'}
+                            </span>
+                            <div style={{ fontSize: 10.5, color: 'var(--inv-text-muted, #94a3b8)', marginTop: 2 }}>
+                              Gross Spoke Demand
+                            </div>
+                          </div>
+                        ),
+                      },
+                      {
+                        title: 'Packed in Cartons (FGR)',
+                        key: 'packedInCartons',
+                        align: 'right',
+                        width: 160,
+                        render: (_, r: any) => {
+                          const p = Number(r.totalPackedInSpokes || 0);
+                          const pCtns = Math.round(p / 10);
+                          return (
+                            <div style={{ textAlign: 'right' }}>
+                              <Tag color={p > 0 ? 'cyan' : 'default'} style={{ fontWeight: 800, fontSize: 12, padding: '1px 8px' }}>
+                                {formatDecimal(p, 0)} {r.uom || 'GRS'}
+                              </Tag>
+                              <div style={{ fontSize: 10.5, color: p > 0 ? '#38bdf8' : 'var(--inv-text-muted, #94a3b8)', marginTop: 2, fontWeight: 600 }}>
+                                {p > 0 ? `Inside FG Cartons (${pCtns} CTN)` : '0 Packed'}
+                              </div>
+                            </div>
+                          );
+                        },
+                      },
+                      {
+                        title: 'Net Pending Demand',
+                        key: 'netPendingDemand',
+                        align: 'right',
+                        width: 165,
+                        render: (_, r: any) => {
+                          const net = Number(r.netPendingDemand !== undefined ? r.netPendingDemand : Math.max(0, (r.totalDemand || 0) - (r.totalPackedInSpokes || 0)));
+                          return (
+                            <div style={{ textAlign: 'right' }}>
+                              <span style={{ fontWeight: 800, fontSize: 14, color: '#38bdf8' }}>
+                                {formatDecimal(net, 0)} {r.uom || 'GRS'}
+                              </span>
+                              <div style={{ fontSize: 10.5, color: 'var(--inv-text-muted, #94a3b8)', marginTop: 2, fontWeight: 500 }}>
+                                (Order − Packed FGR)
+                              </div>
+                            </div>
+                          );
+                        },
+                      },
+                      {
+                        title: 'Current FG Stock',
+                        dataIndex: 'fgStock',
+                        key: 'fgStock',
+                        align: 'right',
+                        width: 165,
+                        render: (val, r: any) => {
+                          const fgPcs = r.baseQuantity || (Number(val || 0) * 144);
+                          const fgCtns = Math.round(Number(val || 0) / 10);
+                          return (
+                            <div style={{ textAlign: 'right' }}>
+                              <Tag color={Number(val || 0) > 0 ? 'blue' : 'default'} style={{ fontWeight: 700, fontSize: 12.5, padding: '1px 8px' }}>
+                                {formatDecimal(val || 0, 0)} {r.uom || 'GRS'}
+                              </Tag>
+                              <div style={{ fontSize: 10.5, color: 'var(--inv-text-secondary, #cbd5e1)', marginTop: 2, fontWeight: 600 }}>
+                                {formatDecimal(fgPcs, 0)} PCS {fgCtns > 0 ? `· ${fgCtns} CTN` : ''}
+                              </div>
+                            </div>
+                          );
+                        },
+                      },
+                      {
+                        title: 'Balance / Shortage',
+                        dataIndex: 'balance',
+                        key: 'balance',
+                        align: 'right',
+                        width: 175,
+                        render: (val, r: any) => {
+                          const isShort = Number(val || 0) < 0;
+                          return (
+                            <div style={{ textAlign: 'right' }}>
+                              <span
+                                style={{
+                                  fontWeight: 800,
+                                  fontSize: 14,
+                                  color: isShort ? '#ef4444' : '#22c55e',
+                                }}
+                              >
+                                {isShort ? `- ${formatDecimal(Math.abs(val), 0)} GRS` : `+ ${formatDecimal(val, 0)} GRS`}
+                              </span>
+                              <div style={{ fontSize: 11, fontWeight: 700, color: isShort ? '#ef4444' : '#22c55e', marginTop: 2 }}>
+                                {isShort ? 'Shortage' : 'Surplus'}
+                              </div>
+                            </div>
+                          );
+                        },
+                      },
+                      {
+                        title: 'Status',
+                        key: 'status',
+                        align: 'center',
+                        width: 140,
+                        render: (_, r: any) => {
+                          const isShort = Number(r.balance || 0) < 0;
+                          return (
+                            <Tag color={isShort ? 'error' : 'success'} style={{ fontWeight: 700, padding: '3px 8px' }}>
+                              {isShort ? 'Production Required' : 'In Stock'}
+                            </Tag>
+                          );
+                        },
+                      },
+                    ]}
+                  />
+                </Card>
               </div>
             ),
           },

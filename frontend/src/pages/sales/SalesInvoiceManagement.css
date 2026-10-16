@@ -1018,12 +1018,14 @@ html[data-theme='dark'] .inv-trace-title,
   flex-direction: column !important;
   gap: 7px !important;
   justify-content: center !important;
+  white-space: nowrap !important;
 }
 
 .inv-date-row {
   display: flex !important;
   align-items: center !important;
   gap: 8px !important;
+  white-space: nowrap !important;
 }
 
 .inv-date-val {
@@ -1031,6 +1033,7 @@ html[data-theme='dark'] .inv-trace-title,
   font-weight: 600 !important;
   color: var(--inv-text-primary) !important;
   letter-spacing: 0.2px;
+  white-space: nowrap !important;
 }
 
 /* Amounts Cell with Clean Spacing */
@@ -1039,6 +1042,7 @@ html[data-theme='dark'] .inv-trace-title,
   flex-direction: column !important;
   gap: 5px !important;
   justify-content: center !important;
+  white-space: nowrap !important;
 }
 
 .inv-amt-row {
@@ -1047,6 +1051,7 @@ html[data-theme='dark'] .inv-trace-title,
   justify-content: space-between !important;
   gap: 10px !important;
   padding: 1px 0 !important;
+  white-space: nowrap !important;
 }
 
 .inv-amt-val {
@@ -1054,18 +1059,21 @@ html[data-theme='dark'] .inv-trace-title,
   font-weight: 600 !important;
   color: var(--inv-text-primary) !important;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap !important;
 }
 
 .inv-amt-row.amt-total-row {
   margin-top: 4px !important;
   padding-top: 5px !important;
   border-top: 1px dashed var(--inv-table-border, #334155) !important;
+  white-space: nowrap !important;
 }
 
 .inv-amt-bold {
   font-size: 13px !important;
   font-weight: 700 !important;
   color: #10b981 !important;
+  white-space: nowrap !important;
 }
 
 /* Document Cell Spacing */
@@ -2735,5 +2743,84 @@ body.dark-mode .erp-scan-bar-container .ant-input {
   color: #f1f5f9 !important;
 }
 
+/* Remove up/down spinners and expand input area for enterprise numbers */
+.ant-input-number-handler-wrap {
+  display: none !important;
+  width: 0 !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
 
+.ant-input-number-input {
+  text-align: left !important;
+  padding-right: 8px !important;
+}
 
+input[type=number]::-webkit-inner-spin-button,
+input[type=number]::-webkit-outer-spin-button {
+  -webkit-appearance: none !important;
+  margin: 0 !important;
+}
+
+input[type=number] {
+  -moz-appearance: textfield !important;
+}
+
+/* --- Custom Pagination Footer (Theme-Adaptive) --- */
+.inv-pagination-footer {
+  display: flex !important;
+  justify-content: space-between !important;
+  align-items: center !important;
+  padding: 12px 18px !important;
+  background: var(--inv-card-bg, #ffffff) !important;
+  border-top: 1px solid var(--inv-table-border, #e2e8f0) !important;
+  border-bottom-left-radius: 6px !important;
+  border-bottom-right-radius: 6px !important;
+  flex-wrap: wrap !important;
+  gap: 12px !important;
+}
+
+.inv-pagination-info {
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  color: var(--inv-text-secondary, #64748b) !important;
+}
+
+.inv-pagination-buttons {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+}
+
+.inv-page-btn {
+  padding: 6px 14px !important;
+  font-size: 12.5px !important;
+  font-weight: 600 !important;
+  border-radius: 6px !important;
+  border: 1px solid var(--inv-card-border, #d1d5db) !important;
+  background: var(--inv-input-bg, #ffffff) !important;
+  color: var(--inv-text-primary, #0f172a) !important;
+  cursor: pointer !important;
+  transition: all 0.2s ease !important;
+}
+
+.inv-page-btn:hover:not(:disabled) {
+  background: var(--theme-hover, rgba(37, 99, 235, 0.08)) !important;
+  border-color: var(--theme-accent, #2563eb) !important;
+  color: var(--theme-accent, #2563eb) !important;
+}
+
+.inv-page-btn:disabled {
+  opacity: 0.35 !important;
+  cursor: not-allowed !important;
+}
+
+.inv-page-indicator {
+  padding: 6px 12px !important;
+  font-size: 12.5px !important;
+  font-weight: 700 !important;
+  color: var(--inv-text-primary, #0f172a) !important;
+  background: var(--inv-filter-card-bg, rgba(255, 255, 255, 0.05)) !important;
+  border: 1px solid var(--inv-filter-card-border, #e2e8f0) !important;
+  border-radius: 6px !important;
+}

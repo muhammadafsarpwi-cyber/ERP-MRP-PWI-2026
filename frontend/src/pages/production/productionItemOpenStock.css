@@ -1071,4 +1071,32 @@ body.dark .prod-result-details-val {
   border-color: var(--theme-border, #334155) !important;
 }
 
+/* ── Opening Qty & Stock Inputs (Wide, Large, No Steppers) ── */
+.prod-qty-input {
+  width: 100% !important;
+}
+
+.prod-qty-input .ant-input-number-handler-wrap {
+  display: none !important;
+  width: 0 !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+.prod-qty-input .ant-input-number-input {
+  font-size: 14px !important;
+  font-weight: 800 !important;
+  text-align: left !important;
+  padding: 4px 10px !important;
+  height: 34px !important;
+}
+
+.prod-qty-input .ant-input-number-group-addon {
+  padding: 0 10px !important;
+  background: var(--theme-surface-alt, #f1f5f9) !important;
+  color: var(--theme-text-secondary, #475569) !important;
+  font-weight: 800 !important;
+  font-size: 12px !important;
+}
+
 

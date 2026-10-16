@@ -1,6 +1,6 @@
 import {
   IsString, IsNotEmpty, IsOptional, IsUUID, IsNumber, IsIn, IsArray, ValidateNested,
-  MaxLength, Min, IsDateString,
+  MaxLength, Min, IsDateString, ValidateIf, Matches,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
@@ -58,6 +58,16 @@ export class CreateSalesOrderDto {
   @IsUUID()
   @IsOptional()
   companyId?: string;
+
+  @ApiPropertyOptional({ description: 'Custom order / SOC number' })
+  @IsString()
+  @IsOptional()
+  orderNumber?: string;
+
+  @ApiPropertyOptional({ description: 'SOC number' })
+  @IsString()
+  @IsOptional()
+  socNumber?: string;
 
   @ApiProperty({ description: 'Customer ID' })
   @IsUUID()
@@ -126,12 +136,18 @@ export class CreateSalesOrderDto {
   notes?: string;
 
   @ApiPropertyOptional({ description: 'Division ID' })
-  @IsUUID()
+  @ValidateIf((o) => Boolean(o.divisionId && String(o.divisionId).trim()))
+  @Matches(/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/, {
+    message: 'divisionId must be a valid UUID',
+  })
   @IsOptional()
   divisionId?: string;
 
   @ApiPropertyOptional({ description: 'Section ID' })
-  @IsUUID()
+  @ValidateIf((o) => Boolean(o.sectionId && String(o.sectionId).trim()))
+  @Matches(/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/, {
+    message: 'sectionId must be a valid UUID',
+  })
   @IsOptional()
   sectionId?: string;
 

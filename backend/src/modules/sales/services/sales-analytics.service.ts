@@ -84,6 +84,25 @@ export class SalesAnalyticsService {
   ) {}
 
   /**
+   * Helper to convert quantity between UOM codes for sales analytics.
+   * Standard conversion: 1 GRS = 144 PCS (or reverse).
+   */
+  private convertQty(qty: number, fromCode?: string, toCode?: string): number {
+    const n = Number(qty || 0);
+    if (!n || !fromCode || !toCode) return n;
+    const from = fromCode.toUpperCase().trim();
+    const to = toCode.toUpperCase().trim();
+    if (from === to) return n;
+    if ((from === 'PCS' || from === 'PC' || from === 'EA') && (to === 'GRS' || to === 'GROSS')) {
+      return Math.round((n / 144) * 10000) / 10000;
+    }
+    if ((from === 'GRS' || from === 'GROSS') && (to === 'PCS' || to === 'PC' || to === 'EA')) {
+      return Math.round(n * 144);
+    }
+    return n;
+  }
+
+  /**
    * Helper to resolve date range from filter
    */
   private resolveDateRange(filter?: SalesAnalyticsFilterDto): { startDate?: string; endDate?: string } {
@@ -91,6 +110,9 @@ export class SalesAnalyticsService {
     const now = new Date();
     if (filter.period) {
       switch (filter.period) {
+        case SalesAnalyticsPeriod.ALL:
+        case 'all' as any:
+          return {};
         case SalesAnalyticsPeriod.TODAY: {
           const today = now.toISOString().split('T')[0];
           return { startDate: today, endDate: today };
@@ -184,10 +206,11 @@ export class SalesAnalyticsService {
     const paidAmount = activeInvoices.reduce((sum, i) => sum + (Number(i.paidAmount) || 0), 0);
     const outstandingAmount = Math.max(0, invoicedAmount - paidAmount);
 
-    // 3. Finished Goods stock (FG-only: sellable non-FG items must never inflate FG KPIs)
+    // 3. Finished Goods stock (FG-only: converted to Sales UOM e.g. GRS)
     const fgItems = await this.itemRepo.find({
       where: { companyId, itemType: ItemType.FINISHED_GOOD },
-      select: ['id', 'itemCode', 'name', 'safetyStockLevel', 'itemType'],
+      relations: ['baseUom', 'salesUom'],
+      select: ['id', 'itemCode', 'name', 'safetyStockLevel', 'itemType', 'baseUomId', 'salesUomId'],
     });
     const fgItemIds = fgItems.map(i => i.id);
 
@@ -199,7 +222,17 @@ export class SalesAnalyticsService {
         .andWhere('ib.itemId IN (:...fgItemIds)', { fgItemIds })
         .getMany();
 
-      finishedGoodsReady = balances.reduce((sum, b) => sum + (Number(b.available) || 0), 0);
+      const itemMap = new Map<string, Item>();
+      fgItems.forEach(i => itemMap.set(i.id, i));
+
+      finishedGoodsReady = balances.reduce((sum, b) => {
+        const item = itemMap.get(b.itemId);
+        const baseUom = item?.baseUom?.code || 'PCS';
+        const salesUom = item?.salesUom?.code || baseUom || 'GRS';
+        const availableInSalesUom = this.convertQty(Number(b.available) || 0, baseUom, salesUom);
+        return sum + availableInSalesUom;
+      }, 0);
+      finishedGoodsReady = Math.round(finishedGoodsReady * 100) / 100;
     }
 
     // 4. Quotations
@@ -253,7 +286,7 @@ export class SalesAnalyticsService {
       { stage: 'QUOTATION', title: 'Quotations', count: totalQuotationsCount, value: totalQuotationsAmount, unit: 'PKR', color: '#1890ff' },
       { stage: 'SALES_ORDER', title: 'Sales Orders', count: totalSalesOrders, value: orders.reduce((sum, o) => sum + (Number(o.totalAmount) || 0), 0), unit: 'PKR', color: '#722ed1' },
       { stage: 'PRODUCTION', title: 'Production Orders', count: totalProdOrdersCount, value: totalProdPlannedQty, unit: 'PCS', color: '#fa8c16' },
-      { stage: 'FINISHED_GOODS', title: 'FG Available', count: fgItems.length, value: finishedGoodsReady, unit: 'Stock', color: '#13c2c2' },
+      { stage: 'FINISHED_GOODS', title: 'FG Available', count: fgItems.length, value: finishedGoodsReady, unit: 'GRS', color: '#13c2c2' },
       { stage: 'DELIVERY', title: 'Deliveries / Dispatches', count: totalDeliveriesCount, value: totalDeliveriesAmount, unit: 'PKR', color: '#faad14' },
       { stage: 'INVOICE', title: 'Gross Invoices', count: activeInvoices.length, value: invoicedAmount, unit: 'PKR', color: '#2f54eb' },
       { stage: 'SALES_RETURN', title: 'Sales Returns', count: returnCount, value: returnAmount, unit: 'PKR', color: '#f5222d' },
@@ -262,10 +295,18 @@ export class SalesAnalyticsService {
     ];
 
     // 9. Customer Section: Top customers & recent records
-    const customerAgg = await this.getCustomerSalesAnalytics(companyId, filter);
-    const topCustomersBySalesAmount = [...customerAgg].sort((a, b) => b.invoicedAmount - a.invoicedAmount).slice(0, 5);
-    const topCustomersByDeliveredQty = [...customerAgg].sort((a, b) => b.deliveredQuantity - a.deliveredQuantity).slice(0, 5);
-    const topCustomersByOutstanding = [...customerAgg].sort((a, b) => b.outstandingAmount - a.outstandingAmount).slice(0, 5);
+    const customerAgg = await this.getCustomerSalesAnalytics(companyId, filter, allowedDivisionIds);
+    const activeCustomerAgg = customerAgg.filter(c => (c.totalSalesOrders > 0 || c.invoicedAmount > 0 || c.orderedQuantity > 0));
+    const customerPool = activeCustomerAgg.length > 0 ? activeCustomerAgg : customerAgg;
+
+    const topCustomersBySalesAmount = [...customerPool].sort((a, b) => {
+      const aVal = (a.invoicedAmount > 0 ? a.invoicedAmount : ((a as any).salesOrderAmount || 0));
+      const bVal = (b.invoicedAmount > 0 ? b.invoicedAmount : ((b as any).salesOrderAmount || 0));
+      return bVal - aVal;
+    }).slice(0, 5);
+
+    const topCustomersByDeliveredQty = [...customerPool].sort((a, b) => (b.deliveredQuantity || 0) - (a.deliveredQuantity || 0)).slice(0, 5);
+    const topCustomersByOutstanding = [...customerPool].sort((a, b) => (b.outstandingAmount || 0) - (a.outstandingAmount || 0)).slice(0, 5);
 
     const recentOrders = await this.orderRepo.find({
       where: narrowWhereByDivision({ companyId }, 'divisionId', allowedDivisionIds),
@@ -285,13 +326,99 @@ export class SalesAnalyticsService {
 
     // 10. Item Section: Top selling FG & alerts
     const itemAgg = await this.getItemSalesAnalysis(companyId, filter, allowedDivisionIds);
-    const topSellingFinishedGoods = [...itemAgg].sort((a, b) => b.salesAmount - a.salesAmount).slice(0, 5);
-    const highestOrderedFinishedGoods = [...itemAgg].sort((a, b) => b.orderedQuantity - a.orderedQuantity).slice(0, 5);
-    const highestDeliveredFinishedGoods = [...itemAgg].sort((a, b) => b.deliveredQuantity - a.deliveredQuantity).slice(0, 5);
+    const activeItemAgg = itemAgg.filter(i => (i.orderedQuantity > 0 || i.salesAmount > 0 || i.deliveredQuantity > 0));
+    const itemPool = activeItemAgg.length > 0 ? activeItemAgg : itemAgg;
+
+    const topSellingFinishedGoods = [...itemPool].sort((a, b) => {
+      const aVal = (a.salesAmount > 0 ? a.salesAmount : (a.orderedQuantity || 0));
+      const bVal = (b.salesAmount > 0 ? b.salesAmount : (b.orderedQuantity || 0));
+      return bVal - aVal;
+    }).slice(0, 5);
+
+    const highestOrderedFinishedGoods = [...itemPool].sort((a, b) => (b.orderedQuantity || 0) - (a.orderedQuantity || 0)).slice(0, 5);
+    const highestDeliveredFinishedGoods = [...itemPool].sort((a, b) => (b.deliveredQuantity || 0) - (a.deliveredQuantity || 0)).slice(0, 5);
 
     const fgPlanning = await this.getFinishedGoodsAvailability(companyId, filter);
     const finishedGoodsWithOpenOrders = fgPlanning.filter(p => p.openSalesOrderQuantity > 0).slice(0, 5);
     const finishedGoodsBelowSafetyStock = fgPlanning.filter(p => ['BELOW_REQUIREMENT', 'SHORTAGE'].includes(p.status)).slice(0, 5);
+
+    // 11. Nipple Analytics: Map Spoke Set orders to required Nipple components and compare with FG Stock
+    const nippleItems = itemAgg.filter(i => 
+      (i.itemCode && i.itemCode.startsWith('FG-NP-')) || 
+      (i.itemName && i.itemName.toLowerCase().includes('nipple') && !i.itemName.includes('_'))
+    );
+
+    const spokeSetsWithNipples = itemAgg.filter(i => i.itemName && i.itemName.includes('_'));
+
+    const nippleAnalytics = nippleItems.map(nItem => {
+      const nName = (nItem.itemName || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      const linkedSpokeSets: Array<{
+        spokeName: string;
+        itemCode: string;
+        orderedQuantity: number;
+        packedQuantity: number;
+        pendingQuantity: number;
+        uom: string;
+      }> = [];
+
+      let totalDemand = 0;
+      let totalPackedInSpokes = 0;
+      let netPendingDemand = 0;
+
+      spokeSetsWithNipples.forEach(sItem => {
+        const parts = sItem.itemName.split('_');
+        const nippleSpec = parts.slice(1).join('_').trim();
+        const cleanSpec = nippleSpec.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+        let matches = false;
+        if (nName && cleanSpec) {
+          if (cleanSpec.includes('225x17') && nName.includes('225x17')) matches = true;
+          else if (cleanSpec.includes('125s9') && nName.includes('125s9')) matches = true;
+          else if (cleanSpec.includes('rm250') && nName.includes('rm250')) matches = true;
+          else if (cleanSpec.includes('cd250') && nName.includes('cd250')) matches = true;
+          else if ((cleanSpec.includes('125300') || cleanSpec.includes('300x17')) && (nName.includes('125300') || nName.includes('300x17'))) matches = true;
+          else if (cleanSpec === nName || nName.includes(cleanSpec) || cleanSpec.includes(nName)) matches = true;
+        }
+
+        if (matches && ((Number(sItem.orderedQuantity) || 0) > 0 || (Number(sItem.deliveredQuantity) || 0) > 0)) {
+          const ordQty = Number(sItem.orderedQuantity) || 0;
+          const packedQty = Number(sItem.finishedGoodsAvailable) || 0;
+          const pendingQty = Math.max(0, ordQty - packedQty);
+
+          linkedSpokeSets.push({
+            spokeName: parts[0].trim(),
+            itemCode: sItem.itemCode,
+            orderedQuantity: ordQty,
+            packedQuantity: packedQty,
+            pendingQuantity: pendingQty,
+            uom: sItem.uom || 'GRS',
+          });
+          totalDemand += ordQty;
+          totalPackedInSpokes += packedQty;
+          netPendingDemand += pendingQty;
+        }
+      });
+
+      const fgStock = Number(nItem.finishedGoodsAvailable) || 0;
+      // Balance is Available Loose Nipple Stock minus Net Pending Demand (unpacked spoke requirement)
+      const balance = fgStock - netPendingDemand;
+
+      return {
+        itemId: nItem.itemId,
+        itemCode: nItem.itemCode,
+        itemName: nItem.itemName,
+        uom: 'GRS',
+        linkedSpokeSets,
+        totalDemand: Math.round(totalDemand * 100) / 100,
+        totalPackedInSpokes: Math.round(totalPackedInSpokes * 100) / 100,
+        netPendingDemand: Math.round(netPendingDemand * 100) / 100,
+        fgStock: Math.round(fgStock * 100) / 100,
+        baseQuantity: nItem.baseQuantity || 0,
+        baseUom: nItem.baseUom || 'PCS',
+        balance: Math.round(balance * 100) / 100,
+        status: balance < 0 ? 'SHORTAGE' : balance === 0 && netPendingDemand > 0 ? 'EXACT' : 'SUFFICIENT',
+      };
+    }).sort((a, b) => b.totalDemand - a.totalDemand);
 
     return {
       kpis: {
@@ -325,7 +452,9 @@ export class SalesAnalyticsService {
         highestDeliveredFinishedGoods,
         finishedGoodsWithOpenOrders,
         finishedGoodsBelowSafetyStock,
+        nippleAnalytics,
       },
+      nippleAnalytics,
     };
   }
 
@@ -350,14 +479,19 @@ export class SalesAnalyticsService {
     });
     const masterMapByName = new Map<string, Customer>();
     const masterMapByCode = new Map<string, Customer>();
+    const masterMapById = new Map<string, Customer>();
     masterCustomers.forEach(c => {
-      masterMapByName.set(c.name.trim().toLowerCase(), c);
-      masterMapByCode.set(c.customerCode.trim().toLowerCase(), c);
+      if (c.name) masterMapByName.set(c.name.trim().toLowerCase(), c);
+      if (c.customerCode) masterMapByCode.set(c.customerCode.trim().toLowerCase(), c);
+      masterMapById.set(c.id, c);
     });
 
     // Fetch orders, quotations, deliveries, delivery lines, invoices, returns, return lines
     const [orders, orderItems, quotations, deliveries, deliveryLines, invoices, returns, returnLines, prodOrders, ledgerEntries] = await Promise.all([
-      this.orderRepo.find({ where: narrowWhereByDivision({ companyId }, 'divisionId', allowedDivisionIds) }),
+      this.orderRepo.find({ 
+        where: narrowWhereByDivision({ companyId }, 'divisionId', allowedDivisionIds),
+        relations: ['customer'],
+      }),
       this.orderItemRepo.find(),
       this.quotationRepo.find({ where: { companyId } }),
       this.deliveryRepo.find({ where: { companyId } }),
@@ -401,23 +535,58 @@ export class SalesAnalyticsService {
       delLinesByDelId.set(line.deliveryId, arr);
     });
 
-    const results = salesCustomers.map(sc => {
-      // Find matching master customer
-      const master = masterMapByName.get(sc.companyName.trim().toLowerCase()) ||
-                     masterMapByCode.get(sc.customerCode.trim().toLowerCase());
+    // Build unified customers list: start with salesCustomers
+    const unifiedCustomers = new Map<string, { id: string; customerCode: string; companyName: string; creditDays?: number }>();
+    salesCustomers.forEach(sc => {
+      unifiedCustomers.set(sc.id, {
+        id: sc.id,
+        customerCode: sc.customerCode,
+        companyName: sc.companyName,
+        creditDays: sc.creditDays,
+      });
+    });
 
-      const cOrders = orders.filter(o => o.customerId === sc.id);
-      const cQuotations = quotations.filter(q => q.customerId === sc.id);
-      const cDeliveries = deliveries.filter(d => d.customerId === sc.id);
-      const cInvoices = invoices.filter(i => i.customerId === sc.id && i.status !== 'Cancelled');
-      const cReturns = returns.filter(r => r.customerId === sc.id && isCommittedReturnStatus(r.status));
+    // Also inject any customer from orders that may not be in salesCustomers
+    orders.forEach(o => {
+      if (o.customerId && !unifiedCustomers.has(o.customerId)) {
+        const mc = masterMapById.get(o.customerId);
+        const name = o.customer?.companyName || mc?.name || (o as any).customerName || 'Customer';
+        const code = o.customer?.customerCode || mc?.customerCode || 'CUST';
+        unifiedCustomers.set(o.customerId, {
+          id: o.customerId,
+          customerCode: code,
+          companyName: name,
+          creditDays: 30,
+        });
+      }
+    });
 
-      // Quantities
+    const results = Array.from(unifiedCustomers.values()).map(sc => {
+      const master = masterMapByName.get((sc.companyName || '').trim().toLowerCase()) ||
+                     masterMapByCode.get((sc.customerCode || '').trim().toLowerCase()) ||
+                     masterMapById.get(sc.id);
+
+      const cOrders = orders.filter(o => 
+        o.customerId === sc.id || 
+        (master && o.customerId === master.id) ||
+        (o.customer?.companyName && (sc.companyName || '').trim().toLowerCase() === o.customer.companyName.trim().toLowerCase())
+      );
+      const cQuotations = quotations.filter(q => q.customerId === sc.id || (master && q.customerId === master.id));
+      const cDeliveries = deliveries.filter(d => d.customerId === sc.id || (master && d.customerId === master.id));
+      const cInvoices = invoices.filter(i => (i.customerId === sc.id || (master && i.customerId === master.id)) && i.status !== 'Cancelled');
+      const cReturns = returns.filter(r => (r.customerId === sc.id || (master && r.customerId === master.id)) && isCommittedReturnStatus(r.status));
+      const salesOrderAmount = cOrders.reduce((sum, o) => sum + (Number(o.totalAmount) || 0), 0);
+
+      // Quantities and Item Diversity
+      const custItemIds = new Set<string>();
       let orderedQuantity = 0;
       let producedQuantity = 0;
+      let totalItemLines = 0;
       cOrders.forEach(o => {
         const items = orderItemsByOrderId.get(o.id) || [];
+        totalItemLines += items.length;
         items.forEach(it => {
+          if (it.itemId) custItemIds.add(it.itemId);
           orderedQuantity += Number(it.quantity) || 0;
           producedQuantity += prodBySoItem.get(it.id) || 0;
         });
@@ -487,6 +656,11 @@ export class SalesAnalyticsService {
         paymentTerms: master?.paymentTerms || 'Net 30 Days',
         totalQuotations: cQuotations.length,
         totalSalesOrders: cOrders.length,
+        totalItemsCount: custItemIds.size,
+        itemCount: custItemIds.size,
+        totalItemLines,
+        uom: 'GRS',
+        salesOrderAmount,
         orderedQuantity,
         producedQuantity,
         deliveredQuantity,
@@ -507,12 +681,22 @@ export class SalesAnalyticsService {
       };
     });
 
+    const sortedResults = results.sort((a, b) => {
+      if (b.totalSalesOrders !== a.totalSalesOrders) {
+        return b.totalSalesOrders - a.totalSalesOrders;
+      }
+      const bVal = b.invoicedAmount || b.salesOrderAmount || 0;
+      const aVal = a.invoicedAmount || a.salesOrderAmount || 0;
+      if (bVal !== aVal) return bVal - aVal;
+      return a.customerName.localeCompare(b.customerName);
+    });
+
     if (filter?.search) {
       const q = filter.search.toLowerCase();
-      return results.filter(r => r.customerName.toLowerCase().includes(q) || r.customerCode.toLowerCase().includes(q));
+      return sortedResults.filter(r => r.customerName.toLowerCase().includes(q) || r.customerCode.toLowerCase().includes(q));
     }
 
-    return results;
+    return sortedResults;
   }
 
   /**
@@ -527,7 +711,7 @@ export class SalesAnalyticsService {
     // Sellable FG Items only (exclude Raw Materials, Chemicals, Packaging, Spare Parts, Machinery, Consumables)
     const rawItems = await this.itemRepo.find({
       where: { companyId, itemType: ItemType.FINISHED_GOOD },
-      relations: ['baseUom'],
+      relations: ['baseUom', 'salesUom'],
     });
 
     const nonSellableTypes = [
@@ -601,11 +785,17 @@ export class SalesAnalyticsService {
         if (cId) custSet.add(cId);
       });
 
+      const baseUomCode = item.baseUom?.code || 'PCS';
+      const salesUomCode = item.salesUom?.code || baseUomCode || 'GRS';
+
       const orderedQuantity = curOrderItems.reduce((sum, oi) => sum + (Number(oi.quantity) || 0), 0);
       const deliveredQuantity = curDelLines.reduce((sum, dl) => sum + (Number(dl.quantity) || 0), 0);
       const returnedQuantity = curReturnLines.reduce((sum, rl) => sum + (Number(rl.quantity) || 0), 0);
-      const producedQuantity = curProdOrders.reduce((sum, po) => sum + (Number(po.completedQuantity) || 0), 0);
-      const finishedGoodsAvailable = curBalances.reduce((sum, b) => sum + (Number(b.available) || 0), 0);
+      const producedQuantityBase = curProdOrders.reduce((sum, po) => sum + (Number(po.completedQuantity) || 0), 0);
+      const producedQuantity = Math.round(this.convertQty(producedQuantityBase, baseUomCode, salesUomCode) * 100) / 100;
+      
+      const rawAvailableBase = curBalances.reduce((sum, b) => sum + (Number(b.available) || 0), 0);
+      const finishedGoodsAvailable = Math.round(this.convertQty(rawAvailableBase, baseUomCode, salesUomCode) * 100) / 100;
 
       const netSoldQuantity = Math.max(0, deliveredQuantity - returnedQuantity);
       const salesAmount = curDelLines.reduce((sum, dl) => sum + (Number(dl.lineTotal) || 0), 0);
@@ -625,7 +815,11 @@ export class SalesAnalyticsService {
         itemCode: item.itemCode,
         itemName: item.name,
         itemType: item.itemType || 'FINISHED_GOOD',
-        uom: item.baseUom?.code || item.baseUom?.name || 'PCS',
+        uom: salesUomCode,
+        salesUom: salesUomCode,
+        baseUom: baseUomCode,
+        baseQuantity: rawAvailableBase,
+        baseProducedQuantity: producedQuantityBase,
         customerCount: custSet.size,
         orderedQuantity,
         producedQuantity,
@@ -657,7 +851,7 @@ export class SalesAnalyticsService {
   ) {
     const [salesCustomers, items, orders, orderItems, deliveryLines, invoices, deliveries, returns, returnLines, prodOrders] = await Promise.all([
       this.salesCustomerRepo.find({ where: { companyId } }),
-      this.itemRepo.find({ where: { companyId }, relations: ['baseUom'] }),
+      this.itemRepo.find({ where: { companyId }, relations: ['baseUom', 'salesUom'] }),
       this.orderRepo.find({ where: narrowWhereByDivision({ companyId }, 'divisionId', allowedDivisionIds) }),
       this.orderItemRepo.find(),
       this.deliveryLineRepo.find(),
@@ -703,7 +897,7 @@ export class SalesAnalyticsService {
           itemId: item.id,
           itemCode: item.itemCode,
           itemName: item.name,
-          uom: item.baseUom?.code || 'PCS',
+          uom: item.salesUom?.code || item.baseUom?.code || 'GRS',
           ordered: 0,
           produced: 0,
           delivered: 0,
@@ -738,7 +932,7 @@ export class SalesAnalyticsService {
           itemId: item.id,
           itemCode: item.itemCode,
           itemName: item.name,
-          uom: item.baseUom?.code || 'PCS',
+          uom: item.salesUom?.code || item.baseUom?.code || 'GRS',
           ordered: 0,
           produced: 0,
           delivered: 0,
@@ -773,7 +967,7 @@ export class SalesAnalyticsService {
           itemId: item.id,
           itemCode: item.itemCode,
           itemName: item.name,
-          uom: item.baseUom?.code || 'PCS',
+          uom: item.salesUom?.code || item.baseUom?.code || 'GRS',
           ordered: 0,
           produced: 0,
           delivered: 0,
@@ -926,7 +1120,7 @@ export class SalesAnalyticsService {
   ) {
     const orders = await this.orderRepo.find({
       where: narrowWhereByDivision({ companyId }, 'divisionId', allowedDivisionIds),
-      relations: ['customer', 'items', 'items.item'],
+      relations: ['customer', 'items', 'items.item', 'items.item.baseUom', 'items.item.salesUom'],
       order: { orderDate: 'DESC' },
     });
 
@@ -958,7 +1152,10 @@ export class SalesAnalyticsService {
         const itemOrdered = Number(item.quantity) || 0;
         const itemDelivered = Number(item.shippedQuantity) || 0;
         const itemProduced = prodBySoItem.get(item.id) || 0;
-        const itemAvailable = item.itemId ? (balanceByItem.get(item.itemId) || 0) : 0;
+        const rawAvailable = item.itemId ? (balanceByItem.get(item.itemId) || 0) : 0;
+        const baseUom = item.item?.baseUom?.code || 'PCS';
+        const salesUom = item.item?.salesUom?.code || baseUom || 'GRS';
+        const itemAvailable = Math.round(this.convertQty(rawAvailable, baseUom, salesUom) * 100) / 100;
         const itemRemaining = Math.max(0, itemOrdered - itemDelivered);
 
         orderedQuantity += itemOrdered;
@@ -1013,7 +1210,7 @@ export class SalesAnalyticsService {
   ) {
     const rawItems = await this.itemRepo.find({
       where: { companyId, itemType: ItemType.FINISHED_GOOD },
-      relations: ['baseUom'],
+      relations: ['baseUom', 'salesUom'],
     });
 
     const nonSellableTypes = [
@@ -1077,13 +1274,20 @@ export class SalesAnalyticsService {
 
     return items.map(item => {
       const stock = stockByItem.get(item.id) || { onHand: 0, reserved: 0, available: 0 };
+      const baseUomCode = item.baseUom?.code || 'PCS';
+      const salesUomCode = item.salesUom?.code || baseUomCode || 'GRS';
+
+      const onHand = Math.round(this.convertQty(stock.onHand, baseUomCode, salesUomCode) * 100) / 100;
+      const reserved = Math.round(this.convertQty(stock.reserved, baseUomCode, salesUomCode) * 100) / 100;
+      const available = Math.round(this.convertQty(stock.available, baseUomCode, salesUomCode) * 100) / 100;
+
       const openSalesOrderQuantity = openQtyByItem.get(item.id) || 0;
       const safetyStock = Number(item.safetyStockLevel) || 0;
       const requiredStock = openSalesOrderQuantity + safetyStock;
-      const projectedBalance = stock.available - requiredStock;
+      const projectedBalance = available - requiredStock;
 
       let status = 'ABOVE_REQUIREMENT';
-      if (stock.available <= 0 || stock.onHand < openSalesOrderQuantity) {
+      if (available <= 0 || onHand < openSalesOrderQuantity) {
         status = 'SHORTAGE';
       } else if (projectedBalance < 0) {
         status = 'BELOW_REQUIREMENT';
@@ -1095,14 +1299,17 @@ export class SalesAnalyticsService {
         itemId: item.id,
         itemCode: item.itemCode,
         itemName: item.name,
-        uom: item.baseUom?.code || item.baseUom?.name || 'PCS',
-        currentFgStock: stock.onHand,
-        physicalStock: stock.onHand,
-        onHand: stock.onHand,
-        reservedStock: stock.reserved,
-        reserved: stock.reserved,
-        availableStock: stock.available,
-        available: stock.available,
+        uom: salesUomCode,
+        salesUom: salesUomCode,
+        baseUom: baseUomCode,
+        baseQuantity: stock.available,
+        currentFgStock: onHand,
+        physicalStock: onHand,
+        onHand,
+        reservedStock: reserved,
+        reserved,
+        availableStock: available,
+        available,
         openSalesOrderQuantity,
         demand: openSalesOrderQuantity,
         safetyStock,

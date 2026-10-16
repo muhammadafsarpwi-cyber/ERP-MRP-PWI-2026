@@ -593,6 +593,7 @@ export class ItemService implements OnModuleInit {
       this.logger.warn(`Failed to create centralized barcode for item ${saved.id}: ${err}`);
     }
 
+    this.invalidateLookupCache();
     return saved;
   }
 
@@ -684,12 +685,22 @@ export class ItemService implements OnModuleInit {
           i.packaging_type AS "packagingType",
           i.packaging_size AS "packagingSize",
           i.packaging_unit AS "packagingUnit",
+          i.purchase_uom_id AS "purchaseUomId",
+          i.sales_uom_id AS "salesUomId",
+          u.code AS "baseUomCode",
+          u.symbol AS "baseUomSymbol",
+          su.code AS "salesUomCode",
+          su.symbol AS "salesUomSymbol",
+          pu.code AS "purchaseUomCode",
+          pu.symbol AS "purchaseUomSymbol",
           i.production_in_item_id AS "productionInItemId",
           i.production_in_item_id_2 AS "productionInItemId2",
           i.production_in_item_id_3 AS "productionInItemId3",
           i.production_out_item_id AS "productionOutItemId"
         FROM items i
         LEFT JOIN uoms u ON u.id = i.base_uom_id
+        LEFT JOIN uoms su ON su.id = i.sales_uom_id
+        LEFT JOIN uoms pu ON pu.id = i.purchase_uom_id
         WHERE i.status = 'ACTIVE'
       `;
       const params: any[] = [];
@@ -712,7 +723,9 @@ export class ItemService implements OnModuleInit {
       const rows = await this.itemRepository.query(sql, params);
       const result = (rows || []).map((r: any) => ({
         ...r,
-        baseUom: r.baseUomCode ? { code: r.baseUomCode, symbol: r.baseUomSymbol } : undefined,
+        baseUom: r.baseUomCode ? { id: r.baseUomId, code: r.baseUomCode, symbol: r.baseUomSymbol } : undefined,
+        salesUom: r.salesUomCode ? { id: r.salesUomId, code: r.salesUomCode, symbol: r.salesUomSymbol } : undefined,
+        purchaseUom: r.purchaseUomCode ? { id: r.purchaseUomId, code: r.purchaseUomCode, symbol: r.purchaseUomSymbol } : undefined,
       }));
 
       if (!departmentId && !allowedDivisionIds && resolvedTypes.length === 0) {
@@ -736,10 +749,14 @@ export class ItemService implements OnModuleInit {
     if (limit > 200) {
       qb.leftJoinAndSelect('item.category', 'category')
         .leftJoinAndSelect('item.baseUom', 'baseUom')
+        .leftJoinAndSelect('item.salesUom', 'salesUom')
+        .leftJoinAndSelect('item.purchaseUom', 'purchaseUom')
         .leftJoinAndSelect('item.department', 'department');
     } else {
       qb.leftJoinAndSelect('item.category', 'category')
         .leftJoinAndSelect('item.baseUom', 'baseUom')
+        .leftJoinAndSelect('item.salesUom', 'salesUom')
+        .leftJoinAndSelect('item.purchaseUom', 'purchaseUom')
         .leftJoinAndSelect('item.company', 'company')
         .leftJoinAndSelect('item.division', 'division')
         .leftJoinAndSelect('item.section', 'section')
@@ -1093,6 +1110,7 @@ export class ItemService implements OnModuleInit {
 
     await this.itemRepository.update(id, scalarUpdate);
 
+    this.invalidateLookupCache();
     // Fresh read from the database so the returned object reflects the new state.
     return this.findOne(id);
   }

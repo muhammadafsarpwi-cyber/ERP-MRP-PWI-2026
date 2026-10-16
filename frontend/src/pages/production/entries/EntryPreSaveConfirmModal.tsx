@@ -8,10 +8,17 @@ import {
   AppstoreOutlined,
   CalendarOutlined,
   ArrowRightOutlined,
+  EditOutlined,
 } from '@ant-design/icons';
 import { formatNumber } from '../../../utils/numberFormat';
 
 const { Text, Title } = Typography;
+
+export interface EditedFieldDiff {
+  label: string;
+  oldValue: string | number;
+  newValue: string | number;
+}
 
 export interface EntryPreSaveSummary {
   mode: 'create' | 'edit';
@@ -30,6 +37,7 @@ export interface EntryPreSaveSummary {
   shiftName?: string;
   machineName?: string;
   entryDate?: string;
+  changes?: EditedFieldDiff[];
 }
 
 export interface EntryPreSaveConfirmModalProps {
@@ -85,10 +93,10 @@ export const EntryPreSaveConfirmModal: React.FC<EntryPreSaveConfirmModalProps> =
             <ExclamationCircleOutlined />
           </div>
           <div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--theme-text, #f8fafc)', lineHeight: 1.2 }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: '#0f172a', lineHeight: 1.2 }}>
               {title}
             </div>
-            <div style={{ fontSize: 12, color: 'var(--theme-text-muted, #94a3b8)', marginTop: 2 }}>
+            <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
               Please verify the material flow, warehouses, and production counts before saving.
             </div>
           </div>
@@ -102,7 +110,7 @@ export const EntryPreSaveConfirmModal: React.FC<EntryPreSaveConfirmModalProps> =
             justifyContent: 'flex-end',
             gap: 10,
             paddingTop: 12,
-            borderTop: '1px solid var(--theme-border, rgba(148, 163, 184, 0.2))',
+            borderTop: '1px solid #e2e8f0',
           }}
         >
           <Button onClick={onCancel} disabled={loading} size="middle">
@@ -126,29 +134,88 @@ export const EntryPreSaveConfirmModal: React.FC<EntryPreSaveConfirmModalProps> =
       }
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '12px 0 4px' }}>
+        {/* If Edit Mode: Modified Fields Diff Section */}
+        {isEdit && (
+          <div
+            style={{
+              background: (summary.changes && summary.changes.length > 0) ? '#fffbeb' : '#f0f9ff',
+              border: `1px solid ${(summary.changes && summary.changes.length > 0) ? '#fde68a' : '#bae6fd'}`,
+              borderRadius: 8,
+              padding: '12px 14px',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: (summary.changes && summary.changes.length > 0) ? '#b45309' : '#0369a1', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <EditOutlined /> Modified Fields Summary
+              </span>
+              <Tag color={summary.changes && summary.changes.length > 0 ? 'warning' : 'blue'} style={{ margin: 0, fontWeight: 700 }}>
+                {summary.changes ? `${summary.changes.length} Field(s) Changed` : '0 Changes'}
+              </Tag>
+            </div>
+
+            {summary.changes && summary.changes.length > 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {summary.changes.map((ch, idx) => (
+                  <div
+                    key={idx}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      background: '#ffffff',
+                      border: '1px solid #e2e8f0',
+                      padding: '7px 12px',
+                      borderRadius: 6,
+                      fontSize: 12.5,
+                      boxShadow: '0 1px 2px rgba(0,0,0,0.03)',
+                    }}
+                  >
+                    <span style={{ fontWeight: 600, color: '#334155' }}>
+                      {ch.label}:
+                    </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <span style={{ textDecoration: 'line-through', color: '#ef4444', fontWeight: 600 }}>
+                        {String(ch.oldValue)}
+                      </span>
+                      <ArrowRightOutlined style={{ fontSize: 11, color: '#94a3b8' }} />
+                      <span style={{ color: '#16a34a', fontWeight: 800, background: '#f0fdf4', padding: '2px 8px', borderRadius: 4, border: '1px solid #bbf7d0' }}>
+                        {String(ch.newValue)}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={{ fontSize: 12, color: '#64748b', fontStyle: 'italic', padding: '4px 0' }}>
+                No fields changed from original entry — confirming current values.
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Card 1: Product / Item */}
         <div
           style={{
-            background: 'var(--theme-surface-alt, #1e293b)',
-            border: '1px solid var(--theme-border, rgba(148, 163, 184, 0.25))',
+            background: '#f8fafc',
+            border: '1px solid #e2e8f0',
             borderRadius: 8,
             padding: '10px 14px',
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-            <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: '#38bdf8', letterSpacing: '0.5px' }}>
+            <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: '#0284c7', letterSpacing: '0.5px' }}>
               <AppstoreOutlined style={{ marginRight: 5 }} /> Manufactured Product
             </span>
             {summary.wireSizeMm ? (
-              <Tag color="cyan" style={{ fontSize: 11, fontWeight: 600, margin: 0 }}>
+              <Tag color="cyan" style={{ fontSize: 11, fontWeight: 700, margin: 0 }}>
                 Wire Size: {summary.wireSizeMm} mm
               </Tag>
             ) : null}
           </div>
-          <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--theme-text, #f8fafc)' }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: '#0f172a' }}>
             {summary.itemName || 'Production Item'}
             {summary.itemCode ? (
-              <span style={{ fontWeight: 500, color: 'var(--theme-text-muted, #94a3b8)', marginLeft: 6 }}>
+              <span style={{ fontWeight: 500, color: '#64748b', marginLeft: 6 }}>
                 ({summary.itemCode})
               </span>
             ) : null}
@@ -158,42 +225,42 @@ export const EntryPreSaveConfirmModal: React.FC<EntryPreSaveConfirmModalProps> =
         {/* Card 2: Material Flow (Warehouses IN & OUT) */}
         <div
           style={{
-            background: 'var(--theme-surface-alt, #1e293b)',
-            border: '1px solid var(--theme-border, rgba(148, 163, 184, 0.25))',
+            background: '#f8fafc',
+            border: '1px solid #e2e8f0',
             borderRadius: 8,
             padding: '12px 14px',
           }}
         >
-          <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: '#10b981', letterSpacing: '0.5px', marginBottom: 8 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: '#059669', letterSpacing: '0.5px', marginBottom: 8 }}>
             <ShopOutlined style={{ marginRight: 5 }} /> Warehouse & Material Flow Verification
           </div>
 
           <Row gutter={[12, 12]} align="middle">
             <Col xs={24} sm={11}>
-              <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', marginBottom: 2 }}>
-                <span style={{ background: 'rgba(34, 197, 94, 0.15)', color: '#22c55e', padding: '1px 5px', borderRadius: 4, fontWeight: 800, marginRight: 6 }}>
+              <div style={{ fontSize: 11, color: '#64748b', marginBottom: 2 }}>
+                <span style={{ background: 'rgba(34, 197, 94, 0.15)', color: '#16a34a', padding: '1px 5px', borderRadius: 4, fontWeight: 800, marginRight: 6 }}>
                   IN
                 </span>
                 Source Raw Material Store:
               </div>
-              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--theme-text, #f8fafc)' }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>
                 {summary.rawMaterialWarehouseName || 'Raw Material Store'}
                 {summary.rawMaterialWarehouseCode ? ` (${summary.rawMaterialWarehouseCode})` : ''}
               </div>
             </Col>
 
             <Col xs={24} sm={2} style={{ textAlign: 'center' }}>
-              <ArrowRightOutlined style={{ color: 'var(--theme-text-muted, #94a3b8)', fontSize: 14 }} />
+              <ArrowRightOutlined style={{ color: '#94a3b8', fontSize: 14 }} />
             </Col>
 
             <Col xs={24} sm={11}>
-              <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', marginBottom: 2 }}>
-                <span style={{ background: 'rgba(6, 182, 212, 0.15)', color: '#06b6d4', padding: '1px 5px', borderRadius: 4, fontWeight: 800, marginRight: 6 }}>
+              <div style={{ fontSize: 11, color: '#64748b', marginBottom: 2 }}>
+                <span style={{ background: 'rgba(6, 182, 212, 0.15)', color: '#0891b2', padding: '1px 5px', borderRadius: 4, fontWeight: 800, marginRight: 6 }}>
                   OUT
                 </span>
                 Destination Receipt Store:
               </div>
-              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--theme-text, #f8fafc)' }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>
                 {summary.receiptWarehouseName || 'Finished Goods Store'}
                 {summary.receiptWarehouseCode ? ` (${summary.receiptWarehouseCode})` : ''}
               </div>
@@ -206,28 +273,28 @@ export const EntryPreSaveConfirmModal: React.FC<EntryPreSaveConfirmModalProps> =
           <Col xs={24} sm={12}>
             <div
               style={{
-                background: 'var(--theme-surface-alt, #1e293b)',
-                border: '1px solid var(--theme-border, rgba(148, 163, 184, 0.25))',
+                background: '#f8fafc',
+                border: '1px solid #e2e8f0',
                 borderRadius: 8,
                 padding: '10px 14px',
                 height: '100%',
               }}
             >
-              <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: 'var(--theme-text-muted, #94a3b8)', marginBottom: 6 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: '#64748b', marginBottom: 6 }}>
                 Production Output Figures
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
-                <span style={{ fontSize: 12, color: 'var(--theme-text-muted, #94a3b8)' }}>Good Production:</span>
-                <span style={{ fontSize: 16, fontWeight: 800, color: '#38bdf8' }}>
+                <span style={{ fontSize: 12, color: '#64748b' }}>Good Production:</span>
+                <span style={{ fontSize: 16, fontWeight: 800, color: '#0284c7' }}>
                   {formatNumber(summary.actualQuantity, 0)} <span style={{ fontSize: 12, fontWeight: 600 }}>{summary.uomCode || 'PCS'}</span>
                 </span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: (summary.processScrapKg ?? 0) > 0 ? 4 : 0 }}>
-                <span style={{ fontSize: 12, color: 'var(--theme-text-muted, #94a3b8)' }}>Product Rejection:</span>
-                <span style={{ fontSize: 14, fontWeight: 700, color: summary.scrapQuantityKg > 0 ? '#f87171' : 'var(--theme-text-muted, #94a3b8)' }}>
+                <span style={{ fontSize: 12, color: '#64748b' }}>Product Rejection:</span>
+                <span style={{ fontSize: 14, fontWeight: 700, color: summary.scrapQuantityKg > 0 ? '#ef4444' : '#64748b' }}>
                   {formatNumber(summary.scrapQuantityKg, 2)} <span style={{ fontSize: 11, fontWeight: 600 }}>KG</span>
                   {summary.scrapQuantityPcs ? (
-                    <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #94a3b8)', marginLeft: 6 }}>
+                    <span style={{ fontSize: 11, fontWeight: 600, color: '#64748b', marginLeft: 6 }}>
                       ({formatNumber(summary.scrapQuantityPcs, 0)} PCS)
                     </span>
                   ) : null}
@@ -235,8 +302,8 @@ export const EntryPreSaveConfirmModal: React.FC<EntryPreSaveConfirmModalProps> =
               </div>
               {(summary.processScrapKg ?? 0) > 0 && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                  <span style={{ fontSize: 12, color: 'var(--theme-text-muted, #94a3b8)' }}>Process Cutting Scrap:</span>
-                  <span style={{ fontSize: 14, fontWeight: 700, color: '#f59e0b' }}>
+                  <span style={{ fontSize: 12, color: '#64748b' }}>Process Cutting Scrap:</span>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: '#d97706' }}>
                     {formatNumber(summary.processScrapKg, 2)} <span style={{ fontSize: 11, fontWeight: 600 }}>KG</span>
                   </span>
                 </div>
@@ -247,31 +314,31 @@ export const EntryPreSaveConfirmModal: React.FC<EntryPreSaveConfirmModalProps> =
           <Col xs={24} sm={12}>
             <div
               style={{
-                background: 'var(--theme-surface-alt, #1e293b)',
-                border: '1px solid var(--theme-border, rgba(148, 163, 184, 0.25))',
+                background: '#f8fafc',
+                border: '1px solid #e2e8f0',
                 borderRadius: 8,
                 padding: '10px 14px',
                 height: '100%',
               }}
             >
-              <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: 'var(--theme-text-muted, #94a3b8)', marginBottom: 6 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: '#64748b', marginBottom: 6 }}>
                 <CalendarOutlined style={{ marginRight: 5 }} /> Context & Shift
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                <span style={{ fontSize: 12, color: 'var(--theme-text-muted, #94a3b8)' }}>Date:</span>
-                <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--theme-text, #f8fafc)' }}>
+                <span style={{ fontSize: 12, color: '#64748b' }}>Date:</span>
+                <span style={{ fontSize: 12.5, fontWeight: 600, color: '#0f172a' }}>
                   {summary.entryDate || 'Today'}
                 </span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                <span style={{ fontSize: 12, color: 'var(--theme-text-muted, #94a3b8)' }}>Shift:</span>
-                <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--theme-text, #f8fafc)' }}>
+                <span style={{ fontSize: 12, color: '#64748b' }}>Shift:</span>
+                <span style={{ fontSize: 12.5, fontWeight: 600, color: '#0f172a' }}>
                   {summary.shiftName || 'General Shift'}
                 </span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ fontSize: 12, color: 'var(--theme-text-muted, #94a3b8)' }}>Machine:</span>
-                <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--theme-text, #f8fafc)' }}>
+                <span style={{ fontSize: 12, color: '#64748b' }}>Machine:</span>
+                <span style={{ fontSize: 12.5, fontWeight: 600, color: '#0f172a' }}>
                   {summary.machineName || 'Unassigned'}
                 </span>
               </div>

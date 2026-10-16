@@ -5,12 +5,12 @@
 .erp-save-result-modal-wrap,
 .erp-save-result-modal-wrap .ant-modal-wrap,
 div.ant-modal-wrap.erp-save-result-modal-wrap {
-  z-index: 3500 !important;
+  z-index: 100000 !important;
 }
 
 .erp-save-result-modal-wrap .ant-modal-mask,
 div.ant-modal-mask.erp-save-result-modal-wrap {
-  z-index: 3499 !important;
+  z-index: 99999 !important;
 }
 
 .erp-save-result-loading,

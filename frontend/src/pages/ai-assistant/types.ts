@@ -109,7 +109,11 @@ export type AiColumn = {
   title: string;
   dataIndex: string;
   key: string;
-  render?: (v: any, r?: any, i?: number) => React.ReactNode;
+  width?: number | string;
+  align?: 'left' | 'center' | 'right';
+  fixed?: 'left' | 'right';
+  ellipsis?: boolean;
+  render?: (v: any, r?: any, i?: any) => React.ReactNode;
 };
 
 export interface NormalizedReportResult {

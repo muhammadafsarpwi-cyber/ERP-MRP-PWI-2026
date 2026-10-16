@@ -17,21 +17,22 @@ export function toNum(value: unknown, fallback: number = 0): number {
 }
 
 /**
- * Format a numeric value to a fixed number of decimal places.
+ * Format a numeric value to a fixed number of decimal places with thousand separators.
  * Safe for string, number, null, undefined inputs.
  *
- *   formatDecimal("123.456789")        → "123.46"
- *   formatDecimal(42, 0)               → "42"
- *   formatDecimal(null)                → "0.00"
- *   formatDecimal("not-a-number", 2)   → "0.00"
+ *   formatDecimal("1234567.89")        → "1,234,567.89"
+ *   formatDecimal(4375, 0)             → "4,375"
+ *   formatDecimal(4492260, 2)          → "4,492,260"
+ *   formatDecimal(null)                → "0"
  */
 export function formatDecimal(value: unknown, decimals: number = 2): string {
   const n = toNum(value);
-  if (decimals === 0) return Math.round(n).toString();
-  const formatted = n.toFixed(decimals);
-  if (!formatted.includes('.')) return formatted;
-  const trimmed = formatted.replace(/\.?0+$/, '');
-  return trimmed === '-0' ? '0' : trimmed;
+  if (decimals === 0) return Math.round(n).toLocaleString('en-US');
+  const formatted = n.toLocaleString('en-US', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: decimals,
+  });
+  return formatted === '-0' ? '0' : formatted;
 }
 
 /**
@@ -73,3 +74,13 @@ export function formatDimension(value: unknown): string {
   const n = Number(value);
   return Number.isFinite(n) ? n.toFixed(2) : '\u2014';
 }
+
+/**
+ * Format a quantity value for display / printing.
+ * Whole numbers show no decimal point or zeros (e.g. 40000.0000 -> "40000").
+ * Fractional quantities show up to `decimals` places with trailing zeros stripped (e.g. 40.5000 -> "40.5").
+ */
+export function formatQty(value: unknown, decimals: number = 4): string {
+  return formatDecimal(value, decimals);
+}
+

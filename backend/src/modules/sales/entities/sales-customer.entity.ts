@@ -59,6 +59,9 @@ export class SalesCustomer {
   @Column({ name: 'customer_type', type: 'varchar', length: 20, default: 'B2B' })
   customerType: string;
 
+  @Column({ name: 'division_id', type: 'uuid', nullable: true })
+  divisionId?: string | null;
+
   @Column({ type: 'varchar', length: 20, default: 'Active' })
   status: string;
 

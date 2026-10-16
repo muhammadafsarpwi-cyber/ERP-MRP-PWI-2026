@@ -53,6 +53,9 @@ export interface ERPLineItemsProps {
   currency?: string;
   showAvailability?: boolean;
   availableSalesOrders?: Array<{ id: string; orderNumber: string; customerPo?: string }>;
+  context?: 'sales' | 'purchase' | 'inventory';
+  customerId?: string;
+  orderId?: string;
 }
 
 export interface ItemAvailabilityInfo {
@@ -77,7 +80,11 @@ interface ItemOption {
   uomId?: string;
   baseUomId?: string;
   uomCode?: string;
-  baseUom?: { code: string; symbol?: string };
+  baseUom?: { id?: string; code: string; symbol?: string; name?: string };
+  salesUomId?: string;
+  salesUom?: { id?: string; code: string; symbol?: string; name?: string };
+  purchaseUomId?: string;
+  purchaseUom?: { id?: string; code: string; symbol?: string; name?: string };
   costPrice?: number;
   sellingPrice?: number;
   packagingType?: string | null;
@@ -133,7 +140,20 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
   isPurchasable,
   currency = 'PKR',
   showAvailability = true,
+  availableSalesOrders,
+  context,
+  customerId,
+  orderId,
 }) => {
+  const isSalesContext = context === 'sales' ||
+    Boolean(label && (/sales|order|quotation|delivery|dispatch|soc/i.test(label))) ||
+    defaultItemType === 'FINISHED_GOOD' ||
+    Boolean(availableSalesOrders && availableSalesOrders.length > 0);
+
+  const isPurchaseContext = context === 'purchase' ||
+    Boolean(label && (/purchase|rfq|requisition|receipt|return/i.test(label))) ||
+    Boolean(isPurchasable);
+
   const [itemOptions, setItemOptions] = useState<ItemOption[]>([]);
   const [searchText, setSearchText] = useState('');
   const [selectedItemType, setSelectedItemType] = useState<string>(
@@ -164,7 +184,11 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
           try {
             const res = await apiService.get<any>(
               `/sales/finished-goods/item-availability/${line.itemId}`,
-              { orderQuantity: line.quantity || 1 }
+              { 
+                orderQuantity: line.quantity || 1,
+                customerId: customerId || undefined,
+                orderId: orderId || undefined,
+              }
             );
             if (res?.data && active) {
               updates[line.id] = {
@@ -195,7 +219,7 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
     return () => {
       active = false;
     };
-  }, [value, showAvailability]);
+  }, [value, showAvailability, customerId, orderId]);
 
   const loadItems = useCallback(async (search?: string) => {
     if (!companyId) return;
@@ -271,7 +295,27 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
   const selectItem = (id: string, itemId: string) => {
     const item = itemOptions.find((o) => o.id === itemId);
     if (!item) return;
-    const uomStr = item.baseUom?.code || item.uomCode || (typeof (item as any).uom === 'string' ? (item as any).uom : null) || 'M';
+
+    // Resolve transaction UOM based on commercial context:
+    // 1. In Sales context: use Sales UOM (e.g. Gross / GRS) if configured on item
+    // 2. In Purchase context: use Purchase UOM if configured
+    // 3. Fallback to Base UOM (e.g. PCS, Meters, KG)
+    let selectedUomObj = item.baseUom;
+    let selectedUomId = item.baseUomId || item.uomId;
+
+    if (isSalesContext && (item.salesUom || item.salesUomId)) {
+      selectedUomObj = item.salesUom;
+      selectedUomId = item.salesUomId || item.salesUom?.id || item.baseUomId;
+    } else if (isPurchaseContext && (item.purchaseUom || item.purchaseUomId)) {
+      selectedUomObj = item.purchaseUom;
+      selectedUomId = item.purchaseUomId || item.purchaseUom?.id || item.baseUomId;
+    }
+
+    const uomStr = (isSalesContext && (item.salesUom?.code || (item.salesUomId ? 'GRS' : null)))
+      || selectedUomObj?.code
+      || item.uomCode
+      || (typeof (item as any).uom === 'string' ? (item as any).uom : null)
+      || 'PCS';
     const pSize = item.packagingSize ? Number(item.packagingSize) : undefined;
     const pUnit = item.packagingUnit || (item.packagingType ? item.packagingType.toLowerCase() : undefined);
 
@@ -286,7 +330,7 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
       itemId: item.id,
       itemCode: item.itemCode,
       itemName: item.name,
-      uomId: item.baseUomId || item.uomId,
+      uomId: selectedUomId,
       uomCode: uomStr,
       packagingType: item.packagingType || undefined,
       packagingSize: pSize,
@@ -402,7 +446,7 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
       const opt = itemOptions.find((o) => o.id === l.itemId);
       const pSize = l.packagingSize ?? (opt?.packagingSize ? Number(opt.packagingSize) : 0);
       const pUnit = l.packagingUnit ?? opt?.packagingUnit ?? (opt?.packagingType ? opt.packagingType.toLowerCase() : 'Coil');
-      const uomStr = l.uomCode || opt?.baseUom?.code || opt?.uomCode || 'M';
+      const uomStr = (isSalesContext && (opt?.salesUom?.code || (opt?.salesUomId && 'GRS'))) || (isPurchaseContext && opt?.purchaseUom?.code) || l.uomCode || opt?.baseUom?.code || opt?.uomCode || 'PCS';
 
       const qty = Number(l.quantity || 0);
       const pkgQty = l.packageQuantity !== undefined
@@ -473,11 +517,17 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
 
             {/* Packaging Conversion Info Badge, SOC Tag & Order Quantity */}
             <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-              {pSize && pSize > 0 ? (
-                <Tag color="cyan" style={{ fontSize: 10.5, fontWeight: 700, margin: 0, padding: '1px 6px', borderRadius: 4 }}>
-                  📦 1 {pUnit} = {pSize.toLocaleString()} {record.uomCode || 'M'}
-                </Tag>
-              ) : null}
+              {pSize && pSize > 0 ? (() => {
+                const effectiveUomCode = (isSalesContext && (opt?.salesUom?.code || (opt?.salesUomId && 'GRS'))) || record.uomCode || opt?.baseUom?.code || 'M';
+                const isGross = effectiveUomCode.toUpperCase().includes('GR');
+                const pcsEquivalent = isGross ? pSize * 144 : null;
+                return (
+                  <Tag color="cyan" style={{ fontSize: 10.5, fontWeight: 700, margin: 0, padding: '1px 6px', borderRadius: 4 }}>
+                    📦 1 {pUnit} = {pSize.toLocaleString()} {effectiveUomCode}
+                    {pcsEquivalent ? ` (= ${pcsEquivalent.toLocaleString()} PCS)` : ''}
+                  </Tag>
+                );
+              })() : null}
 
               {record.salesOrderNumber && (
                 <Tag color="geekblue" style={{ fontSize: 10.5, fontWeight: 700, margin: 0, padding: '1px 6px', borderRadius: 4 }}>
@@ -556,7 +606,7 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
     {
       title: 'Pkg / Coils',
       key: 'packageQuantity',
-      width: 140,
+      width: 175,
       render: (_, record) => {
         const opt = itemOptions.find((o) => o.id === record.itemId);
         const pSize = record.packagingSize ?? (opt?.packagingSize ? Number(opt.packagingSize) : undefined);
@@ -577,6 +627,7 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
         return (
           <div>
             <InputNumber
+              controls={false}
               min={0}
               step={1}
               value={currentPkgQty === 0 || currentPkgQty === undefined ? null : currentPkgQty}
@@ -587,16 +638,19 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
               addonAfter={<span style={{ fontSize: 11, fontWeight: 600 }}>{pUnit || 'Coil'}</span>}
               style={{
                 width: '100%',
+                minWidth: 125,
                 borderColor: isPkgExcess ? '#ef4444' : undefined,
               }}
               onChange={(val) => {
                 const pkgQty = Number(val || 0);
                 const baseQty = pkgQty * pSize;
+                const effectiveUom = (isSalesContext && (opt?.salesUom?.code || (opt?.salesUomId && 'GRS'))) || record.uomCode || (isPurchaseContext && opt?.purchaseUom?.code) || opt?.baseUom?.code || 'M';
                 updateLine(record.id, {
                   packageQuantity: pkgQty,
                   quantity: baseQty,
                   packagingSize: pSize,
                   packagingUnit: pUnit,
+                  uomCode: effectiveUom,
                 });
               }}
             />
@@ -630,7 +684,7 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
     {
       title: 'Qty',
       key: 'qty',
-      width: 155,
+      width: 180,
       render: (_, record) => {
         const opt = itemOptions.find((o) => o.id === record.itemId);
         const pSize = record.packagingSize ?? (opt?.packagingSize ? Number(opt.packagingSize) : undefined);
@@ -640,20 +694,22 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
         const isExcess = hasOrderLimit && currentQty > orderBal;
         const isFullBalance = hasOrderLimit && currentQty === orderBal && orderBal > 0;
         const isPartial = hasOrderLimit && currentQty < orderBal && currentQty > 0;
-        const uomText = record.uomCode || (record as any).uom || opt?.baseUom?.code || 'M';
+        const effectiveUom = (isSalesContext && (opt?.salesUom?.code || (opt?.salesUomId && 'GRS'))) || record.uomCode || (isPurchaseContext && opt?.purchaseUom?.code) || opt?.baseUom?.code || 'M';
 
         return (
           <div>
             <InputNumber
+              controls={false}
               min={0}
               value={record.quantity === 0 || record.quantity === undefined ? null : record.quantity}
               disabled={disabled}
               placeholder="0"
               status={isExcess ? 'error' : undefined}
               onFocus={(e) => (e.target as HTMLInputElement)?.select?.()}
-              addonAfter={<span style={{ fontSize: 11, fontWeight: 600 }}>{uomText}</span>}
+              addonAfter={<span style={{ fontSize: 11, fontWeight: 600 }}>{effectiveUom}</span>}
               style={{
                 width: '100%',
+                minWidth: 130,
                 borderColor: isExcess ? '#ef4444' : undefined,
                 boxShadow: isExcess ? '0 0 0 2px rgba(239, 68, 68, 0.2)' : undefined,
               }}
@@ -730,15 +786,16 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
     {
       title: `Rate (${currency})`,
       key: 'rate',
-      width: 125,
+      width: 140,
       render: (_, record) => (
         <InputNumber
+          controls={false}
           min={0}
           value={record.rate === 0 || record.rate === undefined ? null : record.rate}
           disabled={disabled}
           onFocus={(e) => (e.target as HTMLInputElement)?.select?.()}
           onChange={(v) => updateLine(record.id, { rate: Number(v || 0) })}
-          style={{ width: '100%' }}
+          style={{ width: '100%', minWidth: 100 }}
           placeholder="0"
         />
       ),
@@ -746,16 +803,17 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
     ...(showDiscount ? [{
       title: 'Disc %',
       key: 'disc',
-      width: 90,
+      width: 100,
       render: (_: unknown, record: ERPLine) => (
         <InputNumber
+          controls={false}
           min={0}
           max={100}
           value={record.discountPercent === 0 || record.discountPercent === undefined ? null : record.discountPercent}
           disabled={disabled}
           onFocus={(e) => (e.target as HTMLInputElement)?.select?.()}
           onChange={(v) => updateLine(record.id, { discountPercent: Number(v || 0) })}
-          style={{ width: '100%' }}
+          style={{ width: '100%', minWidth: 75 }}
           placeholder="0"
         />
       ),
@@ -763,9 +821,10 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
     ...(showTax ? [{
       title: 'Tax %',
       key: 'tax',
-      width: 100,
+      width: 110,
       render: (_: unknown, record: ERPLine) => (
         <InputNumber
+          controls={false}
           min={0}
           max={100}
           value={record.taxPercent === 0 || record.taxPercent === undefined ? null : record.taxPercent}
@@ -774,7 +833,7 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
           addonAfter="%"
           onFocus={(e) => (e.target as HTMLInputElement)?.select?.()}
           onChange={(v) => updateLine(record.id, { taxPercent: Number(v ?? 18) })}
-          style={{ width: '100%' }}
+          style={{ width: '100%', minWidth: 85 }}
         />
       ),
     }] : []),
@@ -980,10 +1039,17 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
           )}
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Typography.Text type="secondary" style={{ fontSize: 13 }}>Total Qty ({totals.baseUom || 'Meters'})</Typography.Text>
-            <Typography.Text strong style={{ fontSize: 13 }}>
-              {totals.quantity.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} {totals.baseUom || 'M'}
-            </Typography.Text>
+            <Typography.Text type="secondary" style={{ fontSize: 13 }}>Total Qty ({totals.baseUom || 'Units'})</Typography.Text>
+            <div style={{ textAlign: 'right' }}>
+              <Typography.Text strong style={{ fontSize: 13 }}>
+                {totals.quantity.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} {totals.baseUom || ''}
+              </Typography.Text>
+              {totals.baseUom && totals.baseUom.toUpperCase().includes('GR') && (
+                <div style={{ fontSize: 11, color: '#10b981', fontWeight: 700 }}>
+                  (= {(totals.quantity * 144).toLocaleString()} PCS)
+                </div>
+              )}
+            </div>
           </div>
 
           <div style={{ borderTop: '1px solid var(--inv-card-border, #cbd5e1)', margin: '4px 0' }} />

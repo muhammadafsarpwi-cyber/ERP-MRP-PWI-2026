@@ -894,6 +894,8 @@ const ItemManagement: React.FC = () => {
   const watchedSectionId = Form.useWatch('sectionId', form);
   const watchedCategoryId = Form.useWatch('categoryId', form);
   const watchedBaseUomId = Form.useWatch('baseUomId', form);
+  const watchedPurchaseUomId = Form.useWatch('purchaseUomId', form);
+  const watchedSalesUomId = Form.useWatch('salesUomId', form);
   const watchedCostPrice = Form.useWatch('costPrice', form);
   const watchedSellingPrice = Form.useWatch('sellingPrice', form);
   const watchedSku = Form.useWatch('sku', form);
@@ -5603,29 +5605,40 @@ const ItemManagement: React.FC = () => {
               <Form.Item
                 name="packagingSize"
                 label="Packaging Size (Conversion Ratio)"
-                extra="How many base units per package (e.g. 500 Meters per Coil, 144 Pcs per Gross, 10 Gross per Box)"
+                extra="How many sales/base units per package (e.g. 10 Gross per Carton, 144 Pcs per Gross, 500 Meters per Coil)"
               >
                 <InputNumber
                   style={{ width: '100%' }}
                   min={0.001}
                   step={1}
-                  placeholder="e.g. 500 (Meters/Coil) or 144 (Pcs/Gross)"
+                  placeholder="e.g. 10 (Gross/Carton) or 500 (Meters/Coil)"
                 />
               </Form.Item>
             </div>
-            {watchedPackagingSize ? (
-              <div style={{ marginTop: 8, padding: '8px 12px', background: 'rgba(82, 196, 26, 0.08)', borderRadius: 6, border: '1px solid rgba(82, 196, 26, 0.2)' }}>
-                <Space wrap size="small">
-                  <Tag color="green">Conversion Active</Tag>
-                  <Typography.Text strong>
-                    1 {watchedPackagingUnit || watchedPackagingType || 'Package'} = {Number(watchedPackagingSize).toLocaleString()} {(uoms.find((u) => u.id === watchedBaseUomId) as any)?.symbol || uoms.find((u) => u.id === watchedBaseUomId)?.code || uoms.find((u) => u.id === watchedBaseUomId)?.name || 'Units'}
-                  </Typography.Text>
-                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                    (Entering 20 {watchedPackagingUnit || 'Packages'} in orders/deliveries will auto-calculate {(20 * Number(watchedPackagingSize)).toLocaleString()} units)
-                  </Typography.Text>
-                </Space>
-              </div>
-            ) : null}
+            {watchedPackagingSize ? (() => {
+              const baseUomObj = uoms.find((u) => u.id === watchedBaseUomId);
+              const salesUomObj = uoms.find((u) => u.id === watchedSalesUomId);
+              const targetUomObj = salesUomObj || baseUomObj;
+              const targetUomCode = targetUomObj?.code || (targetUomObj as any)?.symbol || targetUomObj?.name || 'Units';
+              const isGrossTarget = targetUomCode.toUpperCase().includes('GR') || targetUomCode.toUpperCase().includes('GROSS');
+              const isBasePcs = (baseUomObj?.code || '').toUpperCase().includes('PC');
+              const pcsPerPkg = isGrossTarget && isBasePcs ? Number(watchedPackagingSize) * 144 : null;
+
+              return (
+                <div style={{ marginTop: 8, padding: '8px 12px', background: 'rgba(82, 196, 26, 0.08)', borderRadius: 6, border: '1px solid rgba(82, 196, 26, 0.2)' }}>
+                  <Space wrap size="small">
+                    <Tag color="green">Conversion Active</Tag>
+                    <Typography.Text strong>
+                      1 {watchedPackagingUnit || watchedPackagingType || 'Package'} = {Number(watchedPackagingSize).toLocaleString()} {targetUomCode}
+                      {pcsPerPkg ? ` (= ${pcsPerPkg.toLocaleString()} PCS)` : ''}
+                    </Typography.Text>
+                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                      (Entering 20 {watchedPackagingUnit || 'Packages'} in orders/deliveries will auto-calculate {(20 * Number(watchedPackagingSize)).toLocaleString()} {targetUomCode}{pcsPerPkg ? ` / ${(20 * pcsPerPkg).toLocaleString()} PCS` : ''})
+                    </Typography.Text>
+                  </Space>
+                </div>
+              );
+            })() : null}
           </Card>
 
           {/* SECTION 5D — TASK #45: PRODUCTION FLOW

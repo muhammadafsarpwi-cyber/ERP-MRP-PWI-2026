@@ -57,14 +57,55 @@ export class SalesOrderService {
     if (dto.divisionId) {
       assertDivisionInScope(dto.divisionId, allowedDivisionIds);
     }
-    const customer = await this.customerRepo.findOne({
+    let customer = await this.customerRepo.findOne({
       where: { id: dto.customerId, companyId: dto.companyId },
     });
+    if (!customer) {
+      customer = await this.customerRepo.findOne({ where: { id: dto.customerId } });
+    }
+    if (!customer) {
+      // Check public.customers and auto-replicate if present
+      const pubCust = await this.repo.manager.query(
+        'SELECT * FROM public.customers WHERE id = $1',
+        [dto.customerId],
+      );
+      if (pubCust && pubCust.length > 0) {
+        const pc = pubCust[0];
+        customer = this.customerRepo.create({
+          id: pc.id,
+          companyId: pc.company_id || dto.companyId,
+          customerCode: pc.customer_code,
+          companyName: pc.name,
+          contactPerson: pc.contact_person,
+          email: pc.email,
+          phone: pc.phone,
+          divisionId: pc.division_id,
+          status: pc.status || 'Active',
+          isActive: pc.is_active !== false,
+          currency: 'PKR',
+        });
+        await this.customerRepo.save(customer);
+      }
+    }
     if (!customer) {
       throw new BadRequestException('Customer not found for this company');
     }
 
-    const orderNumber = await this.generateOrderNumber(dto.companyId);
+    let orderNumber = dto.orderNumber ? String(dto.orderNumber).trim() : '';
+    if (!orderNumber && dto.socNumber) {
+      orderNumber = String(dto.socNumber).trim();
+    }
+    if (orderNumber) {
+      if (!orderNumber.toUpperCase().startsWith('SOC-') && !orderNumber.toUpperCase().startsWith('SO-')) {
+        orderNumber = `SOC-${orderNumber}`;
+      }
+      const existing = await this.repo.findOne({ where: { companyId: dto.companyId, orderNumber } });
+      if (existing) {
+        throw new BadRequestException(`Order / SOC Number '${orderNumber}' already exists.`);
+      }
+    } else {
+      orderNumber = await this.generateOrderNumber(dto.companyId, 'SOC-');
+    }
 
     const order = this.repo.create({
       companyId: dto.companyId,
@@ -76,8 +117,8 @@ export class SalesOrderService {
       deliveryDate: dto.deliveryDate || null,
       shipToAddress: dto.shipToAddress || null,
       billToAddress: dto.billToAddress || null,
-      divisionId: dto.divisionId || null,
-      sectionId: dto.sectionId || null,
+      divisionId: dto.divisionId && String(dto.divisionId).trim() !== '' ? dto.divisionId : null,
+      sectionId: dto.sectionId && String(dto.sectionId).trim() !== '' ? dto.sectionId : null,
       currency: dto.currency || 'USD',
       subtotal: dto.subtotal || 0,
       discountAmount: dto.discountAmount || 0,
@@ -91,10 +132,22 @@ export class SalesOrderService {
     });
     const saved = await this.repo.save(order);
 
-    if (dto.items && dto.items.length > 0) {
+    const validItems = (dto.items || []).filter(
+      (it: any) => it && it.itemId && String(it.itemId).trim() !== '',
+    );
+
+    if (validItems.length > 0) {
       let subtotal = 0;
       let lineNumber = 1;
-      for (const itemDto of dto.items) {
+      for (const itemDto of validItems) {
+        let uomId = itemDto.uomId;
+        if (!uomId) {
+          const itm = await this.repo.manager.query('SELECT sales_uom_id, base_uom_id FROM items WHERE id = $1', [itemDto.itemId]);
+          if (itm && itm[0]) {
+            uomId = itm[0].sales_uom_id || itm[0].base_uom_id;
+          }
+        }
+
         const lineTotal = itemDto.lineTotal || itemDto.quantity * itemDto.unitPrice * (1 - (itemDto.discountPercent || 0) / 100);
         const item = this.itemRepo.create({
           salesOrderId: saved.id,
@@ -102,7 +155,7 @@ export class SalesOrderService {
           itemId: itemDto.itemId,
           description: itemDto.description || null,
           quantity: itemDto.quantity,
-          uomId: itemDto.uomId,
+          uomId: uomId || 'b932052f-141f-4d78-9baf-7025e5302442',
           unitPrice: itemDto.unitPrice,
           discountPercent: itemDto.discountPercent || 0,
           taxAmount: itemDto.taxAmount || 0,
@@ -172,13 +225,20 @@ export class SalesOrderService {
     return { data, total };
   }
 
-  async getCustomers(companyId?: string): Promise<SalesCustomer[]> {
-    const where: any = {};
-    if (companyId) where.companyId = companyId;
-    return this.customerRepo.find({
-      where,
-      order: { customerCode: 'ASC' },
-    });
+  async getCustomers(companyId?: string, divisionId?: string): Promise<SalesCustomer[]> {
+    const qb = this.customerRepo.createQueryBuilder('c');
+    if (companyId) {
+      qb.andWhere('c.companyId = :companyId', { companyId });
+    }
+    if (divisionId) {
+      qb.andWhere('c.divisionId = :divisionId', { divisionId });
+    }
+    qb.orderBy('c.customerCode', 'ASC');
+    return qb.getMany();
+  }
+
+  async getNextOrderNumber(companyId: string, prefixType: string = 'SOC-'): Promise<string> {
+    return this.generateOrderNumber(companyId, prefixType);
   }
 
   async findOne(id: string, companyId?: string, allowedDivisionIds?: DivisionAccess): Promise<any> {
@@ -323,6 +383,12 @@ export class SalesOrderService {
       assertDivisionInScope(dto.divisionId, allowedDivisionIds);
     }
 
+    const newOrderNumber = dto.orderNumber || dto.socNumber;
+    if (newOrderNumber && typeof newOrderNumber === 'string' && newOrderNumber.trim()) {
+      const trimmed = newOrderNumber.trim();
+      order.orderNumber = trimmed.toUpperCase().startsWith('SOC-') ? trimmed : `SOC-${trimmed}`;
+    }
+
     Object.assign(order, {
       customerId: dto.customerId ?? order.customerId,
       quotationId: dto.quotationId ?? order.quotationId,
@@ -333,14 +399,66 @@ export class SalesOrderService {
       divisionId: dto.divisionId !== undefined ? (dto.divisionId || null) : order.divisionId,
       sectionId: dto.sectionId !== undefined ? (dto.sectionId || null) : order.sectionId,
       currency: dto.currency ?? order.currency,
+      subtotal: dto.subtotal !== undefined ? Number(dto.subtotal) : order.subtotal,
       discountAmount: dto.discountAmount ?? order.discountAmount,
       taxAmount: dto.taxAmount ?? order.taxAmount,
       freightAmount: dto.freightAmount ?? order.freightAmount,
+      totalAmount: dto.totalAmount !== undefined ? Number(dto.totalAmount) : order.totalAmount,
       notes: dto.notes ?? order.notes,
       updatedBy: userId || null,
     });
 
-    return this.repo.save(order);
+    if (dto.items !== undefined) {
+      const validItems = (dto.items || []).filter(
+        (it: any) => it && it.itemId && String(it.itemId).trim() !== '',
+      );
+
+      await this.itemRepo.delete({ salesOrderId: order.id });
+      if (validItems.length > 0) {
+        let subtotal = 0;
+        let lineNumber = 1;
+        for (const itemDto of validItems) {
+          let uomId = itemDto.uomId;
+          if (!uomId) {
+            const itm = await this.repo.manager.query('SELECT sales_uom_id, base_uom_id FROM items WHERE id = $1', [itemDto.itemId]);
+            if (itm && itm[0]) {
+              uomId = itm[0].sales_uom_id || itm[0].base_uom_id;
+            }
+          }
+
+          const lineTotal = itemDto.lineTotal || itemDto.quantity * itemDto.unitPrice * (1 - (itemDto.discountPercent || 0) / 100);
+          const item = this.itemRepo.create({
+            salesOrderId: order.id,
+            lineNumber: lineNumber++,
+            itemId: itemDto.itemId,
+            description: itemDto.description || null,
+            quantity: itemDto.quantity,
+            uomId: uomId || 'b932052f-141f-4d78-9baf-7025e5302442',
+            unitPrice: itemDto.unitPrice,
+            discountPercent: itemDto.discountPercent || 0,
+            taxAmount: itemDto.taxAmount || 0,
+            lineTotal,
+            deliveryDate: itemDto.deliveryDate || null,
+          });
+          await this.itemRepo.save(item);
+          subtotal += lineTotal;
+        }
+        order.subtotal = Number(subtotal);
+        order.totalAmount = Number(subtotal) - Number(order.discountAmount || 0) + Number(order.taxAmount || 0) + Number(order.freightAmount || 0);
+      }
+    }
+
+    // Detach relations so TypeORM does not attempt cascade updates on child rows
+    delete (order as any).items;
+    delete (order as any).customer;
+    delete (order as any).division;
+    delete (order as any).section;
+    delete (order as any).quotation;
+    delete (order as any).creator;
+    delete (order as any).updater;
+
+    await this.repo.save(order);
+    return this.findOne(order.id, companyId, allowedDivisionIds);
   }
 
   /**
@@ -460,15 +578,21 @@ export class SalesOrderService {
       if (remaining <= 0) continue;
 
       let deliveryQty = remaining;
-      if (dto?.lines && dto.lines.length > 0) {
-        const customLine = dto.lines.find((l) => l.itemId === item.itemId);
+      const lineInputs = (dto?.lines && dto.lines.length > 0) ? dto.lines : ((dto as any)?.items && (dto as any).items.length > 0 ? (dto as any).items : null);
+      if (lineInputs && lineInputs.length > 0) {
+        const customLine = lineInputs.find((l: any) => 
+          (l.itemId && l.itemId === item.itemId) || 
+          (l.salesOrderItemId && l.salesOrderItemId === item.id) ||
+          (l.orderItemId && l.orderItemId === item.id)
+        );
         if (customLine) {
-          if (customLine.quantity > remaining) {
+          const reqQty = Number(customLine.quantity || 0);
+          if (reqQty > remaining) {
             throw new BadRequestException(
-              `Requested delivery quantity (${customLine.quantity}) exceeds remaining undelivered quantity (${remaining}) for item ${item.item?.name || item.itemId}`,
+              `Requested delivery quantity (${reqQty}) exceeds remaining undelivered quantity (${remaining}) for item ${item.item?.name || item.itemId}`,
             );
           }
-          deliveryQty = customLine.quantity;
+          deliveryQty = reqQty;
         } else {
           continue; // omitted from partial delivery
         }
@@ -552,13 +676,16 @@ export class SalesOrderService {
   async createProductionOrder(
     id: string,
     dto: {
-      orderItemId: string;
-      routingId: string;
+      orderItemId?: string;
+      salesOrderItemId?: string;
+      routingId?: string;
       bomId?: string;
       plannedQuantity?: number;
       rawMaterialWarehouseId?: string;
       finishedGoodsWarehouseId?: string;
       dueDate?: string;
+      plannedStartDate?: string;
+      plannedEndDate?: string;
       priority?: any;
       remarks?: string;
     },
@@ -567,9 +694,10 @@ export class SalesOrderService {
     allowedDivisionIds?: DivisionAccess,
   ): Promise<ProductionOrder> {
     const order = await this.findOne(id, companyId, allowedDivisionIds);
-    const orderItem = (order.items || []).find((it: any) => it.id === dto.orderItemId);
+    const targetItemId = dto.orderItemId || dto.salesOrderItemId;
+    const orderItem = (order.items || []).find((it: any) => it.id === targetItemId || it.itemId === targetItemId);
     if (!orderItem) {
-      throw new BadRequestException(`Order line item with ID '${dto.orderItemId}' not found on order ${order.orderNumber}`);
+      throw new BadRequestException(`Order line item with ID '${targetItemId || 'unknown'}' not found on order ${order.orderNumber}`);
     }
 
     const plannedQuantity = Number(dto.plannedQuantity || orderItem.quantity);
@@ -577,21 +705,63 @@ export class SalesOrderService {
       throw new BadRequestException('Planned quantity must be greater than zero');
     }
 
+    // Auto-resolve routing if not explicitly supplied
+    let routingId = dto.routingId;
+    if (!routingId && orderItem.itemId) {
+      try {
+        const routingRows = await this.repo.manager.query(
+          `SELECT id FROM production_routings WHERE product_id = $1 AND status = 'ACTIVE' LIMIT 1`,
+          [orderItem.itemId]
+        );
+        if (routingRows && routingRows.length > 0) {
+          routingId = routingRows[0].id;
+        } else {
+          const anyRows = await this.repo.manager.query(
+            `SELECT id FROM production_routings WHERE status = 'ACTIVE' LIMIT 1`
+          );
+          if (anyRows && anyRows.length > 0) {
+            routingId = anyRows[0].id;
+          }
+        }
+      } catch (e) {
+        this.logger.warn(`Could not auto-resolve routing for item ${orderItem.itemId}: ${e}`);
+      }
+    }
+
+    // Auto-resolve BOM if not explicitly supplied
+    let bomId = dto.bomId;
+    if (!bomId && orderItem.itemId) {
+      try {
+        const bomRows = await this.repo.manager.query(
+          `SELECT id FROM bill_of_materials WHERE product_id = $1 AND status = 'ACTIVE' LIMIT 1`,
+          [orderItem.itemId]
+        );
+        if (bomRows && bomRows.length > 0) {
+          bomId = bomRows[0].id;
+        }
+      } catch (e) {
+        this.logger.warn(`Could not auto-resolve BOM for item ${orderItem.itemId}: ${e}`);
+      }
+    }
+
     const poDto: any = {
       productId: orderItem.itemId,
-      routingId: dto.routingId,
-      bomId: dto.bomId || null,
+      routingId: routingId,
+      bomId: bomId || null,
+      divisionId: order.divisionId || null,
       plannedQuantity,
       uomId: orderItem.uomId,
       salesOrderItemId: orderItem.id,
       demandSource: ProductionDemandSource.CUSTOMER_ORDER,
       rawMaterialWarehouseId: dto.rawMaterialWarehouseId || null,
       finishedGoodsWarehouseId: dto.finishedGoodsWarehouseId || null,
-      dueDate: dto.dueDate || order.deliveryDate || null,
+      plannedStartDate: dto.plannedStartDate || null,
+      plannedEndDate: dto.plannedEndDate || null,
+      dueDate: dto.dueDate || dto.plannedEndDate || order.deliveryDate || null,
       priority: dto.priority || 'NORMAL',
       remarks: dto.remarks
         ? `Order ${order.orderNumber}: ${dto.remarks}`
-        : `Production for Sales Order ${order.orderNumber} (Line #${orderItem.lineNumber || 1})`,
+        : `Production for Sales Order ${order.orderNumber} (${orderItem.item?.name || 'Line Item'})`,
     };
 
     const newPO = await this.productionOrderService.create(poDto, order.companyId, userId);
@@ -624,18 +794,22 @@ export class SalesOrderService {
     };
   }
 
-  private async generateOrderNumber(companyId: string): Promise<string> {
+  private async generateOrderNumber(companyId: string, prefixType: string = 'SOC-'): Promise<string> {
     const year = new Date().getFullYear();
-    const prefix = `SO-${year}-`;
+    const cleanPrefix = prefixType.endsWith('-') ? prefixType : `${prefixType}-`;
+    const fullPrefix = `${cleanPrefix}${year}-`;
     const result = await this.repo
       .createQueryBuilder('so')
-      .select("MAX(CAST(SUBSTRING(so.orderNumber FROM 'SO-[0-9]{4}-([0-9]+)') AS INT))", 'maxNum')
+      .select("MAX(CAST(SUBSTRING(so.orderNumber FROM '[0-9]+$') AS INT))", 'maxNum')
       .where('so.companyId = :companyId', { companyId })
-      .andWhere('so.orderNumber LIKE :prefix', { prefix: `${prefix}%` })
+      .andWhere('(so.orderNumber LIKE :p1 OR so.orderNumber LIKE :p2)', {
+        p1: `${fullPrefix}%`,
+        p2: `SO-${year}-%`,
+      })
       .getRawOne();
-    const maxNum = result?.maxNum || 0;
+    const maxNum = Number(result?.maxNum) || 0;
     const nextNum = maxNum + 1;
-    return `${prefix}${String(nextNum).padStart(5, '0')}`;
+    return `${fullPrefix}${String(nextNum).padStart(5, '0')}`;
   }
 
   private async generateDeliveryNumber(companyId: string): Promise<string> {

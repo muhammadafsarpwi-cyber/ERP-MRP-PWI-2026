@@ -7,6 +7,7 @@ import {
   achievementTone,
   buildDailyProductionReport,
   buildDailyProductionCsv,
+  buildDailyProductionWhatsApp,
   buildPrintHtml,
   classifyShift,
   compareMachineNo,
@@ -1420,3 +1421,73 @@ describe('Daily Production Report — locked Target Master rate', () => {
     expect(m.grand.achievement).toBe(69.44);
   });
 });
+
+describe('Daily Production Report — WhatsApp message export', () => {
+  it('generates a formatted WhatsApp message with executive summary, machine breakdown and grand total', () => {
+    const rows = [
+      makeRow({
+        department: { name: 'Straightener' },
+        machineNo: 'ST-01',
+        operatorName: 'Afsar',
+        targetQuantity: 1000,
+        actualQuantity: 950,
+      }),
+      makeRow({
+        department: { name: 'Swagging' },
+        machineNo: 'SW-01',
+        operatorName: 'Tariq',
+        targetQuantity: 2000,
+        actualQuantity: 1800,
+      }),
+    ];
+    const m = buildDailyProductionReport(rows, opts({ divisionName: 'Spoke Division' }));
+    const waText = buildDailyProductionWhatsApp(m);
+
+    // Header check
+    expect(waText).toContain('PAKISTAN WIRE INDUSTRIES (PVT) LTD');
+    expect(waText).toContain('DAILY PRODUCTION REPORT — SPOKE DIVISION');
+
+    // Executive summary check
+    expect(waText).toContain('EXECUTIVE DEPARTMENT SUMMARY');
+    expect(waText).toContain('STRAIGHTENER');
+    expect(waText).toContain('SWAGGING');
+
+    // Machine-wise breakdown check
+    expect(waText).toContain('MACHINE-WISE PRODUCTION BREAKDOWN');
+    expect(waText).toContain('ST-01');
+    expect(waText).toContain('SW-01');
+    expect(waText).toContain('STRAIGHTENER TOTAL');
+    expect(waText).toContain('SWAGGING TOTAL');
+
+    // Grand total check
+    expect(waText).toContain('GRAND TOTAL SUMMARY');
+    expect(waText).toContain('Total Target:');
+    expect(waText).toContain('Total Actual Output:');
+  });
+
+  it('supports executive-only mode', () => {
+    const rows = [
+      makeRow({ department: { name: 'Straightener' }, machineNo: 'ST-01', actualQuantity: 500 }),
+    ];
+    const m = buildDailyProductionReport(rows, opts());
+    const waText = buildDailyProductionWhatsApp(m, { mode: 'executive' });
+
+    expect(waText).toContain('EXECUTIVE DEPARTMENT SUMMARY');
+    expect(waText).not.toContain('MACHINE-WISE PRODUCTION BREAKDOWN');
+    expect(waText).toContain('GRAND TOTAL SUMMARY');
+  });
+
+  it('supports machine-only mode', () => {
+    const rows = [
+      makeRow({ department: { name: 'Straightener' }, machineNo: 'ST-01', actualQuantity: 500 }),
+    ];
+    const m = buildDailyProductionReport(rows, opts());
+    const waText = buildDailyProductionWhatsApp(m, { mode: 'machine' });
+
+    expect(waText).not.toContain('EXECUTIVE DEPARTMENT SUMMARY');
+    expect(waText).toContain('MACHINE-WISE PRODUCTION BREAKDOWN');
+    expect(waText).toContain('ST-01');
+    expect(waText).toContain('GRAND TOTAL SUMMARY');
+  });
+});
+

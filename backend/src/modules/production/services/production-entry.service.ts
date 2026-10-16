@@ -1715,7 +1715,7 @@ addToDept(org, {
       workingHours: effectiveWorkingHours,
       itemId: merged.itemId,
       requestedUomId: merged.uomId,
-      manualTargetQuantity: dto.targetQuantity,
+      manualTargetQuantity: undefined,
     });
     if (mt) {
       merged.uomId = mt.uomId;
@@ -2609,15 +2609,8 @@ addToDept(org, {
     const t = resolution.target;
     const calculated = calculateProratedTarget(t.targetQuantity, t.standardHours, v.workingHours);
 
-    if (
-      v.manualTargetQuantity !== undefined &&
-      v.manualTargetQuantity !== null &&
-      Number(v.manualTargetQuantity) !== calculated
-    ) {
-      throw new BadRequestException(
-        'targetQuantity is auto-resolved from the Machine Target Master and must not be entered manually',
-      );
-    }
+    // ERP-00016: targetQuantity is auto-resolved from the Machine Target Master and calculatedTarget is authoritative.
+    // Client-echoed target quantities do not block entry creation or updates.
     if (v.requestedUomId && v.requestedUomId !== t.uomId && Number(v.workingHours) > 0) {
       const uomCode = (t as any).uom?.code ?? t.uomId;
       throw new BadRequestException(

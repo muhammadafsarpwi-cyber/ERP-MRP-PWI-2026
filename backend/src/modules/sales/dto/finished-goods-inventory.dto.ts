@@ -56,4 +56,15 @@ export class ItemAvailabilityQueryDto {
   @IsNumber()
   @Min(0)
   orderQuantity?: number;
+
+  @ApiPropertyOptional({ description: 'Customer UUID for customer-specific packed stock lookup' })
+  @IsOptional()
+  @IsString()
+  customerId?: string;
+
+  @ApiPropertyOptional({ description: 'Current Sales Order UUID to exclude from commitments' })
+  @IsOptional()
+  @IsString()
+  orderId?: string;
 }
+

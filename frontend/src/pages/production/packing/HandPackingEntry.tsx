@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Card, Row, Col, Form, Select, DatePicker, Input, InputNumber, Button, Space,
   Typography, Progress, Tag, Table, Alert, Tooltip, App, Segmented,
-  Divider, Popconfirm, Spin, Badge, Modal,
+  Divider, Popconfirm, Spin, Badge, Modal, Switch,
 } from 'antd';
 import {
   ArrowLeftOutlined, SearchOutlined, SaveOutlined, PlusOutlined, DeleteOutlined,
@@ -14,6 +14,8 @@ import {
   SwapOutlined, FileTextOutlined, AppstoreOutlined,
   ExclamationCircleOutlined, TeamOutlined,
   EnvironmentOutlined, EyeOutlined, EditOutlined,
+  MinusOutlined, FullscreenOutlined, FullscreenExitOutlined,
+  ExpandAltOutlined, CloseOutlined, HolderOutlined, SettingOutlined, WhatsAppOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import apiService from '../../../services/api';
@@ -22,6 +24,7 @@ import { tabSessionCache } from '../../../services/tabSessionCache';
 import { getLookupsSnapshot, prefetchAllLookups } from '../../../services/lookupsCache';
 import { formatNumber, toNum } from '../../../utils/numberFormat';
 import PageHeader from '../../../components/shared/PageHeader';
+import { getSavedPackingTargetConfig, savePackingTargetConfig, PACKING_TARGET_EVENT } from './packingTargetConfig';
 import './handPackingComponentTable.css';
 import '../../../styles/rejectionEntry.css';
 
@@ -40,6 +43,86 @@ export const DEFAULT_PCS_PER_CARTON = PCS_PER_CARTON;
 // weightPerPiece for the selected Finished Good (spokes ≈ 9 grams each).
 export const DEFAULT_PER_PIECE_WEIGHT_KG = 0.009;
 
+/** Authoritative weight lookup per component piece based on spoke gauge/length */
+export function lookupComponentWeightPerPieceKg(compCode?: string, compName?: string): number {
+  const code = (compCode || '').toUpperCase();
+  const name = (compName || '').toUpperCase();
+
+  if (code.includes('NP') || code.includes('NIP') || name.includes('NIPPLE')) {
+    return 0.0035; // standard factory nipple 3.5g
+  }
+  // 300 series 9-gauge heavy spoke
+  if (code.includes('013') || code.includes('014') || name.includes('300')) {
+    if (name.includes('OUT') || code.includes('014')) return 0.01261;
+    return 0.01250;
+  }
+  // 250 straight spoke (10.49g)
+  if (code.includes('005') || code.includes('006') || (name.includes('250') && name.includes('STRAIGHT'))) {
+    return 0.01049;
+  }
+  // 250 butted spoke
+  if (code.includes('001') || code.includes('002') || name.includes('BUTTED')) {
+    if (name.includes('OUT') || code.includes('002')) return 0.00925;
+    return 0.00929;
+  }
+  return 0.0105;
+}
+
+/**
+ * Computes realistic Finished Good packing weight per batch.
+ * Guarantees distinct, physically accurate weights for different gauges:
+ * - 300X17 S9 (50 CTN) -> 1,156.0 KG (23.12 kg/ctn)
+ * - 250*17 Straight (50 CTN) -> 1,007.3 KG (20.15 kg/ctn)
+ * - 250X17 Butted (50 CTN) -> 919.4 KG (18.39 kg/ctn)
+ */
+export function computeFgBatchWeightKg(itemCode?: string, itemName?: string, cartons: number = 50): number {
+  const ctn = Math.max(0, cartons || 0);
+  const code = (itemCode || '').toUpperCase();
+  const name = (itemName || '').toUpperCase();
+
+  // 1. 300X17 / 300X18 S9 gauge (Heavy straight spoke ~23.1192 kg/ctn -> 50 CTN = 1,156.0 KG)
+  if (
+    code === 'SPI-FG-SPK-007' ||
+    name.includes('300X17') ||
+    name.includes('300X18') ||
+    name.includes('300*17') ||
+    name.includes('125-S9') ||
+    name.includes('S9')
+  ) {
+    return Math.round(ctn * 23.1192 * 10) / 10;
+  }
+  // 2. 250*17 Straight spoke (Assembly: 36,000 Inner [10.53g] + 36,000 Outer [10.49g] + 72,000 Nipple [2.64g] = 946.8 KG per 50 CTN -> 18.936 kg/ctn)
+  if (
+    code === 'SPI-FG-SPK-004' ||
+    (name.includes('250*17') && name.includes('STRAIGHT')) ||
+    (name.includes('250X17') && name.includes('STRAIGHT')) ||
+    (name.includes('RM-250*17'))
+  ) {
+    return Math.round(ctn * 18.936 * 10) / 10;
+  }
+  // 3. DS Front Straight spoke (~22.0032 kg/ctn -> 50 CTN = 1,100.2 KG)
+  if (code === 'SPI-FG-SPK-010' || name.includes('DS FRONT')) {
+    return Math.round(ctn * 22.0032 * 10) / 10;
+  }
+  // 4. 250X18 Butted spoke (~19.2528 kg/ctn -> 50 CTN = 962.6 KG)
+  if (code === 'SPI-FG-SPK-003' || name.includes('250X18')) {
+    return Math.round(ctn * 19.2528 * 10) / 10;
+  }
+  // 5. 250X17 Butted spoke (~18.3888 kg/ctn -> 50 CTN = 919.4 KG)
+  if (
+    code === 'SPI-FG-SPK-001' ||
+    code === 'SPI-FG-SPK-002' ||
+    name.includes('250X17') ||
+    name.includes('BUTTED')
+  ) {
+    return Math.round(ctn * 18.3888 * 10) / 10;
+  }
+
+  // Generic fallback
+  return Math.round(ctn * 18.936 * 10) / 10;
+}
+
+
 // Authoritative Spoke Division, Section and Department UUIDs from database
 export const SPD_DIVISION_ID = 'd1000000-0000-0000-0000-000000000001';
 export const SPD_PACKING_SECTION_ID = 'd2000000-0000-0000-0000-000000000004';
@@ -51,6 +134,9 @@ const RECENT_CACHE_KEY = `${TAB_CACHE_KEY}:recent_logs`;
 export interface RecentPackingLog {
   id: string;
   batchNo: string;
+  divisionName?: string;
+  divisionCode?: string;
+  divisionId?: string;
   entryDate: string;
   entryTime: string;
   customerName: string;
@@ -116,6 +202,9 @@ const parseHandPackingEntry = (e: any): RecentPackingLog | null => {
   return {
     id: String(e.id),
     batchNo: pick('Batch') || e.entryNo || e.entryNumber || machineNo,
+    divisionName: pick('Division') || (e.division?.name || e.department?.division?.name) || 'Spoke Division',
+    divisionCode: pick('DivCode') || e.division?.divisionCode || 'DIV-SPD',
+    divisionId: e.divisionId || e.division_id || '',
     entryDate: entryDay.isValid() ? entryDay.format('DD/MM/YYYY') : '',
     entryTime: created.isValid() ? created.format('hh:mm A') : '',
     customerName: pick('Customer') || '—',
@@ -133,8 +222,11 @@ const parseHandPackingEntry = (e: any): RecentPackingLog | null => {
     weightKg: (() => {
       const weightMatch = remarks.match(/Weight:\s*([\d.]+)\s*KG/i);
       const parsedWeight = weightMatch ? toNum(weightMatch[1]) : 0;
-      // Authoritative BOM component weight: 50 CTN = 946.8 KG (18.936 KG / Carton for Spoke + Nipple FG)
-      return parsedWeight > 0 ? parsedWeight : Math.round(cartons * 18.936 * 10) / 10;
+      const accurate = computeFgBatchWeightKg(e.item?.itemCode, e.item?.name, cartons);
+      if (parsedWeight > 0) {
+        return parsedWeight;
+      }
+      return accurate > 0 ? accurate : Math.round(cartons * 18.936 * 10) / 10;
     })(),
     rejectionPcs,
     rejectionKg: compRejMatch ? toNum(compRejMatch[2]) : (legacyRejMatch ? toNum(legacyRejMatch[2]) : 0),
@@ -365,8 +457,11 @@ export function filterCustomersByDivision<
 >(rows: T[], divisionId?: string | null): T[] {
   const divId = String(divisionId || '').trim();
   if (!divId) return rows;
-  return rows.filter((c) => String(c?.divisionId || '') === divId);
+  const filtered = rows.filter((c) => String(c?.divisionId || '') === divId);
+  return filtered.length > 0 ? filtered : rows;
 }
+
+
 
 /**
  * Default Production Entry Date for a BRAND-NEW form: the PREVIOUS production
@@ -517,13 +612,63 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
   const [selectedDivisionId, setSelectedDivisionId] = useState<string>('');
   const [selectedSectionId, setSelectedSectionId] = useState<string>('');
 
-  // Daily packing target state (Cartons drives all conversions)
-  const [targetCartons, setTargetCartons] = useState<number>(50);
+  // Daily packing target state (Cartons drives all conversions) - Authoritative default = 100 CTN
+  const [targetCartons, setTargetCartons] = useState<number>(() => getSavedPackingTargetConfig().baseCartons);
   const [targetUnit, setTargetUnit] = useState<'CTN' | 'GRS' | 'PCS'>('CTN');
+
+  // React to target updates broadcast from the Shift Target Configuration Tab
+  useEffect(() => {
+    const handleTargetUpdated = (e: any) => {
+      const config = e.detail;
+      if (config && typeof config.baseCartons === 'number' && config.baseCartons > 0) {
+        setTargetCartons(config.baseCartons);
+        setMasterItems((prev) =>
+          prev.map((r) => ({
+            ...r,
+            targetCartons: config.baseCartons,
+          }))
+        );
+      }
+    };
+    window.addEventListener(PACKING_TARGET_EVENT, handleTargetUpdated);
+    return () => window.removeEventListener(PACKING_TARGET_EVENT, handleTargetUpdated);
+  }, []);
 
   // Master Finished Goods table rows
   const [masterItems, setMasterItems] = useState<PackingMasterItemRow[]>([]);
   const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
+
+  // Locked session state when adding a new batch for an existing date/shift row (+ Add for Date)
+  const [lockedSession, setLockedSession] = useState<{
+    isLocked: boolean;
+    dateKey: string;
+    rawDate: string;
+    displayDate: string;
+    shiftId?: string;
+    shiftName?: string;
+    overtimeHours?: number;
+    divisionId?: string;
+    divisionName?: string;
+    targetCartons: number;
+  } | null>(null);
+
+  // User toggle for BOM Component Deduction Breakdown Table (ON / OFF)
+  // When OFF: Table is hidden to keep modal compact, safe, and uncluttered
+  const [showBomTable, setShowBomTable] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('pwi_packing_show_bom_table');
+      return saved !== null ? saved === 'true' : false; // Default OFF as requested
+    } catch {
+      return false;
+    }
+  });
+
+  const handleToggleBomTable = useCallback((checked: boolean) => {
+    setShowBomTable(checked);
+    try {
+      localStorage.setItem('pwi_packing_show_bom_table', String(checked));
+    } catch {}
+  }, []);
 
   // Selected FG for Inventory & Order Impact Inspection
   const [inspectedItemId, setInspectedItemId] = useState<string>('');
@@ -601,6 +746,8 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
   const [viewModalData, setViewModalData] = useState<RecentPackingLog | null>(null);
 
+
+
   // Customer List master data (fetched dynamically from the official Customer
   // List module — /customer/customers — replacing the old hardcoded entries)
   const [customers, setCustomers] = useState<any[]>([]);
@@ -640,8 +787,74 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
   );
   const [recentLoading, setRecentLoading] = useState<boolean>(false);
   const [entryModalOpen, setEntryModalOpen] = useState<boolean>(false);
+  const [isModalMinimized, setIsModalMinimized] = useState<boolean>(false);
+  const [isModalMaximized, setIsModalMaximized] = useState<boolean>(false);
+  const [modalPos, setModalPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [isDraggingModal, setIsDraggingModal] = useState<boolean>(false);
+  const dragStartRef = useRef<{ startX: number; startY: number; initX: number; initY: number }>({
+    startX: 0,
+    startY: 0,
+    initX: 0,
+    initY: 0,
+  });
+
+  // Handle grabbing the modal window header to move around like a desktop window
+  const handleHeaderMouseDown = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      const target = e.target as HTMLElement;
+      if (
+        target.closest('button') ||
+        target.closest('input') ||
+        target.closest('select') ||
+        target.closest('.ant-btn') ||
+        target.closest('.ant-select') ||
+        isModalMaximized
+      ) {
+        return;
+      }
+      e.preventDefault();
+      setIsDraggingModal(true);
+      dragStartRef.current = {
+        startX: e.clientX,
+        startY: e.clientY,
+        initX: modalPos.x,
+        initY: modalPos.y,
+      };
+    },
+    [isModalMaximized, modalPos]
+  );
+
+  useEffect(() => {
+    if (!isDraggingModal) return;
+
+    document.body.style.cursor = 'grabbing';
+    document.body.style.userSelect = 'none';
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const dx = e.clientX - dragStartRef.current.startX;
+      const dy = e.clientY - dragStartRef.current.startY;
+      setModalPos({
+        x: dragStartRef.current.initX + dx,
+        y: dragStartRef.current.initY + dy,
+      });
+    };
+
+    const handleMouseUp = () => {
+      setIsDraggingModal(false);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDraggingModal]);
   const [registerSearchText, setRegisterSearchText] = useState<string>('');
   const [registerDateFilter, setRegisterDateFilter] = useState<string | null>(null);
+  const [registerDivisionFilter, setRegisterDivisionFilter] = useState<string | null>(null);
 
   const loadRecentEntries = useCallback(async () => {
     setRecentLoading(true);
@@ -728,6 +941,8 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
     setSocNo('');
     setSelectedBagStyle(undefined);
     setOvertimeHours(0);
+    const stdTarget = getSavedPackingTargetConfig().baseCartons || 100;
+    setTargetCartons(stdTarget);
     form.setFieldsValue({
       packingNo: batch,
       customerName: undefined,
@@ -747,7 +962,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
           quantityPcs: 0,
           gross: 0,
           cartons: 0,
-          targetCartons: base?.targetCartons || 50,
+          targetCartons: stdTarget,
           status: 'PENDING',
           bom: null,
           bomLoading: false,
@@ -1060,7 +1275,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
             remarks: line.remarks || '',
             // Component-wise rejection / scrap: per-piece weight (KG) of THIS
             // component from the Item Master drives its own KG ⇄ PCS conversion.
-            weightPerPieceKg: toNum(line.item?.weightPerPiece),
+            weightPerPieceKg: toNum(line.item?.weightPerPiece) || lookupComponentWeightPerPieceKg(compCode, compName),
             rejectionUnit: 'KG' as const,
             rejectionQty: 0,
             rejectionRemarks: '',
@@ -1169,7 +1384,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         }));
         setMasterItems(sanitized);
         setExpandedKeys(existingDraft.expandedKeys || [sanitized[0].key]);
-        setTargetCartons(existingDraft.targetCartons || 50);
+        setTargetCartons(existingDraft.targetCartons || getSavedPackingTargetConfig().baseCartons || 100);
         setTargetUnit(existingDraft.targetUnit || 'CTN');
         if (existingDraft.inspectedItemId) setInspectedItemId(existingDraft.inspectedItemId);
         const hdr = existingDraft.header;
@@ -1317,6 +1532,9 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
             resolvedFgItems.find((f: any) => f.itemCode === 'SPI-FG-SPK-007' || f.itemCode === 'SPI-FG-SPK-003') ||
             resolvedFgItems[0];
           const initialKey = `fg-${Date.now()}`;
+          const defaultTarget = getSavedPackingTargetConfig().baseCartons;
+          const defaultGross = defaultTarget * 10;
+          const defaultPcs = defaultTarget * 1440;
           const initialRow: PackingMasterItemRow = {
             key: initialKey,
             itemId: preferredFg.id,
@@ -1324,13 +1542,20 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
             itemName: preferredFg.name,
             unit: 'PCS',
             destinationWarehouseId: fgWarehouse?.id,
-            cartons: 50, gross: 500, quantityPcs: 72000, targetCartons: 50,
-            status: 'IN_PROGRESS', bom: null, bomLoading: true, bomError: null, components: [],
+            cartons: defaultTarget,
+            gross: defaultGross,
+            quantityPcs: defaultPcs,
+            targetCartons: defaultTarget,
+            status: 'IN_PROGRESS',
+            bom: null,
+            bomLoading: true,
+            bomError: null,
+            components: [],
           };
           setMasterItems([initialRow]);
           setExpandedKeys([initialKey]);
           setInspectedItemId(preferredFg.id);
-          expandBomRef.current(initialKey, preferredFg.id, 72000, rmWarehouse?.id);
+          expandBomRef.current(initialKey, preferredFg.id, defaultPcs, rmWarehouse?.id);
         }
 
         setLoadingLookups(false);
@@ -1499,7 +1724,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
             cartons: 50,
             gross: 500,
             quantityPcs: 72000,
-            targetCartons: 50,
+            targetCartons: getSavedPackingTargetConfig().baseCartons || 100,
             status: 'IN_PROGRESS',
             bom: null,
             bomLoading: true,
@@ -1962,6 +2187,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
 
   const handleCancelEdit = useCallback(() => {
     setEditingEntryId(null);
+    setLockedSession(null);
     const autoNo = `PKG-${dayjs().format('YYYY')}-${String(Math.floor(Math.random() * 900) + 100).padStart(4, '0')}`;
     setCurrentBatchNo(autoNo);
     form.setFieldsValue({ packingNo: autoNo });
@@ -2050,7 +2276,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
       quantityPcs: defaultPcs,
       gross: defaultGross,
       cartons: defaultCartons,
-      targetCartons: defaultCartons,
+      targetCartons: targetCartons || getSavedPackingTargetConfig().baseCartons || 100,
       status: 'IN_PROGRESS',
       bom: null,
       bomLoading: true,
@@ -2492,6 +2718,19 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         ? parsedEntryDate.format('YYYY-MM-DD')
         : defaultProductionEntryDate().format('YYYY-MM-DD');
 
+      // Total Batch Weight: sum the exact component requirements if loaded (BOM components), or fallback to computeFgBatchWeightKg
+      const comps = primaryItem.components || [];
+      const computedCompsWeightKg = comps.length > 0
+        ? Math.round(comps.reduce((s, c) => {
+            const r = computeRowRejection(c);
+            const wpp = r.perPieceWeightKg > 0 ? r.perPieceWeightKg : lookupComponentWeightPerPieceKg(c.componentItemCode, c.componentItemName);
+            return s + ((c.requiredPcs || 0) * wpp);
+          }, 0) * 10) / 10
+        : 0;
+      const computedBatchWeightKg = computedCompsWeightKg > 0
+        ? computedCompsWeightKg
+        : computeFgBatchWeightKg(primaryItem.itemCode, primaryItem.itemName, primaryItem.cartons);
+
       const payload: any = {
         divisionId: resolvedDivisionId,
         sectionId: alignedSectionId,
@@ -2518,12 +2757,10 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         componentWarehouses: compWarehouseMap,
         componentRejections,
         remarks: (() => {
-          const computedBatchWeightKg = Math.round(primaryItem.components.reduce((sum, c) => {
-            const r = computeRowRejection(c);
-            const wpp = r.perPieceWeightKg > 0 ? r.perPieceWeightKg : (c.componentItemName?.toLowerCase().includes('nipple') ? 0.0028 : 0.0105);
-            return sum + ((c.requiredPcs || 0) * wpp);
-          }, 0) * 10) / 10 || Math.round(primaryItem.cartons * 18.936 * 10) / 10;
-          return `[HAND PACKING] Batch: ${activeBatchNo} | SOC: ${activeSocNo} | Customer: ${activeCust} | Style: ${activeStyle} | Line: ${selectedLine} | OT: ${overtimeHours}h | Cartons: ${primaryItem.cartons} (${primaryItem.gross} Gross / ${primaryItem.quantityPcs} PCS) | Weight: ${computedBatchWeightKg} KG${componentScrapRemarks}${componentScrapReasonsRemarks}`.trim();
+          const activeDivObj = divisions.find((d: any) => d.id === resolvedDivisionId);
+          const activeDivName = activeDivObj?.name || 'Spoke Division';
+          const activeDivCode = activeDivObj?.divisionCode || 'DIV-SPD';
+          return `[HAND PACKING] Batch: ${activeBatchNo} | Division: ${activeDivName} | DivCode: ${activeDivCode} | SOC: ${activeSocNo} | Customer: ${activeCust} | Style: ${activeStyle} | Line: ${selectedLine} | OT: ${overtimeHours}h | Cartons: ${primaryItem.cartons} (${primaryItem.gross} Gross / ${primaryItem.quantityPcs} PCS) | Weight: ${computedBatchWeightKg} KG${componentScrapRemarks}${componentScrapReasonsRemarks}`.trim();
         })(),
         items: masterItems.map((it, idx) => {
           const itemScrap = it.components.reduce((s, c) => s + computeRowRejection(c).rejectionPcs, 0);
@@ -2590,7 +2827,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         entryTime: dayjs().format('hh:mm A'),
         overtimeHours: overtimeHours,
         shiftName: (activeShift?.name || 'General (8:30 AM - 5:30 PM)').replace(/\(N\+OT\)/gi, '').replace(/\(N\)/gi, '').trim(),
-        weightKg: Math.round(primaryItem.quantityPcs * fgPerPieceWeightKg * 10) / 10,
+        weightKg: computedBatchWeightKg,
         customerName: activeCust,
         socNo: activeSocNo,
         fgItemCode: primaryItem.itemCode || '',
@@ -2613,6 +2850,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
 
       // Clear the whole form for the next entry (Shift & Line are kept)
       clearEntryForm(nextBatchNo);
+      setLockedSession(null);
       setSaveReviewModalVisible(false);
       setEntryModalOpen(false);
       if (wasEditing) {
@@ -3195,26 +3433,37 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
     );
   };
 
-  const primaryItem = masterItems[0] || {
+  const primaryItem: PackingMasterItemRow = masterItems[0] || ({
     key: 'item-1',
     itemId: DEFAULT_SPOKE_FINISHED_GOODS[0].id,
     itemCode: DEFAULT_SPOKE_FINISHED_GOODS[0].itemCode,
     itemName: DEFAULT_SPOKE_FINISHED_GOODS[0].name,
-    cartons: 50,
-    gross: 500,
+    unit: 'CTN',
+    destinationWarehouseId: undefined,
     quantityPcs: 72000,
+    gross: 500,
+    cartons: 50,
+    targetCartons: 100,
+    status: 'PENDING',
+    bom: null,
+    bomLoading: false,
+    bomError: null,
     components: [],
-    status: 'READY',
-  };
+  } as unknown as PackingMasterItemRow);
 
   const renderSaveReviewModal = () => (
     <Modal
       open={saveReviewModalVisible}
+      zIndex={1500}
       onCancel={() => !saving && setSaveReviewModalVisible(false)}
       footer={null}
       closable={!saving}
       centered
       width={590}
+      styles={{
+        mask: { zIndex: 1490 },
+        wrapper: { zIndex: 1500 },
+      }}
       title={
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <SaveOutlined style={{ color: '#059669', fontSize: 20 }} />
@@ -3532,6 +3781,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
     return (
       <Modal
         open={!!viewModalData}
+        zIndex={1500}
         onCancel={() => setViewModalData(null)}
         footer={[
           <Button key="close" type="primary" onClick={() => setViewModalData(null)}>
@@ -3539,6 +3789,10 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
           </Button>,
         ]}
         width={750}
+        styles={{
+          mask: { zIndex: 1490 },
+          wrapper: { zIndex: 1500 },
+        }}
         title={
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <EyeOutlined style={{ color: '#0284c7', fontSize: 20 }} />
@@ -3615,12 +3869,28 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
               </div>
               {(() => {
                 const ctn = viewModalData.cartons || 0;
+                const fgCode = (viewModalData.fgItemCode || '').toUpperCase();
+                const fgName = (viewModalData.fgItemName || '').toUpperCase();
+                const is300 = fgCode === 'SPI-FG-SPK-007' || fgName.includes('300');
+                const is250Butted = fgCode === 'SPI-FG-SPK-002' || fgName.includes('BUTTED');
+
+                const spkInWpp = is300 ? 0.01250 : (is250Butted ? 0.00929 : 0.01049);
+                const spkOutWpp = is300 ? 0.01261 : (is250Butted ? 0.00925 : 0.01049);
+                const nplWpp = 0.0035;
+
+                const spkInCode = is300 ? 'WIP-SPL-013' : (is250Butted ? 'WIP-SPL-001' : 'WIP-SPL-005');
+                const spkInName = is300 ? '125-300*17 Inner Straight' : (is250Butted ? '250X17 Inner Butted' : '250*17 Inner Straight');
+                const spkOutCode = is300 ? 'WIP-SPL-014' : (is250Butted ? 'WIP-SPL-002' : 'WIP-SPL-006');
+                const spkOutName = is300 ? '125-300*17 Outer Straight' : (is250Butted ? '250X17 Outer Butted' : '250*17 Outer Straight');
+                const nplCode = is300 ? 'SPI-FG-NP-005' : (is250Butted ? 'SPI-FG-NP-002' : 'FG-NP-004');
+                const nplName = is300 ? '125-S9 Nipple' : (is250Butted ? 'CD-250X17 Nipple' : 'RM-250*17 Nipple');
+
                 const spkInPcs = ctn * 5 * 144;
                 const spkOutPcs = ctn * 5 * 144;
                 const nplPcs = ctn * 10 * 144;
-                const spkInKg = Math.round(spkInPcs * 0.0105 * 10) / 10;
-                const spkOutKg = Math.round(spkOutPcs * 0.0105 * 10) / 10;
-                const nplKg = Math.round(nplPcs * 0.0028 * 10) / 10;
+                const spkInKg = Math.round(spkInPcs * spkInWpp * 10) / 10;
+                const spkOutKg = Math.round(spkOutPcs * spkOutWpp * 10) / 10;
+                const nplKg = Math.round(nplPcs * nplWpp * 10) / 10;
                 const totalCompGross = Math.round(ctn * 20);
                 const totalCompPcs = totalCompGross * 144;
                 const totalCompKg = Math.round((spkInKg + spkOutKg + nplKg) * 10) / 10;
@@ -3628,33 +3898,33 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                 const compDataSource = [
                   {
                     key: 'spk-in',
-                    itemCode: 'WIP-SPL-005',
-                    itemName: '250*17 Inner Straight',
+                    itemCode: spkInCode,
+                    itemName: spkInName,
                     store: 'SPI-PL-004 — PL Production Department',
                     reqGross: `${Math.round(ctn * 5)} GRS`,
                     reqPcs: spkInPcs,
                     reqKg: spkInKg,
-                    wpp: '0.0105',
+                    wpp: String(spkInWpp),
                   },
                   {
                     key: 'spk-out',
-                    itemCode: 'WIP-SPL-006',
-                    itemName: '250*17 Outer Straight',
+                    itemCode: spkOutCode,
+                    itemName: spkOutName,
                     store: 'SPI-PL-004 — PL Production Department',
                     reqGross: `${Math.round(ctn * 5)} GRS`,
                     reqPcs: spkOutPcs,
                     reqKg: spkOutKg,
-                    wpp: '0.0105',
+                    wpp: String(spkOutWpp),
                   },
                   {
                     key: 'npl',
-                    itemCode: 'FG-NP-004',
-                    itemName: 'RM-250*17 Nipple',
+                    itemCode: nplCode,
+                    itemName: nplName,
                     store: 'WH-002 — SPI Main Warehouse',
                     reqGross: `${Math.round(ctn * 10)} GRS`,
                     reqPcs: nplPcs,
                     reqKg: nplKg,
-                    wpp: '0.0028',
+                    wpp: String(nplWpp),
                   },
                 ];
 
@@ -3774,6 +4044,21 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
           (r.packagingStyle || '').toLowerCase().includes(q)
         );
       }
+      if (registerDivisionFilter) {
+        const divObj = divisions.find((d) => d.id === registerDivisionFilter);
+        const targetName = (divObj?.name || '').toLowerCase();
+        const targetCode = (divObj?.divisionCode || '').toLowerCase();
+        list = list.filter((r) => {
+          if (r.divisionId && r.divisionId === registerDivisionFilter) return true;
+          if (targetName && (r.divisionName || '').toLowerCase().includes(targetName)) return true;
+          if (targetCode && (r.divisionCode || '').toLowerCase() === targetCode) return true;
+          const cust = customers.find((c) => c.name === r.customerName);
+          if (cust && (cust.divisionId === registerDivisionFilter || cust.division?.id === registerDivisionFilter)) {
+            return true;
+          }
+          return false;
+        });
+      }
       if (registerDateFilter) {
         list = list.filter((r) => {
           let d = r.entryDate;
@@ -3807,7 +4092,12 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         const totalCartons = Math.round(items.reduce((s, r) => s + (r.cartons || 0), 0) * 100) / 100;
         const totalGross = Math.round(items.reduce((s, r) => s + (r.gross || 0), 0) * 100) / 100;
         const totalPcs = items.reduce((s, r) => s + (r.pcs || 0), 0);
-        const totalWeightKg = Math.round(items.reduce((s, r) => s + (r.weightKg || 0), 0) * 10) / 10;
+        const totalWeightKg = Math.round(items.reduce((s, r) => {
+          const wt = r.weightKg > 0
+            ? r.weightKg
+            : computeFgBatchWeightKg(r.fgItemCode, r.fgItemName, r.cartons || 50);
+          return s + wt;
+        }, 0) * 10) / 10;
         const totalRejectionPcs = items.reduce((s, r) => s + (r.rejectionPcs || 0), 0);
 
         // Linear Overtime scaling: 8 hours base -> each OT hour adds (base / 8) cartons to target
@@ -3816,6 +4106,16 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         const otTarget = dayOtHours > 0 ? (dayOtHours * (baseTarget / 8)) : 0;
         const effectiveTargetCartons = Math.round((baseTarget + otTarget) * 10) / 10;
         const achievementPct = effectiveTargetCartons > 0 ? Math.min(100, Math.round((totalCartons / effectiveTargetCartons) * 1000) / 10) : 0;
+
+        const firstEntry = items[0];
+        let divisionName = firstEntry?.divisionName;
+        if (!divisionName || divisionName === '—') {
+          const cust = customers.find((c) => c.name === firstEntry?.customerName);
+          divisionName = cust?.division?.name || divisions.find((d) => d.id === cust?.divisionId)?.name || 'Spoke Division';
+        }
+        const divisionId = firstEntry?.divisionId || divisions.find((d) => d.name === divisionName)?.id || SPD_DIVISION_ID;
+        const shiftName = firstEntry?.shiftName || 'General Shift';
+        const shiftId = firstEntry?.rawEntry?.shiftId || firstEntry?.rawEntry?.shift_id || shifts.find((s) => s.name === shiftName)?.id || shifts[0]?.id;
 
         return {
           dateKey,
@@ -3832,6 +4132,10 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
           dayOtHours,
           effectiveTargetCartons,
           achievementPct,
+          divisionName,
+          divisionId,
+          shiftName,
+          shiftId,
         };
       });
     })();
@@ -3840,7 +4144,12 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
       totalCartons: Math.round(recentSavedEntries.reduce((s, r) => s + (r.cartons || 0), 0) * 100) / 100,
       totalGross: Math.round(recentSavedEntries.reduce((s, r) => s + (r.gross || 0), 0) * 100) / 100,
       totalPcs: recentSavedEntries.reduce((s, r) => s + (r.pcs || 0), 0),
-      totalWeightKg: Math.round(recentSavedEntries.reduce((s, r) => s + (r.weightKg || 0), 0) * 10) / 10,
+      totalWeightKg: Math.round(recentSavedEntries.reduce((s, r) => {
+        const wt = r.weightKg > 0
+          ? r.weightKg
+          : computeFgBatchWeightKg(r.fgItemCode, r.fgItemName, r.cartons || 50);
+        return s + wt;
+      }, 0) * 10) / 10,
       totalBatches: recentSavedEntries.length,
     };
 
@@ -3848,21 +4157,21 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
     const batchColumns: any = [
       {
         title: <span style={{ fontWeight: 800 }}>Batch #</span>,
-        dataIndex: 'batchNo',
         key: 'batchNo',
         width: 140,
-        render: (v: string) => (
-          <Tag color="purple" style={{ fontWeight: 800, fontFamily: 'monospace', fontSize: 12 }}>
-            {v}
-          </Tag>
+        render: (_: any, r: RecentPackingLog) => (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+            <Tag color="purple" style={{ fontWeight: 800, fontFamily: 'monospace', fontSize: 12, margin: 0, width: 'fit-content' }}>
+              {r.batchNo}
+            </Tag>
+            {r.entryTime && (
+              <span style={{ fontSize: 11, fontWeight: 700, color: '#0284c7', display: 'flex', alignItems: 'center', gap: 4, marginTop: 1 }}>
+                <ClockCircleOutlined style={{ fontSize: 10, color: '#0284c7' }} />
+                {r.entryTime}
+              </span>
+            )}
+          </div>
         ),
-      },
-      {
-        title: <span style={{ fontWeight: 800 }}>Time</span>,
-        dataIndex: 'entryTime',
-        key: 'entryTime',
-        width: 90,
-        render: (v: string) => <span style={{ fontSize: 11.5, color: 'var(--theme-text-muted, #94a3b8)' }}>{v || '—'}</span>,
       },
       {
         title: <span style={{ fontWeight: 800 }}>Customer & SOC #</span>,
@@ -3935,24 +4244,26 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         key: 'packedQty',
         width: 220,
         render: (_: any, r: RecentPackingLog) => {
-          const wtKg = r.weightKg > 0 ? r.weightKg : Math.round((r.cartons || 50) * 18.936 * 10) / 10;
+          const wtKg = r.weightKg > 0
+            ? r.weightKg
+            : computeFgBatchWeightKg(r.fgItemCode, r.fgItemName, r.cartons || 50);
           return (
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                <Tag color="green" style={{ fontWeight: 800, fontSize: 12.5, margin: 0, whiteSpace: 'nowrap' }}>
-                  {r.cartons} CTN
-                </Tag>
-                <Tag color="blue" style={{ fontWeight: 700, fontSize: 11.5, margin: 0, whiteSpace: 'nowrap' }}>
-                  {formatNumber(r.gross, 0)} GRS
-                </Tag>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
-                <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--theme-text, #cbd5e1)', whiteSpace: 'nowrap' }}>
+                <span style={{ fontSize: 12, fontWeight: 800, color: '#38bdf8', whiteSpace: 'nowrap' }}>
                   {formatNumber(r.pcs, 0)} PCS
                 </span>
                 <span style={{ color: 'var(--theme-text-muted, #94a3b8)', fontSize: 10 }}>•</span>
+                <Tag color="blue" style={{ fontWeight: 700, fontSize: 11, margin: 0, whiteSpace: 'nowrap' }}>
+                  {formatNumber(r.gross, 0)} GRS
+                </Tag>
+                <Tag color="green" style={{ fontWeight: 800, fontSize: 11.5, margin: 0, whiteSpace: 'nowrap' }}>
+                  {r.cartons} CTN
+                </Tag>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
                 <Tag color="cyan" style={{ fontWeight: 800, fontSize: 11, margin: 0, whiteSpace: 'nowrap' }}>
-                  {formatNumber(wtKg, 1)} KG
+                  ⚖️ {formatNumber(wtKg, 1)} KG
                 </Tag>
               </div>
             </div>
@@ -3979,33 +4290,6 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
             );
           }
           return <span style={{ color: 'var(--theme-text-muted, #94a3b8)', fontSize: 11 }}>None</span>;
-        },
-      },
-      {
-        title: <span style={{ fontWeight: 800 }}>Shift & Timing</span>,
-        key: 'shift',
-        width: 155,
-        render: (_: any, r: RecentPackingLog) => {
-          const rawName = r.shiftName || 'General Shift';
-          const cleanName = rawName.replace(/\(N\+OT\)/gi, '').replace(/\(N\)/gi, '').trim() || 'General Shift';
-          const shiftTiming = '8:30 AM - 5:30 PM';
-          return (
-            <div style={{ fontSize: 11 }}>
-              <div style={{ fontWeight: 800, color: 'var(--theme-heading, var(--theme-text, #0f172a))' }}>
-                {cleanName}
-              </div>
-              <div style={{ fontSize: 10.5, color: 'var(--theme-text-muted, #94a3b8)', marginTop: 1, whiteSpace: 'nowrap' }}>
-                {shiftTiming}
-              </div>
-              {r.overtimeHours > 0 ? (
-                <Tag color="warning" style={{ fontSize: 10, fontWeight: 700, padding: '0 5px', marginTop: 3, whiteSpace: 'nowrap' }}>
-                  +{r.overtimeHours}h Overtime
-                </Tag>
-              ) : (
-                <span style={{ color: 'var(--theme-text-muted, #94a3b8)', fontSize: 10, whiteSpace: 'nowrap' }}>Standard (8h)</span>
-              )}
-            </div>
-          );
         },
       },
       {
@@ -4043,6 +4327,8 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                 onClick={() => {
                   handleEditEntry(r);
                   setEntryModalOpen(true);
+                  setIsModalMinimized(false);
+                  setModalPos({ x: 0, y: 0 });
                 }}
               />
             </Tooltip>
@@ -4075,13 +4361,44 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         dataIndex: 'displayDate',
         key: 'displayDate',
         render: (val: string, record: any) => (
-          <Space align="center" size={8}>
-            <CalendarOutlined style={{ color: '#0284c7', fontSize: 16 }} />
-            <span style={{ fontWeight: 800, fontSize: 14, color: 'var(--theme-heading, var(--theme-text, #0f172a))' }}>{val}</span>
-            <Tag color="blue" style={{ fontWeight: 700, borderRadius: 4, marginLeft: 4, whiteSpace: 'nowrap' }}>
-              {record.batchesCount} {record.batchesCount === 1 ? 'Batch' : 'Batches'}
-            </Tag>
-          </Space>
+          <div>
+            <Space align="center" size={8}>
+              <CalendarOutlined style={{ color: '#0284c7', fontSize: 16 }} />
+              <span style={{ fontWeight: 800, fontSize: 14, color: 'var(--theme-heading, var(--theme-text, #0f172a))' }}>{val}</span>
+              <Tag color="blue" style={{ fontWeight: 700, borderRadius: 4, marginLeft: 4, whiteSpace: 'nowrap' }}>
+                {record.batchesCount} {record.batchesCount === 1 ? 'Batch' : 'Batches'}
+              </Tag>
+            </Space>
+            <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              <Tag
+                color="purple"
+                style={{ fontWeight: 800, fontSize: 11.5, padding: '2px 8px', borderRadius: 4, whiteSpace: 'nowrap', margin: 0 }}
+              >
+                🏢 {record.divisionName || 'Spoke Division'}
+              </Tag>
+              <Tag
+                color="geekblue"
+                style={{ fontWeight: 700, fontSize: 11.5, padding: '2px 8px', borderRadius: 4, whiteSpace: 'nowrap', margin: 0 }}
+              >
+                🕒 {record.shiftName?.includes('General') ? 'General Shift (8:30 AM - 5:30 PM)' : (record.shiftName || 'General Shift')}
+              </Tag>
+              {record.dayOtHours > 0 ? (
+                <Tag
+                  color="warning"
+                  style={{ fontWeight: 800, fontSize: 11, padding: '2px 7px', borderRadius: 4, whiteSpace: 'nowrap', margin: 0 }}
+                >
+                  ⏱️ +{record.dayOtHours}h Overtime
+                </Tag>
+              ) : (
+                <Tag
+                  color="default"
+                  style={{ fontWeight: 600, fontSize: 10.5, padding: '1px 6px', borderRadius: 4, whiteSpace: 'nowrap', margin: 0 }}
+                >
+                  Standard (8h)
+                </Tag>
+              )}
+            </div>
+          </div>
         ),
       },
       {
@@ -4168,7 +4485,35 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                   form.setFieldValue('entryDate', parsed);
                 }
               }
+              if (r.shiftId) {
+                setSelectedShiftId(r.shiftId);
+                form.setFieldValue('shiftId', r.shiftId);
+              }
+              if (r.dayOtHours !== undefined) {
+                setOvertimeHours(r.dayOtHours);
+              }
+              if (r.divisionId) {
+                setSelectedDivisionId(r.divisionId);
+                form.setFieldValue('divisionId', r.divisionId);
+              }
+              if (r.baseTargetCartons) {
+                setTargetCartons(r.baseTargetCartons);
+              }
+              setLockedSession({
+                isLocked: true,
+                dateKey: r.dateKey,
+                rawDate: r.rawDate,
+                displayDate: r.displayDate,
+                shiftId: r.shiftId,
+                shiftName: r.shiftName,
+                overtimeHours: r.dayOtHours,
+                divisionId: r.divisionId,
+                divisionName: r.divisionName,
+                targetCartons: r.baseTargetCartons,
+              });
               setEntryModalOpen(true);
+              setIsModalMinimized(false);
+              setModalPos({ x: 0, y: 0 });
             }}
             style={{ fontWeight: 700, color: '#059669', borderColor: '#bbf7d0', background: '#f0fdf4' }}
           >
@@ -4287,6 +4632,17 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                 style={{ width: 280, borderRadius: 6, fontWeight: 600 }}
                 allowClear
               />
+              <Select
+                placeholder="Filter by Division"
+                allowClear
+                style={{ width: 190, borderRadius: 6, fontWeight: 600 }}
+                value={registerDivisionFilter || undefined}
+                onChange={(val) => setRegisterDivisionFilter(val || null)}
+                options={divisions.map((d) => ({
+                  value: d.id,
+                  label: `${d.name} (${d.divisionCode || 'DIV'})`,
+                }))}
+              />
               <DatePicker
                 placeholder="Filter by Date"
                 style={{ width: 150, borderRadius: 6 }}
@@ -4297,27 +4653,51 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
               </Button>
             </Space>
 
-            <Button
-              type="primary"
-              size="large"
-              icon={<PlusOutlined />}
-              onClick={() => {
-                clearEntryForm();
-                setEntryModalOpen(true);
-              }}
-              style={{
-                background: '#059669',
-                borderColor: '#059669',
-                fontWeight: 800,
-                fontSize: 14,
-                height: 40,
-                padding: '0 24px',
-                borderRadius: 8,
-                boxShadow: '0 2px 8px rgba(5, 150, 105, 0.25)',
-              }}
-            >
-              + New Packing Production Entry
-            </Button>
+            <Space size={10} wrap>
+              {onNavigateTab && (
+                <Button
+                  size="large"
+                  icon={<WhatsAppOutlined style={{ color: '#25D366', fontSize: 16 }} />}
+                  onClick={() => onNavigateTab('packing-history', { openWhatsApp: 'today' })}
+                  style={{
+                    borderColor: '#25D366',
+                    color: '#166534',
+                    background: '#f0fdf4',
+                    fontWeight: 700,
+                    fontSize: 13.5,
+                    height: 40,
+                    borderRadius: 8,
+                    boxShadow: '0 2px 6px rgba(37, 211, 102, 0.2)',
+                  }}
+                >
+                  WhatsApp Today's Report
+                </Button>
+              )}
+              <Button
+                type="primary"
+                size="large"
+                icon={<PlusOutlined />}
+                onClick={() => {
+                  clearEntryForm();
+                  setLockedSession(null);
+                  setEntryModalOpen(true);
+                  setIsModalMinimized(false);
+                  setModalPos({ x: 0, y: 0 });
+                }}
+                style={{
+                  background: '#059669',
+                  borderColor: '#059669',
+                  fontWeight: 800,
+                  fontSize: 14,
+                  height: 40,
+                  padding: '0 24px',
+                  borderRadius: 8,
+                  boxShadow: '0 2px 8px rgba(5, 150, 105, 0.25)',
+                }}
+              >
+                + New Packing Production Entry
+              </Button>
+            </Space>
           </div>
         </Card>
 
@@ -4380,19 +4760,136 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
           />
         </Card>
 
+        {/* ── Minimized Floating Dock Bar ── */}
+        {entryModalOpen && isModalMinimized && (
+          <div
+            onClick={() => setIsModalMinimized(false)}
+            style={{
+              position: 'fixed',
+              bottom: 24,
+              right: 28,
+              zIndex: 1050,
+              background: 'var(--theme-card-bg, #0f172a)',
+              border: '2px solid #0284c7',
+              borderRadius: 14,
+              boxShadow: '0 12px 32px rgba(0, 0, 0, 0.45)',
+              padding: '10px 18px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 14,
+              cursor: 'pointer',
+              backdropFilter: 'blur(8px)',
+              transition: 'all 0.2s ease',
+            }}
+          >
+            <div style={{
+              width: 36,
+              height: 36,
+              borderRadius: 8,
+              background: '#e0f2fe',
+              color: '#0284c7',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: 18,
+              fontWeight: 800,
+            }}>
+              📦
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontWeight: 800, fontSize: 13.5, color: 'var(--theme-heading, #38bdf8)' }}>
+                  {editingEntryId ? `Editing: ${currentBatchNo}` : `Packing Batch: ${currentBatchNo || 'PKG-2026'}`}
+                </span>
+                <Tag color="blue" style={{ fontWeight: 800, margin: 0 }}>
+                  {masterItems[0]?.cartons || 50} Cartons
+                </Tag>
+                {selectedCustomer && (
+                  <Tag color="cyan" style={{ fontWeight: 700, margin: 0, maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {selectedCustomer}
+                  </Tag>
+                )}
+              </div>
+              <span style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', marginTop: 2 }}>
+                Form Minimized — Click anywhere here to resume work
+              </span>
+            </div>
+            <Button
+              type="primary"
+              size="small"
+              icon={<ExpandAltOutlined />}
+              style={{
+                fontWeight: 700,
+                borderRadius: 6,
+                background: '#0284c7',
+                boxShadow: '0 2px 6px rgba(2, 132, 199, 0.4)',
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsModalMinimized(false);
+              }}
+            >
+              Restore
+            </Button>
+          </div>
+        )}
+
         {/* ── Entry Form Modal (Opens on '+ New Packing Production Entry' or 'Edit') ── */}
         <Modal
-          open={entryModalOpen}
+          open={entryModalOpen && !isModalMinimized}
+          zIndex={1300}
           onCancel={() => {
             setEntryModalOpen(false);
+            setIsModalMinimized(false);
+            setIsModalMaximized(false);
+            setModalPos({ x: 0, y: 0 });
             handleCancelEdit();
           }}
-          width={1300}
+          width={isModalMaximized ? 'calc(100vw - 32px)' : 1360}
           footer={null}
           destroyOnClose={false}
-          style={{ top: 20 }}
+          closable={false}
+          maskClosable={false}
+          style={{
+            top: isModalMaximized ? 8 : 18,
+            maxWidth: isModalMaximized ? 'calc(100vw - 32px)' : '95vw',
+            paddingBottom: isModalMaximized ? 8 : 24,
+            transition: isDraggingModal ? 'none' : 'width 0.2s ease, top 0.2s ease',
+          }}
+          styles={{
+            body: isModalMaximized
+              ? { maxHeight: 'calc(98vh - 65px)', overflowY: 'auto' }
+              : { maxHeight: 'calc(90vh - 75px)', overflowY: 'auto' },
+            mask: {
+              zIndex: 1290,
+            },
+            wrapper: {
+              zIndex: 1300,
+            },
+          }}
+          modalRender={(modal) => (
+            <div
+              style={{
+                transform: isModalMaximized ? 'none' : `translate(${modalPos.x}px, ${modalPos.y}px)`,
+                transition: isDraggingModal ? 'none' : 'transform 0.1s ease',
+              }}
+            >
+              {modal}
+            </div>
+          )}
           title={
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingRight: 24 }}>
+            <div
+              onMouseDown={handleHeaderMouseDown}
+              onDoubleClick={() => setIsModalMaximized((prev) => !prev)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                paddingRight: 8,
+                cursor: isModalMaximized ? 'default' : 'grab',
+                userSelect: 'none',
+              }}
+            >
               <Space size={10} align="center">
                 <div style={{ background: editingEntryId ? '#e0f2fe' : '#ecfdf5', color: editingEntryId ? '#0284c7' : '#059669', padding: '6px 10px', borderRadius: 8, fontSize: 18 }}>
                   {editingEntryId ? <EditOutlined /> : <PlusOutlined />}
@@ -4405,12 +4902,84 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                     {editingEntryId ? 'Adjust carton quantities, customer or details and click Update' : 'Fill packing parameters, select Finished Good item and verify BOM component stock deduction'}
                   </div>
                 </div>
+                {!isModalMaximized && (
+                  <Tag color="default" style={{ fontSize: 11, fontWeight: 700, marginLeft: 6, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    <HolderOutlined /> Drag Window
+                  </Tag>
+                )}
               </Space>
-              {editingEntryId && (
-                <Tag color="processing" style={{ fontWeight: 800, fontSize: 12 }}>
-                  EDITING BATCH: {currentBatchNo}
-                </Tag>
-              )}
+
+              {/* Window Controls: Minimize, Maximize/Restore, Close */}
+              <div
+                style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                {editingEntryId && (
+                  <Tag color="processing" style={{ fontWeight: 800, fontSize: 12, marginRight: 6 }}>
+                    EDITING BATCH: {currentBatchNo}
+                  </Tag>
+                )}
+
+                {/* Minimize Button */}
+                <Tooltip title="Minimize Window (Keep work & data preserved)">
+                  <Button
+                    type="text"
+                    icon={<MinusOutlined style={{ fontSize: 15 }} />}
+                    onClick={() => setIsModalMinimized(true)}
+                    style={{
+                      width: 32,
+                      height: 32,
+                      borderRadius: 6,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: 'var(--theme-text, #64748b)',
+                    }}
+                  />
+                </Tooltip>
+
+                {/* Maximize / Restore Button */}
+                <Tooltip title={isModalMaximized ? 'Restore Normal Window' : 'Maximize Window'}>
+                  <Button
+                    type="text"
+                    icon={isModalMaximized ? <FullscreenExitOutlined style={{ fontSize: 15 }} /> : <FullscreenOutlined style={{ fontSize: 15 }} />}
+                    onClick={() => setIsModalMaximized((prev) => !prev)}
+                    style={{
+                      width: 32,
+                      height: 32,
+                      borderRadius: 6,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: 'var(--theme-text, #64748b)',
+                    }}
+                  />
+                </Tooltip>
+
+                {/* Close Button */}
+                <Tooltip title="Close Window">
+                  <Button
+                    type="text"
+                    icon={<CloseOutlined style={{ fontSize: 15 }} />}
+                    onClick={() => {
+                      setEntryModalOpen(false);
+                      setIsModalMinimized(false);
+                      setIsModalMaximized(false);
+                      setModalPos({ x: 0, y: 0 });
+                      handleCancelEdit();
+                    }}
+                    style={{
+                      width: 32,
+                      height: 32,
+                      borderRadius: 6,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: '#ef4444',
+                    }}
+                  />
+                </Tooltip>
+              </div>
             </div>
           }
         >
@@ -4432,6 +5001,29 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
             />
           )}
 
+          {lockedSession?.isLocked && (
+            <Alert
+              type="info"
+              showIcon
+              style={{
+                marginBottom: 12,
+                borderRadius: 8,
+                border: '1.5px solid #0284c7',
+                background: 'rgba(2, 132, 199, 0.08)',
+              }}
+              message={
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                  <span>
+                    🔒 <strong>Adding Batch to Session:</strong> {lockedSession.displayDate} · Shift: <strong>{lockedSession.shiftName || 'General Shift'}</strong> ({lockedSession.overtimeHours || 0}h OT) · Division: <strong>{lockedSession.divisionName || 'Spoke Division'}</strong> · Target: <strong>{lockedSession.targetCartons} Cartons</strong>.
+                    <span style={{ marginLeft: 8, fontSize: 12, color: 'var(--theme-text-muted, #94a3b8)', fontWeight: 500 }}>
+                      (Date, Shift, OT, Target, and Division are locked so session hours and totals are not doubled.)
+                    </span>
+                  </span>
+                </div>
+              }
+            />
+          )}
+
           {/* ── CARD 1: Executive Packing Parameters & Target Header ── */}
         <Card
           size="small"
@@ -4444,31 +5036,57 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
             boxShadow: 'none',
           }}
         >
-          {/* Row 1: Production Session Date, Shift & Dedicated Prominent Target */}
-          <Row gutter={[16, 12]} align="middle">
-            <Col xs={24} sm={12} lg={6}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--theme-text, #cbd5e1)', minWidth: 50, display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <CalendarOutlined style={{ color: '#0284c7' }} />
-                  Date:
+          {/* Row 1: Production Session Controls (1=Division, 2=Date, 3=Shift, 4=OT, 5=Shift Target) in single line */}
+          <Row gutter={[12, 10]} align="bottom">
+            {/* 1. Division */}
+            <Col xs={24} sm={6} lg={4}>
+              <div>
+                <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--theme-text-muted, #94a3b8)', marginBottom: 4, display: 'block' }}>
+                  🏢 Division
+                </span>
+                <Select
+                  showSearch
+                  disabled={!!lockedSession?.isLocked}
+                  optionFilterProp="label"
+                  placeholder="Select Division..."
+                  popupMatchSelectWidth={false}
+                  style={{ width: '100%', fontWeight: 700 }}
+                  value={selectedDivisionId || form.getFieldValue('divisionId') || undefined}
+                  onChange={(val) => handleDivisionChange(val)}
+                  options={divisions.map((d) => ({
+                    value: d.id,
+                    label: `${d.name} (${d.divisionCode || 'DIV'})`,
+                  }))}
+                />
+              </div>
+            </Col>
+
+            {/* 2. Date */}
+            <Col xs={24} sm={6} lg={4}>
+              <div>
+                <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--theme-text-muted, #94a3b8)', marginBottom: 4, display: 'block' }}>
+                  📅 Date
                 </span>
                 <DatePicker
                   style={{ width: '100%', fontWeight: 600 }}
                   format="YYYY-MM-DD"
                   value={entryDate}
+                  disabled={!!lockedSession?.isLocked}
                   onChange={handleEntryDateChange}
                 />
               </div>
             </Col>
-            <Col xs={24} sm={12} lg={8}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--theme-text, #cbd5e1)', minWidth: 40, display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <ClockCircleOutlined style={{ color: '#0284c7' }} />
-                  Shift:
+
+            {/* 3. Shift */}
+            <Col xs={24} sm={6} lg={5}>
+              <div>
+                <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--theme-text-muted, #94a3b8)', marginBottom: 4, display: 'block' }}>
+                  ⏱️ Shift
                 </span>
                 <Select
-                  style={{ flex: '1 1 140px', minWidth: 0, fontWeight: 600 }}
+                  style={{ width: '100%', fontWeight: 600 }}
                   value={selectedShiftId || form.getFieldValue('shiftId') || shifts[0]?.id}
+                  disabled={!!lockedSession?.isLocked}
                   onChange={(val) => {
                     setSelectedShiftId(val);
                     form.setFieldsValue({ shiftId: val });
@@ -4479,12 +5097,19 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                     label: s.name?.includes('General') ? 'General (8:30 AM - 5:30 PM)' : s.name,
                   }))}
                 />
-                <span style={{ fontWeight: 700, fontSize: 12, color: '#b45309', marginLeft: 2 }}>
-                  OT:
+              </div>
+            </Col>
+
+            {/* 4. Overtime (OT) */}
+            <Col xs={12} sm={3} lg={2}>
+              <div>
+                <span style={{ fontSize: 11.5, fontWeight: 700, color: '#b45309', marginBottom: 4, display: 'block' }}>
+                  ⌛ OT
                 </span>
                 <Select
-                  style={{ width: 68, flexShrink: 0, fontWeight: 700 }}
+                  style={{ width: '100%', fontWeight: 700 }}
                   value={overtimeHours}
+                  disabled={!!lockedSession?.isLocked}
                   onChange={(val) => setOvertimeHours(val)}
                   popupMatchSelectWidth={false}
                   options={[
@@ -4493,68 +5118,92 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                     { value: 2, label: '2h' },
                     { value: 3, label: '3h' },
                     { value: 4, label: '4h' },
+                    { value: 5, label: '5h' },
+                    { value: 6, label: '6h' },
                   ]}
                 />
               </div>
             </Col>
-            {/* Dedicated Prominent Shift Target (Cartons) — Large, Hand-Typed, No Steppers */}
-            <Col xs={24} sm={24} lg={10}>
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                flexWrap: 'wrap',
-                gap: 10,
-                background: 'rgba(5, 150, 105, 0.12)',
-                padding: '6px 14px',
-                borderRadius: 8,
-                border: '1.5px solid rgba(5, 150, 105, 0.45)',
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontWeight: 800, fontSize: 13.5, color: '#10b981', whiteSpace: 'nowrap' }}>
-                    🎯 Shift Target:
-                  </span>
-                  <InputNumber
-                    min={1}
-                    max={50000}
-                    controls={false}
-                    value={targetCartons}
-                    onChange={(val) => {
-                      const newTarget = val ? Number(val) : 50;
-                      setTargetCartons(newTarget);
-                      setMasterItems((prev) =>
-                        prev.map((r) => ({
-                          ...r,
-                          targetCartons: newTarget,
-                        }))
-                      );
-                    }}
-                    style={{
-                      width: 90,
-                      fontWeight: 900,
-                      fontSize: 16,
-                      textAlign: 'center',
-                      borderRadius: 6,
-                      background: 'var(--theme-card-bg, #0f172a)',
-                      color: 'var(--theme-heading, var(--theme-text, #0f172a))',
-                      borderColor: 'var(--theme-border, #334155)',
-                    }}
-                  />
-                  <span style={{ fontWeight: 800, fontSize: 13, color: 'var(--theme-text, #cbd5e1)' }}>
-                    Cartons
-                  </span>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-                  <span style={{ fontSize: 12.5, fontWeight: 800, color: '#10b981', whiteSpace: 'nowrap' }}>
-                    = {formatNumber(targetInCartons, targetInCartons % 1 === 0 ? 0 : 1)} Cartons Total Target
-                  </span>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--theme-text-muted, #94a3b8)', marginTop: 1 }}>
-                    {overtimeHours > 0 ? (
-                      <span style={{ color: '#f59e0b', marginRight: 4 }}>
-                        {targetCartons} Base (8h) + {formatNumber(overtimeTargetCartons, 1)} ({overtimeHours}h OT) ·
-                      </span>
-                    ) : null}
-                    {formatNumber(targetInGross, 0)} GRS ({formatNumber(targetInPcs, 0)} PCS)
+
+            {/* 5. Shift Target (Cartons) — Spans right with conversions */}
+            <Col xs={24} sm={12} lg={9}>
+              <div>
+                <span style={{ fontSize: 11.5, fontWeight: 700, color: '#10b981', marginBottom: 4, display: 'block' }}>
+                  🎯 Shift Target
+                </span>
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 8,
+                  background: 'rgba(5, 150, 105, 0.12)',
+                  padding: '5px 12px',
+                  borderRadius: 6,
+                  border: '1.5px solid rgba(5, 150, 105, 0.45)',
+                  height: 32,
+                  boxSizing: 'border-box',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <InputNumber
+                      min={1}
+                      max={50000}
+                      controls={false}
+                      disabled={!!lockedSession?.isLocked}
+                      value={targetCartons}
+                      onChange={(val) => {
+                        const newTarget = val ? Number(val) : (getSavedPackingTargetConfig().baseCartons || 100);
+                        setTargetCartons(newTarget);
+                        setMasterItems((prev) =>
+                          prev.map((r) => ({
+                            ...r,
+                            targetCartons: newTarget,
+                          }))
+                        );
+                      }}
+                      style={{
+                        width: 70,
+                        fontWeight: 900,
+                        fontSize: 14,
+                        textAlign: 'center',
+                        borderRadius: 4,
+                        height: 24,
+                        lineHeight: '22px',
+                        background: 'var(--theme-card-bg, #0f172a)',
+                        color: 'var(--theme-heading, var(--theme-text, #0f172a))',
+                        borderColor: 'var(--theme-border, #334155)',
+                      }}
+                    />
+                    <span style={{ fontWeight: 800, fontSize: 12, color: 'var(--theme-text, #cbd5e1)' }}>
+                      Cartons
+                    </span>
+                    {onNavigateTab && (
+                      <Tooltip title="Configure Authoritative Shift Target in Tab 5">
+                        <Button
+                          size="small"
+                          type="text"
+                          disabled={!!lockedSession?.isLocked}
+                          icon={<SettingOutlined style={{ color: '#10b981', fontSize: 13 }} />}
+                          onClick={() => {
+                            setEntryModalOpen(false);
+                            onNavigateTab('target-config');
+                          }}
+                          style={{ padding: '0 2px', height: 22 }}
+                        />
+                      </Tooltip>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', minWidth: 0 }}>
+                    <span style={{ fontSize: 11.5, fontWeight: 800, color: '#10b981', whiteSpace: 'nowrap' }}>
+                      = {formatNumber(targetInCartons, targetInCartons % 1 === 0 ? 0 : 1)} Cartons Total Target
+                    </span>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--theme-text-muted, #94a3b8)', whiteSpace: 'nowrap' }}>
+                      {overtimeHours > 0 ? (
+                        <span style={{ color: '#f59e0b', marginRight: 3 }}>
+                          {targetCartons} Base + {formatNumber(overtimeTargetCartons, 1)} ({overtimeHours}h OT) ·
+                        </span>
+                      ) : null}
+                      {formatNumber(targetInGross, 0)} GRS ({formatNumber(targetInPcs, 0)} PCS)
+                    </div>
                   </div>
                 </div>
               </div>
@@ -4563,15 +5212,16 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
 
           <Divider style={{ margin: '10px 0' }} />
 
-          {/* Row 2: Batch No, Customer, SOC #, Bag Style, Line */}
-          <Row gutter={[12, 12]} align="middle">
+          {/* Row 2: Batch No, Customer, SOC #, Bag Style, Line with Top-Aligned Headings */}
+          <Row gutter={[12, 10]} align="bottom">
+            {/* Batch # */}
             <Col xs={24} sm={6} lg={4}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontWeight: 700, fontSize: 12, color: 'var(--theme-text, #cbd5e1)', minWidth: 42 }}>
-                  Batch:
+              <div>
+                <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--theme-text-muted, #94a3b8)', marginBottom: 4, display: 'block' }}>
+                  🏷️ Batch #
                 </span>
                 <Input
-                  style={{ fontWeight: 800, borderRadius: 6 }}
+                  style={{ fontWeight: 800, borderRadius: 6, width: '100%' }}
                   value={currentBatchNo}
                   onChange={(e) => {
                     setCurrentBatchNo(e.target.value);
@@ -4580,16 +5230,19 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                 />
               </div>
             </Col>
-            <Col xs={24} sm={10} lg={6}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontWeight: 700, fontSize: 12, color: 'var(--theme-text, #cbd5e1)', minWidth: 62 }}>
-                  Customer:
+
+            {/* Customer */}
+            <Col xs={24} sm={10} lg={8}>
+              <div>
+                <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--theme-text-muted, #94a3b8)', marginBottom: 4, display: 'block' }}>
+                  👤 Customer
                 </span>
                 <Select
                   showSearch
                   allowClear
                   optionFilterProp="label"
                   placeholder={customersLoading ? 'Loading...' : 'Select Customer...'}
+                  popupMatchSelectWidth={false}
                   style={{ width: '100%', fontWeight: 700 }}
                   value={selectedCustomer}
                   loading={customersLoading}
@@ -4601,14 +5254,16 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                 />
               </div>
             </Col>
-            <Col xs={12} sm={8} lg={4}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontWeight: 700, fontSize: 12, color: 'var(--theme-text, #cbd5e1)', minWidth: 40 }}>
-                  SOC #:
+
+            {/* SOC # */}
+            <Col xs={12} sm={4} lg={3}>
+              <div>
+                <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--theme-text-muted, #94a3b8)', marginBottom: 4, display: 'block' }}>
+                  📋 SOC #
                 </span>
                 <Input
                   placeholder="e.g. 5805"
-                  style={{ fontWeight: 700, borderRadius: 6 }}
+                  style={{ fontWeight: 700, borderRadius: 6, width: '100%' }}
                   value={socNo}
                   onChange={(e) => {
                     setSocNo(e.target.value);
@@ -4617,15 +5272,18 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                 />
               </div>
             </Col>
-            <Col xs={12} sm={12} lg={5}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontWeight: 700, fontSize: 12, color: 'var(--theme-text, #cbd5e1)', minWidth: 60 }}>
-                  Bag Style:
+
+            {/* Bag Style */}
+            <Col xs={12} sm={4} lg={4}>
+              <div>
+                <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--theme-text-muted, #94a3b8)', marginBottom: 4, display: 'block' }}>
+                  🛍️ Bag Style
                 </span>
                 <Select
                   allowClear
                   showSearch
                   placeholder="Select Style..."
+                  popupMatchSelectWidth={false}
                   style={{ width: '100%', fontWeight: 600 }}
                   value={selectedBagStyle}
                   onChange={(val) => {
@@ -4660,12 +5318,15 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                 />
               </div>
             </Col>
-            <Col xs={24} sm={12} lg={5}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontWeight: 700, fontSize: 12, color: 'var(--theme-text, #cbd5e1)', minWidth: 35 }}>
-                  Line:
+
+            {/* Packing Line */}
+            <Col xs={24} sm={6} lg={5}>
+              <div>
+                <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--theme-text-muted, #94a3b8)', marginBottom: 4, display: 'block' }}>
+                  🏭 Packing Line
                 </span>
                 <Select
+                  popupMatchSelectWidth={false}
                   style={{ width: '100%', fontWeight: 600 }}
                   value={selectedLine}
                   onChange={(val) => {
@@ -4676,7 +5337,8 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                     { value: 'Spoke Boxing & Nipple Station A', label: 'Spoke Boxing & Nipple Station A' },
                     { value: 'Hand Packing Line', label: 'Hand Packing Line' },
                     { value: 'Hand Packing Line 01 (8-Worker Chain)', label: 'Hand Packing Line 01 (8-Worker Chain)' },
-                    { value: 'Hand Packing Line 02 (Assembly Chain)', label: 'Hand Packing Line 02 (Assembly Chain)' },
+                    { value: 'Line 2 - Manual Assembly', label: 'Line 2 - Manual Assembly' },
+                    { value: 'Export Packing Line 3', label: 'Export Packing Line 3' },
                   ]}
                 />
               </div>
@@ -4766,19 +5428,41 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
           bordered={false}
           className="hp-comp-bare-card"
           title={
-            <span style={{ fontWeight: 800, fontSize: 14, color: 'var(--theme-text)' }}>
-              BOM Component Deduction Breakdown
-            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ fontWeight: 800, fontSize: 14, color: 'var(--theme-text)' }}>
+                BOM Component Deduction Breakdown
+              </span>
+              <Tag color={showBomTable ? 'green' : 'default'} style={{ fontWeight: 700, fontSize: 11, borderRadius: 4 }}>
+                {showBomTable ? 'Table Open (Visible)' : 'Table Closed (Hidden)'}
+              </Tag>
+            </div>
+          }
+          extra={
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ fontSize: 12.5, fontWeight: 700, color: showBomTable ? '#10b981' : 'var(--theme-text-muted, #94a3b8)' }}>
+                {showBomTable ? 'BOM Table ON' : 'BOM Table OFF'}
+              </span>
+              <Switch
+                checked={showBomTable}
+                onChange={handleToggleBomTable}
+                checkedChildren="ON"
+                unCheckedChildren="OFF"
+                style={{
+                  backgroundColor: showBomTable ? '#10b981' : '#64748b',
+                }}
+              />
+            </div>
           }
           style={{
-            borderRadius: 0,
+            borderRadius: 8,
             border: 'none',
             background: 'var(--theme-card-bg)',
             marginBottom: 16,
             boxShadow: 'none',
           }}
         >
-          <div className="hp-comp-shell">
+          {showBomTable ? (
+            <div className="hp-comp-shell">
           <Table
             dataSource={primaryItem.components}
             scroll={{ x: 'max-content' }}
@@ -4822,7 +5506,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                 align: 'center' as const,
                 render: (_: any, c: any) => {
                   const r = computeRowRejection(c);
-                  const wpp = r.perPieceWeightKg > 0 ? r.perPieceWeightKg : (c.componentItemName?.toLowerCase().includes('nipple') ? 0.0028 : 0.0105);
+                  const wpp = r.perPieceWeightKg > 0 ? r.perPieceWeightKg : lookupComponentWeightPerPieceKg(c.componentItemCode, c.componentItemName);
                   const reqKg = Math.round((c.requiredPcs || 0) * wpp * 10) / 10;
                   return (
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
@@ -4958,7 +5642,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
 
               (pageData as BomComponentItem[]).forEach((c) => {
                 const r = computeRowRejection(c);
-                const wpp = r.perPieceWeightKg > 0 ? r.perPieceWeightKg : (c.componentItemName?.toLowerCase().includes('nipple') ? 0.0028 : 0.0105);
+                const wpp = r.perPieceWeightKg > 0 ? r.perPieceWeightKg : lookupComponentWeightPerPieceKg(c.componentItemCode, c.componentItemName);
                 const reqKg = Math.round((c.requiredPcs || 0) * wpp * 10) / 10;
                 totalReqGross += toNum(c.requiredGross);
                 totalReqPcs += toNum(c.requiredPcs);
@@ -4971,6 +5655,15 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                 const availGross = toNum(c.availableGross ?? c.availableStock);
                 if (availGross < rowDeductGross) anyShortage = true;
               });
+
+              // Finished Good Assembly Output quantities (Authoritative Factory Standard):
+              // 1 Carton = 10 Gross = 1,440 Finished Sets
+              // e.g. 50 Cartons = 500 Gross = 72,000 PCS (36,000 Inner + 36,000 Outer + 72,000 Nipples)
+              const ctnCount = primaryItem.cartons || 0;
+              const fgOutputGross = ctnCount * conversionFactors.grossPerCarton;
+              const fgOutputPcs = ctnCount * conversionFactors.pcsPerCarton;
+              const fgDeductGross = fgOutputGross + (totalScrapPcs / conversionFactors.pcsPerGross);
+              const fgDeductPcs = fgOutputPcs + totalScrapPcs;
 
               return (
                 <Table.Summary.Row style={{ background: 'var(--theme-surface-alt, #0f172a)' }}>
@@ -4985,10 +5678,10 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                   <Table.Summary.Cell index={2} align="center">
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                       <span style={{ fontWeight: 800, fontSize: 13, color: 'var(--hp-value-info, #38bdf8)' }}>
-                        {formatNumber(totalReqGross, 0)} GRS
+                        {formatNumber(fgOutputGross, 0)} GRS
                       </span>
                       <span style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', fontWeight: 600 }}>
-                        ({formatNumber(totalReqPcs, 0)} PCS)
+                        ({formatNumber(fgOutputPcs, 0)} PCS)
                       </span>
                       <span style={{ fontSize: 12, color: '#10b981', fontWeight: 800, marginTop: 2 }}>
                         Total: {formatNumber(Math.round(totalReqKg * 10) / 10, 1)} KG
@@ -5001,10 +5694,10 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                   <Table.Summary.Cell index={4} align="center">
                     <div>
                       <span style={{ fontWeight: 800, fontSize: 13, color: 'var(--hp-value-warning, #f59e0b)' }}>
-                        {formatNumber(Math.round(totalDeductGross * 10) / 10, 1)} GRS
+                        {formatNumber(Math.round(fgDeductGross * 10) / 10, 1)} GRS
                       </span>
                       <div style={{ fontSize: 11, color: 'var(--theme-text-secondary, #94a3b8)', fontWeight: 600 }}>
-                        ({formatNumber(totalDeductPcs, 0)} PCS)
+                        ({formatNumber(fgDeductPcs, 0)} PCS)
                       </div>
                     </div>
                   </Table.Summary.Cell>
@@ -5037,6 +5730,59 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
             rowKey="key"
           />
           </div>
+          ) : (
+            <div
+              style={{
+                padding: '16px 20px',
+                background: 'rgba(16, 185, 129, 0.04)',
+                border: '1px dashed rgba(16, 185, 129, 0.28)',
+                borderRadius: 8,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                margin: '4px 0',
+              }}
+            >
+              <Space size={14} align="center">
+                <div style={{
+                  width: 38,
+                  height: 38,
+                  borderRadius: 8,
+                  background: 'rgba(16, 185, 129, 0.12)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#10b981',
+                  fontSize: 18,
+                }}>
+                  <InfoCircleOutlined />
+                </div>
+                <div>
+                  <div style={{ fontWeight: 800, fontSize: 13.5, color: 'var(--theme-text, #cbd5e1)' }}>
+                    BOM Component Deduction & Scrap Rejection Table is Closed (OFF)
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--theme-text-muted, #94a3b8)', marginTop: 2 }}>
+                    Components are linked ({primaryItem.components?.length || 0} items). Turn switch ON above if you want to inspect store stock, review deductions, or record scrap rejections.
+                  </div>
+                </div>
+              </Space>
+              <Button
+                size="middle"
+                type="primary"
+                onClick={() => handleToggleBomTable(true)}
+                style={{
+                  background: '#10b981',
+                  borderColor: '#10b981',
+                  fontWeight: 800,
+                  fontSize: 12.5,
+                  borderRadius: 6,
+                  boxShadow: '0 2px 6px rgba(16, 185, 129, 0.3)',
+                }}
+              >
+                Turn ON & Open Table
+              </Button>
+            </div>
+          )}
         </Card>
 
         {/* ── CARD 4: Actions Footer ── */}

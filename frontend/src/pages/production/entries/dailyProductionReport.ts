@@ -2364,3 +2364,153 @@ export function buildDailyProductionCsv(model: DailyProductionReport): string {
   // BOM so Excel reads UTF-8 (and the em-dash) correctly.
   return `\uFEFF${out.join('\r\n')}`;
 }
+
+/* ------------------------------------------------------------------ *
+ * WhatsApp Formatted Report — Executive Summary & Machine Breakdown
+ * ------------------------------------------------------------------ */
+
+export type WhatsAppReportMode = 'full' | 'executive' | 'machine';
+
+export interface WhatsAppReportOptions {
+  mode?: WhatsAppReportMode;
+  includeItems?: boolean;
+  includeRuntime?: boolean;
+}
+
+/**
+ * Builds a beautifully formatted, emojis-rich WhatsApp message matching the
+ * Daily Production Report print layout and executive summary.
+ * Grouped by Department, machine-ascending order, department totals and grand total.
+ */
+export function buildDailyProductionWhatsApp(
+  model: DailyProductionReport,
+  options?: WhatsAppReportOptions,
+): string {
+  const mode = options?.mode || 'full';
+  const includeItems = options?.includeItems !== false;
+  const includeRuntime = options?.includeRuntime !== false;
+  const out: string[] = [];
+
+  // 1. Header Banner
+  out.push('🏭 *PAKISTAN WIRE INDUSTRIES (PVT) LTD*');
+  out.push(`📊 *DAILY PRODUCTION REPORT — ${model.divisionName.toUpperCase()}*`);
+  out.push(`📅 *${model.dateLabel}*${model.shiftLabel ? ` | *Shift:* ${model.shiftLabel}` : ''}`);
+  out.push(`⚡ *Audited:* ${model.grand.machines} Machines · ${model.grand.entries} Entries · ${model.sections.length} Depts`);
+  out.push('━━━━━━━━━━━━━━━━━━━━');
+
+  // 2. Executive Department Summary (mirrors print layout page 1)
+  if (mode === 'full' || mode === 'executive') {
+    out.push('');
+    out.push('📋 *EXECUTIVE DEPARTMENT SUMMARY*');
+    out.push('────────────────────');
+
+    const kpis = executiveKpis(model);
+    for (const kpi of kpis) {
+      const toneArrow = kpi.tone === 'up' ? '▲' : '▼';
+      out.push(`🏢 *${kpi.name}*`);
+      out.push(`• *Target:* ${kpi.target} | *Actual:* ${kpi.actual} (*${kpi.achievement}* ${toneArrow})`);
+      out.push(`• *Rejection/Scrap:* ${kpi.rejectionKg} (${kpi.rejectionPct})`);
+
+      if (includeItems && kpi.items && kpi.items.length > 0) {
+        out.push('  *Item-wise Output:*');
+        for (const item of kpi.items) {
+          const scrapText = item.hasScrap ? ` (Scrap ${item.scrapPcs} Pcs / ${item.scrapKg} KG)` : '';
+          out.push(`  ▫️ *${item.code}*: ${item.actualPcs} Pcs / ${item.actualKg} KG${scrapText}`);
+          if (item.name && item.name !== item.code) {
+            out.push(`    _${item.name}_`);
+          }
+        }
+      }
+      out.push('────────────────────');
+    }
+  }
+
+  // 3. Machine-Wise Production Breakdown (machine number wise output as requested)
+  if (mode === 'full' || mode === 'machine') {
+    out.push('');
+    out.push('⚙️ *MACHINE-WISE PRODUCTION BREAKDOWN*');
+    out.push('━━━━━━━━━━━━━━━━━━━━');
+
+    for (const section of model.sections) {
+      out.push('');
+      out.push(`🏢 *DEPARTMENT: ${section.name.toUpperCase()}*`);
+      out.push('────────────────────');
+
+      for (const line of section.lines) {
+        const achText = line.achievement != null ? `${round2(line.achievement)}%` : '—';
+        const toneArrow = line.achievement != null && line.achievement >= ACHIEVEMENT_THRESHOLD ? '▲' : '▼';
+
+        if (isMultiItemLine(line)) {
+          const nested = nestedLinesOf(line);
+          out.push(`⚙️ *Machine:* *${line.machine}*`);
+          out.push(`• *Operator:* ${line.operator} | *Shift:* ${line.shift} (${line.shiftTime})`);
+          out.push(`• *Items Produced (${nested.length} parts):*`);
+          nested.forEach((sub, idx) => {
+            out.push(`  ${idx + 1}. *${sub.itemCode || sub.item}*: ${formatNumber(sub.actual, 0)} ${line.uom} (${sub.actualKg != null ? `${formatNumber(sub.actualKg, 2)} KG` : '—'})`);
+            if (sub.item && sub.item !== sub.itemCode) {
+              out.push(`     _${sub.item}_`);
+            }
+          });
+          out.push(`• *Target:* ${formatNumber(line.target, 0)} | *Total Actual:* ${formatNumber(line.actual, 0)} ${line.uom} (*${achText}* ${toneArrow})`);
+          if (line.rejectionKg || line.rejection) {
+            out.push(`• *Scrap/Rejection:* ${formatNumber(line.rejectionKg ?? 0, 2)} KG (${formatNumber(line.rejection, 0)} Pcs)`);
+          }
+          if (line.ot > 0) {
+            out.push(`• *OT:* ${line.ot}h`);
+          }
+          if (includeRuntime && line.runtime) {
+            out.push(`• *Runtime:* ${line.runtime}`);
+          }
+          out.push('┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄');
+          continue;
+        }
+
+        out.push(`⚙️ *Machine:* *${line.machine}*`);
+        out.push(`• *Operator:* ${line.operator} | *Shift:* ${line.shift} (${line.shiftTime})`);
+        out.push(`• *Item:* *${line.itemCode || line.item}*${line.item && line.itemCode ? ` — _${line.item}_` : ''}`);
+        out.push(`• *Target:* ${formatNumber(line.target, 0)} | *Actual:* ${formatNumber(line.actual, 0)} ${line.uom} (*${achText}* ${toneArrow})`);
+        out.push(`• *Weight:* ${line.actualKg != null ? `${formatNumber(line.actualKg, 2)} KG` : '—'}${line.ot > 0 ? ` | *OT:* ${line.ot}h` : ''}`);
+        if (line.rejectionKg || line.rejection) {
+          out.push(`• *Scrap/Rejection:* ${formatNumber(line.rejectionKg ?? 0, 2)} KG (${formatNumber(line.rejection, 0)} Pcs)`);
+        }
+        if (includeRuntime && line.runtime) {
+          out.push(`• *Runtime:* ${line.runtime}`);
+        }
+        out.push('┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄');
+      }
+
+      // Department Total
+      const sTarget = reportTotalText(section.totals, 'target');
+      const sActual = reportTotalText(section.totals, 'actual');
+      const sAch = reportTotalText(section.totals, 'achievement');
+      const sTone = achievementTone(section.totals.achievement) === 'up' ? '▲' : '▼';
+      const sKg = formatNumber(section.totals.actualKg, 2);
+      const sRejKg = formatNumber(section.totals.rejectionKg, 2);
+
+      out.push(`📊 *${section.name.toUpperCase()} TOTAL:*`);
+      out.push(`• Target: *${sTarget}* | Actual: *${sActual}* (*${sAch}* ${sTone})`);
+      out.push(`• Weight: *${sKg} KG* | Scrap: *${sRejKg} KG* (${rejectionPctLabel(section.totals.rejectionPct)})`);
+      out.push('────────────────────');
+    }
+  }
+
+  // 4. Grand Total Summary
+  out.push('');
+  out.push('━━━━━━━━━━━━━━━━━━━━');
+  out.push('🏆 *GRAND TOTAL SUMMARY*');
+  out.push('━━━━━━━━━━━━━━━━━━━━');
+  out.push(`• *Total Departments:* ${model.sections.length}`);
+  out.push(`• *Active Machines:* ${model.grand.machines}`);
+  out.push(`• *Total Target:* *${reportTotalText(model.grand, 'target')}*`);
+  out.push(`• *Total Actual Output:* *${reportTotalText(model.grand, 'actual')}*`);
+  out.push(`• *Overall Achievement:* *${reportTotalText(model.grand, 'achievement')}* ${achievementTone(model.grand.achievement) === 'up' ? '▲' : '▼'}`);
+  out.push(`• *Total Produced Weight:* *${formatNumber(model.grand.actualKg, 2)} KG*`);
+  out.push(`• *Total Scrap / Rejection:* *${formatNumber(model.grand.rejectionKg, 2)} KG* (${rejectionPctLabel(model.grand.rejectionPct)})`);
+  if (model.grand.ot > 0) {
+    out.push(`• *Total Overtime:* *${model.grand.ot.toFixed(1)} hrs*`);
+  }
+  out.push('━━━━━━━━━━━━━━━━━━━━');
+  out.push(`_Report generated via PWI ERP System • ${model.generatedLabel}_`);
+
+  return out.join('\n');
+}

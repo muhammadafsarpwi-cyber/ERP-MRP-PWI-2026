@@ -80,9 +80,7 @@ export class CustomerService implements OnModuleInit {
         CREATE INDEX IF NOT EXISTS "idx_customer_ledger_company_customer" ON "customer_ledger"("company_id", "customer_id", "transaction_date");
       `);
       this.logger.log('Customer master and ledger database schema verified successfully.');
-
-      const defaultCompanyId = '00000000-0000-0000-0000-000000000001';
-      await this.demoSeederService.seedDemoCustomers(defaultCompanyId);
+      // Auto demo seeding disabled to keep only genuine PWI business customers
     } catch (err) {
       this.logger.warn(`Customer master schema init error: ${err}`);
     }
@@ -295,7 +293,9 @@ export class CustomerService implements OnModuleInit {
     }
 
     if (dto.divisionId !== undefined) {
-      customer.divisionId = dto.divisionId || null;
+      const nextDivId = dto.divisionId || null;
+      customer.divisionId = nextDivId;
+      customer.division = nextDivId ? ({ id: nextDivId } as any) : null;
     }
 
     Object.assign(customer, dto, {
@@ -303,6 +303,12 @@ export class CustomerService implements OnModuleInit {
       nextFollowUpDate: dto.nextFollowUpDate ? new Date(dto.nextFollowUpDate) : customer.nextFollowUpDate,
       updatedBy: userId || null,
     });
+
+    if (dto.divisionId !== undefined) {
+      const nextDivId = dto.divisionId || null;
+      customer.divisionId = nextDivId;
+      customer.division = nextDivId ? ({ id: nextDivId } as any) : null;
+    }
 
     const saved = await this.repo.save(customer);
 
@@ -317,7 +323,7 @@ export class CustomerService implements OnModuleInit {
       }
     }
 
-    return saved;
+    return this.findOne(id);
   }
 
   /**
