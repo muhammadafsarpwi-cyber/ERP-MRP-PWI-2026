@@ -13,7 +13,7 @@ import {
   ArrowsAltOutlined, ShrinkOutlined, SendOutlined, UpOutlined,
   PrinterOutlined, FilePdfOutlined, FileExcelOutlined, WhatsAppOutlined,
   CopyOutlined, CheckOutlined, AimOutlined, TeamOutlined, AppstoreOutlined,
-  DollarCircleOutlined, ShopOutlined,
+  DollarCircleOutlined, ShopOutlined, ClockCircleOutlined,
 } from '@ant-design/icons';
 import HandPackingEntry from './HandPackingEntry';
 import FinishedGoodBomSetup from '../bom/FinishedGoodBomSetup';
@@ -178,11 +178,13 @@ export const PackingDepartmentHub: React.FC = () => {
       const ratePkr = toNum(entry.item?.standardCost || 5.0);
       const valuePkr = Math.round(pcs * ratePkr);
 
+      const isWithoutNipple = remarks.includes('WITHOUT_NIPPLE') || entry.status === 'WITHOUT_NIPPLE';
+
       const itemRecord = {
         id: entry.id || `${custCode}-${entry.itemId || Math.random()}`,
         itemCode: entry.item?.itemCode || entry.itemCode || 'FG-ITEM',
         itemName: entry.item?.name || entry.itemName || 'Packed Finished Good',
-        packagingStyle,
+        packagingStyle: isWithoutNipple ? 'White Poly Bag (Safety Stock Holding)' : packagingStyle,
         perPieceWeightKg,
         cartons,
         gross,
@@ -190,8 +192,9 @@ export const PackingDepartmentHub: React.FC = () => {
         weightKg,
         ratePkr,
         valuePkr,
-        warehouseName: entry.warehouse?.name || 'SPI FG Dispatch Warehouse',
-        status: entry.status || 'Ready',
+        warehouseName: isWithoutNipple ? 'Safety Stock Holding (Spokes Only)' : (entry.warehouse?.name || 'SPI FG Dispatch Warehouse'),
+        status: isWithoutNipple ? 'WITHOUT_NIPPLE' : (entry.status || 'Ready'),
+        isWithoutNipple,
       };
 
       if (!map.has(custName)) {
@@ -2617,11 +2620,17 @@ export const PackingDepartmentHub: React.FC = () => {
                               align: 'center' as const,
                               render: (_: any, r: any) => (
                                 <div>
-                                  <Tag color="success" icon={<CheckCircleFilled />} style={{ fontWeight: 700, borderRadius: 2 }}>
-                                    {r.status}
-                                  </Tag>
-                                  <div style={{ fontSize: 11, color: 'var(--theme-text-muted)', marginTop: 3 }}>
-                                    {r.warehouseName}
+                                  {r.isWithoutNipple || r.status === 'WITHOUT_NIPPLE' ? (
+                                    <Tag color="warning" icon={<ClockCircleOutlined />} style={{ fontWeight: 800, borderRadius: 2 }}>
+                                      HELD IN SAFETY STOCK
+                                    </Tag>
+                                  ) : (
+                                    <Tag color="success" icon={<CheckCircleFilled />} style={{ fontWeight: 700, borderRadius: 2 }}>
+                                      {r.status || 'Ready for Dispatch'}
+                                    </Tag>
+                                  )}
+                                  <div style={{ fontSize: 11, color: r.isWithoutNipple ? '#dc2626' : 'var(--theme-text-muted)', fontWeight: r.isWithoutNipple ? 700 : 400, marginTop: 3 }}>
+                                    {r.isWithoutNipple ? '⛔ Nipple Pending (Not Dispatchable)' : r.warehouseName}
                                   </div>
                                 </div>
                               ),

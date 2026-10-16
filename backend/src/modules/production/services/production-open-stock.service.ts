@@ -273,7 +273,7 @@ export class ProductionOpenStockService {
   }
 
   /**
-   * Post Stock Adjustment (کمی بیشی / ایڈجسٹمنٹ) for production items.
+   * Post Stock Adjustment (Surplus / Shortage) for production items.
    * Handles physical count vs book stock variances with Surplus (IN) or Shortage (OUT).
    */
   async postStockAdjustment(
@@ -444,7 +444,7 @@ export class ProductionOpenStockService {
     whQb.groupBy('wh.id, wh.name, wh.warehouseCode');
     const rawWhStats = await whQb.getRawMany();
 
-    // 3. Adjustment summary (Surplus vs Shortage / کمی بیشی)
+    // 3. Adjustment summary (Surplus vs Shortage)
     const adjQb = this.ledgerRepo
       .createQueryBuilder('sl')
       .innerJoin('sl.item', 'item')
@@ -863,7 +863,20 @@ export class ProductionOpenStockService {
 
         let totalWeightKg = 0;
         let totalPieces = 0;
+        let totalGross = 0;
+        let totalCartons = 0;
         let totalValuation = 0;
+
+        const isFgWarehouse =
+          (wh.warehouseCode || '').toUpperCase().includes('FGDW') ||
+          (wh.name || '').toUpperCase().includes('DISPATCH') ||
+          (wh.warehouseType || '').toUpperCase().includes('FINISHED') ||
+          (wh.name || '').toUpperCase().includes('FG');
+
+        const isNippleWarehouse =
+          (wh.warehouseCode || '').toUpperCase().includes('WH-002') ||
+          (wh.name || '').toLowerCase().includes('nipple') ||
+          (wh.warehouseCode || '').toUpperCase().includes('NIP');
 
         const items = balList.map((b) => {
           const it = b.item;
@@ -884,11 +897,47 @@ export class ProductionOpenStockService {
             convertedWeightKg = weightPerPiece > 0 ? Number((qty * weightPerPiece).toFixed(4)) : 0;
           }
 
+          // Gross Calculation (144 Pieces = 1 Gross for Spoke / Nipple / Finished Goods)
+          const isSpokeOrNippleOrFg =
+            inferredDivision === 'SPI' ||
+            isNippleWarehouse ||
+            isFgWarehouse ||
+            it.itemType === 'FINISHED_GOOD' ||
+            (it.itemCode || '').toUpperCase().includes('NP') ||
+            (it.itemCode || '').toUpperCase().includes('SPK') ||
+            (it.name || '').toLowerCase().includes('nipple') ||
+            (it.name || '').toLowerCase().includes('spoke');
+
+          const convertedGross =
+            isSpokeOrNippleOrFg && convertedPieces > 0
+              ? Number((convertedPieces / 144).toFixed(2))
+              : 0;
+
+          // Carton Calculation (CTN) - 1 Carton = 10 GRS (1,440 PCS) standard or 10.556 GRS (1,520 PCS) for CS
+          const itemPkgSize = Number(it.packagingSize) || 0;
+          const isCS =
+            (it.itemCode || '').toUpperCase().includes('011') ||
+            (it.itemCode || '').toUpperCase().includes('012') ||
+            (it.name || '').toUpperCase().includes('(CS)') ||
+            (it.name || '').toUpperCase().includes('CS');
+          const grossPerCarton = itemPkgSize > 0 ? itemPkgSize : isCS ? 10.555556 : 10;
+
+          let convertedCartons = 0;
+          if (
+            (isFgWarehouse || it.itemType === 'FINISHED_GOOD' || itemPkgSize > 0) &&
+            convertedGross > 0 &&
+            grossPerCarton > 0
+          ) {
+            convertedCartons = Number((convertedGross / grossPerCarton).toFixed(2));
+          }
+
           const unitCost = Number((it as any).unitCost ?? it.costPrice ?? 0);
           const lineValuation = convertedWeightKg > 0 ? convertedWeightKg * unitCost : convertedPieces * unitCost;
 
           totalWeightKg += convertedWeightKg;
           totalPieces += convertedPieces;
+          totalGross += convertedGross;
+          totalCartons += convertedCartons;
           totalValuation += lineValuation;
 
           return {
@@ -904,6 +953,11 @@ export class ProductionOpenStockService {
             weightPerPiece,
             convertedWeightKg,
             convertedPieces,
+            convertedGross,
+            convertedCartons,
+            grossPerCarton,
+            packagingSize: itemPkgSize,
+            packagingUnit: it.packagingUnit || 'Carton',
             unitCost,
             totalValuation: Math.round(lineValuation * 100) / 100,
           };
@@ -921,6 +975,8 @@ export class ProductionOpenStockService {
             totalItems: items.length,
             totalWeightKg: Math.round(totalWeightKg * 100) / 100,
             totalPieces,
+            totalGross: Math.round(totalGross * 100) / 100,
+            totalCartons: Math.round(totalCartons * 100) / 100,
             totalValuation: Math.round(totalValuation * 100) / 100,
           },
           items,

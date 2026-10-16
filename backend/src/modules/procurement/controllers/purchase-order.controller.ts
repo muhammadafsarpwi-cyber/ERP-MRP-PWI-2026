@@ -36,6 +36,15 @@ export class PurchaseOrderController {
     return { success: true, ...result };
   }
 
+  @Get('item-rates/latest')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('procurement.order.view')
+  @ApiOperation({ summary: 'Get latest purchase prices for all items' })
+  async getLatestItemRates() {
+    const rates = await this.service.getLatestItemRates();
+    return { success: true, data: rates };
+  }
+
   @Get(':id')
   @UseGuards(PermissionGuard)
   @RequirePermission('procurement.order.view')

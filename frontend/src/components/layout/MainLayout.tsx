@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { Layout, Menu, Drawer, Grid, Button, Avatar } from 'antd';
-import { MenuOutlined, SettingOutlined, LogoutOutlined, UserOutlined } from '@ant-design/icons';
+import { Layout, Menu, Drawer, Grid, Button, Avatar, Input } from 'antd';
+import { MenuOutlined, SettingOutlined, LogoutOutlined, UserOutlined, SearchOutlined } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import type { MenuProps } from 'antd';
 import { useUserStore } from '../../store/userStore';
@@ -193,10 +193,50 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
 
   const menuItems = React.useMemo(() => buildMenuItems(effectiveCan, navBadges), [effectiveCan, navBadges]);
 
+  const [sidebarSearch, setSidebarSearch] = useState<string>('');
+
+  const filteredMenuItems = React.useMemo(() => {
+    if (!sidebarSearch.trim()) return menuItems;
+    const term = sidebarSearch.trim().toLowerCase();
+
+    const filterList = (list: MenuProps['items']): any[] => {
+      if (!list) return [];
+      const out: any[] = [];
+      for (const it of list as any[]) {
+        if (!it) continue;
+        const rawLabel = typeof it.label === 'string' ? it.label : (it.key || '');
+        const labelText = String(rawLabel);
+        const matchesSelf = labelText.toLowerCase().includes(term);
+
+        if (it.children && Array.isArray(it.children)) {
+          const matchedChildren: any[] = filterList(it.children);
+          if (matchesSelf || (matchedChildren && matchedChildren.length > 0)) {
+            out.push({
+              ...it,
+              children: matchedChildren.length > 0 ? matchedChildren : it.children,
+            });
+          }
+        } else if (matchesSelf) {
+          out.push(it);
+        }
+      }
+      return out;
+    };
+
+    return filterList(menuItems);
+  }, [menuItems, sidebarSearch]);
+
   const activeKeys = React.useMemo(
     () => resolveNavActiveKeys(location.pathname, location.search),
     [location.pathname, location.search]
   );
+
+  const effectiveOpenKeys = React.useMemo(() => {
+    if (sidebarSearch.trim()) {
+      return (filteredMenuItems || []).map((it: any) => it?.key).filter(Boolean);
+    }
+    return openKeys;
+  }, [sidebarSearch, filteredMenuItems, openKeys]);
 
   React.useEffect(() => {
     setOpenKeys((prev) => {
@@ -497,7 +537,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
                 flexShrink: 0,
                 height: effectivelyCollapsed ? 28 : 32,
                 width: effectivelyCollapsed ? 28 : 32,
-                borderRadius: 6,
+                borderRadius: 'var(--ui-radius-sm)',
                 objectFit: 'contain',
               }}
             />
@@ -535,6 +575,28 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
             )}
           </div>
 
+          {/* QUICK SEARCH BAR IN SIDEBAR */}
+          {!effectivelyCollapsed && (
+            <div style={{ padding: '8px 12px 6px 12px', flexShrink: 0, borderBottom: isLight ? '1px solid #f1f5f9' : '1px solid rgba(255, 255, 255, 0.05)' }}>
+              <Input
+                prefix={<SearchOutlined style={{ color: isLight ? '#94a3b8' : '#64748b', fontSize: 13 }} />}
+                placeholder="Quick Search..."
+                value={sidebarSearch}
+                onChange={(e) => setSidebarSearch(e.target.value)}
+                allowClear
+                size="small"
+                style={{
+                  borderRadius: 14,
+                  background: isLight ? '#f1f5f9' : 'rgba(255, 255, 255, 0.06)',
+                  border: isLight ? '1px solid #cbd5e1' : '1px solid rgba(255, 255, 255, 0.12)',
+                  color: isLight ? '#0f172a' : '#f8fafc',
+                  fontSize: 12,
+                  padding: '3px 10px',
+                }}
+              />
+            </div>
+          )}
+
           {/* SCROLLABLE MENU — Scrollbar stays strictly contained beneath fixed brand header */}
           <div
             className="erp-sidebar-menu-scrollable"
@@ -544,8 +606,8 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
               mode="inline"
               inlineIndent={14}
               selectedKeys={[activeKeys.selectedKey]}
-              {...(effectivelyCollapsed ? {} : { openKeys })}
-              items={menuItems}
+              {...(effectivelyCollapsed ? {} : { openKeys: effectiveOpenKeys })}
+              items={filteredMenuItems}
               onClick={handleMenuClick}
               onOpenChange={handleOpenChange}
               style={{
@@ -580,7 +642,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
                 gap: 10,
                 cursor: 'pointer',
                 padding: '6px 8px',
-                borderRadius: 6,
+                borderRadius: 'var(--ui-radius-sm)',
                 color: isLight ? '#475569' : '#94a3b8',
                 fontSize: 13,
                 fontWeight: 500,
@@ -604,7 +666,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
                 gap: 10,
                 cursor: 'pointer',
                 padding: '6px 8px',
-                borderRadius: 6,
+                borderRadius: 'var(--ui-radius-sm)',
                 color: isLight ? '#0f172a' : '#ffffff',
                 fontSize: 13,
                 fontWeight: 600,
@@ -632,7 +694,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
                 gap: 10,
                 cursor: 'pointer',
                 padding: '6px 8px',
-                borderRadius: 6,
+                borderRadius: 'var(--ui-radius-sm)',
                 color: '#ef4444',
                 fontSize: 13,
                 fontWeight: 500,

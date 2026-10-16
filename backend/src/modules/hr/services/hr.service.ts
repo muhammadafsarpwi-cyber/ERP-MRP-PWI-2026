@@ -1468,7 +1468,7 @@ export class HrService {
       qb.innerJoin(Department, 'd_sec', 'd_sec.id = e.department_id')
         .andWhere('d_sec.section_id = :secId', { secId: query.sectionId });
     }
-    qb.orderBy('e.employee_code', 'ASC');
+    qb.orderBy('e.employeeCode', 'ASC');
     const [data, total] = await qb.skip((page - 1) * limit).take(limit).getManyAndCount();
     const ids = data.map((e) => e.id);
     const withRelations = ids.length
@@ -1493,9 +1493,21 @@ export class HrService {
   async findEmployee(id: string) {
     const emp = await this.employeeRepo.findOne({
       where: { id },
-      relations: ['designation', 'department', 'department.division', 'department.section', 'manager', 'skills', 'training', 'documents', 'histories'],
+      relations: ['designation', 'department', 'department.division', 'department.section', 'manager'],
     });
     if (!emp) throw new NotFoundException('Employee not found');
+
+    const [skills, training, documents, histories] = await Promise.all([
+      this.skillRepo.find({ where: { employeeId: id } }),
+      this.trainingRepo.find({ where: { employeeId: id } }),
+      this.docRepo.find({ where: { employeeId: id } }),
+      this.historyRepo.find({ where: { employeeId: id }, order: { changeDate: 'DESC' } }),
+    ]);
+
+    (emp as any).skills = skills;
+    (emp as any).training = training;
+    (emp as any).documents = documents;
+    (emp as any).histories = histories;
     (emp as any).departmentName = emp.department?.name ?? null;
     (emp as any).designationName = emp.designation?.designationName ?? emp.jobTitle ?? null;
     (emp as any).divisionName = emp.department?.division?.name ?? null;
@@ -1677,8 +1689,16 @@ export class HrService {
     if (dto.status && dto.status !== emp.status) changes.push({ fromValue: emp.status, toValue: dto.status });
     if (dto.designationId && dto.designationId !== emp.designationId) changes.push({ fromValue: emp.designationId ?? undefined, toValue: dto.designationId });
     Object.assign(emp, dto);
-    if (dto.dateOfBirth) emp.dateOfBirth = new Date(dto.dateOfBirth);
-    if (dto.joinDate) emp.joinDate = new Date(dto.joinDate);
+    if (dto.dateOfBirth) {
+      emp.dateOfBirth = new Date(dto.dateOfBirth);
+    } else if (dto.dateOfBirth === null || dto.dateOfBirth === '') {
+      emp.dateOfBirth = null;
+    }
+    if (dto.joinDate) {
+      emp.joinDate = new Date(dto.joinDate);
+    } else if (dto.joinDate === null || dto.joinDate === '') {
+      emp.joinDate = null;
+    }
     const saved = await this.employeeRepo.save(emp);
     for (const c of changes) {
       await this.historyRepo.save(this.historyRepo.create({

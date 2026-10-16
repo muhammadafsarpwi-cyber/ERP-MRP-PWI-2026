@@ -75,6 +75,10 @@
 .erp-table-container .ant-table-thead > tr > th.ant-table-cell-fix-right,
 .erp-table-container .ant-table-thead > tr > th.ant-table-cell-fix-right-first,
 .ant-table-thead th[class*="ant-table-cell-fix-"],
+.ant-table-sticky-holder .ant-table-thead > tr > th,
+.ant-table-header .ant-table-thead > tr > th,
+html .ant-table-thead > tr > th,
+html .ant-table-thead th,
 th.erp-th-navy {
   background: var(--theme-table-header-bg, var(--ui-table-header-bg, #f1f5f9)) !important;
   background-color: var(--theme-table-header-bg, var(--ui-table-header-bg, #f1f5f9)) !important;
@@ -84,17 +88,22 @@ th.erp-th-navy {
   letter-spacing: 0.06em !important;
   text-transform: uppercase !important;
   padding: 10px 12px !important;
-  border-bottom: 1px solid var(--theme-table-header-border, var(--ui-table-header-rule, #cbd5e1)) !important;
+  border-bottom: 2.5px solid #f59e0b !important;
+  box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3) !important;
   white-space: nowrap !important;
   word-break: keep-all !important;
 }
 
 [data-theme="dark"] .ant-table-thead th[class*="ant-table-cell-fix-"],
+[data-theme="dark"] .ant-table-sticky-holder .ant-table-thead > tr > th,
+[data-theme="dark"] .ant-table-header .ant-table-thead > tr > th,
+[data-theme="dark"] html .ant-table-thead > tr > th,
 [data-theme="dark"] th.erp-th-navy {
   background: var(--theme-table-header-bg, #0b1e36) !important;
   background-color: var(--theme-table-header-bg, #0b1e36) !important;
   color: var(--theme-table-header-color, #f1f5f9) !important;
-  border-bottom: 1px solid var(--theme-table-header-border, #1e293b) !important;
+  border-bottom: 2.5px solid #f59e0b !important;
+  box-shadow: 0 2px 8px rgba(245, 158, 11, 0.25) !important;
 }
 
 .erp-table-container .ant-table-thead > tr > th .ant-table-column-title,
@@ -414,7 +423,79 @@ html:not([data-theme="dark"]) body .ant-table-tbody > tr:nth-child(odd):not(:hov
 [data-theme="dark"] .erp-action-btn:hover,
 [data-theme="dark"] .ant-table-tbody .ant-btn-text:hover {
   background: rgba(255, 255, 255, 0.12) !important;
+}
+
+[data-theme="dark"] .ant-table-tbody > tr > td {
+  color: #f1f5f9 !important;
+}
+
+[data-theme="dark"] .ant-table-tbody > tr > td div,
+[data-theme="dark"] .ant-table-tbody > tr > td span:not(.ant-tag):not(.ant-badge) {
+  color: #e2e8f0;
+}
+
+[data-theme="dark"] .ant-table-tbody > tr > td strong,
+[data-theme="dark"] .ant-table-tbody > tr > td b {
   color: #ffffff !important;
+}
+
+[data-theme="dark"] .ant-tooltip-inner {
+  background: #1e293b !important;
+  color: #f8fafc !important;
+  border: 1px solid #334155;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+/* ── 2027 Enterprise Dynamic Floating Bulk Actions Toolbar ── */
+.erp-table-bulk-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  margin-bottom: 12px;
+  background: linear-gradient(135deg, rgba(30, 41, 59, 0.95) 0%, rgba(15, 23, 42, 0.98) 100%);
+  border: 1.5px solid #f59e0b;
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(245, 158, 11, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  animation: slideDownIn 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 50;
+  backdrop-filter: blur(12px);
+}
+
+@keyframes slideDownIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.erp-table-bulk-toolbar .bulk-count-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  color: #fbbf24;
+  font-size: 13.5px;
+}
+
+.erp-table-bulk-toolbar .bulk-actions-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+:root:not([data-theme="dark"]) .erp-table-bulk-toolbar {
+  background: linear-gradient(135deg, #ffffff 0%, #fffbeb 100%);
+  border: 1.5px solid #f59e0b;
+  box-shadow: 0 6px 18px rgba(245, 158, 11, 0.15);
+}
+
+:root:not([data-theme="dark"]) .erp-table-bulk-toolbar .bulk-count-badge {
+  color: #b45309;
 }
 
 /* ── 4. Dense / Compact Mode Variant ────────────────────────────────
@@ -1782,6 +1863,47 @@ html:not([data-theme="dark"]) body .ant-table-tbody > tr:nth-child(odd):not(:hov
 :root:not([data-theme="dark"]) .erp-table-container .ant-table-tbody > tr.ant-table-row-hover > td {
   background: #f1f5f9 !important;
   box-shadow: inset 0 1px 0 rgba(14, 165, 233, 0.12), inset 0 -1px 0 rgba(14, 165, 233, 0.12) !important;
+}
+
+/* ── 2027 Strictly Centered Table Selection Checkbox Column ── */
+.ant-table-wrapper .ant-table-selection-column,
+.ant-table-wrapper .ant-table-cell.ant-table-selection-column,
+.ant-table-thead > tr > th.ant-table-selection-column,
+.ant-table-tbody > tr > td.ant-table-selection-column,
+th.ant-table-selection-column,
+td.ant-table-selection-column,
+.ant-table-selection-column {
+  text-align: center !important;
+  vertical-align: middle !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+  width: 48px !important;
+  min-width: 48px !important;
+  max-width: 48px !important;
+}
+
+.ant-table-selection-column .ant-table-selection,
+.ant-table-selection-column .ant-checkbox-wrapper,
+.ant-table-selection-column .ant-checkbox {
+  display: inline-flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  margin: 0 auto !important;
+  text-align: center !important;
+  vertical-align: middle !important;
+}
+
+/* ── 2027 Compact, Centered Page Toolbar ── */
+.erp-page-toolbar-card {
+  border-radius: 8px !important;
+}
+
+.erp-page-toolbar-card .ant-card-body {
+  padding: 8px 14px !important;
+  display: flex !important;
+  align-items: center !important;
+  min-height: 48px !important;
+  box-sizing: border-box !important;
 }
 
 

@@ -181,6 +181,8 @@ export const useHeaderActions = create<HeaderActionsState>((set, get) => ({
     const nextMetaMap = { ...get().tabMetaMap, [activeTab]: nextMeta };
     if (activeTab === '/master-data/items') nextMetaMap['/master-data/products-items'] = nextMeta;
     if (activeTab === '/master-data/products-items') nextMetaMap['/master-data/items'] = nextMeta;
+    if (activeTab === '/production/targets') nextMetaMap['/master-data/machine-targets'] = nextMeta;
+    if (activeTab === '/master-data/machine-targets') nextMetaMap['/production/targets'] = nextMeta;
 
     set({
       tabMetaMap: nextMetaMap,
@@ -216,6 +218,8 @@ export const useHeaderActions = create<HeaderActionsState>((set, get) => ({
     if (!tabId) return;
     const nextMetaMap = { ...get().tabMetaMap };
     delete nextMetaMap[tabId];
+    if (tabId === '/production/targets') delete nextMetaMap['/master-data/machine-targets'];
+    if (tabId === '/master-data/machine-targets') delete nextMetaMap['/production/targets'];
     set({
       tabMetaMap: nextMetaMap,
     });
@@ -227,11 +231,15 @@ export const useHeaderActions = create<HeaderActionsState>((set, get) => ({
       tabActionsMap[tabId] ||
       (tabId === '/master-data/items' ? tabActionsMap['/master-data/products-items'] : undefined) ||
       (tabId === '/master-data/products-items' ? tabActionsMap['/master-data/items'] : undefined) ||
+      (tabId === '/production/targets' ? tabActionsMap['/master-data/machine-targets'] : undefined) ||
+      (tabId === '/master-data/machine-targets' ? tabActionsMap['/production/targets'] : undefined) ||
       [];
     const meta =
       tabMetaMap[tabId] ||
       (tabId === '/master-data/items' ? tabMetaMap['/master-data/products-items'] : undefined) ||
-      (tabId === '/master-data/products-items' ? tabMetaMap['/master-data/items'] : undefined);
+      (tabId === '/master-data/products-items' ? tabMetaMap['/master-data/items'] : undefined) ||
+      (tabId === '/production/targets' ? tabMetaMap['/master-data/machine-targets'] : undefined) ||
+      (tabId === '/master-data/machine-targets' ? tabMetaMap['/production/targets'] : undefined);
     set({
       actions,
       title: meta?.title,

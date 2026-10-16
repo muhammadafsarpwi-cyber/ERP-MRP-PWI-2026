@@ -120,7 +120,7 @@ export class ProductionOpenStockController {
   @RequireOrgScope()
   @RequirePermission('manufacturing.production.entries.create')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Post Production Stock Adjustment (کمی بیشی / surplus & shortage)' })
+  @ApiOperation({ summary: 'Post Production Stock Adjustment (Surplus & Shortage)' })
   async postAdjustment(@Req() req: any, @Body() dto: PostProductionStockAdjustmentDto) {
     try {
       const companyId = this.getCompanyId(req);

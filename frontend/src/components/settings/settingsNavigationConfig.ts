@@ -9,6 +9,7 @@ import {
   DashboardOutlined,
   DownloadOutlined,
   FileTextOutlined,
+  FormatPainterOutlined,
   GiftOutlined,
   HistoryOutlined,
   InboxOutlined,
@@ -141,7 +142,7 @@ export const SETTINGS_OVERVIEW: SettingsNavItem = {
   id: 'overview',
   path: '/settings',
   label: 'Overview',
-  description: 'Appearance, themes and background audio',
+  description: 'Theme Studio presets and background audio',
   icon: DashboardOutlined,
   viewPermissions: [SETTINGS_PERMISSIONS.view],
   editPermission: SETTINGS_PERMISSIONS.edit,
@@ -149,10 +150,21 @@ export const SETTINGS_OVERVIEW: SettingsNavItem = {
 };
 
 /**
- * The 22 configured settings categories, in the order mandated by the
+ * The 23 configured settings categories, in the order mandated by the
  * settings architecture brief (Company Settings provides company profile).
+ * `appearance` is the theme engine (mode, corner matrix, glass, custom
+ * accent) — the same controls the header gear opens as a pop-up.
  */
 export const SETTINGS_CATEGORIES: SettingsNavItem[] = [
+  {
+    id: 'appearance',
+    path: '/settings/appearance',
+    label: 'Appearance',
+    description: 'Theme mode, corner style, glass effects and custom accent',
+    icon: FormatPainterOutlined,
+    viewPermissions: [SETTINGS_PERMISSIONS.view],
+    editPermission: SETTINGS_PERMISSIONS.edit,
+  },
   {
     id: 'profile-branding',
     path: '/settings/profile-branding',

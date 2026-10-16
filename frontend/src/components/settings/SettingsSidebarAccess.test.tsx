@@ -150,9 +150,10 @@ describe('Main sidebar — existing Settings entry (PROMPT #01-FIX)', () => {
     );
     expect(labels.filter((label) => label === 'Company Settings')).toHaveLength(1);
 
-    // The 23 settings categories live only in the settings registry, which is
-    // never merged into NAV_ENTRIES, so the main sidebar cannot grow copies.
-    expect(SETTINGS_NAV_ITEMS).toHaveLength(23);
+    // The 24 settings nav items (overview + 23 categories) live only in the
+    // settings registry, which is never merged into NAV_ENTRIES, so the main
+    // sidebar cannot grow copies.
+    expect(SETTINGS_NAV_ITEMS).toHaveLength(24);
     expect(keys.filter((key) => SETTINGS_NAV_KEYS.has(key))).toEqual([]);
   });
 

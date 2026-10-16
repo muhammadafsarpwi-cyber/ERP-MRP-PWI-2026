@@ -31,8 +31,12 @@ const PageToolbar: React.FC<PageToolbarProps> = ({
   sortInfo,
   extra,
 }) => (
-  <Card styles={{ body: { paddingBottom: 0 } }} style={{ marginBottom: 16 }}>
-    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', paddingTop: 4 }}>
+  <Card
+    className="erp-page-toolbar-card"
+    styles={{ body: { padding: '8px 14px' } }}
+    style={{ marginBottom: 10 }}
+  >
+    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', width: '100%', minHeight: 32 }}>
       {onToggleFilters && (
         <Badge count={filterCount}>
           <Button icon={<FilterOutlined />} onClick={onToggleFilters}>

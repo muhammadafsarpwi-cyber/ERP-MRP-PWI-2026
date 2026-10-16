@@ -597,7 +597,7 @@ const AiAssistantPage: React.FC = () => {
     } else {
       const started = await startRecording();
       if (started) {
-        message.info('Recording… speak in Urdu or English, then click the mic to stop & send (بند کر کے بھیجیں).');
+        message.info('Recording… speak your question, then click the mic to stop and send.');
       }
     }
   };
@@ -1462,11 +1462,11 @@ const AiAssistantPage: React.FC = () => {
             }}
           >
             {[
-              { label: '👑 Top 5 Customers', query: 'ٹاپ 5 کسٹمر بتا دو' },
-              { label: '📦 Top 5 Items', query: 'ٹاپ 5 ایٹم بتا دو' },
-              { label: '👷 Top 5 Operators', query: 'ٹاپ 5 اپریٹر بتا دو' },
-              { label: '🎫 Swag 5 Job Cards', query: '5 number swag pe is mahine kitne job card hain' },
-              { label: '📅 3 Mahine Job Cards', query: '3 mahine me kitna job card hai' },
+              { label: '👑 Top 5 Customers', query: 'Show top 5 customers by sales volume' },
+              { label: '📦 Top 5 Items', query: 'Show top 5 items produced' },
+              { label: '👷 Top 5 Operators', query: 'Show top 5 operators by efficiency' },
+              { label: '🎫 Swag 5 Job Cards', query: 'Show job cards for swag machine 5 this month' },
+              { label: '📅 3 Months Job Cards', query: 'Show job card summary for last 3 months' },
               { label: '👤 Operator-wise', query: 'Show operator-wise production for September' },
               { label: '⚙️ Machine-wise', query: `Show ${activeDivisionMeta.name} machine-wise production, target and average report` },
               { label: '🏢 Department-wise', query: 'Show department-wise target vs actual production' },
@@ -1529,8 +1529,8 @@ const AiAssistantPage: React.FC = () => {
               variant="borderless"
               placeholder={
                 isListening
-                  ? `Recording ${elapsedSeconds}s… click the mic to stop & send (بند کر کے بھیجیں)`
-                  : 'Ask me in Urdu, Roman Urdu or English (e.g. ٹاپ 5 کسٹمر، 5 نمبر سوگ جاب کارڈ، Top operators...)'
+                  ? `Recording ${elapsedSeconds}s… click the mic to stop and send`
+                  : 'Ask about production, machines, operators, dispatch (e.g. Top 5 customers, Swag 5 jobs, etc.)...'
               }
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
@@ -1551,8 +1551,8 @@ const AiAssistantPage: React.FC = () => {
             <Tooltip
               title={
                 isListening
-                  ? `Stop & send (${elapsedSeconds}s) — بند کر کے بھیجیں`
-                  : 'Record a voice question in Urdu & English / بول کر پوچھیں'
+                  ? `Stop & send (${elapsedSeconds}s)`
+                  : 'Record a voice question'
               }
             >
               <Button

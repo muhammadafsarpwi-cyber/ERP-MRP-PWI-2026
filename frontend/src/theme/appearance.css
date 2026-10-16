@@ -1,0 +1,476 @@
+/* ============================================================================
+   ADVANCED APPEARANCE PANEL (appearance.css)
+ ============================================================================
+   Shared control surface used in BOTH mount points:
+     - AdvancedThemeModal   (header gear → centred pop-up)
+     - AppearanceSettings   (System Settings → Appearance page)
+
+   Every surface reads the theme tokens (--theme-*) and the radius ladder
+   (--ui-radius-*), so the panel restyles itself live while the user drafts a
+   change — including re-rounding its own tiles when the Corner Style matrix
+   is switched. Nothing here is mode-specific: Light and Dark are handled by
+   the token layer in ThemeProvider.tsx.
+   ============================================================================ */
+
+.erp-appearance {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+/* ── Section scaffold ──────────────────────────────────────────────────── */
+
+.erp-appearance-section-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.erp-appearance-section-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: var(--theme-heading);
+}
+
+.erp-appearance-section-title .erp-appearance-section-icon {
+  color: var(--theme-accent);
+}
+
+.erp-appearance-section-hint {
+  margin: 3px 0 0;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--theme-text-muted);
+}
+
+/* Two-up layout for the Corner / Glass pair on wide surfaces. */
+.erp-appearance-columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 22px;
+}
+
+.erp-appearance-panel {
+  padding: 14px;
+  border: 1px solid var(--theme-border);
+  border-radius: var(--ui-radius-md);
+  background: var(--theme-surface);
+}
+
+.erp-appearance-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+/* ── Corner Style matrix ───────────────────────────────────────────────── */
+
+.erp-corner-matrix {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+  gap: 10px;
+}
+
+.erp-corner-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 11px;
+  cursor: pointer;
+  text-align: left;
+  background: transparent;
+  border: 1px solid var(--theme-border);
+  border-radius: var(--ui-radius-md);
+  transition: border-color 0.15s ease, background-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.erp-corner-option:hover {
+  border-color: var(--theme-accent);
+}
+
+.erp-corner-option:focus-visible {
+  outline: 2px solid var(--theme-focus);
+  outline-offset: 2px;
+}
+
+.erp-corner-option.is-active {
+  background: var(--theme-accent-soft);
+  border-color: var(--theme-accent);
+  box-shadow: 0 0 0 1px var(--theme-accent);
+}
+
+/* Card tile + control pill preview — the two radii a step controls. */
+.erp-corner-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  width: 42px;
+  height: 38px;
+  background: var(--theme-surface);
+  border: 1.5px solid var(--theme-border-strong);
+}
+
+.erp-corner-option.is-active .erp-corner-tile {
+  border-color: var(--theme-accent);
+}
+
+.erp-corner-tile-pill {
+  width: 22px;
+  height: 7px;
+  background: var(--theme-accent);
+}
+
+.erp-corner-meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.erp-corner-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--theme-heading);
+}
+
+.erp-corner-range {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--theme-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.erp-corner-check {
+  margin-left: auto;
+  font-size: 13px;
+  color: var(--theme-accent);
+}
+
+/* ── Glassmorphism panel ───────────────────────────────────────────────── */
+
+.erp-glass-controls {
+  display: grid;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.erp-glass-locked {
+  margin: 12px 0 0;
+  font-size: 11.5px;
+  color: var(--theme-text-muted);
+}
+
+.erp-slider-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 2px;
+  font-size: 12.5px;
+  color: var(--theme-text);
+}
+
+.erp-slider-value {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--theme-accent);
+}
+
+.erp-slider-note {
+  font-size: 11px;
+  color: var(--theme-text-muted);
+}
+
+/* Scene + frosted pane: gives the blur something to actually sample. */
+.erp-glass-preview {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 84px;
+  overflow: hidden;
+  border: 1px solid var(--theme-border);
+  border-radius: var(--ui-radius-md);
+}
+
+.erp-glass-preview-scene {
+  position: absolute;
+  inset: 0;
+  background:
+    repeating-linear-gradient(
+      45deg,
+      var(--theme-accent-soft) 0 14px,
+      transparent 14px 28px
+    ),
+    linear-gradient(120deg, var(--theme-accent), var(--theme-surface));
+  opacity: 0.9;
+}
+
+.erp-glass-preview-pane {
+  position: relative;
+  padding: 9px 18px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--theme-heading);
+  background: var(--theme-surface);
+  border: 1px solid var(--theme-border);
+  border-radius: var(--ui-radius-lg);
+  transition: background 0.15s ease, backdrop-filter 0.15s ease;
+}
+
+.erp-glass-preview.is-on .erp-glass-preview-pane {
+  background: var(--glass-tint);
+  border-color: var(--glass-edge);
+  -webkit-backdrop-filter: blur(var(--glass-blur))
+    saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+}
+
+/* ── Theme Color: palette swatches ─────────────────────────────────────── */
+
+.erp-palette-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: 10px;
+}
+
+.erp-palette-swatch {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 0;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+}
+
+.erp-palette-swatch:focus-visible {
+  outline: 2px solid var(--theme-focus);
+  outline-offset: 3px;
+  border-radius: var(--ui-radius-sm);
+}
+
+.erp-palette-chips {
+  display: flex;
+  width: 100%;
+  height: 38px;
+  overflow: hidden;
+  border: 1px solid var(--theme-border);
+  border-radius: var(--ui-radius-md);
+  transition: box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.erp-palette-swatch:hover .erp-palette-chips {
+  border-color: var(--theme-accent);
+}
+
+.erp-palette-swatch.is-active .erp-palette-chips {
+  border-color: var(--theme-accent);
+  box-shadow: 0 0 0 2px var(--theme-accent-soft);
+}
+
+.erp-palette-chip {
+  flex: 1 1 0;
+}
+
+.erp-palette-name {
+  font-size: 10.5px;
+  line-height: 1.2;
+  text-align: center;
+  color: var(--theme-text-muted);
+}
+
+.erp-palette-swatch.is-active .erp-palette-name {
+  font-weight: 600;
+  color: var(--theme-accent);
+}
+
+.erp-palette-check {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  font-size: 12px;
+  color: var(--theme-accent);
+  background: var(--theme-surface);
+  border-radius: 50%;
+  line-height: 1;
+}
+
+/* ── Theme Color: custom hex picker ────────────────────────────────────── */
+
+.erp-custom-color-block {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--theme-border);
+}
+
+.erp-custom-color-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--theme-heading);
+}
+
+.erp-color-picker-btn {
+  display: inline-flex;
+  align-items: center;
+}
+
+/* ── Derived role preview ──────────────────────────────────────────────── */
+
+.erp-role-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.erp-role-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--theme-border);
+  border-radius: var(--ui-radius-md);
+  background: var(--theme-surface);
+  min-width: 0;
+}
+
+.erp-role-dot {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  /* Theme-strong border so the chip still reads its edges on a dark surface. */
+  border: 1px solid var(--theme-border-strong);
+  border-radius: var(--ui-radius-sm);
+}
+
+.erp-role-meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.erp-role-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--theme-text-muted);
+}
+
+.erp-role-hex {
+  font-size: 11.5px;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  color: var(--theme-heading);
+}
+
+.erp-contrast-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  padding: 2px 7px;
+  font-size: 10.5px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  border-radius: 999px;
+}
+
+.erp-contrast-badge.is-pass {
+  color: var(--theme-success);
+  background: var(--theme-success-soft);
+}
+
+.erp-contrast-badge.is-fail {
+  color: var(--theme-danger);
+  background: var(--theme-danger-soft);
+}
+
+/* ── Action bar (shared by the modal footer and the settings page) ─────── */
+
+.erp-appearance-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+}
+
+.erp-appearance-actions-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.erp-appearance-dirty-note {
+  font-size: 11.5px;
+  color: var(--theme-text-muted);
+}
+
+/* ── Settings page shell ───────────────────────────────────────────────── */
+
+.erp-settings-appearance {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.erp-appearance-page-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.erp-appearance-page-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  font-size: 20px;
+  color: var(--theme-accent);
+  background: var(--theme-accent-soft);
+  border: 1px solid var(--theme-accent);
+  border-radius: var(--ui-radius-md);
+}
+
+.erp-appearance-page-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--theme-heading);
+}
+
+.erp-appearance-page-desc {
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--theme-text-muted);
+  max-width: 72ch;
+}
+
+.erp-appearance-card {
+  padding: 18px;
+  border: 1px solid var(--theme-border);
+  border-radius: var(--ui-radius-lg);
+  background: var(--theme-surface);
+}

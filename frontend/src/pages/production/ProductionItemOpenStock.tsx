@@ -47,6 +47,12 @@ import {
   MinusCircleOutlined,
   DownCircleOutlined,
   RightCircleOutlined,
+  AppstoreOutlined,
+  DashboardOutlined,
+  FieldNumberOutlined,
+  GoldOutlined,
+  InboxOutlined,
+  DollarCircleOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
@@ -70,6 +76,11 @@ export interface MatrixItem {
   weightPerPiece: number;
   convertedWeightKg: number;
   convertedPieces: number;
+  convertedGross?: number;
+  convertedCartons?: number;
+  grossPerCarton?: number;
+  packagingSize?: number;
+  packagingUnit?: string;
   unitCost: number;
   totalValuation: number;
 }
@@ -86,9 +97,68 @@ export interface DepartmentStockMatrixRow {
     totalItems: number;
     totalWeightKg: number;
     totalPieces: number;
+    totalGross?: number;
+    totalCartons?: number;
     totalValuation: number;
   };
   items: MatrixItem[];
+}
+
+/**
+ * Calculates extended units (Gross, Cartons) for Spoke, Nipple and Finished Goods warehouses
+ */
+export function computeItemExtendedUnits(
+  rec: MatrixItem,
+  whCode?: string,
+  whName?: string,
+  inferredDiv?: string,
+) {
+  const code = (whCode || '').toUpperCase();
+  const name = (whName || '').toLowerCase();
+  const isNippleWh = code.includes('WH-002') || name.includes('nipple') || code.includes('NIP');
+  const isFgWh = code.includes('FGDW') || name.includes('dispatch') || rec.itemType === 'FINISHED_GOOD';
+
+  const isSpokeOrNipple =
+    inferredDiv === 'SPI' ||
+    isNippleWh ||
+    isFgWh ||
+    rec.itemType === 'FINISHED_GOOD' ||
+    (rec.itemCode || '').toUpperCase().includes('NP') ||
+    (rec.itemCode || '').toUpperCase().includes('SPK') ||
+    (rec.itemName || '').toLowerCase().includes('nipple') ||
+    (rec.itemName || '').toLowerCase().includes('spoke');
+
+  const gross =
+    rec.convertedGross !== undefined
+      ? rec.convertedGross
+      : isSpokeOrNipple && rec.convertedPieces > 0
+      ? Number((rec.convertedPieces / 144).toFixed(2))
+      : 0;
+
+  const itemPkgSize = Number(rec.packagingSize) || 0;
+  const isCS =
+    (rec.itemCode || '').toUpperCase().includes('011') ||
+    (rec.itemCode || '').toUpperCase().includes('012') ||
+    (rec.itemName || '').toUpperCase().includes('(CS)') ||
+    (rec.itemName || '').toUpperCase().includes('CS');
+  const grossPerCarton = rec.grossPerCarton || (itemPkgSize > 0 ? itemPkgSize : isCS ? 10.555556 : 10);
+
+  const cartons =
+    rec.convertedCartons !== undefined
+      ? rec.convertedCartons
+      : (isFgWh || rec.itemType === 'FINISHED_GOOD' || itemPkgSize > 0) && gross > 0 && grossPerCarton > 0
+      ? Number((gross / grossPerCarton).toFixed(2))
+      : 0;
+
+  return {
+    isNippleWh,
+    isFgWh,
+    gross,
+    cartons,
+    grossPerCarton,
+    showGross: gross > 0,
+    showCartons: (isFgWh || rec.itemType === 'FINISHED_GOOD' || cartons > 0) && cartons > 0,
+  };
 }
 
 export interface ProductionWarehouse {
@@ -347,10 +417,13 @@ export const ProductionItemOpenStock: React.FC = () => {
   const [historyWarehouseId, setHistoryWarehouseId] = useState<string>('ALL');
   const [historySearch, setHistorySearch] = useState<string>('');
 
-  // Tab 5: Department Stock Matrix & Hierarchy State
+  // Tab 5: Department Stock Matrix & Hierarchy State (defaults to DIV-SPD: Spoke Division)
+  const DEFAULT_MATRIX_DIVISION = 'd1000000-0000-0000-0000-000000000001';
   const [matrixData, setMatrixData] = useState<DepartmentStockMatrixRow[]>([]);
   const [loadingMatrix, setLoadingMatrix] = useState(false);
-  const [matrixDivision, setMatrixDivision] = useState<string>('ALL');
+  const [matrixDivision, setMatrixDivision] = useState<string>(() => {
+    return localStorage.getItem('pwi_prod_matrix_selected_div') || DEFAULT_MATRIX_DIVISION;
+  });
   const [matrixSearch, setMatrixSearch] = useState<string>('');
   const [expandedWhKeys, setExpandedWhKeys] = useState<string[]>([]);
   const [isReorderMode, setIsReorderMode] = useState<boolean>(false);
@@ -2854,6 +2927,7 @@ export const ProductionItemOpenStock: React.FC = () => {
                               value={matrixDivision}
                               onChange={(val) => {
                                 setMatrixDivision(val);
+                                localStorage.setItem('pwi_prod_matrix_selected_div', val);
                                 loadMatrix(val, matrixSearch);
                               }}
                               style={{ width: 220 }}
@@ -2902,15 +2976,12 @@ export const ProductionItemOpenStock: React.FC = () => {
                             Expand All
                           </Button>
                           <Button
-                            icon={<MinusCircleOutlined style={{ color: '#64748b' }} />}
+                            icon={<MinusCircleOutlined />}
                             onClick={handleCollapseAllWh}
+                            className="matrix-btn-collapse"
                             style={{
                               borderRadius: 20,
-                              background: '#f8fafc',
-                              borderColor: '#cbd5e1',
                               fontWeight: 600,
-                              color: '#475569',
-                              boxShadow: '0 1px 2px rgba(0, 0, 0, 0.04)',
                             }}
                           >
                             Collapse All
@@ -2971,41 +3042,142 @@ export const ProductionItemOpenStock: React.FC = () => {
                     const totalItems = matrixData.reduce((sum, r) => sum + (r.summary?.totalItems || 0), 0);
                     const totalWeightKg = matrixData.reduce((sum, r) => sum + (r.summary?.totalWeightKg || 0), 0);
                     const totalPieces = matrixData.reduce((sum, r) => sum + (r.summary?.totalPieces || 0), 0);
+                    const totalGross = matrixData.reduce((sum, r) => {
+                      return (
+                        sum +
+                        (r.summary?.totalGross ??
+                          (r.items || []).reduce(
+                            (s, it) => s + (it.convertedGross ?? (it.convertedPieces > 0 ? it.convertedPieces / 144 : 0)),
+                            0,
+                          ))
+                      );
+                    }, 0);
+                    const totalCartons = matrixData.reduce((sum, r) => {
+                      return sum + (r.summary?.totalCartons ?? (r.items || []).reduce((s, it) => s + (it.convertedCartons ?? 0), 0));
+                    }, 0);
                     const totalValuation = matrixData.reduce((sum, r) => sum + (r.summary?.totalValuation || 0), 0);
 
                     return (
-                      <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
-                        <Col xs={12} sm={6} md={4}>
-                          <Card size="small" style={{ borderRadius: 8, background: '#f8fafc', textAlign: 'center' }}>
-                            <div style={{ fontSize: 11, color: '#64748b', fontWeight: 600, textTransform: 'uppercase' }}>Active Floors</div>
-                            <div style={{ fontSize: 20, fontWeight: 700, color: '#0f172a', marginTop: 2 }}>{totalDepts}</div>
-                          </Card>
-                        </Col>
-                        <Col xs={12} sm={6} md={5}>
-                          <Card size="small" style={{ borderRadius: 8, background: '#f8fafc', textAlign: 'center' }}>
-                            <div style={{ fontSize: 11, color: '#64748b', fontWeight: 600, textTransform: 'uppercase' }}>Items with Stock</div>
-                            <div style={{ fontSize: 20, fontWeight: 700, color: '#1890ff', marginTop: 2 }}>{totalItems} Items</div>
-                          </Card>
-                        </Col>
-                        <Col xs={12} sm={6} md={5}>
-                          <Card size="small" style={{ borderRadius: 8, background: '#f0f5ff', border: '1px solid #adc6ff', textAlign: 'center' }}>
-                            <div style={{ fontSize: 11, color: '#1d39c4', fontWeight: 600, textTransform: 'uppercase' }}>⚖️ Total Weight (KG)</div>
-                            <div style={{ fontSize: 20, fontWeight: 700, color: '#1d39c4', marginTop: 2 }}>{fmtNum(totalWeightKg, 2)} Kg</div>
-                          </Card>
-                        </Col>
-                        <Col xs={12} sm={6} md={5}>
-                          <Card size="small" style={{ borderRadius: 8, background: '#e6fffb', border: '1px solid #87e8de', textAlign: 'center' }}>
-                            <div style={{ fontSize: 11, color: '#006d75', fontWeight: 600, textTransform: 'uppercase' }}>🔢 Total Pieces (PCS)</div>
-                            <div style={{ fontSize: 20, fontWeight: 700, color: '#006d75', marginTop: 2 }}>{fmtNum(totalPieces, 0)} Pcs</div>
-                          </Card>
-                        </Col>
-                        <Col xs={12} sm={6} md={5}>
-                          <Card size="small" style={{ borderRadius: 8, background: '#fffbe6', border: '1px solid #ffe58f', textAlign: 'center' }}>
-                            <div style={{ fontSize: 11, color: '#d48806', fontWeight: 600, textTransform: 'uppercase' }}>Total Valuation</div>
-                            <div style={{ fontSize: 20, fontWeight: 700, color: '#d48806', marginTop: 2 }}>Rs. {fmtNum(totalValuation, 0)}</div>
-                          </Card>
-                        </Col>
-                      </Row>
+                      <div className="matrix-kpi-grid">
+                        {/* 1. Active Floors */}
+                        <div className="matrix-kpi-card kpi-blue">
+                          <div className="matrix-kpi-watermark">
+                            <ApartmentOutlined />
+                          </div>
+                          <div className="matrix-kpi-header">
+                            <span className="matrix-kpi-icon-pill">
+                              <ApartmentOutlined />
+                            </span>
+                            <span className="matrix-kpi-label">Active Floors</span>
+                          </div>
+                          <div className="matrix-kpi-body">
+                            <span className="matrix-kpi-value">{totalDepts}</span>
+                            <span className="matrix-kpi-unit">Depts</span>
+                          </div>
+                        </div>
+
+                        {/* 2. Items with Stock */}
+                        <div className="matrix-kpi-card kpi-cyan">
+                          <div className="matrix-kpi-watermark">
+                            <AppstoreOutlined />
+                          </div>
+                          <div className="matrix-kpi-header">
+                            <span className="matrix-kpi-icon-pill">
+                              <AppstoreOutlined />
+                            </span>
+                            <span className="matrix-kpi-label">Items with Stock</span>
+                          </div>
+                          <div className="matrix-kpi-body">
+                            <span className="matrix-kpi-value">{totalItems}</span>
+                            <span className="matrix-kpi-unit">Items</span>
+                          </div>
+                        </div>
+
+                        {/* 3. Weight (KG) */}
+                        <div className="matrix-kpi-card kpi-indigo">
+                          <div className="matrix-kpi-watermark">
+                            <DashboardOutlined />
+                          </div>
+                          <div className="matrix-kpi-header">
+                            <span className="matrix-kpi-icon-pill">
+                              <DashboardOutlined />
+                            </span>
+                            <span className="matrix-kpi-label">Weight (KG)</span>
+                          </div>
+                          <div className="matrix-kpi-body">
+                            <span className="matrix-kpi-value">{fmtNum(totalWeightKg, 2)}</span>
+                            <span className="matrix-kpi-unit">KG</span>
+                          </div>
+                        </div>
+
+                        {/* 4. Pieces (PCS) */}
+                        <div className="matrix-kpi-card kpi-teal">
+                          <div className="matrix-kpi-watermark">
+                            <FieldNumberOutlined />
+                          </div>
+                          <div className="matrix-kpi-header">
+                            <span className="matrix-kpi-icon-pill">
+                              <FieldNumberOutlined />
+                            </span>
+                            <span className="matrix-kpi-label">Pieces (PCS)</span>
+                          </div>
+                          <div className="matrix-kpi-body">
+                            <span className="matrix-kpi-value">{fmtNum(totalPieces, 0)}</span>
+                            <span className="matrix-kpi-unit">PCS</span>
+                          </div>
+                        </div>
+
+                        {/* 5. Total Gross (GRS) */}
+                        <div className="matrix-kpi-card kpi-purple">
+                          <div className="matrix-kpi-watermark">
+                            <GoldOutlined />
+                          </div>
+                          <div className="matrix-kpi-header">
+                            <span className="matrix-kpi-icon-pill">
+                              <GoldOutlined />
+                            </span>
+                            <span className="matrix-kpi-label">Total Gross</span>
+                          </div>
+                          <div className="matrix-kpi-body">
+                            <span className="matrix-kpi-value">{fmtNum(totalGross, totalGross % 1 === 0 ? 0 : 2)}</span>
+                            <span className="matrix-kpi-unit">GRS</span>
+                          </div>
+                        </div>
+
+                        {/* 6. Cartons (CTN) */}
+                        <div className="matrix-kpi-card kpi-orange">
+                          <div className="matrix-kpi-watermark">
+                            <InboxOutlined />
+                          </div>
+                          <div className="matrix-kpi-header">
+                            <span className="matrix-kpi-icon-pill">
+                              <InboxOutlined />
+                            </span>
+                            <span className="matrix-kpi-label">Cartons (CTN)</span>
+                          </div>
+                          <div className="matrix-kpi-body">
+                            <span className="matrix-kpi-value">{fmtNum(totalCartons, totalCartons % 1 === 0 ? 0 : 1)}</span>
+                            <span className="matrix-kpi-unit">CTN</span>
+                          </div>
+                        </div>
+
+                        {/* 7. Total Valuation */}
+                        <div className="matrix-kpi-card kpi-emerald">
+                          <div className="matrix-kpi-watermark">
+                            <DollarCircleOutlined />
+                          </div>
+                          <div className="matrix-kpi-header">
+                            <span className="matrix-kpi-icon-pill">
+                              <DollarCircleOutlined />
+                            </span>
+                            <span className="matrix-kpi-label">Total Valuation</span>
+                          </div>
+                          <div className="matrix-kpi-body">
+                            <span className="matrix-kpi-value">Rs. {fmtNum(totalValuation, 0)}</span>
+                            <span className="matrix-kpi-unit">PKR</span>
+                          </div>
+                        </div>
+                      </div>
                     );
                   })()}
 
@@ -3029,6 +3201,22 @@ export const ProductionItemOpenStock: React.FC = () => {
                       const itemCount = wh.summary?.totalItems || wh.items?.length || 0;
                       const totWeight = wh.summary?.totalWeightKg || 0;
                       const totPieces = wh.summary?.totalPieces || 0;
+                      const whCode = (wh.warehouseCode || '').toUpperCase();
+                      const whName = (wh.warehouseName || '').toLowerCase();
+                      const isFgWh =
+                        whCode.includes('FGDW') ||
+                        whName.includes('dispatch') ||
+                        (wh.warehouseType || '').toUpperCase().includes('FINISHED') ||
+                        (wh.warehouseName || '').toUpperCase().includes('FG');
+                      const totGross =
+                        wh.summary?.totalGross ??
+                        (wh.items || []).reduce(
+                          (sum, item) => sum + (item.convertedGross ?? (item.convertedPieces > 0 ? item.convertedPieces / 144 : 0)),
+                          0,
+                        );
+                      const totCartons =
+                        wh.summary?.totalCartons ??
+                        (wh.items || []).reduce((sum, item) => sum + (item.convertedCartons ?? 0), 0);
 
                       return (
                         <div key={wh.warehouseId} className={`matrix-wh-card ${isExpanded ? 'is-expanded' : ''}`}>
@@ -3061,11 +3249,12 @@ export const ProductionItemOpenStock: React.FC = () => {
                               <Button
                                 type="text"
                                 size="small"
+                                className="matrix-wh-expand-btn"
                                 icon={
                                   isExpanded ? (
-                                    <DownCircleOutlined style={{ fontSize: 20, color: '#059669' }} />
+                                    <DownCircleOutlined style={{ fontSize: 20, color: '#10b981' }} />
                                   ) : (
-                                    <RightCircleOutlined style={{ fontSize: 20, color: '#0284c7' }} />
+                                    <RightCircleOutlined style={{ fontSize: 20, color: '#0ea5e9' }} />
                                   )
                                 }
                                 onClick={(e) => {
@@ -3079,8 +3268,6 @@ export const ProductionItemOpenStock: React.FC = () => {
                                   width: 32,
                                   height: 32,
                                   borderRadius: '50%',
-                                  background: isExpanded ? '#ecfdf5' : '#f0f9ff',
-                                  border: isExpanded ? '1px solid #a7f3d0' : '1px solid #bae6fd',
                                 }}
                               />
 
@@ -3088,7 +3275,7 @@ export const ProductionItemOpenStock: React.FC = () => {
                                 {wh.warehouseCode}
                               </Tag>
 
-                              <Text strong style={{ fontSize: 15, color: '#1e293b' }}>
+                              <Text strong className="matrix-wh-name" style={{ fontSize: 15 }}>
                                 {wh.warehouseName}
                               </Text>
 
@@ -3108,6 +3295,16 @@ export const ProductionItemOpenStock: React.FC = () => {
                               <Tag color="cyan" style={{ fontSize: 12, fontWeight: 600 }}>
                                 🔢 {fmtNum(totPieces, 0)} PCS
                               </Tag>
+                              {totGross > 0 && (
+                                <Tag color="purple" style={{ fontSize: 12, fontWeight: 700 }}>
+                                  📦 {fmtNum(totGross, totGross % 1 === 0 ? 0 : 2)} GRS
+                                </Tag>
+                              )}
+                              {(isFgWh || totCartons > 0) && (
+                                <Tag color="orange" style={{ fontSize: 12, fontWeight: 700 }}>
+                                  📦 {fmtNum(totCartons, totCartons % 1 === 0 ? 0 : 1)} CTN
+                                </Tag>
+                              )}
                               <Button
                                 size="small"
                                 type="link"
@@ -3144,7 +3341,7 @@ export const ProductionItemOpenStock: React.FC = () => {
                                       width: 280,
                                       render: (_, rec) => (
                                         <div>
-                                          <div style={{ fontWeight: 600, color: '#096dd9', fontSize: 13 }}>
+                                          <div className="matrix-item-name" style={{ fontWeight: 600, fontSize: 13 }}>
                                             {rec.itemName}
                                           </div>
                                           <Space size={6} wrap style={{ marginTop: 2 }}>
@@ -3186,26 +3383,46 @@ export const ProductionItemOpenStock: React.FC = () => {
                                     {
                                       title: 'System Book Stock',
                                       key: 'primaryStock',
-                                      width: 140,
+                                      width: 170,
                                       align: 'right',
-                                      render: (_, rec) => (
-                                        <div>
-                                          <Text strong style={{ fontSize: 13 }}>
-                                            {fmtNum(rec.primaryStock, rec.isKg ? 2 : 0)}
-                                          </Text>{' '}
-                                          <Tag color={rec.isKg ? 'geekblue' : 'cyan'}>{rec.uomCode}</Tag>
-                                        </div>
-                                      ),
+                                      render: (_, rec) => {
+                                        const ext = computeItemExtendedUnits(rec, wh.warehouseCode, wh.warehouseName, wh.inferredDivision);
+                                        return (
+                                          <div style={{ textAlign: 'right' }}>
+                                            <div>
+                                              <Text strong className="matrix-stock-val" style={{ fontSize: 13.5 }}>
+                                                {fmtNum(rec.primaryStock, rec.isKg ? 2 : 0)}
+                                              </Text>{' '}
+                                              <Tag color={rec.isKg ? 'geekblue' : 'cyan'} style={{ fontWeight: 600 }}>{rec.uomCode}</Tag>
+                                            </div>
+                                            {(ext.showGross || ext.showCartons) && (
+                                              <div style={{ marginTop: 4, display: 'flex', justifyContent: 'flex-end', gap: 4, flexWrap: 'wrap' }}>
+                                                {ext.showGross && (
+                                                  <Tag color="purple" style={{ margin: 0, fontSize: 10.5, fontWeight: 700, padding: '0 5px', lineHeight: '18px' }}>
+                                                    {fmtNum(ext.gross, ext.gross % 1 === 0 ? 0 : 2)} GRS
+                                                  </Tag>
+                                                )}
+                                                {ext.showCartons && (
+                                                  <Tag color="orange" style={{ margin: 0, fontSize: 10.5, fontWeight: 700, padding: '0 5px', lineHeight: '18px' }}>
+                                                    {fmtNum(ext.cartons, ext.cartons % 1 === 0 ? 0 : 1)} CTN
+                                                  </Tag>
+                                                )}
+                                              </div>
+                                            )}
+                                          </div>
+                                        );
+                                      },
                                     },
                                     {
                                       title: (
-                                        <Tooltip title="Dual-Line Conversion: Line 1 for KG, Line 2 for Pieces using Per-Piece Weight">
-                                          <span>Dual-Unit Breakdown (KG ↔ PCS)</span>
+                                        <Tooltip title="Multi-Unit Conversion: Weight (KG), Pieces (PCS), Gross (144 pcs/grs), and Cartons (CTN) for Finished Goods">
+                                          <span>Breakdown (KG · PCS · GRS{isFgWh ? ' · CTN' : ''})</span>
                                         </Tooltip>
                                       ),
                                       key: 'dualConversion',
-                                      width: 240,
+                                      width: 250,
                                       render: (_, rec) => {
+                                        const ext = computeItemExtendedUnits(rec, wh.warehouseCode, wh.warehouseName, wh.inferredDivision);
                                         const weightFormula = rec.isKg
                                           ? 'Direct Book Weight'
                                           : `${fmtNum(rec.primaryStock, 0)} PCS × ${rec.weightPerPiece.toFixed(6)} Kg/pc`;
@@ -3231,6 +3448,26 @@ export const ProductionItemOpenStock: React.FC = () => {
                                                 </span>
                                               </div>
                                             </Tooltip>
+                                            {ext.showGross && (
+                                              <Tooltip title={`Gross = ${fmtNum(rec.convertedPieces, 0)} Pieces ÷ 144 pcs/gross`}>
+                                                <div className="matrix-unit-line line-gross">
+                                                  <span style={{ fontWeight: 600 }}>📦 Gross (GRS)</span>
+                                                  <span style={{ fontWeight: 700 }}>
+                                                    {fmtNum(ext.gross, ext.gross % 1 === 0 ? 0 : 2)} GRS
+                                                  </span>
+                                                </div>
+                                              </Tooltip>
+                                            )}
+                                            {ext.showCartons && (
+                                              <Tooltip title={`Cartons = ${fmtNum(ext.gross, 2)} Gross ÷ ${ext.grossPerCarton} GRS/Carton (${Math.round(ext.grossPerCarton * 144).toLocaleString()} pcs/ctn)`}>
+                                                <div className="matrix-unit-line line-carton">
+                                                  <span style={{ fontWeight: 600 }}>📦 Cartons (CTN)</span>
+                                                  <span style={{ fontWeight: 700 }}>
+                                                    {fmtNum(ext.cartons, ext.cartons % 1 === 0 ? 0 : 1)} CTN
+                                                  </span>
+                                                </div>
+                                              </Tooltip>
+                                            )}
                                           </div>
                                         );
                                       },

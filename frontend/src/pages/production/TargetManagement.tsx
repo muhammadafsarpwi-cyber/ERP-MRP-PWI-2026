@@ -3,7 +3,7 @@ import {
   Button, Space, Tag, Form, Input, Select, DatePicker, App,
   Card, Descriptions, InputNumber, Alert, Statistic,
   Grid, Row, Col, Dropdown, Tooltip, Typography, Upload, Table,
-  Segmented, Switch, Progress,
+  Segmented, Switch, Progress, Badge, Modal,
 } from 'antd';
 import type { MenuProps } from 'antd';
 import {
@@ -331,7 +331,7 @@ const EXPORT_HEADERS = [
   'Created By', 'Created At', 'Updated By', 'Updated At',
 ];
 
-const MASTER_MACHINE_TARGETS_TAB_ID = '/master-data/machine-targets';
+const MASTER_MACHINE_TARGETS_TAB_ID = '/production/targets';
 
 interface MachineTargetsTabCache {
   targets: MachineTarget[];
@@ -418,6 +418,8 @@ const TargetManagement: React.FC = () => {
   const [editing, setEditing] = useState<MachineTarget | null>(null);
   const [detail, setDetail] = useState<MachineTarget | null>(null);
   const [saving, setSaving] = useState(false);
+  const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
+  const [bulkActionLoading, setBulkActionLoading] = useState(false);
 
   // Minimized Window Tabs State
   const [isTargetMinimized, setIsTargetMinimized] = useState(false);
@@ -811,6 +813,69 @@ const TargetManagement: React.FC = () => {
     } catch (error: any) {
       message.error(error?.response?.data?.message || 'Failed to delete machine target');
     }
+  };
+
+  const handleBulkStatusChange = async (nextStatus: 'ACTIVE' | 'INACTIVE') => {
+    if (selectedRowKeys.length === 0) return;
+    setBulkActionLoading(true);
+    try {
+      await Promise.all(
+        selectedRowKeys.map((id) =>
+          apiService.patch(`/production/machine-targets/${id}/status`, { status: nextStatus })
+        )
+      );
+      message.success(`${selectedRowKeys.length} targets ${nextStatus === 'ACTIVE' ? 'activated' : 'deactivated'} successfully`);
+      setSelectedRowKeys([]);
+      fetchTargets();
+    } catch (err: any) {
+      message.error(err?.response?.data?.message || 'Failed to update selected targets');
+    } finally {
+      setBulkActionLoading(false);
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedRowKeys.length === 0) return;
+    Modal.confirm({
+      title: `Delete ${selectedRowKeys.length} Selected Targets?`,
+      content: 'Are you sure you want to delete these machine targets? This will soft-delete them from the registry.',
+      okText: 'Delete Selected',
+      okType: 'danger',
+      cancelText: 'Cancel',
+      onOk: async () => {
+        setBulkActionLoading(true);
+        try {
+          await Promise.all(
+            selectedRowKeys.map((id) => apiService.delete(`/production/machine-targets/${id}`))
+          );
+          message.success(`${selectedRowKeys.length} targets deleted successfully`);
+          setSelectedRowKeys([]);
+          fetchTargets();
+        } catch (err: any) {
+          message.error(err?.response?.data?.message || 'Failed to delete selected targets');
+        } finally {
+          setBulkActionLoading(false);
+        }
+      },
+    });
+  };
+
+  const handleBulkExport = () => {
+    const selectedTargets = targets.filter((t) => selectedRowKeys.includes(t.id));
+    if (selectedTargets.length === 0) {
+      message.info('No targets selected for export');
+      return;
+    }
+    const EXPORT_HEADERS = [
+      'Machine Number', 'Machine Code', 'Machine Name', 'Division', 'Section', 'Department',
+      'Item Code', 'Item Name', 'Shift', 'UOM', 'Std Hours', 'Standard Target', 'Target / Hour',
+      'Effective From', 'Effective To', 'Status', 'Created By', 'Created At', 'Updated By', 'Updated At',
+    ];
+    downloadText(
+      `selected-machine-targets-${dayjs().format('YYYYMMDD-HHmm')}.csv`,
+      toCsv(EXPORT_HEADERS, selectedTargets.map(targetToExportRow)),
+    );
+    message.success(`Exported ${selectedTargets.length} selected targets to CSV`);
   };
 
   const resetFilters = () => {
@@ -1579,214 +1644,137 @@ const TargetManagement: React.FC = () => {
 
   const columns: ColumnsType<MachineTarget> = [
     {
-      title: <HeaderCell icon={<TagOutlined />} first="MACHINE" second="ID" />,
-      key: 'machineId',
-      width: 95,
-      align: 'center',
-      render: (_: any, t: MachineTarget) => {
-        const idText = t.machine?.machineId?.trim() || '—';
-        const hasId = Boolean(t.machine?.machineId?.trim());
-        return (
-          <Tooltip title={hasId ? `Click to view target details for ${t.machine?.machineCode || t.machine?.name || idText}` : 'Click to view target details'}>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setIsDetailMinimized(false);
-                setDetail(t);
-              }}
-              className="pwi-machine-id-badge"
-              aria-label={`View target details for ${idText}`}
-            >
-              {idText}
-            </button>
-          </Tooltip>
-        );
-      },
-    },
-    {
-      title: <HeaderCell icon={<SettingOutlined />} first="Machine" />,
+      title: <HeaderCell icon={<SettingOutlined />} first="Machine" second="Details" />,
       key: 'machineCode',
       sorter: true,
-      width: 100,
+      width: 170,
       render: (_: any, t: MachineTarget) => {
-        const number = t.machine?.machineNumber?.trim() || t.machine?.machineCode || null;
+        const number = t.machine?.machineNumber?.trim() || t.machine?.machineCode || '—';
         const code = t.machine?.machineCode;
-        const secondary = code && code !== number ? code : null;
-        const mc = getMachineColor(t.machine);
+        const name = t.machine?.name;
+        const sysId = t.machine?.machineId;
         return (
-          <Tooltip
-            title={
-              <div>
-                <div style={{ fontWeight: 600 }}>{t.machine?.name ?? 'Machine'}</div>
-                {t.machine?.machineId ? <div style={{ fontSize: 11, opacity: 0.85 }}>System ID: {t.machine.machineId}</div> : null}
-                {t.machine?.division ? <div style={{ fontSize: 11, opacity: 0.85 }}>Division: {t.machine.division.name}</div> : null}
-              </div>
-            }
-          >
-            <div style={{ lineHeight: 1.35 }}>
-              <div>
-                <span style={{
-                  display: 'inline-block',
-                  padding: '0 5px',
-                  borderRadius: 4,
-                  fontWeight: 600,
-                  fontSize: 11,
-                  color: mc.light.text,
-                  background: mc.light.bg,
-                  border: `1px solid ${mc.light.border}`,
-                }}>{number ?? '—'}</span>
-              </div>
-              {secondary ? <div style={{ color: 'var(--theme-text-secondary)', fontSize: 10, fontWeight: 500, marginTop: 1 }}>{secondary}</div> : null}
+          <div style={{ lineHeight: 1.35, minWidth: 140 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--theme-text, #f1f5f9)' }}>
+                {number}
+              </span>
+              {code && code !== number && (
+                <span style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', fontFamily: 'monospace' }}>
+                  ({code})
+                </span>
+              )}
+              {sysId && (
+                <span style={{ fontSize: 10, padding: '0 5px', borderRadius: 3, background: 'rgba(59, 130, 246, 0.15)', color: '#38bdf8', fontWeight: 600 }}>
+                  {sysId}
+                </span>
+              )}
             </div>
-          </Tooltip>
+            {name && (
+              <div style={{ color: 'var(--theme-text-secondary, #cbd5e1)', fontSize: 11.5, marginTop: 2 }}>
+                {name}
+              </div>
+            )}
+          </div>
         );
       },
     },
     {
-      title: <HeaderCell icon={<ApartmentOutlined />} first="Machine" second="Name" />,
-      key: 'machineName',
-      sorter: true,
-      width: 120,
-      render: (_: any, t: MachineTarget) => {
-        const mc = getMachineColor(t.machine);
-        return t.machine?.name ? (
-          <HighlightedCell
-            icon={<SettingOutlined />}
-            label={t.machine.name}
-            labelColor={mc.light.text}
-            tooltip={t.machine.name + (t.machine.machineId ? ` (ID: ${t.machine.machineId})` : '')}
-          />
-        ) : (
-          <span style={{ color: 'var(--theme-text-muted)' }}>—</span>
-        );
-      },
-    },
-    {
-      title: <HeaderCell icon={<ShopOutlined />} first="Division" second="Section" />,
+      title: <HeaderCell icon={<ShopOutlined />} first="Division &" second="Department" />,
       key: 'divisionSection',
-      width: 130,
+      width: 170,
       render: (_: any, t: MachineTarget) => {
-        const d = t.machine?.division;
-        const s = t.machine?.section;
-        if (!d && !s) return <span style={{ color: 'var(--theme-text-muted)' }}>—</span>;
+        const div = t.machine?.division?.name;
+        const sec = t.machine?.section?.name;
+        const dept = t.machine?.department?.name;
+        if (!div && !sec && !dept) return <span style={{ color: 'var(--theme-text-muted)' }}>—</span>;
         return (
-          <HighlightedCell
-            icon={<ShopOutlined />}
-            label={d?.name ?? '—'}
-            secondary={s?.name ?? '—'}
-            secondaryPrefix={s ? <SubnodeOutlined style={{ marginRight: 3, fontSize: 9 }} /> : null}
-            tooltip={d?.name ? (s ? `${d.name} — ${s.name}` : d.name) : undefined}
-          />
+          <div style={{ lineHeight: 1.35, minWidth: 140 }}>
+            <div style={{ fontWeight: 600, fontSize: 12, color: 'var(--theme-text, #f1f5f9)' }}>
+              {div || '—'} {sec ? <span style={{ color: 'var(--theme-text-muted, #94a3b8)', fontWeight: 400 }}>› {sec}</span> : ''}
+            </div>
+            {dept && (
+              <div style={{ color: 'var(--theme-text-secondary, #cbd5e1)', fontSize: 11, marginTop: 2 }}>
+                Dept: <span style={{ fontWeight: 500 }}>{dept}</span>
+              </div>
+            )}
+          </div>
         );
       },
     },
     {
-      title: <HeaderCell icon={<TeamOutlined />} first="Department" />,
-      key: 'department',
-      width: 100,
-      render: (_: any, t: MachineTarget) => {
-        const dept = t.machine?.department;
-        return dept ? (
-          <HighlightedCell
-            icon={<TeamOutlined />}
-            label={dept.name}
-            tooltip={dept.name}
-          />
-        ) : (
-          <span style={{ color: 'var(--theme-text-muted)' }}>—</span>
-        );
-      },
-    },
-    {
-      title: <HeaderCell icon={<ShoppingOutlined />} first="Item" />,
+      title: <HeaderCell icon={<ShoppingOutlined />} first="Target Item" second="/ Product" />,
       key: 'itemCode',
       sorter: true,
-      width: 130,
+      width: 200,
       render: (_: any, t: MachineTarget) => {
         const itm = t.item || (t.itemId ? items.find((i) => i.id === t.itemId) : null);
-        const best = itm
-          ? { id: itm.id, name: itm.name, itemCode: itm.itemCode }
-          : null;
-        return best ? (
-          <HighlightedCell
-            icon={<ShoppingOutlined />}
-            label={best.itemCode}
-            secondary={best.name && best.name !== best.itemCode ? best.name : undefined}
-            tooltip={best.name ? `${best.itemCode} — ${best.name}` : best.itemCode}
-          />
+        return itm ? (
+          <div style={{ lineHeight: 1.35, minWidth: 170 }}>
+            <div style={{ fontWeight: 700, fontSize: 12.5, color: '#38bdf8', fontFamily: 'monospace' }}>
+              {itm.itemCode}
+            </div>
+            {itm.name && (
+              <div style={{ color: 'var(--theme-text-secondary, #cbd5e1)', fontSize: 11.5, marginTop: 2 }}>
+                {itm.name}
+              </div>
+            )}
+          </div>
         ) : (
-          <span style={{ color: 'var(--theme-text-muted)' }}>—</span>
+          <span style={{ color: 'var(--theme-text-muted, #94a3b8)', fontStyle: 'italic', fontSize: 11.5 }}>All Items / General</span>
         );
       },
     },
     {
-      title: <HeaderCell icon={<ClockCircleOutlined />} first="Shift" />,
+      title: <HeaderCell icon={<ClockCircleOutlined />} first="Shift &" second="Hours" />,
       key: 'shiftCode',
       sorter: true,
-      width: 95,
+      width: 125,
       render: (_: any, t: MachineTarget) => {
         const s = t.shift;
-        return s ? (
-          <HighlightedCell
-            icon={<ClockCircleOutlined />}
-            label={s.shiftCode || s.name}
-            secondary={s.shiftCode && s.shiftCode !== s.name ? s.name : undefined}
-            tooltip={s.name ? `${s.shiftCode} — ${s.name}` : s.shiftCode}
-          />
-        ) : (
-          <span style={{ color: 'var(--theme-text-muted)' }}>—</span>
+        return (
+          <div style={{ lineHeight: 1.35, minWidth: 100 }}>
+            <div style={{ fontWeight: 600, fontSize: 12, color: 'var(--theme-text, #f1f5f9)' }}>
+              {s?.shiftCode || s?.name || '—'}
+            </div>
+            <div style={{ color: 'var(--theme-text-muted, #94a3b8)', fontSize: 11, marginTop: 2 }}>
+              {fmtQty(t.standardHours)} hrs / shift
+            </div>
+          </div>
         );
       },
-    },
-    {
-      title: <HeaderCell icon={<SafetyOutlined />} first="UOM" />,
-      key: 'uomCode',
-      sorter: true,
-      width: 48,
-      render: (_: any, t: MachineTarget) => <Tag style={{ fontSize: 10 }}>{uomSymbolOf(t)}</Tag>,
-    },
-    {
-      title: <HeaderCell icon={<HourglassOutlined />} first="Std" second="Hours" />,
-      dataIndex: 'standardHours',
-      sorter: true,
-      width: 75,
-      align: 'right',
-      render: (h: string | number) => (
-        <span style={{ fontVariantNumeric: 'tabular-nums', fontSize: 11, whiteSpace: 'nowrap' }}>
-          {fmtQty(h)} <span style={{ fontSize: 10, color: 'var(--theme-text-muted, #94a3b8)', fontWeight: 600 }}>h</span>
-        </span>
-      ),
     },
     {
       title: <HeaderCell icon={<AimOutlined />} first="Standard" second="Target" />,
       dataIndex: 'targetQuantity',
       sorter: true,
-      width: 140,
+      width: 155,
       render: (q: string | number, t: MachineTarget) => {
         const ph = calcPerHour(Number(t.targetQuantity), Number(t.standardHours));
         const u = uomSymbolOf(t);
         return (
-          <HighlightedCell
-            icon={<AimOutlined />}
-            label={<>{fmtQty(q)} <span style={{ fontSize: 10, fontWeight: 600 }}>{u}</span></>}
-            secondary={ph !== null ? <>{fmtQty(ph)} {u}/h</> : '—'}
-            secondarySize={11}
-            secondaryWeight={600}
-            tooltip="Standard target over the standard hours. Target / hour is auto-calculated: target ÷ hours."
-          />
+          <div style={{ lineHeight: 1.35, minWidth: 130 }}>
+            <div style={{ fontWeight: 800, fontSize: 13.5, color: '#10b981' }}>
+              {fmtQty(q)} <span style={{ fontSize: 11, fontWeight: 600 }}>{u}</span>
+            </div>
+            {ph !== null && (
+              <div style={{ color: '#0ea5e9', fontSize: 11, fontWeight: 600, marginTop: 2 }}>
+                ⚡ {fmtQty(ph)} {u}/hour
+              </div>
+            )}
+          </div>
         );
       },
     },
     {
-      title: <HeaderCell icon={<CalendarOutlined />} first="Effective" second="From" />,
+      title: <HeaderCell icon={<CalendarOutlined />} first="Effective" second="Period" />,
       dataIndex: 'effectiveFrom',
       sorter: true,
-      width: 95,
+      width: 110,
       render: (from: string, t: MachineTarget) => (
-        <div style={{ fontSize: 11 }}>
-          <div>{from}</div>
-          <span style={{ color: 'var(--theme-text-secondary)', fontSize: 10 }}>
+        <div style={{ fontSize: 11.5, lineHeight: 1.35 }}>
+          <div style={{ color: 'var(--theme-text, #f1f5f9)', fontWeight: 500 }}>{from}</div>
+          <span style={{ color: 'var(--theme-text-muted, #94a3b8)', fontSize: 10.5 }}>
             → {t.effectiveTo ?? 'open'}
           </span>
         </div>
@@ -1796,35 +1784,38 @@ const TargetManagement: React.FC = () => {
       title: <HeaderCell icon={<CheckCircleOutlined />} first="Status" />,
       dataIndex: 'status',
       sorter: true,
-      width: 68,
-      render: (s: string) => <StatusBadge status={s} colorMap={STATUS_COLORS} />,
-    },
-    {
-      title: <HeaderCell icon={<UserOutlined />} first="Created" second="By" />,
-      key: 'createdAudit',
-      width: 115,
-      render: (_: any, t: MachineTarget) => (
-        <div style={{ fontSize: 10 }}>
-          <div style={{ fontWeight: 600 }}>{auditUserName(t.createdByUser, t.createdBy ?? null)}</div>
-          <span style={{ color: 'var(--theme-text-secondary)' }}>{fmtDateTime(t.createdAt)}</span>
-        </div>
+      width: 120,
+      render: (s: string, t: MachineTarget) => (
+        <Space size={6} align="center">
+          <Switch
+            size="small"
+            checked={s === 'ACTIVE'}
+            onChange={() => handleStatusToggle(t)}
+            style={{ backgroundColor: s === 'ACTIVE' ? '#10b981' : undefined }}
+          />
+          <StatusBadge status={s} colorMap={STATUS_COLORS} style={{ minWidth: 50, fontSize: 10, padding: '1px 4px', textAlign: 'center' }} />
+        </Space>
       ),
     },
     {
-      title: <HeaderCell icon={<UserOutlined />} first="Updated" second="By" />,
-      key: 'updatedAudit',
-      width: 115,
+      title: <HeaderCell icon={<UserOutlined />} first="Created /" second="Updated" />,
+      key: 'createdAudit',
+      width: 135,
       render: (_: any, t: MachineTarget) => (
-        <div style={{ fontSize: 10 }}>
-          <div style={{ fontWeight: 600 }}>{auditUserName(t.updatedByUser, t.updatedBy ?? null)}</div>
-          <span style={{ color: 'var(--theme-text-secondary)' }}>{fmtDateTime(t.updatedAt)}</span>
+        <div style={{ fontSize: 11, lineHeight: 1.3 }}>
+          <div style={{ fontWeight: 600, color: 'var(--theme-text, #f1f5f9)' }}>
+            {auditUserName(t.createdByUser, t.createdBy ?? null)}
+          </div>
+          <span style={{ color: 'var(--theme-text-muted, #94a3b8)', fontSize: 10 }}>
+            {fmtDateTime(t.createdAt)}
+          </span>
         </div>
       ),
     },
     {
       title: <HeaderCell first="Actions" />,
       key: 'actions',
-      width: 160,
+      width: 150,
       align: 'center',
       render: (_: any, t: MachineTarget) => {
         const machineLabel = t.machine?.machineCode || t.machine?.name || t.machine?.machineNumber || 'this record';
@@ -1892,7 +1883,7 @@ const TargetManagement: React.FC = () => {
     >
       <div style={{ padding: '4px 6px', width: '100%' }}>
       <PageHeader
-        icon={<ToolOutlined />}
+        icon={<AimOutlined />}
         title="Machine Targets"
         subtitle="Production targets per machine & shift — Master Data"
         showBreadcrumbs
@@ -1937,7 +1928,7 @@ const TargetManagement: React.FC = () => {
       />
 
       {showFilters && (
-        <Card style={{ marginBottom: 12 }} styles={{ body: { padding: '12px 14px' } }}>
+        <Card style={{ marginBottom: 10 }} styles={{ body: { padding: '10px 14px' } }}>
           {/* Single tightly-aligned horizontal row — all 8 selectors, forced no-wrap */}
           <Row gutter={[8, 8]} wrap={false}>
             <Col flex="1 1 0" style={{ minWidth: 0 }}>
@@ -2070,6 +2061,64 @@ const TargetManagement: React.FC = () => {
         </Card>
       )}
 
+      {/* 2027 Dynamic Floating Bulk Actions Toolbar */}
+      {selectedRowKeys.length > 0 && (
+        <div className="erp-table-bulk-toolbar">
+          <div className="bulk-count-badge">
+            <Badge count={selectedRowKeys.length} style={{ backgroundColor: '#f59e0b', fontWeight: 800 }} />
+            <span>{selectedRowKeys.length} target{selectedRowKeys.length === 1 ? '' : 's'} selected</span>
+            <Button
+              size="small"
+              type="link"
+              onClick={() => setSelectedRowKeys([])}
+              style={{ color: '#94a3b8', padding: '0 4px', fontSize: 12 }}
+            >
+              Clear
+            </Button>
+          </div>
+          <Space className="bulk-actions-group" wrap>
+            <Button
+              size="small"
+              icon={<CheckCircleOutlined />}
+              onClick={() => handleBulkStatusChange('ACTIVE')}
+              loading={bulkActionLoading}
+              style={{ color: '#10b981', borderColor: '#10b981', fontWeight: 600 }}
+            >
+              Activate
+            </Button>
+            <Button
+              size="small"
+              icon={<StopOutlined />}
+              onClick={() => handleBulkStatusChange('INACTIVE')}
+              loading={bulkActionLoading}
+              style={{ color: '#f59e0b', borderColor: '#f59e0b', fontWeight: 600 }}
+            >
+              Deactivate
+            </Button>
+            <Button
+              size="small"
+              icon={<DownloadOutlined />}
+              onClick={handleBulkExport}
+              loading={bulkActionLoading}
+              style={{ fontWeight: 600 }}
+            >
+              Export Selected
+            </Button>
+            <Button
+              size="small"
+              danger
+              type="primary"
+              icon={<DeleteOutlined />}
+              onClick={handleBulkDelete}
+              loading={bulkActionLoading}
+              style={{ fontWeight: 600 }}
+            >
+              Delete Selected
+            </Button>
+          </Space>
+        </div>
+      )}
+
       {loading && targets.length === 0 ? (
         <GlobalLoading
           title="Loading Machine Targets..."
@@ -2080,11 +2129,17 @@ const TargetManagement: React.FC = () => {
       ) : (
         <ERPTable
           rowKey="id"
+          rowSelection={{
+            selectedRowKeys,
+            onChange: (keys) => setSelectedRowKeys(keys),
+            preserveSelectedRowKeys: true,
+            columnWidth: 48,
+          }}
           dense
           columns={columns}
           dataSource={targets}
           loading={false}
-          scroll={{ x: 1600 }}
+          scroll={{ x: 1220 }}
           sticky={{ offsetHeader: 0 }}
           pagination={{
             current: page,

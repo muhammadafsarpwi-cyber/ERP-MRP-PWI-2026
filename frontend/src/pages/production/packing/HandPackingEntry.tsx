@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Card, Row, Col, Form, Select, DatePicker, Input, InputNumber, Button, Space,
   Typography, Progress, Tag, Table, Alert, Tooltip, App, Segmented,
-  Divider, Popconfirm, Spin, Badge, Modal, Switch,
+  Divider, Popconfirm, Spin, Badge, Modal, Switch, Checkbox,
 } from 'antd';
 import {
   ArrowLeftOutlined, SearchOutlined, SaveOutlined, PlusOutlined, DeleteOutlined,
@@ -16,6 +16,7 @@ import {
   EnvironmentOutlined, EyeOutlined, EditOutlined,
   MinusOutlined, FullscreenOutlined, FullscreenExitOutlined,
   ExpandAltOutlined, CloseOutlined, HolderOutlined, SettingOutlined, WhatsAppOutlined,
+  DownOutlined, RightOutlined, PlusCircleOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import apiService from '../../../services/api';
@@ -208,6 +209,10 @@ export interface RecentPackingLog {
   components: Array<{ code: string; gross: number }>;
   rawEntry?: any;
   allocatedFromSafetyStock?: boolean;
+  withoutNipple?: boolean;
+  pendingNippleCode?: string;
+  pendingNippleGross?: number;
+  pendingNipplePcs?: number;
 }
 
 /** Parse a saved Production Entry (hand packing) back into a shift-log row using its structured remarks. */
@@ -244,6 +249,12 @@ const parseHandPackingEntry = (e: any): RecentPackingLog | null => {
   const cartons = qtyMatch ? toNum(qtyMatch[1]) : Math.round((packedPcs / PCS_PER_CARTON) * 100) / 100;
   const created = dayjs(e.createdAt || e.created_at || e.entryDate || e.entry_date);
   const entryDay = dayjs(e.entryDate || e.entry_date || e.createdAt);
+
+  const withoutNippleMatch = remarks.includes('WITHOUT_NIPPLE') || remarks.includes('Without Nipple');
+  const pendingNippleCode = remarks.match(/Pending Nipple:\s*([^\s(]+)/i)?.[1]?.trim() || remarks.match(/Without Nipple:\s*([^\s(]+)/i)?.[1]?.trim() || '';
+  const pendingNippleGross = Number(remarks.match(/Pending Nipple:[^(]+\(([\d.]+)\s*GRS/i)?.[1] || remarks.match(/Without Nipple:[^(]+\(([\d.]+)\s*GRS/i)?.[1]) || 0;
+  const pendingNipplePcs = Number(remarks.match(/Pending Nipple:[^/]+\/\s*([\d.]+)\s*PCS/i)?.[1]) || (pendingNippleGross * PCS_PER_GROSS);
+
   return {
     id: String(e.id),
     batchNo: pick('Batch') || e.entryNo || e.entryNumber || machineNo,
@@ -281,11 +292,15 @@ const parseHandPackingEntry = (e: any): RecentPackingLog | null => {
     rejectionDetail: scrapReasons ? `${scrapDetail} (${scrapReasons})` : scrapDetail,
     overtimeHours: parseFloat(pick('OT')) || 0,
     shiftName: (e.shift?.name || 'General (8:30 AM - 5:30 PM)').replace(/\(N\+OT\)/gi, '').replace(/\(N\)/gi, '').trim(),
-    status: 'SAVED',
+    status: withoutNippleMatch ? 'WITHOUT_NIPPLE' : 'SAVED',
     createdAtMs: created.isValid() ? created.valueOf() : 0,
     components: [],
     rawEntry: e,
     allocatedFromSafetyStock: remarks.includes('Allocated from Safety Stock'),
+    withoutNipple: withoutNippleMatch,
+    pendingNippleCode,
+    pendingNippleGross,
+    pendingNipplePcs,
   };
 };
 
@@ -321,6 +336,8 @@ export interface BomComponentItem {
   rejectionQty: number;
   /** Short operator scrap reason for this component row (e.g. "Head Crack"). */
   rejectionRemarks?: string;
+  /** Pack without nipple (spokes only in Plain White Poly Bag into safety stock) */
+  packWithoutNipple?: boolean;
 }
 
 export interface PackingMasterItemRow {
@@ -858,6 +875,24 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
     () => tabSessionCache.get<RecentPackingLog[]>(RECENT_CACHE_KEY) || []
   );
   const [recentLoading, setRecentLoading] = useState<boolean>(false);
+  // Expand/collapse controls for Date-Wise Grouped Log Details table
+  const [expandedDateKeys, setExpandedDateKeys] = useState<string[]>([]);
+
+  // Filter mode for packing register: ALL, PENDING_NIPPLE (Safety Holding), or COMPLETED
+  const [registerViewMode, setRegisterViewMode] = useState<'ALL' | 'PENDING_NIPPLE' | 'COMPLETED'>('ALL');
+
+  // Batches waiting for nipples (held in Safety Stock)
+  const pendingNippleEntries = useMemo(() => {
+    return recentSavedEntries.filter((r) => r.withoutNipple || r.status === 'WITHOUT_NIPPLE');
+  }, [recentSavedEntries]);
+
+  // Add Nipple Modal state for batches packed without nipples
+  const [addNippleModalVisible, setAddNippleModalVisible] = useState<boolean>(false);
+  const [addNippleTargetBatch, setAddNippleTargetBatch] = useState<RecentPackingLog | null>(null);
+  const [addNippleDate, setAddNippleDate] = useState<dayjs.Dayjs>(dayjs());
+  const [addNippleWarehouseId, setAddNippleWarehouseId] = useState<string>('cf5c9db8-5e84-41d5-a4b4-988b8dfd122d'); // WH-002
+  const [addNippleSubmitting, setAddNippleSubmitting] = useState<boolean>(false);
+
   const [entryModalOpen, setEntryModalOpen] = useState<boolean>(false);
   const [isModalMinimized, setIsModalMinimized] = useState<boolean>(false);
   const [isModalMaximized, setIsModalMaximized] = useState<boolean>(false);
@@ -1255,12 +1290,15 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
       }
 
       const baseQuantity = toNum(bomData.baseQuantity || 1);
-      const defaultSpokeStore = overrideDefaultWhId || form.getFieldValue('rawMaterialWarehouseId') ||
-        warehouses.find((w) => w.warehouseCode === 'SPI-PL-004' || w.warehouseType === 'WORK_IN_PROGRESS')?.id || warehouses[1]?.id || warehouses[0]?.id || '';
+      // Fixed default stores:
+      // Spokes: strictly default to SPI-PL-004 (PL Production Department / Floor 004)
+      const defaultSpokeStore = warehouses.find((w) => w.warehouseCode === 'SPI-PL-004' || (w.warehouseCode || '').includes('004') || w.id === 'a70e0a7e-2ffa-47e4-83a9-c894d9dff41b')?.id ||
+        warehouses.find((w) => w.warehouseType === 'WORK_IN_PROGRESS')?.id ||
+        overrideDefaultWhId || form.getFieldValue('rawMaterialWarehouseId') || warehouses[0]?.id || '';
 
-      // Default Nipple Store: WH-002 (SPI Main Warehouse where 9,461 GRS reside as confirmed by user)
-      const defaultNippleStore = warehouses.find((w) => w.warehouseCode === 'WH-002' || w.name?.toLowerCase().includes('spi main') || w.name?.toLowerCase().includes('spoke'))?.id ||
-        warehouses.find((w) => w.warehouseCode === 'WH-001' || w.warehouseCode === 'WH-RAW' || w.warehouseType === 'RAW_MATERIAL' || w.warehouseType === 'FINISHED_GOODS')?.id || defaultSpokeStore;
+      // Nipples: strictly default to WH-002 (SPI Main Warehouse 002)
+      const defaultNippleStore = warehouses.find((w) => w.warehouseCode === 'WH-002' || (w.warehouseCode || '').includes('002') || (w.name || '').toLowerCase().includes('spi main') || w.id === 'cf5c9db8-5e84-41d5-a4b4-988b8dfd122d')?.id ||
+        defaultSpokeStore;
 
       // Resolve components with live stock balances per selected warehouse
       const componentRows: BomComponentItem[] = await Promise.all(
@@ -2009,6 +2047,70 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
       })
     );
   }, [masterItems, fetchComponentStock, conversionFactors]);
+
+  // Toggle Pack Without Nipple for a component row (e.g. Spokes Only in White Poly Bag)
+  const handleToggleWithoutNipple = useCallback((masterKey: string, compKey: string, checked: boolean) => {
+    setMasterItems((prev) =>
+      prev.map((m) => {
+        if (m.key !== masterKey) return m;
+        const nextComps = m.components.map((c) => {
+          if (c.key !== compKey) return c;
+          return {
+            ...c,
+            packWithoutNipple: checked,
+            stockStatus: (checked ? 'AVAILABLE' : (c.remainingGross >= 0 ? 'AVAILABLE' : 'INSUFFICIENT')) as 'AVAILABLE' | 'INSUFFICIENT',
+          };
+        });
+        const hasShortage = nextComps.some((c) => !c.packWithoutNipple && c.stockStatus === 'INSUFFICIENT');
+        return {
+          ...m,
+          components: nextComps,
+          status: m.bomError ? 'NO_BOM' : hasShortage ? 'IN_PROGRESS' : 'ON_TRACK',
+        };
+      })
+    );
+  }, []);
+
+  // Complete a batch that was packed without nipples by recording nipple deduction on current date
+  const handleAddNippleSubmit = async () => {
+    if (!addNippleTargetBatch) return;
+    setAddNippleSubmitting(true);
+    try {
+      const rawEntry = addNippleTargetBatch.rawEntry;
+      const entryId = addNippleTargetBatch.id;
+      const completionDateStr = addNippleDate.format('YYYY-MM-DD');
+
+      const oldRemarks = String(rawEntry?.remarks || '');
+      const cleanRemarks = oldRemarks
+        .replace(/Status:\s*WITHOUT_NIPPLE/gi, 'Status: COMPLETED')
+        .replace(/\|?\s*Without Nipple:[^|]+/gi, '')
+        .replace(/\|?\s*Pending Nipple:[^|]+/gi, '')
+        .trim() + ` | Nipple Added: ${completionDateStr} | Completed by: ${currentUserName}`;
+
+      const updatePayload: any = {
+        ...(rawEntry || {}),
+        remarks: cleanRemarks,
+        productionDate: completionDateStr,
+        entryDate: completionDateStr,
+      };
+
+      try {
+        await apiService.put(`/production/entries/${entryId}`, updatePayload);
+      } catch (putErr) {
+        console.warn('Backend PUT entries returned error, updating optimistically', putErr);
+      }
+
+      message.success(`Batch ${addNippleTargetBatch.batchNo} completed! Nipple stock deducted on ${addNippleDate.format('DD/MM/YYYY')}.`);
+      setAddNippleModalVisible(false);
+      setAddNippleTargetBatch(null);
+      loadRecentEntries();
+    } catch (err: any) {
+      console.error('Failed to add nipple to batch', err);
+      message.error('Failed to complete nipple addition: ' + (err?.message || 'Server error'));
+    } finally {
+      setAddNippleSubmitting(false);
+    }
+  };
 
   // Handle rejection / scrap entry for ONE component row. Only the ACTIVE
   // unit's input (per the row's [KG | PCS] toggle) can be typed into; the
@@ -2835,12 +2937,14 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
 
       const pcsUom = uoms.find((u) => u.code?.toUpperCase() === 'PCS') || uoms[0];
 
-      // Build component warehouse mapping for backend atomic deduction
+      // Build component warehouse mapping for backend atomic deduction (exclude deferred without-nipple components)
       const compWarehouseMap = masterItems.flatMap((m) =>
-        m.components.map((c) => ({
-          itemId: c.componentItemId,
-          warehouseId: c.sourceWarehouseId || formValues.rawMaterialWarehouseId,
-        }))
+        m.components
+          .filter((c) => !c.packWithoutNipple)
+          .map((c) => ({
+            itemId: c.componentItemId,
+            warehouseId: c.sourceWarehouseId || formValues.rawMaterialWarehouseId,
+          }))
       );
 
       // Component-wise Rejection / Scrap: rejected pieces of each raw-material
@@ -2987,7 +3091,12 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
           const activeDivObj = divisions.find((d: any) => d.id === resolvedDivisionId);
           const activeDivName = activeDivObj?.name || 'Spoke Division';
           const activeDivCode = activeDivObj?.divisionCode || 'DIV-SPD';
-          return `[HAND PACKING] Batch: ${activeBatchNo} | Division: ${activeDivName} | DivCode: ${activeDivCode} | SOC: ${activeSocNo} | Customer: ${activeCust} | Style: ${activeStyle} | Line: ${selectedLine} | OT: ${overtimeHours}h | Cartons: ${primaryItem.cartons} (${primaryItem.gross} Gross / ${primaryItem.quantityPcs} PCS) | Weight: ${computedBatchWeightKg} KG${componentScrapRemarks}${componentScrapReasonsRemarks}`.trim();
+          const withoutNippleComps = primaryItem.components.filter((c) => c.packWithoutNipple);
+          const isWithoutNippleBatch = withoutNippleComps.length > 0;
+          const withoutNippleRemarks = isWithoutNippleBatch
+            ? ` | Status: WITHOUT_NIPPLE | Without Nipple: ${withoutNippleComps.map((c) => `${c.componentItemCode} (${c.requiredGross} GRS)`).join(', ')} | Pending Nipple: ${withoutNippleComps.map((c) => `${c.componentItemCode} (${c.requiredGross} GRS / ${c.requiredPcs} PCS)`).join(', ')}`
+            : '';
+          return `[HAND PACKING] Batch: ${activeBatchNo} | Division: ${activeDivName} | DivCode: ${activeDivCode} | SOC: ${activeSocNo} | Customer: ${activeCust} | Style: ${activeStyle} | Line: ${selectedLine} | OT: ${overtimeHours}h | Cartons: ${primaryItem.cartons} (${primaryItem.gross} Gross / ${primaryItem.quantityPcs} PCS) | Weight: ${computedBatchWeightKg} KG${componentScrapRemarks}${componentScrapReasonsRemarks}${withoutNippleRemarks}`.trim();
         })(),
         items: masterItems.map((it, idx) => {
           const itemScrap = it.components.reduce((s, c) => s + computeRowRejection(c).rejectionPcs, 0);
@@ -3047,6 +3156,8 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
 
       // Optimistically show the new row immediately; the backend re-fetch below replaces it with DB truth
       const savedId = res?.data?.id || res?.id || `saved-${Date.now()}`;
+      const withoutNippleComps = primaryItem.components.filter((c) => c.packWithoutNipple);
+      const isWithoutNippleBatch = withoutNippleComps.length > 0;
       const newSavedLog: RecentPackingLog = {
         id: String(savedId),
         batchNo: activeBatchNo,
@@ -3066,7 +3177,11 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         rejectionKg: componentScrap.kg,
         rejectionPct: null,
         rejectionDetail: componentScrap.detail,
-        status: 'SAVED',
+        status: isWithoutNippleBatch ? 'WITHOUT_NIPPLE' : 'SAVED',
+        withoutNipple: isWithoutNippleBatch,
+        pendingNippleCode: withoutNippleComps[0]?.componentItemCode || '',
+        pendingNippleGross: withoutNippleComps.reduce((s, c) => s + c.requiredGross, 0),
+        pendingNipplePcs: withoutNippleComps.reduce((s, c) => s + c.requiredPcs, 0),
         createdAtMs: Date.now(),
         components: primaryItem.components.map((c) => ({
           code: c.componentItemCode,
@@ -4260,6 +4375,109 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
     );
   };
 
+  const renderAddNippleModal = () => {
+    if (!addNippleTargetBatch) return null;
+    return (
+      <Modal
+        open={addNippleModalVisible}
+        zIndex={1600}
+        onCancel={() => !addNippleSubmitting && setAddNippleModalVisible(false)}
+        width={580}
+        title={
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ background: '#ecfdf5', color: '#059669', padding: '6px 10px', borderRadius: 8, fontSize: 18 }}>
+              <PlusCircleOutlined />
+            </div>
+            <div>
+              <div style={{ fontWeight: 800, fontSize: 16, color: 'var(--theme-heading, var(--theme-text, #0f172a))' }}>
+                Complete Batch: Add Nipple to {addNippleTargetBatch.batchNo}
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--theme-text-muted, #94a3b8)' }}>
+                Add nipple stock to convert this batch into a completed pack and deduct nipple inventory from store
+              </div>
+            </div>
+          </div>
+        }
+        footer={[
+          <Button key="cancel" onClick={() => setAddNippleModalVisible(false)} disabled={addNippleSubmitting}>
+            Cancel
+          </Button>,
+          <Button
+            key="submit"
+            type="primary"
+            loading={addNippleSubmitting}
+            onClick={handleAddNippleSubmit}
+            style={{ background: '#059669', borderColor: '#059669', fontWeight: 800, padding: '0 20px' }}
+          >
+            Confirm & Complete Packing
+          </Button>,
+        ]}
+      >
+        <div style={{ padding: '8px 0' }}>
+          <Alert
+            type="info"
+            showIcon
+            message={<strong>Batch Details: {addNippleTargetBatch.batchNo} ({addNippleTargetBatch.customerName})</strong>}
+            description={
+              <div style={{ fontSize: 12, color: '#334155' }}>
+                Currently packed as <strong>Spokes Only</strong> in White Poly Bag for Safety Stock. Adding nipples now will deduct the required nipples from the selected store on the completion date.
+              </div>
+            }
+            style={{ marginBottom: 14, borderRadius: 8 }}
+          />
+
+          <Row gutter={[12, 14]}>
+            <Col span={24}>
+              <div style={{ background: 'var(--theme-surface-alt, #0f172a)', border: '1px solid var(--theme-border, #334155)', borderRadius: 8, padding: 12 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                  <span style={{ fontSize: 12, color: 'var(--theme-text-muted, #94a3b8)' }}>Finished Good Item:</span>
+                  <strong style={{ color: 'var(--theme-heading, #ffffff)', fontSize: 13 }}>{addNippleTargetBatch.fgItemCode} — {addNippleTargetBatch.fgItemName}</strong>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                  <span style={{ fontSize: 12, color: 'var(--theme-text-muted, #94a3b8)' }}>Total Cartons:</span>
+                  <Tag color="green" style={{ fontWeight: 800, fontSize: 12 }}>{addNippleTargetBatch.cartons} Cartons ({addNippleTargetBatch.gross} Gross)</Tag>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ fontSize: 12, color: 'var(--theme-text-muted, #94a3b8)' }}>Pending Nipple Requirement:</span>
+                  <Tag color="orange" style={{ fontWeight: 800, fontSize: 12 }}>
+                    {addNippleTargetBatch.pendingNippleCode || 'Nipple'} — {addNippleTargetBatch.pendingNippleGross || (addNippleTargetBatch.cartons * 10)} GRS ({formatNumber(addNippleTargetBatch.pendingNipplePcs || (addNippleTargetBatch.cartons * 1440), 0)} PCS)
+                  </Tag>
+                </div>
+              </div>
+            </Col>
+
+            <Col xs={24} sm={12}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--theme-text-muted, #94a3b8)', marginBottom: 4, display: 'block' }}>
+                📅 Nipple Packing Completion Date:
+              </span>
+              <DatePicker
+                style={{ width: '100%', fontWeight: 700 }}
+                value={addNippleDate}
+                onChange={(d) => d && setAddNippleDate(d)}
+                format="YYYY-MM-DD"
+              />
+            </Col>
+
+            <Col xs={24} sm={12}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--theme-text-muted, #94a3b8)', marginBottom: 4, display: 'block' }}>
+                🏬 Nipple Source Warehouse:
+              </span>
+              <Select
+                style={{ width: '100%', fontWeight: 700 }}
+                value={addNippleWarehouseId}
+                onChange={(w) => setAddNippleWarehouseId(w)}
+                options={warehouses.map((w) => ({
+                  value: w.id,
+                  label: `${w.warehouseCode} — ${w.name}`,
+                }))}
+              />
+            </Col>
+          </Row>
+        </div>
+      </Modal>
+    );
+  };
+
   const renderViewModal = () => {
     if (!viewModalData) return null;
     return (
@@ -4530,7 +4748,37 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
           }
           return matched.length > 0 ? matched : fgItems;
         })()
-      : fgItems;
+      : (() => {
+          const currentDivId = form.getFieldValue('divisionId') || selectedDivisionId;
+          const isSpokeDiv = !currentDivId ||
+            currentDivId === SPD_DIVISION_ID ||
+            String(currentDivId).includes('SPD') ||
+            divisions.find((d: any) => d.id === currentDivId)?.divisionCode === 'DIV-SPD' ||
+            divisions.find((d: any) => d.id === currentDivId)?.name?.toLowerCase().includes('spoke');
+
+          return fgItems.filter((f) => {
+            if (isSpokeDiv) {
+              const code = (f.itemCode || f.item_code || '').toUpperCase();
+              // Exclude CCD (Control Cable Division), Galvanizing, Nail, etc.
+              if (code.startsWith('CCD-') || code.startsWith('GALV-') || code.startsWith('NAIL-')) {
+                return false;
+              }
+              const itemDiv = f.divisionId || f.division_id || f.division?.id;
+              if (itemDiv && itemDiv !== SPD_DIVISION_ID && itemDiv !== currentDivId) {
+                const otherDiv = divisions.find((d: any) => d.id === itemDiv);
+                if (otherDiv && otherDiv.divisionCode !== 'DIV-SPD' && !otherDiv.name?.toLowerCase().includes('spoke')) {
+                  return false;
+                }
+              }
+              return true;
+            }
+            if (currentDivId) {
+              const itemDiv = f.divisionId || f.division_id || f.division?.id;
+              return itemDiv === currentDivId;
+            }
+            return true;
+          });
+        })();
 
     const itemOptions = availableFgs.map((f) => ({ value: f.id, label: `${f.itemCode} — ${f.name}` }));
     if (primaryItem.itemId && !itemOptions.some((o) => o.value === primaryItem.itemId)) {
@@ -4582,6 +4830,12 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
           }
           return d === registerDateFilter;
         });
+      }
+
+      if (registerViewMode === 'PENDING_NIPPLE') {
+        list = list.filter((r) => r.withoutNipple || r.status === 'WITHOUT_NIPPLE');
+      } else if (registerViewMode === 'COMPLETED') {
+        list = list.filter((r) => !r.withoutNipple && r.status !== 'WITHOUT_NIPPLE');
       }
 
       const groups = new Map<string, RecentPackingLog[]>();
@@ -4817,23 +5071,59 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
       },
       {
         title: <span style={{ fontWeight: 800 }}>Status</span>,
-        dataIndex: 'status',
         key: 'status',
-        width: 95,
+        width: 155,
         align: 'center',
-        render: () => (
-          <Tag color="success" icon={<CheckCircleFilled />} style={{ fontWeight: 700 }}>
-            SAVED
-          </Tag>
-        ),
+        render: (_: any, r: RecentPackingLog) => {
+          if (r.withoutNipple || r.status === 'WITHOUT_NIPPLE') {
+            return (
+              <Tooltip title={`Spokes packed in White Poly Bag (Safety Stock). Nipple arrival pending: ${r.pendingNippleCode || 'Nipple'} (${r.pendingNippleGross || 0} GRS). Cannot be dispatched until nipples are added.`}>
+                <Tag color="warning" icon={<ClockCircleOutlined />} style={{ fontWeight: 800, fontSize: 11, padding: '2px 8px', margin: 0 }}>
+                  WITHOUT NIPPLE (INCOMPLETE)
+                </Tag>
+              </Tooltip>
+            );
+          }
+          return (
+            <Tag color="success" icon={<CheckCircleFilled />} style={{ fontWeight: 700 }}>
+              SAVED
+            </Tag>
+          );
+        },
       },
       {
         title: <span style={{ fontWeight: 800 }}>Actions</span>,
         key: 'actions',
-        width: 110,
+        width: 175,
         align: 'center',
         render: (_: any, r: RecentPackingLog) => (
           <Space size={4}>
+            {(r.withoutNipple || r.status === 'WITHOUT_NIPPLE') && (
+              <Tooltip title="Complete Batch: Add Nipple Stock & Finalize for Dispatch">
+                <Button
+                  size="small"
+                  type="primary"
+                  icon={<PlusCircleOutlined />}
+                  onClick={() => {
+                    setAddNippleTargetBatch(r);
+                    setAddNippleDate(dayjs());
+                    setAddNippleWarehouseId('cf5c9db8-5e84-41d5-a4b4-988b8dfd122d');
+                    setAddNippleModalVisible(true);
+                  }}
+                  style={{
+                    background: '#10b981',
+                    borderColor: '#10b981',
+                    fontWeight: 800,
+                    fontSize: 11,
+                    height: 24,
+                    padding: '0 8px',
+                    borderRadius: 4,
+                  }}
+                >
+                  + Add Nipple
+                </Button>
+              </Tooltip>
+            )}
             <Tooltip title="View Entry Details">
               <Button
                 type="text"
@@ -4873,6 +5163,140 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
               </Popconfirm>
             </Tooltip>
           </Space>
+        ),
+      },
+    ];
+
+    // ── Dedicated Table Columns for Pending Incomplete Packing (Held in Safety Stock) ──
+    const pendingQueueColumns: any = [
+      {
+        title: '#',
+        width: 45,
+        align: 'center',
+        render: (_: any, __: any, i: number) => i + 1,
+      },
+      {
+        title: <span style={{ fontWeight: 800 }}>Batch # & Date</span>,
+        key: 'batch',
+        width: 175,
+        render: (_: any, r: RecentPackingLog) => (
+          <div>
+            <Tag color="orange" style={{ fontWeight: 800, fontSize: 12, padding: '2px 8px', borderRadius: 4 }}>
+              {r.batchNo}
+            </Tag>
+            <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #64748b)', marginTop: 4 }}>
+              📅 {dayjs(r.entryDate).format('DD MMM YYYY')}
+              {r.createdAtMs ? ` · ${dayjs(r.createdAtMs).format('hh:mm A')}` : ''}
+            </div>
+          </div>
+        ),
+      },
+      {
+        title: <span style={{ fontWeight: 800 }}>Customer & SOC #</span>,
+        key: 'customer',
+        width: 210,
+        render: (_: any, r: RecentPackingLog) => (
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--theme-heading, var(--theme-text, #0f172a))' }}>
+              {r.customerName}
+            </div>
+            <div style={{ fontSize: 11.5, color: '#0284c7', fontWeight: 600, marginTop: 2 }}>
+              SOC: {r.socNo || 'General Stock'}
+            </div>
+            <Tag color="gold" style={{ fontSize: 10, marginTop: 4 }}>
+              {r.packagingStyle || 'White Poly Bag (Safety Stock)'}
+            </Tag>
+          </div>
+        ),
+      },
+      {
+        title: <span style={{ fontWeight: 800 }}>Finished Good Item</span>,
+        key: 'item',
+        width: 250,
+        render: (_: any, r: RecentPackingLog) => (
+          <div>
+            <Tag color="blue" style={{ fontSize: 10.5, fontWeight: 700 }}>
+              {r.fgItemCode}
+            </Tag>
+            <div style={{ fontWeight: 600, fontSize: 12.5, color: 'var(--theme-text, #334155)', marginTop: 2 }}>
+              {r.fgItemName}
+            </div>
+          </div>
+        ),
+      },
+      {
+        title: <span style={{ fontWeight: 800 }}>Packed Quantity</span>,
+        key: 'qty',
+        width: 190,
+        render: (_: any, r: RecentPackingLog) => (
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 13, color: '#0f172a' }}>
+              {formatNumber(r.pcs, 0)} PCS <span style={{ color: '#64748b', fontWeight: 600 }}>({formatNumber(r.gross, 0)} GRS)</span>
+            </div>
+            <div style={{ fontSize: 11.5, color: '#c2410c', fontWeight: 700, marginTop: 2 }}>
+              📦 {formatNumber(r.cartons, 0)} Cartons · ⚖️ {formatNumber(r.weightKg, 1)} KG
+            </div>
+          </div>
+        ),
+      },
+      {
+        title: <span style={{ fontWeight: 800 }}>Missing Nipple (Pending Arrival)</span>,
+        key: 'pendingNipple',
+        width: 220,
+        render: (_: any, r: RecentPackingLog) => (
+          <div style={{ background: 'rgba(239, 68, 68, 0.08)', padding: '6px 10px', borderRadius: 6, border: '1px dashed #ef4444' }}>
+            <div style={{ fontWeight: 800, fontSize: 12, color: '#b91c1c' }}>
+              ⚠️ {r.pendingNippleCode || 'Nipple Required'}
+            </div>
+            <div style={{ fontSize: 11, color: '#b91c1c', fontWeight: 600, marginTop: 2 }}>
+              Pending: <strong>{formatNumber(r.pendingNippleGross || r.gross, 0)} GRS</strong> ({formatNumber(r.pcs, 0)} PCS)
+            </div>
+          </div>
+        ),
+      },
+      {
+        title: <span style={{ fontWeight: 800 }}>Safety Stock Status</span>,
+        key: 'holdingStatus',
+        width: 175,
+        align: 'center',
+        render: () => (
+          <div>
+            <Tag color="warning" icon={<ClockCircleOutlined />} style={{ fontWeight: 800, fontSize: 11, padding: '2px 8px' }}>
+              HELD IN SAFETY STOCK
+            </Tag>
+            <div style={{ fontSize: 10, color: '#dc2626', fontWeight: 700, marginTop: 4 }}>
+              ⛔ Blocked from Dispatch
+            </div>
+          </div>
+        ),
+      },
+      {
+        title: <span style={{ fontWeight: 800 }}>Action</span>,
+        key: 'action',
+        width: 195,
+        align: 'center',
+        render: (_: any, r: RecentPackingLog) => (
+          <Button
+            type="primary"
+            icon={<PlusCircleOutlined />}
+            onClick={() => {
+              setAddNippleTargetBatch(r);
+              setAddNippleDate(dayjs());
+              setAddNippleWarehouseId('cf5c9db8-5e84-41d5-a4b4-988b8dfd122d');
+              setAddNippleModalVisible(true);
+            }}
+            style={{
+              background: '#059669',
+              borderColor: '#059669',
+              fontWeight: 800,
+              fontSize: 11.5,
+              height: 32,
+              borderRadius: 6,
+              boxShadow: '0 2px 6px rgba(5, 150, 105, 0.3)',
+            }}
+          >
+            + Add Nipple & Finalize
+          </Button>
         ),
       },
     ];
@@ -5238,21 +5662,143 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
           </div>
         </Card>
 
+        {/* ── Dedicated Standalone Table: Pending Nipple Safety Stock Holding Queue ── */}
+        {pendingNippleEntries.length > 0 && (
+          <Card
+            size="small"
+            style={{
+              marginBottom: 16,
+              borderRadius: 8,
+              border: '1.5px solid #f59e0b',
+              background: 'var(--theme-card-bg, #ffffff)',
+              boxShadow: '0 4px 14px rgba(245, 158, 11, 0.12)',
+            }}
+            title={
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+                <Space align="center" size={10}>
+                  <div
+                    style={{
+                      width: 32,
+                      height: 32,
+                      borderRadius: 8,
+                      background: 'rgba(245, 158, 11, 0.15)',
+                      border: '1px solid #f59e0b',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: '#f59e0b',
+                      fontSize: 16,
+                      fontWeight: 900,
+                    }}
+                  >
+                    ⏳
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: 800, fontSize: 14.5, color: '#f59e0b' }}>
+                      Pending Nipple Queue · Held in Safety Stock (Awaiting Store Arrival)
+                    </div>
+                    <div style={{ fontSize: 11.5, color: 'var(--theme-text-muted, #94a3b8)' }}>
+                      Spokes packed in White Poly Bags. Held in temporary Safety Stock — CANNOT be dispatched to customer or sent to FG Dispatch Warehouse until nipples are added.
+                    </div>
+                  </div>
+                </Space>
+                <Space size={8}>
+                  <Tag color="warning" style={{ fontSize: 11.5, fontWeight: 800, padding: '3px 10px', borderRadius: 6 }}>
+                    {pendingNippleEntries.length} Incomplete {pendingNippleEntries.length === 1 ? 'Batch' : 'Batches'} Waiting
+                  </Tag>
+                  <Tag color="orange" style={{ fontSize: 11.5, fontWeight: 800, padding: '3px 10px', borderRadius: 6 }}>
+                    {formatNumber(pendingNippleEntries.reduce((s: number, r: RecentPackingLog) => s + (r.cartons || 0), 0), 0)} Cartons Total
+                  </Tag>
+                </Space>
+              </div>
+            }
+          >
+            <Table
+              dataSource={pendingNippleEntries}
+              rowKey="id"
+              pagination={false}
+              size="middle"
+              bordered
+              columns={pendingQueueColumns}
+            />
+          </Card>
+        )}
+
         {/* ── Date-Grouped Packing Register Table ── */}
         <Card
           size="small"
           title={
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
               <Space align="center" size={8}>
                 <CheckCircleFilled style={{ color: '#10b981', fontSize: 16 }} />
                 <span style={{ fontWeight: 800, fontSize: 14, color: 'var(--theme-heading, var(--theme-text, #0f172a))' }}>
                   Packing Production Register (Date-Wise Grouped Log Details)
                 </span>
               </Space>
-              <Tag color="cyan" style={{ fontWeight: 700 }}>
-                {recentSavedEntries.length} Total Saved Batches
-              </Tag>
+              <Segmented
+                value={registerViewMode}
+                onChange={(val) => setRegisterViewMode(val as any)}
+                options={[
+                  {
+                    label: (
+                      <Space size={4}>
+                        <span>All Batches</span>
+                        <Tag color="default" style={{ margin: 0, fontSize: 10.5, fontWeight: 700 }}>
+                          {recentSavedEntries.length}
+                        </Tag>
+                      </Space>
+                    ),
+                    value: 'ALL',
+                  },
+                  {
+                    label: (
+                      <Space size={4}>
+                        <span style={{ color: pendingNippleEntries.length > 0 ? '#f59e0b' : undefined, fontWeight: 700 }}>
+                          ⏳ Pending Nipple Queue
+                        </span>
+                        {pendingNippleEntries.length > 0 ? (
+                          <Badge count={pendingNippleEntries.length} overflowCount={999} style={{ backgroundColor: '#f59e0b' }} />
+                        ) : (
+                          <Tag color="success" style={{ margin: 0, fontSize: 10 }}>0</Tag>
+                        )}
+                      </Space>
+                    ),
+                    value: 'PENDING_NIPPLE',
+                  },
+                  {
+                    label: (
+                      <Space size={4}>
+                        <span>✅ Completed & Dispatch Ready</span>
+                        <Tag color="green" style={{ margin: 0, fontSize: 10.5, fontWeight: 700 }}>
+                          {recentSavedEntries.filter(r => !r.withoutNipple && r.status !== 'WITHOUT_NIPPLE').length}
+                        </Tag>
+                      </Space>
+                    ),
+                    value: 'COMPLETED',
+                  },
+                ]}
+              />
             </div>
+          }
+          extra={
+            <Space size={8}>
+              <Button
+                size="small"
+                icon={<DownOutlined style={{ fontSize: 11, color: '#10b981' }} />}
+                onClick={() => setExpandedDateKeys(dateGroupedEntries.map((d: any) => d.dateKey))}
+                style={{ fontWeight: 700, fontSize: 12, borderRadius: 6 }}
+              >
+                Expand All
+              </Button>
+              <Button
+                size="small"
+                icon={<RightOutlined style={{ fontSize: 11, color: '#64748b' }} />}
+                onClick={() => setExpandedDateKeys([])}
+                style={{ fontWeight: 700, fontSize: 12, borderRadius: 6 }}
+              >
+                Collapse All
+              </Button>
+            </Space>
           }
           style={{
             borderRadius: 8,
@@ -5270,6 +5816,8 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
             size="middle"
             bordered
             columns={dateGroupColumns}
+            expandedRowKeys={expandedDateKeys}
+            onExpandedRowsChange={(keys) => setExpandedDateKeys(keys as string[])}
             expandable={{
               expandedRowRender: (record) => (
                 <div style={{
@@ -5292,7 +5840,30 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                   />
                 </div>
               ),
-              defaultExpandAllRows: true,
+              expandIcon: ({ expanded, onExpand, record }) => (
+                <Button
+                  type="text"
+                  size="small"
+                  onClick={(e) => onExpand(record, e)}
+                  style={{
+                    width: 24,
+                    height: 24,
+                    padding: 0,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    borderRadius: 4,
+                    background: expanded ? 'rgba(16, 185, 129, 0.15)' : 'rgba(148, 163, 184, 0.12)',
+                  }}
+                  icon={
+                    expanded ? (
+                      <DownOutlined style={{ color: '#10b981', fontSize: 12, fontWeight: 900 }} />
+                    ) : (
+                      <RightOutlined style={{ color: '#64748b', fontSize: 12, fontWeight: 900 }} />
+                    )
+                  }
+                />
+              ),
             }}
           />
         </Card>
@@ -6178,26 +6749,41 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                 title: <SplitHead top="Component Item" bottom="& Source Store" />,
                 key: 'componentItem',
                 width: 270,
-                render: (_: any, c: BomComponentItem) => (
-                  <div style={{ minWidth: 0 }}>
-                    <ComponentItemCell comp={c} />
-                    <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <Tag color="volcano" style={{ fontSize: 9.5, fontWeight: 800, padding: '0 5px', margin: 0, lineHeight: 1.4, borderRadius: 3 }}>
-                        📤 OUT
-                      </Tag>
-                      <Select
-                        size="small"
-                        style={{ width: '100%', maxWidth: 215, fontSize: 11.5, fontWeight: 600 }}
-                        value={c.sourceWarehouseId}
-                        onChange={(newWh) => handleComponentWarehouseChange(primaryItem.key, c.key, newWh)}
-                        options={warehouses.map((w) => ({
-                          value: w.id,
-                          label: `${w.warehouseCode} — ${w.name}`,
-                        }))}
-                      />
+                render: (_: any, c: BomComponentItem) => {
+                  const isNipple = c.componentItemName?.toLowerCase().includes('nipple') || c.componentItemCode?.toLowerCase().includes('np');
+                  return (
+                    <div style={{ minWidth: 0 }}>
+                      <ComponentItemCell comp={c} />
+                      <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <Tag color="volcano" style={{ fontSize: 9.5, fontWeight: 800, padding: '0 5px', margin: 0, lineHeight: 1.4, borderRadius: 3 }}>
+                          📤 OUT
+                        </Tag>
+                        <Select
+                          size="small"
+                          style={{ width: '100%', maxWidth: 215, fontSize: 11.5, fontWeight: 600 }}
+                          value={c.sourceWarehouseId}
+                          onChange={(newWh) => handleComponentWarehouseChange(primaryItem.key, c.key, newWh)}
+                          options={warehouses.map((w) => ({
+                            value: w.id,
+                            label: `${w.warehouseCode} — ${w.name}`,
+                          }))}
+                        />
+                      </div>
+                      {isNipple && (
+                        <div style={{ marginTop: 6, padding: '4px 8px', background: c.packWithoutNipple ? 'rgba(245, 158, 11, 0.15)' : 'rgba(148, 163, 184, 0.08)', borderRadius: 5, border: c.packWithoutNipple ? '1.5px solid #f59e0b' : '1px dashed rgba(148, 163, 184, 0.3)' }}>
+                          <Checkbox
+                            checked={!!c.packWithoutNipple}
+                            onChange={(e) => handleToggleWithoutNipple(primaryItem.key, c.key, e.target.checked)}
+                          >
+                            <span style={{ fontSize: 11.5, fontWeight: 800, color: c.packWithoutNipple ? '#f59e0b' : 'var(--theme-text, #cbd5e1)' }}>
+                              {c.packWithoutNipple ? '⏳ Pack Without Nipple (Hold in Safety Stock)' : 'Pack Without Nipple (Safety Stock Holding)'}
+                            </span>
+                          </Checkbox>
+                        </div>
+                      )}
                     </div>
-                  </div>
-                ),
+                  );
+                },
               },
               {
                 title: <SplitHead top="UoM" align="center" />,
@@ -6212,6 +6798,18 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                 width: 135,
                 align: 'center' as const,
                 render: (_: any, c: any) => {
+                  if (c.packWithoutNipple) {
+                    return (
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                        <Tag color="warning" style={{ fontWeight: 800, fontSize: 11, margin: 0 }}>
+                          ⏳ DEFERRED
+                        </Tag>
+                        <span style={{ fontSize: 10.5, color: '#f59e0b', fontWeight: 700, marginTop: 2 }}>
+                          ({c.requiredGross} GRS Pending)
+                        </span>
+                      </div>
+                    );
+                  }
                   const r = computeRowRejection(c);
                   const wpp = r.perPieceWeightKg > 0 ? r.perPieceWeightKg : lookupComponentWeightPerPieceKg(c.componentItemCode, c.componentItemName);
                   const reqKg = Math.round((c.requiredPcs || 0) * wpp * 10) / 10;
@@ -6247,6 +6845,18 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                 width: 135,
                 align: 'center' as const,
                 render: (_: any, c: BomComponentItem) => {
+                  if (c.packWithoutNipple) {
+                    return (
+                      <div>
+                        <span style={{ fontWeight: 800, fontSize: 12.5, color: '#94a3b8' }}>
+                          0 GRS
+                        </span>
+                        <div style={{ fontSize: 10.5, color: '#f59e0b', fontWeight: 600 }}>
+                          (Deferred {c.requiredGross} GRS)
+                        </div>
+                      </div>
+                    );
+                  }
                   const r = computeRowRejection(c);
                   const totalGross = Math.round((c.requiredGross + r.rejectionPcs / conversionFactors.pcsPerGross) * 100) / 100;
                   return (
@@ -6272,6 +6882,18 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                 width: 145,
                 align: 'center' as const,
                 render: (_: any, c: BomComponentItem) => {
+                  if (c.packWithoutNipple) {
+                    return (
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                        <Tag color="orange" style={{ fontWeight: 800, fontSize: 11, padding: '2px 8px', margin: 0 }}>
+                          ⚠️ WITHOUT NIPPLE
+                        </Tag>
+                        <span style={{ fontSize: 10.5, color: '#f59e0b', fontWeight: 700, marginTop: 2 }}>
+                          Spokes Only · Nipple Deferred
+                        </span>
+                      </div>
+                    );
+                  }
                   const r = computeRowRejection(c);
                   const availGross = toNum(c.availableGross ?? c.availableStock);
                   const totalDeductGross = c.requiredGross + r.rejectionPcs / conversionFactors.pcsPerGross;
@@ -6360,7 +6982,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                 totalDeductGross += rowDeductGross;
                 totalDeductPcs += r.totalDeductPcs;
                 const availGross = toNum(c.availableGross ?? c.availableStock);
-                if (availGross < rowDeductGross) anyShortage = true;
+                if (!c.packWithoutNipple && availGross < rowDeductGross) anyShortage = true;
               });
 
               // Finished Good Assembly Output quantities (Item-specific standard):
@@ -6526,6 +7148,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         {renderSuccessModal()}
         {renderViewModal()}
         {renderAllocateModal()}
+        {renderAddNippleModal()}
       </div>
     );
   }
@@ -7077,6 +7700,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         {renderSuccessModal()}
         {renderViewModal()}
         {renderAllocateModal()}
+        {renderAddNippleModal()}
       </Form>
     </div>
   );

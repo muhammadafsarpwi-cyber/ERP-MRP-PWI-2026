@@ -84,7 +84,7 @@ const WhatsAppCommunicationIcon: React.FC = () => {
       width: 340,
       background: 'var(--theme-surface)',
       border: '1px solid var(--theme-border)',
-      borderRadius: 8,
+      borderRadius: 'var(--ui-radius-md)',
       overflow: 'hidden',
       boxShadow: '0 6px 24px rgba(0,0,0,0.18)',
     }}>
@@ -155,7 +155,7 @@ const WhatsAppCommunicationIcon: React.FC = () => {
             justifyContent: 'center',
             width: 38,
             height: 38,
-            borderRadius: 8,
+            borderRadius: 'var(--ui-radius-md)',
             cursor: 'pointer',
             color: '#25D366',
             background: 'rgba(37, 211, 102, 0.08)',

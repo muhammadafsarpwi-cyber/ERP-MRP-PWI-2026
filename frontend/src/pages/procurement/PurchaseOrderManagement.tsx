@@ -11,6 +11,7 @@ import {
   CameraOutlined, SoundOutlined, SaveOutlined, WarningOutlined,
   BarcodeOutlined, CarOutlined, WalletOutlined, UserOutlined,
   ClearOutlined, ApartmentOutlined, SafetyCertificateOutlined,
+  ShopOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
@@ -42,8 +43,15 @@ interface PurchaseOrderItem {
   name?: string;
   reorderLevel?: number;
   currentStock?: number;
+  costPrice?: number;
   purchasePrice?: number;
   standardCost?: number;
+  baseUomId?: string;
+  baseUom?: { id: string; code: string; name: string };
+  purchaseUomId?: string;
+  purchaseUom?: { id: string; code: string; name: string };
+  salesUomId?: string;
+  salesUom?: { id: string; code: string; name: string };
   uomId?: string;
   uomCode?: string;
 }
@@ -54,7 +62,10 @@ interface PurchaseOrderLineForm {
   itemCode?: string;
   itemName?: string;
   uomId?: string;
+  uomCode?: string;
+  uomName?: string;
   quantity: number;
+  previousRate?: number;
   unitPrice: number;
   gstPercent: number;
   lineTotal: number;
@@ -87,6 +98,8 @@ interface PurchaseOrder {
   notes?: string;
   divisionId?: string;
   divisionName?: string;
+  warehouseId?: string;
+  warehouse?: { id: string; warehouseCode: string; name: string };
   items?: any[];
   createdByName?: string;
   createdBy?: string;
@@ -144,6 +157,9 @@ const PurchaseOrderManagement: React.FC = () => {
   const [itemsCatalog, setItemsCatalog] = useState<PurchaseOrderItem[]>([]);
   const [divisions, setDivisions] = useState<DivisionOption[]>(DEFAULT_DIVISIONS);
   const [warehouses, setWarehouses] = useState<Array<{ id: string; warehouseCode: string; name: string }>>([]);
+  const [selectedWarehouseId, setSelectedWarehouseId] = useState<string>('');
+  const [stockMap, setStockMap] = useState<Map<string, number>>(new Map());
+  const [latestRatesMap, setLatestRatesMap] = useState<Map<string, number>>(new Map());
   const [companyId, setCompanyId] = useState('');
   const [currentUserName, setCurrentUserName] = useState('admin');
 
@@ -204,43 +220,123 @@ const PurchaseOrderManagement: React.FC = () => {
 
       try {
         const whRes = await apiService.get<{ data: Array<{ id: string; warehouseCode: string; name: string }> }>('/warehouses', { limit: 100 });
-        setWarehouses(whRes.data || []);
+        const whList = whRes.data || [];
+        setWarehouses(whList);
+        const spiWh = whList.find(w => w.name?.toLowerCase().includes('spi main') || w.warehouseCode === 'WH-002') || whList[0];
+        if (spiWh) {
+          setSelectedWarehouseId((prev) => prev || spiWh.id);
+        }
       } catch { /* ignore */ }
 
       try {
-        const itemsRes = await apiService.get<any>('/master-data/items', { limit: 200 });
+        const itemsRes = await apiService.get<any>('/master-data/items', { limit: 500 });
         const list = itemsRes?.data?.data || itemsRes?.data || (Array.isArray(itemsRes) ? itemsRes : []);
         if (Array.isArray(list) && list.length > 0) {
           setItemsCatalog(list);
         }
       } catch { /* ignore */ }
+
+      try {
+        const ratesRes = await apiService.get<any>('/procurement/orders/item-rates/latest');
+        const rData = ratesRes?.data || ratesRes;
+        const rMap = new Map<string, number>();
+        if (rData && typeof rData === 'object') {
+          Object.keys(rData).forEach((itemId) => {
+            if (rData[itemId]?.lastPrice) {
+              rMap.set(itemId, Number(rData[itemId].lastPrice));
+            }
+          });
+        }
+        setLatestRatesMap(rMap);
+      } catch { /* ignore */ }
     })();
   }, []);
+
+  // Fetch real available stock from inventory balances
+  const fetchStockBalances = useCallback(async (whId?: string) => {
+    try {
+      const params: any = { limit: 2000 };
+      if (whId) params.warehouseId = whId;
+      const res = await apiService.get<any>('/inventory/balances', params);
+      const list = res?.data?.data || res?.data || (Array.isArray(res) ? res : []);
+      const map = new Map<string, number>();
+      if (Array.isArray(list)) {
+        list.forEach((b: any) => {
+          const itId = b.itemId || b.item_id || b.item?.id;
+          if (itId) {
+            const current = map.get(itId) || 0;
+            const avail = Number(b.available ?? b.onHand ?? b.on_hand ?? 0);
+            map.set(itId, current + avail);
+          }
+        });
+      }
+      setStockMap(map);
+    } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => {
+    if (selectedWarehouseId) {
+      void fetchStockBalances(selectedWarehouseId);
+    } else {
+      void fetchStockBalances();
+    }
+  }, [selectedWarehouseId, fetchStockBalances]);
 
   const productOptions = useMemo(() => {
     const map = new Map<string, { value: string; label: string; itemCode?: string; name?: string }>();
     itemsCatalog.forEach((it) => {
       const name = it.itemName || it.name || it.itemCode;
+      const stock = stockMap.get(it.id);
+      const purUomCode = it.purchaseUom?.code || (it as any).pur_uom_code || it.uomCode;
+      const isGross = purUomCode === 'GRS' || String(it.purchaseUom?.name).toLowerCase().includes('gross');
+
+      let stockText = '0 in stock';
+      if (stock !== undefined && stock !== null) {
+        const pcs = Number(stock);
+        if (isGross) {
+          const gross = Math.floor(pcs / 144);
+          const remPcs = pcs % 144;
+          const grossStr = remPcs > 0 ? `${gross.toLocaleString()} Gross + ${remPcs} pcs` : `${gross.toLocaleString()} Gross`;
+          stockText = `${grossStr} (${pcs.toLocaleString()} pcs in stock)`;
+        } else {
+          stockText = `${pcs.toLocaleString()} ${purUomCode || 'pcs'} in stock`;
+        }
+      }
+
       map.set(it.id, {
         value: it.id,
-        label: `${name} [${it.itemCode}] (${it.currentStock ?? 22} pcs in stock)`,
+        label: `${name} [${it.itemCode}] (${stockText})`,
         itemCode: it.itemCode,
         name,
       });
     });
     lines.forEach((ln, idx) => {
       if (ln.itemId && !map.has(ln.itemId)) {
-        const name = ln.itemName || ln.itemCode || `Steel Product ${idx + 1}`;
+        const name = ln.itemName || ln.itemCode || `Product ${idx + 1}`;
+        const stock = stockMap.get(ln.itemId);
+        const isGross = ln.uomCode === 'GRS';
+        let stockText = '0 in stock';
+        if (stock !== undefined && stock !== null) {
+          const pcs = Number(stock);
+          if (isGross) {
+            const gross = Math.floor(pcs / 144);
+            const remPcs = pcs % 144;
+            const grossStr = remPcs > 0 ? `${gross.toLocaleString()} Gross + ${remPcs} pcs` : `${gross.toLocaleString()} Gross`;
+            stockText = `${grossStr} (${pcs.toLocaleString()} pcs in stock)`;
+          } else {
+            stockText = `${pcs.toLocaleString()} ${ln.uomCode || 'pcs'} in stock`;
+          }
+        }
         map.set(ln.itemId, {
           value: ln.itemId,
-          label: `${name} [${ln.itemCode || 'SKU'}]`,
+          label: `${name} [${ln.itemCode || 'SKU'}] (${stockText})`,
           itemCode: ln.itemCode,
           name,
         });
       }
     });
     return Array.from(map.values());
-  }, [itemsCatalog, lines]);
+  }, [itemsCatalog, lines, stockMap]);
 
   // Fetch Purchase Orders
   const fetchData = useCallback(async (pageNum: number = 1) => {
@@ -327,8 +423,12 @@ const PurchaseOrderManagement: React.FC = () => {
     setEditingItem(null);
     form.resetFields();
     const nextPoNum = String(data.length + 1).padStart(4, '0');
+    const defaultWh = warehouses.find(w => w.name?.toLowerCase().includes('spi main') || w.warehouseCode === 'WH-002') || warehouses[0];
+    const whId = defaultWh?.id || '';
+    setSelectedWarehouseId(whId);
     form.setFieldsValue({
       divisionId: divisions[0]?.id || 'div-wd',
+      warehouseId: whId,
       poCode: `PO-${nextPoNum}`,
       orderDate: dayjs(),
       expectedDeliveryDate: dayjs().add(7, 'day'),
@@ -353,8 +453,15 @@ const PurchaseOrderManagement: React.FC = () => {
   // Open Edit PO Modal
   const handleOpenEditModal = async (record: PurchaseOrder) => {
     setEditingItem(record);
+    const recordWh = (record as any).warehouseId || (record as any).warehouse?.id || (record as any).lines?.[0]?.warehouseId;
+    const defaultWh = warehouses.find(w => w.id === recordWh) 
+      || warehouses.find(w => w.name?.toLowerCase().includes('spi main') || w.warehouseCode === 'WH-002') 
+      || warehouses[0];
+    const whId = defaultWh?.id || '';
+    setSelectedWarehouseId(whId);
     form.setFieldsValue({
       divisionId: (record as any).divisionId || divisions[0]?.id || 'div-wd',
+      warehouseId: whId,
       poCode: record.poCode,
       supplierId: record.supplierId || record.supplier?.id,
       orderDate: record.orderDate ? dayjs(record.orderDate) : dayjs(),
@@ -368,49 +475,75 @@ const PurchaseOrderManagement: React.FC = () => {
     try {
       const res = await apiService.get<any>(`/procurement/orders/${record.id}`);
       const poData = res.data || res;
+      if (poData?.warehouseId || poData?.warehouse?.id || poData?.lines?.[0]?.warehouseId) {
+        const lineWh = poData.warehouseId || poData.warehouse?.id || poData.lines[0]?.warehouseId;
+        setSelectedWarehouseId(lineWh);
+        form.setFieldValue('warehouseId', lineWh);
+      }
       if (poData?.lines && Array.isArray(poData.lines) && poData.lines.length > 0) {
         setLines(
-          poData.lines.map((ln: any, idx: number) => ({
-            id: ln.id || String(idx + 1),
-            itemId: ln.itemId || ln.item?.id,
-            itemCode: ln.item?.itemCode || ln.itemCode || `SKU-00${idx + 1}`,
-            itemName: ln.item?.name || ln.item?.itemName || ln.itemName || `Steel Material Item ${idx + 1}`,
-            uomId: ln.uomId,
-            quantity: Number(ln.quantity) || 1,
-            unitPrice: Number(ln.unitPrice) || 0,
-            gstPercent: 18,
-            lineTotal: Number(ln.totalPrice) || (Number(ln.quantity) || 1) * (Number(ln.unitPrice) || 0),
-          }))
+          poData.lines.map((ln: any, idx: number) => {
+            const itId = ln.itemId || ln.item?.id;
+            const matched = itemsCatalog.find((it) => it.id === itId);
+            const purUom = ln.uom || matched?.purchaseUom || matched?.baseUom;
+            const uomCode = purUom?.code || ln.uomCode || matched?.uomCode || 'GRS';
+            const uomName = purUom?.name || 'Gross';
+            const prevRate = latestRatesMap.get(itId) ?? Number(matched?.costPrice ?? ln.unitPrice ?? 360);
+            return {
+              id: ln.id || String(idx + 1),
+              itemId: itId,
+              itemCode: ln.item?.itemCode || ln.itemCode || matched?.itemCode || `SKU-00${idx + 1}`,
+              itemName: ln.item?.name || ln.item?.itemName || ln.itemName || matched?.itemName || `Item ${idx + 1}`,
+              uomId: ln.uomId || matched?.purchaseUomId || matched?.baseUomId,
+              uomCode,
+              uomName,
+              previousRate: prevRate,
+              quantity: Number(ln.quantity) || 1,
+              unitPrice: Number(ln.unitPrice) || 0,
+              gstPercent: 18,
+              lineTotal: Number(ln.totalPrice) || (Number(ln.quantity) || 1) * (Number(ln.unitPrice) || 0),
+            };
+          })
         );
       } else {
         const defaultItem = itemsCatalog[0];
+        const prevRate = defaultItem ? (latestRatesMap.get(defaultItem.id) ?? Number(defaultItem.costPrice ?? 360)) : 360;
+        const purUom = defaultItem?.purchaseUom || defaultItem?.baseUom;
         setLines([
           {
             id: '1',
             itemId: defaultItem?.id,
             itemCode: defaultItem?.itemCode,
             itemName: defaultItem?.itemName || defaultItem?.name,
-            uomId: defaultItem?.uomId,
+            uomId: defaultItem?.purchaseUomId || defaultItem?.baseUomId,
+            uomCode: purUom?.code || 'GRS',
+            uomName: purUom?.name || 'Gross',
+            previousRate: prevRate,
             quantity: 1,
-            unitPrice: Number(record.subtotal || record.totalAmount || defaultItem?.purchasePrice || 500),
+            unitPrice: Number(record.subtotal || record.totalAmount || defaultItem?.costPrice || prevRate),
             gstPercent: 18,
-            lineTotal: Number(record.subtotal || record.totalAmount || defaultItem?.purchasePrice || 500),
+            lineTotal: Number(record.subtotal || record.totalAmount || defaultItem?.costPrice || prevRate),
           },
         ]);
       }
     } catch {
       const defaultItem = itemsCatalog[0];
+      const prevRate = defaultItem ? (latestRatesMap.get(defaultItem.id) ?? Number(defaultItem.costPrice ?? 360)) : 360;
+      const purUom = defaultItem?.purchaseUom || defaultItem?.baseUom;
       setLines([
         {
           id: '1',
           itemId: defaultItem?.id,
           itemCode: defaultItem?.itemCode,
           itemName: defaultItem?.itemName || defaultItem?.name,
-          uomId: defaultItem?.uomId,
+          uomId: defaultItem?.purchaseUomId || defaultItem?.baseUomId,
+          uomCode: purUom?.code || 'GRS',
+          uomName: purUom?.name || 'Gross',
+          previousRate: prevRate,
           quantity: 1,
-          unitPrice: Number(record.subtotal || record.totalAmount || 500),
+          unitPrice: Number(record.subtotal || record.totalAmount || prevRate),
           gstPercent: 18,
-          lineTotal: Number(record.subtotal || record.totalAmount || 500),
+          lineTotal: Number(record.subtotal || record.totalAmount || prevRate),
         },
       ]);
     }
@@ -425,12 +558,22 @@ const PurchaseOrderManagement: React.FC = () => {
 
   // Line item manipulation
   const handleAddLine = () => {
+    const firstItem = itemsCatalog[0];
+    const purUom = firstItem?.purchaseUom || firstItem?.baseUom;
+    const prevRate = firstItem ? (latestRatesMap.get(firstItem.id) ?? Number(firstItem.costPrice ?? 360)) : 0;
     const newLine: PurchaseOrderLineForm = {
       id: String(Date.now()),
+      itemId: firstItem?.id,
+      itemCode: firstItem?.itemCode,
+      itemName: firstItem?.itemName || firstItem?.name,
+      uomId: firstItem?.purchaseUomId || firstItem?.baseUomId,
+      uomCode: purUom?.code || 'GRS',
+      uomName: purUom?.name || 'Gross',
       quantity: 1,
-      unitPrice: 0,
+      previousRate: prevRate,
+      unitPrice: prevRate,
       gstPercent: 18,
-      lineTotal: 0,
+      lineTotal: prevRate,
     };
     setLines([...lines, newLine]);
   };
@@ -453,8 +596,14 @@ const PurchaseOrderManagement: React.FC = () => {
           if (matched) {
             updated.itemCode = matched.itemCode;
             updated.itemName = matched.itemName || matched.name;
-            updated.unitPrice = Number(matched.purchasePrice || matched.standardCost || 500);
-            updated.uomId = matched.uomId;
+            const purUom = matched.purchaseUom || matched.baseUom;
+            updated.uomCode = purUom?.code || matched.uomCode || 'GRS';
+            updated.uomName = purUom?.name || 'Gross';
+            updated.uomId = matched.purchaseUomId || matched.baseUomId || matched.uomId;
+
+            const prevRate = latestRatesMap.get(matched.id) ?? Number(matched.costPrice ?? matched.purchasePrice ?? matched.standardCost ?? 360);
+            updated.previousRate = prevRate;
+            updated.unitPrice = prevRate;
           }
         }
         const qty = Number(updated.quantity) || 0;
@@ -603,7 +752,7 @@ const PurchaseOrderManagement: React.FC = () => {
           id: String(Date.now()),
           itemId: itemsCatalog[0]?.id || 'item-sample-low',
           itemCode: itemsCatalog[0]?.itemCode || 'SKU-0004',
-          itemName: itemsCatalog[0]?.itemName || 'Product 4 [SKU-0004] (22 pcs in stock)',
+          itemName: itemsCatalog[0]?.itemName || 'Product 4 [SKU-0004]',
           quantity: 8,
           unitPrice: 500,
           gstPercent: 18,
@@ -654,8 +803,11 @@ const PurchaseOrderManagement: React.FC = () => {
       const selectedSupplierId = values.supplierId || editingItem?.supplierId || suppliers[0]?.id;
       const finalPoCode = values.poCode || editingItem?.poCode || `PO-${dayjs().format('YYYY')}-${Date.now().toString().slice(-4)}`;
 
+      const selectedWh = values.warehouseId || selectedWarehouseId || undefined;
+
       const payload: any = {
         companyId: targetCompanyId,
+        warehouseId: selectedWh,
         poCode: finalPoCode,
         supplierId: selectedSupplierId,
         orderDate: values.orderDate ? dayjs(values.orderDate).format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD'),
@@ -669,6 +821,7 @@ const PurchaseOrderManagement: React.FC = () => {
           id: (l.id && l.id.length > 20 && !l.id.includes('sample') && !l.id.startsWith('new-')) ? l.id : undefined,
           lineNumber: idx + 1,
           itemId: l.itemId || itemsCatalog[0]?.id,
+          warehouseId: selectedWh,
           uomId: l.uomId || undefined,
           quantity: Number(l.quantity) || 1,
           unitPrice: Number(l.unitPrice) || 0,
@@ -863,6 +1016,11 @@ const PurchaseOrderManagement: React.FC = () => {
               <span className="po-badge-pill po-badge-user">
                 <UserOutlined /> {raisedBy}
               </span>
+              {record.warehouse?.name && (
+                <span className="po-badge-pill po-badge-wh" style={{ color: '#38bdf8', background: 'rgba(56, 189, 248, 0.1)', border: '1px solid rgba(56, 189, 248, 0.25)' }}>
+                  <ShopOutlined /> {record.warehouse.name}
+                </span>
+              )}
             </div>
           </div>
         );
@@ -1358,7 +1516,7 @@ const PurchaseOrderManagement: React.FC = () => {
         open={modalVisible}
         onCancel={handleCrossCloseClick}
         footer={null}
-        width={1040}
+        width={1160}
         height={740}
         wrapClassName="po-modal"
         title={
@@ -1478,6 +1636,29 @@ const PurchaseOrderManagement: React.FC = () => {
                     onChange={(v) => setFormDiscount(Number(v) || 0)}
                   />
                 </Form.Item>
+
+                <Form.Item
+                  name="warehouseId"
+                  label={
+                    <span>
+                      <ShopOutlined style={{ color: '#10b981', marginRight: 4 }} /> Target Warehouse / Store (WH)
+                    </span>
+                  }
+                >
+                  <Select
+                    placeholder="Select warehouse / store..."
+                    options={warehouses.map((w) => ({
+                      value: w.id,
+                      label: `${w.name || (w as any).warehouseName} (${w.warehouseCode})`,
+                    }))}
+                    value={selectedWarehouseId}
+                    onChange={(val) => {
+                      setSelectedWarehouseId(val);
+                      form.setFieldsValue({ warehouseId: val });
+                      fetchStockBalances(val);
+                    }}
+                  />
+                </Form.Item>
               </Col>
             </Row>
 
@@ -1515,12 +1696,14 @@ const PurchaseOrderManagement: React.FC = () => {
               <table className="po-items-table">
                 <thead>
                   <tr>
-                    <th style={{ width: '40%' }}>PRODUCT</th>
-                    <th style={{ width: '15%' }}>QTY</th>
-                    <th style={{ width: '20%' }}>UNIT PRICE</th>
-                    <th style={{ width: '10%' }}>GST</th>
-                    <th style={{ width: '15%' }}>LINE TOTAL</th>
-                    <th style={{ width: '5%' }}></th>
+                    <th style={{ width: '30%' }}>PRODUCT</th>
+                    <th style={{ width: '10%' }}>UOM</th>
+                    <th style={{ width: '13%', textAlign: 'right' }}>OLD / PREV RATE</th>
+                    <th style={{ width: '16%' }}>CURRENT RATE</th>
+                    <th style={{ width: '13%' }}>QTY</th>
+                    <th style={{ width: '6%', textAlign: 'center' }}>GST</th>
+                    <th style={{ width: '8%', textAlign: 'right' }}>LINE TOTAL</th>
+                    <th style={{ width: '4%', textAlign: 'center' }}></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1538,25 +1721,64 @@ const PurchaseOrderManagement: React.FC = () => {
                         />
                       </td>
                       <td>
-                        <InputNumber
-                          min={1}
-                          style={{ width: '100%' }}
-                          value={line.quantity}
-                          onChange={(val) => handleLineChange(line.id, 'quantity', val)}
-                        />
+                        <Tag
+                          color="cyan"
+                          style={{
+                            fontSize: 12,
+                            fontWeight: 700,
+                            padding: '3px 8px',
+                            borderRadius: 4,
+                            letterSpacing: '0.5px',
+                          }}
+                        >
+                          {line.uomCode || 'GRS'}
+                        </Tag>
+                      </td>
+                      <td style={{ textAlign: 'right', verticalAlign: 'middle' }}>
+                        <div style={{ fontWeight: 700, color: '#94a3b8', fontSize: 13 }}>
+                          Rs {formatDecimal(line.previousRate ?? 0)}
+                        </div>
+                        <div style={{ fontSize: 10, color: '#64748b' }}>
+                          Last / Cost ({line.uomCode || 'GRS'})
+                        </div>
                       </td>
                       <td>
                         <InputNumber
                           min={0}
                           style={{ width: '100%' }}
                           value={line.unitPrice}
+                          placeholder="Current Rate"
                           onChange={(val) => handleLineChange(line.id, 'unitPrice', val)}
+                        />
+                        {line.previousRate !== undefined && line.unitPrice !== undefined && Number(line.previousRate) > 0 && (
+                          <div style={{ fontSize: 11, marginTop: 2 }}>
+                            {Number(line.unitPrice) > Number(line.previousRate) ? (
+                              <span style={{ color: '#f87171', fontWeight: 600 }}>
+                                ▲ +Rs {formatDecimal(Number(line.unitPrice) - Number(line.previousRate))}
+                              </span>
+                            ) : Number(line.unitPrice) < Number(line.previousRate) ? (
+                              <span style={{ color: '#34d399', fontWeight: 600 }}>
+                                ▼ -Rs {formatDecimal(Number(line.previousRate) - Number(line.unitPrice))}
+                              </span>
+                            ) : (
+                              <span style={{ color: '#94a3b8' }}>✓ Same as last</span>
+                            )}
+                          </div>
+                        )}
+                      </td>
+                      <td>
+                        <InputNumber
+                          min={1}
+                          style={{ width: '100%' }}
+                          value={line.quantity}
+                          addonAfter={line.uomCode || 'GRS'}
+                          onChange={(val) => handleLineChange(line.id, 'quantity', val)}
                         />
                       </td>
                       <td style={{ textAlign: 'center', color: '#6b7280' }}>
                         {line.gstPercent ? `${line.gstPercent}%` : '—'}
                       </td>
-                      <td style={{ fontWeight: 700 }}>
+                      <td style={{ fontWeight: 700, textAlign: 'right' }}>
                         {formatDecimal(line.lineTotal)}
                       </td>
                       <td style={{ textAlign: 'center' }}>

@@ -925,3 +925,34 @@ span.anticon-close:hover svg {
     display: none !important;
   }
 }
+
+/* ── Ant Design Upload Dragger Theme Overrides ── */
+.ant-upload-wrapper .ant-upload.ant-upload-drag {
+  background: var(--theme-surface-alt, rgba(255, 255, 255, 0.04)) !important;
+  border: 1.5px dashed var(--theme-border, rgba(255, 255, 255, 0.18)) !important;
+  border-radius: 10px !important;
+  transition: all 0.25s ease !important;
+}
+
+.ant-upload-wrapper .ant-upload.ant-upload-drag:hover {
+  border-color: var(--theme-primary, #6366f1) !important;
+  background: var(--theme-hover, rgba(99, 102, 241, 0.08)) !important;
+}
+
+.ant-upload-wrapper .ant-upload.ant-upload-drag .ant-upload-drag-container {
+  color: var(--theme-text, #f1f5f9) !important;
+}
+
+.ant-upload-wrapper .ant-upload.ant-upload-drag .ant-upload-text {
+  color: var(--theme-heading, var(--theme-text, #f1f5f9)) !important;
+  font-weight: 600 !important;
+}
+
+.ant-upload-wrapper .ant-upload.ant-upload-drag .ant-upload-hint {
+  color: var(--theme-text-muted, #94a3b8) !important;
+}
+
+.ant-upload-wrapper .ant-upload.ant-upload-drag .ant-upload-drag-icon {
+  margin-bottom: 12px !important;
+}
+

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Alert, App, Badge, Button, Card, Checkbox, Col, DatePicker, Descriptions, Dropdown, Form, Input, InputNumber,
-  Modal, Popover, Row, Segmented, Select, Space, Table, Tag, Tooltip, Typography, Upload,
+  Modal, Popover, Row, Segmented, Select, Space, Table, Tag, Tooltip, Typography, Upload, Switch,
 } from 'antd';
 import type { MenuProps } from 'antd';
 import {
@@ -1573,6 +1573,8 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
   const [pageSize, setPageSize] = useState<number>(() => cachedMaster?.filters?.pageSize ?? 20);
   const [sortBy, setSortBy] = useState<string>(() => cachedMaster?.filters?.sortBy ?? 'machineCode');
   const [sortDir, setSortDir] = useState<'ASC' | 'DESC'>((cachedMaster?.filters?.sortDir as 'ASC' | 'DESC') ?? 'ASC');
+  const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
+  const [bulkActionLoading, setBulkActionLoading] = useState(false);
 
   const [search, setSearch] = useState<string>(() => cachedMaster?.filters?.search ?? '');
   const [scannerOpen, setScannerOpen] = useState(false);
@@ -1987,6 +1989,64 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
     } catch (error: any) {
       message.error(error?.response?.data?.message || 'Failed to delete machine');
     }
+  };
+
+  const handleBulkStatusChange = async (nextStatus: string) => {
+    if (selectedRowKeys.length === 0) return;
+    setBulkActionLoading(true);
+    try {
+      await Promise.all(
+        selectedRowKeys.map((id) =>
+          apiService.patch(`/machines/${id}/status`, { status: nextStatus })
+        )
+      );
+      message.success(`${selectedRowKeys.length} machines updated to ${nextStatus}`);
+      setSelectedRowKeys([]);
+      fetchMachines();
+    } catch (err: any) {
+      message.error(err?.response?.data?.message || 'Failed to update selected machines');
+    } finally {
+      setBulkActionLoading(false);
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedRowKeys.length === 0) return;
+    Modal.confirm({
+      title: `Delete ${selectedRowKeys.length} Selected Machines?`,
+      content: 'Are you sure you want to delete these machines? This will soft-delete them from Machine Master.',
+      okText: 'Delete Selected',
+      okType: 'danger',
+      cancelText: 'Cancel',
+      onOk: async () => {
+        setBulkActionLoading(true);
+        try {
+          await Promise.all(
+            selectedRowKeys.map((id) => apiService.delete(`/machines/${id}`))
+          );
+          message.success(`${selectedRowKeys.length} machines deleted successfully`);
+          setSelectedRowKeys([]);
+          fetchMachines();
+        } catch (err: any) {
+          message.error(err?.response?.data?.message || 'Failed to delete selected machines');
+        } finally {
+          setBulkActionLoading(false);
+        }
+      },
+    });
+  };
+
+  const handleBulkExport = () => {
+    const selectedMachines = machines.filter((m) => selectedRowKeys.includes(m.id));
+    if (selectedMachines.length === 0) {
+      message.info('No machines selected for export');
+      return;
+    }
+    downloadText(
+      `selected-machines-${dayjs().format('YYYYMMDD-HHmm')}.csv`,
+      toCsv(EXPORT_HEADERS, selectedMachines.map(machineToExportRow)),
+    );
+    message.success(`Exported ${selectedMachines.length} selected machines to CSV`);
   };
 
   const EXPORT_LIMIT = 10000;
@@ -2698,51 +2758,54 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
       title: <HeaderCell icon={<ApartmentOutlined />} first="Machine" second="Name" />,
       dataIndex: 'name',
       key: 'name',
-      width: 145,
+      width: 155,
       sorter: true,
       render: (_: any, m: Machine) => {
         if (!m.name) return <span style={{ color: 'var(--theme-text-muted)' }}>—</span>;
-        const mc = getMachineColor(m);
         return (
-          <HighlightedCell
-            icon={<SettingOutlined />}
-            label={m.name}
-            labelColor={mc.light.text}
-            secondary={m.machineType ?? undefined}
-            tooltip={m.name + (m.machineType ? ` (${m.machineType})` : '')}
-          />
+          <div style={{ lineHeight: 1.35 }}>
+            <div style={{ fontWeight: 600, fontSize: 12.5, color: 'var(--theme-text, #f1f5f9)' }}>
+              {m.name}
+            </div>
+            {m.machineType && (
+              <div style={{ color: 'var(--theme-text-secondary, #94a3b8)', fontSize: 11, marginTop: 1 }}>
+                {m.machineType}
+              </div>
+            )}
+          </div>
         );
       },
     },
     {
-      title: <HeaderCell icon={<ShopOutlined />} first="Division" second="Section" />,
+      title: <HeaderCell icon={<ShopOutlined />} first="Division &" second="Section" />,
       key: 'division',
-      width: 120,
+      width: 150,
       render: (_: any, m: Machine) => {
         const d = m.division;
         const s = m.section;
         if (!d && !s) return <span style={{ color: 'var(--theme-text-muted)' }}>—</span>;
         return (
-          <HighlightedCell
-            icon={<ShopOutlined />}
-            label={d?.name ?? '—'}
-            secondary={s?.name ?? '—'}
-            secondaryPrefix={s ? <SubnodeOutlined style={{ marginRight: 3, fontSize: 9 }} /> : null}
-            tooltip={d?.name ? (s ? `${d.name} — ${s.name}` : d.name) : undefined}
-          />
+          <div style={{ lineHeight: 1.35 }}>
+            <div style={{ fontWeight: 600, fontSize: 12, color: 'var(--theme-text, #f1f5f9)' }}>
+              {d?.name ?? '—'}
+            </div>
+            {s?.name && (
+              <div style={{ color: 'var(--theme-text-secondary, #94a3b8)', fontSize: 11, marginTop: 1 }}>
+                › {s.name}
+              </div>
+            )}
+          </div>
         );
       },
     },
     {
       title: <HeaderCell icon={<TeamOutlined />} first="Department" />,
       key: 'department',
-      width: 100,
+      width: 120,
       render: (_: any, m: Machine) => (m.department?.name ? (
-        <HighlightedCell
-          icon={<TeamOutlined />}
-          label={m.department.name}
-          tooltip={m.department.name}
-        />
+        <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--theme-text, #cbd5e1)' }}>
+          {m.department.name}
+        </span>
       ) : (
         <span style={{ color: 'var(--theme-text-muted)' }}>—</span>
       )),
@@ -2800,9 +2863,19 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
       title: <HeaderCell icon={<CheckCircleOutlined />} first="Status" />,
       dataIndex: 'status',
       key: 'status',
-      width: 85,
+      width: 125,
       sorter: true,
-      render: (s: string) => <StatusBadge status={s} colorMap={STATUS_COLORS} />,
+      render: (s: string, m: Machine) => (
+        <Space size={6} align="center">
+          <Switch
+            size="small"
+            checked={s === 'ACTIVE'}
+            onChange={(checked) => handleStatus(m, checked ? 'ACTIVE' : 'INACTIVE')}
+            style={{ backgroundColor: s === 'ACTIVE' ? '#10b981' : undefined }}
+          />
+          <StatusBadge status={s} colorMap={STATUS_COLORS} style={{ minWidth: 50, fontSize: 10, padding: '1px 4px', textAlign: 'center' }} />
+        </Space>
+      ),
     },
     {
       title: <HeaderCell first="Row" second="Actions" />,
@@ -3253,6 +3326,73 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
         />
       )}
 
+      {/* 2027 Dynamic Floating Bulk Actions Toolbar */}
+      {selectedRowKeys.length > 0 && (
+        <div className="erp-table-bulk-toolbar" style={{ marginBottom: 12 }}>
+          <div className="bulk-count-badge">
+            <Badge count={selectedRowKeys.length} style={{ backgroundColor: '#f59e0b', fontWeight: 800 }} />
+            <span>{selectedRowKeys.length} machine{selectedRowKeys.length === 1 ? '' : 's'} selected</span>
+            <Button
+              size="small"
+              type="link"
+              onClick={() => setSelectedRowKeys([])}
+              style={{ color: '#94a3b8', padding: '0 4px', fontSize: 12 }}
+            >
+              Clear
+            </Button>
+          </div>
+          <Space className="bulk-actions-group" wrap>
+            <Button
+              size="small"
+              icon={<CheckCircleOutlined />}
+              onClick={() => handleBulkStatusChange('ACTIVE')}
+              loading={bulkActionLoading}
+              style={{ color: '#10b981', borderColor: '#10b981', fontWeight: 600 }}
+            >
+              Set Active
+            </Button>
+            <Button
+              size="small"
+              icon={<ToolOutlined />}
+              onClick={() => handleBulkStatusChange('MAINTENANCE')}
+              loading={bulkActionLoading}
+              style={{ color: '#f59e0b', borderColor: '#f59e0b', fontWeight: 600 }}
+            >
+              Set Maintenance
+            </Button>
+            <Button
+              size="small"
+              icon={<MinusOutlined />}
+              onClick={() => handleBulkStatusChange('INACTIVE')}
+              loading={bulkActionLoading}
+              style={{ color: '#64748b', borderColor: '#64748b', fontWeight: 600 }}
+            >
+              Deactivate
+            </Button>
+            <Button
+              size="small"
+              icon={<DownloadOutlined />}
+              onClick={handleBulkExport}
+              loading={bulkActionLoading}
+              style={{ fontWeight: 600 }}
+            >
+              Export Selected
+            </Button>
+            <Button
+              size="small"
+              danger
+              type="primary"
+              icon={<DeleteOutlined />}
+              onClick={handleBulkDelete}
+              loading={bulkActionLoading}
+              style={{ fontWeight: 600 }}
+            >
+              Delete Selected
+            </Button>
+          </Space>
+        </div>
+      )}
+
       <Card title={<span style={{ fontSize: 14, fontWeight: 600 }}>Machines</span>} styles={{ body: { padding: '8px 0 0' } }}>
         <div className="erp-table-container erp-table-container--dense">
           {loading && machines.length === 0 ? (
@@ -3260,6 +3400,11 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
           ) : (
           <Table
             rowKey="id"
+            rowSelection={{
+              selectedRowKeys,
+              onChange: (keys) => setSelectedRowKeys(keys),
+              preserveSelectedRowKeys: true,
+            }}
             columns={filteredColumns}
             dataSource={machines}
             loading={false}

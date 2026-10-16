@@ -1499,7 +1499,7 @@ export function printVisitorSlipDocument(
 }
 
 /**
- * LOADING ADVICE & DISPATCH SLIP (لوڈنگ ایڈوائس)
+ * LOADING ADVICE & DISPATCH SLIP
  */
 export function printLoadingAdviceSlip(delivery: any, order?: any): void {
   if (!delivery) return;
@@ -1556,7 +1556,7 @@ export function printLoadingAdviceSlip(delivery: any, order?: any): void {
         </div>
         <div style="text-align: right;">
           <div style="background: #0284c7; color: #ffffff; padding: 4px 12px; border-radius: 4px; font-weight: 800; font-size: 13px; letter-spacing: 0.5px; display: inline-block;">
-            LOADING ADVICE / لوڈنگ ایڈوائس
+            LOADING ADVICE
           </div>
           <div style="font-size: 11px; font-weight: 700; color: #0f172a; margin-top: 5px;">Doc #: <span style="font-family: monospace; color: #0284c7;">${docNo}</span></div>
           <div style="font-size: 10.5px; color: #475569;">Date: <strong>${dateStr}</strong></div>
@@ -1566,14 +1566,14 @@ export function printLoadingAdviceSlip(delivery: any, order?: any): void {
       <!-- Info Grid -->
       <div style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 12px; margin-bottom: 14px;">
         <div style="border: 1px solid #cbd5e1; border-radius: 6px; padding: 8px 12px; background: #f8fafc;">
-          <div style="font-size: 10px; font-weight: 800; color: #64748b; text-transform: uppercase; margin-bottom: 4px;">CONSIGNEE / CUSTOMER (کسٹمر)</div>
+          <div style="font-size: 10px; font-weight: 800; color: #64748b; text-transform: uppercase; margin-bottom: 4px;">CONSIGNEE / CUSTOMER</div>
           <div style="font-size: 13px; font-weight: 800; color: #0f172a;">${custName} ${custCode ? `[${custCode}]` : ''}</div>
           <div style="font-size: 11px; color: #334155; margin-top: 3px;"><strong>Destination:</strong> ${address}</div>
           <div style="font-size: 10.5px; color: #475569; margin-top: 2px;">Contact: ${custPhone}</div>
         </div>
 
         <div style="border: 1px solid #cbd5e1; border-radius: 6px; padding: 8px 12px; background: #f8fafc;">
-          <div style="font-size: 10px; font-weight: 800; color: #64748b; text-transform: uppercase; margin-bottom: 4px;">VEHICLE & DISPATCH (گاڑی اور بلٹی)</div>
+          <div style="font-size: 10px; font-weight: 800; color: #64748b; text-transform: uppercase; margin-bottom: 4px;">VEHICLE & DISPATCH</div>
           <div style="display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 2px;">
             <span style="color: #64748b;">SOC Reference:</span>
             <strong style="color: #1e3a8a; font-family: monospace;">${socNo}</strong>

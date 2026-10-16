@@ -25,7 +25,8 @@ export interface ERPLine {
   taxPercent: number;
   warehouseId?: string;
   lineTotal: number;
-  // SOC tracking & order validation fields
+  // SOC & PO/PR tracking & order validation fields
+  poLineId?: string;
   salesOrderId?: string;
   salesOrderNumber?: string;
   customerPo?: string;
@@ -145,19 +146,20 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
   customerId,
   orderId,
 }) => {
-  const isSalesContext = context === 'sales' ||
-    Boolean(label && (/sales|order|quotation|delivery|dispatch|soc/i.test(label))) ||
-    defaultItemType === 'FINISHED_GOOD' ||
-    Boolean(availableSalesOrders && availableSalesOrders.length > 0);
-
   const isPurchaseContext = context === 'purchase' ||
-    Boolean(label && (/purchase|rfq|requisition|receipt|return/i.test(label))) ||
+    Boolean(label && (/purchase|rfq|requisition|receipt|return|inbound/i.test(label))) ||
     Boolean(isPurchasable);
+
+  const isSalesContext = !isPurchaseContext && (
+    context === 'sales' ||
+    Boolean(label && (/sales|so|delivery|dispatch|pack|soc/i.test(label))) ||
+    Boolean(availableSalesOrders && availableSalesOrders.length > 0)
+  );
 
   const [itemOptions, setItemOptions] = useState<ItemOption[]>([]);
   const [searchText, setSearchText] = useState('');
   const [selectedItemType, setSelectedItemType] = useState<string>(
-    defaultItemType || itemType || (warehouseType === 'RAW_MATERIAL' ? 'RAW_MATERIAL' : 'FINISHED_GOOD')
+    defaultItemType || itemType || (warehouseType === 'RAW_MATERIAL' ? 'RAW_MATERIAL' : (isPurchaseContext ? 'ALL' : 'FINISHED_GOOD'))
   );
   const [lineAvailability, setLineAvailability] = useState<Record<string, ItemAvailabilityInfo>>({});
 
@@ -185,25 +187,49 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
             const res = await apiService.get<any>(
               `/sales/finished-goods/item-availability/${line.itemId}`,
               { 
-                orderQuantity: line.quantity || 1,
+                orderQuantity: isPurchaseContext ? 0 : (line.quantity || 1),
                 customerId: customerId || undefined,
                 orderId: orderId || undefined,
               }
             );
             if (res?.data && active) {
-              updates[line.id] = {
-                physicalStock: res.data.physicalStock,
-                committedStock: res.data.committedStock,
-                availableStock: res.data.availableStock,
-                safetyStock: res.data.safetyStock,
-                projectedBalance: res.data.projectedBalance,
-                shortageQty: res.data.shortageQty,
-                orderShortageQty: res.data.orderShortageQty,
-                productionRequirementQty: res.data.productionRequirementQty,
-                uomCode: res.data.uomCode,
-                status: res.data.status,
-                statusLabel: res.data.statusLabel,
-              };
+              const phys = Number(res.data.physicalStock || 0);
+              const comm = Number(res.data.committedStock || 0);
+              const avail = Number(res.data.availableStock || 0);
+              const safety = Number(res.data.safetyStock || 0);
+              const qty = Number(line.quantity || 0);
+
+              if (isPurchaseContext) {
+                // In procurement, purchasing is INBOUND stock replenishment!
+                const projected = avail + qty;
+                updates[line.id] = {
+                  physicalStock: phys,
+                  committedStock: comm,
+                  availableStock: avail,
+                  safetyStock: safety,
+                  projectedBalance: Math.round(projected * 10000) / 10000,
+                  shortageQty: 0,
+                  orderShortageQty: 0,
+                  productionRequirementQty: 0,
+                  uomCode: res.data.uomCode,
+                  status: 'INBOUND',
+                  statusLabel: `+${qty.toLocaleString()} Inbound`,
+                };
+              } else {
+                updates[line.id] = {
+                  physicalStock: phys,
+                  committedStock: comm,
+                  availableStock: avail,
+                  safetyStock: safety,
+                  projectedBalance: res.data.projectedBalance,
+                  shortageQty: res.data.shortageQty,
+                  orderShortageQty: res.data.orderShortageQty,
+                  productionRequirementQty: res.data.productionRequirementQty,
+                  uomCode: res.data.uomCode,
+                  status: res.data.status,
+                  statusLabel: res.data.statusLabel,
+                };
+              }
             }
           } catch {
             // Non-blocking for non-FG items
@@ -219,7 +245,7 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
     return () => {
       active = false;
     };
-  }, [value, showAvailability, customerId, orderId]);
+  }, [value, showAvailability, customerId, orderId, isPurchaseContext]);
 
   const loadItems = useCallback(async (search?: string) => {
     if (!companyId) return;
@@ -515,30 +541,82 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
               notFoundContent="No matching items found"
             />
 
-            {/* Packaging Conversion Info Badge, SOC Tag & Order Quantity */}
+            {/* Packaging Conversion Info Badge, SOC / PO / PR Tag & Order Quantity */}
             <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
               {pSize && pSize > 0 ? (() => {
-                const effectiveUomCode = (isSalesContext && (opt?.salesUom?.code || (opt?.salesUomId && 'GRS'))) || record.uomCode || opt?.baseUom?.code || 'M';
+                let pUnitClean = (pUnit || 'Pkg').trim();
+                // If packaging unit was saved as 'Pcs' or 'PCS' but pSize > 1, it represents a Carton/Pack
+                if (['pcs', 'pc', 'piece', 'pieces'].includes(pUnitClean.toLowerCase()) && pSize > 1) {
+                  pUnitClean = 'Carton';
+                }
+
+                const effectiveUomCode = (isSalesContext && (opt?.salesUom?.code || (opt?.salesUomId && 'GRS'))) || (isPurchaseContext && opt?.purchaseUom?.code) || record.uomCode || opt?.baseUom?.code || 'PCS';
                 const isGross = effectiveUomCode.toUpperCase().includes('GR');
-                const pcsEquivalent = isGross ? pSize * 144 : null;
+                
+                let displayPSize = pSize;
+                let pcsEquivalent: number | null = null;
+                if (isGross) {
+                  if (pSize >= 144) {
+                    displayPSize = pSize / 144;
+                    pcsEquivalent = pSize;
+                  } else {
+                    displayPSize = pSize;
+                    pcsEquivalent = pSize * 144;
+                  }
+                } else if (effectiveUomCode.toUpperCase().includes('PC')) {
+                  displayPSize = pSize;
+                  if (pSize % 144 === 0) {
+                    pcsEquivalent = pSize;
+                  }
+                }
+
                 return (
                   <Tag color="cyan" style={{ fontSize: 10.5, fontWeight: 700, margin: 0, padding: '1px 6px', borderRadius: 4 }}>
-                    📦 1 {pUnit} = {pSize.toLocaleString()} {effectiveUomCode}
-                    {pcsEquivalent ? ` (= ${pcsEquivalent.toLocaleString()} PCS)` : ''}
+                    📦 1 {pUnitClean} = {displayPSize.toLocaleString()} {effectiveUomCode}
+                    {pcsEquivalent && isGross ? ` (= ${pcsEquivalent.toLocaleString()} PCS)` : ''}
+                    {pcsEquivalent && !isGross && pSize >= 144 ? ` (= ${(pSize / 144).toLocaleString()} GRS)` : ''}
                   </Tag>
                 );
               })() : null}
 
               {record.salesOrderNumber && (
                 <Tag color="geekblue" style={{ fontSize: 10.5, fontWeight: 700, margin: 0, padding: '1px 6px', borderRadius: 4 }}>
-                  📋 SOC: {record.salesOrderNumber}
+                  📋 {record.salesOrderNumber.startsWith('PR') ? 'PR' : (record.salesOrderNumber.startsWith('PO') ? 'PO' : 'Ref')}: {record.salesOrderNumber}
                 </Tag>
               )}
 
               {(record.orderQuantity !== undefined || record.orderBalance !== undefined) && (
                 <Tag color="orange" style={{ fontSize: 10.5, fontWeight: 700, margin: 0, padding: '1px 6px', borderRadius: 4 }}>
-                  📊 SOC Qty: {Number(record.orderQuantity ?? record.orderBalance ?? 0).toLocaleString()} {record.uomCode || 'M'}
+                  📊 Order Qty: {Number(record.orderQuantity ?? record.orderBalance ?? 0).toLocaleString()} {record.uomCode || 'PCS'}
                 </Tag>
+              )}
+
+              {record.orderQuantity !== undefined && record.quantity !== undefined && (
+                (() => {
+                  const ord = Number(record.orderQuantity || 0);
+                  const rec = Number(record.quantity || 0);
+                  const bal = ord - rec;
+                  if (bal > 0) {
+                    return (
+                      <Tag color="warning" style={{ fontSize: 10.5, fontWeight: 700, margin: 0, padding: '1px 6px', borderRadius: 4 }}>
+                        ⏳ Order Balance: {bal.toLocaleString()} {record.uomCode || 'PCS'} Remaining
+                      </Tag>
+                    );
+                  } else if (bal === 0 && ord > 0) {
+                    return (
+                      <Tag color="success" style={{ fontSize: 10.5, fontWeight: 700, margin: 0, padding: '1px 6px', borderRadius: 4 }}>
+                        ✅ Fully Received
+                      </Tag>
+                    );
+                  } else if (bal < 0) {
+                    return (
+                      <Tag color="purple" style={{ fontSize: 10.5, fontWeight: 700, margin: 0, padding: '1px 6px', borderRadius: 4 }}>
+                        📈 Excess: +{Math.abs(bal).toLocaleString()} {record.uomCode || 'PCS'}
+                      </Tag>
+                    );
+                  }
+                  return null;
+                })()
               )}
 
               {record.customerPo && (
@@ -555,10 +633,16 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
                 padding: '4px 8px',
                 borderRadius: 4,
                 fontSize: 11,
-                background: avail.shortageQty > 0
-                  ? 'rgba(239, 68, 68, 0.12)'
-                  : (avail.projectedBalance < avail.safetyStock ? 'rgba(245, 158, 11, 0.12)' : 'rgba(16, 185, 129, 0.1)'),
-                border: `1px solid ${avail.shortageQty > 0 ? '#ef4444' : (avail.projectedBalance < avail.safetyStock ? '#f59e0b' : '#10b981')}`,
+                background: isPurchaseContext
+                  ? 'rgba(16, 185, 129, 0.08)'
+                  : (avail.shortageQty > 0
+                      ? 'rgba(239, 68, 68, 0.12)'
+                      : (avail.projectedBalance < avail.safetyStock ? 'rgba(245, 158, 11, 0.12)' : 'rgba(16, 185, 129, 0.1)')),
+                border: `1px solid ${
+                  isPurchaseContext
+                    ? '#10b981'
+                    : (avail.shortageQty > 0 ? '#ef4444' : (avail.projectedBalance < avail.safetyStock ? '#f59e0b' : '#10b981'))
+                }`,
                 display: 'flex',
                 flexWrap: 'wrap',
                 justifyContent: 'space-between',
@@ -572,23 +656,37 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
                   <span style={{ color: '#94a3b8' }}>|</span>
                   <span>Safety: <strong>{avail.safetyStock}</strong></span>
                   <span style={{ color: '#94a3b8' }}>|</span>
-                  <span>Avail: <strong style={{ color: avail.availableStock > 0 ? '#10b981' : '#ef4444' }}>{avail.availableStock}</strong></span>
+                  <span>Avail: <strong style={{ color: avail.availableStock > 0 ? '#10b981' : '#f59e0b' }}>{avail.availableStock}</strong></span>
                   <span style={{ color: '#94a3b8' }}>|</span>
-                  <span>Projected: <strong style={{ color: avail.projectedBalance >= 0 ? '#10b981' : '#ef4444' }}>{avail.projectedBalance}</strong></span>
-                  {avail.productionRequirementQty !== undefined && avail.productionRequirementQty > 0 && (
+                  {isPurchaseContext ? (
                     <>
-                      <span style={{ color: '#94a3b8' }}>|</span>
-                      <span style={{ color: '#7c3aed', fontWeight: 700 }}>
-                        Prod Req: {avail.productionRequirementQty} {avail.uomCode}
+                      <span style={{ color: '#3b82f6', fontWeight: 600 }}>
+                        Inbound Order: <strong>+{Number(record.quantity || 0).toLocaleString()}</strong> {avail.uomCode}
                       </span>
+                      <span style={{ color: '#94a3b8' }}>|</span>
+                      <span>
+                        Projected After Receipt: <strong style={{ color: '#10b981', fontSize: 11.5 }}>{(avail.availableStock + Number(record.quantity || 0)).toLocaleString()}</strong> {avail.uomCode}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <span>Projected: <strong style={{ color: avail.projectedBalance >= 0 ? '#10b981' : '#ef4444' }}>{avail.projectedBalance}</strong></span>
+                      {avail.productionRequirementQty !== undefined && avail.productionRequirementQty > 0 && (
+                        <>
+                          <span style={{ color: '#94a3b8' }}>|</span>
+                          <span style={{ color: '#7c3aed', fontWeight: 700 }}>
+                            Prod Req: {avail.productionRequirementQty} {avail.uomCode}
+                          </span>
+                        </>
+                      )}
                     </>
                   )}
                 </div>
                 <Tag
-                  color={avail.shortageQty > 0 ? 'error' : (avail.projectedBalance < avail.safetyStock ? 'warning' : 'success')}
+                  color={isPurchaseContext ? 'success' : (avail.shortageQty > 0 ? 'error' : (avail.projectedBalance < avail.safetyStock ? 'warning' : 'success'))}
                   style={{ margin: 0, fontSize: 10, fontWeight: 700 }}
                 >
-                  {avail.statusLabel}
+                  {isPurchaseContext ? `📥 Inbound Order (+${Number(record.quantity || 0).toLocaleString()} ${avail.uomCode})` : avail.statusLabel}
                 </Tag>
               </div>
             )}
@@ -688,13 +786,17 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
       render: (_, record) => {
         const opt = itemOptions.find((o) => o.id === record.itemId);
         const pSize = record.packagingSize ?? (opt?.packagingSize ? Number(opt.packagingSize) : undefined);
-        const hasOrderLimit = record.orderBalance !== undefined && record.orderBalance !== null;
+        const orderTarget = record.orderBalance !== undefined && record.orderBalance !== null
+          ? Number(record.orderBalance)
+          : (record.orderQuantity !== undefined && record.orderQuantity !== null ? Number(record.orderQuantity) : undefined);
+        const hasOrderLimit = orderTarget !== undefined && orderTarget > 0;
         const currentQty = Number(record.quantity || 0);
-        const orderBal = Number(record.orderBalance || 0);
+        const orderBal = orderTarget || 0;
         const isExcess = hasOrderLimit && currentQty > orderBal;
         const isFullBalance = hasOrderLimit && currentQty === orderBal && orderBal > 0;
         const isPartial = hasOrderLimit && currentQty < orderBal && currentQty > 0;
-        const effectiveUom = (isSalesContext && (opt?.salesUom?.code || (opt?.salesUomId && 'GRS'))) || record.uomCode || (isPurchaseContext && opt?.purchaseUom?.code) || opt?.baseUom?.code || 'M';
+        const effectiveUom = (isSalesContext && (opt?.salesUom?.code || (opt?.salesUomId && 'GRS'))) || record.uomCode || (isPurchaseContext && opt?.purchaseUom?.code) || opt?.baseUom?.code || 'PCS';
+        const docLabel = isPurchaseContext || record.salesOrderNumber?.startsWith('P') ? 'PO/PR' : 'SOC';
 
         return (
           <div>
@@ -723,7 +825,7 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
               }}
             />
 
-            {/* SOC Balance & Warning Display underneath Qty input (as marked in red boxes by user) */}
+            {/* Order Balance & Warning Display underneath Qty input */}
             {hasOrderLimit && (
               <div style={{ marginTop: 4 }}>
                 {isExcess && (
@@ -739,9 +841,9 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
                       lineHeight: 1.3,
                     }}
                   >
-                    ⚠️ Excess +{(currentQty - orderBal).toLocaleString()} {record.uomCode || 'M'}!
+                    ⚠️ Excess +{(currentQty - orderBal).toLocaleString()} {effectiveUom}!
                     <div style={{ fontSize: 9.5, fontWeight: 600, color: '#fca5a5' }}>
-                      Max SOC: {orderBal.toLocaleString()} {record.uomCode || 'M'}
+                      Max {docLabel}: {orderBal.toLocaleString()} {effectiveUom}
                     </div>
                   </div>
                 )}
@@ -758,7 +860,7 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
                       lineHeight: 1.2,
                     }}
                   >
-                    ✅ Full Balance ({orderBal.toLocaleString()})
+                    ✅ Full {docLabel} Balance ({orderBal.toLocaleString()})
                   </div>
                 )}
                 {isPartial && (
@@ -774,7 +876,7 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
                       lineHeight: 1.2,
                     }}
                   >
-                    ℹ️ Bal: {(orderBal - currentQty).toLocaleString()} {record.uomCode || 'M'} left
+                    ℹ️ Bal: {(orderBal - currentQty).toLocaleString()} {effectiveUom} left
                   </div>
                 )}
               </div>
@@ -892,7 +994,7 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
           marginBottom: 10,
           padding: '6px 10px',
           background: 'var(--inv-filter-card-bg, rgba(30, 41, 59, 0.35))',
-          borderRadius: 8,
+          borderRadius: 'var(--ui-radius-md)',
           border: '1.5px dashed var(--inv-border-color, #334155)',
           transition: 'border-color 0.2s ease',
         }}

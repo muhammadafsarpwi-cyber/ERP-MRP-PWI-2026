@@ -2,9 +2,59 @@ export type ThemeMode = 'light' | 'dark';
 
 export type PaletteCategory = 'all' | 'corporate' | 'tech' | 'vibrant' | 'warm' | 'minimal';
 
+/**
+ * Corner style for cards / panels / inputs — a 4-step matrix rather than a
+ * binary switch, matching the radius ladder high-end dashboards expose:
+ *
+ *   squared       0–4px   dense manufacturing grids, print-like chrome
+ *   compact         6px   tight but soft, information-dense lists
+ *   standard       12px   the everyday look (previous "rounded")
+ *   super-rounded  18px   airy, consumer-grade presentation
+ *
+ * Each step carries its own `--ui-radius-*` ladder AND the antd `borderRadius`
+ * token, so one selection re-rounds both the CSS and the component layers.
+ */
+export type CornerStyle = 'squared' | 'compact' | 'standard' | 'super-rounded';
+
+/** Radius ladder for one corner step. Mirrors `--ui-radius-*` in styles/erp-redesign.css. */
+export interface CornerScale {
+  xs: string;
+  sm: string;
+  md: string;
+  /** Card / panel radius — the headline px value named by the step. */
+  lg: string;
+  xl: string;
+  /** antd `borderRadius` token (px) applied to Button, Input, Select, Modal, Tag… */
+  antd: number;
+}
+
+/** One entry of the Corner Style matrix shown in the customizer. */
+export interface CornerStyleOption {
+  id: CornerStyle;
+  label: string;
+  /** Range shown under the label, e.g. `0–4px`. */
+  range: string;
+  /** px value used by the live preview tile. */
+  preview: number;
+}
+
 export interface ThemePrefs {
   mode: ThemeMode;
   paletteId: string;
+  /** Corner step applied across the ERP shell. Missing in v1/v2 prefs — defaults to `standard`. */
+  cornerStyle: CornerStyle;
+  /** Glassmorphism (translucent + blurred surfaces) for header/sider/cards. Missing in v1 prefs — defaults to off. */
+  glass: boolean;
+  /** Backdrop blur strength in px, 0–24. Missing before v3 — defaults to `GLASS_BLUR.default`. */
+  glassBlur: number;
+  /** Alpha of the glass tint, 0.1–0.9. Missing before v3 — defaults to `GLASS_OPACITY.default`. */
+  glassOpacity: number;
+  /**
+   * Custom accent hex that replaces the palette's four roles (derived with
+   * WCAG guards by `deriveRolesFromAccent`). `null` = follow the palette.
+   * Missing before v3 — defaults to `null`.
+   */
+  customAccent: string | null;
 }
 
 export interface PaletteRoles {
@@ -337,14 +387,103 @@ export const PALETTES: PaletteDef[] = [
     light: { primary: '#1f2937', surface: '#f7f8f9', accent: '#374151', background: '#f3f4f6' },
     dark: { primary: '#111827', surface: '#14161a', accent: '#9ca3af', background: '#0b0c0e' },
   },
+  {
+    // Requested preset: a gentle, low-saturation pastel scheme. Light mode
+    // leans on a powder-blue accent over near-white surfaces; dark mode is a
+    // muted slate-lilac so the glass/blur layer has a soft backdrop to sample.
+    id: 'soft-pastel',
+    name: 'Soft Pastel',
+    tag: 'UI v39',
+    category: 'minimal',
+    light: { primary: '#64748b', surface: '#f8fbff', accent: '#7fa6c9', background: '#eef4fa' },
+    dark: { primary: '#3b4a63', surface: '#1c2433', accent: '#9db8d6', background: '#12171f' },
+  },
 ];
 
 export const DEFAULT_PALETTE_ID = 'indigo';
 
+/** Backdrop blur range for the Glassmorphism panel (px). */
+export const GLASS_BLUR = { min: 0, max: 24, step: 1, default: 16 } as const;
+
+/** Glass tint opacity range — the alpha channel of `--glass-tint`. */
+export const GLASS_OPACITY = { min: 0.1, max: 0.9, step: 0.05, default: 0.6 } as const;
+
+export const DEFAULT_CORNER_STYLE: CornerStyle = 'standard';
+
+/** Radius scale per corner step, plus the antd `borderRadius` token it maps to. */
+export const CORNER_RADIUS_SCALE: Record<CornerStyle, CornerScale> = {
+  squared: { xs: '0px', sm: '2px', md: '3px', lg: '4px', xl: '6px', antd: 3 },
+  compact: { xs: '2px', sm: '4px', md: '6px', lg: '6px', xl: '8px', antd: 6 },
+  standard: { xs: '4px', sm: '6px', md: '8px', lg: '12px', xl: '16px', antd: 10 },
+  'super-rounded': { xs: '8px', sm: '12px', md: '16px', lg: '18px', xl: '24px', antd: 16 },
+};
+
+/** The Corner Style matrix, in the order the customizer renders it. */
+export const CORNER_STYLE_MATRIX: CornerStyleOption[] = [
+  { id: 'squared', label: 'Squared', range: '0–4px', preview: 4 },
+  { id: 'compact', label: 'Compact', range: '6px', preview: 6 },
+  { id: 'standard', label: 'Standard', range: '12px', preview: 12 },
+  { id: 'super-rounded', label: 'Super Rounded', range: '18px', preview: 18 },
+];
+
+const CORNER_STYLE_IDS: Record<string, CornerStyle> = {
+  squared: 'squared',
+  compact: 'compact',
+  standard: 'standard',
+  'super-rounded': 'super-rounded',
+  // v1/v2 shipped a 2-step `rounded | squared` matrix. `rounded` (cards ~14px)
+  // lands on the new `standard` step (12px), the closest match.
+  rounded: 'standard',
+};
+
+/** Normalises any persisted corner value — legacy shapes included — to a valid step. */
+export const migrateCornerStyle = (value: unknown): CornerStyle =>
+  (typeof value === 'string' ? CORNER_STYLE_IDS[value] : undefined) ??
+  DEFAULT_CORNER_STYLE;
+
+export const clampGlassBlur = (value: unknown): number => {
+  const parsed = typeof value === 'number' ? value : NaN;
+  if (Number.isNaN(parsed)) return GLASS_BLUR.default;
+  return Math.max(GLASS_BLUR.min, Math.min(GLASS_BLUR.max, Math.round(parsed)));
+};
+
+export const clampGlassOpacity = (value: unknown): number => {
+  const parsed = typeof value === 'number' ? value : NaN;
+  if (Number.isNaN(parsed)) return GLASS_OPACITY.default;
+  const clamped = Math.max(
+    GLASS_OPACITY.min,
+    Math.min(GLASS_OPACITY.max, parsed)
+  );
+  return Math.round(clamped * 100) / 100;
+};
+
 export const DEFAULT_THEME_PREFS: ThemePrefs = {
   mode: 'light',
   paletteId: DEFAULT_PALETTE_ID,
+  cornerStyle: DEFAULT_CORNER_STYLE,
+  glass: false,
+  glassBlur: GLASS_BLUR.default,
+  glassOpacity: GLASS_OPACITY.default,
+  customAccent: null,
 };
+
+/**
+ * Curated subset shown as one-tap swatches in the Theme Customizer's
+ * "Theme Color" section. These ids must exist in PALETTES — `FEATURED_PRESETS`
+ * is filtered at render time so a typo degrades to fewer chips rather than
+ * a crash. The full 39-palette library stays one click away via
+ * "More theme options" (Theme Studio modal).
+ */
+export const FEATURED_PRESET_IDS: string[] = [
+  'navy', // Navy Corporate
+  'emerald-sovereign', // Emerald Sovereign
+  'soft-pastel', // Soft Pastel
+  'blue', // Classic Blue
+  'indigo', // Indigo Night (default)
+  'mineral-teal', // Mineral Teal
+  'obsidian-mint', // Obsidian & Mint
+  'mono-pro', // Mono Pro
+];
 
 export const findPalette = (paletteId: string): PaletteDef => {
   return PALETTES.find((p) => p.id === paletteId) ?? PALETTES[0];

@@ -1,10 +1,18 @@
 import React from 'react';
 import { App as AntApp, ConfigProvider, Spin, theme as antdTheme } from 'antd';
-import { findPalette, resolveRoles } from './palettes';
+import { findPalette, resolveRoles, CORNER_RADIUS_SCALE, ThemePrefs } from './palettes';
 import { useThemeStore } from './themeStore';
-import { darkenHex, lightenHex, mixHex, rgbaFromHex, getContrastText } from './colorUtils';
+import {
+  darkenHex,
+  deriveRolesFromAccent,
+  lightenHex,
+  mixHex,
+  rgbaFromHex,
+  getContrastText,
+} from './colorUtils';
 import { OrbitalDualRingLoader } from '../components/shared/LoadingState';
 import './theme.css';
+import './theme-glass.css';
 
 // Configure canonical neon orbital dual-ring spinner for all antd Spin instances globally
 Spin.setDefaultIndicator(<OrbitalDualRingLoader size="default" />);
@@ -207,6 +215,70 @@ const applyCssVars = (vars: Record<string, string>): void => {
   });
 };
 
+/**
+ * Appearance tokens: corner radius + glassmorphism.
+ *
+ * These ride on top of `buildCssVars` (colour) so the two concerns stay
+ * separate. Everything here is a plain CSS custom property, which means the
+ * dozens of existing `var(--ui-radius-*)` call sites in styles/erp-redesign.css
+ * and the dashboard sheets pick up the new corner style WITHOUT being edited —
+ * we simply re-declare the same custom properties on <html> with tighter or
+ * looser values.
+ *
+ * `prefs.glassBlur` (0–24px) drives `backdrop-filter` and `prefs.glassOpacity`
+ * (0.1–0.9) becomes the alpha channel of `--glass-tint`, so the two sliders in
+ * the customizer map 1:1 onto tokens without touching a stylesheet. The glass
+ * values are deliberately mode-aware: in light mode glass is a near-white
+ * wash, in dark mode a deep translucent panel, so blur always reads as
+ * "frosted glass" rather than "washed out grey".
+ */
+export const buildAppearanceCssVars = (
+  mode: 'light' | 'dark',
+  roles: { surface: string; accent: string; background: string },
+  prefs: Pick<ThemePrefs, 'cornerStyle' | 'glass' | 'glassBlur' | 'glassOpacity'>
+): Record<string, string> => {
+  const dark = mode === 'dark';
+  const scale = CORNER_RADIUS_SCALE[prefs.cornerStyle];
+
+  // Glass tuning. `--glass-blur`/`--glass-tint`/`--glass-edge` are consumed
+  // exclusively by theme-glass.css (scoped under html[data-glass='on']), so
+  // they are inert when glass is off.
+  const tintBase = dark ? lightenHex(roles.surface, 0.06) : '#ffffff';
+  const glassEdge = dark
+    ? 'rgba(255, 255, 255, 0.10)'
+    : 'rgba(255, 255, 255, 0.75)';
+  const glassHighlight = dark
+    ? 'rgba(255, 255, 255, 0.06)'
+    : 'rgba(255, 255, 255, 0.95)';
+
+  return {
+    // ── Radius scale (overrides the :root defaults in erp-redesign.css) ──
+    '--ui-radius-xs': scale.xs,
+    '--ui-radius-sm': scale.sm,
+    '--ui-radius-md': scale.md,
+    '--ui-radius-lg': scale.lg,
+    '--ui-radius-xl': scale.xl,
+    // Single "current corner style" token for any component that wants to
+    // branch (e.g. a circle that must stay round regardless).
+    '--ui-corner-style': prefs.cornerStyle,
+
+    // ── Glass tokens (only read when html[data-glass='on']) ──
+    '--glass-blur': `${prefs.glassBlur}px`,
+    '--glass-saturate': dark ? '140%' : '180%',
+    '--glass-tint': rgbaFromHex(tintBase, prefs.glassOpacity),
+    '--glass-edge': glassEdge,
+    '--glass-highlight': glassHighlight,
+    '--glass-accent-ring': rgbaFromHex(roles.accent, dark ? 0.35 : 0.25),
+    // Shadow is softened on glass so the blur does the depth work instead.
+    '--glass-shadow': dark
+      ? '0 8px 32px rgba(0, 0, 0, 0.35)'
+      : '0 8px 32px rgba(15, 23, 42, 0.10)',
+    // Effective flag for CSS + tests. Written as a plain string so the
+    // selector `html[data-glass='on']` can key off it.
+    '--glass-enabled': prefs.glass ? '1' : '0',
+  };
+};
+
 const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
   const draft = useThemeStore((state) => state.draft);
   const initializeForUser = useThemeStore((state) => state.initializeForUser);
@@ -215,13 +287,41 @@ const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
     initializeForUser();
   }, [initializeForUser]);
 
-  const palette = findPalette(draft.paletteId);
-  const roles = resolveRoles(palette, draft.mode);
+  // A custom hex (from the Theme Color picker) overrides the palette wholesale:
+  // the four roles are derived from that one colour, WCAG-guarded, so the whole
+  // ERP re-tints around the pick instead of only swapping the accent chip.
+  const roles = React.useMemo(() => {
+    const palette = findPalette(draft.paletteId);
+    return draft.customAccent
+      ? deriveRolesFromAccent(draft.customAccent, draft.mode)
+      : resolveRoles(palette, draft.mode);
+  }, [draft.paletteId, draft.mode, draft.customAccent]);
 
   React.useEffect(() => {
-    document.documentElement.setAttribute('data-theme', draft.mode);
+    const root = document.documentElement;
+    root.setAttribute('data-theme', draft.mode);
+    // Drives the glassmorphism layer in theme-glass.css. Kept as an
+    // attribute (not a class) so it is available before first paint and
+    // trivially inspectable in devtools.
+    root.setAttribute('data-glass', draft.glass ? 'on' : 'off');
+    root.setAttribute('data-corner-style', draft.cornerStyle);
     applyCssVars(buildCssVars(draft.mode, roles));
-  }, [draft.mode, roles]);
+    applyCssVars(
+      buildAppearanceCssVars(draft.mode, roles, {
+        cornerStyle: draft.cornerStyle,
+        glass: draft.glass,
+        glassBlur: draft.glassBlur,
+        glassOpacity: draft.glassOpacity,
+      })
+    );
+  }, [
+    draft.mode,
+    draft.cornerStyle,
+    draft.glass,
+    draft.glassBlur,
+    draft.glassOpacity,
+    roles,
+  ]);
 
   const themeConfig = React.useMemo(() => {
     const dark = draft.mode === 'dark';
@@ -238,7 +338,12 @@ const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
         colorBgContainer: roles.surface,
         colorBgElevated: roles.surface,
         colorTextLightSolid: dark ? DARK_ON_ACCENT : '#ffffff',
-        borderRadius: 6,
+        // Driven by the Corner Style matrix. antd rounds every control
+        // (Button, Input, Select, Modal, Tag…) from this one token, so
+        // Squared / Compact / Standard / Super Rounded reaches ~90% of the UI
+        // here; the rest is covered by the --ui-radius-* overrides in
+        // buildAppearanceCssVars.
+        borderRadius: CORNER_RADIUS_SCALE[draft.cornerStyle].antd,
         // Inter, with the same system fallback stack that erp-font.css defines
         // as `--ui-font-family`. Inlined rather than `var(...)` on purpose: a
         // stylesheet that fails to load must not cost the app its fallback
@@ -257,7 +362,7 @@ const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
         Menu: {
           itemBg: 'transparent',
           itemMarginInline: 10,
-          itemBorderRadius: 8,
+          itemBorderRadius: CORNER_RADIUS_SCALE[draft.cornerStyle].antd,
           activeBarBorderWidth: 0,
           popupBg: darkenHex(roles.primary, 0.2),
           darkItemBg: 'transparent',
@@ -319,7 +424,7 @@ const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
         },
       },
     };
-  }, [draft.mode, roles]);
+  }, [draft.mode, draft.cornerStyle, roles]);
 
   return (
     <ConfigProvider theme={themeConfig}>

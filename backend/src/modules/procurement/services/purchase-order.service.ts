@@ -55,6 +55,14 @@ export class PurchaseOrderService {
           updatedBy: userId || null,
         });
         await this.lineRepo.save(line);
+        if (lineDto.itemId && Number(lineDto.unitPrice) > 0) {
+          try {
+            await this.repo.manager.query(
+              `UPDATE items SET cost_price = $1, updated_at = NOW() WHERE id = $2`,
+              [Number(lineDto.unitPrice), lineDto.itemId],
+            );
+          } catch { /* ignore */ }
+        }
         subtotal += totalPrice;
       }
       const taxAmount = subtotal * (dto.taxPercent || 0) / 100;
@@ -84,6 +92,7 @@ export class PurchaseOrderService {
     }
 
     if (dto.supplierId !== undefined) po.supplierId = dto.supplierId;
+    if (dto.warehouseId !== undefined) po.warehouseId = dto.warehouseId;
     if (dto.orderDate !== undefined) po.orderDate = dto.orderDate;
     if (dto.expectedDeliveryDate !== undefined) po.expectedDeliveryDate = dto.expectedDeliveryDate;
     if (dto.deliveryAddress !== undefined) po.deliveryAddress = dto.deliveryAddress;
@@ -125,7 +134,7 @@ export class PurchaseOrderService {
           line.discountPercent = lineDto.discountPercent || 0;
           line.totalPrice = totalPrice;
           line.lineNumber = lineDto.lineNumber || idx + 1;
-          if (lineDto.warehouseId) line.warehouseId = lineDto.warehouseId;
+          if (lineDto.warehouseId || po.warehouseId) line.warehouseId = lineDto.warehouseId || po.warehouseId;
           if (lineDto.requiredDate) line.requiredDate = lineDto.requiredDate;
           if (lineDto.notes !== undefined) line.notes = lineDto.notes;
           line.updatedBy = userId || null;
@@ -133,6 +142,7 @@ export class PurchaseOrderService {
           line = this.lineRepo.create({
             poId: id,
             ...lineDto,
+            warehouseId: lineDto.warehouseId || po.warehouseId || undefined,
             uomId: uomId || undefined,
             totalPrice,
             createdBy: userId || null,
@@ -141,6 +151,14 @@ export class PurchaseOrderService {
         }
 
         const savedLine = await this.lineRepo.save(line);
+        if (lineDto.itemId && Number(lineDto.unitPrice) > 0) {
+          try {
+            await this.repo.manager.query(
+              `UPDATE items SET cost_price = $1, updated_at = NOW() WHERE id = $2`,
+              [Number(lineDto.unitPrice), lineDto.itemId],
+            );
+          } catch { /* ignore */ }
+        }
         processedLineIds.add(savedLine.id);
         subtotal += totalPrice;
       }
@@ -170,7 +188,8 @@ export class PurchaseOrderService {
   async findAll(filter: PurchaseOrderFilterDto): Promise<{ data: PurchaseOrder[]; total: number }> {
     const { page = 1, limit = 20, companyId, supplierId, status, search, sortField = 'createdAt', sortOrder = 'DESC' } = filter;
     const qb = this.repo.createQueryBuilder('po')
-      .leftJoinAndSelect('po.supplier', 'supplier');
+      .leftJoinAndSelect('po.supplier', 'supplier')
+      .leftJoinAndSelect('po.warehouse', 'warehouse');
     let hasWhere = false;
     if (companyId) { qb.where('po.companyId = :companyId', { companyId }); hasWhere = true; }
     if (supplierId) { qb[hasWhere ? 'andWhere' : 'where']('po.supplierId = :supplierId', { supplierId }); hasWhere = true; }
@@ -220,7 +239,7 @@ export class PurchaseOrderService {
   async findOne(id: string): Promise<PurchaseOrder> {
     const po = await this.repo.findOne({
       where: { id },
-      relations: ['supplier', 'quotation', 'requisition', 'lines', 'lines.item', 'lines.uom', 'lines.warehouse'],
+      relations: ['supplier', 'quotation', 'requisition', 'warehouse', 'lines', 'lines.item', 'lines.uom', 'lines.warehouse'],
     });
     if (!po) throw new NotFoundException(`Purchase order with ID '${id}' not found`);
     return po;
@@ -292,5 +311,25 @@ export class PurchaseOrderService {
       await this.lineRepo.remove(po.lines);
     }
     await this.repo.remove(po);
+  }
+
+  async getLatestItemRates(): Promise<Record<string, { lastPrice: number; orderDate?: string; poCode?: string }>> {
+    const lines = await this.lineRepo.query(`
+      SELECT DISTINCT ON (pol.item_id) pol.item_id, pol.unit_price, po.order_date, po.po_code
+      FROM purchase_order_lines pol
+      JOIN purchase_orders po ON po.id = pol.po_id
+      ORDER BY pol.item_id, po.order_date DESC, pol.created_at DESC
+    `);
+    const result: Record<string, { lastPrice: number; orderDate?: string; poCode?: string }> = {};
+    if (Array.isArray(lines)) {
+      for (const row of lines) {
+        result[row.item_id] = {
+          lastPrice: Number(row.unit_price) || 0,
+          orderDate: row.order_date,
+          poCode: row.po_code,
+        };
+      }
+    }
+    return result;
   }
 }

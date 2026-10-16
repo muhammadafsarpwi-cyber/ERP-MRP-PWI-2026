@@ -85,6 +85,11 @@ export class CreatePurchaseOrderDto {
   @IsOptional()
   requisitionId?: string;
 
+  @ApiPropertyOptional({ description: 'Warehouse ID' })
+  @IsUUID()
+  @IsOptional()
+  warehouseId?: string;
+
   @ApiPropertyOptional({ description: 'Order date' })
   @IsDateString()
   @IsOptional()
@@ -156,6 +161,11 @@ export class UpdatePurchaseOrderDto {
   @IsUUID()
   @IsOptional()
   supplierId?: string;
+
+  @ApiPropertyOptional({ description: 'Warehouse ID' })
+  @IsUUID()
+  @IsOptional()
+  warehouseId?: string;
 
   @ApiPropertyOptional({ description: 'Order date' })
   @IsDateString()

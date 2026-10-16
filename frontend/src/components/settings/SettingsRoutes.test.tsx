@@ -132,6 +132,8 @@ describe('Settings route architecture (/settings/*)', () => {
         expect(screen.getByTestId('company-settings')).toBeInTheDocument();
       } else if (slug === 'invoice') {
         expect(screen.getByTestId('invoice-settings')).toBeInTheDocument();
+      } else if (slug === 'appearance') {
+        expect(screen.getByTestId('appearance-settings')).toBeInTheDocument();
       } else {
         expect(screen.getByTestId(`settings-placeholder-${slug}`)).toBeInTheDocument();
       }
@@ -213,6 +215,7 @@ describe('Settings route architecture (/settings/*)', () => {
 
     // Tests remaining planned placeholders (excluding implemented real settings modules)
     const implementedIds = new Set([
+      'appearance',
       'company',
       'profile-branding',
       'invoice',
@@ -285,10 +288,10 @@ describe('Settings route architecture (/settings/*)', () => {
 });
 
 describe('settingsNavigationConfig — canonical registry (Phase 5 / Phase 9)', () => {
-  it('11. remains the single registry: 1 overview + 22 categories, unique ids and paths', () => {
+  it('11. remains the single registry: 1 overview + 23 categories, unique ids and paths', () => {
     expect(SETTINGS_NAV_ITEMS[0]).toBe(SETTINGS_OVERVIEW);
-    expect(SETTINGS_CATEGORIES).toHaveLength(22);
-    expect(SETTINGS_NAV_ITEMS).toHaveLength(23);
+    expect(SETTINGS_CATEGORIES).toHaveLength(23);
+    expect(SETTINGS_NAV_ITEMS).toHaveLength(24);
 
     const ids = SETTINGS_NAV_ITEMS.map((item) => item.id);
     const paths = SETTINGS_NAV_ITEMS.map((item) => item.path);

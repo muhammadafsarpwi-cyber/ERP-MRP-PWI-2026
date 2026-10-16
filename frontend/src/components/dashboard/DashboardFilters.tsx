@@ -89,7 +89,7 @@ const DashboardFilters: React.FC<DashboardFiltersProps> = ({
       style={{
         background: 'var(--theme-surface, #ffffff)',
         border: '1px solid var(--theme-border, #e2e8f0)',
-        borderRadius: 8,
+        borderRadius: 'var(--ui-radius-lg)',
         padding: '10px 14px',
         marginBottom: 14,
       }}
@@ -112,7 +112,7 @@ const DashboardFilters: React.FC<DashboardFiltersProps> = ({
             type={isOpen ? 'primary' : 'default'}
             style={{
               fontWeight: 600,
-              borderRadius: 6,
+              borderRadius: 'var(--ui-radius-sm)',
               display: 'inline-flex',
               alignItems: 'center',
             }}
@@ -210,7 +210,7 @@ const DashboardFilters: React.FC<DashboardFiltersProps> = ({
             padding: '12px 14px',
             background: 'var(--theme-surface-subtle, rgba(0, 0, 0, 0.02))',
             border: '1px solid var(--theme-border, #e2e8f0)',
-            borderRadius: 8,
+            borderRadius: 'var(--ui-radius-md)',
             marginTop: 12,
           }}
         >

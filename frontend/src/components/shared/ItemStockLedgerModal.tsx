@@ -268,7 +268,7 @@ export const ItemStockLedgerModal: React.FC<ItemStockLedgerModalProps> = ({
       <div style={{
         background: 'linear-gradient(135deg, rgba(37, 99, 235, 0.06) 0%, rgba(16, 185, 129, 0.05) 100%)',
         border: '1px solid rgba(37, 99, 235, 0.18)',
-        borderRadius: 8,
+        borderRadius: 'var(--ui-radius-md)',
         padding: '10px 16px',
         marginBottom: 16,
         display: 'flex',
@@ -322,7 +322,7 @@ export const ItemStockLedgerModal: React.FC<ItemStockLedgerModalProps> = ({
           {/* Executive Summary Metric Cards */}
           <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
             <Col xs={24} sm={8}>
-              <Card size="small" style={{ borderRadius: 8, border: '1px solid rgba(16, 185, 129, 0.3)', background: 'rgba(16, 185, 129, 0.04)' }}>
+              <Card size="small" style={{ borderRadius: 'var(--ui-radius-md)', border: '1px solid rgba(16, 185, 129, 0.3)', background: 'rgba(16, 185, 129, 0.04)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <div>
                     <Text type="secondary" style={{ fontSize: 11, textTransform: 'uppercase', fontWeight: 600 }}>Total Inflow (Received)</Text>
@@ -335,7 +335,7 @@ export const ItemStockLedgerModal: React.FC<ItemStockLedgerModalProps> = ({
               </Card>
             </Col>
             <Col xs={24} sm={8}>
-              <Card size="small" style={{ borderRadius: 8, border: '1px solid rgba(239, 68, 68, 0.3)', background: 'rgba(239, 68, 68, 0.04)' }}>
+              <Card size="small" style={{ borderRadius: 'var(--ui-radius-md)', border: '1px solid rgba(239, 68, 68, 0.3)', background: 'rgba(239, 68, 68, 0.04)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <div>
                     <Text type="secondary" style={{ fontSize: 11, textTransform: 'uppercase', fontWeight: 600 }}>Total Outflow (Returned / Issued)</Text>
@@ -348,7 +348,7 @@ export const ItemStockLedgerModal: React.FC<ItemStockLedgerModalProps> = ({
               </Card>
             </Col>
             <Col xs={24} sm={8}>
-              <Card size="small" style={{ borderRadius: 8, border: '1px solid rgba(37, 99, 235, 0.3)', background: 'rgba(37, 99, 235, 0.04)' }}>
+              <Card size="small" style={{ borderRadius: 'var(--ui-radius-md)', border: '1px solid rgba(37, 99, 235, 0.3)', background: 'rgba(37, 99, 235, 0.04)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <div>
                     <Text type="secondary" style={{ fontSize: 11, textTransform: 'uppercase', fontWeight: 600 }}>Current On-Hand Balance</Text>

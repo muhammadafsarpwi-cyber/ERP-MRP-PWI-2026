@@ -2213,6 +2213,7 @@ const MachineToolingManagement: React.FC = () => {
           }}
         />
       </Space>,
+      MASTER_MACHINE_TOOLS_TAB_ID,
     );
   }, [
     primaryAdd, activeTab, componentsTotal,
@@ -2222,7 +2223,7 @@ const MachineToolingManagement: React.FC = () => {
 
   useEffect(() => {
     return () => {
-      useHeaderActions.getState().clearHeaderMeta();
+      useHeaderActions.getState().clearHeaderMeta(MASTER_MACHINE_TOOLS_TAB_ID);
     };
   }, []);
 

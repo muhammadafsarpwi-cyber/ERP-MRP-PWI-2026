@@ -193,7 +193,8 @@ html th.erp-th-navy {
   background: var(--ui-table-header-bg) !important;
   background-color: var(--ui-table-header-bg) !important;
   color: var(--ui-table-header-text) !important;
-  border-bottom: 1px solid var(--ui-table-header-rule) !important;
+  border-bottom: 2.5px solid #f59e0b !important;
+  box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3) !important;
 }
 
 /* The title itself — legacy set it to white explicitly. */

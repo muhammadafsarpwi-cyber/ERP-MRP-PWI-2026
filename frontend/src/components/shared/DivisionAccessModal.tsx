@@ -457,7 +457,7 @@ export const DivisionAccessModal: React.FC<DivisionAccessModalProps> = ({
         style={{
           background: 'rgba(14, 165, 233, 0.08)',
           border: '1px solid rgba(14, 165, 233, 0.25)',
-          borderRadius: 8,
+          borderRadius: 'var(--ui-radius-md)',
           padding: '10px 12px',
           marginBottom: 14,
         }}

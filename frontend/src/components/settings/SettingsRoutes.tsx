@@ -11,6 +11,7 @@ import WhatsAppSettings from './WhatsAppSettings';
 import InventoryOptionsSettings from './InventoryOptionsSettings';
 import DocumentOptionsSettings from './DocumentOptionsSettings';
 import DocumentNumberingSettings from './DocumentNumberingSettings';
+import AppearanceSettings from './AppearanceSettings';
 import { SETTINGS_NAV_ITEMS, settingsRelativePath } from './settingsNavigationConfig';
 import './settings.css';
 
@@ -52,6 +53,9 @@ const SettingsRoutes: React.FC = () => (
       {/* `/settings/document-numbering` — real Document Numbering module */}
       <Route path="document-numbering" element={<DocumentNumberingSettings />} />
 
+      {/* `/settings/appearance` — the theme engine (mode, corner matrix, glass, accent) */}
+      <Route path="appearance" element={<AppearanceSettings />} />
+
       {/* One generated route per remaining category in the canonical registry. */}
       {SETTINGS_NAV_ITEMS.filter((item) =>
         !item.overview &&
@@ -62,7 +66,8 @@ const SettingsRoutes: React.FC = () => (
         item.id !== 'whatsapp' &&
         item.id !== 'inventory' &&
         item.id !== 'document-options' &&
-        item.id !== 'document-numbering'
+        item.id !== 'document-numbering' &&
+        item.id !== 'appearance'
       ).map((item) => (
         <Route
           key={item.id}

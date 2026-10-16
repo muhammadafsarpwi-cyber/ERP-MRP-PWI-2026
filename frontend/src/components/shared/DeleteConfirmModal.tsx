@@ -347,7 +347,7 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
           <div
             style={{
               padding: '8px 12px',
-              borderRadius: 6,
+              borderRadius: 'var(--ui-radius-md)',
               background: 'var(--theme-surface-alt, #f8fafc)',
               border: '1px solid var(--theme-border, #e2e8f0)',
               fontSize: 13,
@@ -389,7 +389,7 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
                       marginTop: 10,
                       padding: '10px 12px',
                       background: 'rgba(239, 68, 68, 0.08)',
-                      borderRadius: 8,
+                      borderRadius: 'var(--ui-radius-md)',
                       border: '1px dashed #ef4444',
                     }}
                   >
@@ -414,7 +414,7 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
                 )}
               </div>
             }
-            style={{ borderRadius: 8 }}
+            style={{ borderRadius: 'var(--ui-radius-md)' }}
           />
         )}
       </div>

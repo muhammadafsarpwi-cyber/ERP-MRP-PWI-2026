@@ -3392,11 +3392,26 @@ addToDept(org, {
       : 0;
 
     const requirements: Array<{ line: BomLine; required: number; uomCode: string; available: number; warehouseId: string; scrapPcs: number; scrapQty: number; scrapRemarks: string }> = [];
+    const entryRemarks = String((entryRef as any)?.remarks || '');
+    const isWithoutNipple = isHandPacking && (
+      entryRemarks.includes('WITHOUT_NIPPLE') ||
+      entryRemarks.includes('Without Nipple')
+    );
+
     for (const line of lines) {
+      const component = await this.itemRepo.findOne({ where: { id: line.itemId }, relations: ['baseUom'] });
+      const isLineNipple = component && (
+        (component.itemCode || '').toLowerCase().includes('np') ||
+        (component.name || '').toLowerCase().includes('nipple')
+      );
+      if (isWithoutNipple && isLineNipple) {
+        // Pack Without Nipple: Nipple deduction is deferred until arrival
+        continue;
+      }
+
       let required = isHandPacking
         ? await this.computeHandPackingRequirement(line, handPackingCartons)
         : await this.computeBomRequirement(companyId, output, bom!, line, productionQty);
-      const component = await this.itemRepo.findOne({ where: { id: line.itemId }, relations: ['baseUom'] });
       // Component-level rejection / scrap: convert the rejected PCS quantity
       // into the component's stock UOM (PCS→unit factor, or KG via the Item
       // Master per-piece weight) and ADD it to the requirement. `scrapPcs` is

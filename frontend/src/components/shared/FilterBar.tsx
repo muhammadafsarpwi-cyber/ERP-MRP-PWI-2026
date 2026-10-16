@@ -99,7 +99,7 @@ export const FilterBar: React.FC<FilterBarProps> = ({
       className={`erp-filter-card ${className}`.trim()}
       style={{
         marginBottom: 14,
-        borderRadius: 8,
+        borderRadius: 'var(--ui-radius-lg)',
         background: 'var(--theme-surface, #ffffff)',
         borderColor: 'var(--theme-border, #e2e8f0)',
         boxShadow: '0 1px 3px rgba(0, 0, 0, 0.03)',
@@ -127,7 +127,7 @@ export const FilterBar: React.FC<FilterBarProps> = ({
               flex: screens.md ? '1 1 260px' : '1 1 100%',
               maxWidth: screens.md ? 420 : '100%',
               minWidth: 200,
-              borderRadius: 6,
+              borderRadius: 'var(--ui-radius-sm)',
             }}
             value={searchValue}
             onChange={(e) => onSearchChange(e.target.value)}

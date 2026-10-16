@@ -195,7 +195,7 @@ const NotificationBell: React.FC = () => {
         width: 380,
         background: 'var(--theme-surface)',
         border: '1px solid var(--theme-border)',
-        borderRadius: 8,
+        borderRadius: 'var(--ui-radius-md)',
         overflow: 'hidden',
         boxShadow: '0 6px 24px rgba(0, 0, 0, 0.18)',
       }}
@@ -316,7 +316,7 @@ const NotificationBell: React.FC = () => {
             justifyContent: 'center',
             width: 38,
             height: 38,
-            borderRadius: 8,
+            borderRadius: 'var(--ui-radius-md)',
             cursor: 'pointer',
             color: '#f59e0b',
             background: 'rgba(245, 158, 11, 0.08)',

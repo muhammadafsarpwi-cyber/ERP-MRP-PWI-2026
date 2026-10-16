@@ -420,7 +420,24 @@ const EmployeesPage: React.FC = () => {
     }
   }, [companyId, loadLookups]);
 
-  // Fetch Employees List
+  // Fetch All Employees for Global Stats & Ribbon Counts (unfiltered)
+  const fetchAllSummary = useCallback(async () => {
+    if (!companyId) return;
+    try {
+      const res = await apiService.get<{ data: Employee[]; total: number }>('/hr/employees', {
+        companyId,
+        page: 1,
+        limit: 2000,
+      });
+      if (res.data) {
+        setAllEmployees(res.data);
+      }
+    } catch {
+      // Non-fatal
+    }
+  }, [companyId]);
+
+  // Fetch Employees List (paginated & filtered for table)
   const fetchData = useCallback(async (
     p = page,
     ps = pageSize,
@@ -448,11 +465,6 @@ const EmployeesPage: React.FC = () => {
       const res = await apiService.get<{ data: Employee[]; total: number }>('/hr/employees', params);
       setData(res.data || []);
       setTotal(res.total || 0);
-
-      // Cache all employees for local stats / ribbon counts
-      if (!s && !div && !sec && !dept && !des && !st) {
-        setAllEmployees(res.data || []);
-      }
     } catch {
       message.error('Failed to fetch employees');
     } finally {
@@ -462,9 +474,10 @@ const EmployeesPage: React.FC = () => {
 
   useEffect(() => {
     if (companyId) {
+      void fetchAllSummary();
       void fetchData();
     }
-  }, [companyId, fetchData]);
+  }, [companyId, fetchAllSummary, fetchData]);
 
   // When Department is picked in modal, auto-fill division and section!
   useEffect(() => {
@@ -536,7 +549,7 @@ const EmployeesPage: React.FC = () => {
   const stats = useMemo(() => {
     const list = allEmployees.length > 0 ? allEmployees : data;
     const active = list.filter((e) => e.status === 'ACTIVE').length;
-    const inactive = (total || list.length) - active;
+    const inactive = list.filter((e) => e.status === 'INACTIVE').length;
     const operators = list.filter((e) => {
       const d = (e.designationName || e.jobTitle || (e.designationId ? desigMap.get(e.designationId)?.designationName : '') || '').toLowerCase();
       return d.includes('operator') || d.includes('incharge') || d.includes('helper') || d.includes('machine') || d.includes('checker');
@@ -546,18 +559,18 @@ const EmployeesPage: React.FC = () => {
     ).size;
 
     return {
-      total: total || list.length,
+      total: list.length,
       active,
       inactive,
       operators,
       departments: depts || departments.length,
     };
-  }, [allEmployees, data, total, departments, deptMap, desigMap]);
+  }, [allEmployees, data, departments, deptMap, desigMap]);
 
   const ribbonCounts = useMemo(() => {
     const list = allEmployees.length > 0 ? allEmployees : data;
     const counts: Record<string, number> = {
-      all: total || list.length,
+      all: list.length,
       ACTIVE: list.filter((e) => e.status === 'ACTIVE').length,
       INACTIVE: list.filter((e) => e.status === 'INACTIVE').length,
     };
@@ -573,7 +586,7 @@ const EmployeesPage: React.FC = () => {
     counts['dept_production'] = list.filter((e) => norm(getDeptName(e)).includes('production')).length;
 
     return counts;
-  }, [allEmployees, data, total, deptMap]);
+  }, [allEmployees, data, deptMap]);
 
   const handleChevronSelect = (key: string) => {
     setActiveChevron(key);
@@ -690,6 +703,7 @@ const EmployeesPage: React.FC = () => {
       setFormModalVisible(false);
       form.resetFields();
       void fetchData(page);
+      void fetchAllSummary();
 
       if (selectedEmployee && editingEmployee && selectedEmployee.id === editingEmployee.id) {
         void handleViewEmployee({ ...selectedEmployee, ...payload });
@@ -710,6 +724,7 @@ const EmployeesPage: React.FC = () => {
       const newStatus = emp.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
       message.success(`Employee ${emp.employeeCode} status set to ${newStatus}`);
       void fetchData(page);
+      void fetchAllSummary();
       if (selectedEmployee && selectedEmployee.id === emp.id) {
         setSelectedEmployee({ ...selectedEmployee, status: newStatus });
       }
@@ -1177,6 +1192,7 @@ const EmployeesPage: React.FC = () => {
       setImportModalVisible(false);
       setImportRows([]);
       void fetchData(1);
+      void fetchAllSummary();
     } catch (err: any) {
       const msg = err?.response?.data?.message || 'Bulk import failed. Please check file format.';
       message.error(Array.isArray(msg) ? msg[0] : msg);
@@ -1481,7 +1497,10 @@ const EmployeesPage: React.FC = () => {
             </Button>
             <Button
               icon={<ReloadOutlined />}
-              onClick={() => fetchData(page)}
+              onClick={() => {
+                void fetchData(page);
+                void fetchAllSummary();
+              }}
               title="Refresh"
             />
             <Dropdown menu={{ items: exportMenuItems }} placement="bottomRight">
@@ -1668,16 +1687,16 @@ const EmployeesPage: React.FC = () => {
               popupRender={() => (
                 <div
                   style={{
-                    background: '#ffffff',
+                    background: 'var(--theme-surface-elevated, var(--theme-card-bg, #1e293b))',
                     padding: '12px 16px',
                     borderRadius: 10,
-                    boxShadow: '0 10px 25px rgba(0,0,0,0.15)',
+                    boxShadow: '0 10px 25px rgba(0,0,0,0.35)',
                     minWidth: 220,
-                    border: '1px solid #e2e8f0',
+                    border: '1px solid var(--theme-border, #334155)',
                   }}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                    <span style={{ fontWeight: 700, fontSize: 13, color: '#1e293b' }}>
+                    <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--theme-heading, #f1f5f9)' }}>
                       Table Columns
                     </span>
                     <Button
@@ -2050,8 +2069,23 @@ const EmployeesPage: React.FC = () => {
       >
         <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
           {/* Section 1: 4 Mandatory Fields */}
-          <div style={{ background: '#f8fafc', padding: 14, borderRadius: 8, marginBottom: 16, border: '1px solid #e2e8f0' }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', marginBottom: 10 }}>
+          <div
+            style={{
+              background: 'var(--theme-surface-alt, rgba(255, 255, 255, 0.04))',
+              padding: 14,
+              borderRadius: 8,
+              marginBottom: 16,
+              border: '1px solid var(--theme-border, rgba(255, 255, 255, 0.1))',
+            }}
+          >
+            <div
+              style={{
+                fontSize: 13,
+                fontWeight: 700,
+                color: 'var(--theme-heading, var(--theme-text, #f1f5f9))',
+                marginBottom: 10,
+              }}
+            >
               Primary Master Details (Mandatory)
             </div>
             <Row gutter={12}>
@@ -2087,9 +2121,9 @@ const EmployeesPage: React.FC = () => {
                     optionFilterProp="label"
                     placeholder="Select Department"
                     options={modalDepartmentOptions.map((d) => ({
-                      value: d.id,
-                      label: d.name,
-                    }))}
+                    value: d.id,
+                    label: d.name,
+                  }))}
                   />
                 </Form.Item>
               </Col>
@@ -2115,7 +2149,14 @@ const EmployeesPage: React.FC = () => {
 
           {/* Section 2: Organization Hierarchy (Optional) */}
           <div style={{ marginBottom: 16 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: '#475569', marginBottom: 8 }}>
+            <div
+              style={{
+                fontSize: 13,
+                fontWeight: 600,
+                color: 'var(--theme-text-secondary, #94a3b8)',
+                marginBottom: 8,
+              }}
+            >
               Organization Hierarchy (Auto-resolved from Department)
             </div>
             <Row gutter={12}>
@@ -2148,7 +2189,14 @@ const EmployeesPage: React.FC = () => {
 
           {/* Section 3: Contact & Personal Details (Optional) */}
           <div style={{ marginBottom: 16 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: '#475569', marginBottom: 8 }}>
+            <div
+              style={{
+                fontSize: 13,
+                fontWeight: 600,
+                color: 'var(--theme-text-secondary, #94a3b8)',
+                marginBottom: 8,
+              }}
+            >
               Contact & Employment Details (Optional)
             </div>
             <Row gutter={12}>
@@ -2317,20 +2365,37 @@ const EmployeesPage: React.FC = () => {
                 Download Update Template (ID + CNIC + DOB + Address)
               </Button>
             </Space>
-            <Upload.Dragger
-              name="file"
-              accept=".csv,.txt"
-              maxCount={1}
-              showUploadList={false}
-              beforeUpload={handleParseImportFile}
-              style={{ padding: '24px 0', background: '#f8fafc', border: '1.5px dashed #cbd5e1', borderRadius: 8 }}
+            <div
+              style={{
+                borderRadius: 10,
+                overflow: 'hidden',
+                background: 'var(--theme-surface-alt, rgba(255, 255, 255, 0.04))',
+                border: '1.5px dashed var(--theme-border, rgba(255, 255, 255, 0.18))',
+              }}
             >
-              <p className="ant-upload-drag-icon"><InboxOutlined style={{ fontSize: 36, color: '#4f46e5' }} /></p>
-              <p className="ant-upload-text" style={{ fontWeight: 600, fontSize: 15 }}>Click or drag a CSV file here</p>
-              <p className="ant-upload-hint">
-                Supported columns: EmployeeID, EmployeeName, Designation, Department, CNIC, DateOfBirth, Address, Phone, Email, Status.
-              </p>
-            </Upload.Dragger>
+              <Upload.Dragger
+                name="file"
+                accept=".csv,.txt"
+                maxCount={1}
+                showUploadList={false}
+                beforeUpload={handleParseImportFile}
+                style={{
+                  padding: '28px 16px',
+                  background: 'transparent',
+                  border: 'none',
+                }}
+              >
+                <p className="ant-upload-drag-icon">
+                  <InboxOutlined style={{ fontSize: 40, color: 'var(--theme-primary, #6366f1)' }} />
+                </p>
+                <p className="ant-upload-text" style={{ fontWeight: 600, fontSize: 15, color: 'var(--theme-heading, var(--theme-text, #f1f5f9))' }}>
+                  Click or drag a CSV file here
+                </p>
+                <p className="ant-upload-hint" style={{ color: 'var(--theme-text-muted, #94a3b8)', padding: '0 20px', fontSize: 12.5 }}>
+                  Supported columns: EmployeeID, EmployeeName, Designation, Department, CNIC, DateOfBirth, Address, Phone, Email, Status.
+                </p>
+              </Upload.Dragger>
+            </div>
           </div>
         )}
 
@@ -2380,7 +2445,7 @@ const EmployeesPage: React.FC = () => {
                   />
 
                   {/* Filter & Triage Bar */}
-                  <div className="import-filter-bar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 12, padding: '8px 12px', background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0' }}>
+                  <div className="import-filter-bar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 12, padding: '8px 12px', background: 'var(--theme-surface-alt, rgba(255, 255, 255, 0.04))', borderRadius: 8, border: '1px solid var(--theme-border, #e2e8f0)' }}>
                     <Space wrap size={10}>
                       <Segmented
                         value={importFilter}

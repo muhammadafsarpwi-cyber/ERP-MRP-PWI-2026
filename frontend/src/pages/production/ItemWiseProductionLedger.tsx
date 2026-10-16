@@ -1446,7 +1446,7 @@ const ItemWiseProductionLedger: React.FC = () => {
 
   /**
    * Sequential Daily Chain:
-   * "Today's Closing is Tomorrow's Opening" (آج کی کلوزنگ کل کی اوپننگ).
+   * "Today's Closing is Tomorrow's Opening".
    * Rolling forward from the 1st of the month ensures that for every single day
    * after the 1st (e.g. 2026-10-02, 2026-10-03, etc.), yesterday's closing balance
    * seamlessly becomes today's opening balance.

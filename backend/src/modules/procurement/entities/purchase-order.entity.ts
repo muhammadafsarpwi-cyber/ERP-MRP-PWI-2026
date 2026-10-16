@@ -5,6 +5,7 @@ import { Supplier } from './supplier.entity';
 import { Quotation } from './quotation.entity';
 import { PurchaseRequisition } from './purchase-requisition.entity';
 import { PurchaseOrderLine } from './purchase-order-line.entity';
+import { Warehouse } from '../../organization/entities/warehouse.entity';
 
 @Entity('purchase_orders')
 export class PurchaseOrder extends BaseEntity {
@@ -38,6 +39,13 @@ export class PurchaseOrder extends BaseEntity {
   @ManyToOne(() => PurchaseRequisition, { nullable: true })
   @JoinColumn({ name: 'requisition_id' })
   requisition: PurchaseRequisition;
+
+  @Column({ name: 'warehouse_id', type: 'uuid', nullable: true })
+  warehouseId: string | null;
+
+  @ManyToOne(() => Warehouse, { nullable: true })
+  @JoinColumn({ name: 'warehouse_id' })
+  warehouse: Warehouse | null;
 
   @Column({ name: 'order_date', type: 'date', nullable: true })
   orderDate: string | null;

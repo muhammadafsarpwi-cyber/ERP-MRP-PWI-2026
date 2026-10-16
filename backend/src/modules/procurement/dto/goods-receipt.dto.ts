@@ -6,10 +6,10 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 
 export class CreateGoodsReceiptLineDto {
-  @ApiProperty({ description: 'PO line ID' })
+  @ApiPropertyOptional({ description: 'PO line ID' })
   @IsUUID()
-  @IsNotEmpty()
-  poLineId: string;
+  @IsOptional()
+  poLineId?: string;
 
   @ApiProperty({ description: 'Item ID' })
   @IsUUID()
@@ -79,10 +79,10 @@ export class CreateGoodsReceiptDto {
   @MaxLength(50)
   receiptCode: string;
 
-  @ApiProperty({ description: 'PO ID' })
+  @ApiPropertyOptional({ description: 'PO ID' })
   @IsUUID()
-  @IsNotEmpty()
-  poId: string;
+  @IsOptional()
+  poId?: string;
 
   @ApiProperty({ description: 'Supplier ID' })
   @IsUUID()
@@ -93,6 +93,16 @@ export class CreateGoodsReceiptDto {
   @IsUUID()
   @IsNotEmpty()
   warehouseId: string;
+
+  @ApiPropertyOptional({ description: 'Division ID' })
+  @IsUUID()
+  @IsOptional()
+  divisionId?: string;
+
+  @ApiPropertyOptional({ description: 'Purchase Origin Type (LOCAL / IMPORT)' })
+  @IsString()
+  @IsOptional()
+  purchaseType?: string;
 
   @ApiPropertyOptional({ description: 'Receipt date' })
   @IsDateString()

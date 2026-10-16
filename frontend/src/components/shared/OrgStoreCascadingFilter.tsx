@@ -249,7 +249,7 @@ export const OrgStoreCascadingFilter: React.FC<OrgStoreCascadingFilterProps> = (
         gap: 10,
         padding: '8px 12px',
         background: 'var(--theme-bg-subtle, #f8fafc)',
-        borderRadius: 8,
+        borderRadius: 'var(--ui-radius-md)',
         border: '1px solid var(--theme-border, #e2e8f0)',
         ...style,
       }}

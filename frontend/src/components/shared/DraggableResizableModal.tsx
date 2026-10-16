@@ -247,7 +247,7 @@ const DraggableResizableModal: React.FC<DraggableResizableModalProps> = ({
           background: '#181f2c',
           color: '#ffffff',
           padding: '8px 16px',
-          borderRadius: 8,
+          borderRadius: 'var(--ui-radius-lg)',
           boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
           cursor: 'pointer',
           display: 'flex',

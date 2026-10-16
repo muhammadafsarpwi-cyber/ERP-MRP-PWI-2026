@@ -72,7 +72,7 @@ export const ClassicalMusicControl: React.FC<ClassicalMusicControlProps> = () =>
           type={isPlaying ? 'default' : 'primary'}
           icon={isPlaying ? <PauseCircleFilled /> : <PlayCircleFilled />}
           onClick={togglePlay}
-          style={{ fontSize: 11, borderRadius: 6, fontWeight: 600, flex: 1 }}
+          style={{ fontSize: 11, borderRadius: 'var(--ui-radius-sm)', fontWeight: 600, flex: 1 }}
         >
           {isPlaying ? 'Pause' : 'Play'}
         </Button>

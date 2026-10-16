@@ -16,7 +16,7 @@ export const HighlightedCell: React.FC<{
     <div style={{
       lineHeight: 1.35,
       padding: '3px 8px',
-      borderRadius: 6,
+      borderRadius: 'var(--ui-radius-sm)',
       background: 'var(--theme-surface-alt, #f0fdf4)',
       border: '1px solid rgba(16, 185, 129, 0.2)',
       maxWidth: '100%',

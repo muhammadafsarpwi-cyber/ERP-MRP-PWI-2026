@@ -730,6 +730,8 @@ const ItemManagement: React.FC = () => {
   const [pageSize, setPageSize] = useState(savedFilters?.pageSize ?? 20);
   const [sortField, setSortField] = useState<string>(savedFilters?.sortField ?? 'itemCode');
   const [sortOrder, setSortOrder] = useState<'ASC' | 'DESC'>((savedFilters?.sortOrder as 'ASC' | 'DESC') ?? 'ASC');
+  const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
+  const [bulkActionLoading, setBulkActionLoading] = useState(false);
 
   // Support incoming URL query parameter (?search=...) so clicking an item in Journey/Flow jumps straight to it
   const urlSearchParam = useMemo(() => {
@@ -2253,6 +2255,62 @@ const ItemManagement: React.FC = () => {
     }
   };
 
+  const handleBulkStatusChange = async (action: 'activate' | 'deactivate') => {
+    if (selectedRowKeys.length === 0) return;
+    setBulkActionLoading(true);
+    try {
+      await Promise.all(
+        selectedRowKeys.map((id) => apiService.patch(`/master-data/items/${id}/${action}`))
+      );
+      message.success(`${selectedRowKeys.length} items ${action}d successfully`);
+      setSelectedRowKeys([]);
+      fetchItems({ force: true });
+    } catch (err: any) {
+      message.error(err?.response?.data?.message || `Failed to ${action} selected items`);
+    } finally {
+      setBulkActionLoading(false);
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedRowKeys.length === 0) return;
+    Modal.confirm({
+      title: `Delete ${selectedRowKeys.length} Selected Items?`,
+      content: 'Are you sure you want to delete these selected items? This will remove or archive them from Master Data.',
+      okText: 'Delete Selected',
+      okType: 'danger',
+      cancelText: 'Cancel',
+      onOk: async () => {
+        setBulkActionLoading(true);
+        try {
+          await Promise.all(
+            selectedRowKeys.map((id) => apiService.delete(`/master-data/items/${id}`))
+          );
+          message.success(`${selectedRowKeys.length} items deleted successfully`);
+          setSelectedRowKeys([]);
+          fetchItems({ force: true });
+        } catch (err: any) {
+          message.error(err?.response?.data?.message || 'Failed to delete selected items');
+        } finally {
+          setBulkActionLoading(false);
+        }
+      },
+    });
+  };
+
+  const handleBulkExport = () => {
+    const selectedItems = items.filter((it) => selectedRowKeys.includes(it.id));
+    if (selectedItems.length === 0) {
+      message.info('No items selected for export');
+      return;
+    }
+    downloadText(
+      `selected-items-${dayjs().format('YYYYMMDD-HHmm')}.csv`,
+      toCsv(EXPORT_HEADERS, selectedItems.map(itemToExportRow)),
+    );
+    message.success(`Exported ${selectedItems.length} selected items to CSV`);
+  };
+
   const openDetail = async (record: Item) => {
     setIsDetailMinimized(false);
     setDetailOpen(true);
@@ -3595,10 +3653,20 @@ const ItemManagement: React.FC = () => {
       title: <HeaderCell icon={<CheckCircleOutlined />} first="Item" second="Status" />,
       dataIndex: 'status',
       key: 'status',
-      width: 75,
+      width: 110,
       sorter: true,
-      render: (s: string) => (
-        <StatusBadge status={s} colorMap={statusColorMap} style={{ minWidth: 55, fontSize: 10.5, padding: '1px 4px', textAlign: 'center' }} />
+      render: (s: string, r: Item) => (
+        <Space size={6} align="center">
+          <Switch
+            size="small"
+            checked={s === 'ACTIVE'}
+            onChange={(checked) => handleStatusChange(r, checked ? 'activate' : 'deactivate')}
+            style={{
+              backgroundColor: s === 'ACTIVE' ? '#10b981' : undefined,
+            }}
+          />
+          <StatusBadge status={s} colorMap={statusColorMap} style={{ minWidth: 50, fontSize: 10, padding: '1px 4px', textAlign: 'center' }} />
+        </Space>
       ),
     },
     {
@@ -4324,6 +4392,64 @@ const ItemManagement: React.FC = () => {
         />
       )}
 
+      {/* 2027 Dynamic Floating Bulk Actions Toolbar */}
+      {selectedRowKeys.length > 0 && (
+        <div className="erp-table-bulk-toolbar">
+          <div className="bulk-count-badge">
+            <Badge count={selectedRowKeys.length} style={{ backgroundColor: '#f59e0b', fontWeight: 800 }} />
+            <span>{selectedRowKeys.length} item{selectedRowKeys.length === 1 ? '' : 's'} selected</span>
+            <Button
+              size="small"
+              type="link"
+              onClick={() => setSelectedRowKeys([])}
+              style={{ color: '#94a3b8', padding: '0 4px', fontSize: 12 }}
+            >
+              Clear
+            </Button>
+          </div>
+          <Space className="bulk-actions-group" wrap>
+            <Button
+              size="small"
+              icon={<PlayCircleOutlined />}
+              onClick={() => handleBulkStatusChange('activate')}
+              loading={bulkActionLoading}
+              style={{ color: '#10b981', borderColor: '#10b981', fontWeight: 600 }}
+            >
+              Activate
+            </Button>
+            <Button
+              size="small"
+              icon={<PauseCircleOutlined />}
+              onClick={() => handleBulkStatusChange('deactivate')}
+              loading={bulkActionLoading}
+              style={{ color: '#f59e0b', borderColor: '#f59e0b', fontWeight: 600 }}
+            >
+              Deactivate
+            </Button>
+            <Button
+              size="small"
+              icon={<DownloadOutlined />}
+              onClick={handleBulkExport}
+              loading={bulkActionLoading}
+              style={{ fontWeight: 600 }}
+            >
+              Export Selected
+            </Button>
+            <Button
+              size="small"
+              danger
+              type="primary"
+              icon={<DeleteOutlined />}
+              onClick={handleBulkDelete}
+              loading={bulkActionLoading}
+              style={{ fontWeight: 600 }}
+            >
+              Delete Selected
+            </Button>
+          </Space>
+        </div>
+      )}
+
       {loading && items.length === 0 ? (
         <GlobalLoading
           title={ITEMS_LOADING_TITLE}
@@ -4334,6 +4460,11 @@ const ItemManagement: React.FC = () => {
       ) : (
         <ERPTable
           rowKey="id"
+          rowSelection={{
+            selectedRowKeys,
+            onChange: (keys) => setSelectedRowKeys(keys),
+            preserveSelectedRowKeys: true,
+          }}
           columns={filteredColumns}
           dataSource={items}
           // Refresh with rows present: reuse the shared loading card as the
