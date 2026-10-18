@@ -16,6 +16,10 @@ import OrderSummary from '../../components/dashboard/OrderSummary';
 import ProductionPerformance from '../../components/dashboard/ProductionPerformance';
 import ProductionTrend from '../../components/dashboard/ProductionTrend';
 import QuickActions from '../../components/dashboard/QuickActions';
+import TopProductsRow from '../../components/dashboard/TopProductsRow';
+import DepartmentTrendChart from '../../components/dashboard/DepartmentTrendChart';
+import TodayScheduleCard from '../../components/dashboard/TodayScheduleCard';
+import MiniCalendarWidget from '../../components/dashboard/MiniCalendarWidget';
 import { GlobalLoading, TabKeepAlive } from '../../components/shared';
 import {
   dateRangePresetToFilters, DateRangePreset, DEFAULT_DATE_RANGE_PRESET,
@@ -23,15 +27,24 @@ import {
 import './dashboard.css';
 import { filterItemOverview } from './itemSearch';
 import dashboardService, {
-  ActivityItem, AlertItem, DashboardFilters as DashboardFiltersType, DashboardSummary, InventorySummary,
-  ItemOverview as ItemOverviewType, ItemRoute, MachinePerformanceItem,
-  ProductionSummary, ProductionTrendDay, PurchaseOrderSummary, SalesOrderSummary,
+  ActivityItem, AlertItem, DashboardFilters as DashboardFiltersType, DashboardScheduleItem,
+  DashboardSummary, InventorySummary, ItemOverview as ItemOverviewType, ItemRoute,
+  MachinePerformanceItem, ProductionSummary, ProductionTrendDay, PurchaseOrderSummary, SalesOrderSummary,
 } from '../../services/dashboardService';
 import { tabSessionCache } from '../../services/tabSessionCache';
 
 const { Text } = Typography;
 
-const MAIN_DASHBOARD_TAB_ID = '/dashboard';
+const MAIN_DASHBOARD_TAB_ID = '/dashboard/v4';
+
+// Evict legacy unversioned dashboard tab caches to prevent stale unfiltered restores
+try {
+  sessionStorage.removeItem('erp_tab_session_/dashboard');
+  sessionStorage.removeItem('erp_tab_session_/dashboard/v2');
+  sessionStorage.removeItem('erp_tab_session_/dashboard/v3');
+} catch {
+  // ignore
+}
 
 /**
  * Default active division on load — "DIV-SPD Spoke Division" instead of
@@ -60,6 +73,8 @@ interface MainDashboardTabCache {
   soSummary: SalesOrderSummary | null;
   appliedFilters: DashboardFiltersType;
   dateRangePreset: DateRangePreset;
+  lastEntryDate?: string | null;
+  customRange?: [string, string];
 }
 
 const Dashboard: React.FC = () => {
@@ -73,13 +88,19 @@ const Dashboard: React.FC = () => {
   const [dateRangePreset, setDateRangePreset] = useState<DateRangePreset>(
     () => cachedTab?.dateRangePreset ?? DEFAULT_DATE_RANGE_PRESET,
   );
+  const [lastEntryDate, setLastEntryDate] = useState<string | null>(
+    () => cachedTab?.lastEntryDate ?? cachedTab?.summary?.productionEntries?.lastEntryDate ?? null,
+  );
+  const [customRange, setCustomRange] = useState<[string, string] | undefined>(
+    () => cachedTab?.customRange,
+  );
   const [appliedFilters, setAppliedFilters] = useState<DashboardFiltersType>(
     () => cachedTab?.appliedFilters
-      ?? { ...dateRangePresetToFilters(cachedTab?.dateRangePreset ?? DEFAULT_DATE_RANGE_PRESET) },
+      ?? { ...dateRangePresetToFilters(cachedTab?.dateRangePreset ?? DEFAULT_DATE_RANGE_PRESET, cachedTab?.lastEntryDate, cachedTab?.customRange) },
   );
   const [draftFilters, setDraftFilters] = useState<DashboardFiltersType>(
     () => cachedTab?.appliedFilters
-      ?? { ...dateRangePresetToFilters(cachedTab?.dateRangePreset ?? DEFAULT_DATE_RANGE_PRESET) },
+      ?? { ...dateRangePresetToFilters(cachedTab?.dateRangePreset ?? DEFAULT_DATE_RANGE_PRESET, cachedTab?.lastEntryDate, cachedTab?.customRange) },
   );
 
   // Mirror of the applied filters for use inside async loaders/callbacks.
@@ -121,6 +142,8 @@ const Dashboard: React.FC = () => {
   const [activity, setActivity] = useState<ActivityItem[]>(() => cachedTab?.activity ?? []);
   const [poSummary, setPoSummary] = useState<PurchaseOrderSummary | null>(() => cachedTab?.poSummary ?? null);
   const [soSummary, setSoSummary] = useState<SalesOrderSummary | null>(() => cachedTab?.soSummary ?? null);
+  const [scheduleItems, setScheduleItems] = useState<DashboardScheduleItem[]>([]);
+  const [calendarActivityDates, setCalendarActivityDates] = useState<string[]>([]);
 
   // ── Item Detail Modal ──
   const [itemDetailVisible, setItemDetailVisible] = useState(false);
@@ -189,6 +212,10 @@ const Dashboard: React.FC = () => {
     setSecondaryLoading(true);
     setError(null);
     const effectiveFilters = f ?? appliedFilters;
+    if (effectiveFilters.divisionId !== appliedFiltersRef.current.divisionId) {
+      setItemOverview([]);
+      setInventory(null);
+    }
 
     // Session cache writer — always persists the freshest slice we have.
     const persistCache = (slice: Partial<MainDashboardTabCache>) => {
@@ -210,12 +237,17 @@ const Dashboard: React.FC = () => {
       const [sumRes, prodRes, trendRes] = await Promise.allSettled([
         dashboardService.getSummary(effectiveFilters),
         dashboardService.getProduction(effectiveFilters),
-        dashboardService.getProductionTrend(14, effectiveFilters),
+        dashboardService.getProductionTrend(31, effectiveFilters),
       ]);
       if (seq !== fetchSeqRef.current) return; // superseded by a newer request
 
       const criticalFailed = [sumRes, prodRes, trendRes].some(r => r.status === 'rejected');
-      if (sumRes.status === 'fulfilled' && sumRes.value.success) setSummary(sumRes.value.data);
+      if (sumRes.status === 'fulfilled' && sumRes.value.success) {
+        setSummary(sumRes.value.data);
+        if (sumRes.value.data.productionEntries?.lastEntryDate) {
+          setLastEntryDate(sumRes.value.data.productionEntries.lastEntryDate);
+        }
+      }
       if (prodRes.status === 'fulfilled' && prodRes.value.success) setProdSummary(prodRes.value.data);
       if (trendRes.status === 'fulfilled' && trendRes.value.success) setTrend(trendRes.value.data);
 
@@ -225,6 +257,8 @@ const Dashboard: React.FC = () => {
         summary: sumRes.status === 'fulfilled' && sumRes.value.success ? sumRes.value.data : summary,
         prodSummary: prodRes.status === 'fulfilled' && prodRes.value.success ? prodRes.value.data : prodSummary,
         trend: trendRes.status === 'fulfilled' && trendRes.value.success ? trendRes.value.data : trend,
+        lastEntryDate: sumRes.status === 'fulfilled' && sumRes.value.success ? (sumRes.value.data.productionEntries?.lastEntryDate ?? lastEntryDate) : lastEntryDate,
+        customRange,
       });
 
       // ── Wave 2 — SECONDARY: heavy lower sections, non-blocking ──
@@ -233,14 +267,16 @@ const Dashboard: React.FC = () => {
       // their own widgets with skeleton states — they never delay the KPI
       // summary or the top charts above.
       void (async () => {
-        const [machineRes, invRes, alertRes, actRes, poRes, soRes, itemRes] = await Promise.allSettled([
+        const [machineRes, invRes, alertRes, actRes, poRes, soRes, itemRes, schedRes, calRes] = await Promise.allSettled([
           dashboardService.getMachinePerformance(effectiveFilters),
-          dashboardService.getInventory(),
+          dashboardService.getInventory(effectiveFilters),
           dashboardService.getAlerts(effectiveFilters),
           dashboardService.getActivity(15),
           dashboardService.getProcurement(),
           dashboardService.getSales(),
           dashboardService.getItemOverview(effectiveFilters),
+          dashboardService.getSchedule(),
+          dashboardService.getCalendarActivity(),
         ]);
         if (seq !== fetchSeqRef.current) return; // superseded — discard stale data
 
@@ -251,6 +287,10 @@ const Dashboard: React.FC = () => {
         if (poRes.status === 'fulfilled' && poRes.value.success) setPoSummary(poRes.value.data);
         if (soRes.status === 'fulfilled' && soRes.value.success) setSoSummary(soRes.value.data);
         if (itemRes.status === 'fulfilled' && itemRes.value.success) setItemOverview(itemRes.value.data);
+        if (schedRes.status === 'fulfilled' && schedRes.value.success) setScheduleItems(schedRes.value.data);
+        if (calRes.status === 'fulfilled' && calRes.value.success) {
+          setCalendarActivityDates(calRes.value.data.map(d => d.date));
+        }
 
         const secondaryFailed = [machineRes, invRes, alertRes, actRes, poRes, soRes, itemRes]
           .some(r => r.status === 'rejected');
@@ -330,33 +370,61 @@ const Dashboard: React.FC = () => {
     });
   }, []);
 
-  const handleApplyFilters = useCallback(() => {
-    // The date range is owned by its own preset dropdown — always re-resolve
-    // the concrete dates from the active preset when applying the others.
-    const next: DashboardFiltersType = { ...draftFilters, ...dateRangePresetToFilters(dateRangePreset) };
+  const handleApplyFilters = useCallback(async () => {
+    let resolvedLastDate = lastEntryDate;
+    if (dateRangePreset === 'lastEntry' && !resolvedLastDate) {
+      try {
+        const res = await dashboardService.getLastEntryDate(draftFilters);
+        if (res.success && res.data.lastEntryDate) {
+          resolvedLastDate = res.data.lastEntryDate;
+          setLastEntryDate(resolvedLastDate);
+        }
+      } catch {
+        // ignore
+      }
+    }
+    const next: DashboardFiltersType = {
+      ...draftFilters,
+      ...dateRangePresetToFilters(dateRangePreset, resolvedLastDate, customRange),
+    };
     setDraftFilters(next);
     setAppliedFilters(next);
     void loadAllRef.current(next);
-  }, [draftFilters, dateRangePreset]);
+  }, [draftFilters, dateRangePreset, lastEntryDate, customRange]);
 
   const handleResetFilters = useCallback(() => {
-    // Clears every dimension filter (including the default division, so users
-    // can view all divisions) while keeping the active date-range preset.
-    const next: DashboardFiltersType = { ...dateRangePresetToFilters(dateRangePreset) };
+    const next: DashboardFiltersType = {
+      ...dateRangePresetToFilters(dateRangePreset, lastEntryDate, customRange),
+    };
     setDraftFilters(next);
     setAppliedFilters(next);
     void loadAllRef.current(next);
-  }, [dateRangePreset]);
+  }, [dateRangePreset, lastEntryDate, customRange]);
 
-  // Requirement 4 — switching the preset re-queries the dashboard immediately.
-  const handleDateRangeChange = useCallback((preset: DateRangePreset) => {
+  // Switching the preset re-queries the dashboard immediately.
+  const handleDateRangeChange = useCallback(async (preset: DateRangePreset, range?: [string, string]) => {
     setDateRangePreset(preset);
-    const range = dateRangePresetToFilters(preset);
-    const next: DashboardFiltersType = { ...appliedFiltersRef.current, ...range };
-    setDraftFilters(prev => ({ ...prev, ...range }));
+    if (range) {
+      setCustomRange(range);
+    }
+    let resolvedLastDate = lastEntryDate;
+    if (preset === 'lastEntry') {
+      try {
+        const res = await dashboardService.getLastEntryDate(appliedFiltersRef.current);
+        if (res.success && res.data.lastEntryDate) {
+          resolvedLastDate = res.data.lastEntryDate;
+          setLastEntryDate(resolvedLastDate);
+        }
+      } catch {
+        // ignore
+      }
+    }
+    const dateFilters = dateRangePresetToFilters(preset, resolvedLastDate, range ?? customRange);
+    const next: DashboardFiltersType = { ...appliedFiltersRef.current, ...dateFilters };
+    setDraftFilters(prev => ({ ...prev, ...dateFilters }));
     setAppliedFilters(next);
     void loadAllRef.current(next);
-  }, []);
+  }, [lastEntryDate, customRange]);
 
   const handleRemoveFilter = useCallback((key: string) => {
     setDraftFilters(prev => {
@@ -366,6 +434,25 @@ const Dashboard: React.FC = () => {
       return next;
     });
   }, []);
+
+  const handleApplyDivision = useCallback((divisionId?: string) => {
+    const next: DashboardFiltersType = {
+      ...appliedFiltersRef.current,
+      divisionId: divisionId ?? undefined,
+      sectionId: undefined,
+      departmentId: undefined,
+    };
+    setDraftFilters(next);
+    setAppliedFilters(next);
+    void loadAllRef.current(next);
+  }, []);
+
+  const [selectedCalendarDate, setSelectedCalendarDate] = useState<string | null>(null);
+
+  const handleSelectSingleDate = useCallback((dateStr: string) => {
+    setSelectedCalendarDate(dateStr);
+    handleDateRangeChange('custom', [dateStr, dateStr]);
+  }, [handleDateRangeChange]);
 
   // ── Item Detail ──
   const openItemDetail = async (item: ItemOverviewType) => {
@@ -390,6 +477,11 @@ const Dashboard: React.FC = () => {
   // real inventory report instead of rendering every master-data item inline.
   const MAX_DASHBOARD_ITEMS = 25;
   const visibleItems = filteredItems.slice(0, MAX_DASHBOARD_ITEMS);
+
+  const effectiveCalendarDate = selectedCalendarDate
+    || ((appliedFilters.dateFrom && appliedFilters.dateFrom === appliedFilters.dateTo) ? appliedFilters.dateFrom : null)
+    || (trend.length > 0 ? trend[trend.length - 1].date : null)
+    || lastEntryDate;
 
   const hasPartialData =
     summary !== null || prodSummary !== null || trend.length > 0 || machinePerf.length > 0
@@ -425,7 +517,7 @@ const Dashboard: React.FC = () => {
     <TabKeepAlive
       tabId={MAIN_DASHBOARD_TAB_ID}
       load={loadInitial}
-      serialize={() => ({ summary, prodSummary, trend, machinePerf, itemOverview, inventory, alerts, activity, poSummary, soSummary, appliedFilters, dateRangePreset })}
+      serialize={() => ({ summary, prodSummary, trend, machinePerf, itemOverview, inventory, alerts, activity, poSummary, soSummary, appliedFilters, dateRangePreset, lastEntryDate, customRange })}
     >
       <div className="erp-dashboard">
         <DashboardHeader
@@ -447,12 +539,50 @@ const Dashboard: React.FC = () => {
         optionsLoading={false}
         loading={loading}
         dateRangePreset={dateRangePreset}
+        lastEntryDate={lastEntryDate}
+        customRange={customRange}
         onChange={handleFilterChange}
         onDateRangeChange={handleDateRangeChange}
+        onCustomRangeChange={setCustomRange}
+        onApplyDivision={handleApplyDivision}
         onApply={handleApplyFilters}
         onReset={handleResetFilters}
         onRemove={handleRemoveFilter}
       />
+
+      {/* ━━━ TOP PRODUCTS / SERVICES CARDS (Matching Reference Design Top Row) ━━━ */}
+      <TopProductsRow
+        items={itemOverview}
+        loading={secondaryLoading}
+        onViewAll={() => navigate('/master-data/items')}
+        onOpenItem={openItemDetail}
+        onQuickAction={() => navigate('/production/entries')}
+      />
+
+      {/* ━━━ INTELLIGENCE & SCHEDULE ROW (Activity Chart + Today's Schedule + Mini Calendar) ━━━ */}
+      <div className="erp-dashboard-intel-row">
+        <DepartmentTrendChart
+          trend={trend}
+          departments={prodSummary?.departments ?? departments}
+          loading={loading}
+          selectedDate={effectiveCalendarDate}
+          onSelectDate={handleSelectSingleDate}
+          filters={appliedFilters}
+        />
+        <TodayScheduleCard
+          items={scheduleItems}
+          loading={secondaryLoading}
+          onAddSchedule={() => navigate('/sales/orders')}
+          onViewAll={() => navigate('/sales/orders')}
+          onItemClick={() => navigate('/sales/orders')}
+        />
+        <MiniCalendarWidget
+          selectedDate={effectiveCalendarDate}
+          activeDates={calendarActivityDates}
+          onSelectDate={handleSelectSingleDate}
+          loading={secondaryLoading}
+        />
+      </div>
 
       {/* ━━━ KPI SUMMARY ROW ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
       <KpiStrip summary={summary} loading={loading} nav={navigate} />
@@ -460,7 +590,13 @@ const Dashboard: React.FC = () => {
       {/* ━━━ PRODUCTION PERFORMANCE + ACHIEVEMENT ━━━━━━━━━━━━━━━━━━━━━━━━━ */}
       <div className="erp-row erp-row--a">
         <div className="erp-col erp-col--wide">
-          <ProductionPerformance data={prodSummary} loading={loading} nav={navigate} />
+          <ProductionPerformance
+            data={prodSummary}
+            trend={trend}
+            loading={loading}
+            nav={navigate}
+            selectedDate={effectiveCalendarDate}
+          />
         </div>
         <div className="erp-col erp-col--narrow">
           <AchievementCard data={prodSummary} loading={loading} />
@@ -470,25 +606,19 @@ const Dashboard: React.FC = () => {
       {/* ━━━ PRODUCTION TREND ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
       <ProductionTrend trend={trend} loading={loading} nav={navigate} />
 
-      {/* ━━━ DEPARTMENT PERFORMANCE + ACTIVITY ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-      {/* Sits directly underneath the Production Trend chart, before the
-          Alerts / Machine Performance sections. */}
-      <div className="erp-row erp-row--a">
-        <div className="erp-col erp-col--wide">
-          <DepartmentPerformance data={prodSummary} loading={loading} />
-        </div>
-        <div className="erp-col erp-col--narrow">
-          <ActivityFeed activity={activity} loading={secondaryLoading} />
-        </div>
+      {/* ━━━ DEPARTMENT PERFORMANCE (FULL WIDTH SCORECARD) ━━━━━━━━━━━━━━━━━ */}
+      <div style={{ marginBottom: 16 }}>
+        <DepartmentPerformance data={prodSummary} loading={loading} nav={navigate} />
       </div>
 
-      {/* ━━━ ALERTS + MACHINE PERFORMANCE ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+      {/* ━━━ MACHINE PERFORMANCE (LEFT, WIDE) + ALERTS & ACTIVITY (RIGHT, NARROW) ━ */}
       <div className="erp-row erp-row--a">
-        <div className="erp-col erp-col--narrow">
-          <AlertCenter alerts={alerts} loading={secondaryLoading} />
-        </div>
         <div className="erp-col erp-col--wide">
           <MachinePerformance items={machinePerf} loading={secondaryLoading} nav={navigate} />
+        </div>
+        <div className="erp-col erp-col--narrow" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <AlertCenter alerts={alerts} loading={secondaryLoading} />
+          <ActivityFeed activity={activity} loading={secondaryLoading} />
         </div>
       </div>
 

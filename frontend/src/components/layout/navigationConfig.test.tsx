@@ -148,7 +148,7 @@ const DISCOVERED_ROUTES: string[] = [
   '/store/dashboard', '/store/master', '/store/items',
   '/store/my-requests', '/store/material-requests', '/store/pending-approvals',
   '/store/material-issues', '/store/material-receipts', '/store/material-returns',
-  '/store/transfers', '/store/adjustments', '/store/opening-stock',
+  '/store/opening-stock',
   '/store/stock-balance', '/store/ledger', '/store/material-trace',
   '/store/low-stock', '/store/reports', '/store/settings',
   // Pre-existing omissions from this list (all registered: gate-passes and
@@ -158,6 +158,8 @@ const DISCOVERED_ROUTES: string[] = [
 
 /** Routes that redirect or render inside a parent entry (not in the menu). */
 const DETAIL_AND_ALIAS_ROUTES: Array<{ url: string; parent: string }> = [
+  { url: '/store/transfers', parent: '/inventory/transfers' },
+  { url: '/store/adjustments', parent: '/inventory/adjustments' },
   { url: '/production/entries/new', parent: '/production/entries' },
   { url: '/production/entries/select', parent: '/production/entries' },
   { url: '/production/entries/123', parent: '/production/entries' },

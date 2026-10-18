@@ -250,7 +250,8 @@ const parseHandPackingEntry = (e: any): RecentPackingLog | null => {
   const created = dayjs(e.createdAt || e.created_at || e.entryDate || e.entry_date);
   const entryDay = dayjs(e.entryDate || e.entry_date || e.createdAt);
 
-  const withoutNippleMatch = remarks.includes('WITHOUT_NIPPLE') || remarks.includes('Without Nipple');
+  const isExplicitlyCompleted = remarks.includes('Status: COMPLETED') || remarks.includes('Nipple Stock Deducted:') || remarks.includes('Nipple Added:');
+  const withoutNippleMatch = !isExplicitlyCompleted && (remarks.includes('WITHOUT_NIPPLE') || remarks.includes('Without Nipple'));
   const pendingNippleCode = remarks.match(/Pending Nipple:\s*([^\s(]+)/i)?.[1]?.trim() || remarks.match(/Without Nipple:\s*([^\s(]+)/i)?.[1]?.trim() || '';
   const pendingNippleGross = Number(remarks.match(/Pending Nipple:[^(]+\(([\d.]+)\s*GRS/i)?.[1] || remarks.match(/Without Nipple:[^(]+\(([\d.]+)\s*GRS/i)?.[1]) || 0;
   const pendingNipplePcs = Number(remarks.match(/Pending Nipple:[^/]+\/\s*([\d.]+)\s*PCS/i)?.[1]) || (pendingNippleGross * PCS_PER_GROSS);
@@ -372,12 +373,16 @@ export interface InventoryOrderImpact {
 
 // Authoritative factory warehouses with exact database UUIDs
 const DEFAULT_FACTORY_WAREHOUSES = [
+  { id: 'cf5c9db8-5e84-41d5-a4b4-988b8dfd122d', warehouseCode: 'WH-002', name: 'SPI Nipple Packing Warehouse', warehouseType: 'FINISHED_GOODS' },
   { id: '2f6aabde-69c1-4068-a0ea-b0fe1b8fb0b5', warehouseCode: 'SPI-FGDW-001', name: 'SPI FG Dispatch Warehouse', warehouseType: 'FINISHED_GOODS' },
+  { id: 'a70e0a7e-2ffa-47e4-83a9-c894d9dff41b', warehouseCode: 'SPI-PL-004', name: 'PL Spoke Plating Department', warehouseType: 'WORK_IN_PROGRESS' },
+  { id: '29e71f41-713e-45dc-bd69-4a3ce05a3801', warehouseCode: 'SPI-SPK-003', name: 'SPK Spoke Department', warehouseType: 'WORK_IN_PROGRESS' },
+  { id: 'd5685ddf-923a-4f7c-ba19-a5715cafa02e', warehouseCode: 'SPI-SW-002', name: 'SW Swagging Department', warehouseType: 'WORK_IN_PROGRESS' },
+  { id: '2ec20775-616c-4c6e-818e-1f76912d6dfa', warehouseCode: 'SPI-ST-001', name: 'ST Straightener Department', warehouseType: 'WORK_IN_PROGRESS' },
+  { id: 'a4c9ee6c-938f-4c34-b293-6686cfc3add3', warehouseCode: 'RM-002-SPI', name: 'SPI Raw Material Warehouse', warehouseType: 'RAW_MATERIAL' },
   { id: 'c7735271-bc28-48ce-8f17-bf6241eb6b5a', warehouseCode: 'WH-001', name: 'CCD Main Warehouse', warehouseType: 'FINISHED_GOODS' },
-  { id: 'cf5c9db8-5e84-41d5-a4b4-988b8dfd122d', warehouseCode: 'WH-002', name: 'SPI Main Warehouse', warehouseType: 'FINISHED_GOODS' },
-  { id: 'a70e0a7e-2ffa-47e4-83a9-c894d9dff41b', warehouseCode: 'SPI-PL-004', name: 'PL Production Department', warehouseType: 'WORK_IN_PROGRESS' },
+  { id: '45de05e2-d7d0-45d1-936f-425e317362db', warehouseCode: 'RM-001-CCD', name: 'CCD Raw Material Warehouse', warehouseType: 'RAW_MATERIAL' },
   { id: 'aa9fedcb-27ac-47d2-a963-40d01c2594bc', warehouseCode: 'WH-MAIN-001', name: 'Main Warehouse', warehouseType: 'GENERAL' },
-  { id: 'a4c9ee6c-938f-4c34-b293-6686cfc3add3', warehouseCode: 'SPI002ST', name: 'SPI Warehouse', warehouseType: 'RAW_MATERIAL' },
 ];
 
 // Authoritative spoke finished goods and Semi-Finished components with exact database UUIDs
@@ -890,8 +895,52 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
   const [addNippleModalVisible, setAddNippleModalVisible] = useState<boolean>(false);
   const [addNippleTargetBatch, setAddNippleTargetBatch] = useState<RecentPackingLog | null>(null);
   const [addNippleDate, setAddNippleDate] = useState<dayjs.Dayjs>(dayjs());
-  const [addNippleWarehouseId, setAddNippleWarehouseId] = useState<string>('cf5c9db8-5e84-41d5-a4b4-988b8dfd122d'); // WH-002
+  const [addNippleWarehouseId, setAddNippleWarehouseId] = useState<string>('cf5c9db8-5e84-41d5-a4b4-988b8dfd122d'); // WH-002 SPI Nipple Packing Warehouse
   const [addNippleSubmitting, setAddNippleSubmitting] = useState<boolean>(false);
+  const [nippleStockInfo, setNippleStockInfo] = useState<{
+    loading: boolean;
+    availablePcs: number;
+    availableGross: number;
+    availableCartons: number;
+    sufficient: boolean;
+    nippleName?: string;
+  } | null>(null);
+
+  const loadNippleStock = useCallback(async (batch: RecentPackingLog) => {
+    setNippleStockInfo({ loading: true, availablePcs: 0, availableGross: 0, availableCartons: 0, sufficient: false });
+    try {
+      const res: any = await apiService.get('/inventory/balances?warehouseId=cf5c9db8-5e84-41d5-a4b4-988b8dfd122d&limit=100');
+      const items = extractArray(res);
+      const targetCode = (batch.pendingNippleCode || '').toUpperCase().trim();
+      const matched = items.find((b: any) => {
+        const code = (b.item?.itemCode || b.itemCode || '').toUpperCase().trim();
+        return code === targetCode || (targetCode && code.includes(targetCode)) || (code && targetCode.includes(code));
+      });
+      const availPcs = matched ? Number(matched.onHand || matched.quantity || 0) : 0;
+      const availGross = Number((availPcs / 144).toFixed(2));
+      const availCartons = Number((availGross / 10).toFixed(1));
+      const reqPcs = batch.pendingNipplePcs || (batch.cartons * 1440);
+      setNippleStockInfo({
+        loading: false,
+        availablePcs: availPcs,
+        availableGross: availGross,
+        availableCartons: availCartons,
+        sufficient: availPcs >= reqPcs,
+        nippleName: matched?.item?.name || matched?.name || batch.pendingNippleCode,
+      });
+    } catch (err) {
+      console.warn('Failed to load nipple stock', err);
+      setNippleStockInfo(null);
+    }
+  }, []);
+
+  const handleOpenAddNippleModal = useCallback((r: RecentPackingLog) => {
+    setAddNippleTargetBatch(r);
+    setAddNippleDate(dayjs());
+    setAddNippleWarehouseId('cf5c9db8-5e84-41d5-a4b4-988b8dfd122d');
+    setAddNippleModalVisible(true);
+    loadNippleStock(r);
+  }, [loadNippleStock]);
 
   const [entryModalOpen, setEntryModalOpen] = useState<boolean>(false);
   const [isModalMinimized, setIsModalMinimized] = useState<boolean>(false);
@@ -1006,38 +1055,45 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
   // Load ACTIVE customers from the official Customer List master
   // (Customer Management module → customers table). Only ACTIVE records are
   // listed; the customer NAME is stored on the packing entry so history,
-  // ledger cross-references and existing saved batches stay fully compatible.
-  useEffect(() => {
-    let active = true;
-    (async () => {
-      setCustomersLoading(true);
-      try {
-        const res: any = await apiService.get('/customer/customers', {
-          status: 'ACTIVE',
-          page: 1,
-          limit: 500,
-          sortField: 'name',
-          sortOrder: 'ASC',
-        });
-        const rows = extractArray(res).filter(
-          (c: any) => !c?.status || String(c.status).toUpperCase() === 'ACTIVE'
-        );
-        const seen = new Set<string>();
-        const unique = rows.filter((c: any) => {
-          const name = String(c?.name || '').trim();
-          if (!name || seen.has(name.toLowerCase())) return false;
-          seen.add(name.toLowerCase());
-          return true;
-        });
-        if (active) setCustomers(unique);
-      } catch (err) {
-        console.warn('Failed to load Customer List for the packing Customer dropdown', err);
-      } finally {
-        if (active) setCustomersLoading(false);
+  // Load ACTIVE customers from Customer master with instant tab session caching
+  const loadCustomers = useCallback(async (forceRefresh = false) => {
+    if (!forceRefresh) {
+      const cached = tabSessionCache.get<any[]>('hand_packing_customers');
+      if (cached && Array.isArray(cached) && cached.length > 0) {
+        setCustomers(cached);
       }
-    })();
-    return () => { active = false; };
+    }
+    setCustomersLoading(true);
+    try {
+      const res: any = await apiService.get('/customer/customers', {
+        status: 'ACTIVE',
+        page: 1,
+        limit: 500,
+        sortField: 'name',
+        sortOrder: 'ASC',
+      });
+      const rows = extractArray(res).filter(
+        (c: any) => !c?.status || String(c.status).toUpperCase() === 'ACTIVE'
+      );
+      const seen = new Set<string>();
+      const unique = rows.filter((c: any) => {
+        const name = String(c?.name || '').trim();
+        if (!name || seen.has(name.toLowerCase())) return false;
+        seen.add(name.toLowerCase());
+        return true;
+      });
+      setCustomers(unique);
+      tabSessionCache.set('hand_packing_customers', unique);
+    } catch (err) {
+      console.warn('Failed to load Customer List for the packing Customer dropdown', err);
+    } finally {
+      setCustomersLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    loadCustomers();
+  }, [loadCustomers]);
 
   // Fetch Sales Orders (SOCs) to enable authoritative linking and auto-population
   useEffect(() => {
@@ -2076,31 +2132,51 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
     if (!addNippleTargetBatch) return;
     setAddNippleSubmitting(true);
     try {
-      const rawEntry = addNippleTargetBatch.rawEntry;
       const entryId = addNippleTargetBatch.id;
       const completionDateStr = addNippleDate.format('YYYY-MM-DD');
 
-      const oldRemarks = String(rawEntry?.remarks || '');
-      const cleanRemarks = oldRemarks
-        .replace(/Status:\s*WITHOUT_NIPPLE/gi, 'Status: COMPLETED')
-        .replace(/\|?\s*Without Nipple:[^|]+/gi, '')
-        .replace(/\|?\s*Pending Nipple:[^|]+/gi, '')
-        .trim() + ` | Nipple Added: ${completionDateStr} | Completed by: ${currentUserName}`;
-
-      const updatePayload: any = {
-        ...(rawEntry || {}),
-        remarks: cleanRemarks,
-        productionDate: completionDateStr,
-        entryDate: completionDateStr,
-      };
-
+      let backendSuccess = false;
       try {
-        await apiService.put(`/production/entries/${entryId}`, updatePayload);
-      } catch (putErr) {
-        console.warn('Backend PUT entries returned error, updating optimistically', putErr);
+        const res: any = await apiService.post(`/production/entries/${entryId}/complete-nipple`, {
+          warehouseId: addNippleWarehouseId,
+          completionDate: completionDateStr,
+        });
+        if (res && (res.success || res.deductedPcs !== undefined)) {
+          backendSuccess = true;
+          message.success(
+            res.message ||
+              `Batch ${addNippleTargetBatch.batchNo} completed! Nipple stock deducted from SPI Nipple Packing Warehouse (WH-002).`
+          );
+        }
+      } catch (postErr) {
+        console.warn('Backend complete-nipple returned error, falling back to PUT update:', postErr);
       }
 
-      message.success(`Batch ${addNippleTargetBatch.batchNo} completed! Nipple stock deducted on ${addNippleDate.format('DD/MM/YYYY')}.`);
+      if (!backendSuccess) {
+        const rawEntry = addNippleTargetBatch.rawEntry;
+        const oldRemarks = String(rawEntry?.remarks || '');
+        const cleanRemarks = oldRemarks
+          .replace(/Status:\s*WITHOUT_NIPPLE/gi, 'Status: COMPLETED')
+          .replace(/\|?\s*Without Nipple:[^|]+/gi, '')
+          .replace(/\|?\s*Pending Nipple:[^|]+/gi, '')
+          .trim() + ` | Nipple Added: ${completionDateStr} | Completed by: ${currentUserName}`;
+
+        const updatePayload: any = {
+          ...(rawEntry || {}),
+          remarks: cleanRemarks,
+          productionDate: completionDateStr,
+          entryDate: completionDateStr,
+        };
+
+        try {
+          await apiService.put(`/production/entries/${entryId}`, updatePayload);
+        } catch (putErr) {
+          console.warn('Backend PUT entries returned error, updating optimistically', putErr);
+        }
+
+        message.success(`Batch ${addNippleTargetBatch.batchNo} completed! Nipple stock deducted on ${addNippleDate.format('DD/MM/YYYY')}.`);
+      }
+
       setAddNippleModalVisible(false);
       setAddNippleTargetBatch(null);
       loadRecentEntries();
@@ -2705,7 +2781,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
   const customerOptions = useMemo(() => {
     const opts = filterCustomersByDivision(customers, watchedDivisionId || selectedDivisionId).map((c) => ({
       value: String(c.name || c.companyName),
-      label: c.customerCode ? `${c.customerCode} — ${c.name || c.companyName}` : String(c.name || c.companyName),
+      label: `${c.name || c.companyName}${c.customerCode ? ` (${c.customerCode})` : ''}`,
     }));
 
     // Add Safety Stock buffer build option prominently at the top
@@ -2761,6 +2837,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
       return cName.includes(custClean) || custClean.includes(cName) || (cCode && custClean.includes(cCode));
     });
 
+    const targetItemKey = masterItems[0]?.key || 'item-0';
     if (matches.length === 1) {
       // Exactly 1 SOC: automatically auto-populate and preset FG item and cartons
       const singleSoc = matches[0].orderNumber || matches[0].order_number;
@@ -2771,12 +2848,12 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
       if (firstItem) {
         const itId = firstItem.item?.id || firstItem.itemId;
         if (itId) {
-          handleProductSelect(primaryItem.key, itId);
+          handleProductSelect(targetItemKey, itId);
           const fgFactors = getItemPackagingFactors(firstItem.item?.itemCode, firstItem.item?.name || firstItem.description);
           const ctnFromOrder = firstItem.packageQuantity || firstItem.pkg_quantity || firstItem.pkgQuantity;
           const itemCartons = ctnFromOrder ? Number(ctnFromOrder) : Math.round((Number(firstItem.quantity) || 0) / fgFactors.grossPerCarton);
           if (itemCartons > 0) {
-            handleItemValueChange(primaryItem.key, 'cartons', itemCartons);
+            handleItemValueChange(targetItemKey, 'cartons', itemCartons);
           }
         }
       }
@@ -2790,12 +2867,12 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
       if (firstItem) {
         const itId = firstItem.item?.id || firstItem.itemId;
         if (itId) {
-          handleProductSelect(primaryItem.key, itId);
+          handleProductSelect(targetItemKey, itId);
           const fgFactors = getItemPackagingFactors(firstItem.item?.itemCode, firstItem.item?.name || firstItem.description);
           const ctnFromOrder = firstItem.packageQuantity || firstItem.pkg_quantity || firstItem.pkgQuantity;
           const itemCartons = ctnFromOrder ? Number(ctnFromOrder) : Math.round((Number(firstItem.quantity) || 0) / fgFactors.grossPerCarton);
           if (itemCartons > 0) {
-            handleItemValueChange(primaryItem.key, 'cartons', itemCartons);
+            handleItemValueChange(targetItemKey, 'cartons', itemCartons);
           }
         }
       }
@@ -2809,6 +2886,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
   const handleSocChange = (socNum: string) => {
     setSocNo(socNum);
     form.setFieldsValue({ customerSocNo: socNum });
+    const targetItemKey = masterItems[0]?.key || 'item-0';
 
     const order = salesOrders.find(
       (so) => (so.orderNumber || so.order_number) === socNum
@@ -2817,12 +2895,12 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
       const firstItem = order.items[0];
       const itId = firstItem.item?.id || firstItem.itemId;
       if (itId) {
-        handleProductSelect(primaryItem.key, itId);
+        handleProductSelect(targetItemKey, itId);
         const fgFactors = getItemPackagingFactors(firstItem.item?.itemCode, firstItem.item?.name || firstItem.description);
         const ctnFromOrder = firstItem.packageQuantity || firstItem.pkg_quantity || firstItem.pkgQuantity;
         const itemCartons = ctnFromOrder ? Number(ctnFromOrder) : Math.round((Number(firstItem.quantity) || 0) / fgFactors.grossPerCarton);
         if (itemCartons > 0) {
-          handleItemValueChange(primaryItem.key, 'cartons', itemCartons);
+          handleItemValueChange(targetItemKey, 'cartons', itemCartons);
         }
       }
     }
@@ -2933,6 +3011,53 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         return;
       }
 
+      // Check for nipple shortages in WH-002:
+      const nippleComp = primaryItem.components.find(
+        (c) => (c.componentItemName?.toLowerCase().includes('nipple') || c.componentItemCode?.toLowerCase().includes('np')) && !c.packWithoutNipple
+      );
+      if (nippleComp && Number(nippleComp.availableGross || 0) < Number(nippleComp.requiredGross || 0)) {
+        const reqGross = Number(nippleComp.requiredGross || 0);
+        const availGross = Number(nippleComp.availableGross || 0);
+        const diffGross = Math.round((reqGross - availGross) * 100) / 100;
+        const reqPcs = Number(nippleComp.requiredPcs || (reqGross * 144));
+        const availPcs = Number(nippleComp.availablePcs || (availGross * 144));
+        const compCode = nippleComp.componentItemCode || 'Nipple';
+        const compName = nippleComp.componentItemName || 'Spoke Nipple';
+        const compKey = nippleComp.key;
+
+        Modal.confirm({
+          title: <span style={{ color: '#f59e0b', fontWeight: 800 }}>⚠️ Nipple Stock Shortage in WH-002!</span>,
+          icon: <ExclamationCircleOutlined style={{ color: '#f59e0b' }} />,
+          width: 540,
+          content: (
+            <div style={{ marginTop: 8 }}>
+              <p>Insufficient nipple stock in <strong>WH-002 — SPI Nipple Packing Warehouse</strong>:</p>
+              <div style={{ background: 'rgba(245, 158, 11, 0.1)', padding: '10px 14px', borderRadius: 6, border: '1px solid #f59e0b', marginBottom: 12 }}>
+                <div><strong>Component Item:</strong> {compCode} — {compName}</div>
+                <div><strong>Required Nipple:</strong> {reqGross} GRS ({reqPcs.toLocaleString()} PCS)</div>
+                <div><strong>Available in Store:</strong> {availGross} GRS ({availPcs.toLocaleString()} PCS)</div>
+                <div style={{ color: '#ef4444', fontWeight: 700, marginTop: 4 }}>
+                  Shortage: {diffGross} GRS
+                </div>
+              </div>
+              <p style={{ fontWeight: 600 }}>
+                This batch cannot be saved as a full assembly without nipple stock. Would you like to hold this batch as <strong>Spokes Only (Held in Safety Stock)</strong>?
+              </p>
+            </div>
+          ),
+          okText: '⏳ Pack Without Nipple (Hold in Safety Stock)',
+          okButtonProps: { style: { background: '#f59e0b', borderColor: '#f59e0b', fontWeight: 700 } },
+          cancelText: 'Cancel (Arrange Nipple First)',
+          onOk: async () => {
+            handleToggleWithoutNipple(primaryItem.key, compKey, true);
+            setTimeout(() => {
+              handleSave();
+            }, 100);
+          },
+        });
+        return;
+      }
+
       setSaving(true);
 
       const pcsUom = uoms.find((u) => u.code?.toUpperCase() === 'PCS') || uoms[0];
@@ -3012,11 +3137,14 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
       const fallbackPackingDept = departments.find((d: any) =>
         d.status === 'ACTIVE' &&
         d.divisionId === resolvedDivisionId &&
-        (d.sectionId === resolvedSectionId || !d.sectionId) &&
-        ((d.departmentCode || '').toUpperCase() === 'SPD-DEPT008' || (d.name || '').toLowerCase().includes('pack'))
+        ((d.departmentCode || '').toUpperCase() === 'SPD-DEPT008' || (d.name || '').toLowerCase().includes('spoke pack'))
       ) || departments.find((d: any) =>
         d.status === 'ACTIVE' &&
-        ((d.departmentCode || '').toUpperCase() === 'SPD-DEPT008' || (d.name || '').toLowerCase().includes('pack'))
+        ((d.departmentCode || '').toUpperCase() === 'SPD-DEPT008' || (d.name || '').toLowerCase().includes('spoke pack'))
+      ) || departments.find((d: any) =>
+        d.status === 'ACTIVE' &&
+        d.divisionId === resolvedDivisionId &&
+        (d.name || '').toLowerCase().includes('pack')
       ) || departments.find((d: any) => d.status === 'ACTIVE' && d.divisionId === resolvedDivisionId)
         || departments.find((d: any) => d.status === 'ACTIVE')
         || departments.find((d: any) => d.id === SPD_PACKING_DEPT_ID);
@@ -3552,14 +3680,42 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
               label: fallbackWh ? `${fallbackWh.name} (${fallbackWh.warehouseCode})` : `Store (${comp.sourceWarehouseId.slice(0, 8)}...)`,
             });
           }
+          const isNipple = comp.componentItemName?.toLowerCase().includes('nipple') || comp.componentItemCode?.toLowerCase().includes('np');
           return (
             <div>
-              <Select
-                style={{ width: '100%', fontWeight: 700 }}
-                value={comp.sourceWarehouseId}
-                onChange={(newWh) => handleComponentWarehouseChange(record.key, comp.key, newWh)}
-                options={whOptions}
-              />
+              {isNipple ? (
+                <Tag
+                  color="geekblue"
+                  style={{
+                    fontSize: 11.5,
+                    fontWeight: 700,
+                    padding: '3px 8px',
+                    borderRadius: 4,
+                    margin: 0,
+                    background: 'rgba(59, 130, 246, 0.12)',
+                    border: '1px solid #3b82f6',
+                    color: '#60a5fa',
+                  }}
+                >
+                  🔒 WH-002 — SPI Nipple Packing Warehouse
+                </Tag>
+              ) : (
+                <Tag
+                  color="cyan"
+                  style={{
+                    fontSize: 11.5,
+                    fontWeight: 700,
+                    padding: '3px 8px',
+                    borderRadius: 4,
+                    margin: 0,
+                    background: 'rgba(6, 182, 212, 0.12)',
+                    border: '1px solid #06b6d4',
+                    color: '#22d3ee',
+                  }}
+                >
+                  🔒 SPI-PL-004 — PL Spoke Plating Department
+                </Tag>
+              )}
               <div style={{ fontSize: 11, color: 'var(--theme-text-secondary)', marginTop: 3, display: 'flex', alignItems: 'center', gap: 4, fontWeight: 600 }}>
                 <SwapOutlined />
                 <span>Deducted OUT of this store</span>
@@ -4291,7 +4447,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                 }}
                 options={customers.map((c) => ({
                   value: String(c.name || c.companyName),
-                  label: c.customerCode ? `${c.customerCode} — ${c.name || c.companyName}` : String(c.name || c.companyName),
+                  label: `${c.name || c.companyName}${c.customerCode ? ` (${c.customerCode})` : ''}`,
                 }))}
               />
             </Col>
@@ -4465,12 +4621,65 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
               <Select
                 style={{ width: '100%', fontWeight: 700 }}
                 value={addNippleWarehouseId}
-                onChange={(w) => setAddNippleWarehouseId(w)}
+                onChange={(w) => {
+                  setAddNippleWarehouseId(w);
+                  if (addNippleTargetBatch) loadNippleStock(addNippleTargetBatch);
+                }}
                 options={warehouses.map((w) => ({
                   value: w.id,
-                  label: `${w.warehouseCode} — ${w.name}`,
+                  label: w.warehouseCode === 'WH-002' ? `🔒 ${w.warehouseCode} — ${w.name} (Dedicated Nipple Store)` : `${w.warehouseCode} — ${w.name}`,
                 }))}
               />
+            </Col>
+
+            {/* Live Nipple Store Balance in WH-002 */}
+            <Col span={24}>
+              <div
+                style={{
+                  background: nippleStockInfo?.sufficient ? 'rgba(16, 185, 129, 0.08)' : 'rgba(245, 158, 11, 0.08)',
+                  border: `1px solid ${nippleStockInfo?.sufficient ? '#10b981' : '#f59e0b'}`,
+                  borderRadius: 8,
+                  padding: '10px 14px',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <span style={{ fontWeight: 800, fontSize: 13, color: 'var(--theme-heading, #ffffff)' }}>
+                    📦 Live Nipple Store Balance (WH-002):
+                  </span>
+                  {nippleStockInfo?.loading ? (
+                    <Spin size="small" />
+                  ) : nippleStockInfo ? (
+                    <Tag color={nippleStockInfo.sufficient ? 'success' : 'warning'} style={{ fontWeight: 800 }}>
+                      {nippleStockInfo.sufficient ? '✅ In Stock — Ready to Deduct' : '⚠️ Insufficient Store Stock'}
+                    </Tag>
+                  ) : (
+                    <Tag color="default">Loading stock...</Tag>
+                  )}
+                </div>
+
+                {nippleStockInfo && !nippleStockInfo.loading && (
+                  <div style={{ fontSize: 12, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: 'var(--theme-text-muted, #94a3b8)' }}>Available in SPI Nipple Packing Warehouse:</span>
+                      <strong style={{ color: '#0284c7' }}>
+                        {formatNumber(nippleStockInfo.availableGross, 2)} GRS ({formatNumber(nippleStockInfo.availablePcs, 0)} PCS · {formatNumber(nippleStockInfo.availableCartons, 1)} CTN)
+                      </strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: 'var(--theme-text-muted, #94a3b8)' }}>Required to Complete Batch:</span>
+                      <strong style={{ color: '#d97706' }}>
+                        {addNippleTargetBatch.pendingNippleGross || (addNippleTargetBatch.cartons * 10)} GRS ({formatNumber(addNippleTargetBatch.pendingNipplePcs || (addNippleTargetBatch.cartons * 1440), 0)} PCS)
+                      </strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px dashed var(--theme-border, #334155)', paddingTop: 4 }}>
+                      <span style={{ color: 'var(--theme-text-muted, #94a3b8)' }}>Remaining Store Balance After Deduction:</span>
+                      <strong style={{ color: nippleStockInfo.sufficient ? '#10b981' : '#ef4444' }}>
+                        {formatNumber(Math.max(0, nippleStockInfo.availableGross - (addNippleTargetBatch.pendingNippleGross || (addNippleTargetBatch.cartons * 10))), 2)} GRS ({formatNumber(Math.max(0, nippleStockInfo.availablePcs - (addNippleTargetBatch.pendingNipplePcs || (addNippleTargetBatch.cartons * 1440))), 0)} PCS)
+                      </strong>
+                    </div>
+                  </div>
+                )}
+              </div>
             </Col>
           </Row>
         </div>
@@ -5104,12 +5313,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                   size="small"
                   type="primary"
                   icon={<PlusCircleOutlined />}
-                  onClick={() => {
-                    setAddNippleTargetBatch(r);
-                    setAddNippleDate(dayjs());
-                    setAddNippleWarehouseId('cf5c9db8-5e84-41d5-a4b4-988b8dfd122d');
-                    setAddNippleModalVisible(true);
-                  }}
+                  onClick={() => handleOpenAddNippleModal(r)}
                   style={{
                     background: '#10b981',
                     borderColor: '#10b981',
@@ -5279,12 +5483,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
           <Button
             type="primary"
             icon={<PlusCircleOutlined />}
-            onClick={() => {
-              setAddNippleTargetBatch(r);
-              setAddNippleDate(dayjs());
-              setAddNippleWarehouseId('cf5c9db8-5e84-41d5-a4b4-988b8dfd122d');
-              setAddNippleModalVisible(true);
-            }}
+            onClick={() => handleOpenAddNippleModal(r)}
             style={{
               background: '#059669',
               borderColor: '#059669',
@@ -5472,91 +5671,163 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
 
     return (
       <div className="erp-hand-packing-executive" style={{ padding: '0', width: '100%' }}>
-        {/* ── Top Summary Stat Cards (Full Theme Support) ── */}
-        <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
-          <Col xs={12} sm={6}>
-            <Card
-              size="small"
-              style={{
-                borderRadius: 8,
-                border: '1px solid var(--theme-border, #334155)',
-                borderLeft: '4px solid #10b981',
-                background: 'var(--theme-card-bg, var(--theme-surface, #ffffff))',
-                boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
-              }}
-            >
-              <div style={{ fontSize: 12, fontWeight: 800, color: '#10b981', display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span>🎯 Daily Target (8h Base)</span>
-              </div>
-              <div style={{ fontSize: 22, fontWeight: 900, color: 'var(--theme-heading, var(--theme-text, #0f172a))', marginTop: 4 }}>
-                100 <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--theme-text-muted, #94a3b8)' }}>Cartons</span>
-              </div>
-              <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', fontWeight: 600, whiteSpace: 'nowrap' }}>1,000 Gross / 144,000 PCS</div>
-            </Card>
-          </Col>
-          <Col xs={12} sm={6}>
-            <Card
-              size="small"
-              style={{
-                borderRadius: 8,
-                border: '1px solid var(--theme-border, #334155)',
-                borderLeft: '4px solid #0284c7',
-                background: 'var(--theme-card-bg, var(--theme-surface, #ffffff))',
-                boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
-              }}
-            >
-              <div style={{ fontSize: 12, fontWeight: 800, color: '#0284c7', display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span>📦 Total Packed (All Logs)</span>
-              </div>
-              <div style={{ fontSize: 22, fontWeight: 900, color: 'var(--theme-heading, var(--theme-text, #0f172a))', marginTop: 4 }}>
-                {overallStats.totalCartons} <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--theme-text-muted, #94a3b8)' }}>Cartons</span>
-              </div>
-              <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', fontWeight: 600, whiteSpace: 'nowrap' }}>
-                {formatNumber(overallStats.totalPcs, 0)} PCS ({overallStats.totalGross} Gross)
-              </div>
-            </Card>
-          </Col>
-          <Col xs={12} sm={6}>
-            <Card
-              size="small"
-              style={{
-                borderRadius: 8,
-                border: '1px solid var(--theme-border, #334155)',
-                borderLeft: '4px solid #8b5cf6',
-                background: 'var(--theme-card-bg, var(--theme-surface, #ffffff))',
-                boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
-              }}
-            >
-              <div style={{ fontSize: 12, fontWeight: 800, color: '#8b5cf6', display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span>⚖️ Total Weight Packed</span>
-              </div>
-              <div style={{ fontSize: 22, fontWeight: 900, color: 'var(--theme-heading, var(--theme-text, #0f172a))', marginTop: 4 }}>
-                {formatNumber(overallStats.totalWeightKg, 1)} <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--theme-text-muted, #94a3b8)' }}>KG</span>
-              </div>
-              <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', whiteSpace: 'nowrap' }}>Finished Goods Dispatch Weight</div>
-            </Card>
-          </Col>
-          <Col xs={12} sm={6}>
-            <Card
-              size="small"
-              style={{
-                borderRadius: 8,
-                border: '1px solid var(--theme-border, #334155)',
-                borderLeft: '4px solid #f97316',
-                background: 'var(--theme-card-bg, var(--theme-surface, #ffffff))',
-                boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
-              }}
-            >
-              <div style={{ fontSize: 12, fontWeight: 800, color: '#f97316', display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span>📋 Recorded Batches</span>
-              </div>
-              <div style={{ fontSize: 22, fontWeight: 900, color: 'var(--theme-heading, var(--theme-text, #0f172a))', marginTop: 4 }}>
-                {overallStats.totalBatches} <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--theme-text-muted, #94a3b8)' }}>Batches</span>
-              </div>
-              <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', whiteSpace: 'nowrap' }}>Across {dateGroupedEntries.length} Production Days</div>
-            </Card>
-          </Col>
-        </Row>
+        {/* ── Top Summary Stat Cards (Full Theme Support with Shaded Gradients & Big Icons) ── */}
+        {(() => {
+          const completePackingBatches = recentSavedEntries.filter(
+            (r) => !r.withoutNipple && r.status !== 'WITHOUT_NIPPLE' && r.customerName !== 'SAFETY STOCK' && !r.customerName.toLowerCase().includes('safety stock')
+          );
+          const safetyStockBatches = recentSavedEntries.filter(
+            (r) => !r.withoutNipple && r.status !== 'WITHOUT_NIPPLE' && (r.customerName === 'SAFETY STOCK' || r.customerName.toLowerCase().includes('safety stock'))
+          );
+          const shortPackingBatches = recentSavedEntries.filter(
+            (r) => r.withoutNipple || r.status === 'WITHOUT_NIPPLE'
+          );
+
+          const completeCartons = Math.round(completePackingBatches.reduce((s, r) => s + (r.cartons || 0), 0) * 100) / 100;
+          const completeGross = Math.round(completePackingBatches.reduce((s, r) => s + (r.gross || 0), 0) * 100) / 100;
+
+          const safetyCartons = Math.round(safetyStockBatches.reduce((s, r) => s + (r.cartons || 0), 0) * 100) / 100;
+          const safetyGross = Math.round(safetyStockBatches.reduce((s, r) => s + (r.gross || 0), 0) * 100) / 100;
+
+          const shortCartons = Math.round(shortPackingBatches.reduce((s, r) => s + (r.cartons || 0), 0) * 100) / 100;
+          const shortGross = Math.round(shortPackingBatches.reduce((s, r) => s + (r.gross || 0), 0) * 100) / 100;
+
+          return (
+            <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
+              {/* Card 1: Daily Shift Target */}
+              <Col xs={12} sm={6}>
+                <Card
+                  size="small"
+                  style={{
+                    borderRadius: 10,
+                    border: '1px solid rgba(16, 185, 129, 0.35)',
+                    borderLeft: '5px solid #10b981',
+                    background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(16, 185, 129, 0.02) 100%)',
+                    boxShadow: '0 3px 10px rgba(0,0,0,0.12)',
+                    position: 'relative',
+                    overflow: 'hidden',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <div>
+                      <div style={{ fontSize: 12, fontWeight: 800, color: '#10b981', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span>🎯 Daily Target (8h Base)</span>
+                      </div>
+                      <div style={{ fontSize: 24, fontWeight: 900, color: 'var(--theme-heading, var(--theme-text, #0f172a))', marginTop: 4 }}>
+                        100 <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--theme-text-muted, #94a3b8)' }}>Cartons</span>
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                        1,000 Gross / 144,000 PCS
+                      </div>
+                    </div>
+                    <div style={{ background: 'rgba(16, 185, 129, 0.15)', borderRadius: '50%', width: 42, height: 42, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <span style={{ fontSize: 22 }}>🎯</span>
+                    </div>
+                  </div>
+                </Card>
+              </Col>
+
+              {/* Card 2: Complete Packing (Dispatch Ready) */}
+              <Col xs={12} sm={6}>
+                <Card
+                  size="small"
+                  style={{
+                    borderRadius: 10,
+                    border: '1px solid rgba(5, 150, 105, 0.35)',
+                    borderLeft: '5px solid #059669',
+                    background: 'linear-gradient(135deg, rgba(5, 150, 105, 0.12) 0%, rgba(5, 150, 105, 0.02) 100%)',
+                    boxShadow: '0 3px 10px rgba(0,0,0,0.12)',
+                    position: 'relative',
+                    overflow: 'hidden',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <div>
+                      <div style={{ fontSize: 12, fontWeight: 800, color: '#059669', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span>📦 Complete Packing</span>
+                      </div>
+                      <div style={{ fontSize: 24, fontWeight: 900, color: '#059669', marginTop: 4 }}>
+                        {completeCartons} <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--theme-text-muted, #94a3b8)' }}>Cartons</span>
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                        {completeGross} Gross ({completePackingBatches.length} Customer Batches Ready)
+                      </div>
+                    </div>
+                    <div style={{ background: 'rgba(5, 150, 105, 0.15)', borderRadius: '50%', width: 42, height: 42, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <CheckCircleFilled style={{ fontSize: 24, color: '#059669' }} />
+                    </div>
+                  </div>
+                </Card>
+              </Col>
+
+              {/* Card 3: Safety Stock (Buffer Unallocated) */}
+              <Col xs={12} sm={6}>
+                <Card
+                  size="small"
+                  style={{
+                    borderRadius: 10,
+                    border: '1px solid rgba(2, 132, 199, 0.35)',
+                    borderLeft: '5px solid #0284c7',
+                    background: 'linear-gradient(135deg, rgba(2, 132, 199, 0.12) 0%, rgba(2, 132, 199, 0.02) 100%)',
+                    boxShadow: '0 3px 10px rgba(0,0,0,0.12)',
+                    position: 'relative',
+                    overflow: 'hidden',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <div>
+                      <div style={{ fontSize: 12, fontWeight: 800, color: '#0284c7', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span>🛡️ Safety Stock</span>
+                      </div>
+                      <div style={{ fontSize: 24, fontWeight: 900, color: '#0284c7', marginTop: 4 }}>
+                        {safetyCartons} <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--theme-text-muted, #94a3b8)' }}>Cartons</span>
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                        {safetyGross} Gross ({safetyStockBatches.length} Batches Held in Stock)
+                      </div>
+                    </div>
+                    <div style={{ background: 'rgba(2, 132, 199, 0.15)', borderRadius: '50%', width: 42, height: 42, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <DatabaseOutlined style={{ fontSize: 22, color: '#0284c7' }} />
+                    </div>
+                  </div>
+                </Card>
+              </Col>
+
+              {/* Card 4: Short Packing (Pending Nipple Queue) */}
+              <Col xs={12} sm={6}>
+                <Card
+                  size="small"
+                  style={{
+                    borderRadius: 10,
+                    border: '1px solid rgba(245, 158, 11, 0.45)',
+                    borderLeft: '5px solid #f59e0b',
+                    background: 'linear-gradient(135deg, rgba(245, 158, 11, 0.14) 0%, rgba(245, 158, 11, 0.02) 100%)',
+                    boxShadow: '0 3px 10px rgba(0,0,0,0.12)',
+                    position: 'relative',
+                    overflow: 'hidden',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <div>
+                      <div style={{ fontSize: 12, fontWeight: 800, color: '#f59e0b', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span>⏳ Short Packing</span>
+                      </div>
+                      <div style={{ fontSize: 24, fontWeight: 900, color: '#f59e0b', marginTop: 4 }}>
+                        {shortCartons} <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--theme-text-muted, #94a3b8)' }}>Cartons</span>
+                      </div>
+                      <div style={{ fontSize: 11, color: '#f59e0b', fontWeight: 700, whiteSpace: 'nowrap' }}>
+                        {shortGross} Gross ({shortPackingBatches.length} Batches Awaiting Nipple)
+                      </div>
+                    </div>
+                    <div style={{ background: 'rgba(245, 158, 11, 0.18)', borderRadius: '50%', width: 42, height: 42, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <WarningFilled style={{ fontSize: 22, color: '#f59e0b' }} />
+                    </div>
+                  </div>
+                </Card>
+              </Col>
+            </Row>
+          );
+        })()}
 
         {/* ── Action Toolbar: Filters + Big Green Button ── */}
         <Card
@@ -6343,9 +6614,21 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
             {/* Customer */}
             <Col xs={24} sm={10} lg={6}>
               <div>
-                <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--theme-text-muted, #94a3b8)', marginBottom: 4, display: 'block' }}>
-                  👤 Customer / Target
-                </span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                  <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--theme-text-muted, #94a3b8)' }}>
+                    👤 Customer / Target
+                  </span>
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={<SyncOutlined spin={customersLoading} style={{ fontSize: 10, color: '#38bdf8' }} />}
+                    style={{ padding: '0 4px', height: 18, fontSize: 10.5, color: '#38bdf8', fontWeight: 600 }}
+                    onClick={() => loadCustomers(true)}
+                    title="Refresh Customer List"
+                  >
+                    Refresh
+                  </Button>
+                </div>
                 <Select
                   showSearch
                   allowClear
@@ -6717,6 +7000,18 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
           }
           extra={
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <Button
+                size="small"
+                icon={<SyncOutlined spin={primaryItem.bomLoading} />}
+                onClick={() => {
+                  if (primaryItem.itemId) {
+                    expandBomForMasterItem(primaryItem.key, primaryItem.itemId, primaryItem.cartons ? primaryItem.cartons * 1440 : 72000);
+                  }
+                }}
+                style={{ fontSize: 11, fontWeight: 700 }}
+              >
+                Refresh BOM & Stock
+              </Button>
               <span style={{ fontSize: 12.5, fontWeight: 700, color: showBomTable ? '#10b981' : 'var(--theme-text-muted, #94a3b8)' }}>
                 {showBomTable ? 'BOM Table ON' : 'BOM Table OFF'}
               </span>
@@ -6758,16 +7053,39 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                         <Tag color="volcano" style={{ fontSize: 9.5, fontWeight: 800, padding: '0 5px', margin: 0, lineHeight: 1.4, borderRadius: 3 }}>
                           📤 OUT
                         </Tag>
-                        <Select
-                          size="small"
-                          style={{ width: '100%', maxWidth: 215, fontSize: 11.5, fontWeight: 600 }}
-                          value={c.sourceWarehouseId}
-                          onChange={(newWh) => handleComponentWarehouseChange(primaryItem.key, c.key, newWh)}
-                          options={warehouses.map((w) => ({
-                            value: w.id,
-                            label: `${w.warehouseCode} — ${w.name}`,
-                          }))}
-                        />
+                        {isNipple ? (
+                          <Tag
+                            color="geekblue"
+                            style={{
+                              fontSize: 11,
+                              fontWeight: 700,
+                              padding: '2px 8px',
+                              borderRadius: 4,
+                              margin: 0,
+                              background: 'rgba(59, 130, 246, 0.12)',
+                              border: '1px solid #3b82f6',
+                              color: '#60a5fa',
+                            }}
+                          >
+                            🔒 WH-002 — SPI Nipple Packing Warehouse
+                          </Tag>
+                        ) : (
+                          <Tag
+                            color="cyan"
+                            style={{
+                              fontSize: 11,
+                              fontWeight: 700,
+                              padding: '2px 8px',
+                              borderRadius: 4,
+                              margin: 0,
+                              background: 'rgba(6, 182, 212, 0.12)',
+                              border: '1px solid #06b6d4',
+                              color: '#22d3ee',
+                            }}
+                          >
+                            🔒 SPI-PL-004 — PL Spoke Plating Department
+                          </Tag>
+                        )}
                       </div>
                       {isNipple && (
                         <div style={{ marginTop: 6, padding: '4px 8px', background: c.packWithoutNipple ? 'rgba(245, 158, 11, 0.15)' : 'rgba(148, 163, 184, 0.08)', borderRadius: 5, border: c.packWithoutNipple ? '1.5px solid #f59e0b' : '1px dashed rgba(148, 163, 184, 0.3)' }}>

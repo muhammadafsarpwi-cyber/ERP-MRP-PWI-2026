@@ -16,12 +16,12 @@ export class GoodsReceiptLine extends BaseEntity {
   @JoinColumn({ name: 'receipt_id' })
   receipt: GoodsReceipt;
 
-  @Column({ name: 'po_line_id', type: 'uuid' })
-  poLineId: string;
+  @Column({ name: 'po_line_id', type: 'uuid', nullable: true })
+  poLineId?: string | null;
 
-  @ManyToOne(() => PurchaseOrderLine)
+  @ManyToOne(() => PurchaseOrderLine, { nullable: true })
   @JoinColumn({ name: 'po_line_id' })
-  poLine: PurchaseOrderLine;
+  poLine?: PurchaseOrderLine | null;
 
   @Column({ name: 'item_id', type: 'uuid' })
   itemId: string;

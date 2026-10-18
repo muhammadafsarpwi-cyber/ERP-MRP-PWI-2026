@@ -1,6 +1,7 @@
 import { Controller, Get, Param, Query, Req, UseGuards, BadRequestException } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiParam, ApiQuery, ApiBearerAuth } from '@nestjs/swagger';
 import { InventoryBalanceService } from '../services/inventory-balance.service';
+import { RawMaterialReceivingService } from '../services/raw-material-receiving.service';
 import { SupabaseJwtGuard } from '../../auth/guards/supabase-jwt.guard';
 import { PermissionGuard, RequirePermission } from '../../auth/guards/permission.guard';
 import { OrgScopeGuard, RequireOrgScope } from '../../auth/guards/org-scope.guard';
@@ -10,7 +11,10 @@ import { OrgScopeGuard, RequireOrgScope } from '../../auth/guards/org-scope.guar
 @UseGuards(SupabaseJwtGuard, OrgScopeGuard)
 @ApiBearerAuth()
 export class InventoryBalanceController {
-  constructor(private readonly inventoryBalanceService: InventoryBalanceService) {}
+  constructor(
+    private readonly inventoryBalanceService: InventoryBalanceService,
+    private readonly rawMaterialService: RawMaterialReceivingService,
+  ) {}
 
   /** Resolve the caller's company scope (authoritative when no explicit filter is sent). */
   private resolveCompanyId(req: any, queryCompanyId?: string): string {
@@ -32,6 +36,7 @@ export class InventoryBalanceController {
   @ApiQuery({ name: 'companyId', required: false })
   @ApiQuery({ name: 'itemId', required: false })
   @ApiQuery({ name: 'warehouseId', required: false })
+  @ApiQuery({ name: 'divisionId', required: false })
   @ApiQuery({ name: 'sortField', required: false })
   @ApiQuery({ name: 'sortOrder', required: false })
   async findAll(
@@ -41,12 +46,13 @@ export class InventoryBalanceController {
     @Query('companyId') companyId?: string,
     @Query('itemId') itemId?: string,
     @Query('warehouseId') warehouseId?: string,
+    @Query('divisionId') divisionId?: string,
     @Query('sortField') sortField?: string,
     @Query('sortOrder') sortOrder?: string,
   ) {
     const result = await this.inventoryBalanceService.findAll({
       page: Number(page) || 1, limit: Number(limit) || 20,
-      companyId: this.resolveCompanyId(req, companyId), itemId, warehouseId,
+      companyId: this.resolveCompanyId(req, companyId), itemId, warehouseId, divisionId,
     });
     return { success: true, ...result };
   }
@@ -127,6 +133,25 @@ export class InventoryBalanceController {
     });
 
     return { success: true, data: { companyId, warehouseId, items } };
+  }
+
+  @Get('items/:itemId/ledger')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('inventory.view')
+  @ApiOperation({ summary: 'Get stock movement ledger history for an item' })
+  async getItemLedgerHistory(
+    @Param('itemId') itemId: string,
+    @Query('warehouseId') warehouseId: string | undefined,
+    @Req() req: any,
+  ) {
+    const companyId = this.resolveCompanyId(req);
+    const data = await this.rawMaterialService.getItemLedgerHistory(
+      companyId,
+      itemId,
+      warehouseId,
+    );
+    return { success: true, data };
   }
 
   @Get(':id')

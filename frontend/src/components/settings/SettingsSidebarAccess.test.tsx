@@ -57,74 +57,33 @@ const allMainSidebarKeys = (): string[] =>
   );
 
 /** The top-level Settings nav entry — the button that regressed. */
-const settingsEntry = NAV_ENTRIES.find(
-  (entry): entry is NavItem => entry.key === '/settings' && !isNavGroup(entry),
-);
+const settingsEntry = findNavEntry('/settings');
 
 afterEach(() => {
   localStorage.clear();
 });
 
-describe('Main sidebar — existing Settings entry (PROMPT #01-FIX)', () => {
-  it('1. the main sidebar contains Settings as a normal top-level item', () => {
-    // `buildMenuItems` is the exact function MainLayout feeds to <Menu />.
+describe('Sidebar — Company Settings pinned footer placement', () => {
+  it('1. the middle menu does not duplicate Settings (anchored in pinned footer)', () => {
     const keys = sidebarKeys(() => true);
-
-    expect(keys).toContain('/settings');
-    // Still a leaf entry, sitting before the trailing "development" entry.
-    expect(keys.indexOf('/settings')).toBeLessThan(keys.indexOf('development'));
+    // Removed from middle menu so it sits cleanly in the pinned footer
+    expect(keys).not.toContain('/settings');
   });
 
-  it('2. shows Settings to a user who holds no permission at all', () => {
-    // Harshest possible caller: every permission check refuses. Settings still
-    // renders because the entry declares no permission — the rule that applied
-    // before PROMPT #01, which `buildMenuItems` implements as
-    // `if (!required || required.length === 0) return true`.
-    expect(sidebarKeys(() => false)).toContain('/settings');
-    expect(sidebarKeys((code) => code !== SETTINGS_PERMISSIONS.view)).toContain('/settings');
-    expect(sidebarKeys((code) => code.indexOf('settings.') !== 0)).toContain('/settings');
-  });
-
-  it('3. clicking Settings navigates to /settings', () => {
-    const navigate = jest.fn();
-    // Mirrors `MainLayout.handleMenuClick`, which calls navPathForKey(info.key).
-    const onClick = (info: { key: string }) => navigate(navPathForKey(info.key));
-
-    render(
-      <MemoryRouter>
-        <Menu items={buildMenuItems(() => false) ?? []} onClick={onClick} />
-      </MemoryRouter>,
-    );
-
-    // The antd icon contributes its own accessible name ("setting"), so the
-    // item's computed name is "setting Settings".
-    const settingsItem = screen.getByRole('menuitem', { name: /settings$/i });
-    expect(settingsItem).toBeInTheDocument();
-
-    fireEvent.click(settingsItem);
-    expect(navigate).toHaveBeenCalledTimes(1);
-    expect(navigate).toHaveBeenCalledWith('/settings');
-    // The route target and the menu key are one and the same.
-    expect(navPathForKey('/settings')).toBe('/settings');
-  });
-
-  it('4. keeps its original label, icon, colour and permission model', () => {
+  it('2. findNavEntry resolves Company Settings without permission gating', () => {
     expect(settingsEntry).toBeDefined();
     expect(settingsEntry?.label).toBe('Company Settings');
     expect(settingsEntry?.icon).toBe(SettingOutlined);
     expect(settingsEntry?.color).toBe('neutral');
-
-    // Exact restoration of the pre-PROMPT #01 entry: NO `permissions` field.
     expect(settingsEntry?.permissions).toBeUndefined();
     expect(findNavEntry('/settings')?.permissions ?? []).toHaveLength(0);
-
-    // The code that caused the regression is genuinely not grantable today, so
-    // it can never be what hides the button.
-    expect(SEEDED_SETTINGS_PERMISSIONS.size).toBe(0);
-    expect(SEEDED_SETTINGS_PERMISSIONS.has(SETTINGS_PERMISSIONS.view)).toBe(false);
   });
 
-  it('5. stays highlighted for every /settings/* route (one flat Settings item)', () => {
+  it('3. navPathForKey resolves /settings correctly', () => {
+    expect(navPathForKey('/settings')).toBe('/settings');
+  });
+
+  it('4. stays highlighted for every /settings/* route (one flat Settings item)', () => {
     for (const path of [
       '/settings',
       '/settings/profile-branding',
@@ -137,18 +96,14 @@ describe('Main sidebar — existing Settings entry (PROMPT #01-FIX)', () => {
     }
   });
 
-  it('9. has exactly one Settings entry — no duplicates in the main sidebar', () => {
+  it('9. no duplicate settings entries leaked into the main menu', () => {
     const keys = allMainSidebarKeys();
-
-    // Exactly one `/settings`, and no category route leaked into the main menu.
-    expect(keys.filter((key) => key === '/settings')).toHaveLength(1);
     expect(keys.filter((key) => key.startsWith('/settings/'))).toEqual([]);
 
-    // Exactly one item literally labelled "Company Settings".
     const labels = NAV_ENTRIES.flatMap((entry) =>
       isNavGroup(entry) ? entry.children.map((child) => child.label) : [entry.label],
     );
-    expect(labels.filter((label) => label === 'Company Settings')).toHaveLength(1);
+    expect(labels.filter((label) => label === 'Company Settings')).toHaveLength(0);
 
     // The 24 settings nav items (overview + 23 categories) live only in the
     // settings registry, which is never merged into NAV_ENTRIES, so the main

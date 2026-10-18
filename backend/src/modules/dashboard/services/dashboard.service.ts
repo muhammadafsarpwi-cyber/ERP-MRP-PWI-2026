@@ -21,7 +21,7 @@ import { ProductionRouting, RoutingOperation } from '../../production-routing/en
 import { ItemBarcode } from '../../item/entities/item-barcode.entity';
 import { UomConversion } from '../../item/entities/uom-conversion.entity';
 import { applyDivisionScopeFilter } from '../../../common/division-scope.util';
-import { sortDepartmentsFloorWise } from '../../../common/floor-wise-department.util';
+import { floorWiseDepartmentRank, sortDepartmentsFloorWise } from '../../../common/floor-wise-department.util';
 
 export interface DashboardFilters {
   divisionId?: string;
@@ -154,6 +154,9 @@ export class DashboardService {
     const itemCountQb = this.itemRepo
       .createQueryBuilder('i')
       .where('i.companyId = :companyId', { companyId });
+    if (filters?.departmentId) itemCountQb.andWhere('i.department_id = :departmentId', { departmentId: filters.departmentId });
+    if (filters?.sectionId) itemCountQb.andWhere('i.section_id = :sectionId', { sectionId: filters.sectionId });
+    if (filters?.divisionId) itemCountQb.andWhere('i.division_id = :divisionId', { divisionId: filters.divisionId });
     applyDivisionScopeFilter(itemCountQb, 'i.divisionId', allowedDivisionIds);
     const [totalItems, activeItems] = await Promise.all([
       itemCountQb.getCount(),
@@ -162,20 +165,27 @@ export class DashboardService {
 
     const machineCountQb = this.machineRepo
       .createQueryBuilder('m')
+      .leftJoin('m.department', 'd')
       .where('m.companyId = :companyId', { companyId });
+    if (filters?.departmentId) machineCountQb.andWhere('m.department_id = :departmentId', { departmentId: filters.departmentId });
+    if (filters?.sectionId) machineCountQb.andWhere('d.section_id = :sectionId', { sectionId: filters.sectionId });
+    if (filters?.divisionId) machineCountQb.andWhere('(m.division_id = :divisionId OR d.division_id = :divisionId)', { divisionId: filters.divisionId });
     applyDivisionScopeFilter(machineCountQb, 'm.divisionId', allowedDivisionIds);
     let totalMachines = await machineCountQb.getCount();
     let activeMachines = await machineCountQb.clone().andWhere('m.status = :machineStatus', { machineStatus: 'ACTIVE' }).getCount();
     const machineStatusMap: Record<string, number> = {};
 
-    if (filters?.departmentId) {
+    if (filters?.departmentId || filters?.divisionId || filters?.sectionId) {
       const deptStatusQb = this.machineRepo
         .createQueryBuilder('m')
+        .leftJoin('m.department', 'd')
         .select('m.status', 'status')
         .addSelect('COUNT(*)', 'count')
-        .where('m."company_id" = :companyId', { companyId })
-        .andWhere('m."department_id" = :departmentId', { departmentId: filters.departmentId })
-        .groupBy('m.status');
+        .where('m."company_id" = :companyId', { companyId });
+      if (filters?.departmentId) deptStatusQb.andWhere('m."department_id" = :departmentId', { departmentId: filters.departmentId });
+      if (filters?.sectionId) deptStatusQb.andWhere('d.section_id = :sectionId', { sectionId: filters.sectionId });
+      if (filters?.divisionId) deptStatusQb.andWhere('(m.division_id = :divisionId OR d.division_id = :divisionId)', { divisionId: filters.divisionId });
+      deptStatusQb.groupBy('m.status');
       applyDivisionScopeFilter(deptStatusQb, 'm.divisionId', allowedDivisionIds);
       const statusRows = await deptStatusQb.getRawMany();
       totalMachines = statusRows.reduce((s, r) => s + parseInt(r.count, 10), 0);
@@ -198,12 +208,22 @@ export class DashboardService {
       .where('pe.company_id = :companyId', { companyId })
       .andWhere('pe.is_active = true');
     if (filters?.departmentId) entryQb.andWhere('pe.department_id = :departmentId', { departmentId: filters.departmentId });
+    if (filters?.sectionId) {
+      entryQb.innerJoin(Department, 'dSec', 'dSec.id = pe.department_id')
+        .andWhere('dSec.section_id = :sectionId', { sectionId: filters.sectionId });
+    }
+    if (filters?.divisionId) {
+      entryQb.innerJoin(Department, 'dDiv', 'dDiv.id = pe.department_id')
+        .andWhere('dDiv.division_id = :divisionId', { divisionId: filters.divisionId });
+    }
     applyDivisionScopeFilter(entryQb, 'pe.divisionId', allowedDivisionIds);
 
-    const [totalEntries, todayEntries] = await Promise.all([
+    const [totalEntries, todayEntries, lastEntryRow] = await Promise.all([
       entryQb.getCount(),
       entryQb.clone().andWhere('pe.entry_date = :today', { today }).getCount(),
+      entryQb.clone().select("TO_CHAR(MAX(pe.entry_date), 'YYYY-MM-DD')", 'lastDate').getRawOne<{ lastDate: string | null }>(),
     ]);
+    const lastEntryDate = lastEntryRow?.lastDate ?? null;
 
     const targetCountQb = this.machineTargetRepo.createQueryBuilder('mt')
       .where('mt."company_id" = :companyId', { companyId });
@@ -220,10 +240,14 @@ export class DashboardService {
     applyDivisionScopeFilter(targetCountQb, 'mtm.divisionId', allowedDivisionIds);
     applyDivisionScopeFilter(targetActiveCountQb, 'mtm.divisionId', allowedDivisionIds);
 
+    const whCountQb = this.warehouseRepo.createQueryBuilder('w').where('w.company_id = :companyId', { companyId }).andWhere('w.is_active = true');
+    if (filters?.divisionId) whCountQb.andWhere('w.division_id = :divisionId', { divisionId: filters.divisionId });
+    applyDivisionScopeFilter(whCountQb, 'w.divisionId', allowedDivisionIds);
+
     const [totalTargets, activeTargets, totalWarehouses, totalPOs, totalSOs] = await Promise.all([
       targetCountQb.getCount(),
       targetActiveCountQb.andWhere('mt.status = :status', { status: 'ACTIVE' }).getCount(),
-      this.warehouseRepo.count({ where: { companyId } }),
+      whCountQb.getCount(),
       this.purchaseOrderRepo.count({ where: { companyId } }),
       this.salesOrderRepo.count({ where: { companyId } }),
     ]);
@@ -261,7 +285,7 @@ export class DashboardService {
     return {
       items: { total: totalItems, active: activeItems },
       machines: { total: totalMachines, active: activeMachines, statusBreakdown: machineStatusMap },
-      productionEntries: { total: totalEntries, today: todayEntries },
+      productionEntries: { total: totalEntries, today: todayEntries, lastEntryDate },
       machineTargets: { total: totalTargets, active: activeTargets },
       warehouses: { total: totalWarehouses },
       purchaseOrders: { total: totalPOs, active: activePOs },
@@ -272,6 +296,25 @@ export class DashboardService {
         lowStockItems,
       },
     };
+  }
+
+  async getLastEntryDate(companyId: string, filters?: DashboardFilters): Promise<{ lastEntryDate: string | null }> {
+    const qb = this.entryRepo.createQueryBuilder('pe')
+      .where('pe.company_id = :companyId', { companyId })
+      .andWhere('pe.is_active = true')
+      .select("TO_CHAR(MAX(pe.entry_date), 'YYYY-MM-DD')", 'lastEntryDate');
+    if (filters?.departmentId) qb.andWhere('pe.department_id = :departmentId', { departmentId: filters.departmentId });
+    if (filters?.sectionId) {
+      qb.innerJoin(Department, 'dSec', 'dSec.id = pe.department_id')
+        .andWhere('dSec.section_id = :sectionId', { sectionId: filters.sectionId });
+    }
+    if (filters?.divisionId) {
+      qb.innerJoin(Department, 'dDiv', 'dDiv.id = pe.department_id')
+        .andWhere('dDiv.division_id = :divisionId', { divisionId: filters.divisionId });
+    }
+    applyDivisionScopeFilter(qb, 'pe.divisionId', filters?.allowedDivisionIds);
+    const row = await qb.getRawOne<{ lastEntryDate: string | null }>();
+    return { lastEntryDate: row?.lastEntryDate ?? null };
   }
 
   async getProductionSummary(companyId: string, filters?: DashboardFilters) {
@@ -308,6 +351,7 @@ export class DashboardService {
       .addSelect('COALESCE(SUM(pe.target_quantity), 0)', 'totalTarget')
       .addSelect('COALESCE(SUM(pe.actual_quantity), 0)', 'totalActual')
       .addSelect('COALESCE(SUM(pe.scrap_quantity), 0)', 'totalScrap')
+      .addSelect('COALESCE(SUM(pe.process_scrap_kg), 0)', 'totalProcessScrap')
       .addSelect('COALESCE(SUM(pe.running_hours), 0)', 'totalRunningHours')
       .addSelect('COALESCE(SUM(pe.downtime_hours), 0)', 'totalDowntimeHours')
       .getRawOne<{
@@ -315,6 +359,7 @@ export class DashboardService {
         totalTarget: string;
         totalActual: string;
         totalScrap: string;
+        totalProcessScrap: string;
         totalRunningHours: string;
         totalDowntimeHours: string;
       }>();
@@ -326,6 +371,7 @@ export class DashboardService {
       .addSelect('COALESCE(SUM(pe.target_quantity), 0)', 'targetQuantity')
       .addSelect('COALESCE(SUM(pe.actual_quantity), 0)', 'actualQuantity')
       .addSelect('COALESCE(SUM(pe.scrap_quantity), 0)', 'scrapQuantity')
+      .addSelect('COALESCE(SUM(pe.process_scrap_kg), 0)', 'processScrapKg')
       .addSelect('COALESCE(SUM(pe.running_hours), 0)', 'runningHours')
       .addSelect('COALESCE(SUM(pe.downtime_hours), 0)', 'downtimeHours')
       .leftJoin(Department, 'dep', 'dep.id = pe.department_id')
@@ -339,6 +385,7 @@ export class DashboardService {
         targetQuantity: string;
         actualQuantity: string;
         scrapQuantity: string;
+        processScrapKg: string;
         runningHours: string;
         downtimeHours: string;
       }>();
@@ -352,19 +399,116 @@ export class DashboardService {
     const totalTarget = num(totals?.totalTarget);
     const totalActual = num(totals?.totalActual);
     const totalScrap = num(totals?.totalScrap);
+    const totalProcessScrap = num(totals?.totalProcessScrap);
     const totalRunningHours = num(totals?.totalRunningHours);
     const totalDowntimeHours = num(totals?.totalDowntimeHours);
 
+    // If no single department filter is applied, guarantee all canonical floor-line
+    // departments (Straightener, Swaging, Spoke, Spoke Plating, Spoke Packing)
+    // are present on the floor line with 0 baseline even when 0 entries exist on that date.
+    let baselineDepts: Array<{ id: string; name: string }> = [];
+    if (!filters?.departmentId) {
+      try {
+        const depQb = this.departmentRepo
+          .createQueryBuilder('d')
+          .where('d.company_id = :companyId', { companyId })
+          .andWhere('d.is_active = true');
+
+        if (filters?.sectionId) {
+          depQb.andWhere('d.section_id = :sectionId', { sectionId: filters.sectionId });
+        } else if (filters?.divisionId) {
+          depQb.andWhere('d.division_id = :divisionId', { divisionId: filters.divisionId });
+        } else {
+          depQb.andWhere('(d.division_id = :spokeDivId OR d.name IN (:...floorNames))', {
+            spokeDivId: 'd1000000-0000-0000-0000-000000000001',
+            floorNames: ['Straightener', 'Swagging', 'Spoke', 'Spoke Plating', 'Nipple Packing', 'Spoke Packing', 'Packing'],
+          });
+        }
+        applyDivisionScopeFilter(depQb, 'd.divisionId', filters?.allowedDivisionIds);
+        const fetchedDepts = await depQb.select(['d.id', 'd.name']).getMany();
+        // Only include canonical physical floor stages for baseline completion
+        baselineDepts = fetchedDepts.filter((d) => floorWiseDepartmentRank(d.name) !== -1);
+      } catch {
+        // Fallback gracefully to existing rows if query fails
+      }
+    }
+
+    // Preserve canonical departments: Spoke Packing aliases merge into Spoke Packing,
+    // while Nipple Packing remains its own distinct department.
+    const SPOKE_PACKING_ID = 'd3000000-0000-0000-0000-000000000008';
+    const normalizedDeptRows: Array<(typeof deptRows)[number]> = [];
+    let spokePackingAcc: (typeof deptRows)[number] | null = null;
+
+    for (const r of deptRows) {
+      const nameLower = (r.departmentName || '').trim().toLowerCase();
+      const isSpokePack =
+        r.departmentId === SPOKE_PACKING_ID ||
+        nameLower === 'spoke packing' ||
+        nameLower === 'hand packing' ||
+        nameLower === 'spoke packing department';
+
+      if (isSpokePack) {
+        if (!spokePackingAcc) {
+          spokePackingAcc = {
+            ...r,
+            departmentId: SPOKE_PACKING_ID,
+            departmentName: 'Spoke Packing',
+          };
+        } else {
+          spokePackingAcc.entryCount = String(Number(spokePackingAcc.entryCount || 0) + Number(r.entryCount || 0));
+          spokePackingAcc.targetQuantity = String(Number(spokePackingAcc.targetQuantity || 0) + Number(r.targetQuantity || 0));
+          spokePackingAcc.actualQuantity = String(Number(spokePackingAcc.actualQuantity || 0) + Number(r.actualQuantity || 0));
+          spokePackingAcc.scrapQuantity = String(Number(spokePackingAcc.scrapQuantity || 0) + Number(r.scrapQuantity || 0));
+          spokePackingAcc.processScrapKg = String(Number(spokePackingAcc.processScrapKg || 0) + Number(r.processScrapKg || 0));
+          spokePackingAcc.runningHours = String(Number(spokePackingAcc.runningHours || 0) + Number(r.runningHours || 0));
+          spokePackingAcc.downtimeHours = String(Number(spokePackingAcc.downtimeHours || 0) + Number(r.downtimeHours || 0));
+        }
+      } else {
+        normalizedDeptRows.push(r);
+      }
+    }
+
+    if (spokePackingAcc) {
+      normalizedDeptRows.push(spokePackingAcc);
+    }
+
+    const rowMap = new Map<string, (typeof deptRows)[number]>();
+    for (const r of normalizedDeptRows) {
+      if (r.departmentId) rowMap.set(r.departmentId, r);
+    }
+
+    const combinedRows = [...normalizedDeptRows];
+    for (const bd of baselineDepts) {
+      if (!rowMap.has(bd.id)) {
+        combinedRows.push({
+          departmentId: bd.id,
+          departmentName: bd.name,
+          entryCount: '0',
+          targetQuantity: '0',
+          actualQuantity: '0',
+          scrapQuantity: '0',
+          processScrapKg: '0',
+          runningHours: '0',
+          downtimeHours: '0',
+        });
+      }
+    }
+
     const departments = sortDepartmentsFloorWise(
-      deptRows.map((r) => {
+      combinedRows.map((r) => {
         const targetQuantity = num(r.targetQuantity);
         const actualQuantity = num(r.actualQuantity);
+        const scrapQuantity = num(r.scrapQuantity);
+        const processScrapKg = num(r.processScrapKg);
         return {
           departmentId: r.departmentId,
           departmentName: r.departmentName ?? 'Unknown',
           targetQuantity,
           actualQuantity,
-          scrapQuantity: num(r.scrapQuantity),
+          scrapQuantity,
+          processScrapKg,
+          productRejection: scrapQuantity,
+          processCuttingScrap: processScrapKg,
           runningHours: num(r.runningHours),
           downtimeHours: num(r.downtimeHours),
           entryCount: num(r.entryCount),
@@ -385,6 +529,8 @@ export class DashboardService {
         totalTarget: round4(totalTarget),
         totalActual: round4(totalActual),
         totalScrap: round4(totalScrap),
+        productRejection: round4(totalScrap),
+        processCuttingScrap: round4(totalProcessScrap),
         totalRunningHours: round2(totalRunningHours),
         totalDowntimeHours: round2(totalDowntimeHours),
         // Overall achievement = Actual ÷ Target × 100 with a
@@ -398,23 +544,35 @@ export class DashboardService {
     };
   }
 
-  async getProductionTrend(companyId: string, days: number = 14, filters?: DashboardFilters) {
-    const dateFrom = new Date();
-    dateFrom.setDate(dateFrom.getDate() - days);
-    const dateStr = dateFrom.toISOString().slice(0, 10);
-
+  async getProductionTrend(companyId: string, days: number = 31, filters?: DashboardFilters) {
     const qb = this.entryRepo
       .createQueryBuilder('pe')
-      .select('pe.entry_date', 'date')
+      .select("TO_CHAR(pe.entry_date, 'YYYY-MM-DD')", 'date')
       .addSelect('COUNT(*)', 'entryCount')
-      .addSelect('SUM(pe.target_quantity)', 'target')
-      .addSelect('SUM(pe.actual_quantity)', 'actual')
-      .addSelect('SUM(pe.scrap_quantity)', 'scrap')
-      .addSelect('SUM(pe.running_hours)', 'runningHours')
-      .addSelect('SUM(pe.downtime_hours)', 'downtimeHours')
+      .addSelect('COALESCE(SUM(pe.target_quantity), 0)', 'target')
+      .addSelect('COALESCE(SUM(pe.actual_quantity), 0)', 'actual')
+      .addSelect('COALESCE(SUM(pe.scrap_quantity), 0)', 'scrap')
+      .addSelect('COALESCE(SUM(pe.running_hours), 0)', 'runningHours')
+      .addSelect('COALESCE(SUM(pe.downtime_hours), 0)', 'downtimeHours')
       .where('pe.company_id = :companyId', { companyId })
-      .andWhere('pe.is_active = true')
-      .andWhere('pe.entry_date >= :dateStr', { dateStr });
+      .andWhere('pe.is_active = true');
+
+    if (filters?.dateFrom) {
+      qb.andWhere('pe.entry_date >= :dateFrom', { dateFrom: filters.dateFrom });
+    } else {
+      // By default, show all days from the 1st of the current month (or at least `days` days ago)
+      const now = new Date();
+      const firstOfMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+      const dateLimit = new Date();
+      dateLimit.setDate(dateLimit.getDate() - days);
+      const limitStr = dateLimit.toISOString().slice(0, 10);
+      const effectiveDateFrom = firstOfMonth < limitStr ? firstOfMonth : limitStr;
+      qb.andWhere('pe.entry_date >= :effectiveDateFrom', { effectiveDateFrom });
+    }
+
+    if (filters?.dateTo) {
+      qb.andWhere('pe.entry_date <= :dateTo', { dateTo: filters.dateTo });
+    }
 
     if (filters?.departmentId) qb.andWhere('pe.department_id = :departmentId', { departmentId: filters.departmentId });
     if (filters?.shiftId) qb.andWhere('pe.shift_id = :shiftId', { shiftId: filters.shiftId });
@@ -544,22 +702,36 @@ export class DashboardService {
     if (filters?.itemType) qb.andWhere('i.item_type = :itemType', { itemType: filters.itemType });
     if (filters?.status) qb.andWhere('i.status = :status', { status: filters.status });
     if (filters?.departmentId) qb.andWhere('i.department_id = :departmentId', { departmentId: filters.departmentId });
+    if (filters?.sectionId) {
+      qb.andWhere('(i.section_id = :sectionId OR department.section_id = :sectionId)', { sectionId: filters.sectionId });
+    }
+    if (filters?.divisionId) {
+      qb.andWhere('(i.division_id = :divisionId OR department.division_id = :divisionId)', { divisionId: filters.divisionId });
+    }
     if (filters?.search) qb.andWhere('(LOWER(i.item_code) LIKE :search OR LOWER(i.name) LIKE :search)', { search: `%${filters.search.toLowerCase()}%` });
     applyDivisionScopeFilter(qb, 'i.divisionId', filters?.allowedDivisionIds);
 
     qb.orderBy('i.item_code', 'ASC');
     const items = await qb.getMany();
 
-    const stockBalances = await this.inventoryBalanceRepo
+    const stockBalancesQb = this.inventoryBalanceRepo
       .createQueryBuilder('ib')
+      .leftJoin('ib.warehouse', 'w')
       .select('ib."item_id"', 'itemId')
       .addSelect('SUM(ib.on_hand)', 'onHand')
       .addSelect('SUM(ib.reserved)', 'reserved')
       .addSelect('SUM(ib.available)', 'available')
+      .addSelect("STRING_AGG(DISTINCT w.name, ', ')", 'warehouseName')
+      .addSelect("STRING_AGG(DISTINCT w.warehouse_code, ', ')", 'warehouseCode')
       .where('ib."company_id" = :companyId', { companyId })
-      .andWhere('ib.status = :status', { status: 'ACTIVE' })
-      .groupBy('ib."item_id"')
-      .getRawMany();
+      .andWhere('ib.status = :status', { status: 'ACTIVE' });
+
+    if (filters?.divisionId) {
+      stockBalancesQb.andWhere('w.division_id = :divisionId', { divisionId: filters.divisionId });
+    }
+
+    stockBalancesQb.groupBy('ib."item_id"');
+    const stockBalances = await stockBalancesQb.getRawMany();
 
     const stockMap = new Map<string, any>();
     for (const s of stockBalances) {
@@ -567,6 +739,8 @@ export class DashboardService {
         onHand: Math.round(Number(s.onHand) * 100) / 100,
         reserved: Math.round(Number(s.reserved) * 100) / 100,
         available: Math.round(Number(s.available) * 100) / 100,
+        warehouseName: s.warehouseName || null,
+        warehouseCode: s.warehouseCode || null,
       });
     }
 
@@ -588,25 +762,36 @@ export class DashboardService {
       });
     }
 
-    return items.map(item => ({
-      id: item.id,
-      itemCode: item.itemCode,
-      name: item.name,
-      departmentName: (item.department as any)?.name ?? null,
-      wireSizeMm: item.wireSizeMm != null ? Number(item.wireSizeMm) : null,
-      itemType: item.itemType,
-      status: item.status,
-      isManufacturable: item.isManufacturable,
-      isPurchasable: item.isPurchasable,
-      isSellable: item.isSellable,
-      costPrice: item.costPrice,
-      sellingPrice: item.sellingPrice,
-      minimumStockLevel: item.minimumStockLevel,
-      maximumStockLevel: item.maximumStockLevel,
-      reorderLevel: item.reorderLevel,
-      stock: stockMap.get(item.id) ?? { onHand: 0, reserved: 0, available: 0 },
-      production: prodMap.get(item.id) ?? { entryCount: 0, totalActual: 0 },
-    }));
+    return items.map(item => {
+      const stock = stockMap.get(item.id) ?? {
+        onHand: 0,
+        reserved: 0,
+        available: 0,
+        warehouseName: null,
+        warehouseCode: null,
+      };
+      return {
+        id: item.id,
+        itemCode: item.itemCode,
+        name: item.name,
+        departmentName: (item.department as any)?.name ?? null,
+        wireSizeMm: item.wireSizeMm != null ? Number(item.wireSizeMm) : null,
+        itemType: item.itemType,
+        status: item.status,
+        isManufacturable: item.isManufacturable,
+        isPurchasable: item.isPurchasable,
+        isSellable: item.isSellable,
+        costPrice: item.costPrice,
+        sellingPrice: item.sellingPrice,
+        minimumStockLevel: item.minimumStockLevel,
+        maximumStockLevel: item.maximumStockLevel,
+        reorderLevel: item.reorderLevel,
+        warehouseName: stock.warehouseName ?? null,
+        warehouseCode: stock.warehouseCode ?? null,
+        stock,
+        production: prodMap.get(item.id) ?? { entryCount: 0, totalActual: 0 },
+      };
+    });
   }
 
   async getItemRoute(companyId: string, itemId: string) {
@@ -930,18 +1115,21 @@ export class DashboardService {
     });
   }
 
-  async getInventorySummary(companyId: string, filters?: { warehouseId?: string }) {
-    const warehouseStockQb = this.inventoryBalanceRepo
-      .createQueryBuilder('ib')
-      .leftJoinAndSelect('ib.warehouse', 'warehouse')
-      .leftJoinAndSelect('ib.item', 'item')
-      .leftJoinAndSelect('ib.uom', 'uom')
-      .where('ib."company_id" = :companyId', { companyId })
-      .andWhere('ib.status = :status', { status: 'ACTIVE' });
+  async getInventorySummary(
+    companyId: string,
+    filters?: { warehouseId?: string; divisionId?: string; sectionId?: string; departmentId?: string; allowedDivisionIds?: string[] },
+  ) {
+    const whQb = this.warehouseRepo
+      .createQueryBuilder('w')
+      .where('w.company_id = :companyId', { companyId })
+      .andWhere('w.is_active = true');
 
-    if (filters?.warehouseId) warehouseStockQb.andWhere('ib.warehouse_id = :warehouseId', { warehouseId: filters.warehouseId });
-    warehouseStockQb.orderBy('warehouse.warehouse_code', 'ASC');
-    const warehouseStock = await warehouseStockQb.getMany();
+    if (filters?.warehouseId) whQb.andWhere('w.id = :warehouseId', { warehouseId: filters.warehouseId });
+    if (filters?.divisionId) whQb.andWhere('w.division_id = :divisionId', { divisionId: filters.divisionId });
+    applyDivisionScopeFilter(whQb, 'w.divisionId', filters?.allowedDivisionIds);
+
+    whQb.orderBy('w.warehouse_code', 'ASC');
+    const allWarehouses = await whQb.getMany();
 
     const warehousesMap = new Map<string, {
       warehouseId: string;
@@ -952,6 +1140,32 @@ export class DashboardService {
       totalReserved: number;
       totalAvailable: number;
     }>();
+
+    for (const w of allWarehouses) {
+      warehousesMap.set(w.id, {
+        warehouseId: w.id,
+        warehouseCode: w.warehouseCode || '',
+        warehouseName: w.name || '',
+        totalItems: 0,
+        totalOnHand: 0,
+        totalReserved: 0,
+        totalAvailable: 0,
+      });
+    }
+
+    const warehouseStockQb = this.inventoryBalanceRepo
+      .createQueryBuilder('ib')
+      .leftJoinAndSelect('ib.warehouse', 'warehouse')
+      .leftJoinAndSelect('ib.item', 'item')
+      .leftJoinAndSelect('ib.uom', 'uom')
+      .where('ib."company_id" = :companyId', { companyId })
+      .andWhere('ib.status = :status', { status: 'ACTIVE' });
+
+    if (filters?.warehouseId) warehouseStockQb.andWhere('ib.warehouse_id = :warehouseId', { warehouseId: filters.warehouseId });
+    if (filters?.divisionId) warehouseStockQb.andWhere('warehouse.division_id = :divisionId', { divisionId: filters.divisionId });
+    applyDivisionScopeFilter(warehouseStockQb, 'warehouse.divisionId', filters?.allowedDivisionIds);
+
+    const warehouseStock = await warehouseStockQb.getMany();
 
     for (const bal of warehouseStock) {
       const whId = bal.warehouseId;
@@ -976,6 +1190,7 @@ export class DashboardService {
     const lowStockQb = this.inventoryBalanceRepo
       .createQueryBuilder('ib')
       .innerJoin(Item, 'i', 'i.id = ib."item_id"')
+      .leftJoin('ib.warehouse', 'warehouse')
       .where('ib."company_id" = :companyId', { companyId })
       .andWhere('ib.status = :status', { status: 'ACTIVE' })
       .andWhere('i."minimum_stock_level" IS NOT NULL')
@@ -988,6 +1203,10 @@ export class DashboardService {
       .addGroupBy('i."minimum_stock_level"');
 
     if (filters?.warehouseId) lowStockQb.andWhere('ib.warehouse_id = :warehouseId', { warehouseId: filters.warehouseId });
+    if (filters?.divisionId) {
+      lowStockQb.andWhere('(warehouse.division_id = :divisionId OR i.division_id = :divisionId)', { divisionId: filters.divisionId });
+    }
+    applyDivisionScopeFilter(lowStockQb, 'warehouse.divisionId', filters?.allowedDivisionIds);
     const lowStockItems = await lowStockQb.getRawMany();
 
     const recentTransactionsQb = this.stockLedgerRepo
@@ -999,6 +1218,10 @@ export class DashboardService {
       .limit(10);
 
     if (filters?.warehouseId) recentTransactionsQb.andWhere('sl.warehouse_id = :warehouseId', { warehouseId: filters.warehouseId });
+    if (filters?.divisionId) {
+      recentTransactionsQb.andWhere('(warehouse.division_id = :divisionId OR item.division_id = :divisionId)', { divisionId: filters.divisionId });
+    }
+    applyDivisionScopeFilter(recentTransactionsQb, 'warehouse.divisionId', filters?.allowedDivisionIds);
     const recentTransactions = await recentTransactionsQb.getMany();
 
     return {
@@ -1100,6 +1323,65 @@ export class DashboardService {
         totalValue: Math.round(Number(s.totalValue) * 100) / 100,
       })),
     };
+  }
+
+  async getDashboardSchedule(companyId: string, filters?: DashboardFilters) {
+    const ordersQb = this.salesOrderRepo
+      .createQueryBuilder('so')
+      .leftJoinAndSelect('so.customer', 'customer')
+      .where('so.company_id = :companyId', { companyId })
+      .andWhere("so.status NOT IN ('CANCELLED', 'CLOSED')")
+      .orderBy('so.delivery_date', 'ASC')
+      .addOrderBy('so.created_at', 'DESC')
+      .limit(10);
+    const orders = await ordersQb.getMany();
+
+    const todayStr = new Date().toISOString().slice(0, 10);
+    return orders.map((o) => {
+      const isToday = o.deliveryDate === todayStr;
+      return {
+        id: o.id,
+        type: 'DISPATCH',
+        title: (o.customer as any)?.customerName ?? 'Customer Delivery',
+        subtitle: `${o.orderNumber} · Total: ${Number(o.totalAmount || 0).toLocaleString()} ${o.currency || 'PKR'}`,
+        time: isToday ? 'Today · Delivery' : o.deliveryDate ? `Due: ${o.deliveryDate}` : 'Scheduled',
+        deliveryDate: o.deliveryDate,
+        status: o.status === 'CONFIRMED' ? 'Confirmed' : o.status === 'Draft' ? 'Pending' : 'Booked',
+      };
+    });
+  }
+
+  async getCalendarActivity(companyId: string, year: number, month: number, filters?: DashboardFilters) {
+    const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+    const nextMonth = month === 12 ? 1 : month + 1;
+    const nextYear = month === 12 ? year + 1 : year;
+    const endDate = `${nextYear}-${String(nextMonth).padStart(2, '0')}-01`;
+
+    const qb = this.entryRepo
+      .createQueryBuilder('pe')
+      .select("TO_CHAR(pe.entry_date, 'YYYY-MM-DD')", 'date')
+      .addSelect('COUNT(*)', 'count')
+      .addSelect('COALESCE(SUM(pe.actual_quantity), 0)', 'totalActual')
+      .where('pe.company_id = :companyId', { companyId })
+      .andWhere('pe.is_active = true')
+      .andWhere('pe.entry_date >= :startDate', { startDate })
+      .andWhere('pe.entry_date < :endDate', { endDate })
+      .groupBy('pe.entry_date')
+      .orderBy('pe.entry_date', 'ASC');
+
+    if (filters?.departmentId) qb.andWhere('pe.department_id = :departmentId', { departmentId: filters.departmentId });
+    if (filters?.divisionId) {
+      qb.innerJoin(Department, 'dDiv', 'dDiv.id = pe.department_id')
+        .andWhere('dDiv.division_id = :divisionId', { divisionId: filters.divisionId });
+    }
+    applyDivisionScopeFilter(qb, 'pe.divisionId', filters?.allowedDivisionIds);
+
+    const rows = await qb.getRawMany<{ date: string; count: string; totalActual: string }>();
+    return rows.map(r => ({
+      date: r.date,
+      count: parseInt(r.count, 10),
+      totalActual: Number(r.totalActual),
+    }));
   }
 
   async getAlerts(companyId: string, filters?: DashboardFilters) {

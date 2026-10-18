@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, Query, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Put, Delete, Body, Param, Query, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiParam, ApiQuery, ApiBearerAuth } from '@nestjs/swagger';
 import { PurchaseRequisitionService } from '../services/purchase-requisition.service';
 import { CreatePurchaseRequisitionDto } from '../dto';
@@ -43,6 +43,24 @@ export class PurchaseRequisitionController {
   async findOne(@Param('id') id: string) {
     const requisition = await this.service.findOne(id);
     return { success: true, data: requisition };
+  }
+
+  @Patch(':id')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('procurement.requisition.create')
+  @ApiOperation({ summary: 'Update purchase requisition' })
+  async update(@Param('id') id: string, @Body() dto: CreatePurchaseRequisitionDto) {
+    const requisition = await this.service.update(id, dto);
+    return { success: true, data: requisition, message: 'Purchase requisition updated successfully' };
+  }
+
+  @Put(':id')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('procurement.requisition.create')
+  @ApiOperation({ summary: 'Update purchase requisition (PUT)' })
+  async updatePut(@Param('id') id: string, @Body() dto: CreatePurchaseRequisitionDto) {
+    const requisition = await this.service.update(id, dto);
+    return { success: true, data: requisition, message: 'Purchase requisition updated successfully' };
   }
 
   @Patch(':id/submit')
@@ -92,5 +110,15 @@ export class PurchaseRequisitionController {
   async removeLine(@Param('id') id: string, @Param('lineId') lineId: string) {
     await this.service.removeLine(id, lineId);
     return { success: true, message: 'Requisition line removed successfully' };
+  }
+
+  @Delete(':id')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('procurement.requisition.create')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Delete purchase requisition' })
+  async remove(@Param('id') id: string) {
+    await this.service.remove(id);
+    return { success: true, message: 'Purchase requisition deleted successfully' };
   }
 }

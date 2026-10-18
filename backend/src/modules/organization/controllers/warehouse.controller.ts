@@ -7,7 +7,7 @@ import { CreateWarehouseDto, UpdateWarehouseDto } from '../dto';
 import { WarehouseStatus, WarehouseType } from '../entities';
 
 @ApiTags('warehouses')
-@Controller('warehouses')
+@Controller(['warehouses', 'organization/warehouses'])
 @UseGuards(SupabaseJwtGuard, PermissionGuard)
 export class WarehouseController {
   constructor(private readonly warehouseService: WarehouseService) {}

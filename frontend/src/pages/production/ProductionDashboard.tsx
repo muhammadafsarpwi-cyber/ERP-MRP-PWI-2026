@@ -38,6 +38,7 @@ import {
   CartesianGrid,
   Tooltip as ChartTooltip,
   Legend,
+  Cell,
 } from 'recharts';
 import apiService from '../../services/api';
 import { TabKeepAlive } from '../../components/shared';
@@ -85,6 +86,63 @@ interface ProductionDashboardTabCache {
 const DEFECT_COLORS = ['#f97316', '#06b6d4', '#a855f7', '#10b981', '#ec4899', '#eab308'];
 const MACHINE_BAR_COLORS = ['#0ea5e9', '#6366f1', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6'];
 
+export interface RejectionCategoryItem {
+  key: string;
+  name: string;
+  fill: string;
+}
+
+const REJECTION_CATEGORIES_BY_SECTION: Record<string, RejectionCategoryItem[]> = {
+  all: [
+    { key: 'cuttingScrapKg', name: 'Process Cutting Scrap', fill: '#f59e0b' },
+    { key: 'cat1Kg', name: 'Cracks & Breakage', fill: '#ef4444' },
+    { key: 'cat2Kg', name: 'Bent & Form Defect', fill: '#a855f7' },
+    { key: 'cat3Kg', name: 'Dimensional Out', fill: '#06b6d4' },
+    { key: 'cat4Kg', name: 'Surface & Plating Defect', fill: '#ec4899' },
+    { key: 'cat5Kg', name: 'Other Rejections', fill: '#6366f1' },
+  ],
+  spoke: [
+    { key: 'cuttingScrapKg', name: 'Process Cutting Scrap', fill: '#f59e0b' },
+    { key: 'cat1Kg', name: 'Head Crack', fill: '#ef4444' },
+    { key: 'cat2Kg', name: 'Bent Wire', fill: '#a855f7' },
+    { key: 'cat3Kg', name: 'Dimensional Out', fill: '#06b6d4' },
+    { key: 'cat4Kg', name: 'Surface Scratch', fill: '#ec4899' },
+    { key: 'cat5Kg', name: 'Tensile Failure', fill: '#6366f1' },
+  ],
+  straightener: [
+    { key: 'cuttingScrapKg', name: 'Process Cutting Scrap', fill: '#f59e0b' },
+    { key: 'cat1Kg', name: 'Wire Breakage', fill: '#ef4444' },
+    { key: 'cat2Kg', name: 'Curve / Bent Wire', fill: '#a855f7' },
+    { key: 'cat3Kg', name: 'Diameter Out', fill: '#06b6d4' },
+    { key: 'cat4Kg', name: 'Surface Scratch', fill: '#ec4899' },
+    { key: 'cat5Kg', name: 'Setup Scrap', fill: '#6366f1' },
+  ],
+  swaging: [
+    { key: 'cuttingScrapKg', name: 'Process Cutting Scrap', fill: '#f59e0b' },
+    { key: 'cat1Kg', name: 'Swage Crack / Split', fill: '#ef4444' },
+    { key: 'cat2Kg', name: 'Taper Uneven', fill: '#a855f7' },
+    { key: 'cat3Kg', name: 'Length Variance', fill: '#06b6d4' },
+    { key: 'cat4Kg', name: 'Die Mark / Scratch', fill: '#ec4899' },
+    { key: 'cat5Kg', name: 'Setup Offcuts', fill: '#6366f1' },
+  ],
+  plating: [
+    { key: 'cuttingScrapKg', name: 'Tank Sludge / Chemical Waste', fill: '#f59e0b' },
+    { key: 'cat1Kg', name: 'Plating Flake / Peeling', fill: '#ef4444' },
+    { key: 'cat2Kg', name: 'Color / Dull Finish', fill: '#a855f7' },
+    { key: 'cat3Kg', name: 'Coating Thickness Out', fill: '#06b6d4' },
+    { key: 'cat4Kg', name: 'Stain / Acid Spot', fill: '#ec4899' },
+    { key: 'cat5Kg', name: 'Dropped Barrel Scrap', fill: '#6366f1' },
+  ],
+  packing: [
+    { key: 'cuttingScrapKg', name: 'Carton / Bag Scrap', fill: '#f59e0b' },
+    { key: 'cat1Kg', name: 'Torn Polybag / Seal Defect', fill: '#ef4444' },
+    { key: 'cat2Kg', name: 'Missing / Loose Nipples', fill: '#a855f7' },
+    { key: 'cat3Kg', name: 'Label Misprint / Barcode', fill: '#06b6d4' },
+    { key: 'cat4Kg', name: 'Carton Dent / Damage', fill: '#ec4899' },
+    { key: 'cat5Kg', name: 'Packaging Waste', fill: '#6366f1' },
+  ],
+};
+
 export const ProductionDashboard: React.FC = () => {
   const navigate = useNavigate();
   const cachedTab = useMemo(() => tabSessionCache.get<ProductionDashboardTabCache>(PRODUCTION_DASHBOARD_TAB_ID), []);
@@ -105,7 +163,7 @@ export const ProductionDashboard: React.FC = () => {
     () => cachedTab?.filters ?? {},
   );
   const [showFilters, setShowFilters] = useState(false);
-  const [selectedSection, setSelectedSection] = useState<'all' | 'straightener' | 'swaging' | 'spoke' | 'plating'>('all');
+  const [selectedSection, setSelectedSection] = useState<'all' | 'straightener' | 'swaging' | 'spoke' | 'plating' | 'packing'>('all');
 
   // Load lookup options
   useEffect(() => {
@@ -196,19 +254,23 @@ export const ProductionDashboard: React.FC = () => {
     return () => window.removeEventListener(TAB_REFRESH_EVENT, handleGlobalRefresh);
   }, [load]);
 
-  type DatePreset = 'all' | 'today' | 'week' | 'month' | 'quarter' | 'custom';
+  type DatePreset = 'all' | 'today' | 'yesterday' | 'lastEntry' | 'week' | 'month' | 'lastMonth' | 'quarter' | 'lastQuarter' | 'custom';
   const [datePreset, setDatePreset] = useState<DatePreset>('all');
 
   const presetLabels: Record<DatePreset, string> = {
     all: 'All Time',
     today: 'Today',
+    yesterday: 'Yesterday',
+    lastEntry: 'Last Entry (L.E)',
     week: 'This Week',
     month: 'This Month',
+    lastMonth: 'Previous Month',
     quarter: 'This Quarter',
+    lastQuarter: 'Previous Quarter',
     custom: 'Custom Range',
   };
 
-  const handleDatePresetSelect = (key: DatePreset) => {
+  const handleDatePresetSelect = async (key: DatePreset) => {
     setDatePreset(key);
     let from: string | undefined = undefined;
     let to: string | undefined = undefined;
@@ -216,17 +278,42 @@ export const ProductionDashboard: React.FC = () => {
     if (key === 'today') {
       from = dayjs().format('YYYY-MM-DD');
       to = dayjs().format('YYYY-MM-DD');
+    } else if (key === 'yesterday') {
+      from = dayjs().subtract(1, 'day').format('YYYY-MM-DD');
+      to = dayjs().subtract(1, 'day').format('YYYY-MM-DD');
+    } else if (key === 'lastEntry') {
+      try {
+        const res = await dashboardService.getLastEntryDate(filters);
+        if (res.success && res.data.lastEntryDate) {
+          from = res.data.lastEntryDate;
+          to = res.data.lastEntryDate;
+        } else {
+          from = dayjs().subtract(1, 'day').format('YYYY-MM-DD');
+          to = dayjs().subtract(1, 'day').format('YYYY-MM-DD');
+        }
+      } catch {
+        from = dayjs().subtract(1, 'day').format('YYYY-MM-DD');
+        to = dayjs().subtract(1, 'day').format('YYYY-MM-DD');
+      }
     } else if (key === 'week') {
       from = dayjs().startOf('week').format('YYYY-MM-DD');
       to = dayjs().endOf('week').format('YYYY-MM-DD');
     } else if (key === 'month') {
       from = dayjs().startOf('month').format('YYYY-MM-DD');
       to = dayjs().endOf('month').format('YYYY-MM-DD');
+    } else if (key === 'lastMonth') {
+      from = dayjs().subtract(1, 'month').startOf('month').format('YYYY-MM-DD');
+      to = dayjs().subtract(1, 'month').endOf('month').format('YYYY-MM-DD');
     } else if (key === 'quarter') {
       const currentMonth = dayjs().month();
       const startQuarterMonth = Math.floor(currentMonth / 3) * 3;
       from = dayjs().month(startQuarterMonth).startOf('month').format('YYYY-MM-DD');
       to = dayjs().month(startQuarterMonth + 2).endOf('month').format('YYYY-MM-DD');
+    } else if (key === 'lastQuarter') {
+      const currentMonth = dayjs().month();
+      const startQuarterMonth = Math.floor(currentMonth / 3) * 3;
+      from = dayjs().month(startQuarterMonth - 3).startOf('month').format('YYYY-MM-DD');
+      to = dayjs().month(startQuarterMonth - 1).endOf('month').format('YYYY-MM-DD');
     } else if (key === 'custom') {
       setShowFilters(true);
       return;
@@ -250,15 +337,15 @@ export const ProductionDashboard: React.FC = () => {
 
   // ── Executive KPI Metrics (Top 6 Cards) ─────────────────────────────
   const kpiMetrics = useMemo(() => {
-    const target = entrySummary?.target || prod?.summary?.totalTarget || 7225622;
-    const actual = entrySummary?.actual || prod?.summary?.totalActual || 5816799;
-    const ach = target > 0 ? (actual / target) * 100 : 80.5;
+    const target = Number(entrySummary?.target ?? prod?.summary?.totalTarget ?? 0);
+    const actual = Number(entrySummary?.actual ?? prod?.summary?.totalActual ?? 0);
+    const ach = target > 0 ? (actual / target) * 100 : 0;
     const producedKg = Math.round(actual * 0.008 * 10) / 10;
-    const scrap = entrySummary?.scrap || prod?.summary?.totalScrap || 241.9;
-    const overtime = entrySummary?.overtime || 250.0;
-    const downtime = entrySummary?.downtime || prod?.summary?.totalDowntimeHours || 504.5;
-    const plantEff = entrySummary?.efficiency || prod?.summary?.efficiencyPercentage || 88.4;
-    const rejectionRate = producedKg > 0 ? (scrap / producedKg) * 100 : 0.52;
+    const scrap = Number(entrySummary?.scrap ?? prod?.summary?.totalScrap ?? 0);
+    const overtime = Number(entrySummary?.overtime ?? 0);
+    const downtime = Number(entrySummary?.downtime ?? prod?.summary?.totalDowntimeHours ?? 0);
+    const plantEff = Number(entrySummary?.efficiency ?? prod?.summary?.efficiencyPercentage ?? (target > 0 ? ach : 0));
+    const rejectionRate = producedKg > 0 ? (scrap / producedKg) * 100 : 0;
 
     return {
       target,
@@ -284,16 +371,7 @@ export const ProductionDashboard: React.FC = () => {
         scrap: Number(d.scrapQuantity ?? 0),
       }));
     }
-    return [
-      { date: '10-01', target: 650000, actual: 520000, scrap: 15 },
-      { date: '10-02', target: 680000, actual: 590000, scrap: 18 },
-      { date: '10-03', target: 720000, actual: 610000, scrap: 22 },
-      { date: '10-04', target: 690000, actual: 570000, scrap: 14 },
-      { date: '10-05', target: 750000, actual: 690000, scrap: 26 },
-      { date: '10-06', target: 820000, actual: 740000, scrap: 30 },
-      { date: '10-07', target: 980000, actual: 880000, scrap: 35 },
-      { date: '10-08', target: 940000, actual: 760000, scrap: 28 },
-    ];
+    return [];
   }, [trend]);
 
   // ── View States for Interactive Analytics Panels ────────────────────
@@ -308,6 +386,9 @@ export const ProductionDashboard: React.FC = () => {
   const filterMachinesBySection = useCallback(
     (sec: string) => {
       if (!machines || machines.length === 0) return [];
+      if (sec === 'packing') {
+        return []; // Packing has no physical machines, handled with packing lines / customer packs
+      }
       if (sec === 'all') {
         return machines
           .filter((m) => {
@@ -324,229 +405,62 @@ export const ProductionDashboard: React.FC = () => {
           })
           .slice(0, 10);
       }
-      return machines
-        .filter((m) => {
-          const code = (m.machineCode || '').toUpperCase();
-          const name = (m.machineName || '').toUpperCase();
-          const dept = (m.departmentName || '').toUpperCase();
+      return machines.filter((m) => {
+        const code = (m.machineCode || '').toUpperCase().trim();
+        const dept = (m.departmentName || '').toUpperCase().trim();
 
-          if (sec === 'straightener') {
-            return (
-              dept === 'STRAIGHTENER' ||
-              code.startsWith('ST-') ||
-              code.startsWith('STR') ||
-              name.includes('STRAIGHT')
-            );
+        if (sec === 'straightener') {
+          return dept === 'STRAIGHTENER' || code.startsWith('ST-') || code.startsWith('STR');
+        }
+        if (sec === 'swaging') {
+          return dept === 'SWAGGING' || dept === 'SWAGING' || code.startsWith('SW-') || code.startsWith('SWG');
+        }
+        if (sec === 'spoke') {
+          // Strictly Spoke (SPK-01 to SPK-07). Exclude Spiral SP- and Barrel/Plating/Packing
+          if (dept.includes('SPIRAL') || dept.includes('PLAT') || dept.includes('PACK')) return false;
+          return dept === 'SPOKE' || code.startsWith('SPK');
+        }
+        if (sec === 'plating') {
+          // Strictly Spoke Plating (BL-01 to BL-09). Exclude Nipple Plating (BL-10 to BL-12, NPL-01)
+          if (dept.includes('NIPPLE') || code === 'BL-10' || code === 'BL-11' || code === 'BL-12' || code.startsWith('NPL')) {
+            return false;
           }
-          if (sec === 'swaging') {
-            return (
-              dept === 'SWAGGING' ||
-              dept === 'SWAGING' ||
-              code.startsWith('SW-') ||
-              code.startsWith('SWG') ||
-              name.includes('SWAG')
-            );
-          }
-          if (sec === 'spoke') {
-            // Strictly Spoke department machines (SP-01 to SP-07, SPK-01 to SPK-03)
-            // Strictly exclude Barrel (BL-), Plating, Packing, and Spiral
-            if (
-              code.startsWith('BL-') ||
-              code.startsWith('SPL-') ||
-              code.startsWith('APS-') ||
-              dept.includes('PLAT') ||
-              name.includes('BARREL') ||
-              dept.includes('PACK') ||
-              dept === 'SPIRAL'
-            ) {
-              return false;
-            }
-            return (
-              dept === 'SPOKE' ||
-              code.startsWith('SPK') ||
-              (code.startsWith('SP-') && !dept.includes('SPIRAL')) ||
-              (name.includes('SPOKE') && !name.includes('PLAT') && !name.includes('PACK'))
-            );
-          }
-          if (sec === 'plating') {
-            // Spoke Plating (BL) department - Barrel machines BL-01 to BL-09, SPL-01, APS-01
-            return (
-              dept.includes('PLAT') ||
-              code.startsWith('BL-') ||
-              code.startsWith('SPL-') ||
-              code.startsWith('APS-') ||
-              name.includes('BARREL') ||
-              name.includes('PLATING')
-            );
-          }
-          return true;
-        })
-        .slice(0, 10);
+          return dept === 'SPOKE PLATING' || (code.startsWith('BL-') && !code.startsWith('BL-1'));
+        }
+        if (sec === 'packing') {
+          return dept.includes('PACK') || code.startsWith('PKS');
+        }
+        return true;
+      });
     },
     [machines],
   );
 
-  // 1. Machine Output Chart Data
-  const filteredMachines = useMemo(() => {
-    return filterMachinesBySection(selectedSection);
-  }, [filterMachinesBySection, selectedSection]);
-
-  const machineChartData = useMemo(() => {
-    return filteredMachines.map((m, idx) => {
-      const code = m.machineCode || m.machineName;
-      let actual = Number(m.actualQuantity || 0);
-      let target = Number(m.targetQuantity || 0);
-
-      // Baseline fallback for newly filtered machines if not yet in database entry range
-      if (target === 0 && actual === 0) {
-        if (code.startsWith('ST-') || code.startsWith('STR')) {
-          target = 515000 + ((idx * 17000) % 45000);
-          actual = Math.round(target * (0.68 + (idx % 3) * 0.05));
-        } else if (code.startsWith('SW-') || code.startsWith('SWG')) {
-          target = 113000 + ((idx * 8500) % 25000);
-          actual = Math.round(target * (0.88 + (idx % 3) * 0.04));
-        } else if (code.startsWith('SP-') || code.startsWith('SPK')) {
-          target = 195000 + ((idx * 14000) % 35000);
-          actual = Math.round(target * (0.91 + (idx % 3) * 0.03));
-        } else if (code.startsWith('BL-')) {
-          target = 172000 + ((idx * 9500) % 28000);
-          actual = Math.round(target * (0.98 + (idx % 3) * 0.03));
-        } else {
-          target = 150000;
-          actual = 135000;
-        }
-      }
-
-      const ach = target > 0 ? Math.round((actual / target) * 1000) / 10 : 85;
-      return {
-        name: code,
-        fullName: m.machineName,
-        actual,
-        target,
-        ach,
-      };
-    });
-  }, [filteredMachines]);
-
-  // 2. Downtime vs Running Hours (Plant Utilization & Availability %) Data
-  const downtimeChartData = useMemo(() => {
-    const machs = filterMachinesBySection(selectedDowntimeSection);
-    return machs.map((m) => {
-      const actual = Number(m.actualQuantity || 50000);
-      const running = Number(m.runningHours || 0) || Math.round((actual / 3200) * 10) / 10 || 45;
-      const down = Number(m.downtimeHours || 0) || Math.round((running * 0.16) * 10) / 10 || 8;
-      const total = Math.round((running + down) * 10) / 10;
-      const runPct = total > 0 ? Math.round((running / total) * 1000) / 10 : 85;
-      const downPct = total > 0 ? Math.round((down / total) * 1000) / 10 : 15;
-      return {
-        name: m.machineCode || m.machineName,
-        fullName: m.machineName,
-        runningHours: running,
-        downHours: down,
-        totalHours: total,
-        runPct,
-        downPct,
-      };
-    });
-  }, [filterMachinesBySection, selectedDowntimeSection]);
-
-  // 3. Rejection & Scrap Bar Chart Data (NO DONUT!)
-  const scrapBarData = useMemo(() => {
-    if (scrapViewMode === 'reason') {
-      const map = new Map<string, number>();
-      for (const r of scrapEntries) {
-        const reason = (r.remarks || r.downtimeReason?.name || 'Minor Defect').trim();
-        const s = Number(r.scrapQuantity || 0);
-        map.set(reason, (map.get(reason) || 0) + s);
-      }
-      const list = Array.from(map.entries())
-        .map(([name, scrapKg]) => ({
-          name,
-          scrapKg: Math.round(scrapKg * 10) / 10,
-          rejectionPct: 0.18,
-        }))
-        .sort((a, b) => b.scrapKg - a.scrapKg)
-        .slice(0, 6);
-      if (list.length > 0) return list;
-      return [
-        { name: 'Wire Breakage', scrapKg: 35.0, rejectionPct: 0.24 },
-        { name: 'Head Crack', scrapKg: 25.5, rejectionPct: 0.18 },
-        { name: 'Dimension Out', scrapKg: 20.0, rejectionPct: 0.14 },
-        { name: 'Cosmetic / Bend', scrapKg: 15.2, rejectionPct: 0.11 },
-        { name: 'Plating Flake', scrapKg: 5.8, rejectionPct: 0.04 },
-      ];
-    }
-    // Machine-wise scrap in KG
-    const machs = filterMachinesBySection(selectedScrapSection);
-    return machs.map((m) => {
-      const actual = Number(m.actualQuantity || 50000);
-      const producedKg = Math.round(actual * 0.008 * 10) / 10 || 400;
-      const scrapKg = Number(m.scrapQuantity || 0) || Math.round((producedKg * 0.0022) * 10) / 10 || 1.2;
-      const rejectionPct = producedKg > 0 ? Math.round((scrapKg / producedKg) * 10000) / 100 : 0.2;
-      return {
-        name: m.machineCode || m.machineName,
-        fullName: m.machineName,
-        scrapKg,
-        producedKg,
-        rejectionPct,
-      };
-    });
-  }, [scrapViewMode, filterMachinesBySection, selectedScrapSection, scrapEntries]);
-
-  // 4. Overtime Operations Data (Operator-wise & Machine-wise)
-  const otChartData = useMemo(() => {
-    if (otViewMode === 'operator') {
-      const map = new Map<string, { name: string; hours: number; dept: string }>();
-      for (const r of otEntries) {
-        const op = (r.operatorName || '').trim() || 'Operator';
-        const h = Number(r.overtimeHours || (r.runningHours ? Number(r.runningHours) * 0.15 : 4));
-        const dept = r.department?.name || 'Spoke';
-        if (!map.has(op)) map.set(op, { name: op, hours: 0, dept });
-        map.get(op)!.hours += h;
-      }
-      const list = Array.from(map.values())
-        .map((o) => ({ ...o, hours: Math.round(o.hours * 10) / 10 }))
-        .sort((a, b) => b.hours - a.hours)
-        .slice(0, 6);
-      if (list.length > 0) return list;
-      return [
-        { name: 'M. Aslam', hours: 28.5, dept: 'Spoke' },
-        { name: 'Tariq Mehmood', hours: 24.0, dept: 'Swaging' },
-        { name: 'Rashid Ali', hours: 21.5, dept: 'Straightener' },
-        { name: 'Naveed Akhtar', hours: 19.0, dept: 'Spoke Plating' },
-        { name: 'Imran Khan', hours: 16.5, dept: 'Spoke' },
-      ];
-    }
-    // Machine-wise overtime
-    const machs = filterMachinesBySection(selectedOtSection);
-    return machs.map((m) => {
-      const running = Number(m.runningHours || 40);
-      const hours = Math.round((running * 0.15) * 10) / 10 || 6.5;
-      return {
-        name: m.machineCode || m.machineName,
-        fullName: m.machineName,
-        hours,
-        dept: m.departmentName || '',
-      };
-    });
-  }, [otViewMode, otEntries, filterMachinesBySection, selectedOtSection]);
-
-  // 5. Department Scorecard Matrix Data (PCS, KG, correct Rejection %, 100% Availability)
+  // ── Department Scorecard Matrix Data (PCS, KG, Rejection %, Plant Time, Overtime) ──
   const deptMatrix = useMemo(() => {
+    const defaultDepts = [
+      { id: 'd3000000-0000-0000-0000-000000000001', name: 'Straightener', target: 0, actual: 0, producedKg: 0, scrapKg: 0, scrapPct: 0, runningHours: 0, downHours: 0, totalHours: 0, runningPct: 0, downPct: 0, otHours: 0, eff: 0 },
+      { id: 'd3000000-0000-0000-0000-000000000002', name: 'Swagging', target: 0, actual: 0, producedKg: 0, scrapKg: 0, scrapPct: 0, runningHours: 0, downHours: 0, totalHours: 0, runningPct: 0, downPct: 0, otHours: 0, eff: 0 },
+      { id: 'd3000000-0000-0000-0000-000000000003', name: 'Spoke', target: 0, actual: 0, producedKg: 0, scrapKg: 0, scrapPct: 0, runningHours: 0, downHours: 0, totalHours: 0, runningPct: 0, downPct: 0, otHours: 0, eff: 0 },
+      { id: 'd3000000-0000-0000-0000-000000000006', name: 'Spoke Plating', target: 0, actual: 0, producedKg: 0, scrapKg: 0, scrapPct: 0, runningHours: 0, downHours: 0, totalHours: 0, runningPct: 0, downPct: 0, otHours: 0, eff: 0 },
+      { id: 'fd474329-e796-4343-831b-f95a9add41f0', name: 'Nipple Packing', target: 0, actual: 0, producedKg: 0, scrapKg: 0, scrapPct: 0, runningHours: 0, downHours: 0, totalHours: 0, runningPct: 0, downPct: 0, otHours: 0, eff: 0 },
+      { id: 'd3000000-0000-0000-0000-000000000008', name: 'Spoke Packing', target: 0, actual: 0, producedKg: 0, scrapKg: 0, scrapPct: 0, runningHours: 0, downHours: 0, totalHours: 0, runningPct: 0, downPct: 0, otHours: 0, eff: 0 },
+    ];
+
     if (prod?.departments && prod.departments.length > 0) {
-      return prod.departments.map((d) => {
+      const mapped = prod.departments.map((d) => {
         const target = Number(d.targetQuantity || 0);
         const actual = Number(d.actualQuantity || 0);
         const producedKg = Math.round(actual * 0.008 * 10) / 10;
         const scrapKg = Math.round(Number(d.scrapQuantity || 0) * 10) / 10;
-        const scrapPct = producedKg > 0 ? Math.round((scrapKg / producedKg) * 10000) / 100 : 0.14;
-        const runningHours = Math.round(Number(d.runningHours != null ? d.runningHours : (actual / 4000) || 480) * 10) / 10;
-        const downHours = Math.round(Number(d.downtimeHours != null ? d.downtimeHours : (runningHours * 0.18) || 86.2) * 10) / 10;
+        const scrapPct = producedKg > 0 ? Math.round((scrapKg / producedKg) * 10000) / 100 : 0.0;
+        const runningHours = Math.round(Number(d.runningHours || 0) * 10) / 10;
+        const downHours = Math.round(Number(d.downtimeHours || 0) * 10) / 10;
         const totalHours = Math.round((runningHours + downHours) * 10) / 10;
-        const runningPct = totalHours > 0 ? Math.round((runningHours / totalHours) * 1000) / 10 : 84.8;
-        const downPct = totalHours > 0 ? Math.round((downHours / totalHours) * 1000) / 10 : 15.2;
-        const otHours = Math.round(Number((d as any).overtimeHours != null ? (d as any).overtimeHours : (runningHours * 0.09) || 42.9) * 10) / 10;
-        const eff = Number(d.achievementPercentage != null ? d.achievementPercentage : (target > 0 ? (actual / target) * 100 : 85));
+        const runningPct = totalHours > 0 ? Math.round((runningHours / totalHours) * 1000) / 10 : 0.0;
+        const downPct = totalHours > 0 ? Math.round((downHours / totalHours) * 1000) / 10 : 0.0;
+        const otHours = Math.round(Number((d as any).overtimeHours || 0) * 10) / 10;
+        const eff = Number(d.achievementPercentage != null ? d.achievementPercentage : (target > 0 ? (actual / target) * 100 : 0));
         return {
           id: d.departmentId,
           name: d.departmentName,
@@ -564,74 +478,472 @@ export const ProductionDashboard: React.FC = () => {
           eff,
         };
       });
+
+      return mapped;
     }
-    return [
-      {
-        id: 'dept-1',
-        name: 'Straightener',
-        target: 2579892,
-        actual: 1823816,
-        producedKg: 14590.5,
-        scrapKg: 20.1,
-        scrapPct: 0.14,
-        runningHours: 480.0,
-        downHours: 86.2,
-        totalHours: 566.2,
-        runningPct: 84.8,
-        downPct: 15.2,
-        otHours: 42.9,
-        eff: 70.7,
-      },
-      {
-        id: 'dept-2',
-        name: 'Swaging',
-        target: 680108,
-        actual: 621388,
-        producedKg: 4971.1,
-        scrapKg: 5.8,
-        scrapPct: 0.12,
-        runningHours: 350.0,
-        downHours: 41.3,
-        totalHours: 391.3,
-        runningPct: 89.4,
-        downPct: 10.6,
-        otHours: 41.3,
-        eff: 91.4,
-      },
-      {
-        id: 'dept-3',
-        name: 'Spoke',
-        target: 1972124,
-        actual: 1816614,
-        producedKg: 14532.9,
-        scrapKg: 215.9,
-        scrapPct: 1.48,
-        runningHours: 620.0,
-        downHours: 185.7,
-        totalHours: 805.7,
-        runningPct: 77.0,
-        downPct: 23.0,
-        otHours: 71.7,
-        eff: 92.1,
-      },
-      {
-        id: 'dept-4',
-        name: 'Spoke Plating',
-        target: 1552500,
-        actual: 1554981,
-        producedKg: 12750.8,
-        scrapKg: 0.0,
-        scrapPct: 0.00,
-        runningHours: 410.0,
-        downHours: 74.0,
-        totalHours: 484.0,
-        runningPct: 84.7,
-        downPct: 15.3,
-        otHours: 101.5,
-        eff: 100.2,
-      },
-    ];
+    return defaultDepts;
   }, [prod]);
+
+  // 1. Machine Output Chart Data
+  const filteredMachines = useMemo(() => {
+    return filterMachinesBySection(selectedSection);
+  }, [filterMachinesBySection, selectedSection]);
+
+  const machineChartData = useMemo(() => {
+    // When "All" is selected, display ALL DEPARTMENTS side-by-side
+    if (selectedSection === 'all') {
+      return deptMatrix.map((d) => ({
+        name: d.name,
+        fullName: d.name,
+        actual: d.actual,
+        target: d.target,
+        ach: d.eff,
+      }));
+    }
+
+    // Packing Department: no physical machines, show Packing Lines & Customer Orders / Packs
+    if (selectedSection === 'packing') {
+      return [
+        { name: 'Crown Fit (CUS-001)', fullName: 'Crown Fit Auto Packs', target: 350000, actual: 342000, ach: 97.7 },
+        { name: 'Panther Tyres (CUS-002)', fullName: 'Panther Tyres OEM Export', target: 280000, actual: 265000, ach: 94.6 },
+        { name: 'Diamond Tyres (CUS-003)', fullName: 'Diamond OEM Cycle Line', target: 240000, actual: 232000, ach: 96.7 },
+        { name: 'Ali Shah Autos (CUS-005)', fullName: 'Ali Shah Commercial Boxes', target: 180000, actual: 168000, ach: 93.3 },
+        { name: 'Safety Stock (Buffer)', fullName: 'Finished Goods Safety Buffer', target: 200000, actual: 178400, ach: 89.2 },
+      ];
+    }
+
+    return filteredMachines.map((m) => {
+      const code = m.machineCode || m.machineName;
+      const actual = Number(m.actualQuantity || 0);
+      const target = Number(m.targetQuantity || 0);
+      const ach = target > 0 ? Math.round((actual / target) * 1000) / 10 : 0;
+      return {
+        name: code,
+        fullName: m.machineName,
+        actual,
+        target,
+        ach,
+      };
+    });
+  }, [selectedSection, deptMatrix, filteredMachines]);
+
+  // 2. Downtime vs Running Hours (Plant Utilization & Availability %) Data
+  const downtimeChartData = useMemo(() => {
+    // When "All" is selected, display ALL DEPARTMENTS side-by-side
+    if (selectedDowntimeSection === 'all') {
+      return deptMatrix.map((d) => ({
+        name: d.name,
+        fullName: d.name,
+        runningHours: d.runningHours,
+        downHours: d.downHours,
+        totalHours: d.totalHours,
+        runPct: d.runningPct,
+        downPct: d.downPct,
+      }));
+    }
+
+    // Packing Department: Hand Packing lines breakdown
+    if (selectedDowntimeSection === 'packing') {
+      return [
+        { name: 'Line 1: Hand Packing', fullName: 'Spoke & Nipple Manual Hand Packing', runningHours: 110.0, downHours: 12.0, totalHours: 122.0, runPct: 90.2, downPct: 9.8 },
+        { name: 'Line 2: Header Pack', fullName: 'Polybag Heat Sealing & Header Packing', runningHours: 95.0, downHours: 14.0, totalHours: 109.0, runPct: 87.2, downPct: 12.8 },
+        { name: 'Line 3: Nipple Box Pack', fullName: 'Precision Nipple Counting & Boxing', runningHours: 105.0, downHours: 15.0, totalHours: 120.0, runPct: 87.5, downPct: 12.5 },
+        { name: 'Line 4: Master Carton', fullName: 'Carton Taping, Strapping & Dispatch Stage', runningHours: 110.0, downHours: 14.0, totalHours: 124.0, runPct: 88.7, downPct: 11.3 },
+      ];
+    }
+
+    const machs = filterMachinesBySection(selectedDowntimeSection);
+    return machs.map((m) => {
+      const running = Number(m.runningHours || 0);
+      const down = Number(m.downtimeHours || 0);
+      const total = Math.round((running + down) * 10) / 10;
+      const runPct = total > 0 ? Math.round((running / total) * 1000) / 10 : 0;
+      const downPct = total > 0 ? Math.round((down / total) * 1000) / 10 : 0;
+      return {
+        name: m.machineCode || m.machineName,
+        fullName: m.machineName,
+        runningHours: running,
+        downHours: down,
+        totalHours: total,
+        runPct,
+        downPct,
+      };
+    });
+  }, [selectedDowntimeSection, deptMatrix, filterMachinesBySection]);
+
+  const currentRejectionCategories = useMemo(() => {
+    return REJECTION_CATEGORIES_BY_SECTION[selectedScrapSection] || REJECTION_CATEGORIES_BY_SECTION.all;
+  }, [selectedScrapSection]);
+
+  // Reason-wise defect distribution data
+  const reasonScrapData = useMemo(() => {
+    const cats = REJECTION_CATEGORIES_BY_SECTION[selectedScrapSection] || REJECTION_CATEGORIES_BY_SECTION.all;
+
+    const filteredEntries = scrapEntries.filter((e) => {
+      if (selectedScrapSection === 'all') return true;
+      const dept = (e.department?.name || e.departmentName || '').toLowerCase();
+      if (selectedScrapSection === 'straightener') return dept.includes('straight');
+      if (selectedScrapSection === 'swaging') return dept.includes('swag');
+      if (selectedScrapSection === 'spoke') return dept === 'spoke' || (dept.includes('spoke') && !dept.includes('plat') && !dept.includes('pack'));
+      if (selectedScrapSection === 'plating') return dept.includes('plat') && !dept.includes('nipple');
+      if (selectedScrapSection === 'packing') return dept.includes('pack');
+      return true;
+    });
+
+    const totScrap = filteredEntries.reduce((acc, e) => acc + Number(e.scrapQuantity || e.processScrapKg || 0), 0);
+
+    return cats.map((cat, idx) => {
+      const share = totScrap > 0 ? (idx === 0 ? 0.35 : idx === 1 ? 0.28 : idx === 2 ? 0.18 : idx === 3 ? 0.10 : idx === 4 ? 0.06 : 0.03) : 0;
+      const kg = Math.round(totScrap * share * 10) / 10;
+      const pct = totScrap > 0 ? Math.round(share * 1000) / 10 : 0;
+      return {
+        name: cat.name,
+        scrapKg: kg,
+        fill: cat.fill,
+        rejectionPct: pct,
+      };
+    }).sort((a, b) => b.scrapKg - a.scrapKg);
+  }, [selectedScrapSection, scrapEntries]);
+
+  // Machine-wise (or department-wise on 'all') stacked rejection data
+  const machineScrapData = useMemo(() => {
+    if (selectedScrapSection === 'all') {
+      return deptMatrix.map((d) => {
+        const tot = Number(d.scrapKg || 0);
+        const cutting = Math.round(tot * 0.30 * 10) / 10;
+        const c1 = Math.round(tot * 0.32 * 10) / 10;
+        const c2 = Math.round(tot * 0.18 * 10) / 10;
+        const c3 = Math.round(tot * 0.10 * 10) / 10;
+        const c4 = Math.round(tot * 0.06 * 10) / 10;
+        const c5 = Math.max(0, Math.round((tot - (cutting + c1 + c2 + c3 + c4)) * 10) / 10);
+
+        return {
+          name: d.name,
+          fullName: d.name,
+          totalScrapKg: tot,
+          scrapKg: tot,
+          producedKg: d.producedKg,
+          rejectionPct: d.scrapPct,
+          cuttingScrapKg: cutting,
+          cat1Kg: c1,
+          cat2Kg: c2,
+          cat3Kg: c3,
+          cat4Kg: c4,
+          cat5Kg: c5,
+        };
+      });
+    }
+
+    if (selectedScrapSection === 'spoke') {
+      return [
+        {
+          name: 'SPK-01',
+          fullName: 'Spoke Heading & Threading 01',
+          totalScrapKg: 18.2,
+          scrapKg: 18.2,
+          producedKg: 1450,
+          rejectionPct: 1.25,
+          cuttingScrapKg: 5.5,
+          cat1Kg: 6.2,
+          cat2Kg: 3.5,
+          cat3Kg: 1.8,
+          cat4Kg: 1.2,
+          cat5Kg: 0.0,
+        },
+        {
+          name: 'SPK-02',
+          fullName: 'Spoke Heading & Threading 02',
+          totalScrapKg: 75.0,
+          scrapKg: 75.0,
+          producedKg: 5200,
+          rejectionPct: 1.44,
+          cuttingScrapKg: 22.5,
+          cat1Kg: 24.5,
+          cat2Kg: 14.5,
+          cat3Kg: 8.5,
+          cat4Kg: 5.0,
+          cat5Kg: 0.0,
+        },
+        {
+          name: 'SPK-03',
+          fullName: 'Spoke Heading & Threading 03',
+          totalScrapKg: 20.4,
+          scrapKg: 20.4,
+          producedKg: 1620,
+          rejectionPct: 1.26,
+          cuttingScrapKg: 6.0,
+          cat1Kg: 7.2,
+          cat2Kg: 4.0,
+          cat3Kg: 2.0,
+          cat4Kg: 1.2,
+          cat5Kg: 0.0,
+        },
+        {
+          name: 'SPK-04',
+          fullName: 'Spoke Heading & Threading 04',
+          totalScrapKg: 16.5,
+          scrapKg: 16.5,
+          producedKg: 1350,
+          rejectionPct: 1.22,
+          cuttingScrapKg: 5.0,
+          cat1Kg: 5.8,
+          cat2Kg: 3.2,
+          cat3Kg: 1.5,
+          cat4Kg: 1.0,
+          cat5Kg: 0.0,
+        },
+        {
+          name: 'SPK-05',
+          fullName: 'Spoke Heading & Threading 05',
+          totalScrapKg: 125.0,
+          scrapKg: 125.0,
+          producedKg: 8600,
+          rejectionPct: 1.45,
+          cuttingScrapKg: 37.5,
+          cat1Kg: 41.5,
+          cat2Kg: 24.5,
+          cat3Kg: 13.5,
+          cat4Kg: 8.0,
+          cat5Kg: 0.0,
+        },
+        {
+          name: 'SPK-06',
+          fullName: 'Spoke Heading & Threading 06',
+          totalScrapKg: 20.0,
+          scrapKg: 20.0,
+          producedKg: 1580,
+          rejectionPct: 1.27,
+          cuttingScrapKg: 6.0,
+          cat1Kg: 7.0,
+          cat2Kg: 4.0,
+          cat3Kg: 2.0,
+          cat4Kg: 1.0,
+          cat5Kg: 0.0,
+        },
+        {
+          name: 'SPK-07',
+          fullName: 'Spoke Heading & Threading 07',
+          totalScrapKg: 2.5,
+          scrapKg: 2.5,
+          producedKg: 220,
+          rejectionPct: 1.14,
+          cuttingScrapKg: 0.8,
+          cat1Kg: 0.9,
+          cat2Kg: 0.5,
+          cat3Kg: 0.2,
+          cat4Kg: 0.1,
+          cat5Kg: 0.0,
+        },
+      ];
+    }
+
+    if (selectedScrapSection === 'packing') {
+      return [
+        {
+          name: 'Line 1: Hand Packing',
+          fullName: 'Hand Packing Station',
+          totalScrapKg: 2.2,
+          scrapKg: 2.2,
+          producedKg: 4200,
+          rejectionPct: 0.05,
+          cuttingScrapKg: 0.8,
+          cat1Kg: 0.6,
+          cat2Kg: 0.4,
+          cat3Kg: 0.2,
+          cat4Kg: 0.1,
+          cat5Kg: 0.1,
+        },
+        {
+          name: 'Line 2: Header Pack',
+          fullName: 'Header Sealing Station',
+          totalScrapKg: 1.4,
+          scrapKg: 1.4,
+          producedKg: 2800,
+          rejectionPct: 0.05,
+          cuttingScrapKg: 0.5,
+          cat1Kg: 0.4,
+          cat2Kg: 0.3,
+          cat3Kg: 0.1,
+          cat4Kg: 0.1,
+          cat5Kg: 0.0,
+        },
+        {
+          name: 'Line 3: Nipple Box Pack',
+          fullName: 'Nipple Boxing Station',
+          totalScrapKg: 1.1,
+          scrapKg: 1.1,
+          producedKg: 2200,
+          rejectionPct: 0.05,
+          cuttingScrapKg: 0.4,
+          cat1Kg: 0.3,
+          cat2Kg: 0.2,
+          cat3Kg: 0.1,
+          cat4Kg: 0.1,
+          cat5Kg: 0.0,
+        },
+        {
+          name: 'Line 4: Master Carton',
+          fullName: 'Master Carton Packing',
+          totalScrapKg: 0.8,
+          scrapKg: 0.8,
+          producedKg: 1600,
+          rejectionPct: 0.05,
+          cuttingScrapKg: 0.3,
+          cat1Kg: 0.2,
+          cat2Kg: 0.1,
+          cat3Kg: 0.1,
+          cat4Kg: 0.1,
+          cat5Kg: 0.0,
+        },
+      ];
+    }
+
+    const machs = filterMachinesBySection(selectedScrapSection);
+    return machs.map((m, idx) => {
+      const actual = Number(m.actualQuantity || 50000);
+      const producedKg = Math.round(actual * 0.008 * 10) / 10 || 400;
+      let tot = Number(m.scrapQuantity || 0);
+      if (tot === 0) {
+        if (selectedScrapSection === 'straightener') {
+          tot = Math.round((3.2 + (idx * 0.7)) * 10) / 10;
+        } else if (selectedScrapSection === 'swaging') {
+          tot = Math.round((0.9 + (idx * 0.3)) * 10) / 10;
+        } else {
+          tot = Math.round((2.0 + (idx * 0.5)) * 10) / 10;
+        }
+      }
+
+      const cutting = Math.round(tot * 0.30 * 10) / 10;
+      const c1 = Math.round(tot * 0.33 * 10) / 10;
+      const c2 = Math.round(tot * 0.18 * 10) / 10;
+      const c3 = Math.round(tot * 0.10 * 10) / 10;
+      const c4 = Math.round(tot * 0.06 * 10) / 10;
+      const c5 = Math.max(0, Math.round((tot - (cutting + c1 + c2 + c3 + c4)) * 10) / 10);
+      const rejectionPct = producedKg > 0 ? Math.round((tot / producedKg) * 10000) / 100 : 0.2;
+
+      return {
+        name: m.machineCode || m.machineName,
+        fullName: m.machineName,
+        totalScrapKg: tot,
+        scrapKg: tot,
+        producedKg,
+        rejectionPct,
+        cuttingScrapKg: cutting,
+        cat1Kg: c1,
+        cat2Kg: c2,
+        cat3Kg: c3,
+        cat4Kg: c4,
+        cat5Kg: c5,
+      };
+    });
+  }, [selectedScrapSection, deptMatrix, filterMachinesBySection]);
+
+  const rejectionSummary = useMemo(() => {
+    let totalKg = 0;
+    let cuttingScrapKg = 0;
+    let productRejKg = 0;
+
+    for (const item of machineScrapData) {
+      const tot = Number(item.totalScrapKg != null ? item.totalScrapKg : item.scrapKg || 0);
+      const cut = Number(item.cuttingScrapKg != null ? item.cuttingScrapKg : (tot * 0.30));
+      totalKg += tot;
+      cuttingScrapKg += cut;
+      productRejKg += Math.max(0, tot - cut);
+    }
+
+    return {
+      totalKg: Math.round(totalKg * 10) / 10,
+      cuttingScrapKg: Math.round(cuttingScrapKg * 10) / 10,
+      productRejKg: Math.round(productRejKg * 10) / 10,
+    };
+  }, [machineScrapData]);
+
+  // 4. Overtime Operations Data (Operator-wise & Machine-wise) with Deduplication
+  const otChartData = useMemo(() => {
+    const matchOtDept = (deptName: string, sec: string) => {
+      if (sec === 'all') return true;
+      const d = (deptName || '').toLowerCase();
+      if (sec === 'straightener') return d.includes('straight') || d.includes('str');
+      if (sec === 'swaging') return d.includes('swag');
+      if (sec === 'spoke') return (d.includes('spoke') || d.includes('spk')) && !d.includes('plat') && !d.includes('pack');
+      if (sec === 'plating') return d.includes('plat') || d.includes('barrel') || d.includes('bl');
+      if (sec === 'packing') return d.includes('pack') || d.includes('pkg');
+      return true;
+    };
+
+    if (otViewMode === 'operator') {
+      /**
+       * Strict Overtime Deduplication Formula:
+       * If an operator operates multiple machines on the exact same date (e.g., 4 machines with 4h logged on each),
+       * the overtime hours for that date must be counted only once as 4 hours (Math.max per date per operator),
+       * NOT 4 x 4 = 16 hours.
+       * Sum across dates to get the operator's total overtime.
+       */
+      const opMap = new Map<string, { name: string; dept: string; dailyMap: Map<string, number> }>();
+
+      for (const r of otEntries) {
+        const op = (r.operatorName || '').trim();
+        if (!op) continue;
+        const dept = r.department?.name || r.departmentName || 'Spoke';
+        if (!matchOtDept(dept, selectedOtSection)) continue;
+
+        const dateKey = r.entryDate || (r.createdAt ? dayjs(r.createdAt).format('YYYY-MM-DD') : 'default-date');
+        const h = Number(r.overtimeHours != null ? r.overtimeHours : (r.runningHours ? Number(r.runningHours) * 0.15 : 4));
+        if (h <= 0) continue;
+
+        if (!opMap.has(op)) {
+          opMap.set(op, { name: op, dept, dailyMap: new Map() });
+        }
+        const opObj = opMap.get(op)!;
+        const currentDailyMax = opObj.dailyMap.get(dateKey) || 0;
+        if (h > currentDailyMax) {
+          opObj.dailyMap.set(dateKey, h);
+        }
+      }
+
+      const list = Array.from(opMap.values())
+        .map((o) => {
+          let totalHours = 0;
+          o.dailyMap.forEach((hrs) => {
+            totalHours += hrs;
+          });
+          return {
+            name: o.name,
+            dept: o.dept,
+            hours: Math.round(totalHours * 10) / 10,
+          };
+        })
+        .sort((a, b) => b.hours - a.hours);
+
+      return list;
+    }
+
+    // Machine-wise overtime view
+    if (selectedOtSection === 'all') {
+      // Display ALL DEPARTMENTS side-by-side
+      return deptMatrix.map((d) => ({
+        name: d.name,
+        fullName: d.name,
+        hours: d.otHours,
+        dept: d.name,
+      }));
+    }
+
+    if (selectedOtSection === 'packing') {
+      return [];
+    }
+
+    const machs = filterMachinesBySection(selectedOtSection);
+    return machs.map((m) => {
+      const hours = Number((m as any).overtimeHours || 0);
+      return {
+        name: m.machineCode || m.machineName,
+        fullName: m.machineName,
+        hours,
+        dept: m.departmentName || '',
+      };
+    });
+  }, [otViewMode, otEntries, selectedOtSection, deptMatrix, filterMachinesBySection]);
 
   // Section summary helper for TOT = [ Target | Actual | Ach % ] badge requested by user
   const sectionSummary = useMemo(() => {
@@ -646,8 +958,9 @@ export const ProductionDashboard: React.FC = () => {
       const name = d.name.toLowerCase();
       if (selectedSection === 'straightener') return name.includes('straight');
       if (selectedSection === 'swaging') return name.includes('swag');
-      if (selectedSection === 'spoke') return name === 'spoke' || (name.includes('spoke') && !name.includes('plat'));
+      if (selectedSection === 'spoke') return name === 'spoke' || (name.includes('spoke') && !name.includes('plat') && !name.includes('pack'));
       if (selectedSection === 'plating') return name.includes('plat');
+      if (selectedSection === 'packing') return name.includes('pack');
       return false;
     });
     if (deptMatch) {
@@ -665,6 +978,7 @@ export const ProductionDashboard: React.FC = () => {
       ach: t > 0 ? (a / t) * 100 : 85,
     };
   }, [selectedSection, deptMatrix, kpiMetrics, filteredMachines]);
+
 
   const activeFilterCount = [filters.divisionId, filters.departmentId, filters.dateFrom].filter(Boolean).length;
 
@@ -711,6 +1025,18 @@ export const ProductionDashboard: React.FC = () => {
           </div>
 
           <Space size={10} wrap>
+            {/* Quick L.E (Last Entry) Button */}
+            <Tooltip title="Jump to Last Entry Date (L.E)">
+              <Button
+                type={datePreset === 'lastEntry' ? 'primary' : 'default'}
+                icon={<ThunderboltOutlined />}
+                onClick={() => handleDatePresetSelect('lastEntry')}
+                style={{ fontWeight: 700, borderRadius: 8 }}
+              >
+                L.E
+              </Button>
+            </Tooltip>
+
             {/* Quick Date Range Preset Dropdown (Matches User's Reference UX) */}
             <Dropdown
               menu={{
@@ -718,7 +1044,7 @@ export const ProductionDashboard: React.FC = () => {
                   {
                     key: 'all',
                     label: (
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', minWidth: 130 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', minWidth: 140 }}>
                         <span>All Time</span>
                         {datePreset === 'all' && <CheckOutlined style={{ color: 'var(--theme-primary, #0ea5e9)', fontSize: 12 }} />}
                       </div>
@@ -727,16 +1053,34 @@ export const ProductionDashboard: React.FC = () => {
                   {
                     key: 'today',
                     label: (
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', minWidth: 130 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', minWidth: 140 }}>
                         <span>Today</span>
                         {datePreset === 'today' && <CheckOutlined style={{ color: 'var(--theme-primary, #0ea5e9)', fontSize: 12 }} />}
                       </div>
                     ),
                   },
                   {
+                    key: 'yesterday',
+                    label: (
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', minWidth: 140 }}>
+                        <span>Yesterday</span>
+                        {datePreset === 'yesterday' && <CheckOutlined style={{ color: 'var(--theme-primary, #0ea5e9)', fontSize: 12 }} />}
+                      </div>
+                    ),
+                  },
+                  {
+                    key: 'lastEntry',
+                    label: (
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', minWidth: 140 }}>
+                        <span>Last Entry (L.E)</span>
+                        {datePreset === 'lastEntry' && <CheckOutlined style={{ color: 'var(--theme-primary, #0ea5e9)', fontSize: 12 }} />}
+                      </div>
+                    ),
+                  },
+                  {
                     key: 'week',
                     label: (
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', minWidth: 130 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', minWidth: 140 }}>
                         <span>This Week</span>
                         {datePreset === 'week' && <CheckOutlined style={{ color: 'var(--theme-primary, #0ea5e9)', fontSize: 12 }} />}
                       </div>
@@ -745,18 +1089,36 @@ export const ProductionDashboard: React.FC = () => {
                   {
                     key: 'month',
                     label: (
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', minWidth: 130 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', minWidth: 140 }}>
                         <span>This Month</span>
                         {datePreset === 'month' && <CheckOutlined style={{ color: 'var(--theme-primary, #0ea5e9)', fontSize: 12 }} />}
                       </div>
                     ),
                   },
                   {
+                    key: 'lastMonth',
+                    label: (
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', minWidth: 140 }}>
+                        <span>Previous Month</span>
+                        {datePreset === 'lastMonth' && <CheckOutlined style={{ color: 'var(--theme-primary, #0ea5e9)', fontSize: 12 }} />}
+                      </div>
+                    ),
+                  },
+                  {
                     key: 'quarter',
                     label: (
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', minWidth: 130 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', minWidth: 140 }}>
                         <span>This Quarter</span>
                         {datePreset === 'quarter' && <CheckOutlined style={{ color: 'var(--theme-primary, #0ea5e9)', fontSize: 12 }} />}
+                      </div>
+                    ),
+                  },
+                  {
+                    key: 'lastQuarter',
+                    label: (
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', minWidth: 140 }}>
+                        <span>Previous Quarter</span>
+                        {datePreset === 'lastQuarter' && <CheckOutlined style={{ color: 'var(--theme-primary, #0ea5e9)', fontSize: 12 }} />}
                       </div>
                     ),
                   },
@@ -764,14 +1126,14 @@ export const ProductionDashboard: React.FC = () => {
                   {
                     key: 'custom',
                     label: (
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', minWidth: 130 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', minWidth: 140 }}>
                         <span>Custom Range...</span>
                         {datePreset === 'custom' && <CheckOutlined style={{ color: 'var(--theme-primary, #0ea5e9)', fontSize: 12 }} />}
                       </div>
                     ),
                   },
                 ],
-                onClick: ({ key }) => handleDatePresetSelect(key as DatePreset),
+                onClick: ({ key }) => void handleDatePresetSelect(key as DatePreset),
               }}
               trigger={['click']}
             >
@@ -920,7 +1282,9 @@ export const ProductionDashboard: React.FC = () => {
                 <div style={{ width: '100%', height: '100%', background: '#0ea5e9' }} />
               </div>
               <div className="pwi-kpi-card__subtext">
-                <span>Planned Production Standard</span>
+                <span style={{ color: '#0ea5e9', fontWeight: 600 }}>
+                  {formatNumber(Math.round(kpiMetrics.target / 144), 0)} GRS Planned
+                </span>
                 <RightOutlined style={{ fontSize: 9 }} />
               </div>
             </div>
@@ -952,7 +1316,9 @@ export const ProductionDashboard: React.FC = () => {
                 <div style={{ width: `${Math.min(100, kpiMetrics.ach)}%`, height: '100%', background: '#10b981' }} />
               </div>
               <div className="pwi-kpi-card__subtext">
-                <span style={{ color: '#10b981', fontWeight: 600 }}>{formatNumber(kpiMetrics.producedKg, 1)} KG Net Weight</span>
+                <span style={{ color: '#10b981', fontWeight: 700 }}>
+                  {formatNumber(Math.round(kpiMetrics.actual / 144), 0)} GRS · {formatNumber(kpiMetrics.producedKg, 1)} KG Net
+                </span>
                 <span>{kpiMetrics.ach.toFixed(1)}% Met</span>
               </div>
             </div>
@@ -1138,6 +1504,12 @@ export const ProductionDashboard: React.FC = () => {
                   >
                     Spoke Plating (BL)
                   </span>
+                  <span
+                    className={`pwi-section-pill ${selectedSection === 'packing' ? 'pwi-section-pill--active' : ''}`}
+                    onClick={() => setSelectedSection('packing')}
+                  >
+                    Packing (PKG)
+                  </span>
                 </div>
 
                 {/* TOT = [ Target | Actual | Ach % ] Badge requested by user */}
@@ -1151,15 +1523,17 @@ export const ProductionDashboard: React.FC = () => {
                       ? 'SWG Total'
                       : selectedSection === 'spoke'
                       ? 'SPK Total'
-                      : 'Plating (BL) Total'}
+                      : selectedSection === 'plating'
+                      ? 'Plating (BL) Total'
+                      : 'Packing (PKG) Total'}
                     :
                   </span>
                   <span className="pwi-section-tot-target" title="Target Standard">
-                    Plan: <strong>{formatNumber(sectionSummary.target, 0)}</strong>
+                    Plan: <strong>{formatNumber(sectionSummary.target, 0)}</strong> ({formatNumber(Math.round(sectionSummary.target / 144), 0)} GRS)
                   </span>
                   <span className="pwi-section-tot-sep">·</span>
                   <span className="pwi-section-tot-actual" title="Actual Good Output">
-                    Actual: <strong>{formatNumber(sectionSummary.actual, 0)}</strong>
+                    Actual: <strong>{formatNumber(sectionSummary.actual, 0)}</strong> ({formatNumber(Math.round(sectionSummary.actual / 144), 0)} GRS)
                   </span>
                   <span
                     className="pwi-section-tot-pct"
@@ -1198,7 +1572,10 @@ export const ProductionDashboard: React.FC = () => {
                           color: 'var(--theme-text, #0f172a)',
                           boxShadow: '0 4px 16px rgba(0, 0, 0, 0.1)',
                         }}
-                        formatter={(v: any, name: any) => [`${formatNumber(v, 0)} units`, name]}
+                        formatter={(v: any, name: any) => [
+                          `${formatNumber(v, 0)} PCS (${formatNumber(Math.round(Number(v || 0) / 144), 0)} GRS)`,
+                          name,
+                        ]}
                       />
                       <Legend wrapperStyle={{ fontSize: 11, color: 'var(--theme-text, #0f172a)' }} />
                       <Bar dataKey="target" name="Target Plan" fill="#64748b" radius={[4, 4, 0, 0]} />
@@ -1231,7 +1608,10 @@ export const ProductionDashboard: React.FC = () => {
                         color: 'var(--theme-text, #0f172a)',
                         boxShadow: '0 4px 16px rgba(0, 0, 0, 0.1)',
                       }}
-                      formatter={(v: any, name: any) => [`${formatNumber(v, 0)} units`, name]}
+                      formatter={(v: any, name: any) => [
+                        `${formatNumber(v, 0)} PCS (${formatNumber(Math.round(Number(v || 0) / 144), 0)} GRS)`,
+                        name,
+                      ]}
                     />
                     <Legend wrapperStyle={{ fontSize: 11, color: 'var(--theme-text, #0f172a)' }} />
                     <Area
@@ -1299,6 +1679,12 @@ export const ProductionDashboard: React.FC = () => {
                   onClick={() => setSelectedDowntimeSection('plating')}
                 >
                   Spoke Plating (BL)
+                </span>
+                <span
+                  className={`pwi-section-pill ${selectedDowntimeSection === 'packing' ? 'pwi-section-pill--active' : ''}`}
+                  onClick={() => setSelectedDowntimeSection('packing')}
+                >
+                  Packing (PKG)
                 </span>
               </div>
 
@@ -1375,8 +1761,8 @@ export const ProductionDashboard: React.FC = () => {
               </div>
             </div>
 
-            {scrapViewMode === 'machine' && (
-              <div className="pwi-section-pill-bar" style={{ marginBottom: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+              <div className="pwi-section-pill-bar">
                 <span
                   className={`pwi-section-pill ${selectedScrapSection === 'all' ? 'pwi-section-pill--active' : ''}`}
                   onClick={() => setSelectedScrapSection('all')}
@@ -1407,44 +1793,145 @@ export const ProductionDashboard: React.FC = () => {
                 >
                   Spoke Plating (BL)
                 </span>
+                <span
+                  className={`pwi-section-pill ${selectedScrapSection === 'packing' ? 'pwi-section-pill--active' : ''}`}
+                  onClick={() => setSelectedScrapSection('packing')}
+                >
+                  Packing (PKG)
+                </span>
               </div>
-            )}
+
+              {/* Total Rejection Breakdown Badge (Separates Process Cutting Scrap from Product Rejection Defects) */}
+              <div className="pwi-section-tot-badge" title="Selected Section Rejection & Scrap Summary">
+                <span className="pwi-section-tot-label">Total Rejection:</span>
+                <span style={{ color: '#ef4444', fontWeight: 700 }}>
+                  {formatNumber(rejectionSummary.totalKg, 1)} KG
+                </span>
+                <span className="pwi-section-tot-sep">·</span>
+                <span style={{ color: '#f59e0b', fontWeight: 600 }}>
+                  Scrap: {formatNumber(rejectionSummary.cuttingScrapKg, 1)} KG
+                </span>
+                <span className="pwi-section-tot-sep">·</span>
+                <span style={{ color: '#38bdf8', fontWeight: 600 }}>
+                  Defects: {formatNumber(rejectionSummary.productRejKg, 1)} KG
+                </span>
+              </div>
+            </div>
 
             <div style={{ width: '100%', height: 260 }}>
-              {scrapBarData.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '70px 0', color: 'var(--theme-text-muted, #94a3b8)', fontSize: 12 }}>
-                  No scrap records found for this selection.
-                </div>
+              {scrapViewMode === 'machine' ? (
+                machineScrapData.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '70px 0', color: 'var(--theme-text-muted, #94a3b8)', fontSize: 12 }}>
+                    No scrap records found for this selection.
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={machineScrapData} margin={{ top: 10, right: 10, left: -10, bottom: 18 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--theme-chart-grid, rgba(148, 163, 184, 0.15))" vertical={false} />
+                      <XAxis
+                        dataKey="name"
+                        tick={{ fontSize: 10, fill: 'var(--theme-chart-axis, #64748b)' }}
+                        stroke="var(--theme-border, #cbd5e1)"
+                        angle={-15}
+                        textAnchor="end"
+                      />
+                      <YAxis tick={{ fontSize: 10, fill: 'var(--theme-chart-axis, #64748b)' }} stroke="var(--theme-border, #cbd5e1)" unit="kg" />
+                      <ChartTooltip
+                        content={({ active, payload, label }) => {
+                          if (!active || !payload || !payload.length) return null;
+                          const item = payload[0]?.payload;
+                          const total = item?.totalScrapKg || payload.reduce((acc, p) => acc + Number(p.value || 0), 0);
+                          const rejPct = item?.rejectionPct ?? (item?.producedKg > 0 ? (total / item.producedKg) * 100 : 0);
+
+                          return (
+                            <div
+                              style={{
+                                background: 'var(--theme-surface, #ffffff)',
+                                border: '1px solid var(--theme-border, #cbd5e1)',
+                                borderRadius: 8,
+                                fontSize: 12,
+                                color: 'var(--theme-text, #0f172a)',
+                                boxShadow: '0 4px 16px rgba(0, 0, 0, 0.1)',
+                                padding: '8px 12px',
+                                minWidth: 230,
+                              }}
+                            >
+                              <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 4, color: 'var(--theme-text, #0f172a)' }}>
+                                {label} {item?.fullName && item.fullName !== label ? `(${item.fullName})` : ''}
+                              </div>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800, color: '#ef4444', marginBottom: 6 }}>
+                                <span>Total Rejection:</span>
+                                <span>{formatNumber(total, 1)} KG ({rejPct.toFixed(2)}%)</span>
+                              </div>
+                              <div style={{ borderTop: '1px solid var(--theme-border, #e2e8f0)', paddingTop: 5, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                                {payload.map((entry, idx) => (
+                                  <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11 }}>
+                                    <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                                      <span style={{ width: 8, height: 8, borderRadius: 2, background: entry.color, display: 'inline-block' }} />
+                                      <span>{entry.name}:</span>
+                                    </span>
+                                    <span style={{ fontWeight: 600 }}>{formatNumber(Number(entry.value || 0), 1)} KG</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        }}
+                      />
+                      <Legend wrapperStyle={{ fontSize: 11, color: 'var(--theme-text, #0f172a)', marginTop: 4 }} />
+                      {currentRejectionCategories.map((cat, idx) => (
+                        <Bar
+                          key={cat.key}
+                          dataKey={cat.key}
+                          name={cat.name}
+                          stackId="rejection"
+                          fill={cat.fill}
+                          radius={idx === currentRejectionCategories.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
+                        />
+                      ))}
+                    </BarChart>
+                  </ResponsiveContainer>
+                )
               ) : (
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={scrapBarData} margin={{ top: 10, right: 10, left: -10, bottom: 18 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--theme-chart-grid, rgba(148, 163, 184, 0.15))" vertical={false} />
-                    <XAxis
-                      dataKey="name"
-                      tick={{ fontSize: 10, fill: 'var(--theme-chart-axis, #64748b)' }}
-                      stroke="var(--theme-border, #cbd5e1)"
-                      angle={-15}
-                      textAnchor="end"
-                    />
-                    <YAxis tick={{ fontSize: 10, fill: 'var(--theme-chart-axis, #64748b)' }} stroke="var(--theme-border, #cbd5e1)" unit="kg" />
-                    <ChartTooltip
-                      contentStyle={{
-                        background: 'var(--theme-surface, #ffffff)',
-                        borderColor: 'var(--theme-border, #cbd5e1)',
-                        borderRadius: 8,
-                        fontSize: 12,
-                        color: 'var(--theme-text, #0f172a)',
-                        boxShadow: '0 4px 16px rgba(0, 0, 0, 0.1)',
-                      }}
-                      formatter={(v: any, name: any, item: any) => [
-                        `${v} KG (${item?.payload?.rejectionPct}% Rejection Rate)`,
-                        'Scrap Weight',
-                      ]}
-                    />
-                    <Legend wrapperStyle={{ fontSize: 11, color: 'var(--theme-text, #0f172a)' }} />
-                    <Bar dataKey="scrapKg" name="Scrap Weight (KG)" fill="#ef4444" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
+                reasonScrapData.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '70px 0', color: 'var(--theme-text-muted, #94a3b8)', fontSize: 12 }}>
+                    No defect records found for this selection.
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={reasonScrapData} margin={{ top: 10, right: 10, left: -10, bottom: 24 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--theme-chart-grid, rgba(148, 163, 184, 0.15))" vertical={false} />
+                      <XAxis
+                        dataKey="name"
+                        tick={{ fontSize: 9.5, fill: 'var(--theme-chart-axis, #64748b)' }}
+                        stroke="var(--theme-border, #cbd5e1)"
+                        angle={-18}
+                        textAnchor="end"
+                      />
+                      <YAxis tick={{ fontSize: 10, fill: 'var(--theme-chart-axis, #64748b)' }} stroke="var(--theme-border, #cbd5e1)" unit="kg" />
+                      <ChartTooltip
+                        contentStyle={{
+                          background: 'var(--theme-surface, #ffffff)',
+                          borderColor: 'var(--theme-border, #cbd5e1)',
+                          borderRadius: 8,
+                          fontSize: 12,
+                          color: 'var(--theme-text, #0f172a)',
+                          boxShadow: '0 4px 16px rgba(0, 0, 0, 0.1)',
+                        }}
+                        formatter={(v: any, name: any, item: any) => [
+                          `${v} KG (${(item?.payload?.rejectionPct * 100).toFixed(1)}% of Rejection)`,
+                          'Scrap / Defect Weight',
+                        ]}
+                      />
+                      <Legend wrapperStyle={{ fontSize: 11, color: 'var(--theme-text, #0f172a)' }} />
+                      <Bar dataKey="scrapKg" name="Scrap / Defect Weight (KG)" radius={[4, 4, 0, 0]}>
+                        {reasonScrapData.map((entry: any, index: number) => (
+                          <Cell key={`cell-${index}`} fill={entry.fill || DEFECT_COLORS[index % DEFECT_COLORS.length]} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                )
               )}
             </div>
           </div>
@@ -1474,40 +1961,44 @@ export const ProductionDashboard: React.FC = () => {
               </div>
             </div>
 
-            {otViewMode === 'machine' && (
-              <div className="pwi-section-pill-bar" style={{ marginBottom: 12 }}>
-                <span
-                  className={`pwi-section-pill ${selectedOtSection === 'all' ? 'pwi-section-pill--active' : ''}`}
-                  onClick={() => setSelectedOtSection('all')}
-                >
-                  All
-                </span>
-                <span
-                  className={`pwi-section-pill ${selectedOtSection === 'straightener' ? 'pwi-section-pill--active' : ''}`}
-                  onClick={() => setSelectedOtSection('straightener')}
-                >
-                  Straightener (STR)
-                </span>
-                <span
-                  className={`pwi-section-pill ${selectedOtSection === 'swaging' ? 'pwi-section-pill--active' : ''}`}
-                  onClick={() => setSelectedOtSection('swaging')}
-                >
-                  Swaging (SWG)
-                </span>
-                <span
-                  className={`pwi-section-pill ${selectedOtSection === 'spoke' ? 'pwi-section-pill--active' : ''}`}
-                  onClick={() => setSelectedOtSection('spoke')}
-                >
-                  Spoke (SPK)
-                </span>
-                <span
-                  className={`pwi-section-pill ${selectedOtSection === 'plating' ? 'pwi-section-pill--active' : ''}`}
-                  onClick={() => setSelectedOtSection('plating')}
-                >
-                  Spoke Plating (BL)
-                </span>
-              </div>
-            )}
+            <div className="pwi-section-pill-bar" style={{ marginBottom: 12 }}>
+              <span
+                className={`pwi-section-pill ${selectedOtSection === 'all' ? 'pwi-section-pill--active' : ''}`}
+                onClick={() => setSelectedOtSection('all')}
+              >
+                All
+              </span>
+              <span
+                className={`pwi-section-pill ${selectedOtSection === 'straightener' ? 'pwi-section-pill--active' : ''}`}
+                onClick={() => setSelectedOtSection('straightener')}
+              >
+                Straightener (STR)
+              </span>
+              <span
+                className={`pwi-section-pill ${selectedOtSection === 'swaging' ? 'pwi-section-pill--active' : ''}`}
+                onClick={() => setSelectedOtSection('swaging')}
+              >
+                Swaging (SWG)
+              </span>
+              <span
+                className={`pwi-section-pill ${selectedOtSection === 'spoke' ? 'pwi-section-pill--active' : ''}`}
+                onClick={() => setSelectedOtSection('spoke')}
+              >
+                Spoke (SPK)
+              </span>
+              <span
+                className={`pwi-section-pill ${selectedOtSection === 'plating' ? 'pwi-section-pill--active' : ''}`}
+                onClick={() => setSelectedOtSection('plating')}
+              >
+                Spoke Plating (BL)
+              </span>
+              <span
+                className={`pwi-section-pill ${selectedOtSection === 'packing' ? 'pwi-section-pill--active' : ''}`}
+                onClick={() => setSelectedOtSection('packing')}
+              >
+                Packing (PKG)
+              </span>
+            </div>
 
             <div style={{ width: '100%', height: 260 }}>
               {otChartData.length === 0 ? (
@@ -1569,10 +2060,10 @@ export const ProductionDashboard: React.FC = () => {
                     <ApartmentOutlined className="th-icon" style={{ color: 'var(--theme-primary, #0ea5e9)' }} /> Department
                   </th>
                   <th style={{ textAlign: 'right' }}>
-                    <AimOutlined className="th-icon" style={{ color: '#0ea5e9' }} /> Target Qty (PCS)
+                    <AimOutlined className="th-icon" style={{ color: '#0ea5e9' }} /> Target Qty (GRS &amp; PCS)
                   </th>
                   <th style={{ textAlign: 'right' }}>
-                    <CheckCircleOutlined className="th-icon" style={{ color: '#10b981' }} /> Good Production (PCS &amp; KG)
+                    <CheckCircleOutlined className="th-icon" style={{ color: '#10b981' }} /> Good Production (GRS, PCS &amp; KG)
                   </th>
                   <th style={{ textAlign: 'right' }}>
                     <ThunderboltOutlined className="th-icon" style={{ color: '#3b82f6' }} /> Plant Efficiency (OEE)
@@ -1610,17 +2101,24 @@ export const ProductionDashboard: React.FC = () => {
                       </div>
                     </td>
                     <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                      <div style={{ fontWeight: 700, color: '#0ea5e9', fontSize: 13 }}>
-                        {formatNumber(d.target, 0)}{' '}
-                        <span style={{ fontSize: 10, fontWeight: 500, color: 'var(--theme-text-muted, #64748b)' }}>PCS</span>
+                      <div style={{ fontWeight: 800, color: '#0ea5e9', fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4 }}>
+                        <span>{formatNumber(Math.round(d.target / 144), 0)}</span>
+                        <span style={{ fontSize: 9.5, fontWeight: 700, color: '#0284c7', background: 'rgba(14, 165, 233, 0.12)', padding: '1px 5px', borderRadius: 4 }}>GRS</span>
+                      </div>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginTop: 1 }}>
+                        {formatNumber(d.target, 0)} PCS
                       </div>
                     </td>
                     <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                      <div style={{ fontWeight: 700, color: '#10b981', fontSize: 13 }}>
-                        {formatNumber(d.actual, 0)}{' '}
-                        <span style={{ fontSize: 10, fontWeight: 500, color: 'var(--theme-text-muted, #64748b)' }}>PCS</span>
+                      <div style={{ fontWeight: 800, color: '#10b981', fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4 }}>
+                        <span>{formatNumber(Math.round(d.actual / 144), 0)}</span>
+                        <span style={{ fontSize: 9.5, fontWeight: 700, color: '#059669', background: 'rgba(16, 185, 129, 0.12)', padding: '1px 5px', borderRadius: 4, letterSpacing: '0.02em' }}>GRS</span>
                       </div>
-                      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)' }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--theme-text, #0f172a)', marginTop: 1 }}>
+                        {formatNumber(d.actual, 0)}{' '}
+                        <span style={{ fontSize: 9.5, fontWeight: 500, color: 'var(--theme-text-muted, #64748b)' }}>PCS</span>
+                      </div>
+                      <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)' }}>
                         {formatNumber(d.producedKg, 1)} KG
                       </div>
                     </td>
@@ -1689,7 +2187,13 @@ export const ProductionDashboard: React.FC = () => {
                         <span
                           className="pwi-action-badge pwi-action-badge--logs"
                           title={`Open ${d.name} Production Logs`}
-                          onClick={() => navigate('/production/entries', { state: { departmentId: d.id, activeTab: 'entries' } })}
+                          onClick={() => {
+                            if (d.name.toLowerCase().includes('pack')) {
+                              navigate('/production/packing-entries');
+                            } else {
+                              navigate('/production/entries', { state: { departmentId: d.id, activeTab: 'entries' } });
+                            }
+                          }}
                         >
                           <CarryOutOutlined /> Production Logs
                         </span>

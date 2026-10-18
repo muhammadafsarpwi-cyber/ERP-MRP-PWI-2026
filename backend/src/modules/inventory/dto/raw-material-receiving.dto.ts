@@ -42,15 +42,20 @@ export class RawMaterialReturnLineDto {
 }
 
 export class CreateRawMaterialReceiptDto {
-  @IsOptional()
+  @IsNotEmpty({ message: 'Gate Pass No is required' })
   @IsString()
   @MaxLength(50)
-  gatePassNo?: string;
+  gatePassNo!: string;
 
   @IsOptional()
   @IsString()
   @MaxLength(50)
   sourceNo?: string;
+
+  @IsNotEmpty({ message: 'Heat Number is required' })
+  @IsString()
+  @MaxLength(100)
+  heatNumber!: string;
 
   @IsOptional()
   @IsDateString()
@@ -151,6 +156,11 @@ export class UpdateRawMaterialReceiptDto {
   @IsString()
   @MaxLength(50)
   sourceNo?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  heatNumber?: string;
 
   @IsOptional()
   @IsDateString()

@@ -971,6 +971,8 @@ export class ProductionOpenStockService {
           inferredDivision,
           divisionCode,
           divisionName,
+          isFgWarehouse,
+          isNippleWarehouse,
           summary: {
             totalItems: items.length,
             totalWeightKg: Math.round(totalWeightKg * 100) / 100,

@@ -47,7 +47,9 @@ const buildKpis = (summary: DashboardSummary | null): KpiDef[] => {
       key: 'entries',
       label: 'Production Entries',
       value: summary?.productionEntries.total ?? 0,
-      context: `${summary?.productionEntries.today ?? 0} recorded today`,
+      context: summary?.productionEntries?.lastEntryDate
+        ? `${summary?.productionEntries.today ?? 0} today · Last: ${summary.productionEntries.lastEntryDate}`
+        : `${summary?.productionEntries.today ?? 0} recorded today`,
       icon: <ShopOutlined />,
       tone: 'info',
       nav: '/production',

@@ -23,21 +23,41 @@ export class PurchaseRequisitionService {
       throw new ConflictException(`Requisition code '${dto.requisitionCode}' already exists`);
     }
 
+    const { divisionId, warehouseId, purchaseType, lines } = dto;
     const requisition = this.repo.create({
-      ...dto,
-      lines: undefined,
+      companyId: dto.companyId,
+      requisitionCode: dto.requisitionCode,
+      title: dto.title || null,
+      description: dto.description || null,
+      requestType: dto.requestType || 'STANDARD',
+      requestedDeliveryDate: dto.requestedDeliveryDate || null,
+      department: dto.department || null,
+      projectCode: dto.projectCode || null,
+      notes: dto.notes || null,
       status: 'DRAFT',
       createdBy: userId || null,
       updatedBy: userId || null,
     });
     const saved = await this.repo.save(requisition);
 
-    if (dto.lines && dto.lines.length > 0) {
-      for (const lineDto of dto.lines) {
+    if (lines && lines.length > 0) {
+      for (let idx = 0; idx < lines.length; idx++) {
+        const lineDto = lines[idx];
+        const unitPrice = lineDto.estimatedUnitPrice ?? lineDto.unitPrice ?? 0;
+        const lineWhId = lineDto.warehouseId || warehouseId || null;
         const line = this.lineRepo.create({
           requisitionId: saved.id,
-          ...lineDto,
-          estimatedTotalPrice: (lineDto.estimatedUnitPrice || 0) * lineDto.quantity,
+          lineNumber: lineDto.lineNumber ?? (idx + 1),
+          itemId: lineDto.itemId,
+          uomId: lineDto.uomId,
+          quantity: lineDto.quantity,
+          estimatedUnitPrice: unitPrice,
+          estimatedTotalPrice: (unitPrice || 0) * (lineDto.quantity || 1),
+          requiredDate: lineDto.requiredDate || dto.requestedDeliveryDate || null,
+          warehouseId: lineWhId,
+          supplierId: lineDto.supplierId || null,
+          justification: lineDto.justification || lineDto.description || lineDto.itemName || null,
+          notes: lineDto.notes || null,
           createdBy: userId || null,
           updatedBy: userId || null,
         });
@@ -46,6 +66,54 @@ export class PurchaseRequisitionService {
     }
 
     return this.findOne(saved.id);
+  }
+
+  async update(id: string, dto: CreatePurchaseRequisitionDto, userId?: string): Promise<PurchaseRequisition> {
+    const requisition = await this.findOne(id);
+    if (requisition.status !== 'DRAFT' && requisition.status !== 'SUBMITTED') {
+      throw new BadRequestException('Can only update requisitions in DRAFT or SUBMITTED status');
+    }
+
+    const { divisionId, warehouseId, purchaseType, lines } = dto;
+
+    if (dto.title !== undefined) requisition.title = dto.title || null;
+    if (dto.description !== undefined) requisition.description = dto.description || null;
+    if (dto.requestType !== undefined) requisition.requestType = dto.requestType || 'STANDARD';
+    if (dto.requestedDeliveryDate !== undefined) requisition.requestedDeliveryDate = dto.requestedDeliveryDate || null;
+    if (dto.department !== undefined) requisition.department = dto.department || null;
+    if (dto.projectCode !== undefined) requisition.projectCode = dto.projectCode || null;
+    if (dto.notes !== undefined) requisition.notes = dto.notes || null;
+    requisition.updatedBy = userId || null;
+
+    await this.repo.save(requisition);
+
+    if (lines && lines.length > 0) {
+      await this.lineRepo.delete({ requisitionId: id });
+      for (let idx = 0; idx < lines.length; idx++) {
+        const lineDto = lines[idx];
+        const unitPrice = lineDto.estimatedUnitPrice ?? lineDto.unitPrice ?? 0;
+        const lineWhId = lineDto.warehouseId || warehouseId || null;
+        const line = this.lineRepo.create({
+          requisitionId: id,
+          lineNumber: lineDto.lineNumber ?? (idx + 1),
+          itemId: lineDto.itemId,
+          uomId: lineDto.uomId,
+          quantity: lineDto.quantity,
+          estimatedUnitPrice: unitPrice,
+          estimatedTotalPrice: (unitPrice || 0) * (lineDto.quantity || 1),
+          requiredDate: lineDto.requiredDate || dto.requestedDeliveryDate || null,
+          warehouseId: lineWhId,
+          supplierId: lineDto.supplierId || null,
+          justification: lineDto.justification || lineDto.description || lineDto.itemName || null,
+          notes: lineDto.notes || null,
+          createdBy: userId || null,
+          updatedBy: userId || null,
+        });
+        await this.lineRepo.save(line);
+      }
+    }
+
+    return this.findOne(id);
   }
 
   async findAll(filter: PurchaseRequisitionFilterDto): Promise<{ data: PurchaseRequisition[]; total: number }> {
@@ -126,5 +194,14 @@ export class PurchaseRequisitionService {
     const line = await this.lineRepo.findOne({ where: { id: lineId, requisitionId } });
     if (!line) throw new NotFoundException(`Line with ID '${lineId}' not found`);
     await this.lineRepo.remove(line);
+  }
+
+  async remove(id: string): Promise<void> {
+    const requisition = await this.findOne(id);
+    try {
+      await this.repo.manager.query(`UPDATE store_replenishments SET pr_id = NULL WHERE pr_id = $1`, [id]);
+    } catch { /* ignore if table or column doesn't exist */ }
+    await this.lineRepo.delete({ requisitionId: id });
+    await this.repo.remove(requisition);
   }
 }

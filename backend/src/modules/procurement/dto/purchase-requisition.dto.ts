@@ -56,6 +56,36 @@ export class CreatePurchaseRequisitionLineDto {
   @IsString()
   @IsOptional()
   notes?: string;
+
+  @ApiPropertyOptional({ description: 'Item description' })
+  @IsString()
+  @IsOptional()
+  description?: string;
+
+  @ApiPropertyOptional({ description: 'Item code' })
+  @IsString()
+  @IsOptional()
+  itemCode?: string;
+
+  @ApiPropertyOptional({ description: 'Item name' })
+  @IsString()
+  @IsOptional()
+  itemName?: string;
+
+  @ApiPropertyOptional({ description: 'Unit price' })
+  @IsNumber()
+  @IsOptional()
+  unitPrice?: number;
+
+  @ApiPropertyOptional({ description: 'Estimated amount' })
+  @IsNumber()
+  @IsOptional()
+  estimatedAmount?: number;
+
+  @ApiPropertyOptional({ description: 'Line total' })
+  @IsNumber()
+  @IsOptional()
+  lineTotal?: number;
 }
 
 export class CreatePurchaseRequisitionDto {
@@ -103,6 +133,21 @@ export class CreatePurchaseRequisitionDto {
   @IsOptional()
   @MaxLength(100)
   projectCode?: string;
+
+  @ApiPropertyOptional({ description: 'Division ID' })
+  @IsString()
+  @IsOptional()
+  divisionId?: string;
+
+  @ApiPropertyOptional({ description: 'Warehouse ID' })
+  @IsString()
+  @IsOptional()
+  warehouseId?: string;
+
+  @ApiPropertyOptional({ description: 'Purchase type (LOCAL / IMPORT)' })
+  @IsString()
+  @IsOptional()
+  purchaseType?: string;
 
   @ApiPropertyOptional({ description: 'Notes' })
   @IsString()

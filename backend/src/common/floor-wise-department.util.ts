@@ -28,6 +28,13 @@ export const FLOOR_WISE_DEPARTMENT_ORDER = [
  */
 const FLOOR_WISE_ALIASES: Record<string, number> = {
   swagging: 1,
+  'spoke packing': 4,
+  'packing department': 4,
+  'spoke packing department': 4,
+  'hand packing': 4,
+  'nipple packing': 4,
+  'spoke dispatch': 5,
+  'dispatch department': 5,
 };
 
 /** Case/whitespace-insensitive key used for floor-position matching. */

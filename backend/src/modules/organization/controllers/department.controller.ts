@@ -8,7 +8,7 @@ import { CreateDepartmentDto, UpdateDepartmentDto } from '../dto';
 import { DepartmentStatus } from '../entities';
 
 @ApiTags('organization/departments')
-@Controller('departments')
+@Controller(['departments', 'organization/departments'])
 @UseGuards(SupabaseJwtGuard, OrgScopeGuard, PermissionGuard)
 export class DepartmentController {
   constructor(private readonly departmentService: DepartmentService) {}

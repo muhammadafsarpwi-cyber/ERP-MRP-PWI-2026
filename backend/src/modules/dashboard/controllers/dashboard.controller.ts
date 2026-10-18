@@ -55,6 +55,27 @@ export class DashboardController {
     return { success: true, data };
   }
 
+  @Get('last-entry-date')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @ApiQuery({ name: 'divisionId', required: false })
+  @ApiQuery({ name: 'sectionId', required: false })
+  @ApiQuery({ name: 'departmentId', required: false })
+  @ApiOperation({ summary: 'Get the date of the most recent production entry' })
+  async lastEntryDate(
+    @Req() req: any,
+    @Query('divisionId') divisionId?: string,
+    @Query('sectionId') sectionId?: string,
+    @Query('departmentId') departmentId?: string,
+  ) {
+    const companyId = this.getCompanyId(req);
+    const data = await this.dashboardService.getLastEntryDate(companyId, {
+      divisionId, sectionId, departmentId,
+      allowedDivisionIds: this.divisions(req),
+    });
+    return { success: true, data };
+  }
+
   @Get('production')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
@@ -106,11 +127,14 @@ export class DashboardController {
     @Query('shiftId') shiftId?: string,
     @Query('machineId') machineId?: string,
     @Query('itemId') itemId?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
   ) {
     const companyId = this.getCompanyId(req);
-    const d = Math.min(Math.max(Number(days) || 14, 1), 90);
+    const d = Math.min(Math.max(Number(days) || 31, 1), 90);
     const data = await this.dashboardService.getProductionTrend(companyId, d, {
       divisionId, sectionId, departmentId, shiftId, machineId, itemId,
+      dateFrom, dateTo,
       allowedDivisionIds: this.divisions(req),
     });
     return { success: true, data };
@@ -186,13 +210,25 @@ export class DashboardController {
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
   @ApiQuery({ name: 'warehouseId', required: false })
+  @ApiQuery({ name: 'divisionId', required: false })
+  @ApiQuery({ name: 'sectionId', required: false })
+  @ApiQuery({ name: 'departmentId', required: false })
   @ApiOperation({ summary: 'Inventory summary — warehouse stock, low stock items, recent transactions' })
   async inventory(
     @Req() req: any,
     @Query('warehouseId') warehouseId?: string,
+    @Query('divisionId') divisionId?: string,
+    @Query('sectionId') sectionId?: string,
+    @Query('departmentId') departmentId?: string,
   ) {
     const companyId = this.getCompanyId(req);
-    const data = await this.dashboardService.getInventorySummary(companyId, { warehouseId });
+    const data = await this.dashboardService.getInventorySummary(companyId, {
+      warehouseId,
+      divisionId,
+      sectionId,
+      departmentId,
+      allowedDivisionIds: this.divisions(req),
+    });
     return { success: true, data };
   }
 
@@ -213,6 +249,40 @@ export class DashboardController {
   async salesSummary(@Req() req: any) {
     const companyId = this.getCompanyId(req);
     const data = await this.dashboardService.getSalesOrderSummary(companyId);
+    return { success: true, data };
+  }
+
+  @Get('schedule')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @ApiOperation({ summary: 'Today and upcoming dispatch / production schedule' })
+  async schedule(@Req() req: any) {
+    const companyId = this.getCompanyId(req);
+    const data = await this.dashboardService.getDashboardSchedule(companyId);
+    return { success: true, data };
+  }
+
+  @Get('calendar-activity')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @ApiQuery({ name: 'year', required: false })
+  @ApiQuery({ name: 'month', required: false })
+  @ApiQuery({ name: 'divisionId', required: false })
+  @ApiOperation({ summary: 'Monthly production entry dates for calendar indicators' })
+  async calendarActivity(
+    @Req() req: any,
+    @Query('year') year?: number,
+    @Query('month') month?: number,
+    @Query('divisionId') divisionId?: string,
+  ) {
+    const companyId = this.getCompanyId(req);
+    const now = new Date();
+    const y = Number(year) || now.getFullYear();
+    const m = Number(month) || (now.getMonth() + 1);
+    const data = await this.dashboardService.getCalendarActivity(companyId, y, m, {
+      divisionId,
+      allowedDivisionIds: this.divisions(req),
+    });
     return { success: true, data };
   }
 

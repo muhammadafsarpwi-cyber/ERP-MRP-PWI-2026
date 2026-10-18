@@ -671,6 +671,7 @@ export class RawMaterialReceivingService {
           receiptCode,
           gatePassNo,
           sourceNo: dto.sourceNo ?? null,
+          heatNumber: dto.heatNumber ?? null,
           receiptDate: dto.receiptDate ? dto.receiptDate.slice(0, 10) : new Date().toISOString().slice(0, 10),
           divisionId: dto.divisionId,
           sectionId: dto.sectionId,
@@ -844,6 +845,7 @@ export class RawMaterialReceivingService {
         ...existingScalar,
         gatePassNo: dto.gatePassNo !== undefined ? targetGatePassNo : existing.gatePassNo,
         sourceNo: dto.sourceNo !== undefined ? dto.sourceNo ?? null : existing.sourceNo,
+        heatNumber: dto.heatNumber !== undefined ? dto.heatNumber ?? null : existing.heatNumber,
         receiptDate: dto.receiptDate ? dto.receiptDate.slice(0, 10) : existing.receiptDate,
         divisionId,
         sectionId,
@@ -1048,11 +1050,15 @@ export class RawMaterialReceivingService {
         order: { name: 'ASC' as any },
       }),
       this.receiptRepo.manager.query(
-        `SELECT id, order_number, status, product_id
+        `SELECT id, po_code AS "order_number", po_code, status, warehouse_id
+           FROM purchase_orders
+          WHERE company_id = $1 AND is_active = true
+          UNION ALL
+         SELECT id, order_number, order_number AS po_code, status, NULL::uuid AS warehouse_id
            FROM production_orders
           WHERE company_id = $1 AND deleted_at IS NULL
-          ORDER BY order_number DESC
-          LIMIT 100`,
+          ORDER BY "order_number" DESC
+          LIMIT 200`,
         [companyId],
       ),
       // Bundle the full (small) organization lookup lists into the single form-data
@@ -1133,6 +1139,8 @@ export class RawMaterialReceivingService {
 
     const ids = data.map((h) => h.id);
     const totals: Record<string, { gatePassTotal: number; receivedTotal: number; differenceTotal: number }> = {};
+    const linesMap: Record<string, any[]> = {};
+
     if (ids.length > 0) {
       const rows: any[] = await this.receiptLineRepo
         .createQueryBuilder('l')
@@ -1150,15 +1158,36 @@ export class RawMaterialReceivingService {
           differenceTotal: Number(r.difference || 0),
         };
       }
+
+      const allLines = await this.receiptLineRepo.find({
+        where: { receiptId: In(ids) },
+        relations: ['item', 'uom'],
+        order: { lineNumber: 'ASC' },
+      });
+      for (const l of allLines) {
+        if (!linesMap[l.receiptId]) linesMap[l.receiptId] = [];
+        linesMap[l.receiptId].push({
+          id: l.id,
+          lineNumber: l.lineNumber,
+          itemId: l.itemId,
+          item: l.item ? { id: l.item.id, itemCode: l.item.itemCode, name: l.item.name } : null,
+          uom: l.uom ? { id: l.uom.id, code: l.uom.code, name: l.uom.name, symbol: l.uom.symbol } : null,
+          gatePassQuantity: Number(l.gatePassQuantity || 0),
+          receivedQuantity: Number(l.receivedQuantity || 0),
+          difference: Number(l.gatePassQuantity || 0) - Number(l.receivedQuantity || 0),
+          remarks: l.remarks,
+        });
+      }
     }
 
     return {
       data: data.map((h) => ({
         ...h,
-        lineCount: (h as any).lineCount ?? 0,
+        lineCount: (h as any).lineCount ?? (linesMap[h.id]?.length || 0),
         gatePassTotal: totals[h.id]?.gatePassTotal ?? 0,
         receivedTotal: totals[h.id]?.receivedTotal ?? 0,
         differenceTotal: totals[h.id]?.differenceTotal ?? 0,
+        lines: linesMap[h.id] || [],
       })),
       total,
     };

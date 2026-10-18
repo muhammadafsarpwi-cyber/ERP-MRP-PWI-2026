@@ -326,23 +326,15 @@ export const NAV_ENTRIES: NavEntry[] = [
       { key: '/store/my-requests', label: 'My Material Requests', icon: FileTextOutlined, color: 'cyan', permissions: ['store.request.view'] },
       { key: '/store/material-requests', label: 'Material Requests', icon: FileTextOutlined, color: 'info', permissions: ['store.request.view'] },
       { key: '/store/pending-approvals', label: 'Pending Approvals', icon: ClockCircleOutlined, color: 'orange', permissions: ['store.request.approve'] },
-      { key: 'store:procurement:requisitions', path: '/procurement/requisitions', label: 'Purchase Requisitions (PR)', icon: EditOutlined, color: 'orange', permissions: ['procurement.requisition.view'] },
-      { key: 'store:procurement:orders', path: '/procurement/orders', label: 'Supplier Orders', icon: ShoppingCartOutlined, color: 'orange', permissions: ['procurement.order.view'] },
-      { key: 'store:procurement:receipts', path: '/procurement/receipts', label: 'Goods Receipts / GRN', icon: InboxOutlined, color: 'orange', permissions: ['procurement.receipt.view'] },
       { key: '/store/material-receipts', label: 'Material Receipts', icon: ArrowDownOutlined, color: 'success', permissions: ['store.receive.view'] },
       { key: '/store/material-issues', label: 'Material Issues', icon: ArrowUpOutlined, color: 'warning', permissions: ['store.issue.view'] },
       { key: '/store/material-returns', label: 'Material Returns', icon: RollbackOutlined, color: 'info', permissions: ['store.return.view'] },
-      { key: '/store/transfers', label: 'Store Transfers', icon: SwapOutlined, color: 'violet', permissions: ['store.transfer.view'] },
-      { key: '/store/adjustments', label: 'Stock Adjustments', icon: EditOutlined, color: 'purple', permissions: ['store.adjustment.view'] },
       { key: '/store/opening-stock', label: 'Opening Stock', icon: PlusOutlined, color: 'success', permissions: ['store.view'] },
-      { key: 'store:inventory:reservations', path: '/inventory/reservations', label: 'Reservations', icon: SafetyCertificateOutlined, color: 'indigo', permissions: ['inventory.reservation.view'] },
       { key: '/store/stock-balance', label: 'Store Stock', icon: DatabaseOutlined, color: 'info', permissions: ['store.item.view'] },
       { key: '/store/ledger', label: 'Store Item Ledger', icon: DatabaseOutlined, color: 'cyan', permissions: ['store.view'] },
       { key: '/store/material-trace', label: 'Material Lifecycle Trace', icon: HistoryOutlined, color: 'cyan', permissions: ['store.item.view'] },
-      { key: 'store:barcode:scan', path: '/barcode-management/scan', label: 'Barcode / Item Scan', icon: ScanOutlined, color: 'success', permissions: ['item.view'] },
       { key: '/store/low-stock', label: 'Low Stock / Reorder Queue', icon: WarningOutlined, color: 'orange', permissions: ['store.view'] },
       { key: '/store/reports', label: 'Reports', icon: BarChartOutlined, color: 'violet', permissions: ['store.reports.view'] },
-      { key: 'store:reports:inventory', path: '/inventory/reports', label: 'Store Inventory Report', icon: PieChartOutlined, color: 'violet', permissions: ['inventory.reports.view'] },
       { key: '/store/settings', label: 'Store Settings', icon: SettingOutlined, color: 'neutral', permissions: ['store.settings.view'] },
     ],
   },
@@ -400,16 +392,7 @@ export const NAV_ENTRIES: NavEntry[] = [
     ],
   },
 
-  // PROMPT #01-FIX — deliberately carries NO `permissions` field, exactly as
-  // before PROMPT #01. The top-level Settings entry has never been
-  // permission-gated: both `buildMenuItems` and `ProtectedRoute` treat an entry
-  // with no declared permission as protected by authentication alone, and the
-  // `settings.*` codes introduced by the Settings foundation are not present in
-  // the backend permission catalog yet (see `SEEDED_SETTINGS_PERMISSIONS`).
-  // Requiring one here made the existing Settings button disappear for every
-  // role — a regression. Per-category permissions stay in
-  // `settingsNavigationConfig.ts`.
-  { key: '/settings', label: 'Company Settings', icon: SettingOutlined, color: 'neutral' },
+
 
   {
     key: 'development',
@@ -513,6 +496,8 @@ const NAV_DETAIL_ALIASES: Record<string, string> = {
   '/inventory/stock-adjustments/pending-approval': '/inventory/adjustments/pending-approval',
   '/inventory/stock-transfers': '/inventory/transfers',
   '/inventory/stock-transfers/pending-approval': '/inventory/transfers/pending-approval',
+  '/store/transfers': '/inventory/transfers',
+  '/store/adjustments': '/inventory/adjustments',
   '/production/entries/new': '/production/entries',
   '/production/entries/select': '/production/entries',
   '/maintenance/preventive-maintenance': '/maintenance/pm-plans',
@@ -544,6 +529,9 @@ export interface ResolvedNavMeta {
 
 /** Looks up a leaf nav item by its exact route key. */
 function getNavItemByKey(key: string): NavItem | null {
+  if (key === '/settings') {
+    return { key: '/settings', label: 'Company Settings', icon: SettingOutlined, color: 'neutral' };
+  }
   for (const entry of NAV_ENTRIES) {
     if (isNavGroup(entry)) {
       for (const child of entry.children) {

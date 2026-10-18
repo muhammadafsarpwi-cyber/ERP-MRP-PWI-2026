@@ -4022,6 +4022,96 @@ addToDept(org, {
     }
     return `PE-${year}-${String(maxSeq + 1).padStart(5, '0')}`;
   }
+
+  /**
+   * Complete a batch that was packed WITHOUT_NIPPLE:
+   * Deducts pending nipple requirement from WH-002 (SPI Nipple Packing Warehouse)
+   * in inventory_balances, logs PRODUCTION_CONSUMPTION in stock_ledger,
+   * and updates entry remarks to COMPLETED.
+   */
+  async completePendingNippleBatch(
+    entryId: string,
+    dto: { warehouseId?: string; completionDate?: string },
+    companyId: string,
+    userId?: string,
+  ) {
+    const entry = await this.entryRepo.findOne({
+      where: { id: entryId, companyId },
+    });
+    if (!entry) {
+      throw new NotFoundException(`Production entry ${entryId} not found`);
+    }
+
+    const remarks = entry.remarks || '';
+    const match =
+      remarks.match(/Pending Nipple:\s*([A-Za-z0-9_-]+)\s*\(([\d.]+)\s*GRS\s*(?:\/\s*([\d.]+)\s*PCS)?\)/i) ||
+      remarks.match(/Without Nipple:\s*([A-Za-z0-9_-]+)\s*\(([\d.]+)\s*GRS/i);
+
+    const completionDateStr = dto.completionDate || new Date().toISOString().slice(0, 10);
+    const targetWhId = dto.warehouseId || 'cf5c9db8-5e84-41d5-a4b4-988b8dfd122d'; // Dedicated WH-002 SPI Nipple Packing Warehouse
+
+    let deductedPcs = 0;
+    let deductedGross = 0;
+    let nippleItemCode = '';
+
+    if (match) {
+      nippleItemCode = match[1].trim();
+      deductedGross = parseFloat(match[2]) || 0;
+      deductedPcs = match[3] ? parseFloat(match[3]) : Math.round(deductedGross * 144);
+
+      const item = await this.itemRepo.findOne({
+        where: [{ itemCode: nippleItemCode, companyId }, { itemCode: nippleItemCode }],
+        relations: ['baseUom'],
+      });
+
+      if (item && deductedPcs > 0) {
+        await this.inventoryBalanceService.updateBalance(
+          companyId,
+          item.id,
+          targetWhId,
+          null,
+          null,
+          item.baseUomId,
+          deductedPcs,
+          'OUT',
+        );
+
+        await this.stockLedgerService.create({
+          companyId,
+          transactionType: 'PRODUCTION_CONSUMPTION',
+          transactionDate: new Date(completionDateStr),
+          itemId: item.id,
+          warehouseId: targetWhId,
+          quantity: deductedPcs,
+          uomId: item.baseUomId,
+          direction: 'OUT',
+          referenceType: 'PRODUCTION_ENTRY',
+          referenceId: entry.id,
+          referenceNumber: entry.entryNumber ?? undefined,
+          notes: `Nipple stock issued for Batch ${entry.entryNumber} completion (${deductedGross} GRS / ${deductedPcs} PCS) from WH-002 SPI Nipple Packing Warehouse`,
+          createdBy: userId,
+        });
+      }
+    }
+
+    const cleanRemarks = remarks
+      .replace(/Status:\s*WITHOUT_NIPPLE/gi, 'Status: COMPLETED')
+      .replace(/\|?\s*Without Nipple:[^|]+/gi, '')
+      .replace(/\|?\s*Pending Nipple:[^|]+/gi, '')
+      .trim() + ` | Nipple Stock Deducted: ${completionDateStr} (${deductedGross} GRS / ${deductedPcs} PCS from WH-002) | Completed by User`;
+
+    entry.remarks = cleanRemarks;
+    entry.entryDate = completionDateStr;
+    await this.entryRepo.save(entry);
+
+    return {
+      success: true,
+      message: `Batch completed successfully! ${deductedGross} GRS (${deductedPcs.toLocaleString()} PCS) of nipple ${nippleItemCode} deducted from SPI Nipple Packing Warehouse (WH-002).`,
+      deductedPcs,
+      deductedGross,
+      nippleItemCode,
+    };
+  }
 }
 
 /**

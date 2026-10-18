@@ -55,6 +55,11 @@ export class CreateBatchDto {
   @IsNumber()
   @IsOptional()
   quantity?: number = 0;
+
+  @ApiPropertyOptional({ description: 'Batch status', default: 'ACTIVE' })
+  @IsString()
+  @IsOptional()
+  status?: string = 'ACTIVE';
 }
 
 export class UpdateBatchDto {
@@ -102,6 +107,11 @@ export class UpdateBatchDto {
   @IsNumber()
   @IsOptional()
   quantity?: number;
+
+  @ApiPropertyOptional({ description: 'Batch status' })
+  @IsString()
+  @IsOptional()
+  status?: string;
 }
 
 export class BatchFilterDto {

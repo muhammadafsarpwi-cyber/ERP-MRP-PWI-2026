@@ -956,3 +956,52 @@ span.anticon-close:hover svg {
   margin-bottom: 12px !important;
 }
 
+/* ── ERP Dashboard Theme-Adaptive Tooltips ── */
+.erp-dashboard-tooltip .ant-tooltip-inner {
+  background: var(--theme-card-bg, #ffffff) !important;
+  color: var(--theme-heading, #0f172a) !important;
+  border: 1px solid var(--theme-border, #e2e8f0) !important;
+  box-shadow: 0 10px 25px -4px rgba(0, 0, 0, 0.25) !important;
+  border-radius: 10px !important;
+  padding: 8px 12px !important;
+}
+
+.erp-dashboard-tooltip .ant-tooltip-arrow::before {
+  background: var(--theme-card-bg, #ffffff) !important;
+}
+
+/* ── Global Print Styles ── */
+@media print {
+  /* Hide sidebars, app header, tab bars, action buttons, and navigation */
+  .ant-layout-sider,
+  .erp-desktop-sider,
+  .ant-layout-header,
+  .ant-tabs-nav,
+  .erp-dashboard-toolbar,
+  button,
+  .no-print {
+    display: none !important;
+  }
+
+  /* Reset layout constraints so pages don't clip or print blank */
+  html,
+  body,
+  #root,
+  .ant-layout,
+  .ant-layout-content,
+  .erp-main-content {
+    background: #ffffff !important;
+    color: #0f172a !important;
+    height: auto !important;
+    min-height: auto !important;
+    overflow: visible !important;
+    position: static !important;
+    box-shadow: none !important;
+  }
+
+  /* Force background colors and charts to print properly */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+}

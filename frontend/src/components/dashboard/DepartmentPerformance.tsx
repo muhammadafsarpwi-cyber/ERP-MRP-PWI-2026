@@ -1,95 +1,314 @@
-import React from 'react';
-import { TeamOutlined } from '@ant-design/icons';
+import React, { useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Space } from 'antd';
 import {
-  achLevel, EmptyState, fmtQty, levelColor, SectionCard, SkeletonRows, sortDepartmentsFloorWise,
-} from './dashboardShared';
+  ApartmentOutlined,
+  AimOutlined,
+  CheckCircleOutlined,
+  ThunderboltOutlined,
+  DeleteOutlined,
+  ClockCircleOutlined,
+  FieldTimeOutlined,
+  CarryOutOutlined,
+} from '@ant-design/icons';
+import { formatNumber } from '../../utils/numberFormat';
 import type { ProductionSummary } from '../../services/dashboardService';
+import '../../pages/production/productionDashboard.css';
 
 interface DepartmentPerformanceProps {
   data: ProductionSummary | null;
   loading: boolean;
+  nav?: (path: string, state?: any) => void;
 }
 
-const STATUS_LABELS = {
-  high: 'On Track',
-  medium: 'Attention',
-  low: 'Critical',
-} as const;
+interface ScorecardDeptRow {
+  id: string;
+  name: string;
+  target: number;
+  actual: number;
+  producedKg: number;
+  scrapKg: number;
+  scrapPct: number;
+  runningHours: number;
+  downHours: number;
+  totalHours: number;
+  runningPct: number;
+  downPct: number;
+  otHours: number;
+  eff: number;
+}
 
-const DepartmentPerformance: React.FC<DepartmentPerformanceProps> = ({ data, loading }) => {
-  if (loading && !data) {
-    return (
-      <SectionCard icon={<TeamOutlined />} title="Department Performance">
-        <SkeletonRows rows={6} />
-      </SectionCard>
-    );
-  }
+const CANONICAL_DEPARTMENTS = [
+  { name: 'Straightener', id: 'd3000000-0000-0000-0000-000000000001' },
+  { name: 'Swagging', id: 'd3000000-0000-0000-0000-000000000002' },
+  { name: 'Spoke', id: 'd3000000-0000-0000-0000-000000000003' },
+  { name: 'Spoke Plating', id: 'd3000000-0000-0000-0000-000000000006' },
+  { name: 'Nipple Packing', id: 'fd474329-e796-4343-831b-f95a9add41f0' },
+  { name: 'Spoke Packing', id: 'd3000000-0000-0000-0000-000000000008' },
+];
 
-  // Strict floor-wise order: Straightener → Swaging → Spoke → Spoke Plating
-  // → Packing → Dispatch (never alphabetical).
-  const departments = sortDepartmentsFloorWise(data?.departments ?? []);
+const DepartmentPerformance: React.FC<DepartmentPerformanceProps> = ({ data, loading, nav }) => {
+  const defaultNavigate = useNavigate();
+  const doNavigate = nav ?? defaultNavigate;
+
+  const deptMatrix = useMemo<ScorecardDeptRow[]>(() => {
+    const rawDepts = data?.departments ?? [];
+
+    const mapRow = (d: any): ScorecardDeptRow => {
+      const target = Number(d.targetQuantity || 0);
+      const actual = Number(d.actualQuantity || 0);
+      const producedKg = Math.round(actual * 0.008 * 10) / 10;
+      const scrapKg = Math.round(Number(d.scrapQuantity || 0) * 10) / 10;
+      const scrapPct = producedKg > 0 ? Math.round((scrapKg / producedKg) * 10000) / 100 : 0.0;
+      const runningHours = Math.round(Number(d.runningHours || 0) * 10) / 10;
+      const downHours = Math.round(Number(d.downtimeHours || 0) * 10) / 10;
+      const totalHours = Math.round((runningHours + downHours) * 10) / 10;
+      const runningPct = totalHours > 0 ? Math.round((runningHours / totalHours) * 1000) / 10 : 0.0;
+      const downPct = totalHours > 0 ? Math.round((downHours / totalHours) * 1000) / 10 : 0.0;
+      const otHours = Math.round(Number(d.overtimeHours || 0) * 10) / 10;
+      const eff = target > 0 ? Math.round((actual / target) * 1000) / 10 : 0.0;
+
+      return {
+        id: d.departmentId || d.id,
+        name: d.departmentName || d.name,
+        target,
+        actual,
+        producedKg,
+        scrapKg,
+        scrapPct,
+        runningHours,
+        downHours,
+        totalHours,
+        runningPct,
+        downPct,
+        otHours,
+        eff,
+      };
+    };
+
+    const resultRows: ScorecardDeptRow[] = [];
+
+    for (const c of CANONICAL_DEPARTMENTS) {
+      const cLower = c.name.toLowerCase();
+      const match = rawDepts.find((d) => {
+        const dName = (d.departmentName || '').trim().toLowerCase();
+        if (d.departmentId === c.id) return true;
+        if (dName === cLower) return true;
+        if (cLower === 'swagging' && (dName === 'swaging' || dName.includes('swag'))) return true;
+        if (cLower === 'nipple packing' && dName.includes('nipple pack')) return true;
+        if (cLower === 'spoke packing' && (dName.includes('spoke pack') || dName === 'packing' || dName === 'hand packing')) return true;
+        return false;
+      });
+
+      if (match) {
+        resultRows.push(mapRow(match));
+      } else {
+        resultRows.push(
+          mapRow({
+            departmentId: c.id,
+            departmentName: c.name,
+            targetQuantity: 0,
+            actualQuantity: 0,
+            scrapQuantity: 0,
+            runningHours: 0,
+            downtimeHours: 0,
+            achievementPercentage: 0,
+          }),
+        );
+      }
+    }
+
+    // Append any extra non-canonical active departments
+    for (const d of rawDepts) {
+      const dName = (d.departmentName || '').trim().toLowerCase();
+      const alreadyIn = resultRows.some((r) => r.id === d.departmentId || r.name.toLowerCase() === dName);
+      if (!alreadyIn) {
+        resultRows.push(mapRow(d));
+      }
+    }
+
+    return resultRows;
+  }, [data]);
 
   return (
-    <SectionCard
-      icon={<TeamOutlined />}
-      title="Department Performance"
-      subtitle={data ? `${departments.length} departments` : undefined}
-    >
-      {departments.length > 0 ? (
-        <div className="erp-scroll-x">
-          <table className="erp-data-table erp-dept-table">
-            <thead>
-              <tr>
-                <th>Department</th>
-                <th style={{ textAlign: 'right' }}>Target</th>
-                <th style={{ textAlign: 'right' }}>Actual</th>
-                <th style={{ textAlign: 'right' }}>Scrap</th>
-                <th style={{ textAlign: 'right', minWidth: 140 }}>Achievement</th>
-                <th>Status</th>
+    <div className="pwi-panel" style={{ margin: 0, border: '1px solid var(--theme-border)', borderRadius: 6, background: 'var(--theme-surface)' }}>
+      <div className="pwi-panel__header" style={{ padding: '12px 16px', borderBottom: '1px solid var(--theme-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+        <span className="pwi-panel__title" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13.5, fontWeight: 700, color: 'var(--theme-text)' }}>
+          <ApartmentOutlined style={{ color: '#0ea5e9', fontSize: 16 }} />
+          <span>Department Operations Scorecard &amp; Drill-Down Matrix</span>
+        </span>
+        <span className="pwi-panel__subtitle" style={{ fontSize: 11, color: 'var(--theme-text-muted, #64748b)', fontWeight: 500 }}>
+          Click any action badge to jump directly into filtered department records
+        </span>
+      </div>
+
+      <div style={{ overflowX: 'auto' }}>
+        <table className="pwi-scorecard-table">
+          <thead>
+            <tr>
+              <th>
+                <ApartmentOutlined className="th-icon" style={{ color: 'var(--theme-primary, #0ea5e9)' }} /> Department
+              </th>
+              <th style={{ textAlign: 'right' }}>
+                <AimOutlined className="th-icon" style={{ color: '#0ea5e9' }} /> Target Qty (GRS &amp; PCS)
+              </th>
+              <th style={{ textAlign: 'right' }}>
+                <CheckCircleOutlined className="th-icon" style={{ color: '#10b981' }} /> Good Production (GRS, PCS &amp; KG)
+              </th>
+              <th style={{ textAlign: 'right' }}>
+                <ThunderboltOutlined className="th-icon" style={{ color: '#3b82f6' }} /> Plant Efficiency (OEE)
+              </th>
+              <th style={{ textAlign: 'right' }}>
+                <DeleteOutlined className="th-icon" style={{ color: '#ef4444' }} /> Scrap (KG / %)
+              </th>
+              <th style={{ textAlign: 'right' }}>
+                <ClockCircleOutlined className="th-icon" style={{ color: '#f59e0b' }} /> Plant Time (Running vs Down)
+              </th>
+              <th style={{ textAlign: 'right' }}>
+                <FieldTimeOutlined className="th-icon" style={{ color: '#8b5cf6' }} /> Overtime (OT)
+              </th>
+              <th style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>Quick Action Shortcuts</th>
+            </tr>
+          </thead>
+          <tbody>
+            {deptMatrix.map((d) => (
+              <tr key={d.id}>
+                <td>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span
+                      style={{
+                        width: 8,
+                        height: 8,
+                        borderRadius: '50%',
+                        background: 'var(--theme-primary, #0ea5e9)',
+                        display: 'inline-block',
+                        flexShrink: 0,
+                      }}
+                    />
+                    <span style={{ fontWeight: 700, color: 'var(--theme-text, #0f172a)', fontSize: 13 }}>
+                      {d.name}
+                    </span>
+                  </div>
+                </td>
+                <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                  <div style={{ fontWeight: 800, color: '#0ea5e9', fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4 }}>
+                    <span>{formatNumber(Math.round(d.target / 144), 0)}</span>
+                    <span style={{ fontSize: 9.5, fontWeight: 700, color: '#0284c7', background: 'rgba(14, 165, 233, 0.12)', padding: '1px 5px', borderRadius: 4 }}>GRS</span>
+                  </div>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginTop: 1 }}>
+                    {formatNumber(d.target, 0)} PCS
+                  </div>
+                </td>
+                <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                  <div style={{ fontWeight: 800, color: '#10b981', fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4 }}>
+                    <span>{formatNumber(Math.round(d.actual / 144), 0)}</span>
+                    <span style={{ fontSize: 9.5, fontWeight: 700, color: '#059669', background: 'rgba(16, 185, 129, 0.12)', padding: '1px 5px', borderRadius: 4, letterSpacing: '0.02em' }}>GRS</span>
+                  </div>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--theme-text, #0f172a)', marginTop: 1 }}>
+                    {formatNumber(d.actual, 0)}{' '}
+                    <span style={{ fontSize: 9.5, fontWeight: 500, color: 'var(--theme-text-muted, #64748b)' }}>PCS</span>
+                  </div>
+                  <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)' }}>
+                    {formatNumber(d.producedKg, 1)} KG
+                  </div>
+                </td>
+                <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', minWidth: 110 }}>
+                  <span style={{ color: d.eff >= 80 ? '#10b981' : d.eff > 0 ? '#f59e0b' : 'var(--theme-text-muted, #94a3b8)', fontWeight: 700, fontSize: 13 }}>
+                    {d.eff.toFixed(1)}%
+                  </span>
+                  <div
+                    style={{
+                      height: 4,
+                      width: '100%',
+                      background: 'var(--theme-border, rgba(148, 163, 184, 0.2))',
+                      borderRadius: 2,
+                      overflow: 'hidden',
+                      marginTop: 4,
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: `${Math.min(100, Math.max(0, d.eff))}%`,
+                        height: '100%',
+                        background: d.eff >= 80 ? '#10b981' : '#f59e0b',
+                        borderRadius: 2,
+                      }}
+                    />
+                  </div>
+                </td>
+                <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', minWidth: 125 }}>
+                  <div style={{ color: d.scrapKg > 0 ? '#ef4444' : 'var(--theme-text-muted, #94a3b8)', fontWeight: 700, fontSize: 13 }}>
+                    {formatNumber(d.scrapKg, 1)} KG
+                  </div>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: d.scrapPct > 0 ? '#ef4444' : 'var(--theme-text-muted, #94a3b8)' }}>
+                    {d.scrapPct.toFixed(2)}% Rejection
+                  </div>
+                </td>
+                <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', minWidth: 185 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, fontWeight: 600, gap: 8 }}>
+                    <span style={{ color: '#10b981' }}>Run: {formatNumber(d.runningHours, 1)}h ({d.runningPct.toFixed(1)}%)</span>
+                    <span style={{ color: '#f59e0b' }}>Down: {formatNumber(d.downHours, 1)}h ({d.downPct.toFixed(1)}%)</span>
+                  </div>
+                  <div className="pwi-time-progress-bar" title={`Total: ${formatNumber(d.totalHours, 1)}h (100%)`}>
+                    <div className="pwi-time-progress-bar__run" style={{ width: `${d.runningPct}%` }} />
+                    <div className="pwi-time-progress-bar__down" style={{ width: `${d.downPct}%` }} />
+                  </div>
+                </td>
+                <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', minWidth: 95 }}>
+                  <span
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      padding: '2px 8px',
+                      borderRadius: 6,
+                      background: 'rgba(139, 92, 246, 0.12)',
+                      color: '#8b5cf6',
+                      fontWeight: 700,
+                      fontSize: 12.5,
+                      border: '1px solid rgba(139, 92, 246, 0.25)',
+                    }}
+                  >
+                    <FieldTimeOutlined style={{ fontSize: 11 }} /> {formatNumber(d.otHours, 1)} h
+                  </span>
+                </td>
+                <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
+                  <Space size={6}>
+                    <span
+                      className="pwi-action-badge pwi-action-badge--logs"
+                      title={`Open ${d.name} Production Logs`}
+                      onClick={() => {
+                        if (d.name.toLowerCase().includes('pack')) {
+                          doNavigate('/production/packing-entries');
+                        } else {
+                          doNavigate('/production/entries', { state: { departmentId: d.id, activeTab: 'entries' } });
+                        }
+                      }}
+                    >
+                      <CarryOutOutlined /> Production Logs
+                    </span>
+                    <span
+                      className="pwi-action-badge pwi-action-badge--ot"
+                      title={`Open ${d.name} Overtime Analytics`}
+                      onClick={() => doNavigate('/production/entries', { state: { departmentId: d.id, activeTab: 'overtime' } })}
+                    >
+                      <FieldTimeOutlined /> Overtime Analytics
+                    </span>
+                    <span
+                      className="pwi-action-badge pwi-action-badge--scrap"
+                      title={`Open ${d.name} Rejection & Scrap Details`}
+                      onClick={() => doNavigate('/production/entries', { state: { departmentId: d.id, activeTab: 'scrap' } })}
+                    >
+                      <DeleteOutlined /> Rejection Sheet
+                    </span>
+                  </Space>
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {departments.map((d) => {
-                const achPct = Math.max(0, Math.min(100, d.achievementPercentage));
-                const level = achLevel(d.achievementPercentage);
-                return (
-                  <tr key={d.departmentId}>
-                    <td>
-                      <div className="erp-dept-name">{d.departmentName}</div>
-                      <div className="erp-dept-name__sub">{d.entryCount} entries</div>
-                    </td>
-                    <td className="erp-num">{fmtQty(d.targetQuantity)}</td>
-                    <td className="erp-num">{fmtQty(d.actualQuantity)}</td>
-                    <td className={`erp-num${d.scrapQuantity > 0 ? ' erp-num--danger' : ''}`}>{fmtQty(d.scrapQuantity)}</td>
-                    <td>
-                      <div className="erp-dept-ach">
-                        <div className="erp-dept-ach__track">
-                          <div className={`erp-dept-ach__fill erp-dept-ach__fill--${level}`} style={{ width: `${achPct}%` }} />
-                        </div>
-                        <span className="erp-dept-ach__value" style={{ color: levelColor(level) }}>
-                          {d.achievementPercentage.toFixed(1)}%
-                        </span>
-                      </div>
-                    </td>
-                    <td>
-                      <span className={`erp-status-chip erp-status-chip--${level}`}>
-                        {STATUS_LABELS[level]}
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <EmptyState
-          icon={<TeamOutlined />}
-          title="No department performance for the selected period"
-          desc="Department metrics appear once production is recorded"
-        />
-      )}
-    </SectionCard>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 };
 

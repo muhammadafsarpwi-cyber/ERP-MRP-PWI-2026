@@ -357,9 +357,22 @@
   gap: 16px;
 }
 
-.erp-row--a    .erp-col--wide   { grid-column: span 8; }
-.erp-row--a    .erp-col--narrow { grid-column: span 4; }
+.erp-row--a    .erp-col--wide   { grid-column: span 8; display: flex; flex-direction: column; }
+.erp-row--a    .erp-col--narrow { grid-column: span 4; display: flex; flex-direction: column; }
 .erp-row--half .erp-col--half   { grid-column: span 6; }
+
+.erp-achievement-card {
+  height: 100% !important;
+  display: flex !important;
+  flex-direction: column !important;
+}
+
+.erp-achievement-card .ant-card-body {
+  flex: 1 1 auto !important;
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: space-between !important;
+}
 
 /* ── Section Card ──────────────────────────────────────────────────────── */
 .erp-dashboard .erp-section-card {
@@ -1395,5 +1408,31 @@
   .erp-dashboard .erp-data-table tbody tr,
   .erp-dashboard .erp-section-card {
     transition: none;
+  }
+}
+
+/* ── Intelligence Row: Activity Chart + Today's Schedule + Mini Calendar ─ */
+.erp-dashboard-intel-row {
+  display: grid;
+  grid-template-columns: minmax(340px, 1.8fr) minmax(280px, 1.2fr) minmax(240px, 1fr);
+  gap: 14px;
+  margin-bottom: 8px;
+}
+
+@media (max-width: 1200px) {
+  .erp-dashboard-intel-row {
+    grid-template-columns: 1fr 1fr;
+  }
+  .erp-dashboard-intel-row > div:nth-child(3) {
+    grid-column: span 2;
+  }
+}
+
+@media (max-width: 840px) {
+  .erp-dashboard-intel-row {
+    grid-template-columns: 1fr;
+  }
+  .erp-dashboard-intel-row > div:nth-child(3) {
+    grid-column: span 1;
   }
 }

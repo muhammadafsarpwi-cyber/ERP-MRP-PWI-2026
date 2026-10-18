@@ -213,6 +213,30 @@ const formatInt = (v: number | null | undefined): string => {
   return Math.round(Number(v)).toLocaleString('en-US');
 };
 
+const formatGrs = (pcs: number | null | undefined): string => {
+  if (pcs == null || isNaN(Number(pcs))) return '-';
+  const val = Number(pcs) / 144;
+  return (Number.isInteger(val) ? val.toLocaleString('en-US') : val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })) + ' GRS';
+};
+
+const renderDualQty = (v: number | null | undefined, r: ReportRow, colorClass: string) => {
+  const isNipple = r.itemCode?.startsWith('FG-NP') || r.uomCode === 'GRS';
+  const num = Number(v) || 0;
+  if (isNipple && Math.abs(num) >= 144) {
+    return (
+      <div style={{ textAlign: 'right', lineHeight: 1.25 }}>
+        <div className={colorClass} style={{ fontWeight: 700 }}>
+          {formatGrs(num)}
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #64748b)' }}>
+          {formatInt(num)} PCS
+        </div>
+      </div>
+    );
+  }
+  return <span className={colorClass} style={{ whiteSpace: 'nowrap' }}>{formatInt(v)}</span>;
+};
+
 const dateShort = (v?: string | null): string => (v ? new Date(v).toISOString().slice(0, 10) : '-');
 const dateTime = (v?: string | null): string =>
   v ? new Date(v).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-';
@@ -1229,7 +1253,7 @@ const ProductionInventoryReport: React.FC = () => {
               {r.itemCode}
             </span>
             <span style={{ fontSize: 10.5, color: 'var(--theme-text-muted, #64748b)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 165 }}>
-              {itemTypeLabel(r.itemType)} · {r.uomCode || '-'}{specLine(r) ? ` · ${specLine(r)}` : ''}
+              {itemTypeLabel(r.itemType)} · {r.itemCode?.startsWith('FG-NP') ? 'GRS (144 PCS)' : (r.uomCode || '-')}{specLine(r) ? ` · ${specLine(r)}` : ''}
             </span>
           </div>
         </div>
@@ -1277,60 +1301,48 @@ const ProductionInventoryReport: React.FC = () => {
       dataIndex: 'openingBalance',
       key: 'opening',
       align: 'right',
-      width: 120,
-      render: (v: number) => (
-        <span className={v < 0 ? 'erp-num--danger' : 'erp-num--bold'} style={{ whiteSpace: 'nowrap' }}>
-          {formatInt(v)}
-        </span>
-      ),
+      width: 130,
+      render: (v: number, r: ReportRow) => renderDualQty(v, r, v < 0 ? 'erp-num--danger' : 'erp-num--bold'),
     },
     {
       title: <span style={{ whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 4 }}><ArrowDownOutlined className="erp-th-icon" />IN</span>,
       dataIndex: 'totalIn',
       key: 'in',
       align: 'right',
-      width: 115,
-      render: (v: number) => <span className="erp-num--success" style={{ whiteSpace: 'nowrap' }}>{formatInt(v)}</span>,
+      width: 125,
+      render: (v: number, r: ReportRow) => renderDualQty(v, r, 'erp-num--success'),
     },
     {
       title: <span style={{ whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 4 }}><ArrowUpOutlined className="erp-th-icon" />OUT</span>,
       dataIndex: 'totalOut',
       key: 'out',
       align: 'right',
-      width: 115,
-      render: (v: number) => <span className="erp-num--danger" style={{ whiteSpace: 'nowrap' }}>{formatInt(v)}</span>,
+      width: 125,
+      render: (v: number, r: ReportRow) => renderDualQty(v, r, 'erp-num--danger'),
     },
     {
       title: <span style={{ whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 4 }}><CheckSquareOutlined className="erp-th-icon" />Closing</span>,
       dataIndex: 'closingBalance',
       key: 'closing',
       align: 'right',
-      width: 120,
-      render: (v: number) => (
-        <span className={v < 0 ? 'erp-num--danger' : 'erp-num--bold'} style={{ whiteSpace: 'nowrap' }}>
-          {formatInt(v)}
-        </span>
-      ),
+      width: 130,
+      render: (v: number, r: ReportRow) => renderDualQty(v, r, v < 0 ? 'erp-num--danger' : 'erp-num--bold'),
     },
     {
       title: <span style={{ whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 4 }}><DatabaseOutlined className="erp-th-icon" />On Hand</span>,
       dataIndex: 'onHand',
       key: 'onHand',
       align: 'right',
-      width: 115,
-      render: (v: number) => <span className="erp-num--bold" style={{ whiteSpace: 'nowrap' }}>{formatInt(v)}</span>,
+      width: 125,
+      render: (v: number, r: ReportRow) => renderDualQty(v, r, 'erp-num--bold'),
     },
     {
       title: <span style={{ whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 4 }}><CheckCircleOutlined className="erp-th-icon" />Available</span>,
       dataIndex: 'available',
       key: 'available',
       align: 'right',
-      width: 120,
-      render: (v: number) => (
-        <span className={v < 0 ? 'erp-num--danger' : 'erp-num--bold'} style={{ whiteSpace: 'nowrap' }}>
-          {formatInt(v)}
-        </span>
-      ),
+      width: 130,
+      render: (v: number, r: ReportRow) => renderDualQty(v, r, v < 0 ? 'erp-num--danger' : 'erp-num--bold'),
     },
     {
       title: <span style={{ whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 4 }}><BuildOutlined className="erp-th-icon" />Produced</span>,

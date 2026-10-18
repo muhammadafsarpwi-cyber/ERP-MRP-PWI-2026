@@ -7,7 +7,7 @@ import { Type } from 'class-transformer';
 
 export class CreateGoodsReceiptLineDto {
   @ApiPropertyOptional({ description: 'PO line ID' })
-  @IsUUID()
+  @IsString()
   @IsOptional()
   poLineId?: string;
 
@@ -47,12 +47,12 @@ export class CreateGoodsReceiptLineDto {
   unitPrice: number;
 
   @ApiPropertyOptional({ description: 'Location ID' })
-  @IsUUID()
+  @IsString()
   @IsOptional()
   locationId?: string;
 
   @ApiPropertyOptional({ description: 'Batch ID' })
-  @IsUUID()
+  @IsString()
   @IsOptional()
   batchId?: string;
 
@@ -80,7 +80,7 @@ export class CreateGoodsReceiptDto {
   receiptCode: string;
 
   @ApiPropertyOptional({ description: 'PO ID' })
-  @IsUUID()
+  @IsString()
   @IsOptional()
   poId?: string;
 
@@ -95,7 +95,7 @@ export class CreateGoodsReceiptDto {
   warehouseId: string;
 
   @ApiPropertyOptional({ description: 'Division ID' })
-  @IsUUID()
+  @IsString()
   @IsOptional()
   divisionId?: string;
 

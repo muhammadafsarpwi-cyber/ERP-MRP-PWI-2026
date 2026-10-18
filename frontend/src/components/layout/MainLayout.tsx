@@ -632,10 +632,10 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
               gap: 4,
             }}
           >
-            {/* Settings */}
+            {/* Company Settings */}
             <div
               onClick={() => handleMenuClick({ key: '/settings' })}
-              title="Settings"
+              title="Company Settings"
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -643,17 +643,30 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
                 cursor: 'pointer',
                 padding: '6px 8px',
                 borderRadius: 'var(--ui-radius-sm)',
-                color: isLight ? '#475569' : '#94a3b8',
+                background: location.pathname.startsWith('/settings')
+                  ? (isLight ? '#e0f2fe' : 'rgba(56, 189, 248, 0.16)')
+                  : 'transparent',
+                color: location.pathname.startsWith('/settings')
+                  ? (isLight ? '#0284c7' : '#38bdf8')
+                  : (isLight ? '#475569' : '#94a3b8'),
                 fontSize: 13,
-                fontWeight: 500,
+                fontWeight: location.pathname.startsWith('/settings') ? 600 : 500,
                 justifyContent: effectivelyCollapsed ? 'center' : 'flex-start',
-                transition: 'background 0.2s',
+                transition: 'background 0.2s, color 0.2s',
               }}
-              onMouseEnter={(e) => (e.currentTarget.style.background = isLight ? '#e2e8f0' : 'rgba(255,255,255,0.06)')}
-              onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+              onMouseEnter={(e) => {
+                if (!location.pathname.startsWith('/settings')) {
+                  e.currentTarget.style.background = isLight ? '#e2e8f0' : 'rgba(255,255,255,0.06)';
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!location.pathname.startsWith('/settings')) {
+                  e.currentTarget.style.background = 'transparent';
+                }
+              }}
             >
               <SettingOutlined style={{ fontSize: 16 }} />
-              {!effectivelyCollapsed && <span>Settings</span>}
+              {!effectivelyCollapsed && <span>Company Settings</span>}
             </div>
 
             {/* User */}
@@ -756,6 +769,39 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
             onOpenChange={handleOpenChange}
             style={{ borderRight: 0 }}
           />
+          <div
+            style={{
+              padding: '12px 14px',
+              borderTop: isLight ? '1px solid #e2e8f0' : '1px solid rgba(255, 255, 255, 0.08)',
+              marginTop: 'auto',
+            }}
+          >
+            <div
+              onClick={() => {
+                setMobileOpen(false);
+                handleMenuClick({ key: '/settings' });
+              }}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                cursor: 'pointer',
+                padding: '8px 10px',
+                borderRadius: 'var(--ui-radius-sm)',
+                background: location.pathname.startsWith('/settings')
+                  ? (isLight ? '#e0f2fe' : 'rgba(56, 189, 248, 0.16)')
+                  : 'transparent',
+                color: location.pathname.startsWith('/settings')
+                  ? (isLight ? '#0284c7' : '#38bdf8')
+                  : (isLight ? '#475569' : '#94a3b8'),
+                fontSize: 13,
+                fontWeight: location.pathname.startsWith('/settings') ? 600 : 500,
+              }}
+            >
+              <SettingOutlined style={{ fontSize: 16 }} />
+              <span>Company Settings</span>
+            </div>
+          </div>
         </Drawer>
       )}
       <Layout

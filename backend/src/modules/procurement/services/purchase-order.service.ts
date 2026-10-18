@@ -255,7 +255,9 @@ export class PurchaseOrderService {
 
   async approve(id: string, userId?: string): Promise<PurchaseOrder> {
     const po = await this.findOne(id);
-    if (po.status !== 'SUBMITTED') throw new BadRequestException('Can only approve POs in SUBMITTED status');
+    if (po.status !== 'SUBMITTED' && po.status !== 'DRAFT') {
+      throw new BadRequestException('Can only approve POs in DRAFT or SUBMITTED status');
+    }
     po.status = 'APPROVED';
     po.approvedBy = userId || null;
     po.approvedAt = new Date();

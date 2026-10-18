@@ -176,7 +176,6 @@
   font-weight: 700 !important;
   font-variant-numeric: tabular-nums;
   white-space: nowrap !important;
-  display: inline-block;
   letter-spacing: 0.2px;
 }
 .erp-num--danger {
@@ -184,14 +183,12 @@
   font-weight: 700 !important;
   font-variant-numeric: tabular-nums;
   white-space: nowrap !important;
-  display: inline-block;
   letter-spacing: 0.2px;
 }
 .erp-num--bold {
   font-weight: 700 !important;
   font-variant-numeric: tabular-nums;
   white-space: nowrap !important;
-  display: inline-block;
   color: var(--theme-text, #0f172a);
   letter-spacing: 0.2px;
 }

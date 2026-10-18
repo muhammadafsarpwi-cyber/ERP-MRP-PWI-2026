@@ -1,5 +1,5 @@
 import React from 'react';
-import { Button, Input, Typography } from 'antd';
+import { Button, Input, Tag, Typography } from 'antd';
 import { ApartmentOutlined, RightOutlined, SearchOutlined } from '@ant-design/icons';
 import { EmptyState, SectionCard, SkeletonRows } from './dashboardShared';
 import type { ItemOverview as ItemOverviewType } from '../../services/dashboardService';
@@ -77,6 +77,7 @@ const ItemOverview: React.FC<ItemOverviewProps> = ({
               <tr>
                 <th>Code</th>
                 <th>Name</th>
+                <th>Warehouse</th>
                 <th style={{ textAlign: 'center' }}>Type</th>
                 <th style={{ textAlign: 'right' }}>Stock</th>
                 <th style={{ textAlign: 'right' }}>Reserved</th>
@@ -89,6 +90,7 @@ const ItemOverview: React.FC<ItemOverviewProps> = ({
               {items.map((item) => {
                 const health = stockHealth(item);
                 const stock = item.stock ?? { onHand: 0, reserved: 0, available: 0 };
+                const whName = item.warehouseName || item.stock?.warehouseName || item.warehouseCode || item.stock?.warehouseCode || null;
                 return (
                   <tr
                     key={item.id}
@@ -106,6 +108,15 @@ const ItemOverview: React.FC<ItemOverviewProps> = ({
                       <Text strong className="erp-item-row__code">{item.itemCode}</Text>
                     </td>
                     <td className="erp-item-row__name">{item.name}</td>
+                    <td>
+                      {whName ? (
+                        <Tag color="cyan" style={{ fontSize: 11, margin: 0, borderRadius: 4, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis' }} title={whName}>
+                          {whName}
+                        </Tag>
+                      ) : (
+                        <span style={{ color: 'var(--theme-text-muted, #64748b)', fontSize: 12 }}>—</span>
+                      )}
+                    </td>
                     <td style={{ textAlign: 'center' }}>
                       <span className={`erp-type-badge erp-type-badge--${typeClass(item.itemType)}`}>
                         {item.itemType?.replace('_', ' ') || 'N/A'}

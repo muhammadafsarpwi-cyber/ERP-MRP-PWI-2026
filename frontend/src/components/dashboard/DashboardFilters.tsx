@@ -1,8 +1,13 @@
 import React, { useState } from 'react';
-import { Button, Select, Space, Tooltip, Badge, Tag, Grid } from 'antd';
-import { CalendarOutlined, SearchOutlined, CloseOutlined, ReloadOutlined, FilterOutlined, ClearOutlined } from '@ant-design/icons';
+import { Button, Tooltip, Tag, Grid, DatePicker, Badge } from 'antd';
+import {
+  CalendarOutlined, SearchOutlined, FilterOutlined, ClearOutlined, ThunderboltOutlined,
+  ShopOutlined, ApartmentOutlined, BuildOutlined, ClockCircleOutlined, ToolOutlined,
+} from '@ant-design/icons';
+import dayjs from 'dayjs';
 import type { DashboardFilters as SystemFilters, FilterOption, MachinePerformanceItem } from '../../services/dashboardService';
 import { DATE_RANGE_PRESET_OPTIONS, DateRangePreset } from './dashboardShared';
+import CardSelectDropdown from './CardSelectDropdown';
 
 const { useBreakpoint } = Grid;
 
@@ -18,9 +23,15 @@ interface DashboardFiltersProps {
   loading?: boolean;
   /** Active date-range preset (defaults to "Yesterday" on the main dashboard). */
   dateRangePreset: DateRangePreset;
+  /** Most recent recorded entry date (e.g. "2026-10-17") if known */
+  lastEntryDate?: string | null;
+  /** Active custom date range [dateFrom, dateTo] */
+  customRange?: [string, string];
   onChange: (key: string, value?: string) => void;
   /** Fires immediately — the dashboard re-queries for the new range. */
-  onDateRangeChange: (preset: DateRangePreset) => void;
+  onDateRangeChange: (preset: DateRangePreset, customRange?: [string, string]) => void;
+  onCustomRangeChange?: (range: [string, string]) => void;
+  onApplyDivision?: (divisionId?: string) => void;
   onApply: () => void;
   onReset: () => void;
   onRemove: (key: string) => void;
@@ -59,8 +70,25 @@ const buildChips = (
 };
 
 const DashboardFilters: React.FC<DashboardFiltersProps> = ({
-  divisions, sections, departments, shifts, machines, filters, appliedFilters,
-  optionsLoading, loading, dateRangePreset, onChange, onDateRangeChange, onApply, onReset, onRemove,
+  divisions,
+  sections,
+  departments,
+  shifts,
+  machines,
+  filters,
+  appliedFilters,
+  optionsLoading,
+  loading,
+  dateRangePreset,
+  lastEntryDate,
+  customRange,
+  onChange,
+  onDateRangeChange,
+  onCustomRangeChange,
+  onApplyDivision,
+  onApply,
+  onReset,
+  onRemove,
 }) => {
   const screens = useBreakpoint();
   const [isOpen, setIsOpen] = useState(false);
@@ -90,47 +118,51 @@ const DashboardFilters: React.FC<DashboardFiltersProps> = ({
         background: 'var(--theme-surface, #ffffff)',
         border: '1px solid var(--theme-border, #e2e8f0)',
         borderRadius: 'var(--ui-radius-lg)',
-        padding: '10px 14px',
+        padding: '12px 16px',
         marginBottom: 14,
+        boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.04)',
       }}
     >
-      {/* ── Top Bar with single unified Filters button & Active chips ── */}
+      {/* ── Top Header Row: Filter Toggle & Chips on Left | Quick L.E & Date Range on Right ── */}
       <div
         style={{
           display: 'flex',
-          gap: 10,
-          flexWrap: 'wrap',
           alignItems: 'center',
           justifyContent: 'space-between',
-          width: '100%',
+          flexWrap: 'wrap',
+          gap: 10,
+          paddingBottom: isOpen ? 10 : 0,
+          borderBottom: isOpen ? '1px solid var(--theme-border, #e2e8f0)' : 'none',
+          marginBottom: isOpen ? 12 : 0,
         }}
       >
+        {/* Left: Filter Toggle Button, Active Chips */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <Button
+            type={isOpen ? 'primary' : 'default'}
             icon={<FilterOutlined />}
             onClick={() => setIsOpen((prev) => !prev)}
-            type={isOpen ? 'primary' : 'default'}
             style={{
               fontWeight: 600,
-              borderRadius: 'var(--ui-radius-sm)',
+              borderRadius: 8,
               display: 'inline-flex',
               alignItems: 'center',
+              gap: 6,
             }}
           >
-            <span>Filters</span>
+            <span>{isOpen ? 'Close Filters' : 'Filters'}</span>
             {activeCount > 0 && (
               <Badge
                 count={activeCount}
                 style={{
-                  marginLeft: 6,
                   backgroundColor: isOpen ? '#ffffff' : 'var(--theme-primary, #3b82f6)',
                   color: isOpen ? 'var(--theme-primary, #3b82f6)' : '#ffffff',
+                  fontWeight: 700,
                 }}
               />
             )}
           </Button>
 
-          {/* Inline chips of applied filters */}
           {chips.length > 0 && (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
               {chips.map((chip) => (
@@ -165,34 +197,81 @@ const DashboardFilters: React.FC<DashboardFiltersProps> = ({
           )}
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          {/* Single date-range selector: Today / Yesterday / This Month / This Quarter / Last Quarter */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <CalendarOutlined style={{ color: 'var(--theme-text-muted, #64748b)', fontSize: 13 }} />
-            <label
-              htmlFor="erp-dashboard-date-range"
-              style={{ fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', whiteSpace: 'nowrap' }}
+        {/* Right: Quick L.E button, Date Range Card Dropdown, Custom Picker */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          {/* Quick L.E (Last Entry) Button */}
+          <Tooltip title={lastEntryDate ? `Jump to Last Production Entry Date: ${lastEntryDate}` : 'Jump to Last Entry Date (L.E)'}>
+            <Button
+              size="middle"
+              type={dateRangePreset === 'lastEntry' ? 'primary' : 'default'}
+              icon={<ThunderboltOutlined />}
+              onClick={() => onDateRangeChange('lastEntry')}
+              loading={loading && dateRangePreset === 'lastEntry'}
+              style={{
+                fontWeight: 700,
+                fontSize: 12,
+                borderRadius: 8,
+                borderColor: dateRangePreset === 'lastEntry' ? undefined : 'var(--theme-border, #cbd5e1)',
+                color: dateRangePreset === 'lastEntry' ? '#ffffff' : 'var(--theme-primary, #0284c7)',
+                background: dateRangePreset === 'lastEntry' ? undefined : 'var(--theme-accent-soft, #f0f9ff)',
+              }}
             >
-              Date Range
-            </label>
-            <Select
-              id="erp-dashboard-date-range"
-              aria-label="Date Range"
-              style={{ width: 140 }}
-              value={dateRangePreset}
+              L.E {lastEntryDate ? `(${lastEntryDate})` : ''}
+            </Button>
+          </Tooltip>
+
+          {/* Date range selector with CardSelectDropdown */}
+          <div style={{ minWidth: 175 }}>
+            <CardSelectDropdown
+              label="Date Range"
+              title="Select Date Range"
+              subtitle="Filter dashboard timeframe"
+              allLabel="Select Preset"
+              icon={<CalendarOutlined />}
+              options={DATE_RANGE_PRESET_OPTIONS.map((o) => ({
+                id: o.value,
+                name: o.value === 'lastEntry' && lastEntryDate ? `Last Entry (${lastEntryDate})` : o.label,
+                code: o.value === 'lastEntry' ? 'L.E' : undefined,
+                subtext: o.value === 'yesterday' ? 'Default view' : undefined,
+              }))}
+              activeId={dateRangePreset}
+              onSelect={(v) => {
+                if (v) onDateRangeChange(v as DateRangePreset);
+              }}
               loading={loading}
-              onChange={(v) => onDateRangeChange(v)}
-              options={DATE_RANGE_PRESET_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
+              badgeBg="#f0f9ff"
+              badgeColor="#0284c7"
             />
           </div>
 
-          {hasDraftChanges && !isOpen && (
+          {/* Custom Date Range Picker when "Custom Range..." is active */}
+          {dateRangePreset === 'custom' && (
+            <DatePicker.RangePicker
+              aria-label="Select custom date range"
+              style={{ width: 230 }}
+              value={customRange && customRange[0] && customRange[1] ? [dayjs(customRange[0]), dayjs(customRange[1])] : undefined}
+              onChange={(dates) => {
+                if (dates && dates[0] && dates[1]) {
+                  const range: [string, string] = [
+                    dates[0].format('YYYY-MM-DD'),
+                    dates[1].format('YYYY-MM-DD'),
+                  ];
+                  onCustomRangeChange?.(range);
+                  onDateRangeChange('custom', range);
+                }
+              }}
+              allowClear={false}
+            />
+          )}
+          {/* When closed but draft changes exist, quick apply */}
+          {!isOpen && hasDraftChanges && (
             <Button
               type="primary"
-              size="small"
+              size="middle"
               icon={<SearchOutlined />}
               loading={loading}
               onClick={onApply}
+              style={{ fontWeight: 600, borderRadius: 8 }}
             >
               Apply Pending Filters
             </Button>
@@ -200,54 +279,9 @@ const DashboardFilters: React.FC<DashboardFiltersProps> = ({
         </div>
       </div>
 
-      {/* ── Collapsible Filters Panel ── */}
+      {/* ── Main 5 Filters Row & Actions (Visible when Filters button is clicked) ── */}
       {isOpen && (
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 12,
-            padding: '12px 14px',
-            background: 'var(--theme-surface-subtle, rgba(0, 0, 0, 0.02))',
-            border: '1px solid var(--theme-border, #e2e8f0)',
-            borderRadius: 'var(--ui-radius-md)',
-            marginTop: 12,
-          }}
-        >
-          {/* Header */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              paddingBottom: 6,
-              borderBottom: '1px dashed var(--theme-border, #e2e8f0)',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <FilterOutlined style={{ color: 'var(--theme-primary, #3b82f6)', fontSize: 14 }} />
-              <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--theme-text, #1e293b)' }}>
-                Dashboard Filters
-              </span>
-              {activeCount > 0 && (
-                <Tag color="blue" style={{ margin: 0, borderRadius: 10, fontSize: 11, fontWeight: 600 }}>
-                  {activeCount} Active
-                </Tag>
-              )}
-            </div>
-            <Button
-              type="text"
-              size="small"
-              icon={<CloseOutlined />}
-              onClick={() => setIsOpen(false)}
-              style={{ color: 'var(--theme-text-muted, #64748b)', fontSize: 12 }}
-              title="Close Filters"
-            >
-              Close
-            </Button>
-          </div>
-
-          {/* Grid of ALL 5 Filters */}
+        <>
           <div
             style={{
               display: 'grid',
@@ -257,91 +291,121 @@ const DashboardFilters: React.FC<DashboardFiltersProps> = ({
                 ? 'repeat(3, 1fr)'
                 : '1fr',
               gap: 10,
+              alignItems: 'stretch',
             }}
           >
-            <div>
-              <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
-                Division
-              </label>
-              <Select
-                placeholder="All Divisions"
-                allowClear
-                loading={optionsLoading}
-                style={{ width: '100%' }}
-                value={filters.divisionId}
-                onChange={(v) => onChange('divisionId', v)}
-                options={divisions.map((d) => ({ value: d.id, label: `${d.divisionCode ?? ''} ${d.name}` }))}
-              />
-            </div>
+            {/* 1. Division */}
+            <CardSelectDropdown
+              label="Division"
+              title="Switch Division"
+              subtitle="Every report and KPI follows it"
+              allLabel="All Divisions"
+              allSubtitle="Enterprise overview across all lines"
+              icon={<ShopOutlined />}
+              options={divisions.map((d) => ({
+                id: d.id,
+                name: d.name,
+                code: d.divisionCode,
+                subtext: 'Production Division',
+              }))}
+              activeId={filters.divisionId}
+              onSelect={(v) => {
+                onChange('divisionId', v);
+                onApplyDivision?.(v);
+              }}
+              loading={optionsLoading}
+              badgeBg="#fef9c3"
+              badgeColor="#854d0e"
+            />
 
-            <div>
-              <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
-                Section
-              </label>
-              <Select
-                placeholder="All Sections"
-                allowClear
-                loading={optionsLoading}
-                style={{ width: '100%' }}
-                value={filters.sectionId}
-                onChange={(v) => onChange('sectionId', v)}
-                options={sections.map((s) => ({ value: s.id, label: s.name }))}
-                disabled={!filters.divisionId && sections.length === 0}
-              />
-            </div>
+            {/* 2. Section */}
+            <CardSelectDropdown
+              label="Section"
+              title="Switch Section"
+              subtitle="Filter by workshop section"
+              allLabel="All Sections"
+              allSubtitle="View all workshop sections"
+              icon={<ApartmentOutlined />}
+              options={sections.map((s) => ({
+                id: s.id,
+                name: s.name,
+                subtext: 'Workshop Section',
+              }))}
+              activeId={filters.sectionId}
+              onSelect={(v) => onChange('sectionId', v)}
+              loading={optionsLoading}
+              disabled={!filters.divisionId && sections.length === 0}
+              disabledReason="Please select a Division first"
+              badgeBg="#e0f2fe"
+              badgeColor="#0369a1"
+            />
 
-            <div>
-              <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
-                Department
-              </label>
-              <Select
-                placeholder="All Departments"
-                allowClear
-                loading={optionsLoading}
-                style={{ width: '100%' }}
-                value={filters.departmentId}
-                onChange={(v) => onChange('departmentId', v)}
-                options={departments.map((d) => ({ value: d.id, label: d.name }))}
-                disabled={!filters.divisionId && !filters.sectionId && departments.length === 0}
-              />
-            </div>
+            {/* 3. Department */}
+            <CardSelectDropdown
+              label="Department"
+              title="Switch Department"
+              subtitle="Filter by shop floor department"
+              allLabel="All Departments"
+              allSubtitle="View all floor departments"
+              icon={<BuildOutlined />}
+              options={departments.map((d) => ({
+                id: d.id,
+                name: d.name,
+                subtext: 'Floor Department',
+              }))}
+              activeId={filters.departmentId}
+              onSelect={(v) => onChange('departmentId', v)}
+              loading={optionsLoading}
+              disabled={!filters.divisionId && !filters.sectionId && departments.length === 0}
+              disabledReason="Please select Division or Section first"
+              badgeBg="#f3e8ff"
+              badgeColor="#7e22ce"
+            />
 
-            <div>
-              <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
-                Shift
-              </label>
-              <Select
-                placeholder="All Shifts"
-                allowClear
-                loading={optionsLoading}
-                style={{ width: '100%' }}
-                value={filters.shiftId}
-                onChange={(v) => onChange('shiftId', v)}
-                options={shifts.map((s) => ({
-                  value: s.id,
-                  label: `${s.name}${s.startTime ? ` (${s.startTime}-${s.endTime})` : ''}`,
-                }))}
-              />
-            </div>
+            {/* 4. Shift */}
+            <CardSelectDropdown
+              label="Shift"
+              title="Select Shift"
+              subtitle="Filter by operating shift"
+              allLabel="All Shifts"
+              allSubtitle="All scheduled work shifts"
+              icon={<ClockCircleOutlined />}
+              options={shifts.map((s) => ({
+                id: s.id,
+                name: s.name,
+                code: s.name.slice(0, 3).toUpperCase(),
+                subtext: s.startTime && s.endTime ? `${s.startTime} - ${s.endTime}` : 'Working Shift',
+              }))}
+              activeId={filters.shiftId}
+              onSelect={(v) => onChange('shiftId', v)}
+              loading={optionsLoading}
+              badgeBg="#ecfdf5"
+              badgeColor="#047857"
+            />
 
-            <div>
-              <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
-                Machine
-              </label>
-              <Select
-                placeholder="All Machines"
-                allowClear
-                showSearch
-                optionFilterProp="label"
-                style={{ width: '100%' }}
-                value={filters.machineId}
-                onChange={(v) => onChange('machineId', v)}
-                options={machines.map((m) => ({ value: m.machineCode, label: `${m.machineCode} — ${m.machineName}` }))}
-              />
-            </div>
+            {/* 5. Machine */}
+            <CardSelectDropdown
+              label="Machine"
+              title="Select Machine"
+              subtitle="Filter by production equipment"
+              allLabel="All Machines"
+              allSubtitle="All floor machines & equipment"
+              icon={<ToolOutlined />}
+              options={machines.map((m) => ({
+                id: m.machineCode,
+                name: m.machineName,
+                code: m.machineCode,
+                subtext: `Avg Ach ${Math.round(m.avgAchievement || 0)}% · ${m.status || 'Active'}`,
+              }))}
+              activeId={filters.machineId}
+              onSelect={(v) => onChange('machineId', v)}
+              loading={optionsLoading}
+              badgeBg="#ffedd5"
+              badgeColor="#c2410c"
+            />
           </div>
 
-          {/* Footer */}
+          {/* ── Action Footer: Clear Filters on Left | Apply Filters on Right (No Close Buttons) ── */}
           <div
             style={{
               display: 'flex',
@@ -349,7 +413,8 @@ const DashboardFilters: React.FC<DashboardFiltersProps> = ({
               alignItems: 'center',
               flexWrap: 'wrap',
               gap: 8,
-              paddingTop: 8,
+              paddingTop: 10,
+              marginTop: 10,
               borderTop: '1px solid var(--theme-border, #e2e8f0)',
             }}
           >
@@ -358,29 +423,29 @@ const DashboardFilters: React.FC<DashboardFiltersProps> = ({
               onClick={onReset}
               disabled={!hasAnyFilter}
               danger={hasAnyFilter}
+              style={{ borderRadius: 8 }}
             >
               Clear Filters
             </Button>
 
-            <div style={{ display: 'flex', gap: 8 }}>
-              <Button onClick={() => setIsOpen(false)}>
-                Close
-              </Button>
-              <Button
-                type="primary"
-                icon={<SearchOutlined />}
-                loading={loading}
-                onClick={() => {
-                  onApply();
-                  setIsOpen(false);
-                }}
-                style={{ fontWeight: 600 }}
-              >
-                {hasDraftChanges ? 'Apply Filters *' : 'Apply Filters'}
-              </Button>
-            </div>
+            <Button
+              type="primary"
+              icon={<SearchOutlined />}
+              loading={loading}
+              onClick={() => {
+                onApply();
+                setIsOpen(false);
+              }}
+              style={{
+                fontWeight: 600,
+                borderRadius: 8,
+                minWidth: 120,
+              }}
+            >
+              {hasDraftChanges ? 'Apply Filters *' : 'Apply Filters'}
+            </Button>
           </div>
-        </div>
+        </>
       )}
     </section>
   );

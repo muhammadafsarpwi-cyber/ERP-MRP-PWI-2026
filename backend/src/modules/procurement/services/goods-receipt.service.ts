@@ -6,6 +6,7 @@ import { CreateGoodsReceiptDto, GoodsReceiptFilterDto } from '../dto';
 import { StockLedgerService } from '../../inventory/services/stock-ledger.service';
 import { InventoryBalanceService } from '../../inventory/services/inventory-balance.service';
 import { Warehouse } from '../../organization/entities/warehouse.entity';
+import { Item, UomConversion } from '../../item/entities';
 
 const GRN_REFERENCE_TYPE = 'GOODS_RECEIPT';
 
@@ -47,20 +48,37 @@ export class GoodsReceiptService {
       throw new ConflictException(`Receipt code '${dto.receiptCode}' already exists`);
     }
 
+    const { divisionId, purchaseType, lines, poId, ...restDto } = dto;
+
+    // Combine division, origin, and user notes
+    const metaParts: string[] = [];
+    if (divisionId) metaParts.push(`[Division: ${divisionId}]`);
+    if (purchaseType) metaParts.push(`[Origin: ${purchaseType}]`);
+    const prefix = metaParts.join(' ');
+    const combinedNotes = [prefix, dto.notes].filter(Boolean).join('\n');
+
+    // Clean poId: ensure only valid non-empty string or null is passed
+    const cleanPoId = poId && poId.trim().length > 0 ? poId.trim() : null;
+
     const receipt = this.repo.create({
-      ...dto,
-      lines: undefined,
+      ...restDto,
+      poId: cleanPoId as any,
+      notes: combinedNotes || dto.notes || null,
       status: 'DRAFT',
       createdBy: userId || null,
       updatedBy: userId || null,
     });
     const saved = await this.repo.save(receipt);
 
-    if (dto.lines && dto.lines.length > 0) {
-      for (const lineDto of dto.lines) {
+    if (lines && lines.length > 0) {
+      for (const lineDto of lines) {
+        const { poLineId, locationId, batchId, ...restLine } = lineDto;
         const line = this.lineRepo.create({
           receiptId: saved.id,
-          ...lineDto,
+          ...restLine,
+          poLineId: poLineId && poLineId.trim().length > 0 ? poLineId.trim() : undefined,
+          locationId: locationId && locationId.trim().length > 0 ? locationId.trim() : undefined,
+          batchId: batchId && batchId.trim().length > 0 ? batchId.trim() : undefined,
           createdBy: userId || null,
           updatedBy: userId || null,
         });
@@ -75,7 +93,8 @@ export class GoodsReceiptService {
     const { page = 1, limit = 20, companyId, poId, status, search, sortField = 'createdAt', sortOrder = 'DESC' } = filter;
     const qb = this.repo.createQueryBuilder('gr')
       .leftJoinAndSelect('gr.supplier', 'supplier')
-      .leftJoinAndSelect('gr.po', 'po');
+      .leftJoinAndSelect('gr.po', 'po')
+      .leftJoinAndSelect('gr.warehouse', 'warehouse');
     let hasWhere = false;
     if (companyId) { qb.where('gr.companyId = :companyId', { companyId }); hasWhere = true; }
     if (poId) { qb[hasWhere ? 'andWhere' : 'where']('gr.poId = :poId', { poId }); hasWhere = true; }
@@ -87,6 +106,13 @@ export class GoodsReceiptService {
     qb.orderBy(`gr.${field}`, order);
     qb.skip((page - 1) * limit).take(limit);
     const [data, total] = await qb.getManyAndCount();
+
+    for (const item of data) {
+      (item as any).poCode = item.po?.poCode;
+      (item as any).supplierName = item.supplier?.name;
+      (item as any).warehouseName = item.warehouse?.name;
+    }
+
     return { data, total };
   }
 
@@ -170,16 +196,16 @@ export class GoodsReceiptService {
 
       // Re-read the receipt inside the transaction under a write lock so two
       // concurrent post() attempts cannot both observe an unposted status.
-      const locked = await receiptRepo
-        .createQueryBuilder('gr')
-        .setLock('pessimistic_write')
-        .where('gr.id = :id', { id })
-        .leftJoinAndSelect('gr.lines', 'lines')
-        .getOne();
+      // Locked directly without outer join to prevent PostgreSQL FOR UPDATE join error.
+      const locked = await receiptRepo.findOne({
+        where: { id },
+        lock: { mode: 'pessimistic_write' },
+      });
       if (!locked) throw new NotFoundException(`Goods receipt with ID '${id}' not found`);
       if (locked.postedAt || locked.postedBy || locked.status === 'POSTED') {
         throw new BadRequestException('Goods receipt has already been posted');
       }
+      locked.lines = await manager.getRepository(GoodsReceiptLine).find({ where: { receiptId: id } });
       this.assertCompanyOwned(locked, companyId);
 
       // Warehouse must belong to the same company and be ACTIVE. Posting must
@@ -197,7 +223,7 @@ export class GoodsReceiptService {
         throw new BadRequestException(`Warehouse '${wh.warehouseCode}' is not ACTIVE`);
       }
 
-      const poLines = await poLineRepo.find({ where: { poId: locked.poId } });
+      const poLines = locked.poId ? await poLineRepo.find({ where: { poId: locked.poId } }) : [];
       const byId = new Map(poLines.map((l) => [l.id, l]));
       // Money value of the goods physically accepted into stock this receipt —
       // maintained alongside the existing received-quantity tracking so the PO
@@ -208,61 +234,83 @@ export class GoodsReceiptService {
         const acceptedQty = Number(line.quantityAccepted || 0);
         if (acceptedQty <= 0) continue;
 
+        let postQty = acceptedQty;
+        let postUomId = line.uomId;
+
+        // Auto-convert to item's base UOM (e.g. Gross to Pieces) when posting to inventory
+        if (line.itemId) {
+          const item = await manager.getRepository(Item).findOne({ where: { id: line.itemId } });
+          if (item && item.baseUomId && line.uomId && item.baseUomId !== line.uomId) {
+            const conv = await manager.getRepository(UomConversion).findOne({
+              where: { fromUomId: line.uomId, toUomId: item.baseUomId },
+            });
+            if (conv && Number(conv.conversionFactor) > 0) {
+              postQty = acceptedQty * Number(conv.conversionFactor);
+              postUomId = item.baseUomId;
+            }
+          }
+        }
+
         await this.stockLedgerService.create({
           companyId: locked.companyId,
-          transactionType: 'GOODS_RECEIPT',
+          transactionType: 'RECEIPT',
           transactionDate: locked.receiptDate || undefined,
           itemId: line.itemId,
           warehouseId: locked.warehouseId,
           locationId: line.locationId || undefined,
           batchId: line.batchId || undefined,
-          quantity: acceptedQty,
-          uomId: line.uomId,
+          quantity: postQty,
+          uomId: postUomId,
           direction: 'IN',
           referenceType: GRN_REFERENCE_TYPE,
           referenceId: locked.id,
           referenceNumber: locked.grnNumber || locked.receiptCode,
-          notes: `Goods receipt ${locked.receiptCode}`,
+          notes: `Goods receipt ${locked.receiptCode}${postQty !== acceptedQty ? ` (${acceptedQty} converted to ${postQty})` : ''}`,
           createdBy: userId ?? undefined,
         }, manager);
         await this.inventoryBalanceService.updateBalance(
           locked.companyId, line.itemId, locked.warehouseId,
-          line.locationId, line.batchId, line.uomId, acceptedQty, 'IN', manager,
+          line.locationId, line.batchId, postUomId, postQty, 'IN', manager,
         );
 
-        const poLine = byId.get(line.poLineId);
-        if (poLine) {
-          const received = Number(poLine.receivedQuantity || 0) + acceptedQty;
-          await poLineRepo.update(poLine.id, { receivedQuantity: received });
-          byId.set(poLine.id, { ...poLine, receivedQuantity: received });
-          receivedMoney += acceptedQty * Number(poLine.unitPrice || 0);
+        if (line.poLineId) {
+          const poLine = byId.get(line.poLineId);
+          if (poLine) {
+            const received = Number(poLine.receivedQuantity || 0) + acceptedQty;
+            await poLineRepo.update(poLine.id, { receivedQuantity: received });
+            byId.set(poLine.id, { ...poLine, receivedQuantity: received });
+            receivedMoney += acceptedQty * Number(poLine.unitPrice || 0);
+          }
         }
       }
 
       // Advance the Purchase Order towards FULLY_RECEIVED / PARTIALLY_RECEIVED
       // based on received-vs-ordered quantities, making the existing close()
       // step reachable. The received VALUE (money) is also reflected.
-      const updatedLines = await poLineRepo.find({ where: { poId: locked.poId } });
-      if (updatedLines.length > 0) {
-        const anyReceived = updatedLines.some((l) => Number(l.receivedQuantity || 0) > 0);
-        const allReceived = updatedLines.every(
-          (l) => Number(l.receivedQuantity || 0) >= Number(l.quantity || 0),
-        );
-        if (anyReceived || allReceived) {
-          const po = await poRepo.findOne({ where: { id: locked.poId } });
-          if (po && (po.status === 'APPROVED' || po.status === 'PARTIALLY_RECEIVED' || po.status === 'FULLY_RECEIVED')) {
-            // Money value of the goods accepted this receipt (received_quantity is
-            // already maintained line-by-line above; keep the PO value in step).
-            if (receivedMoney > 0) {
-              const newReceivedAmount = Math.round((Number(po.receivedAmount || 0) + receivedMoney) * 100) / 100;
-              await poRepo.update(po.id, { receivedAmount: newReceivedAmount });
+      if (locked.poId) {
+        const currentPoId = locked.poId;
+        const updatedLines = await poLineRepo.find({ where: { poId: currentPoId } });
+        if (updatedLines.length > 0) {
+          const anyReceived = updatedLines.some((l) => Number(l.receivedQuantity || 0) > 0);
+          const allReceived = updatedLines.every(
+            (l) => Number(l.receivedQuantity || 0) >= Number(l.quantity || 0),
+          );
+          if (anyReceived || allReceived) {
+            const po = await poRepo.findOne({ where: { id: currentPoId } });
+            if (po && (po.status === 'APPROVED' || po.status === 'PARTIALLY_RECEIVED' || po.status === 'FULLY_RECEIVED' || po.status === 'DRAFT' || po.status === 'SUBMITTED')) {
+              // Money value of the goods accepted this receipt (received_quantity is
+              // already maintained line-by-line above; keep the PO value in step).
+              if (receivedMoney > 0) {
+                const newReceivedAmount = Math.round((Number(po.receivedAmount || 0) + receivedMoney) * 100) / 100;
+                await poRepo.update(po.id, { receivedAmount: newReceivedAmount });
+              }
+              const nextStatus = allReceived ? 'FULLY_RECEIVED' : 'PARTIALLY_RECEIVED';
+              await poRepo.update(po.id, {
+                status: nextStatus,
+                receivedBy: userId || null,
+                receivedAt: new Date(),
+              });
             }
-            const nextStatus = allReceived ? 'FULLY_RECEIVED' : 'PARTIALLY_RECEIVED';
-            await poRepo.update(po.id, {
-              status: nextStatus,
-              receivedBy: userId || null,
-              receivedAt: new Date(),
-            });
           }
         }
       }
@@ -278,5 +326,14 @@ export class GoodsReceiptService {
     });
 
     return this.findOne(id);
+  }
+
+  async remove(id: string): Promise<void> {
+    const receipt = await this.findOne(id);
+    if (receipt.status === 'POSTED') {
+      throw new BadRequestException('Cannot delete a goods receipt that has already been posted to inventory');
+    }
+    await this.lineRepo.delete({ receiptId: id });
+    await this.repo.remove(receipt);
   }
 }

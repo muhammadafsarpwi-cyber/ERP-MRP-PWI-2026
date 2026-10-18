@@ -45,6 +45,9 @@ export interface FilterBarProps {
   onReset?: () => void;
   activeCount?: number;
 
+  // Custom toolbar buttons placed immediately next to the Filters toggle (e.g. Column Selector)
+  actionButtons?: React.ReactNode;
+
   // Statistics / Meta info on right side
   totalCount?: number;
   itemLabel?: string;
@@ -71,6 +74,7 @@ export const FilterBar: React.FC<FilterBarProps> = ({
   onToggleVisible,
   onReset,
   activeCount = 0,
+  actionButtons,
   totalCount,
   itemLabel = 'items',
   extra,
@@ -160,6 +164,9 @@ export const FilterBar: React.FC<FilterBarProps> = ({
             )}
           </Button>
         )}
+
+        {/* Custom action buttons (e.g. Columns Selector) */}
+        {actionButtons}
 
         <div style={{ flex: 1 }} />
 

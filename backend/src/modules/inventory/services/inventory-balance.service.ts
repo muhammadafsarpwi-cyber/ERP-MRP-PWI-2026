@@ -62,8 +62,9 @@ export class InventoryBalanceService {
     companyId?: string;
     itemId?: string;
     warehouseId?: string;
+    divisionId?: string;
   }): Promise<{ data: InventoryBalance[]; total: number }> {
-    const { page = 1, limit = 20, companyId, itemId, warehouseId } = filter;
+    const { page = 1, limit = 20, companyId, itemId, warehouseId, divisionId } = filter;
 
     const qb = this.repo
       .createQueryBuilder('balance')
@@ -73,13 +74,13 @@ export class InventoryBalanceService {
       .leftJoinAndSelect('balance.batch', 'batch')
       .leftJoinAndSelect('balance.uom', 'uom');
 
-    if (companyId) qb.where('balance.companyId = :companyId', { companyId });
-    if (itemId) qb[companyId ? 'andWhere' : 'where']('balance.itemId = :itemId', { itemId });
-    if (warehouseId) {
-      qb[companyId || itemId ? 'andWhere' : 'where']('balance.warehouseId = :warehouseId', { warehouseId });
-    }
+    if (companyId) qb.andWhere('balance.companyId = :companyId', { companyId });
+    if (itemId) qb.andWhere('balance.itemId = :itemId', { itemId });
+    if (warehouseId) qb.andWhere('balance.warehouseId = :warehouseId', { warehouseId });
+    if (divisionId) qb.andWhere('warehouse.divisionId = :divisionId', { divisionId });
 
-    qb.orderBy('balance.createdAt', 'DESC');
+    qb.orderBy('item.itemCode', 'ASC')
+      .addOrderBy('balance.createdAt', 'DESC');
     qb.skip((page - 1) * limit).take(limit);
 
     const [data, total] = await qb.getManyAndCount();

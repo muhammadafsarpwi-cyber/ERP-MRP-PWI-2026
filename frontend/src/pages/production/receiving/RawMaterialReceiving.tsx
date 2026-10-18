@@ -1,10 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Alert, Button, Card, Col, DatePicker, Divider, Form, Input, InputNumber,
-  Modal, Popconfirm, Row, Select, Space, Table, Tag, Tooltip, Typography, App as AntApp,
+  Alert, Badge, Button, Card, Checkbox, Col, DatePicker, Divider, Form, Input, InputNumber,
+  Modal, Popconfirm, Popover, Row, Select, Space, Table, Tag, Tooltip, Typography, App as AntApp,
 } from 'antd';
 import {
-  CameraOutlined, CloseOutlined, CopyOutlined, DatabaseOutlined, DeleteOutlined, EditOutlined, EyeOutlined,
+  AppstoreOutlined, CameraOutlined, CloseOutlined, CopyOutlined, DatabaseOutlined, DeleteOutlined, EditOutlined, EyeOutlined,
   EyeInvisibleOutlined, ArrowRightOutlined, HistoryOutlined, InboxOutlined, PaperClipOutlined, PictureOutlined, PlusOutlined, ReloadOutlined,
   SaveOutlined, SendOutlined, WarningOutlined, WhatsAppOutlined,
 } from '@ant-design/icons';
@@ -44,7 +44,7 @@ const ATTACH_EXT_ALLOW = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 't
 const ATTACH_MIME_PREFIX = ['application/', 'text/plain', 'text/csv', 'application/csv'];
 
 interface OrgOption { id: string; name: string; divisionCode?: string; sectionCode?: string; departmentCode?: string; divisionId?: string; sectionId?: string; }
-interface WarehouseOption { id: string; name: string; warehouseCode?: string; status: string; warehouseType?: string; }
+interface WarehouseOption { id: string; name: string; warehouseCode?: string; status?: string; warehouseType?: string; divisionId?: string | null; }
 interface ItemOption {
   id: string;
   name: string;
@@ -56,7 +56,7 @@ interface ItemOption {
   itemType?: string;
 }
 interface UomOption { id: string; code?: string; name?: string; symbol?: string; status: string; }
-interface ProductionOrderOption { id: string; order_number: string; status?: string; }
+interface ProductionOrderOption { id: string; order_number?: string; po_code?: string; status?: string; warehouse_id?: string | null; }
 
 interface FormRefData {
   warehouses: WarehouseOption[];
@@ -84,6 +84,7 @@ interface ReceiptHeader {
   receiptCode: string;
   gatePassNo?: string | null;
   sourceNo?: string | null;
+  heatNumber?: string | null;
   receiptDate: string;
   status: string;
   reference?: string | null;
@@ -192,6 +193,109 @@ const formatBytes = (b: number): string => {
   return `${(b / (1024 * 1024)).toFixed(1)} MB`;
 };
 
+const WAREHOUSE_COLOR_PALETTES = [
+  { text: '#38bdf8', bg: 'rgba(56, 189, 248, 0.14)', border: 'rgba(56, 189, 248, 0.45)' }, // Cyan (CCD)
+  { text: '#c084fc', bg: 'rgba(192, 132, 252, 0.14)', border: 'rgba(192, 132, 252, 0.45)' }, // Purple / Violet (SPI)
+  { text: '#fbbf24', bg: 'rgba(251, 191, 36, 0.14)', border: 'rgba(251, 191, 36, 0.45)' }, // Amber / Gold (Main)
+  { text: '#34d399', bg: 'rgba(52, 211, 153, 0.14)', border: 'rgba(52, 211, 153, 0.45)' }, // Emerald (FT)
+  { text: '#fb7185', bg: 'rgba(251, 113, 133, 0.14)', border: 'rgba(251, 113, 133, 0.45)' }, // Rose (SP)
+  { text: '#60a5fa', bg: 'rgba(96, 165, 250, 0.14)', border: 'rgba(96, 165, 250, 0.45)' }, // Sky (ST)
+  { text: '#fb923c', bg: 'rgba(251, 146, 60, 0.14)', border: 'rgba(251, 146, 60, 0.45)' }, // Orange (SW)
+  { text: '#e879f9', bg: 'rgba(232, 121, 249, 0.14)', border: 'rgba(232, 121, 249, 0.45)' }, // Fuchsia (PVC)
+  { text: '#a3e635', bg: 'rgba(163, 230, 53, 0.14)', border: 'rgba(163, 230, 53, 0.45)' }, // Lime (Nipple/Packing)
+  { text: '#2dd4bf', bg: 'rgba(45, 212, 191, 0.14)', border: 'rgba(45, 212, 191, 0.45)' }, // Teal (SPL)
+];
+
+const getWarehouseBadgeStyle = (name?: string, id?: string) => {
+  if (!name && !id) return WAREHOUSE_COLOR_PALETTES[0];
+  const upper = (name || '').toUpperCase();
+  if (upper.includes('CCD')) return WAREHOUSE_COLOR_PALETTES[0]; // Cyan
+  if (upper.includes('SPI') || upper.includes('SPOKE')) return WAREHOUSE_COLOR_PALETTES[1]; // Purple
+  if (upper.includes('MAIN')) return WAREHOUSE_COLOR_PALETTES[2]; // Amber
+  if (upper.includes('FT')) return WAREHOUSE_COLOR_PALETTES[3]; // Emerald
+  if (upper.includes('SP ') || upper.includes('PLATING') || upper.includes('PRODUCTION')) return WAREHOUSE_COLOR_PALETTES[4]; // Rose
+  if (upper.includes('ST ') || upper.includes('STRAIGHT')) return WAREHOUSE_COLOR_PALETTES[5]; // Sky
+  if (upper.includes('SW ') || upper.includes('SWAG')) return WAREHOUSE_COLOR_PALETTES[6]; // Orange
+  if (upper.includes('PVC')) return WAREHOUSE_COLOR_PALETTES[7]; // Fuchsia
+  if (upper.includes('NIPPLE') || upper.includes('PACKING')) return WAREHOUSE_COLOR_PALETTES[8]; // Lime
+
+  const str = id || name || '';
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = (hash * 31 + str.charCodeAt(i)) & 0xffffffff;
+  }
+  const idx = Math.abs(hash) % WAREHOUSE_COLOR_PALETTES.length;
+  return WAREHOUSE_COLOR_PALETTES[idx];
+};
+
+const ALL_RECEIPT_COLUMNS: { key: string; label: string }[] = [
+  { key: 'receiptCode', label: 'Receipt Code' },
+  { key: 'receiptDate', label: 'Date' },
+  { key: 'gatePassNo', label: 'Gate Pass No' },
+  { key: 'heatNumber', label: 'Heat Number' },
+  { key: 'orgHierarchy', label: 'Division / Section / Department' },
+  { key: 'warehouse', label: 'Warehouse' },
+  { key: 'lineCount', label: 'Lines' },
+  { key: 'gatePassTotal', label: 'Gate Pass Qty' },
+  { key: 'receivedTotal', label: 'Received Qty' },
+  { key: 'differenceTotal', label: 'Difference' },
+  { key: 'status', label: 'Status' },
+  { key: 'createdByNameDate', label: 'Created By' },
+  { key: 'updatedByNameDate', label: 'Updated By' },
+  { key: 'actions', label: 'Actions' },
+];
+
+const DEFAULT_VISIBLE_COLUMNS = ALL_RECEIPT_COLUMNS.map((c) => c.key);
+
+/**
+ * Diagonal Expand / Collapse Icon (two diagonal arrows: ↖ ↘)
+ * Matches the user-requested diagonal expansion icon.
+ */
+const DiagonalExpandIcon: React.FC<{ expanded?: boolean; size?: number; color?: string }> = ({
+  expanded,
+  size = 13,
+  color = 'currentColor',
+}) => {
+  if (expanded) {
+    return (
+      <svg
+        width={size}
+        height={size}
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke={color}
+        strokeWidth="2.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        style={{ display: 'block', transition: 'transform 0.2s ease' }}
+      >
+        <polyline points="4 14 10 14 10 20" />
+        <line x1="10" y1="14" x2="3" y2="21" />
+        <polyline points="20 10 14 10 14 4" />
+        <line x1="14" y1="10" x2="21" y2="3" />
+      </svg>
+    );
+  }
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke={color}
+      strokeWidth="2.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      style={{ display: 'block', transition: 'transform 0.2s ease' }}
+    >
+      <polyline points="10 4 4 4 4 10" />
+      <line x1="4" y1="4" x2="11" y2="11" />
+      <polyline points="14 20 20 20 20 14" />
+      <line x1="20" y1="20" x2="13" y2="13" />
+    </svg>
+  );
+};
+
 const RawMaterialReceiving: React.FC = () => {
   const { message } = AntApp.useApp();
   const [form] = Form.useForm();
@@ -216,6 +320,44 @@ const RawMaterialReceiving: React.FC = () => {
   const [listState, setListState] = useState<'loading' | 'error' | 'ready'>(() => cachedTab ? 'ready' : 'loading');
 
   const [filters, setFilters] = useState<{ status?: string; warehouseId?: string; gatePassNo?: string; dateFrom?: string; dateTo?: string }>(() => cachedTab?.filters ?? {});
+
+  // Customizable Column Visibility state with persistence
+  const [visibleColumns, setVisibleColumns] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('pwi_rmr_visible_columns');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch { /* ignore */ }
+    return DEFAULT_VISIBLE_COLUMNS;
+  });
+
+  const handleColumnToggle = useCallback((key: string, checked: boolean) => {
+    setVisibleColumns((prev) => {
+      const next = checked ? [...prev, key] : prev.filter((k) => k !== key);
+      if (next.length === 0) return prev;
+      try {
+        localStorage.setItem('pwi_rmr_visible_columns', JSON.stringify(next));
+      } catch { /* ignore */ }
+      return next;
+    });
+  }, []);
+
+  const handleSelectAllColumns = useCallback(() => {
+    const all = ALL_RECEIPT_COLUMNS.map((c) => c.key);
+    setVisibleColumns(all);
+    try {
+      localStorage.setItem('pwi_rmr_visible_columns', JSON.stringify(all));
+    } catch { /* ignore */ }
+  }, []);
+
+  const handleResetColumns = useCallback(() => {
+    setVisibleColumns(DEFAULT_VISIBLE_COLUMNS);
+    try {
+      localStorage.removeItem('pwi_rmr_visible_columns');
+    } catch { /* ignore */ }
+  }, []);
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -292,6 +434,8 @@ const RawMaterialReceiving: React.FC = () => {
   const watchReceiptDate = Form.useWatch('receiptDate', form);
   const watchGatePassNo = Form.useWatch('gatePassNo', form);
   const watchSourceNo = Form.useWatch('sourceNo', form);
+  const watchHeatNumber = Form.useWatch('heatNumber', form);
+  const watchPoId = Form.useWatch('productionOrderId', form);
 
   // Filter raw materials strictly by selected Division (plus shared items without division)
   const filteredItems = useMemo(() => {
@@ -300,6 +444,13 @@ const RawMaterialReceiving: React.FC = () => {
     if (!watchDivision) return rawMaterials;
     return rawMaterials.filter((i) => !i.divisionId || i.divisionId === watchDivision);
   }, [refData?.items, watchDivision]);
+
+  // Helper: Identify raw material warehouses (RM-001-CCD, RM-002-SPI, etc.)
+  const isRawMaterialWarehouse = useCallback((w: WarehouseOption) => {
+    const n = (w.name || '').toLowerCase();
+    const c = (w.warehouseCode || '').toLowerCase();
+    return n.includes('raw material') || c.startsWith('rm-') || c.includes('raw') || c.includes('rm');
+  }, []);
 
   // ─────────────────────────────────────────────────────────────────────────
   // Draft persistence — the live form/rows are mirrored into the global store
@@ -324,10 +475,34 @@ const RawMaterialReceiving: React.FC = () => {
     [refData?.divisions],
   );
 
+  // Raw Material Receiving only operates on Raw Material warehouses
+  const rawMaterialWarehouses = useMemo(() => {
+    const all = refData?.warehouses || [];
+    const rms = all.filter(isRawMaterialWarehouse);
+    return rms.length > 0 ? rms : all;
+  }, [refData?.warehouses, isRawMaterialWarehouse]);
+
+  // Main list top FilterBar options: lists all Raw Material warehouses
   const warehouseOptions = useMemo(
-    () => (refData?.warehouses || []).map((w) => ({ value: w.id, label: formatNameWithCode(w.name, w.warehouseCode) })),
-    [refData?.warehouses],
+    () => rawMaterialWarehouses.map((w) => ({ value: w.id, label: formatNameWithCode(w.name, w.warehouseCode) })),
+    [rawMaterialWarehouses],
   );
+
+  // Modal Receiving Warehouse dropdown:
+  // Strictly filtered by selected Division!
+  // When CCD is selected, shows ONLY CCD Raw Material Warehouse (RM-001-CCD)
+  // When SPD is selected, shows ONLY SPI Raw Material Warehouse (RM-002-SPI)
+  // No other division warehouses or production department stores ever show in the dropdown.
+  const modalWarehouseOptions = useMemo(() => {
+    if (!refData?.warehouses) return [];
+    let list = refData.warehouses;
+    if (watchDivision) {
+      list = list.filter((w) => w.divisionId === watchDivision);
+    }
+    const rmList = list.filter(isRawMaterialWarehouse);
+    const finalWarehouses = rmList.length > 0 ? rmList : list;
+    return finalWarehouses.map((w) => ({ value: w.id, label: formatNameWithCode(w.name, w.warehouseCode) }));
+  }, [refData?.warehouses, watchDivision, isRawMaterialWarehouse]);
 
   const availableSections = sections.length > 0 ? sections : (refData?.sections || []);
   const sectionOptions = useMemo(
@@ -356,10 +531,41 @@ const RawMaterialReceiving: React.FC = () => {
     [refData?.uoms],
   );
 
-  const productionOrderOptions = useMemo(
-    () => (refData?.productionOrders || []).map((o) => ({ value: o.id, label: o.order_number })),
-    [refData?.productionOrders],
-  );
+  const poOptions = useMemo(() => {
+    const all = (refData?.productionOrders || []) as ProductionOrderOption[];
+    if (all.length === 0) return [];
+
+    const formatOption = (o: ProductionOrderOption) => {
+      const code = o.po_code || o.order_number || o.id;
+      const statusText = o.status ? ` (${o.status.replace(/_/g, ' ')})` : '';
+      return { value: o.id, label: `${code}${statusText}` };
+    };
+
+    if (watchWarehouse) {
+      // 1. POs specifically created/assigned to this receiving store/warehouse
+      const storeMatched = all.filter((o) => o.warehouse_id === watchWarehouse);
+      if (storeMatched.length > 0) {
+        return storeMatched.map(formatOption);
+      }
+
+      // 2. POs assigned to warehouses within the same division, or unassigned POs
+      const currentWh = (refData?.warehouses || []).find((w) => w.id === watchWarehouse);
+      const divisionWhIds = new Set(
+        (refData?.warehouses || [])
+          .filter((w) => currentWh?.divisionId && w.divisionId === currentWh.divisionId)
+          .map((w) => w.id),
+      );
+      const divMatched = all.filter((o) => !o.warehouse_id || divisionWhIds.has(o.warehouse_id));
+      if (divMatched.length > 0) {
+        return divMatched.map(formatOption);
+      }
+    }
+
+    // Default: show all available POs
+    return all.map(formatOption);
+  }, [refData?.productionOrders, refData?.warehouses, watchWarehouse]);
+
+  const productionOrderOptions = poOptions;
 
   // ─────────────────────────────────────────────────────────────────────────
   // Reference data loading with request-id guard (ignores stale responses) and
@@ -422,11 +628,37 @@ const RawMaterialReceiving: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, pageSize, filters]);
 
+  // Dynamic on-demand loading of lines when a row is expanded
+  const [expandedLinesMap, setExpandedLinesMap] = useState<Record<string, ReceiptLine[]>>({});
+  const [expandedLoadingMap, setExpandedLoadingMap] = useState<Record<string, boolean>>({});
+
+  const handleExpandRow = useCallback(async (expanded: boolean, record: ReceiptHeader) => {
+    if (!expanded) return;
+    if (record.lines && record.lines.length > 0) return;
+    if (expandedLinesMap[record.id] && expandedLinesMap[record.id].length > 0) return;
+
+    setExpandedLoadingMap((prev) => ({ ...prev, [record.id]: true }));
+    try {
+      const res = await apiService.get<{ data: ReceiptHeader }>(`/inventory/receipts/gate-pass/${record.id}`);
+      const fetchedLines = res?.data?.lines || [];
+      setExpandedLinesMap((prev) => ({ ...prev, [record.id]: fetchedLines }));
+      setList((prevList) =>
+        prevList.map((item) => (item.id === record.id ? { ...item, lines: fetchedLines } : item)),
+      );
+    } catch (err) {
+      console.error('Failed to load expanded receipt lines:', err);
+    } finally {
+      setExpandedLoadingMap((prev) => ({ ...prev, [record.id]: false }));
+    }
+  }, [expandedLinesMap]);
+
   useEffect(() => { void loadRef(); }, [loadRef]);
   useEffect(() => {
-    // If the tab was already loaded in this session, DO NOT re-fetch when
-    // returning to it — the cached rows are already seeded into state.
-    if (!tabSessionCache.has(RM_RECEIVING_TAB_ID)) {
+    // If the tab was already loaded in this session, verify that rows have lines
+    const cached = tabSessionCache.get<RawMaterialReceivingTabCache>(RM_RECEIVING_TAB_ID);
+    const hasLinesInCache = cached?.list && cached.list.length > 0 && cached.list.some((r) => r.lines && r.lines.length > 0);
+    if (!tabSessionCache.has(RM_RECEIVING_TAB_ID) || !hasLinesInCache) {
+      tabSessionCache.remove(RM_RECEIVING_TAB_ID);
       void loadList(1);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -537,14 +769,26 @@ const RawMaterialReceiving: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [watchDivision, watchSection, refData, sections, departments]);
 
-  // Single-warehouse flow: auto select when exactly one ACTIVE warehouse exists.
+  // Auto-select division-matched Raw Material Warehouse when division changes or modal opens
   useEffect(() => {
-    if (refState === 'ready' && modalOpen && refData?.warehouses?.length === 1 && !form.getFieldValue('warehouseId')) {
+    if (refState !== 'ready' || !modalOpen || !refData?.warehouses) return;
+    const curWh = form.getFieldValue('warehouseId');
+
+    if (watchDivision) {
+      const divWhs = refData.warehouses.filter((w) => w.divisionId === watchDivision);
+      const rmWhs = divWhs.filter(isRawMaterialWarehouse);
+      const targetWhs = rmWhs.length > 0 ? rmWhs : divWhs;
+      // If no warehouse is selected or current warehouse does NOT belong to this division's candidates, auto-select
+      if (targetWhs.length > 0 && (!curWh || !targetWhs.some((w) => w.id === curWh))) {
+        form.setFieldValue('warehouseId', targetWhs[0].id);
+        commitDraft(editingId);
+      }
+    } else if (refData.warehouses.length === 1 && !curWh) {
       form.setFieldValue('warehouseId', refData.warehouses[0].id);
       commitDraft(editingId);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [refState, modalOpen, refData?.warehouses]);
+  }, [refState, modalOpen, watchDivision, refData?.warehouses, isRawMaterialWarehouse]);
 
   // When division changes, auto-clear rows with items that do not belong to the selected division
   useEffect(() => {
@@ -794,6 +1038,7 @@ const RawMaterialReceiving: React.FC = () => {
       receiptDate: v.receiptDate ? dayjs(v.receiptDate as any) : dayjs(),
       gatePassNo: v.gatePassNo,
       sourceNo: v.sourceNo,
+      heatNumber: v.heatNumber,
       productionOrderId: v.productionOrderId,
       remarks: v.remarks,
     });
@@ -880,6 +1125,7 @@ const RawMaterialReceiving: React.FC = () => {
         receiptDate: d.receiptDate ? dayjs(d.receiptDate) : dayjs(),
         gatePassNo: d.gatePassNo || undefined,
         sourceNo: d.sourceNo || undefined,
+        heatNumber: d.heatNumber || undefined,
         productionOrderId: d.productionOrderId || undefined,
         reference: d.reference || undefined,
         remarks: d.remarks || undefined,
@@ -932,6 +1178,19 @@ const RawMaterialReceiving: React.FC = () => {
     form.setFieldValue('sectionId', undefined);
     form.setFieldValue('departmentId', undefined);
     setDepartments([]);
+
+    // Auto-select division-matched raw material warehouse:
+    // When CCD is selected -> CCD Raw Material Warehouse (RM-001-CCD)
+    // When SPD is selected -> SPI Raw Material Warehouse (RM-002-SPI)
+    if (value && refData?.warehouses) {
+      const divWhs = refData.warehouses.filter((w) => w.divisionId === value);
+      const rmWhs = divWhs.filter(isRawMaterialWarehouse);
+      const targetWh = rmWhs.length > 0 ? rmWhs[0] : (divWhs.length === 1 ? divWhs[0] : undefined);
+      if (targetWh) {
+        form.setFieldValue('warehouseId', targetWh.id);
+      }
+    }
+
     if (value) {
       const secList = await loadSections(value);
       if (secList.length === 1) {
@@ -946,7 +1205,7 @@ const RawMaterialReceiving: React.FC = () => {
       setSections([]);
     }
     commitDraft(editingId);
-  }, [form, commitDraft, editingId, loadSections, loadDepartments]);
+  }, [form, commitDraft, editingId, loadSections, loadDepartments, refData?.warehouses, isRawMaterialWarehouse]);
 
   const handleSectionChange = useCallback(async (value: string | undefined) => {
     form.setFieldValue('sectionId', value);
@@ -1125,6 +1384,7 @@ const RawMaterialReceiving: React.FC = () => {
     receiptCode,
     gatePassNo: values.gatePassNo || undefined,
     sourceNo: values.sourceNo || undefined,
+    heatNumber: values.heatNumber || undefined,
     receiptDate: values.receiptDate ? values.receiptDate.format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD'),
     divisionName: refData?.divisions.find((d) => d.id === values.divisionId)?.name,
     divisionCode: refData?.divisions.find((d) => d.id === values.divisionId)?.divisionCode,
@@ -1155,6 +1415,7 @@ const RawMaterialReceiving: React.FC = () => {
     receiptCode: d.receiptCode,
     gatePassNo: d.gatePassNo || undefined,
     sourceNo: d.sourceNo || undefined,
+    heatNumber: d.heatNumber || undefined,
     receiptDate: d.receiptDate,
     divisionName: d.division?.name,
     divisionCode: d.division?.divisionCode,
@@ -1338,6 +1599,14 @@ const RawMaterialReceiving: React.FC = () => {
   }, [editingId, form, rows, totals, loadList, openWaShare, buildShareInfoFromValues]);
 
   const onFinish = async (values: any) => {
+    if (!values.gatePassNo || !String(values.gatePassNo).trim()) {
+      message.error('Gate Pass No is required. Please enter Gate Pass No before saving.');
+      return;
+    }
+    if (!values.heatNumber || !String(values.heatNumber).trim()) {
+      message.error('Heat Number is required. Please enter Heat Number before saving.');
+      return;
+    }
     if (!rows.length) { message.error('Add at least one raw material line.'); return; }
     const invalid = rows.find((r) => !r.itemId || !r.uomId);
     if (invalid) { message.error('Every line needs an item and a UOM.'); return; }
@@ -1371,6 +1640,7 @@ const RawMaterialReceiving: React.FC = () => {
       receiptDate: values.receiptDate ? values.receiptDate.format('YYYY-MM-DD') : undefined,
       gatePassNo: values.gatePassNo || undefined,
       sourceNo: values.sourceNo || undefined,
+      heatNumber: values.heatNumber || undefined,
       productionOrderId: values.productionOrderId || undefined,
       reference: values.reference || undefined,
       remarks: values.remarks || undefined,
@@ -1502,24 +1772,203 @@ const RawMaterialReceiving: React.FC = () => {
 
   const columns: ColumnsType<ReceiptHeader> = [
     { title: 'Receipt Code', dataIndex: 'receiptCode', key: 'receiptCode', width: 130, render: (v: string) => <Text strong>{v}</Text> },
-    { title: 'Date', dataIndex: 'receiptDate', key: 'receiptDate', width: 110, render: (v: string) => (v ? dayjs(v).format('DD-MMM-YYYY') : '-') },
-    { title: 'Gate Pass No', dataIndex: 'gatePassNo', key: 'gatePassNo', width: 130, render: (v?: string) => v || '-' },
-    { title: 'Division', key: 'division', width: 160, ellipsis: true, render: (_, r) => (r.division ? `${r.division.divisionCode ?? ''} ${r.division.name}`.trim() : '-') },
-    { title: 'Section', key: 'section', width: 140, ellipsis: true, render: (_, r) => (r.section?.name || '-') },
-    { title: 'Department', key: 'department', width: 160, ellipsis: true, render: (_, r) => (r.department?.name || '-') },
-    { title: 'Warehouse', key: 'warehouse', width: 160, ellipsis: true, render: (_, r) => (r.warehouse?.name || '-') },
-    { title: 'Lines', dataIndex: 'lineCount', key: 'lineCount', width: 60, align: 'center' as const, render: (v?: number) => v ?? 0 },
-    { title: 'Gate Pass Qty', dataIndex: 'gatePassTotal', key: 'gatePassTotal', width: 110, align: 'right' as const, render: (v?: number) => formatNumber(v, 2) },
-    { title: 'Received Qty', dataIndex: 'receivedTotal', key: 'receivedTotal', width: 110, align: 'right' as const, render: (v?: number) => formatNumber(v, 2) },
     {
-      title: 'Difference', dataIndex: 'differenceTotal', key: 'differenceTotal', width: 110, align: 'right' as const,
+      title: 'Date',
+      dataIndex: 'receiptDate',
+      key: 'receiptDate',
+      width: 130,
+      render: (v: string) => (
+        <span style={{ whiteSpace: 'nowrap', fontWeight: 600, color: '#e2e8f0' }}>
+          {v ? dayjs(v).format('DD-MMM-YYYY') : '—'}
+        </span>
+      ),
+    },
+    {
+      title: 'Gate Pass No',
+      dataIndex: 'gatePassNo',
+      key: 'gatePassNo',
+      width: 135,
+      render: (v?: string) => {
+        if (!v || v === '-') return <span style={{ color: 'var(--theme-text-muted, #64748b)' }}>—</span>;
+        const val = String(v).trim();
+        const formatted = val.toUpperCase().startsWith('GP-') || val.toUpperCase().startsWith('GPN-')
+          ? val
+          : `GP-${val}`;
+        return (
+          <span
+            style={{
+              fontFamily: 'monospace, var(--theme-font-mono, sans-serif)',
+              fontWeight: 700,
+              fontSize: 12,
+              color: '#38bdf8',
+              background: 'rgba(56, 189, 248, 0.12)',
+              padding: '2px 8px',
+              borderRadius: 4,
+              border: '1px solid rgba(56, 189, 248, 0.28)',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {formatted}
+          </span>
+        );
+      },
+    },
+    {
+      title: 'Heat Number',
+      dataIndex: 'heatNumber',
+      key: 'heatNumber',
+      width: 130,
+      render: (v?: string) => {
+        if (!v || v === '-') return <span style={{ color: 'var(--theme-text-muted, #64748b)' }}>—</span>;
+        return (
+          <span
+            style={{
+              fontFamily: 'monospace, var(--theme-font-mono, sans-serif)',
+              fontWeight: 700,
+              fontSize: 12,
+              color: '#f59e0b',
+              background: 'rgba(245, 158, 11, 0.12)',
+              padding: '2px 8px',
+              borderRadius: 4,
+              border: '1px solid rgba(245, 158, 11, 0.28)',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {v}
+          </span>
+        );
+      },
+    },
+    {
+      title: (
+        <div>
+          <div style={{ color: '#38bdf8', fontSize: 11, fontWeight: 700, letterSpacing: '0.4px' }}>DIVISION</div>
+          <div style={{ color: '#c084fc', fontSize: 10, fontWeight: 600 }}>SECTION</div>
+          <div style={{ color: '#fbbf24', fontSize: 10, fontWeight: 600 }}>DEPARTMENT</div>
+        </div>
+      ),
+      key: 'orgHierarchy',
+      width: 250,
+      render: (_, r) => (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '2px 0' }}>
+          <div style={{ color: '#38bdf8', fontWeight: 700, fontSize: 12.5, whiteSpace: 'nowrap' }}>
+            {r.division ? `${r.division.divisionCode ? `${r.division.divisionCode} ` : ''}${r.division.name}`.trim() : '—'}
+          </div>
+          {r.section?.name && (
+            <div style={{ color: '#c084fc', fontWeight: 600, fontSize: 11.5, whiteSpace: 'nowrap' }}>
+              {r.section.name}
+            </div>
+          )}
+          {r.department?.name && (
+            <div style={{ color: '#fbbf24', fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap' }}>
+              {r.department.name}
+            </div>
+          )}
+        </div>
+      ),
+    },
+    {
+      title: 'Warehouse',
+      key: 'warehouse',
+      width: 195,
+      render: (_, r) => {
+        const name = r.warehouse?.name;
+        if (!name) return <span style={{ color: 'var(--theme-text-muted, #64748b)' }}>—</span>;
+        const colorStyle = getWarehouseBadgeStyle(name, r.warehouse?.id);
+        return (
+          <span
+            style={{
+              display: 'inline-block',
+              maxWidth: 185,
+              padding: '3px 9px',
+              borderRadius: 5,
+              fontSize: 12,
+              fontWeight: 700,
+              color: colorStyle.text,
+              background: colorStyle.bg,
+              border: `1px solid ${colorStyle.border}`,
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              letterSpacing: '0.2px',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+            }}
+            title={name}
+          >
+            {name}
+          </span>
+        );
+      },
+    },
+    {
+      title: 'Lines',
+      dataIndex: 'lineCount',
+      key: 'lineCount',
+      width: 70,
+      align: 'center' as const,
       render: (v?: number) => (
-        <span style={{ color: Number(v || 0) === 0 ? undefined : 'var(--theme-warning, #d48806)' }}>
+        <span
+          style={{
+            fontWeight: 700,
+            fontSize: 12,
+            color: '#38bdf8',
+            background: 'rgba(56, 189, 248, 0.1)',
+            padding: '1px 8px',
+            borderRadius: 10,
+            border: '1px solid rgba(56, 189, 248, 0.25)',
+          }}
+        >
+          {v ?? 0}
+        </span>
+      ),
+    },
+    { title: 'Gate Pass Qty', dataIndex: 'gatePassTotal', key: 'gatePassTotal', width: 120, align: 'right' as const, render: (v?: number) => formatNumber(v, 2) },
+    {
+      title: 'Received Qty',
+      dataIndex: 'receivedTotal',
+      key: 'receivedTotal',
+      width: 120,
+      align: 'right' as const,
+      render: (v?: number) => (
+        <span style={{ fontWeight: 700, color: '#34d399' }}>
           {formatNumber(v, 2)}
         </span>
       ),
     },
-    { title: 'Status', dataIndex: 'status', key: 'status', width: 105, render: (v: string) => <Tag color={v === 'CONFIRMED' ? 'green' : v === 'DRAFT' ? 'gold' : 'red'}>{v}</Tag> },
+    {
+      title: 'Difference', dataIndex: 'differenceTotal', key: 'differenceTotal', width: 110, align: 'right' as const,
+      render: (v?: number) => (
+        <span style={{ fontWeight: 600, color: Number(v || 0) === 0 ? undefined : 'var(--theme-warning, #d48806)' }}>
+          {formatNumber(v, 2)}
+        </span>
+      ),
+    },
+    {
+      title: 'Status',
+      dataIndex: 'status',
+      key: 'status',
+      width: 110,
+      render: (v: string) => {
+        const isReceived = v === 'CONFIRMED' || v === 'RECEIVED';
+        const label = isReceived ? 'RECEIVED' : v;
+        const color = isReceived ? 'green' : v === 'DRAFT' ? 'gold' : 'red';
+        return (
+          <Tag
+            color={color}
+            style={{
+              fontWeight: 700,
+              fontSize: 11,
+              padding: '2px 8px',
+              borderRadius: 4,
+              border: isReceived ? '1px solid rgba(34, 197, 94, 0.4)' : undefined,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {label}
+          </Tag>
+        );
+      },
+    },
     {
       title: 'Created By',
       key: 'createdByNameDate',
@@ -1579,6 +2028,108 @@ const RawMaterialReceiving: React.FC = () => {
       ),
     },
   ];
+
+  // Dynamic column visibility filtering + responsive scroll.x
+  const displayedColumns = useMemo(
+    () => columns.filter((col) => (col.key ? visibleColumns.includes(String(col.key)) : true)),
+    [columns, visibleColumns],
+  );
+
+  const scrollX = useMemo(() => {
+    return displayedColumns.reduce((sum, col) => sum + (Number(col.width) || 120), 60);
+  }, [displayedColumns]);
+
+  const columnSelectorButton = useMemo(() => (
+    <Popover
+      trigger="click"
+      placement="bottomLeft"
+      content={
+        <div style={{ width: 270, padding: '4px 2px' }}>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              marginBottom: 8,
+              paddingBottom: 8,
+              borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+            }}
+          >
+            <Space size={6}>
+              <AppstoreOutlined style={{ color: '#38bdf8' }} />
+              <Text strong style={{ fontSize: 13, color: '#f1f5f9' }}>Visible Columns</Text>
+            </Space>
+            <Tag color={visibleColumns.length === ALL_RECEIPT_COLUMNS.length ? 'default' : 'cyan'} style={{ margin: 0, fontSize: 11, fontWeight: 700 }}>
+              {visibleColumns.length} / {ALL_RECEIPT_COLUMNS.length}
+            </Tag>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+            <Button size="small" type="link" style={{ padding: 0, fontSize: 12, height: 'auto', fontWeight: 600 }} onClick={handleSelectAllColumns}>
+              Select All
+            </Button>
+            <Button size="small" type="link" style={{ padding: 0, fontSize: 12, height: 'auto', color: '#94a3b8' }} onClick={handleResetColumns}>
+              Reset to Default
+            </Button>
+          </div>
+
+          <div style={{ maxHeight: 310, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6, paddingRight: 4 }}>
+            {ALL_RECEIPT_COLUMNS.map((col) => {
+              const isChecked = visibleColumns.includes(col.key);
+              return (
+                <Checkbox
+                  key={col.key}
+                  checked={isChecked}
+                  onChange={(e) => handleColumnToggle(col.key, e.target.checked)}
+                  style={{
+                    margin: 0,
+                    padding: '4px 8px',
+                    borderRadius: 4,
+                    background: isChecked ? 'rgba(56, 189, 248, 0.07)' : 'transparent',
+                    border: isChecked ? '1px solid rgba(56, 189, 248, 0.2)' : '1px solid transparent',
+                    display: 'flex',
+                    alignItems: 'center',
+                  }}
+                >
+                  <span style={{ fontSize: 12.5, fontWeight: isChecked ? 600 : 400, color: isChecked ? '#f1f5f9' : '#94a3b8' }}>
+                    {col.label}
+                  </span>
+                </Checkbox>
+              );
+            })}
+          </div>
+        </div>
+      }
+    >
+      <Button
+        icon={<AppstoreOutlined />}
+        style={{
+          fontWeight: 600,
+          borderRadius: 6,
+          display: 'inline-flex',
+          alignItems: 'center',
+          borderColor: visibleColumns.length < ALL_RECEIPT_COLUMNS.length ? '#38bdf8' : undefined,
+          color: visibleColumns.length < ALL_RECEIPT_COLUMNS.length ? '#38bdf8' : undefined,
+          background: visibleColumns.length < ALL_RECEIPT_COLUMNS.length ? 'rgba(56, 189, 248, 0.1)' : undefined,
+        }}
+      >
+        <span>Columns</span>
+        {visibleColumns.length < ALL_RECEIPT_COLUMNS.length && (
+          <Badge
+            count={`${visibleColumns.length}/${ALL_RECEIPT_COLUMNS.length}`}
+            style={{
+              marginLeft: 6,
+              backgroundColor: 'rgba(56, 189, 248, 0.25)',
+              color: '#38bdf8',
+              border: '1px solid rgba(56, 189, 248, 0.4)',
+              fontSize: 10,
+              fontWeight: 700,
+            }}
+          />
+        )}
+      </Button>
+    </Popover>
+  ), [visibleColumns, handleColumnToggle, handleSelectAllColumns, handleResetColumns]);
 
   const lineColumns: ColumnsType<LineRow> = [
     {
@@ -1720,6 +2271,7 @@ const RawMaterialReceiving: React.FC = () => {
           searchPlaceholder="Search Gate Pass No, PO, DC No..."
           searchValue={filters.gatePassNo}
           onSearchChange={(v) => applyFilter({ gatePassNo: v || undefined })}
+          actionButtons={columnSelectorButton}
           primaryFilters={
             <>
               <Select
@@ -1779,9 +2331,213 @@ const RawMaterialReceiving: React.FC = () => {
             }
           />
         ) : (
-          <Table columns={columns} dataSource={list} rowKey="id" loading={listLoading} scroll={{ x: 1810 }}
+          <Table
+            columns={displayedColumns}
+            dataSource={list}
+            rowKey="id"
+            loading={listLoading}
+            scroll={{ x: scrollX }}
             locale={{ emptyText: listLoading ? 'Loading receipts...' : 'No receipts found.' }}
-            pagination={{ current: page, total, pageSize, showSizeChanger: false, onChange: (p) => { setPage(p); void loadList(p); } }} />
+            pagination={{ current: page, total, pageSize, showSizeChanger: false, onChange: (p) => { setPage(p); void loadList(p); } }}
+            expandable={{
+              expandIcon: ({ expanded, onExpand, record }) => {
+                const count = record.lineCount || record.lines?.length || 0;
+                if (count <= 0) return <span style={{ display: 'inline-block', width: 22 }} />;
+                return (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      onExpand(record, e);
+                      if (!expanded) {
+                        void handleExpandRow(true, record);
+                      }
+                    }}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      width: 24,
+                      height: 24,
+                      borderRadius: 4,
+                      border: '1px solid rgba(56, 189, 248, 0.45)',
+                      background: expanded ? 'rgba(56, 189, 248, 0.22)' : 'rgba(56, 189, 248, 0.08)',
+                      color: '#38bdf8',
+                      cursor: 'pointer',
+                      padding: 0,
+                      transition: 'all 0.15s ease',
+                    }}
+                    title={expanded ? 'Collapse items' : `Expand ${count} item(s)`}
+                  >
+                    <DiagonalExpandIcon expanded={expanded} size={13} color="#38bdf8" />
+                  </button>
+                );
+              },
+              onExpand: (expanded, record) => {
+                void handleExpandRow(expanded, record);
+              },
+              expandedRowRender: (record) => {
+                const loading = !!expandedLoadingMap[record.id];
+                const lines = (record.lines && record.lines.length > 0)
+                  ? record.lines
+                  : (expandedLinesMap[record.id] || []);
+
+                if (loading && lines.length === 0) {
+                  return (
+                    <div
+                      style={{
+                        margin: '6px 0 6px 32px',
+                        padding: '16px 20px',
+                        background: 'rgba(15, 23, 42, 0.85)',
+                        borderRadius: 8,
+                        border: '1px solid rgba(56, 189, 248, 0.3)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 12,
+                        color: '#38bdf8',
+                      }}
+                    >
+                      <GlobalLoading spinnerOnly size="small" />
+                      <span style={{ fontSize: 13, fontWeight: 600 }}>Loading Gate Pass items...</span>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div
+                    style={{
+                      margin: '6px 0 6px 32px',
+                      padding: '12px 16px',
+                      background: 'rgba(15, 23, 42, 0.75)',
+                      borderRadius: 8,
+                      border: '1px solid rgba(56, 189, 248, 0.22)',
+                      boxShadow: '0 4px 14px rgba(0, 0, 0, 0.25)',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                      <Space size={8}>
+                        <Text strong style={{ color: '#38bdf8', fontSize: 13, letterSpacing: '0.3px' }}>
+                          Gate Pass Line Items ({lines.length || record.lineCount || 0})
+                        </Text>
+                        <Tag color="blue" style={{ fontSize: 11, fontWeight: 600 }}>{record.receiptCode}</Tag>
+                      </Space>
+                      {record.gatePassNo && (
+                        <span style={{ fontSize: 12, color: '#94a3b8' }}>
+                          Gate Pass:{' '}
+                          <span style={{ color: '#38bdf8', fontWeight: 700, fontFamily: 'monospace' }}>
+                            {String(record.gatePassNo).toUpperCase().startsWith('GP-') ? record.gatePassNo : `GP-${record.gatePassNo}`}
+                          </span>
+                        </span>
+                      )}
+                    </div>
+                    {lines.length === 0 ? (
+                      <div style={{ color: '#94a3b8', padding: '10px 0', fontSize: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
+                        <span>Line details not yet loaded.</span>
+                        <Button
+                          size="small"
+                          type="primary"
+                          ghost
+                          icon={<ReloadOutlined />}
+                          onClick={() => void handleExpandRow(true, record)}
+                        >
+                          Load Items Now
+                        </Button>
+                      </div>
+                    ) : (
+                      <Table<ReceiptLine>
+                        rowKey={(l, idx) => l.id || String(idx)}
+                        dataSource={lines}
+                        pagination={false}
+                        size="small"
+                        bordered
+                        columns={[
+                          {
+                            title: '#',
+                            key: 'lineNumber',
+                            width: 50,
+                            align: 'center',
+                            render: (_, l, idx) => <span style={{ color: '#94a3b8', fontWeight: 600 }}>{l.lineNumber ?? idx + 1}</span>,
+                          },
+                          {
+                            title: 'Item Code',
+                            key: 'itemCode',
+                            width: 150,
+                            render: (_, l) => (
+                              <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#38bdf8' }}>
+                                {l.item?.itemCode || '—'}
+                              </span>
+                            ),
+                          },
+                          {
+                            title: 'Raw Material Item',
+                            key: 'itemName',
+                            render: (_, l) => (
+                              <span style={{ fontWeight: 600, color: '#f1f5f9' }}>
+                                {l.item?.name || '—'}
+                              </span>
+                            ),
+                          },
+                          {
+                            title: 'UOM',
+                            key: 'uom',
+                            width: 80,
+                            align: 'center',
+                            render: (_, l) => (
+                              <Tag color="cyan" style={{ fontWeight: 600, fontSize: 11 }}>
+                                {l.uom?.code || l.uom?.symbol || l.uom?.name || 'KG'}
+                              </Tag>
+                            ),
+                          },
+                          {
+                            title: 'Gate Pass Qty',
+                            key: 'gatePassQuantity',
+                            width: 130,
+                            align: 'right',
+                            render: (_, l) => (
+                              <span style={{ fontWeight: 600, color: '#cbd5e1' }}>
+                                {formatNumber(l.gatePassQuantity, 2)}
+                              </span>
+                            ),
+                          },
+                          {
+                            title: 'Received Qty',
+                            key: 'receivedQuantity',
+                            width: 130,
+                            align: 'right',
+                            render: (_, l) => (
+                              <span style={{ fontWeight: 700, color: '#34d399' }}>
+                                {formatNumber(l.receivedQuantity, 2)}
+                              </span>
+                            ),
+                          },
+                          {
+                            title: 'Difference',
+                            key: 'difference',
+                            width: 120,
+                            align: 'right',
+                            render: (_, l) => {
+                              const diff = Number(l.difference ?? (Number(l.gatePassQuantity || 0) - Number(l.receivedQuantity || 0)));
+                              return (
+                                <span style={{ fontWeight: 700, color: diff === 0 ? '#94a3b8' : 'var(--theme-warning, #fbbf24)' }}>
+                                  {formatNumber(diff, 2)}
+                                </span>
+                              );
+                            },
+                          },
+                          {
+                            title: 'Remarks',
+                            key: 'remarks',
+                            ellipsis: true,
+                            render: (_, l) => <span style={{ color: '#94a3b8', fontSize: 12 }}>{l.remarks || '—'}</span>,
+                          },
+                        ]}
+                      />
+                    )}
+                  </div>
+                );
+              },
+              rowExpandable: (record) => (record.lineCount || record.lines?.length || 0) > 0,
+            }}
+          />
         )}
       </Card>
 
@@ -1872,11 +2628,11 @@ const RawMaterialReceiving: React.FC = () => {
                     </Col>
                     <Col xs={24} md={8}>
                       <Form.Item name="warehouseId" label={<span>Receiving Warehouse <Text type="danger">*</Text></span>} rules={[{ required: true, message: 'Select warehouse' }]}>
-                        <Select showSearch optionFilterProp="label" placeholder="Select warehouse"
+                        <Select showSearch optionFilterProp="label" placeholder={watchDivision ? 'Select warehouse' : 'Select Division first'}
                           popupMatchSelectWidth={false}
                           styles={{ popup: { root: { minWidth: 280 } } }}
                           status={refState === 'error' ? 'error' : undefined}
-                          options={warehouseOptions} virtual listHeight={SECTION_SELECT_LIST_HEIGHT} />
+                          options={modalWarehouseOptions} virtual listHeight={SECTION_SELECT_LIST_HEIGHT} />
                       </Form.Item>
                     </Col>
                     <Col xs={24} md={8}>
@@ -1885,7 +2641,14 @@ const RawMaterialReceiving: React.FC = () => {
                       </Form.Item>
                     </Col>
                     <Col xs={24} md={8}>
-                      <Form.Item name="gatePassNo" label="Gate Pass No">
+                      <Form.Item
+                        name="gatePassNo"
+                        label={<span>Gate Pass No <Text type="danger">*</Text></span>}
+                        rules={[
+                          { required: true, message: 'Gate Pass No is required' },
+                          { whitespace: true, message: 'Gate Pass No cannot be empty' },
+                        ]}
+                      >
                         <Input placeholder="e.g. GP-10250" maxLength={50} />
                       </Form.Item>
                     </Col>
@@ -1895,11 +2658,25 @@ const RawMaterialReceiving: React.FC = () => {
                       </Form.Item>
                     </Col>
                     <Col xs={24} md={8}>
-                      <Form.Item name="productionOrderId" label="Production Order">
-                        <Select allowClear showSearch optionFilterProp="label" placeholder="Optional"
+                      <Form.Item name="productionOrderId" label="PO Number">
+                        <Select allowClear showSearch optionFilterProp="label"
+                          placeholder={watchWarehouse ? 'Select PO Number' : 'Select PO (Optional)'}
                           popupMatchSelectWidth={false}
                           styles={{ popup: { root: { minWidth: 260 } } }}
-                          options={productionOrderOptions} virtual listHeight={160} />
+                          options={poOptions} virtual listHeight={160}
+                          notFoundContent={<Text type="secondary">No PO found for this store</Text>} />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} md={8}>
+                      <Form.Item
+                        name="heatNumber"
+                        label={<span>Heat Number <Text type="danger">*</Text></span>}
+                        rules={[
+                          { required: true, message: 'Heat Number is required' },
+                          { whitespace: true, message: 'Heat Number cannot be empty' },
+                        ]}
+                      >
+                        <Input placeholder="e.g. HT-1002" maxLength={50} />
                       </Form.Item>
                     </Col>
                   </Row>
@@ -2286,6 +3063,20 @@ const RawMaterialReceiving: React.FC = () => {
                       <span className="rm-preview-meta-value">{watchSourceNo}</span>
                     </div>
                   )}
+                  {watchHeatNumber && (
+                    <div className="rm-preview-meta-row">
+                      <span className="rm-preview-meta-label">Heat Number</span>
+                      <span className="rm-preview-meta-value" style={{ fontWeight: 700, color: '#f59e0b' }}>{watchHeatNumber}</span>
+                    </div>
+                  )}
+                  {watchPoId && (
+                    <div className="rm-preview-meta-row">
+                      <span className="rm-preview-meta-label">PO Number</span>
+                      <span className="rm-preview-meta-value" style={{ color: '#38bdf8' }}>
+                        {poOptions.find((p) => p.value === watchPoId)?.label || watchPoId}
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 {/* 4 KPI Summary Cards in 1 sleek compact horizontal line */}
@@ -2564,6 +3355,12 @@ const RawMaterialReceiving: React.FC = () => {
                         <strong>{detail.sourceNo}</strong>
                       </span>
                     ) : null}
+                    {detail.heatNumber ? (
+                      <span className="rmr-detail-code-chip" style={{ borderColor: 'rgba(245, 158, 11, 0.4)' }}>
+                        <span className="rmr-detail-code-label" style={{ color: '#f59e0b' }}>Heat Number</span>
+                        <strong style={{ color: '#f59e0b' }}>{detail.heatNumber}</strong>
+                      </span>
+                    ) : null}
                     <Tag color={detail.status === 'CONFIRMED' ? 'green' : detail.status === 'DRAFT' ? 'gold' : 'red'}>{detail.status}</Tag>
                   </div>
                 </div>
@@ -2605,6 +3402,12 @@ const RawMaterialReceiving: React.FC = () => {
                   <span className="rmr-detail-field-label">Warehouse</span>
                   <span className="rmr-detail-field-value">{detail.warehouse?.name || '-'}</span>
                 </div>
+                {detail.heatNumber ? (
+                  <div className="rmr-detail-field">
+                    <span className="rmr-detail-field-label">Heat Number</span>
+                    <span className="rmr-detail-field-value" style={{ fontWeight: 700, color: '#f59e0b' }}>{detail.heatNumber}</span>
+                  </div>
+                ) : null}
               </div>
 
               {detail.remarks ? (

@@ -1,16 +1,18 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Table, Button, Space, Tag, Form, Input, Select, App, Card,
-  Row, Col, DatePicker, Segmented, Tooltip,
+  Row, Col, DatePicker, Segmented, Tooltip, Popconfirm, Modal,
 } from 'antd';
 import {
   PlusOutlined, SearchOutlined, CheckOutlined, ReloadOutlined,
   InboxOutlined, ApartmentOutlined, ShopOutlined, GlobalOutlined,
-  FileDoneOutlined, InfoCircleOutlined,
+  FileDoneOutlined, InfoCircleOutlined, CheckCircleOutlined, DeleteOutlined,
+  ExclamationCircleOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import apiService from '../../services/api';
+import { useUserStore } from '../../store/userStore';
 import { ERPLineItems, ERPLine, DraggableResizableModal } from '../../components/shared';
 
 interface GoodsReceipt {
@@ -39,11 +41,11 @@ interface DivisionOption {
 }
 
 const DEFAULT_DIVISIONS: DivisionOption[] = [
-  { id: 'div-wd', code: 'WD', name: 'Wire Drawing Division' },
-  { id: 'div-galv', code: 'GALV', name: 'Galvanizing Division' },
-  { id: 'div-spk', code: 'SPK', name: 'Spoke Plant Division' },
-  { id: 'div-ccd', code: 'CCD', name: 'Control Cable Division' },
-  { id: 'div-nail', code: 'NAIL', name: 'Nail & Fastener Division' },
+  { id: 'd1000000-0000-0000-0000-000000000001', code: 'DIV-SPD', name: 'Spoke Division' },
+  { id: 'd1000000-0000-0000-0000-000000000002', code: 'DIV-CCD', name: 'Control Cable Division' },
+  { id: '83ecd746-1cc9-4849-bec4-d00bcc3ceeec', code: 'DIV-PWI', name: 'Main Division E-51' },
+  { id: '50824516-9c24-4122-86e7-c8e6fa1c5869', code: 'DIV-001', name: 'Manufacturing Division' },
+  { id: '3f222d46-6f96-44f6-9ead-27467c7e93a1', code: 'DIV-003', name: 'Supply Chain Division' },
   { id: 'div-corp', code: 'CORP', name: 'Corporate & Master Store' },
 ];
 
@@ -85,6 +87,21 @@ const GoodsReceiptManagement: React.FC = () => {
   const watchedWarehouseId = Form.useWatch('warehouseId', form);
   const selectedWarehouse = warehouses.find((w) => w.id === watchedWarehouseId);
 
+  const loadReferences = useCallback(async () => {
+    try {
+      const [poRes, prRes, supRes] = await Promise.all([
+        apiService.get<any>('/procurement/orders', { limit: 100 }),
+        apiService.get<any>('/procurement/requisitions', { limit: 100 }),
+        apiService.get<{ data: Array<{ id: string; name: string }> }>('/procurement/suppliers', { limit: 200 }),
+      ]);
+      const poList = poRes?.data || (Array.isArray(poRes) ? poRes : []);
+      setPurchaseOrders(poList);
+      const prList = prRes?.data || (Array.isArray(prRes) ? prRes : []);
+      setPurchaseRequisitions(prList);
+      if (supRes?.data) setSuppliers(supRes.data);
+    } catch { /* ignore */ }
+  }, []);
+
   useEffect(() => {
     const erpUser = localStorage.getItem('erp_user');
     if (erpUser) {
@@ -95,16 +112,19 @@ const GoodsReceiptManagement: React.FC = () => {
     }
 
     (async () => {
-      // 1. Suppliers
-      try {
-        const s = await apiService.get<{ data: Array<{ id: string; name: string }> }>('/procurement/suppliers', { limit: 200 });
-        setSuppliers(s.data || []);
-      } catch { /* ignore */ }
+      // 1. Suppliers, POs, PRs
+      await loadReferences();
 
       // 2. Warehouses
       try {
-        const w = await apiService.get<any>('/organization/warehouses', { limit: 100 });
-        const items = Array.isArray(w) ? w : w?.data?.items || w?.items || w?.data || [];
+        let items: any[] = [];
+        try {
+          const w = await apiService.get<any>('/warehouses', { limit: 100 });
+          items = Array.isArray(w) ? w : w?.data?.items || w?.items || w?.data || [];
+        } catch {
+          const w2 = await apiService.get<any>('/organization/warehouses', { limit: 100 });
+          items = Array.isArray(w2) ? w2 : w2?.data?.items || w2?.items || w2?.data || [];
+        }
         setWarehouses(items);
       } catch { /* ignore */ }
 
@@ -116,22 +136,8 @@ const GoodsReceiptManagement: React.FC = () => {
           setDivisions(divItems.map((x: any) => ({ id: x.id, code: x.divisionCode, name: x.name })));
         }
       } catch { /* keep DEFAULT_DIVISIONS */ }
-
-      // 4. Purchase Orders for linking
-      try {
-        const poRes = await apiService.get<any>('/procurement/orders', { limit: 100 });
-        const poList = poRes?.data || (Array.isArray(poRes) ? poRes : []);
-        setPurchaseOrders(poList);
-      } catch { /* ignore */ }
-
-      // 5. Purchase Requisitions for linking
-      try {
-        const prRes = await apiService.get<any>('/procurement/requisitions', { limit: 100 });
-        const prList = prRes?.data || (Array.isArray(prRes) ? prRes : []);
-        setPurchaseRequisitions(prList);
-      } catch { /* ignore */ }
     })();
-  }, []);
+  }, [loadReferences]);
 
   const fetchData = useCallback(async (pageNum: number = 1) => {
     setLoading(true);
@@ -160,6 +166,7 @@ const GoodsReceiptManagement: React.FC = () => {
 
   const handleCreate = () => {
     form.resetFields();
+    loadReferences();
     const autoCode = generateReceiptCode();
     form.setFieldsValue({
       receiptCode: autoCode,
@@ -272,20 +279,22 @@ const GoodsReceiptManagement: React.FC = () => {
       }
       setSubmitting(true);
 
+      const targetCompanyId = companyId || values.companyId || useUserStore.getState().user?.defaultCompanyId;
+
       const payload = {
-        companyId: companyId || values.companyId,
+        companyId: targetCompanyId,
         receiptCode: values.receiptCode,
-        poId: values.poId || undefined,
+        poId: values.poId && String(values.poId).trim().length > 0 ? String(values.poId).trim() : undefined,
         supplierId: values.supplierId,
         warehouseId: values.warehouseId,
-        divisionId: values.divisionId,
-        purchaseType: values.purchaseType,
+        divisionId: values.divisionId || undefined,
+        purchaseType: values.purchaseType || 'LOCAL',
         receiptDate: values.receiptDate ? dayjs(values.receiptDate).format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD'),
         grnNumber: values.grnNumber || undefined,
         deliveryNoteNumber: values.deliveryNoteNumber || undefined,
         notes: values.notes || undefined,
         lines: lineItems.map((l) => ({
-          poLineId: l.poLineId || undefined,
+          poLineId: l.poLineId && String(l.poLineId).trim().length > 0 ? String(l.poLineId).trim() : undefined,
           itemId: l.itemId,
           uomId: l.uomId,
           quantityOrdered: Number(l.orderQuantity || l.quantity || 0),
@@ -314,19 +323,152 @@ const GoodsReceiptManagement: React.FC = () => {
       await apiService.patch(`/procurement/receipts/${id}/${action}`);
       message.success(`Goods receipt marked as ${action}ed successfully`);
       fetchData(page);
-    } catch {
-      message.error(`Failed to ${action} goods receipt`);
+    } catch (error: any) {
+      const msg = error?.response?.data?.message;
+      message.error(Array.isArray(msg) ? msg[0] : (typeof msg === 'string' ? msg : `Failed to ${action} goods receipt`));
     }
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      await apiService.delete(`/procurement/receipts/${id}`);
+      message.success('Goods receipt deleted successfully');
+      fetchData(page);
+    } catch (error: any) {
+      const msg = error?.response?.data?.message;
+      message.error(Array.isArray(msg) ? msg[0] : (typeof msg === 'string' ? msg : 'Failed to delete goods receipt'));
+    }
+  };
+
+  // Action Confirmation Dialog state
+  const [confirmModal, setConfirmModal] = useState<{
+    open: boolean;
+    title: string;
+    message: string;
+    stepExplanation?: string;
+    confirmText: string;
+    cancelText?: string;
+    isDanger?: boolean;
+    onConfirm: () => void;
+  }>({
+    open: false,
+    title: '',
+    message: '',
+    stepExplanation: '',
+    confirmText: 'Confirm',
+    cancelText: 'Cancel',
+    onConfirm: () => {},
+  });
+
+  const promptReceive = (record: GoodsReceipt) => {
+    setConfirmModal({
+      open: true,
+      title: '📦 Confirm Goods Arrival (Mark Received)',
+      message: `Do you want to confirm that shipment for receipt ${record.receiptCode} has physically arrived at the factory/warehouse gate?`,
+      stepExplanation: '💡 Why this step: Confirms physical arrival and advances receipt from DRAFT to RECEIVED so the Quality Control (QC) department can begin inspection.',
+      confirmText: 'Confirm Physical Arrival',
+      cancelText: 'Cancel',
+      isDanger: false,
+      onConfirm: async () => {
+        setConfirmModal((prev) => ({ ...prev, open: false }));
+        await handleAction(record.id, 'receive');
+      },
+    });
+  };
+
+  const promptInspect = (record: GoodsReceipt) => {
+    setConfirmModal({
+      open: true,
+      title: '🔍 Begin Quality Inspection',
+      message: `Move goods receipt ${record.receiptCode} into active Quality Inspection?`,
+      stepExplanation: '💡 Why this step: Places items under formal inspection to verify physical condition, coil weights, thread counts, and material specifications.',
+      confirmText: 'Start Inspection',
+      cancelText: 'Cancel',
+      isDanger: false,
+      onConfirm: async () => {
+        setConfirmModal((prev) => ({ ...prev, open: false }));
+        await handleAction(record.id, 'inspect');
+      },
+    });
+  };
+
+  const promptAccept = (record: GoodsReceipt) => {
+    setConfirmModal({
+      open: true,
+      title: '✅ Accept Quality Inspection (Pass Goods)',
+      message: `Confirm that all received items on ${record.receiptCode} have passed inspection and are accepted?`,
+      stepExplanation: '💡 Why this step: Clears the shipment for inventory warehousing. After acceptance, the goods can be formally posted into the factory stock ledger.',
+      confirmText: 'Accept Goods',
+      cancelText: 'Cancel',
+      isDanger: false,
+      onConfirm: async () => {
+        setConfirmModal((prev) => ({ ...prev, open: false }));
+        await handleAction(record.id, 'accept');
+      },
+    });
+  };
+
+  const promptReject = (record: GoodsReceipt) => {
+    setConfirmModal({
+      open: true,
+      title: '❌ Reject Shipment',
+      message: `Reject goods receipt ${record.receiptCode} due to quality defects or specification discrepancies?`,
+      stepExplanation: '💡 Why this step: Blocks items from entering the factory stock and notifies procurement for supplier return/replacement.',
+      confirmText: 'Reject Shipment',
+      cancelText: 'Cancel',
+      isDanger: true,
+      onConfirm: async () => {
+        setConfirmModal((prev) => ({ ...prev, open: false }));
+        await handleAction(record.id, 'reject');
+      },
+    });
+  };
+
+  const promptPost = (record: GoodsReceipt) => {
+    setConfirmModal({
+      open: true,
+      title: '🏭 Post to Inventory & Stock Ledger',
+      message: `Permanently post goods receipt ${record.receiptCode} into warehouse inventory?`,
+      stepExplanation: '💡 Why this step: 1) Increases warehouse physical stock, 2) Generates official Stock Ledger IN records, and 3) Marks the linked Purchase Order as fulfilled. This step is irreversible.',
+      confirmText: 'Confirm & Post to Inventory',
+      cancelText: 'Cancel',
+      isDanger: false,
+      onConfirm: async () => {
+        setConfirmModal((prev) => ({ ...prev, open: false }));
+        await handleAction(record.id, 'post');
+      },
+    });
+  };
+
+  const promptDelete = (record: GoodsReceipt) => {
+    setConfirmModal({
+      open: true,
+      title: '🗑️ Delete Goods Receipt Voucher',
+      message: `Are you sure you want to permanently delete receipt ${record.receiptCode}?`,
+      stepExplanation: '💡 Why this step: Completely removes this unposted record and frees the linked Purchase Order so it can be re-received.',
+      confirmText: 'Delete Permanently',
+      cancelText: 'Cancel',
+      isDanger: true,
+      onConfirm: async () => {
+        setConfirmModal((prev) => ({ ...prev, open: false }));
+        await handleDelete(record.id);
+      },
+    });
   };
 
   // Grouped options for PO and PR selector
   const referenceOptions = useMemo(() => {
+    const supplierMap = new Map(suppliers.map((s) => [s.id, s.name]));
+
     const poGroup = {
       label: <span>🛒 Approved Purchase Orders (PO)</span>,
-      options: purchaseOrders.map((po) => ({
-        value: `PO:${po.id}`,
-        label: `${po.poCode} — ${po.supplier?.name || po.supplierName || 'Vendor'} (${dayjs(po.orderDate || po.createdAt).format('DD/MM/YYYY')})`,
-      })),
+      options: purchaseOrders.map((po) => {
+        const sName = (po.supplierId && supplierMap.get(po.supplierId)) || po.supplier?.name || po.supplierName || 'Vendor';
+        return {
+          value: `PO:${po.id}`,
+          label: `${po.poCode} — ${sName} (${dayjs(po.orderDate || po.createdAt).format('DD/MM/YYYY')})`,
+        };
+      }),
     };
 
     const prGroup = {
@@ -338,7 +480,7 @@ const GoodsReceiptManagement: React.FC = () => {
     };
 
     return [poGroup, prGroup];
-  }, [purchaseOrders, purchaseRequisitions]);
+  }, [purchaseOrders, purchaseRequisitions, suppliers]);
 
   const columns: ColumnsType<GoodsReceipt> = [
     {
@@ -350,31 +492,49 @@ const GoodsReceiptManagement: React.FC = () => {
     },
     {
       title: 'PO / PR',
-      dataIndex: 'poCode',
       key: 'poCode',
-      width: 130,
-      render: (po) => po ? <Tag color="geekblue" style={{ fontWeight: 600 }}>{po}</Tag> : <span style={{ color: '#94a3b8' }}>—</span>,
+      width: 140,
+      render: (_, record: any) => {
+        const poCode =
+          record.po?.poCode ||
+          record.poCode ||
+          (record.notes && typeof record.notes === 'string'
+            ? record.notes.match(/PO #([A-Z0-9-]+)/)?.[1] || record.notes.match(/PR #([A-Z0-9-]+)/)?.[1]
+            : undefined);
+        return poCode ? (
+          <Tag color="geekblue" style={{ fontWeight: 600 }}>
+            {poCode}
+          </Tag>
+        ) : (
+          <span style={{ color: '#94a3b8' }}>—</span>
+        );
+      },
     },
     {
       title: 'Supplier',
-      dataIndex: 'supplierName',
       key: 'supplierName',
-      width: 180,
-      render: (s) => <span style={{ fontWeight: 600 }}>{s || '—'}</span>,
+      width: 210,
+      render: (_, record: any) => {
+        const sName =
+          record.supplier?.name ||
+          record.supplierName ||
+          (record.supplierId && suppliers.find((s) => s.id === record.supplierId)?.name);
+        return <span style={{ fontWeight: 600 }}>{sName || '—'}</span>;
+      },
     },
     {
       title: 'Date',
       dataIndex: 'receiptDate',
       key: 'receiptDate',
       width: 110,
-      render: (d) => d ? dayjs(d).format('DD/MM/YYYY') : '—',
+      render: (d) => (d ? dayjs(d).format('DD/MM/YYYY') : '—'),
     },
     {
       title: 'GRN Number',
       dataIndex: 'grnNumber',
       key: 'grnNumber',
       width: 120,
-      render: (grn) => grn ? <Tag color="cyan">{grn}</Tag> : '—',
+      render: (grn) => (grn ? <Tag color="cyan">{grn}</Tag> : '—'),
     },
     {
       title: 'Status',
@@ -393,28 +553,48 @@ const GoodsReceiptManagement: React.FC = () => {
     {
       title: 'Actions',
       key: 'actions',
-      width: 260,
-      render: (_, record) => (
+      width: 270,
+      render: (_, record: any) => (
         <Space size="small">
+          {record.status === 'DRAFT' && (
+            <Button
+              size="small"
+              type="primary"
+              style={{ background: '#0284c7', borderColor: '#0284c7' }}
+              icon={<CheckCircleOutlined />}
+              onClick={() => promptReceive(record)}
+            >
+              Receive
+            </Button>
+          )}
           {record.status === 'RECEIVED' && (
-            <Button size="small" type="primary" onClick={() => handleAction(record.id, 'inspect')}>
+            <Button size="small" type="primary" onClick={() => promptInspect(record)}>
               Inspect
             </Button>
           )}
           {record.status === 'INSPECTION' && (
             <>
-              <Button size="small" type="primary" icon={<CheckOutlined />} onClick={() => handleAction(record.id, 'accept')}>
+              <Button size="small" type="primary" icon={<CheckOutlined />} onClick={() => promptAccept(record)}>
                 Accept
               </Button>
-              <Button size="small" danger onClick={() => handleAction(record.id, 'reject')}>
+              <Button size="small" danger onClick={() => promptReject(record)}>
                 Reject
               </Button>
             </>
           )}
           {record.status === 'ACCEPTED' && (
-            <Button size="small" type="primary" style={{ background: '#7c3aed', borderColor: '#7c3aed' }} onClick={() => handleAction(record.id, 'post')}>
+            <Button size="small" type="primary" style={{ background: '#7c3aed', borderColor: '#7c3aed' }} onClick={() => promptPost(record)}>
               Post to Inventory
             </Button>
+          )}
+          {record.status !== 'POSTED' && (
+            <Button
+              size="small"
+              danger
+              icon={<DeleteOutlined />}
+              title="Delete Receipt"
+              onClick={() => promptDelete(record)}
+            />
           )}
         </Space>
       ),
@@ -537,6 +717,9 @@ const GoodsReceiptManagement: React.FC = () => {
                     allowClear
                     placeholder="Search approved PO or PR..."
                     options={referenceOptions}
+                    onDropdownVisibleChange={(open) => {
+                      if (open) loadReferences();
+                    }}
                     filterOption={(input, option) =>
                       String(option?.label || '').toLowerCase().includes(input.toLowerCase())
                     }
@@ -659,6 +842,57 @@ const GoodsReceiptManagement: React.FC = () => {
           </Row>
         </Form>
       </DraggableResizableModal>
+
+      {/* Action Explanation & Confirmation Dialog */}
+      <Modal
+        open={confirmModal.open}
+        closable={false}
+        footer={null}
+        centered
+        width={460}
+        zIndex={2500}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+          {confirmModal.isDanger ? (
+            <ExclamationCircleOutlined style={{ color: '#ef4444', fontSize: 24 }} />
+          ) : (
+            <InfoCircleOutlined style={{ color: '#0284c7', fontSize: 24 }} />
+          )}
+          <span style={{ fontSize: 16, fontWeight: 700, color: '#0f172a' }}>{confirmModal.title}</span>
+        </div>
+        <div style={{ fontSize: 14, color: '#334155', marginBottom: 12, lineHeight: 1.5 }}>
+          {confirmModal.message}
+        </div>
+        {confirmModal.stepExplanation && (
+          <div
+            style={{
+              background: '#f8fafc',
+              border: '1px solid #e2e8f0',
+              borderRadius: 6,
+              padding: '10px 12px',
+              fontSize: 12,
+              color: '#475569',
+              marginBottom: 16,
+              lineHeight: 1.4,
+            }}
+          >
+            {confirmModal.stepExplanation}
+          </div>
+        )}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+          <Button onClick={() => setConfirmModal((prev) => ({ ...prev, open: false }))}>
+            {confirmModal.cancelText || 'Cancel'}
+          </Button>
+          <Button
+            type="primary"
+            danger={confirmModal.isDanger}
+            style={!confirmModal.isDanger ? { background: '#0284c7', borderColor: '#0284c7' } : undefined}
+            onClick={confirmModal.onConfirm}
+          >
+            {confirmModal.confirmText || 'Confirm'}
+          </Button>
+        </div>
+      </Modal>
     </Card>
   );
 };

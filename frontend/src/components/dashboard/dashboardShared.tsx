@@ -35,8 +35,16 @@ export const FLOOR_WISE_DEPARTMENT_ORDER = [
   'Dispatch',
 ] as const;
 
-/** Historic master-data spellings mapped onto their canonical floor slot. */
-const FLOOR_WISE_ALIASES: Record<string, number> = { swagging: 1 };
+const FLOOR_WISE_ALIASES: Record<string, number> = {
+  swagging: 1,
+  'spoke packing': 4,
+  'packing department': 4,
+  'spoke packing department': 4,
+  'hand packing': 4,
+  'nipple packing': 4,
+  'spoke dispatch': 5,
+  'dispatch department': 5,
+};
 
 const normalizeFloorKey = (name: string): string => name.trim().toLowerCase().replace(/\s+/g, ' ');
 
@@ -68,7 +76,15 @@ export const sortDepartmentsFloorWise = <T,>(
   });
 
 /* ── Date-range presets ───────────────────────────────────────────────── */
-export type DateRangePreset = 'today' | 'yesterday' | 'thisMonth' | 'thisQuarter' | 'lastQuarter';
+export type DateRangePreset =
+  | 'today'
+  | 'yesterday'
+  | 'lastEntry'
+  | 'thisMonth'
+  | 'lastMonth'
+  | 'thisQuarter'
+  | 'lastQuarter'
+  | 'custom';
 
 /** Dashboard opens on "Yesterday" — the last complete production day. */
 export const DEFAULT_DATE_RANGE_PRESET: DateRangePreset = 'yesterday';
@@ -76,9 +92,12 @@ export const DEFAULT_DATE_RANGE_PRESET: DateRangePreset = 'yesterday';
 export const DATE_RANGE_PRESET_OPTIONS: Array<{ value: DateRangePreset; label: string }> = [
   { value: 'today', label: 'Today' },
   { value: 'yesterday', label: 'Yesterday' },
+  { value: 'lastEntry', label: 'Last Entry (L.E)' },
   { value: 'thisMonth', label: 'This Month' },
+  { value: 'lastMonth', label: 'Previous Month' },
   { value: 'thisQuarter', label: 'This Quarter' },
-  { value: 'lastQuarter', label: 'Last Quarter' },
+  { value: 'lastQuarter', label: 'Previous Quarter' },
+  { value: 'custom', label: 'Custom Range...' },
 ];
 
 /** `YYYY-MM-DD` in the browser's local timezone (production entries are local dates). */
@@ -88,6 +107,8 @@ const isoLocalDate = (d: Date): string =>
 /** Resolve a preset to the concrete `dateFrom` / `dateTo` pair sent to the API. */
 export const dateRangePresetToFilters = (
   preset: DateRangePreset,
+  lastEntryDate?: string | null,
+  customRange?: [string, string],
 ): Pick<DashboardFiltersType, 'dateFrom' | 'dateTo'> => {
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -101,8 +122,20 @@ export const dateRangePresetToFilters = (
       const y = isoLocalDate(new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1));
       return { dateFrom: y, dateTo: y };
     }
+    case 'lastEntry': {
+      if (lastEntryDate) {
+        return { dateFrom: lastEntryDate, dateTo: lastEntryDate };
+      }
+      const y = isoLocalDate(new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1));
+      return { dateFrom: y, dateTo: y };
+    }
     case 'thisMonth':
       return { dateFrom: isoLocalDate(new Date(today.getFullYear(), today.getMonth(), 1)), dateTo: isoLocalDate(today) };
+    case 'lastMonth': {
+      const prevMonthStart = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+      const prevMonthEnd = new Date(today.getFullYear(), today.getMonth(), 0);
+      return { dateFrom: isoLocalDate(prevMonthStart), dateTo: isoLocalDate(prevMonthEnd) };
+    }
     case 'thisQuarter': {
       const quarterStart = new Date(today.getFullYear(), Math.floor(today.getMonth() / 3) * 3, 1);
       return { dateFrom: isoLocalDate(quarterStart), dateTo: isoLocalDate(today) };
@@ -113,6 +146,12 @@ export const dateRangePresetToFilters = (
       // Day 0 of the next month = last day of the previous month.
       const lastQuarterEnd = new Date(today.getFullYear(), quarterStartMonth, 0);
       return { dateFrom: isoLocalDate(lastQuarterStart), dateTo: isoLocalDate(lastQuarterEnd) };
+    }
+    case 'custom': {
+      if (customRange && customRange[0] && customRange[1]) {
+        return { dateFrom: customRange[0], dateTo: customRange[1] };
+      }
+      return {};
     }
     default:
       return {};
@@ -145,10 +184,10 @@ export const KpiCard: React.FC<KpiCardProps> = ({ kpi }) => (
 /* ── Achievement level semantics ──────────────────────────────────────── */
 export type AchLevel = 'high' | 'medium' | 'low';
 export const achLevel = (pct: number): AchLevel =>
-  pct >= 90 ? 'high' : pct >= 70 ? 'medium' : 'low';
+  pct >= 80 ? 'high' : pct >= 70 ? 'medium' : 'low';
 
 export const levelColor = (level: AchLevel): string =>
-  level === 'high' ? 'var(--theme-success)' : level === 'medium' ? 'var(--theme-warning)' : 'var(--theme-danger)';
+  level === 'high' ? '#10b981' : level === 'medium' ? '#f59e0b' : '#ef4444';
 
 /* ── Section card (consistent dashboard panel shell) ──────────────────── */
 interface SectionCardProps {
@@ -157,15 +196,17 @@ interface SectionCardProps {
   subtitle?: React.ReactNode;
   extra?: React.ReactNode;
   className?: string;
+  style?: React.CSSProperties;
   children: React.ReactNode;
 }
 
 export const SectionCard: React.FC<SectionCardProps> = ({
-  icon, title, subtitle, extra, className, children,
+  icon, title, subtitle, extra, className, style, children,
 }) => (
   <Card
     size="small"
     className={className ? `erp-section-card ${className}` : 'erp-section-card'}
+    style={style}
     title={
       <span className="erp-sec-title">
         {icon && <span className="erp-sec-title__icon">{icon}</span>}

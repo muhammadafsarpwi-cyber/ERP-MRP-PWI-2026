@@ -35,10 +35,17 @@ const formatTimestamp = (iso: string): string => {
   return `${date} · ${time}`;
 };
 
+const humanizeAction = (action: string) => {
+  return (action || '')
+    .replace(/_/g, ' ')
+    .toLowerCase()
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+};
+
 const ActivityFeed: React.FC<ActivityFeedProps> = ({ activity, loading }) => {
   if (loading && activity.length === 0) {
     return (
-      <SectionCard icon={<ClockCircleOutlined />} title="Recent Activity" subtitle="Operational event stream">
+      <SectionCard icon={<ClockCircleOutlined />} title="Recent Activity" subtitle="System Audit Trail & Event Stream">
         <SkeletonRows rows={6} />
       </SectionCard>
     );
@@ -48,7 +55,7 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({ activity, loading }) => {
     <SectionCard
       icon={<ClockCircleOutlined />}
       title="Recent Activity"
-      subtitle="Operational event stream"
+      subtitle="System Audit Trail & Event Stream"
     >
       {activity.length > 0 ? (
         <div className="erp-activity">
@@ -61,7 +68,9 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({ activity, loading }) => {
                 </span>
                 <div className="erp-activity-row__body">
                   <div className="erp-activity-row__top">
-                    <span className={`erp-activity-row__action erp-activity-row__action--${kind}`}>{a.action}</span>
+                    <span className={`erp-activity-row__action erp-activity-row__action--${kind}`}>
+                      {humanizeAction(a.action)}
+                    </span>
                     <span className="erp-activity-row__target">
                       {a.targetType}
                       {a.targetName ? `: ${a.targetName}` : ''}

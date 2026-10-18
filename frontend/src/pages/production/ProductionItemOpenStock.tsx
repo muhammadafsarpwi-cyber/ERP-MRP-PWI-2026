@@ -53,6 +53,7 @@ import {
   GoldOutlined,
   InboxOutlined,
   DollarCircleOutlined,
+  InfoCircleOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
@@ -93,6 +94,8 @@ export interface DepartmentStockMatrixRow {
   inferredDivision: string;
   divisionCode: string;
   divisionName: string;
+  isFgWarehouse?: boolean;
+  isNippleWarehouse?: boolean;
   summary: {
     totalItems: number;
     totalWeightKg: number;
@@ -116,7 +119,12 @@ export function computeItemExtendedUnits(
   const code = (whCode || '').toUpperCase();
   const name = (whName || '').toLowerCase();
   const isNippleWh = code.includes('WH-002') || name.includes('nipple') || code.includes('NIP');
-  const isFgWh = code.includes('FGDW') || name.includes('dispatch') || rec.itemType === 'FINISHED_GOOD';
+  const isFgWh =
+    !isNippleWh &&
+    (code.includes('FGDW') ||
+      name.includes('dispatch') ||
+      (code.includes('FG') && !code.includes('NP')) ||
+      (rec.itemType === 'FINISHED_GOOD' && !name.includes('nipple')));
 
   const isSpokeOrNipple =
     inferredDiv === 'SPI' ||
@@ -146,7 +154,7 @@ export function computeItemExtendedUnits(
   const cartons =
     rec.convertedCartons !== undefined
       ? rec.convertedCartons
-      : (isFgWh || rec.itemType === 'FINISHED_GOOD' || itemPkgSize > 0) && gross > 0 && grossPerCarton > 0
+      : (isFgWh || isNippleWh || rec.itemType === 'FINISHED_GOOD' || itemPkgSize > 0) && gross > 0 && grossPerCarton > 0
       ? Number((gross / grossPerCarton).toFixed(2))
       : 0;
 
@@ -157,7 +165,7 @@ export function computeItemExtendedUnits(
     cartons,
     grossPerCarton,
     showGross: gross > 0,
-    showCartons: (isFgWh || rec.itemType === 'FINISHED_GOOD' || cartons > 0) && cartons > 0,
+    showCartons: (isFgWh || isNippleWh || rec.itemType === 'FINISHED_GOOD' || cartons > 0) && cartons > 0,
   };
 }
 
@@ -3052,9 +3060,46 @@ export const ProductionItemOpenStock: React.FC = () => {
                           ))
                       );
                     }, 0);
-                    const totalCartons = matrixData.reduce((sum, r) => {
+                    // Cartons distinction:
+                    // 1. FG Complete Cartons (e.g. SPI FG Dispatch Warehouse: 850 CTN) - Ready for dispatch
+                    // 2. Nipple Packing Potential (e.g. SPI Nipple Packing Warehouse: 5,379.6 CTN) - Loose nipples
+                    const isRowFgWarehouse = (r: DepartmentStockMatrixRow) => {
+                      const code = (r.warehouseCode || '').toUpperCase();
+                      const name = (r.warehouseName || '').toUpperCase();
+                      const type = (r.warehouseType || '').toUpperCase();
+                      const isNip = r.isNippleWarehouse || code.includes('WH-002') || name.includes('NIPPLE') || code.includes('NIP');
+                      if (isNip) return false;
+                      return (
+                        r.isFgWarehouse ||
+                        code.includes('FGDW') ||
+                        code.includes('DISPATCH') ||
+                        name.includes('DISPATCH') ||
+                        (name.includes('FG') && !name.includes('NIPPLE')) ||
+                        type.includes('FINISHED')
+                      );
+                    };
+
+                    const isRowNippleWarehouse = (r: DepartmentStockMatrixRow) => {
+                      const code = (r.warehouseCode || '').toUpperCase();
+                      const name = (r.warehouseName || '').toUpperCase();
+                      return (
+                        r.isNippleWarehouse ||
+                        code.includes('WH-002') ||
+                        name.includes('NIPPLE') ||
+                        code.includes('NIP')
+                      );
+                    };
+
+                    const totalFgCartons = matrixData.reduce((sum, r) => {
+                      if (!isRowFgWarehouse(r)) return sum;
                       return sum + (r.summary?.totalCartons ?? (r.items || []).reduce((s, it) => s + (it.convertedCartons ?? 0), 0));
                     }, 0);
+
+                    const totalNippleCartons = matrixData.reduce((sum, r) => {
+                      if (!isRowNippleWarehouse(r)) return sum;
+                      return sum + (r.summary?.totalCartons ?? (r.items || []).reduce((s, it) => s + (it.convertedCartons ?? 0), 0));
+                    }, 0);
+
                     const totalValuation = matrixData.reduce((sum, r) => sum + (r.summary?.totalValuation || 0), 0);
 
                     return (
@@ -3144,7 +3189,7 @@ export const ProductionItemOpenStock: React.FC = () => {
                           </div>
                         </div>
 
-                        {/* 6. Cartons (CTN) */}
+                        {/* 6. Cartons (CTN) - Complete Finished Goods only */}
                         <div className="matrix-kpi-card kpi-orange">
                           <div className="matrix-kpi-watermark">
                             <InboxOutlined />
@@ -3153,11 +3198,27 @@ export const ProductionItemOpenStock: React.FC = () => {
                             <span className="matrix-kpi-icon-pill">
                               <InboxOutlined />
                             </span>
-                            <span className="matrix-kpi-label">Cartons (CTN)</span>
+                            <Tooltip title={`FG Complete Ready for Dispatch: ${fmtNum(totalFgCartons, 0)} CTN | Nipple Pack Potential (Loose Nipples): ${fmtNum(totalNippleCartons, 1)} CTN`}>
+                              <span className="matrix-kpi-label" style={{ cursor: 'pointer' }}>
+                                Cartons (CTN) <InfoCircleOutlined style={{ fontSize: 10, marginLeft: 2, color: '#d97706' }} />
+                              </span>
+                            </Tooltip>
                           </div>
                           <div className="matrix-kpi-body">
-                            <span className="matrix-kpi-value">{fmtNum(totalCartons, totalCartons % 1 === 0 ? 0 : 1)}</span>
+                            <span className="matrix-kpi-value">{fmtNum(totalFgCartons, totalFgCartons % 1 === 0 ? 0 : 1)}</span>
                             <span className="matrix-kpi-unit">CTN</span>
+                          </div>
+                          <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 4 }}>
+                            <Tag color="green" style={{ margin: 0, padding: '1px 6px', fontSize: 10, fontWeight: 700, borderRadius: 4, lineHeight: '16px' }}>
+                              FG Complete (Dispatch)
+                            </Tag>
+                            {totalNippleCartons > 0 && (
+                              <Tooltip title="Loose nipple packing potential (in Nipple Packing Warehouse). Excluded from total dispatch cartons, visible in warehouse row.">
+                                <span style={{ color: '#d97706', fontSize: 10, fontWeight: 600, cursor: 'help' }}>
+                                  ({fmtNum(totalNippleCartons, 1)} Only Nipple)
+                                </span>
+                              </Tooltip>
+                            )}
                           </div>
                         </div>
 
@@ -3203,11 +3264,18 @@ export const ProductionItemOpenStock: React.FC = () => {
                       const totPieces = wh.summary?.totalPieces || 0;
                       const whCode = (wh.warehouseCode || '').toUpperCase();
                       const whName = (wh.warehouseName || '').toLowerCase();
+                      const isNippleWh =
+                        wh.isNippleWarehouse ||
+                        whCode.includes('WH-002') ||
+                        whName.includes('nipple') ||
+                        whCode.includes('NIP');
                       const isFgWh =
-                        whCode.includes('FGDW') ||
-                        whName.includes('dispatch') ||
-                        (wh.warehouseType || '').toUpperCase().includes('FINISHED') ||
-                        (wh.warehouseName || '').toUpperCase().includes('FG');
+                        !isNippleWh &&
+                        (wh.isFgWarehouse ||
+                          whCode.includes('FGDW') ||
+                          whName.includes('dispatch') ||
+                          (wh.warehouseType || '').toUpperCase().includes('FINISHED') ||
+                          whName.includes('fg dispatch'));
                       const totGross =
                         wh.summary?.totalGross ??
                         (wh.items || []).reduce(
@@ -3300,10 +3368,22 @@ export const ProductionItemOpenStock: React.FC = () => {
                                   📦 {fmtNum(totGross, totGross % 1 === 0 ? 0 : 2)} GRS
                                 </Tag>
                               )}
-                              {(isFgWh || totCartons > 0) && (
-                                <Tag color="orange" style={{ fontSize: 12, fontWeight: 700 }}>
-                                  📦 {fmtNum(totCartons, totCartons % 1 === 0 ? 0 : 1)} CTN
-                                </Tag>
+                              {totCartons > 0 && (
+                                isFgWh ? (
+                                  <Tag color="green" style={{ fontSize: 12, fontWeight: 700, border: '1px solid #52c41a' }}>
+                                    📦 {fmtNum(totCartons, totCartons % 1 === 0 ? 0 : 1)} CTN (FG Complete)
+                                  </Tag>
+                                ) : isNippleWh ? (
+                                  <Tooltip title="Loose nipple packing potential (Only Nipple). Kept for inventory tracking; not complete dispatch sets.">
+                                    <Tag color="orange" style={{ fontSize: 12, fontWeight: 700, cursor: 'help' }}>
+                                      📦 {fmtNum(totCartons, totCartons % 1 === 0 ? 0 : 1)} CTN (Only Nipple)
+                                    </Tag>
+                                  </Tooltip>
+                                ) : (
+                                  <Tag color="orange" style={{ fontSize: 12, fontWeight: 700 }}>
+                                    📦 {fmtNum(totCartons, totCartons % 1 === 0 ? 0 : 1)} CTN
+                                  </Tag>
+                                )
                               )}
                               <Button
                                 size="small"
@@ -3403,8 +3483,8 @@ export const ProductionItemOpenStock: React.FC = () => {
                                                   </Tag>
                                                 )}
                                                 {ext.showCartons && (
-                                                  <Tag color="orange" style={{ margin: 0, fontSize: 10.5, fontWeight: 700, padding: '0 5px', lineHeight: '18px' }}>
-                                                    {fmtNum(ext.cartons, ext.cartons % 1 === 0 ? 0 : 1)} CTN
+                                                  <Tag color={isFgWh ? 'green' : 'orange'} style={{ margin: 0, fontSize: 10.5, fontWeight: 700, padding: '0 5px', lineHeight: '18px' }}>
+                                                    {fmtNum(ext.cartons, ext.cartons % 1 === 0 ? 0 : 1)} CTN {isFgWh ? '(FG)' : isNippleWh ? '(Nip)' : ''}
                                                   </Tag>
                                                 )}
                                               </div>
@@ -3415,8 +3495,8 @@ export const ProductionItemOpenStock: React.FC = () => {
                                     },
                                     {
                                       title: (
-                                        <Tooltip title="Multi-Unit Conversion: Weight (KG), Pieces (PCS), Gross (144 pcs/grs), and Cartons (CTN) for Finished Goods">
-                                          <span>Breakdown (KG · PCS · GRS{isFgWh ? ' · CTN' : ''})</span>
+                                        <Tooltip title="Multi-Unit Conversion: Weight (KG), Pieces (PCS), Gross (144 pcs/grs), and Cartons (CTN)">
+                                          <span>Breakdown (KG · PCS · GRS{isFgWh ? ' · CTN FG' : isNippleWh ? ' · CTN (Only Nipple)' : ''})</span>
                                         </Tooltip>
                                       ),
                                       key: 'dualConversion',
@@ -3459,11 +3539,22 @@ export const ProductionItemOpenStock: React.FC = () => {
                                               </Tooltip>
                                             )}
                                             {ext.showCartons && (
-                                              <Tooltip title={`Cartons = ${fmtNum(ext.gross, 2)} Gross ÷ ${ext.grossPerCarton} GRS/Carton (${Math.round(ext.grossPerCarton * 144).toLocaleString()} pcs/ctn)`}>
+                                              <Tooltip
+                                                title={
+                                                  isFgWh
+                                                    ? `FG Complete Cartons = ${fmtNum(ext.gross, 2)} Gross ÷ ${ext.grossPerCarton} GRS/Carton (${Math.round(ext.grossPerCarton * 144).toLocaleString()} pcs/ctn) - Complete Dispatch Ready`
+                                                    : isNippleWh
+                                                    ? `Nipple Packing Potential = ${fmtNum(ext.gross, 2)} Gross ÷ ${ext.grossPerCarton} GRS/Carton (${Math.round(ext.grossPerCarton * 144).toLocaleString()} pcs/ctn) - Only Loose Nipples`
+                                                    : `Cartons = ${fmtNum(ext.gross, 2)} Gross ÷ ${ext.grossPerCarton} GRS/Carton`
+                                                }
+                                              >
                                                 <div className="matrix-unit-line line-carton">
                                                   <span style={{ fontWeight: 600 }}>📦 Cartons (CTN)</span>
                                                   <span style={{ fontWeight: 700 }}>
-                                                    {fmtNum(ext.cartons, ext.cartons % 1 === 0 ? 0 : 1)} CTN
+                                                    {fmtNum(ext.cartons, ext.cartons % 1 === 0 ? 0 : 1)} CTN{' '}
+                                                    <span style={{ fontSize: 10.5, fontWeight: 600, color: isFgWh ? '#389e0d' : '#d97706' }}>
+                                                      {isFgWh ? '(FG Complete)' : isNippleWh ? '(Only Nipple)' : ''}
+                                                    </span>
                                                   </span>
                                                 </div>
                                               </Tooltip>

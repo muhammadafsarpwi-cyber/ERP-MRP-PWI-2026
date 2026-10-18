@@ -310,6 +310,20 @@ export class ProductionEntryController {
     return { success: true, data: entry, message: 'Production entry updated' };
   }
 
+  @Post('entries/:id/complete-nipple')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('manufacturing.production.entries.update')
+  @ApiOperation({ summary: 'Deduct pending nipple stock from warehouse (WH-002) and complete batch' })
+  async completeNipple(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: { warehouseId?: string; completionDate?: string },
+    @Req() req: any,
+  ) {
+    const companyId = this.getCompanyId(req);
+    return this.entryService.completePendingNippleBatch(id, dto, companyId, this.getUserId(req));
+  }
+
   @Delete('entries/:id')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()

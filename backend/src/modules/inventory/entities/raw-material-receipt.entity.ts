@@ -30,6 +30,9 @@ export class RawMaterialReceipt extends BaseEntity {
   @Column({ name: 'source_no', type: 'varchar', length: 50, nullable: true })
   sourceNo: string | null;
 
+  @Column({ name: 'heat_number', type: 'varchar', length: 100, nullable: true })
+  heatNumber: string | null;
+
   @Column({ name: 'receipt_date', type: 'date' })
   receiptDate: string;
 

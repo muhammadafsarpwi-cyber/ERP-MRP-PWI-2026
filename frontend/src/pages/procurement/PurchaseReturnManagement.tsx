@@ -81,8 +81,14 @@ const PurchaseReturnManagement: React.FC = () => {
         setSuppliers(s.data || []);
       } catch { /* ignore */ }
       try {
-        const w = await apiService.get<any>('/organization/warehouses', { limit: 100 });
-        const items = Array.isArray(w) ? w : w?.data?.items || w?.items || w?.data || [];
+        let items: any[] = [];
+        try {
+          const w = await apiService.get<any>('/warehouses', { limit: 100 });
+          items = Array.isArray(w) ? w : w?.data?.items || w?.items || w?.data || [];
+        } catch {
+          const w2 = await apiService.get<any>('/organization/warehouses', { limit: 100 });
+          items = Array.isArray(w2) ? w2 : w2?.data?.items || w2?.items || w2?.data || [];
+        }
         setWarehouses(items);
       } catch { /* ignore */ }
       try {

@@ -13,6 +13,7 @@ export interface ShareReceiptInfo {
   receiptCode: string;
   gatePassNo?: string;
   sourceNo?: string;
+  heatNumber?: string;
   receiptDate: string;
   divisionName?: string;
   divisionCode?: string;
@@ -48,6 +49,7 @@ export function buildReceiptWhatsAppMessage(info: ShareReceiptInfo): string {
   lines.push(`📋 *Receipt Code:* ${info.receiptCode}`);
   if (info.gatePassNo) lines.push(`🎫 *Gate Pass No:* ${info.gatePassNo}`);
   if (info.sourceNo) lines.push(`📄 *Source / DC No:* ${info.sourceNo}`);
+  if (info.heatNumber) lines.push(`🔥 *Heat Number:* ${info.heatNumber}`);
   if (date) lines.push(`📅 *Receipt Date:* ${date}`);
 
   const warehouseStr = formatNameWithCode(info.warehouseName, info.warehouseCode);

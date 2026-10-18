@@ -1,4 +1,5 @@
 import React from 'react';
+import { Tooltip } from 'antd';
 import { RiseOutlined } from '@ant-design/icons';
 import {
   achLevel, EmptyState, fmtQty, levelColor, SectionCard, SkeletonChart,
@@ -18,7 +19,7 @@ interface AchievementCardProps {
 const AchievementCard: React.FC<AchievementCardProps> = ({ data, loading }) => {
   if (loading && !data) {
     return (
-      <SectionCard icon={<RiseOutlined />} title="Achievement Overview">
+      <SectionCard className="erp-achievement-card" style={{ height: '100%' }} icon={<RiseOutlined />} title="Achievement Overview">
         <SkeletonChart height={250} />
       </SectionCard>
     );
@@ -26,7 +27,7 @@ const AchievementCard: React.FC<AchievementCardProps> = ({ data, loading }) => {
 
   if (!data) {
     return (
-      <SectionCard icon={<RiseOutlined />} title="Achievement Overview">
+      <SectionCard className="erp-achievement-card" style={{ height: '100%' }} icon={<RiseOutlined />} title="Achievement Overview">
         <EmptyState icon={<RiseOutlined />} title="No achievement data" />
       </SectionCard>
     );
@@ -54,8 +55,8 @@ const AchievementCard: React.FC<AchievementCardProps> = ({ data, loading }) => {
   const ringPct = Math.max(0, Math.min(100, pct));
 
   return (
-    <SectionCard icon={<RiseOutlined />} title="Achievement Overview">
-      <div className="erp-achievement">
+    <SectionCard className="erp-achievement-card" style={{ height: '100%' }} icon={<RiseOutlined />} title="Achievement Overview">
+      <div className="erp-achievement" style={{ height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', flex: 1 }}>
         <div className="erp-achievement__gauge">
           <svg
             className="erp-achievement__ring"
@@ -99,10 +100,22 @@ const AchievementCard: React.FC<AchievementCardProps> = ({ data, loading }) => {
           </div>
           <div className="erp-achievement__metric">
             <span className="erp-achievement__metric-dot erp-achievement__metric-dot--scrap" />
-            <div className="erp-achievement__metric-content">
-              <div className="erp-achievement__metric-label">Scrap</div>
-              <div className="erp-achievement__metric-value">{fmtQty(data.summary.totalScrap)}</div>
-            </div>
+            <Tooltip
+              title={
+                <div style={{ fontSize: 11, lineHeight: 1.5 }}>
+                  <div>Product Rejection: <strong>{fmtQty(data.summary.productRejection ?? data.summary.totalScrap)} Kg</strong></div>
+                  {(data.summary.processCuttingScrap ?? 0) > 0 && (
+                    <div>Cutting Scrap: <strong>{fmtQty(data.summary.processCuttingScrap ?? 0)} Kg</strong></div>
+                  )}
+                </div>
+              }
+              placement="top"
+            >
+              <div className="erp-achievement__metric-content" style={{ cursor: 'pointer' }}>
+                <div className="erp-achievement__metric-label">Scrap</div>
+                <div className="erp-achievement__metric-value">{fmtQty(data.summary.totalScrap)}</div>
+              </div>
+            </Tooltip>
           </div>
           <div className="erp-achievement__metric">
             <span className="erp-achievement__metric-dot erp-achievement__metric-dot--efficiency" />

@@ -29,6 +29,9 @@ describe('floor-wise department ordering', () => {
     expect(floorWiseDepartmentRank('  straightener ')).toBe(0);
     expect(floorWiseDepartmentRank('SPOKE PLATING')).toBe(3);
     expect(floorWiseDepartmentRank('Swagging')).toBe(1);
+    expect(floorWiseDepartmentRank('Spoke Packing')).toBe(4);
+    expect(floorWiseDepartmentRank('Packing Department')).toBe(4);
+    expect(floorWiseDepartmentRank('spoke packing department')).toBe(4);
   });
 
   it('returns -1 for departments outside the floor line', () => {

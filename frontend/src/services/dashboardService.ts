@@ -14,7 +14,7 @@ export interface DashboardFilters {
 export interface DashboardSummary {
   items: { total: number; active: number };
   machines: { total: number; active: number; statusBreakdown: Record<string, number> };
-  productionEntries: { total: number; today: number };
+  productionEntries: { total: number; today: number; lastEntryDate?: string | null };
   machineTargets: { total: number; active: number };
   warehouses: { total: number };
   purchaseOrders: { total: number; active: number };
@@ -30,6 +30,8 @@ export interface ProductionSummary {
     totalTarget: number;
     totalActual: number;
     totalScrap: number;
+    productRejection?: number;
+    processCuttingScrap?: number;
     totalRunningHours: number;
     totalDowntimeHours: number;
     achievementPercentage: number;
@@ -41,6 +43,9 @@ export interface ProductionSummary {
     targetQuantity: number;
     actualQuantity: number;
     scrapQuantity: number;
+    processScrapKg?: number;
+    productRejection?: number;
+    processCuttingScrap?: number;
     runningHours: number;
     downtimeHours: number;
     entryCount: number;
@@ -176,7 +181,9 @@ export interface ItemOverview {
   minimumStockLevel: number | null;
   maximumStockLevel: number | null;
   reorderLevel: number | null;
-  stock: { onHand: number; reserved: number; available: number };
+  warehouseName?: string | null;
+  warehouseCode?: string | null;
+  stock: { onHand: number; reserved: number; available: number; warehouseName?: string | null; warehouseCode?: string | null };
   production: { entryCount: number; totalActual: number };
 }
 
@@ -256,6 +263,22 @@ export interface ItemRoute {
   productionFlow?: ProductionFlowInfo | null;
 }
 
+export interface DashboardScheduleItem {
+  id: string;
+  type: string;
+  title: string;
+  subtitle: string;
+  time: string;
+  deliveryDate?: string | null;
+  status: string;
+}
+
+export interface CalendarActivityDay {
+  date: string;
+  count: number;
+  totalActual: number;
+}
+
 export interface FilterOption {
   id: string;
   name: string;
@@ -282,11 +305,15 @@ class DashboardService {
     return apiService.get('/dashboard/summary', this.buildParams(filters));
   }
 
+  async getLastEntryDate(filters?: DashboardFilters): Promise<{ success: boolean; data: { lastEntryDate: string | null } }> {
+    return apiService.get('/dashboard/last-entry-date', this.buildParams(filters));
+  }
+
   async getProduction(filters?: DashboardFilters): Promise<{ success: boolean; data: ProductionSummary }> {
     return apiService.get('/dashboard/production', this.buildParams(filters));
   }
 
-  async getProductionTrend(days: number = 14, filters?: DashboardFilters): Promise<{ success: boolean; data: ProductionTrendDay[] }> {
+  async getProductionTrend(days: number = 31, filters?: DashboardFilters): Promise<{ success: boolean; data: ProductionTrendDay[] }> {
     return apiService.get('/dashboard/production/trend', { days: String(days), ...this.buildParams(filters) });
   }
 
@@ -302,8 +329,8 @@ class DashboardService {
     return apiService.get(`/dashboard/items/${itemId}/route`);
   }
 
-  async getInventory(filters?: { warehouseId?: string }): Promise<{ success: boolean; data: InventorySummary }> {
-    return apiService.get('/dashboard/inventory', filters);
+  async getInventory(filters?: DashboardFilters & { warehouseId?: string }): Promise<{ success: boolean; data: InventorySummary }> {
+    return apiService.get('/dashboard/inventory', this.buildParams(filters));
   }
 
   async getProcurement(): Promise<{ success: boolean; data: PurchaseOrderSummary }> {
@@ -312,6 +339,18 @@ class DashboardService {
 
   async getSales(): Promise<{ success: boolean; data: SalesOrderSummary }> {
     return apiService.get('/dashboard/sales/summary');
+  }
+
+  async getSchedule(): Promise<{ success: boolean; data: DashboardScheduleItem[] }> {
+    return apiService.get('/dashboard/schedule');
+  }
+
+  async getCalendarActivity(year?: number, month?: number, divisionId?: string): Promise<{ success: boolean; data: CalendarActivityDay[] }> {
+    const params: Record<string, string> = {};
+    if (year) params.year = String(year);
+    if (month) params.month = String(month);
+    if (divisionId) params.divisionId = divisionId;
+    return apiService.get('/dashboard/calendar-activity', params);
   }
 
   async getAlerts(filters?: DashboardFilters): Promise<{ success: boolean; data: AlertItem[] }> {
