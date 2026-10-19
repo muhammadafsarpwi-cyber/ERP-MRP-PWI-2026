@@ -24,9 +24,9 @@ export class PurchaseOrderService {
       throw new ConflictException(`PO code '${dto.poCode}' already exists`);
     }
 
+    const { lines, purchaseType, divisionId, ...restDto } = dto;
     const po = this.repo.create({
-      ...dto,
-      lines: undefined,
+      ...restDto,
       status: 'DRAFT',
       createdBy: userId || null,
       updatedBy: userId || null,

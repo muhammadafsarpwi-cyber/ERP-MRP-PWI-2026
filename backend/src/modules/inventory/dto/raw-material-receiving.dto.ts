@@ -75,6 +75,10 @@ export class CreateRawMaterialReceiptDto {
 
   @IsOptional()
   @IsUUID('loose')
+  purchaseOrderId?: string | null;
+
+  @IsOptional()
+  @IsUUID('loose')
   productionOrderId?: string | null;
 
   @IsOptional()

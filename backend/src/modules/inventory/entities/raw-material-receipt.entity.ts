@@ -64,6 +64,9 @@ export class RawMaterialReceipt extends BaseEntity {
   @JoinColumn({ name: 'warehouse_id' })
   warehouse: Warehouse | null;
 
+  @Column({ name: 'purchase_order_id', type: 'uuid', nullable: true })
+  purchaseOrderId: string | null;
+
   @Column({ name: 'production_order_id', type: 'uuid', nullable: true })
   productionOrderId: string | null;
 

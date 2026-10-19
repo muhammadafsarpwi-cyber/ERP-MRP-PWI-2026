@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert, Badge, Button, Card, Checkbox, Col, DatePicker, Divider, Form, Input, InputNumber,
-  Modal, Popconfirm, Popover, Row, Select, Space, Table, Tag, Tooltip, Typography, App as AntApp,
+  Modal, Popconfirm, Popover, Progress, Row, Select, Space, Spin, Table, Tag, Tooltip, Typography, message, App as AntApp,
 } from 'antd';
 import {
   AppstoreOutlined, CameraOutlined, CloseOutlined, CopyOutlined, DatabaseOutlined, DeleteOutlined, EditOutlined, EyeOutlined,
@@ -57,6 +57,36 @@ interface ItemOption {
 }
 interface UomOption { id: string; code?: string; name?: string; symbol?: string; status: string; }
 interface ProductionOrderOption { id: string; order_number?: string; po_code?: string; status?: string; warehouse_id?: string | null; }
+
+interface PoFulfillmentItem {
+  poLineId: string;
+  itemId: string;
+  itemCode: string;
+  itemName: string;
+  uomId: string;
+  uomCode: string;
+  orderedQty: number;
+  receivedQty: number;
+  remainingQty: number;
+  percent: number;
+  isClosed: boolean;
+  overReceived: number;
+  receiptCount: number;
+}
+
+interface PoFulfillmentData {
+  po: {
+    id: string;
+    po_code: string;
+    order_date: string;
+    status: string;
+    warehouse_id: string;
+    warehouse_name?: string;
+    warehouse_code?: string;
+    supplier_name?: string;
+  };
+  items: PoFulfillmentItem[];
+}
 
 interface FormRefData {
   warehouses: WarehouseOption[];
@@ -437,6 +467,69 @@ const RawMaterialReceiving: React.FC = () => {
   const watchHeatNumber = Form.useWatch('heatNumber', form);
   const watchPoId = Form.useWatch('productionOrderId', form);
 
+  // PO Fulfillment stats state for monthly blanket order tracking & remaining balance
+  const [poFulfillment, setPoFulfillment] = useState<PoFulfillmentData | null>(null);
+  const [poLoading, setPoLoading] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (!watchPoId) {
+      setPoFulfillment(null);
+      return;
+    }
+    let cancelled = false;
+    setPoLoading(true);
+    apiService
+      .get<any>(`/inventory/receipts/po-fulfillment/${watchPoId}`)
+      .then((res: any) => {
+        const payload = res?.data || res;
+        if (!cancelled && payload?.po && payload?.items) {
+          setPoFulfillment(payload);
+        }
+      })
+      .catch((err) => {
+        console.warn('Failed to load PO fulfillment progress:', err);
+        if (!cancelled) setPoFulfillment(null);
+      })
+      .finally(() => {
+        if (!cancelled) setPoLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [watchPoId]);
+
+  // Real-time map of receiving quantity by item in the current open receipt modal
+  const currentReceivingByItem = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const r of rows) {
+      if (r.itemId) {
+        const qty = Number(r.receivedQuantity || 0);
+        map.set(r.itemId, (map.get(r.itemId) || 0) + qty);
+      }
+    }
+    return map;
+  }, [rows]);
+
+  // Quick prefill of remaining items from this PO into the receiving lines table
+  const handlePrefillPoItems = useCallback(() => {
+    if (!poFulfillment?.items || poFulfillment.items.length === 0) return;
+    const openItems = poFulfillment.items.filter((it) => it.remainingQty > 0);
+    if (openItems.length === 0) {
+      message.info('All items in this Purchase Order are already fulfilled!');
+      return;
+    }
+    const newRows: LineRow[] = openItems.map((it) => ({
+      key: uid(),
+      itemId: it.itemId,
+      uomId: it.uomId,
+      gatePassQuantity: it.remainingQty,
+      receivedQuantity: it.remainingQty,
+      remarks: `PO Delivery: ${poFulfillment.po.po_code}`,
+    }));
+    setRows(newRows);
+    message.success(`Prefilled ${openItems.length} open PO items with remaining quantities`);
+  }, [poFulfillment, message]);
+
   // Filter raw materials strictly by selected Division (plus shared items without division)
   const filteredItems = useMemo(() => {
     if (!refData?.items) return [];
@@ -535,6 +628,15 @@ const RawMaterialReceiving: React.FC = () => {
     const all = (refData?.productionOrders || []) as ProductionOrderOption[];
     if (all.length === 0) return [];
 
+    const isClosedOrFullyReceived = (status?: string) => {
+      if (!status) return false;
+      const s = status.toUpperCase();
+      return s === 'FULLY_RECEIVED' || s === 'CLOSED' || s === 'CANCELLED';
+    };
+
+    // Filter out fully received or closed POs so active receiving only offers open POs
+    const activePOs = all.filter((o) => !isClosedOrFullyReceived(o.status));
+
     const formatOption = (o: ProductionOrderOption) => {
       const code = o.po_code || o.order_number || o.id;
       const statusText = o.status ? ` (${o.status.replace(/_/g, ' ')})` : '';
@@ -542,28 +644,19 @@ const RawMaterialReceiving: React.FC = () => {
     };
 
     if (watchWarehouse) {
-      // 1. POs specifically created/assigned to this receiving store/warehouse
-      const storeMatched = all.filter((o) => o.warehouse_id === watchWarehouse);
-      if (storeMatched.length > 0) {
-        return storeMatched.map(formatOption);
+      // 1. POs specifically assigned to this receiving store/warehouse ONLY
+      const storeMatched = activePOs.filter((o) => o.warehouse_id === watchWarehouse);
+      // Keep selected PO if user is viewing or editing an existing receipt
+      if (watchPoId && !storeMatched.some((o) => o.id === watchPoId)) {
+        const currentPo = all.find((o) => o.id === watchPoId);
+        if (currentPo) storeMatched.unshift(currentPo);
       }
-
-      // 2. POs assigned to warehouses within the same division, or unassigned POs
-      const currentWh = (refData?.warehouses || []).find((w) => w.id === watchWarehouse);
-      const divisionWhIds = new Set(
-        (refData?.warehouses || [])
-          .filter((w) => currentWh?.divisionId && w.divisionId === currentWh.divisionId)
-          .map((w) => w.id),
-      );
-      const divMatched = all.filter((o) => !o.warehouse_id || divisionWhIds.has(o.warehouse_id));
-      if (divMatched.length > 0) {
-        return divMatched.map(formatOption);
-      }
+      return storeMatched.map(formatOption);
     }
 
-    // Default: show all available POs
-    return all.map(formatOption);
-  }, [refData?.productionOrders, refData?.warehouses, watchWarehouse]);
+    // Default: show all available active POs
+    return activePOs.map(formatOption);
+  }, [refData?.productionOrders, watchWarehouse, watchPoId]);
 
   const productionOrderOptions = poOptions;
 
@@ -3078,6 +3171,138 @@ const RawMaterialReceiving: React.FC = () => {
                     </div>
                   )}
                 </div>
+
+                {/* 📦 PO Blanket Order Progress & Balance Panel (Monthly Requirement) */}
+                {watchPoId && (
+                  <div
+                    className="rm-po-fulfillment-panel"
+                    style={{
+                      marginBottom: 12,
+                      padding: '12px',
+                      borderRadius: 10,
+                      background: 'linear-gradient(145deg, rgba(15, 23, 42, 0.85) 0%, rgba(30, 41, 59, 0.7) 100%)',
+                      border: '1px solid rgba(56, 189, 248, 0.35)',
+                      boxShadow: '0 4px 16px rgba(0, 0, 0, 0.3)',
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: '#38bdf8' }}>
+                          📦 PO Blanket Progress & Balance
+                        </span>
+                        {poLoading && <Spin size="small" />}
+                      </div>
+                      {poFulfillment?.items && poFulfillment.items.some((it) => it.remainingQty > 0) && (
+                        <Button
+                          size="small"
+                          type="primary"
+                          ghost
+                          style={{ fontSize: 11, height: 24, padding: '0 8px', borderColor: '#38bdf8', color: '#38bdf8', fontWeight: 600 }}
+                          onClick={handlePrefillPoItems}
+                        >
+                          + Prefill Open Items
+                        </Button>
+                      )}
+                    </div>
+
+                    <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 10, lineHeight: 1.3 }}>
+                      Monthly Blanket PO requirement tracking (since 01-Oct-2026). Staggered deliveries automatically update remaining balance in real time.
+                    </div>
+
+                    {poFulfillment ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {poFulfillment.items.map((it) => {
+                          const currentRecv = currentReceivingByItem.get(it.itemId) || 0;
+                          const totalRecvWithCurrent = it.receivedQty + currentRecv;
+                          const liveBalance = it.orderedQty - totalRecvWithCurrent;
+                          const isFullyMet = liveBalance <= 0;
+                          const isOver = liveBalance < 0;
+                          const livePercent = it.orderedQty > 0
+                            ? Math.min(100, Math.round((totalRecvWithCurrent / it.orderedQty) * 100))
+                            : 100;
+
+                          return (
+                            <div
+                              key={it.poLineId}
+                              style={{
+                                padding: '8px 10px',
+                                borderRadius: 6,
+                                background: isOver
+                                  ? 'rgba(239, 68, 68, 0.12)'
+                                  : isFullyMet
+                                  ? 'rgba(16, 185, 129, 0.1)'
+                                  : 'rgba(30, 41, 59, 0.8)',
+                                border: `1px solid ${
+                                  isOver ? '#ef4444' : isFullyMet ? '#10b981' : 'rgba(148, 163, 184, 0.25)'
+                                }`,
+                              }}
+                            >
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                                <span style={{ fontWeight: 700, fontSize: 12, color: '#f1f5f9' }}>
+                                  {it.itemCode}
+                                  <span style={{ fontWeight: 400, color: '#94a3b8', marginLeft: 6, fontSize: 11 }}>
+                                    {it.itemName}
+                                  </span>
+                                </span>
+                                {isOver ? (
+                                  <Tag color="error" style={{ margin: 0, fontSize: 10, fontWeight: 700 }}>
+                                    EXCEEDED (+{formatNumber(Math.abs(liveBalance), 2)} {it.uomCode})
+                                  </Tag>
+                                ) : isFullyMet ? (
+                                  <Tag color="success" style={{ margin: 0, fontSize: 10, fontWeight: 700 }}>
+                                    CLOSED (100% RECEIVED)
+                                  </Tag>
+                                ) : (
+                                  <Tag color="processing" style={{ margin: 0, fontSize: 10, fontWeight: 700, color: '#38bdf8', borderColor: '#38bdf8' }}>
+                                    OPEN ({formatNumber(liveBalance, 2)} {it.uomCode} LEFT)
+                                  </Tag>
+                                )}
+                              </div>
+
+                              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 4, fontSize: 10, marginBottom: 4 }}>
+                                <div>
+                                  <span style={{ color: '#64748b' }}>Ordered: </span>
+                                  <span style={{ color: '#e2e8f0', fontWeight: 600 }}>{formatNumber(it.orderedQty, 2)}</span>
+                                </div>
+                                <div>
+                                  <span style={{ color: '#64748b' }}>Past Recv: </span>
+                                  <span style={{ color: '#38bdf8', fontWeight: 600 }}>{formatNumber(it.receivedQty, 2)}</span>
+                                </div>
+                                <div>
+                                  <span style={{ color: '#64748b' }}>Current GP: </span>
+                                  <span style={{ color: currentRecv > 0 ? '#f59e0b' : '#94a3b8', fontWeight: 700 }}>
+                                    {currentRecv > 0 ? `+${formatNumber(currentRecv, 2)}` : '0.00'}
+                                  </span>
+                                </div>
+                                <div>
+                                  <span style={{ color: '#64748b' }}>Balance: </span>
+                                  <span style={{
+                                    fontWeight: 800,
+                                    color: liveBalance < 0 ? '#ef4444' : liveBalance === 0 ? '#10b981' : '#f59e0b',
+                                  }}>
+                                    {formatNumber(liveBalance, 2)} {it.uomCode}
+                                  </span>
+                                </div>
+                              </div>
+
+                              <Progress
+                                percent={livePercent}
+                                size="small"
+                                status={isOver ? 'exception' : isFullyMet ? 'success' : 'active'}
+                                strokeColor={isOver ? '#ef4444' : isFullyMet ? '#10b981' : '#38bdf8'}
+                                style={{ margin: 0 }}
+                              />
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div style={{ textAlign: 'center', padding: '12px 0', color: '#94a3b8', fontSize: 11 }}>
+                        {poLoading ? 'Loading PO fulfillment details...' : 'Select a Purchase Order to track fulfillment balance.'}
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* 4 KPI Summary Cards in 1 sleek compact horizontal line */}
                 <div className="rm-preview-kpi-grid">

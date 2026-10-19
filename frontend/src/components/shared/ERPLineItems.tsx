@@ -944,11 +944,15 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
       key: 'lineTotal',
       width: 140,
       align: 'right' as const,
-      render: (_, record) => (
-        <span style={{ fontWeight: 700, color: '#10b981' }}>
-          {record.lineTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-        </span>
-      ),
+      render: (_, record) => {
+        const lineTotal = record.lineTotal != null ? record.lineTotal : ((record.quantity || 0) * (record.rate || (record as any).unitPrice || 0));
+        const val = Number(lineTotal || 0);
+        return (
+          <span style={{ fontWeight: 700, color: '#10b981' }}>
+            {val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </span>
+        );
+      },
     },
     ...(showWarehouse ? [{
       title: 'Warehouse',

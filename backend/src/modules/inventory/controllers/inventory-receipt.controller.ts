@@ -377,6 +377,17 @@ export class InventoryReceiptController {
     return { success: true, data };
   }
 
+  @Get('po-fulfillment/:id')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('manufacturing.material_receiving.view')
+  @ApiOperation({ summary: 'Get PO blanket fulfillment progress and remaining balance' })
+  async getPoFulfillment(@Param('id') poId: string, @Req() req: any) {
+    const companyId = this.getCompanyId(req);
+    const data = await this.rawMaterialService.getPoFulfillment(companyId, poId);
+    return { success: true, data };
+  }
+
   @Post('gate-pass')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()

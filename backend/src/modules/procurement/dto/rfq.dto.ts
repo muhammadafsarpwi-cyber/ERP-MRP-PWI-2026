@@ -66,6 +66,21 @@ export class CreateRfqDto {
   @IsOptional()
   requisitionId?: string;
 
+  @ApiPropertyOptional({ description: 'Purchase type (LOCAL/IMPORT)' })
+  @IsString()
+  @IsOptional()
+  purchaseType?: string;
+
+  @ApiPropertyOptional({ description: 'Division ID' })
+  @IsString()
+  @IsOptional()
+  divisionId?: string;
+
+  @ApiPropertyOptional({ description: 'Warehouse ID' })
+  @IsString()
+  @IsOptional()
+  warehouseId?: string;
+
   @ApiPropertyOptional({ description: 'Issue date' })
   @IsDateString()
   @IsOptional()

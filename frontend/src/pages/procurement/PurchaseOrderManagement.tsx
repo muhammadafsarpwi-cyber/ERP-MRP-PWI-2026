@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Table, Button, Input, Select, DatePicker, App, Modal, Tooltip,
   Row, Col, Form, InputNumber, Tag, Badge,
@@ -11,7 +12,7 @@ import {
   CameraOutlined, SoundOutlined, SaveOutlined, WarningOutlined,
   BarcodeOutlined, CarOutlined, WalletOutlined, UserOutlined,
   ClearOutlined, ApartmentOutlined, SafetyCertificateOutlined,
-  ShopOutlined,
+  ShopOutlined, CheckCircleOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
@@ -152,6 +153,10 @@ const PurchaseOrderManagement: React.FC = () => {
     return count;
   }, [filterSupplier, filterPayment, filterDateFrom, filterDateTo]);
 
+  const [searchParams] = useSearchParams();
+  const [quotationsList, setQuotationsList] = useState<any[]>([]);
+  const [requisitionsList, setRequisitionsList] = useState<any[]>([]);
+
   // Reference data
   const [suppliers, setSuppliers] = useState<Array<{ id: string; supplierCode: string; name: string }>>([]);
   const [itemsCatalog, setItemsCatalog] = useState<PurchaseOrderItem[]>([]);
@@ -248,6 +253,18 @@ const PurchaseOrderManagement: React.FC = () => {
           });
         }
         setLatestRatesMap(rMap);
+      } catch { /* ignore */ }
+
+      try {
+        const qRes = await apiService.get<any>('/procurement/quotations', { limit: 200 });
+        const qList = Array.isArray(qRes) ? qRes : qRes?.data || [];
+        setQuotationsList(qList);
+      } catch { /* ignore */ }
+
+      try {
+        const prRes = await apiService.get<any>('/procurement/requisitions', { limit: 200 });
+        const prList = Array.isArray(prRes) ? prRes : prRes?.data || [];
+        setRequisitionsList(prList);
       } catch { /* ignore */ }
     })();
   }, []);
@@ -417,6 +434,145 @@ const PurchaseOrderManagement: React.FC = () => {
     setActiveChevron('ALL');
     setPage(1);
   };
+
+  const handleQuotationSelect = async (quotationId: string | null) => {
+    if (!quotationId) return;
+    try {
+      const res = await apiService.get<any>(`/procurement/quotations/${quotationId}`);
+      const q = res?.data || res;
+      if (!q) return;
+
+      const updates: any = {};
+      if (q.supplierId) updates.supplierId = q.supplierId;
+      if (q.divisionId) updates.divisionId = q.divisionId;
+      if (q.warehouseId) {
+        updates.warehouseId = q.warehouseId;
+        setSelectedWarehouseId(q.warehouseId);
+      }
+      updates.supplierBillNo = `QT/${q.quotationCode}`;
+      updates.notes = `Generated from Quotation ${q.quotationCode} [RFQ: ${q.rfqCode || 'N/A'}]`;
+      form.setFieldsValue(updates);
+
+      if (q.lines && Array.isArray(q.lines) && q.lines.length > 0) {
+        const mappedLines: PurchaseOrderLineForm[] = q.lines.map((l: any, idx: number) => {
+          const itId = l.itemId || l.item?.id;
+          const matched = itemsCatalog.find((it) => it.id === itId);
+          const purUom = l.uom || matched?.purchaseUom || matched?.baseUom;
+          const uomCode = purUom?.code || l.uomCode || 'KG';
+          const uomName = purUom?.name || 'Kilogram';
+          const qty = Number(l.quantity || 1);
+          const unitRate = Number(l.unitPrice || 0);
+          const gst = Number(l.taxPercent || 18);
+          const lineTot = Number(l.totalPrice || (qty * unitRate));
+
+          return {
+            id: String(idx + 1),
+            itemId: itId,
+            itemCode: l.item?.itemCode || matched?.itemCode || `SKU-00${idx + 1}`,
+            itemName: l.item?.name || matched?.itemName || matched?.name || l.itemName || 'Raw Material',
+            uomId: l.uomId || matched?.purchaseUomId || matched?.baseUomId,
+            uomCode,
+            uomName,
+            previousRate: unitRate,
+            quantity: qty,
+            unitPrice: unitRate,
+            gstPercent: gst,
+            lineTotal: lineTot,
+          };
+        });
+
+        setLines(mappedLines);
+        message.success(`Quotation ${q.quotationCode} linked! Auto-filled ${mappedLines.length} item(s) with supplier rates.`);
+      }
+    } catch {
+      message.error('Failed to load quotation items');
+    }
+  };
+
+  const handleRequisitionSelect = async (requisitionId: string | null) => {
+    if (!requisitionId) return;
+    try {
+      const res = await apiService.get<any>(`/procurement/requisitions/${requisitionId}`);
+      const pr = res?.data || res;
+      if (!pr) return;
+
+      const rawNotes = pr.notes || '';
+      const divMatch = rawNotes.match(/\[Division:\s*([^\]]+)\]/i);
+      const storeMatch = rawNotes.match(/\[Store:\s*([^\]]+)\]/i);
+
+      let matchedDivisionId = pr.divisionId;
+      if (!matchedDivisionId && divMatch) {
+        const found = divisions.find(d =>
+          d.name?.toLowerCase().includes(divMatch[1].toLowerCase()) ||
+          d.code?.toLowerCase().includes(divMatch[1].toLowerCase())
+        );
+        if (found) matchedDivisionId = found.id;
+      }
+
+      let matchedWarehouseId = pr.warehouseId;
+      if (!matchedWarehouseId && storeMatch) {
+        const found = warehouses.find(w =>
+          w.name?.toLowerCase().includes(storeMatch[1].toLowerCase()) ||
+          w.warehouseCode?.toLowerCase().includes(storeMatch[1].toLowerCase())
+        );
+        if (found) matchedWarehouseId = found.id;
+      }
+
+      const updates: any = {};
+      if (matchedDivisionId) updates.divisionId = matchedDivisionId;
+      if (matchedWarehouseId) {
+        updates.warehouseId = matchedWarehouseId;
+        setSelectedWarehouseId(matchedWarehouseId);
+      }
+      updates.notes = `Generated from PR ${pr.requisitionCode}: ${pr.title || ''}`;
+      form.setFieldsValue(updates);
+
+      if (pr.lines && Array.isArray(pr.lines) && pr.lines.length > 0) {
+        const mappedLines: PurchaseOrderLineForm[] = pr.lines.map((l: any, idx: number) => {
+          const itId = l.itemId || l.item?.id;
+          const matched = itemsCatalog.find((it) => it.id === itId);
+          const purUom = l.uom || matched?.purchaseUom || matched?.baseUom;
+          const uomCode = purUom?.code || l.uomCode || 'KG';
+          const uomName = purUom?.name || 'Kilogram';
+          const qty = Number(l.quantity || 1);
+          const unitRate = Number(l.estimatedUnitPrice || l.unitPrice || 0);
+          const lineTot = Number(l.estimatedTotalPrice || (qty * unitRate));
+
+          return {
+            id: String(idx + 1),
+            itemId: itId,
+            itemCode: l.item?.itemCode || matched?.itemCode || `SKU-00${idx + 1}`,
+            itemName: l.justification || l.item?.name || matched?.name || 'Raw Material',
+            uomId: l.uomId || matched?.purchaseUomId || matched?.baseUomId,
+            uomCode,
+            uomName,
+            previousRate: unitRate,
+            quantity: qty,
+            unitPrice: unitRate,
+            gstPercent: 18,
+            lineTotal: lineTot,
+          };
+        });
+
+        setLines(mappedLines);
+        message.success(`Requisition ${pr.requisitionCode} linked! Auto-filled ${mappedLines.length} item(s).`);
+      }
+    } catch {
+      message.error('Failed to load requisition items');
+    }
+  };
+
+  useEffect(() => {
+    const qId = searchParams.get('quotationId');
+    const rId = searchParams.get('requisitionId');
+    if (qId) {
+      handleOpenCreateModal();
+      handleQuotationSelect(qId);
+    } else if (rId) {
+      handleOpenCreateModal();
+      handleRequisitionSelect(rId);
+    }
+  }, [searchParams]);
 
   // Open Create PO Modal
   const handleOpenCreateModal = () => {
@@ -1529,6 +1685,68 @@ const PurchaseOrderManagement: React.FC = () => {
       >
         <div className="po-modal-body">
           <Form form={form} layout="vertical">
+            {/* Auto-load Reference Selector Card */}
+            {!editingItem && (
+              <div
+                style={{
+                  background: 'rgba(56, 189, 248, 0.05)',
+                  border: '1px solid rgba(56, 189, 248, 0.25)',
+                  borderRadius: 8,
+                  padding: '12px 16px',
+                  marginBottom: 16,
+                }}
+              >
+                <Row gutter={16} align="middle">
+                  <Col span={12}>
+                    <Form.Item
+                      label={
+                        <span style={{ fontWeight: 700, color: '#38bdf8' }}>
+                          <CheckCircleOutlined style={{ marginRight: 6 }} />
+                          Link Winning Vendor Quotation (Auto-fill Vendor, Items & Rates)
+                        </span>
+                      }
+                      style={{ marginBottom: 0 }}
+                    >
+                      <Select
+                        allowClear
+                        showSearch
+                        placeholder="Select quotation (e.g. QT-2026-0001)..."
+                        optionFilterProp="label"
+                        onChange={handleQuotationSelect}
+                        options={quotationsList.map((q) => ({
+                          value: q.id,
+                          label: `${q.quotationCode} — ${q.supplier?.name || q.supplierName || 'Vendor'} [PKR ${formatDecimal(q.totalAmount || 0)}] (${q.status})`,
+                        }))}
+                      />
+                    </Form.Item>
+                  </Col>
+                  <Col span={12}>
+                    <Form.Item
+                      label={
+                        <span style={{ fontWeight: 700, color: '#10b981' }}>
+                          <FileTextOutlined style={{ marginRight: 6 }} />
+                          Or Link Approved Requisition (PR)
+                        </span>
+                      }
+                      style={{ marginBottom: 0 }}
+                    >
+                      <Select
+                        allowClear
+                        showSearch
+                        placeholder="Select PR (e.g. PR-2026-0005)..."
+                        optionFilterProp="label"
+                        onChange={handleRequisitionSelect}
+                        options={requisitionsList.map((r) => ({
+                          value: r.id,
+                          label: `${r.requisitionCode}${r.title ? ` — ${r.title}` : ''} [${r.status}]`,
+                        }))}
+                      />
+                    </Form.Item>
+                  </Col>
+                </Row>
+              </div>
+            )}
+
             <Row gutter={24}>
               {/* Left Column Fields */}
               <Col span={12}>

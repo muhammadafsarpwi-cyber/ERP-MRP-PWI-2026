@@ -23,9 +23,9 @@ export class RfqService {
       throw new ConflictException(`RFQ code '${dto.rfqCode}' already exists`);
     }
 
+    const { lines, purchaseType, divisionId, warehouseId, ...restDto } = dto;
     const rfq = this.repo.create({
-      ...dto,
-      lines: undefined,
+      ...restDto,
       status: 'DRAFT',
       createdBy: userId || null,
       updatedBy: userId || null,

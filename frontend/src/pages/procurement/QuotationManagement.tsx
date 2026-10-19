@@ -1,12 +1,13 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Table, Button, Space, Tag, Form, Input, Select, App, Card,
-  InputNumber, Row, Col, DatePicker, Segmented,
+  InputNumber, Row, Col, DatePicker, Segmented, Badge,
 } from 'antd';
 import {
   PlusOutlined, EditOutlined, SearchOutlined, CheckOutlined, CloseOutlined,
   ReloadOutlined, ApartmentOutlined, ShopOutlined, GlobalOutlined,
-  DollarCircleOutlined,
+  DollarCircleOutlined, ShoppingCartOutlined, FileDoneOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
@@ -19,7 +20,10 @@ interface Quotation {
   quotationCode: string;
   supplierId?: string;
   supplierName?: string;
+  supplier?: { id: string; name: string };
+  rfqId?: string;
   rfqCode?: string;
+  rfq?: { id: string; rfqCode: string; title?: string };
   divisionId?: string;
   divisionName?: string;
   warehouseId?: string;
@@ -52,6 +56,8 @@ const statusColorMap: Record<string, string> = {
 
 const QuotationManagement: React.FC = () => {
   const { message } = App.useApp();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [data, setData] = useState<Quotation[]>([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
@@ -62,12 +68,14 @@ const QuotationManagement: React.FC = () => {
   const [form] = Form.useForm();
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState<string | undefined>(undefined);
+  const [activeTab, setActiveTab] = useState<'ALL' | 'RECEIVED' | 'EVALUATED' | 'SELECTED'>('ALL');
   const [pageSize] = useState(20);
   const [lineItems, setLineItems] = useState<ERPLine[]>([]);
   const [companyId, setCompanyId] = useState('');
   const [suppliers, setSuppliers] = useState<Array<{ id: string; name: string }>>([]);
   const [divisions, setDivisions] = useState<DivisionOption[]>(DEFAULT_DIVISIONS);
   const [warehouses, setWarehouses] = useState<Array<{ id: string; warehouseCode: string; name: string; warehouseType?: string }>>([]);
+  const [rfqs, setRfqs] = useState<Array<{ id: string; rfqCode: string; title?: string; status: string }>>([]);
 
   const watchedDivisionId = Form.useWatch('divisionId', form);
   const watchedWarehouseId = Form.useWatch('warehouseId', form);
@@ -82,6 +90,11 @@ const QuotationManagement: React.FC = () => {
       try {
         const s = await apiService.get<{ data: Array<{ id: string; name: string }> }>('/procurement/suppliers', { limit: 200 });
         setSuppliers(s.data || []);
+      } catch { /* ignore */ }
+      try {
+        const rRes = await apiService.get<any>('/procurement/rfqs', { limit: 200 });
+        const rList = Array.isArray(rRes) ? rRes : rRes?.data || [];
+        setRfqs(rList);
       } catch { /* ignore */ }
       try {
         let items: any[] = [];
@@ -109,7 +122,15 @@ const QuotationManagement: React.FC = () => {
     try {
       const params: any = { page: pageNum, limit: pageSize };
       if (search) params.search = search;
-      if (filterStatus) params.status = filterStatus;
+      if (activeTab === 'RECEIVED') {
+        params.status = 'RECEIVED';
+      } else if (activeTab === 'EVALUATED') {
+        params.status = 'EVALUATED';
+      } else if (activeTab === 'SELECTED') {
+        params.status = 'SELECTED';
+      } else if (filterStatus) {
+        params.status = filterStatus;
+      }
       const response = await apiService.get<{ data: Quotation[]; total: number }>('/procurement/quotations', params);
       setData(response.data || []);
       setTotal(response.total || 0);
@@ -118,8 +139,28 @@ const QuotationManagement: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [search, filterStatus, pageSize, message]);
+  }, [search, activeTab, filterStatus, pageSize, message]);
 
+  // Stage counts for badges
+  const [allQuotesForCounts, setAllQuotesForCounts] = useState<Quotation[]>([]);
+  const fetchCounts = useCallback(async () => {
+    try {
+      const res = await apiService.get<{ data: Quotation[] }>('/procurement/quotations', { limit: 100 });
+      setAllQuotesForCounts(res.data || []);
+    } catch { /* ignore */ }
+  }, []);
+
+  const statusCounts = useMemo(() => {
+    const list = allQuotesForCounts.length > 0 ? allQuotesForCounts : data;
+    return {
+      ALL: list.length,
+      RECEIVED: list.filter(q => q.status === 'RECEIVED').length,
+      EVALUATED: list.filter(q => q.status === 'EVALUATED').length,
+      SELECTED: list.filter(q => q.status === 'SELECTED').length,
+    };
+  }, [allQuotesForCounts, data]);
+
+  useEffect(() => { fetchCounts(); }, [fetchCounts]);
   useEffect(() => { fetchData(page); }, [page, fetchData]);
 
   const generateQuotationCode = useCallback(() => {
@@ -127,6 +168,48 @@ const QuotationManagement: React.FC = () => {
     const nextSeq = (total || data.length || 0) + 1;
     return `QT-${currentYear}-${String(nextSeq).padStart(4, '0')}`;
   }, [total, data.length]);
+
+  const handleRfqChange = async (rfqId: string | null) => {
+    if (!rfqId) return;
+    try {
+      const res = await apiService.get<any>(`/procurement/rfqs/${rfqId}`);
+      const rfq = res?.data || res;
+      if (!rfq) return;
+
+      form.setFieldsValue({
+        supplierId: rfq.supplierId,
+        divisionId: rfq.divisionId,
+        warehouseId: rfq.warehouseId,
+        purchaseType: rfq.purchaseType || 'LOCAL',
+        notes: `Quotation against RFQ: ${rfq.rfqCode}${rfq.title ? ` (${rfq.title})` : ''}`,
+      });
+
+      if (rfq.lines && Array.isArray(rfq.lines) && rfq.lines.length > 0) {
+        const mappedLines: ERPLine[] = rfq.lines.map((l: any, i: number) => {
+          const qty = Number(l.quantity || 0);
+          return {
+            id: `quote_line_${i}_${Date.now()}`,
+            itemId: l.itemId,
+            itemCode: l.item?.itemCode || l.itemCode || '',
+            itemName: l.item?.name || l.notes || l.itemName || 'Raw Material',
+            uomId: l.uomId,
+            uomCode: l.uom?.code || l.uomCode || 'KG',
+            quantity: qty,
+            rate: 0,
+            unitPrice: 0,
+            discountPercent: 0,
+            taxPercent: 18,
+            lineTotal: 0,
+            totalPrice: 0,
+          };
+        });
+        setLineItems(mappedLines);
+        message.success(`RFQ ${rfq.rfqCode} linked! ${mappedLines.length} item(s) loaded. Please enter supplier quoted rates.`);
+      }
+    } catch {
+      message.error('Failed to load RFQ items');
+    }
+  };
 
   const handleCreate = () => {
     setEditingItem(null);
@@ -170,7 +253,7 @@ const QuotationManagement: React.FC = () => {
           itemId: l.itemId,
           uomId: l.uomId,
           quantity: Number(l.quantity || 0),
-          unitPrice: Number(l.rate || 0),
+          unitPrice: Number(l.rate || (l as any).unitPrice || 0),
           discountPercent: Number(l.discountPercent || 0),
           taxPercent: Number(l.taxPercent || 18),
           lineTotal: Number(l.lineTotal || 0),
@@ -185,6 +268,7 @@ const QuotationManagement: React.FC = () => {
       }
       setModalVisible(false);
       fetchData(page);
+      fetchCounts();
     } catch (error: any) {
       const msg = error?.response?.data?.message;
       message.error(Array.isArray(msg) ? msg[0] : 'Failed to save quotation');
@@ -198,6 +282,7 @@ const QuotationManagement: React.FC = () => {
       await apiService.patch(`/procurement/quotations/${id}/${action}`);
       message.success(`Quotation ${action}ed successfully`);
       fetchData(page);
+      fetchCounts();
     } catch {
       message.error(`Failed to ${action} quotation`);
     }
@@ -211,8 +296,22 @@ const QuotationManagement: React.FC = () => {
       width: 140,
       render: (code) => <span style={{ fontWeight: 700, fontFamily: 'monospace', color: '#38bdf8' }}>{code}</span>,
     },
-    { title: 'Supplier', dataIndex: 'supplierName', key: 'supplierName', width: 180 },
-    { title: 'RFQ', dataIndex: 'rfqCode', key: 'rfqCode', width: 130 },
+    {
+      title: 'Supplier',
+      key: 'supplier',
+      width: 200,
+      render: (_, record: any) => {
+        const name = record.supplier?.name || record.supplierName || suppliers.find(s => s.id === record.supplierId)?.name || '—';
+        return <span style={{ fontWeight: 600 }}>{name}</span>;
+      },
+    },
+    {
+      title: 'RFQ',
+      dataIndex: 'rfqCode',
+      key: 'rfqCode',
+      width: 130,
+      render: (r, record: any) => <span style={{ fontFamily: 'monospace', color: '#94a3b8' }}>{r || record.rfq?.rfqCode || '—'}</span>,
+    },
     {
       title: 'Quotation Date',
       dataIndex: 'quotationDate',
@@ -231,25 +330,57 @@ const QuotationManagement: React.FC = () => {
       title: 'Total Amount',
       dataIndex: 'totalAmount',
       key: 'totalAmount',
-      width: 130,
-      render: (amount: number) => `PKR ${formatDecimal(amount || 0)}`,
+      width: 140,
+      render: (amount: number) => (
+        <span style={{ fontWeight: 700, color: '#10b981' }}>
+          PKR {formatDecimal(amount || 0)}
+        </span>
+      ),
     },
     {
       title: 'Status',
       dataIndex: 'status',
       key: 'status',
-      width: 140,
+      width: 130,
       render: (status: string) => <Tag color={statusColorMap[status] || 'default'} style={{ fontWeight: 700 }}>{status}</Tag>,
     },
     {
       title: 'Actions',
       key: 'actions',
-      width: 200,
+      width: 250,
       render: (_, record) => (
-        <Space size="small">
+        <Space size="small" wrap>
           <Button size="small" icon={<EditOutlined />} onClick={() => handleEdit(record)} disabled={record.status !== 'DRAFT'} />
-          {record.status === 'EVALUATED' && <Button size="small" type="primary" icon={<CheckOutlined />} onClick={() => handleAction(record.id, 'select')}>Select</Button>}
-          {record.status !== 'REJECTED' && record.status !== 'SELECTED' && <Button size="small" danger icon={<CloseOutlined />} onClick={() => handleAction(record.id, 'reject')}>Reject</Button>}
+          
+          {(record.status === 'RECEIVED' || record.status === 'EVALUATED') && (
+            <Button
+              size="small"
+              type="primary"
+              icon={<CheckOutlined />}
+              onClick={() => handleAction(record.id, 'select')}
+              style={{ background: '#0284c7', borderColor: '#0284c7', fontWeight: 600 }}
+            >
+              Select Winner
+            </Button>
+          )}
+
+          {record.status === 'SELECTED' && (
+            <Button
+              size="small"
+              type="primary"
+              style={{ background: '#10b981', borderColor: '#10b981', fontWeight: 700 }}
+              icon={<ShoppingCartOutlined />}
+              onClick={() => navigate(`/procurement/orders?quotationId=${record.id}`)}
+            >
+              Generate PO
+            </Button>
+          )}
+
+          {record.status !== 'REJECTED' && record.status !== 'SELECTED' && (
+            <Button size="small" danger icon={<CloseOutlined />} onClick={() => handleAction(record.id, 'reject')}>
+              Reject
+            </Button>
+          )}
         </Space>
       ),
     },
@@ -265,11 +396,61 @@ const QuotationManagement: React.FC = () => {
       }
       extra={
         <Space>
-          <Button icon={<ReloadOutlined />} onClick={() => fetchData(page)}>Refresh</Button>
+          <Button icon={<ReloadOutlined />} onClick={() => { fetchData(page); fetchCounts(); }}>Refresh</Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate} style={{ fontWeight: 600 }}>Create Quotation</Button>
         </Space>
       }
     >
+      {/* Workflow Tabs / Chevrons */}
+      <div style={{ display: 'flex', gap: 10, marginBottom: 18, flexWrap: 'wrap' }}>
+        <Button
+          type={activeTab === 'ALL' ? 'primary' : 'default'}
+          onClick={() => { setActiveTab('ALL'); setPage(1); }}
+          style={{ borderRadius: 6, fontWeight: 600 }}
+        >
+          All Quotations <Badge count={statusCounts.ALL} style={{ marginLeft: 6, backgroundColor: activeTab === 'ALL' ? '#ffffff' : '#64748b', color: activeTab === 'ALL' ? '#0f172a' : '#ffffff' }} />
+        </Button>
+        <Button
+          type={activeTab === 'RECEIVED' ? 'primary' : 'default'}
+          onClick={() => { setActiveTab('RECEIVED'); setPage(1); }}
+          style={{
+            borderRadius: 6,
+            fontWeight: 600,
+            borderColor: activeTab === 'RECEIVED' ? '#38bdf8' : undefined,
+            backgroundColor: activeTab === 'RECEIVED' ? '#0284c7' : undefined,
+            color: activeTab === 'RECEIVED' ? '#ffffff' : undefined,
+          }}
+        >
+          Received <Badge count={statusCounts.RECEIVED} style={{ marginLeft: 6, backgroundColor: '#38bdf8' }} />
+        </Button>
+        <Button
+          type={activeTab === 'EVALUATED' ? 'primary' : 'default'}
+          onClick={() => { setActiveTab('EVALUATED'); setPage(1); }}
+          style={{
+            borderRadius: 6,
+            fontWeight: 600,
+            borderColor: activeTab === 'EVALUATED' ? '#a855f7' : undefined,
+            backgroundColor: activeTab === 'EVALUATED' ? '#7e22ce' : undefined,
+            color: activeTab === 'EVALUATED' ? '#ffffff' : undefined,
+          }}
+        >
+          Evaluated <Badge count={statusCounts.EVALUATED} style={{ marginLeft: 6, backgroundColor: '#a855f7' }} />
+        </Button>
+        <Button
+          type={activeTab === 'SELECTED' ? 'primary' : 'default'}
+          onClick={() => { setActiveTab('SELECTED'); setPage(1); }}
+          style={{
+            borderRadius: 6,
+            fontWeight: 600,
+            borderColor: activeTab === 'SELECTED' ? '#10b981' : undefined,
+            backgroundColor: activeTab === 'SELECTED' ? '#059669' : undefined,
+            color: activeTab === 'SELECTED' ? '#ffffff' : undefined,
+          }}
+        >
+          Selected / Ready for PO <Badge count={statusCounts.SELECTED} style={{ marginLeft: 6, backgroundColor: '#10b981' }} />
+        </Button>
+      </div>
+
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col span={8}>
           <Input placeholder="Search quotations, RFQ..." prefix={<SearchOutlined />} value={search} onChange={(e) => setSearch(e.target.value)} onPressEnter={() => fetchData(1)} allowClear />
@@ -305,6 +486,39 @@ const QuotationManagement: React.FC = () => {
           <Form.Item name="companyId" hidden><Input /></Form.Item>
 
           <Card size="small" style={{ marginBottom: 14, background: 'rgba(255, 255, 255, 0.02)', borderColor: 'rgba(255, 255, 255, 0.1)' }}>
+            {/* RFQ Reference Link Row */}
+            <Row gutter={16} style={{ marginBottom: 12, paddingBottom: 10, borderBottom: '1px dashed rgba(255, 255, 255, 0.1)' }}>
+              <Col span={14}>
+                <Form.Item
+                  name="rfqId"
+                  label={
+                    <span style={{ fontWeight: 700, color: '#38bdf8' }}>
+                      <FileDoneOutlined style={{ marginRight: 6 }} />
+                      Link RFQ Reference (Auto-fill Items & Quantities)
+                    </span>
+                  }
+                  style={{ marginBottom: 0 }}
+                >
+                  <Select
+                    showSearch
+                    allowClear
+                    placeholder="Select RFQ (e.g. RFQ-2026-0004) to load supplier & items..."
+                    optionFilterProp="label"
+                    onChange={handleRfqChange}
+                    options={rfqs.map((r) => ({
+                      value: r.id,
+                      label: `${r.rfqCode}${r.title ? ` — ${r.title}` : ''} [${r.status}]`,
+                    }))}
+                  />
+                </Form.Item>
+              </Col>
+              <Col span={10}>
+                <div style={{ marginTop: 28, fontSize: 12, color: '#94a3b8', lineHeight: '1.4' }}>
+                  ⚡ Selecting an RFQ auto-populates supplier, division, target store & all line items.
+                </div>
+              </Col>
+            </Row>
+
             <Row gutter={16}>
               <Col span={6}>
                 <Form.Item name="quotationCode" label={<span style={{ fontWeight: 600 }}>Quotation Code <Tag color="blue">Auto QT</Tag></span>} rules={[{ required: true }]}>
@@ -317,29 +531,6 @@ const QuotationManagement: React.FC = () => {
                 </Form.Item>
               </Col>
               <Col span={6}>
-                <Form.Item name="rfqId" label={<span style={{ fontWeight: 600 }}>RFQ Reference</span>}>
-                  <Input placeholder="e.g. RFQ-2026-0001" />
-                </Form.Item>
-              </Col>
-              <Col span={6}>
-                <Form.Item name="purchaseType" label={<span style={{ fontWeight: 600 }}><GlobalOutlined style={{ marginRight: 4 }} />Origin</span>} initialValue="LOCAL">
-                  <Segmented block options={[{ label: 'Local', value: 'LOCAL' }, { label: 'Import', value: 'IMPORT' }]} />
-                </Form.Item>
-              </Col>
-            </Row>
-
-            <Row gutter={16}>
-              <Col span={6}>
-                <Form.Item name="divisionId" label={<span style={{ fontWeight: 600 }}><ApartmentOutlined style={{ marginRight: 4, color: '#10b981' }} />Division</span>}>
-                  <Select placeholder="Select division..." allowClear options={divisions.map((d) => ({ value: d.id, label: `${d.code ? `[${d.code}] ` : ''}${d.name}` }))} />
-                </Form.Item>
-              </Col>
-              <Col span={6}>
-                <Form.Item name="warehouseId" label={<span style={{ fontWeight: 600 }}><ShopOutlined style={{ marginRight: 4, color: '#f59e0b' }} />Target Warehouse / Store</span>}>
-                  <Select placeholder="Select warehouse..." allowClear options={warehouses.map((w) => ({ value: w.id, label: `${w.warehouseCode} — ${w.name}` }))} />
-                </Form.Item>
-              </Col>
-              <Col span={6}>
                 <Form.Item name="quotationDate" label={<span style={{ fontWeight: 600 }}>Quotation Date</span>}>
                   <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
                 </Form.Item>
@@ -347,6 +538,24 @@ const QuotationManagement: React.FC = () => {
               <Col span={6}>
                 <Form.Item name="validUntil" label={<span style={{ fontWeight: 600 }}>Valid Until</span>}>
                   <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
+                </Form.Item>
+              </Col>
+            </Row>
+
+            <Row gutter={16}>
+              <Col span={8}>
+                <Form.Item name="divisionId" label={<span style={{ fontWeight: 600 }}><ApartmentOutlined style={{ marginRight: 4, color: '#10b981' }} />Division</span>}>
+                  <Select placeholder="Select division..." allowClear options={divisions.map((d) => ({ value: d.id, label: `${d.code ? `[${d.code}] ` : ''}${d.name}` }))} />
+                </Form.Item>
+              </Col>
+              <Col span={8}>
+                <Form.Item name="warehouseId" label={<span style={{ fontWeight: 600 }}><ShopOutlined style={{ marginRight: 4, color: '#f59e0b' }} />Target Warehouse / Store</span>}>
+                  <Select placeholder="Select warehouse..." allowClear options={warehouses.map((w) => ({ value: w.id, label: `${w.warehouseCode} — ${w.name}` }))} />
+                </Form.Item>
+              </Col>
+              <Col span={8}>
+                <Form.Item name="purchaseType" label={<span style={{ fontWeight: 600 }}><GlobalOutlined style={{ marginRight: 4 }} />Origin</span>} initialValue="LOCAL">
+                  <Segmented block options={[{ label: 'Local', value: 'LOCAL' }, { label: 'Import', value: 'IMPORT' }]} />
                 </Form.Item>
               </Col>
             </Row>

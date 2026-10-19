@@ -664,6 +664,25 @@ export class RawMaterialReceivingService {
         }
       }
 
+      // Determine if a PO was referenced
+      const targetOrderId = (dto as any).purchaseOrderId || dto.productionOrderId;
+      let purchaseOrderId: string | null = null;
+      let productionOrderId: string | null = null;
+      let poCodeRef: string | null = null;
+
+      if (targetOrderId) {
+        const poRows = await manager.query(
+          `SELECT id, po_code FROM purchase_orders WHERE id = $1 AND company_id = $2`,
+          [targetOrderId, companyId],
+        );
+        if (poRows && poRows.length > 0) {
+          purchaseOrderId = poRows[0].id;
+          poCodeRef = poRows[0].po_code;
+        } else {
+          productionOrderId = targetOrderId;
+        }
+      }
+
       const receiptCode = await this.nextCode('receipt', manager);
       const savedHeader = await manager.getRepository(RawMaterialReceipt).save(
         manager.getRepository(RawMaterialReceipt).create({
@@ -677,8 +696,9 @@ export class RawMaterialReceivingService {
           sectionId: dto.sectionId,
           departmentId: dto.departmentId,
           warehouseId: dto.warehouseId,
-          productionOrderId: dto.productionOrderId ?? null,
-          reference: dto.reference ?? null,
+          purchaseOrderId,
+          productionOrderId,
+          reference: dto.reference || poCodeRef || null,
           status: 'CONFIRMED',
           remarks: dto.remarks ?? null,
           createdBy: userId ?? null,
@@ -702,6 +722,33 @@ export class RawMaterialReceivingService {
           remarks: it.remarks ?? null,
           createdBy: userId ?? null,
         })));
+      }
+
+      if (purchaseOrderId) {
+        for (const line of lines) {
+          const received = Number(line.receivedQuantity || 0);
+          if (received > 0 && line.itemId) {
+            await manager.query(
+              `UPDATE purchase_order_lines
+                  SET received_quantity = COALESCE(received_quantity, 0) + $1,
+                      updated_at = NOW()
+                WHERE po_id = $2 AND item_id = $3`,
+              [received, purchaseOrderId, line.itemId],
+            );
+          }
+        }
+        const unfulfilled = await manager.query(
+          `SELECT COUNT(*) AS count
+             FROM purchase_order_lines
+            WHERE po_id = $1 AND (COALESCE(received_quantity, 0) < quantity)`,
+          [purchaseOrderId],
+        );
+        const count = Number(unfulfilled[0]?.count || 0);
+        const newStatus = count === 0 ? 'FULLY_RECEIVED' : 'PARTIALLY_RECEIVED';
+        await manager.query(
+          `UPDATE purchase_orders SET status = $1, updated_at = NOW() WHERE id = $2`,
+          [newStatus, purchaseOrderId],
+        );
       }
 
       await this.postReceiptStock(manager, savedHeader, lines, userId);
@@ -1091,6 +1138,85 @@ export class RawMaterialReceivingService {
       productionOrders,
       sections: sections.filter((s) => !s.divisionId || idSet.has(s.divisionId)),
       departments: departments.filter((d) => !d.divisionId || idSet.has(d.divisionId)),
+    };
+  }
+
+  async getPoFulfillment(companyId: string, poId: string) {
+    const poRows = await this.receiptRepo.manager.query(
+      `SELECT po.id, po.po_code, po.order_date, po.status, po.warehouse_id,
+              w.name AS warehouse_name, w.warehouse_code, s.name AS supplier_name
+         FROM purchase_orders po
+         LEFT JOIN warehouses w ON w.id = po.warehouse_id
+         LEFT JOIN suppliers s ON s.id = po.supplier_id
+        WHERE po.id = $1 AND po.company_id = $2`,
+      [poId, companyId],
+    );
+    if (!poRows || poRows.length === 0) {
+      throw new NotFoundException('Purchase Order ' + poId + ' not found.');
+    }
+
+    const lines = await this.receiptRepo.manager.query(
+      `SELECT pol.id AS po_line_id, pol.item_id, pol.quantity AS ordered_qty, pol.unit_price,
+              i.item_code, i.name AS item_name, pol.uom_id, COALESCE(u.code, u.symbol, 'KG') AS uom_code
+         FROM purchase_order_lines pol
+         JOIN items i ON i.id = pol.item_id
+         LEFT JOIN uoms u ON u.id = pol.uom_id
+        WHERE pol.po_id = $1
+        ORDER BY pol.line_number ASC`,
+      [poId],
+    );
+
+    const receiptsAgg = await this.receiptRepo.manager.query(
+      `SELECT rl.item_id,
+              COALESCE(SUM(rl.received_quantity), 0) AS total_received,
+              COALESCE(SUM(rl.gate_pass_quantity), 0) AS total_gp,
+              COUNT(DISTINCT r.id) AS receipt_count
+         FROM raw_material_receipts r
+         JOIN raw_material_receipt_lines rl ON rl.receipt_id = r.id
+        WHERE (r.purchase_order_id = $1 OR r.reference = $2)
+          AND r.status != 'CANCELLED'
+        GROUP BY rl.item_id`,
+      [poId, poRows[0].po_code],
+    );
+
+    const receivedMap = new Map<string, { totalReceived: number; totalGp: number; receiptCount: number }>();
+    for (const r of receiptsAgg) {
+      receivedMap.set(r.item_id, {
+        totalReceived: Number(r.total_received) || 0,
+        totalGp: Number(r.total_gp) || 0,
+        receiptCount: Number(r.receipt_count) || 0,
+      });
+    }
+
+    const items = lines.map((l: any) => {
+      const agg = receivedMap.get(l.item_id) || { totalReceived: 0, totalGp: 0, receiptCount: 0 };
+      const ordered = Number(l.ordered_qty) || 0;
+      const received = agg.totalReceived;
+      const remaining = Math.max(0, ordered - received);
+      const percent = ordered > 0 ? Math.min(100, Math.round((received / ordered) * 100)) : 100;
+      const isClosed = received >= ordered;
+      const overReceived = received > ordered ? received - ordered : 0;
+
+      return {
+        poLineId: l.po_line_id,
+        itemId: l.item_id,
+        itemCode: l.item_code,
+        itemName: l.item_name,
+        uomId: l.uom_id,
+        uomCode: l.uom_code,
+        orderedQty: ordered,
+        receivedQty: received,
+        remainingQty: remaining,
+        percent,
+        isClosed,
+        overReceived,
+        receiptCount: agg.receiptCount,
+      };
+    });
+
+    return {
+      po: poRows[0],
+      items,
     };
   }
 

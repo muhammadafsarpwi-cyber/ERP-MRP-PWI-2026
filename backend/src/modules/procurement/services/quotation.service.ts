@@ -23,9 +23,9 @@ export class QuotationService {
       throw new ConflictException(`Quotation code '${dto.quotationCode}' already exists`);
     }
 
+    const { lines, purchaseType, divisionId, warehouseId, ...restDto } = dto;
     const quotation = this.repo.create({
-      ...dto,
-      lines: undefined,
+      ...restDto,
       status: 'RECEIVED',
       createdBy: userId || null,
       updatedBy: userId || null,
@@ -92,8 +92,8 @@ export class QuotationService {
 
   async select(id: string, userId?: string): Promise<Quotation> {
     const quotation = await this.findOne(id);
-    if (quotation.status !== 'EVALUATED') {
-      throw new BadRequestException('Can only select quotations in EVALUATED status');
+    if (quotation.status !== 'EVALUATED' && quotation.status !== 'RECEIVED') {
+      throw new BadRequestException('Can only select quotations in RECEIVED or EVALUATED status');
     }
     quotation.status = 'SELECTED';
     quotation.updatedBy = userId || null;
