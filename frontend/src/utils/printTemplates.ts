@@ -1645,4 +1645,175 @@ export function printLoadingAdviceSlip(delivery: any, order?: any): void {
   printHtmlContent(`Loading_Advice_${docNo}`, html);
 }
 
+// 7. GOODS RECEIPT NOTE (GRN) PRINT
+export function printGoodsReceiptDocument(gr: any): void {
+  if (!gr) return;
+  const items = gr.items || gr.lines || [];
+  const supName = gr.supplier?.name || gr.supplier?.companyName || gr.supplierName || 'Valued Supplier';
+  const supAddress = gr.supplier?.addressLine1 || gr.supplier?.address || gr.deliveryAddress || 'Industrial Area';
+  const supPhone = gr.supplier?.phone || gr.supplier?.contactPhone || '-';
+  const supNtn = gr.supplier?.taxNumber || gr.supplier?.ntn || gr.supplier?.gstin || '-';
+  const whName = gr.warehouse?.name || (gr as any).warehouseName || 'Main Raw Material Warehouse';
+  const poRef = gr.po?.poCode || gr.poCode || (gr.notes && typeof gr.notes === 'string' ? gr.notes.match(/PO #([A-Z0-9-]+)/)?.[1] : undefined) || '—';
+  const grnNo = gr.grnNumber || '—';
+  const receiptCode = gr.receiptCode || 'CGR-GRN';
+  const formattedDate = gr.receiptDate ? dayjs(gr.receiptDate).format('DD/MM/YYYY') : dayjs().format('DD/MM/YYYY');
+
+  let totalOrdered = 0;
+  let totalReceived = 0;
+  let totalAccepted = 0;
+  let totalValue = 0;
+
+  const rowsHtml = (items.length > 0 ? items : [
+    {
+      itemName: 'Industrial Received Material',
+      itemCode: 'RM-MAT-001',
+      quantityOrdered: 1,
+      quantityReceived: 1,
+      quantityAccepted: 1,
+      quantityRejected: 0,
+      uomCode: 'KG',
+      unitPrice: 0,
+      totalPrice: 0,
+    }
+  ]).map((it: any, idx: number) => {
+    const pCode = it.item?.itemCode || it.itemCode || `SKU-00${idx + 1}`;
+    const pName = it.item?.name || it.itemName || it.name || it.description || 'Received Material';
+    const ordQty = Number(it.quantityOrdered || it.orderQuantity || it.quantity || 0);
+    const recQty = Number(it.quantityReceived || it.quantity || 0);
+    const accQty = Number(it.quantityAccepted ?? recQty);
+    const rejQty = Number(it.quantityRejected || 0);
+    const uom = it.uom?.code || it.uomCode || 'PCS';
+    const rate = Number(it.unitPrice || it.rate || 0);
+    const tot = Number(it.totalPrice || it.lineTotal || (accQty * rate));
+    const remarks = it.conditionNotes || it.notes || (rejQty > 0 ? `Rejected: ${rejQty} ${uom}` : 'Inspected & Passed');
+
+    totalOrdered += ordQty;
+    totalReceived += recQty;
+    totalAccepted += accQty;
+    totalValue += tot;
+
+    return `
+      <tr style="border-bottom: 1px solid #e2e8f0; font-size: 10px;">
+        <td style="text-align: center; padding: 6px 4px; width: 26px;">${idx + 1}</td>
+        <td style="padding: 6px 8px; font-family: monospace; font-weight: 700; color: #0284c7;">${pCode}</td>
+        <td style="padding: 6px 8px;"><strong>${pName}</strong></td>
+        <td style="text-align: right; padding: 6px 6px;">${formatQty(ordQty)}</td>
+        <td style="text-align: right; padding: 6px 6px; font-weight: 700; color: #0f172a;">${formatQty(recQty)}</td>
+        <td style="text-align: right; padding: 6px 6px; color: #16a34a; font-weight: 700;">${formatQty(accQty)}</td>
+        <td style="text-align: right; padding: 6px 6px; color: ${rejQty > 0 ? '#dc2626' : '#94a3b8'};">${formatQty(rejQty)}</td>
+        <td style="text-align: center; padding: 6px 4px; font-weight: 600;">${uom}</td>
+        <td style="text-align: right; padding: 6px 6px;">${formatDecimal(rate)}</td>
+        <td style="text-align: right; padding: 6px 8px; font-weight: 700;">${formatDecimal(tot)}</td>
+        <td style="padding: 6px 8px; font-size: 9px; color: #475569;">${remarks}</td>
+      </tr>
+    `;
+  }).join('');
+
+  const bodyHtml = `
+    <!-- Top Header -->
+    <div style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #0f172a; padding-bottom: 12px; margin-bottom: 12px;">
+      <div style="display: flex; align-items: center; gap: 12px;">
+        <div style="background: #181f2c; color: #ffffff; width: 48px; height: 48px; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 15px; letter-spacing: 0.5px;">
+          PWI
+        </div>
+        <div>
+          <div style="font-size: 18px; font-weight: 800; color: #0f172a; line-height: 1.2;">Pakistan Wire Industries (Pvt) Ltd.</div>
+          <div style="font-size: 11px; color: #475569; margin-top: 2px;">Inbound Quality & Warehouse Reception System</div>
+        </div>
+      </div>
+      <div style="text-align: right;">
+        <div style="display: inline-block; background: #0284c7; color: #ffffff; padding: 4px 14px; font-size: 13px; font-weight: 800; letter-spacing: 0.8px; border-radius: 2px; text-transform: uppercase;">
+          GOODS RECEIPT NOTE (GRN)
+        </div>
+        <div style="font-size: 13px; font-weight: 700; color: #0f172a; margin-top: 4px; font-family: monospace;">Receipt #: ${receiptCode}</div>
+        <div style="font-size: 11px; color: #475569;">GRN #: <strong>${grnNo}</strong> | Date: ${formattedDate}</div>
+      </div>
+    </div>
+
+    <!-- Metadata Two Column Box -->
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; font-size: 11px;">
+      <div style="border: 1px solid #cbd5e1; border-radius: 4px; padding: 10px; background: #f8fafc;">
+        <div style="font-weight: 700; color: #0284c7; margin-bottom: 6px; text-transform: uppercase; font-size: 10px; letter-spacing: 0.5px;">
+          Supplier / Consignor Details
+        </div>
+        <div style="font-weight: 800; font-size: 13px; color: #0f172a;">${supName}</div>
+        <div style="color: #475569; margin-top: 2px;">${supAddress}</div>
+        <div style="color: #475569; margin-top: 2px;">Phone: ${supPhone} | NTN/GST: ${supNtn}</div>
+      </div>
+
+      <div style="border: 1px solid #cbd5e1; border-radius: 4px; padding: 10px; background: #f8fafc;">
+        <div style="font-weight: 700; color: #0284c7; margin-bottom: 6px; text-transform: uppercase; font-size: 10px; letter-spacing: 0.5px;">
+          Receiving & Store Reference
+        </div>
+        <div><strong>PO / PR Reference:</strong> <span style="font-family: monospace; color: #0284c7; font-weight: 700;">${poRef}</span></div>
+        <div><strong>Target Warehouse / Store:</strong> ${whName}</div>
+        <div><strong>Delivery Note / Challan #:</strong> ${gr.deliveryNoteNumber || '—'}</div>
+        <div><strong>Receipt Status:</strong> <span style="font-weight: 700; color: ${gr.status === 'POSTED' ? '#7c3aed' : '#0284c7'};">${gr.status || 'DRAFT'}</span></div>
+      </div>
+    </div>
+
+    <!-- Table of Received Items -->
+    <table style="width: 100%; border-collapse: collapse; margin-bottom: 14px; border: 1px solid #cbd5e1;">
+      <thead>
+        <tr style="background: #0f172a; color: #ffffff; font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.5px;">
+          <th style="padding: 7px 4px; width: 26px; text-align: center;">#</th>
+          <th style="padding: 7px 8px; text-align: left; width: 110px;">Item Code</th>
+          <th style="padding: 7px 8px; text-align: left;">Product Description</th>
+          <th style="padding: 7px 6px; text-align: right; width: 65px;">Ordered</th>
+          <th style="padding: 7px 6px; text-align: right; width: 65px;">Received</th>
+          <th style="padding: 7px 6px; text-align: right; width: 65px;">Accepted</th>
+          <th style="padding: 7px 6px; text-align: right; width: 65px;">Rejected</th>
+          <th style="padding: 7px 4px; text-align: center; width: 45px;">UOM</th>
+          <th style="padding: 7px 6px; text-align: right; width: 75px;">Unit Rate</th>
+          <th style="padding: 7px 8px; text-align: right; width: 85px;">Total Value</th>
+          <th style="padding: 7px 8px; text-align: left; width: 120px;">Remarks</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rowsHtml}
+      </tbody>
+      <tfoot>
+        <tr style="background: #f1f5f9; font-weight: 800; font-size: 11px; border-top: 2px solid #0f172a;">
+          <td colspan="3" style="padding: 8px; text-align: right;">TOTALS:</td>
+          <td style="padding: 8px 6px; text-align: right;">${formatQty(totalOrdered)}</td>
+          <td style="padding: 8px 6px; text-align: right;">${formatQty(totalReceived)}</td>
+          <td style="padding: 8px 6px; text-align: right; color: #16a34a;">${formatQty(totalAccepted)}</td>
+          <td colspan="3" style="padding: 8px 6px; text-align: right;">PKR</td>
+          <td style="padding: 8px 8px; text-align: right; font-size: 12px; color: #0f172a;">Rs ${formatDecimal(totalValue)}</td>
+          <td></td>
+        </tr>
+      </tfoot>
+    </table>
+
+    ${gr.notes ? `
+      <div style="border: 1px solid #cbd5e1; border-radius: 4px; padding: 8px 12px; margin-bottom: 16px; background: #fdfdfe; font-size: 10px;">
+        <strong>Inspection & Receiving Remarks:</strong> ${gr.notes}
+      </div>
+    ` : ''}
+
+    <!-- Signatures Section -->
+    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 12px; margin-top: 36px; padding-top: 8px;">
+      <div style="text-align: center; border-top: 1.5px solid #64748b; padding-top: 4px; font-size: 10px; font-weight: 700; color: #334155;">
+        <div>STORE KEEPER</div>
+        <div style="font-size: 9px; color: #64748b; font-weight: normal;">(Received in Warehouse)</div>
+      </div>
+      <div style="text-align: center; border-top: 1.5px solid #64748b; padding-top: 4px; font-size: 10px; font-weight: 700; color: #334155;">
+        <div>QUALITY INSPECTOR (QC)</div>
+        <div style="font-size: 9px; color: #64748b; font-weight: normal;">(Inspected & Tested)</div>
+      </div>
+      <div style="text-align: center; border-top: 1.5px solid #64748b; padding-top: 4px; font-size: 10px; font-weight: 700; color: #334155;">
+        <div>STORE INCHARGE / HOD</div>
+        <div style="font-size: 9px; color: #64748b; font-weight: normal;">(Verified & Approved)</div>
+      </div>
+      <div style="text-align: center; border-top: 1.5px solid #64748b; padding-top: 4px; font-size: 10px; font-weight: 700; color: #334155;">
+        <div>GATE SECURITY INWARD</div>
+        <div style="font-size: 9px; color: #64748b; font-weight: normal;">(Vehicle / Material Entry)</div>
+      </div>
+    </div>
+  `;
+
+  printHtmlContent(`Goods_Receipt_${receiptCode}`, bodyHtml);
+}
+
 

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   Tabs, Card, Tag, Typography, Space, Button, Table, Input, Row, Col, Segmented,
-  Modal, message, Popover, Checkbox, Empty,
+  Modal, message, Popover, Checkbox, Empty, Progress,
 } from 'antd';
 import {
   InboxOutlined, SettingOutlined, HistoryOutlined,
@@ -13,7 +13,7 @@ import {
   ArrowsAltOutlined, ShrinkOutlined, SendOutlined, UpOutlined,
   PrinterOutlined, FilePdfOutlined, FileExcelOutlined, WhatsAppOutlined,
   CopyOutlined, CheckOutlined, AimOutlined, TeamOutlined, AppstoreOutlined,
-  DollarCircleOutlined, ShopOutlined, ClockCircleOutlined,
+  DollarCircleOutlined, ShopOutlined, ClockCircleOutlined, CalendarOutlined,
 } from '@ant-design/icons';
 import HandPackingEntry from './HandPackingEntry';
 import FinishedGoodBomSetup from '../bom/FinishedGoodBomSetup';
@@ -22,7 +22,10 @@ import Breadcrumbs from '../../../components/shared/Breadcrumbs';
 import apiService from '../../../services/api';
 import { formatNumber, toNum } from '../../../utils/numberFormat';
 import dayjs from 'dayjs';
+import customParseFormat from 'dayjs/plugin/customParseFormat';
 import '../productionItemOpenStock.css';
+
+dayjs.extend(customParseFormat);
 
 const { Text } = Typography;
 
@@ -77,6 +80,7 @@ export const PackingDepartmentHub: React.FC = () => {
   const [expandedCustomerIds, setExpandedCustomerIds] = useState<string[]>([]);
   const [loadingHistory, setLoadingHistory] = useState<boolean>(false);
   const [historyLogs, setHistoryLogs] = useState<any[]>([]);
+  const [salesOrders, setSalesOrders] = useState<any[]>([]);
   const [historySearchText, setHistorySearchText] = useState<string>('');
   const [historyFetched, setHistoryFetched] = useState<boolean>(false);
 
@@ -98,7 +102,11 @@ export const PackingDepartmentHub: React.FC = () => {
   const fetchPackingHistory = useCallback(async () => {
     setLoadingHistory(true);
     try {
-      const res: any = await apiService.get('/production/entries?limit=100&sortBy=createdAt&sortDir=DESC').catch(() => null);
+      const [res, soRes, openStockRes]: any = await Promise.all([
+        apiService.get('/production/entries?limit=500&sortBy=createdAt&sortDir=DESC').catch(() => null),
+        apiService.get('/sales/orders?limit=500').catch(() => null),
+        apiService.get('/production/open-stock/history?limit=500').catch(() => null),
+      ]);
       let list: any[] = [];
       if (Array.isArray(res)) list = res;
       else if (Array.isArray(res?.data)) list = res.data;
@@ -118,8 +126,56 @@ export const PackingDepartmentHub: React.FC = () => {
         );
       });
 
-      // Pure DB truth — zero dummy fallback!
-      setHistoryLogs(packingEntries);
+      // Integrate customer opening stock entries from stock ledger (e.g. CROWN FIT PAKISTAN, etc.)
+      const openStockList = Array.isArray(openStockRes)
+        ? openStockRes
+        : (Array.isArray(openStockRes?.data) ? openStockRes.data : []);
+
+      const openStockEntries = openStockList
+        .filter((os: any) => {
+          const notes = String(os.notes || '');
+          const isFg = os.item?.itemType === 'FINISHED_GOOD' || (os.item?.itemCode || '').startsWith('SPI-FG');
+          return isFg || notes.includes('Customer:') || notes.includes('SOC:') || notes.includes('Cartons:');
+        })
+        .map((os: any) => {
+          const notes = String(os.notes || '');
+          const custMatch = notes.match(/Customer:\s*([^|\]]+)/i);
+          const socMatch = notes.match(/SOC:\s*([^|\]]+)/i);
+          const ctnMatch = notes.match(/Cartons:\s*([\d.]+)/i) || notes.match(/\[([\d.]+)\s*CTN/i);
+          const grossMatch = notes.match(/Gross:\s*([\d.]+)/i) || notes.match(/([\d.]+)\s*GRS/i);
+          const batchMatch = notes.match(/Batch:\s*([^|\]]+)/i);
+
+          const pcs = Number(os.quantity || 0);
+          const cartons = ctnMatch ? Number(ctnMatch[1]) : Math.round(pcs / 1440);
+          const gross = grossMatch ? Number(grossMatch[1]) : Math.round(pcs / 144);
+          const batchNo = batchMatch ? batchMatch[1].trim() : (os.referenceNumber || 'OPENING-STOCK');
+          const custName = custMatch ? custMatch[1].trim() : 'Opening Stock';
+          const socNo = socMatch ? socMatch[1].trim() : '—';
+
+          return {
+            id: os.id || `open-stock-${Math.random()}`,
+            itemId: os.itemId || os.item?.id,
+            item: os.item,
+            itemCode: os.item?.itemCode || 'FG-ITEM',
+            itemName: os.item?.name || 'Finished Good',
+            actualQuantity: pcs,
+            entryDate: os.transactionDate || os.createdAt,
+            createdAt: os.createdAt || os.transactionDate,
+            entryType: 'OPENING_STOCK',
+            status: 'OPENING',
+            operatorName: 'System Opening',
+            shiftName: 'Opening Stock',
+            shift: { name: 'Opening Stock' },
+            batchNumber: batchNo,
+            remarks: `[OPENING STOCK] Batch: ${batchNo} | Customer: ${custName} | SOC: ${socNo} | Cartons: ${cartons} (${gross} Gross / ${pcs} PCS) | ${notes}`,
+            isOpeningStock: true,
+          };
+        });
+
+      // Unified history: live packing production + customer opening stock
+      setHistoryLogs([...packingEntries, ...openStockEntries]);
+      const soList = Array.isArray(soRes) ? soRes : (Array.isArray(soRes?.data) ? soRes.data : (Array.isArray(soRes?.items) ? soRes.items : []));
+      setSalesOrders(soList);
       setHistoryFetched(true);
     } catch (err) {
       console.warn('Failed to load packing history', err);
@@ -136,37 +192,38 @@ export const PackingDepartmentHub: React.FC = () => {
     }
   }, [activeTab, fetchPackingHistory, historyFetched]);
 
-  // Compute Customer-Wise Packed Inventory from real packing entries
+  // Compute Customer-Wise Packed Inventory from real packing entries, consolidating identical Item + SOC
   const customerStockData = useMemo(() => {
     if (!historyLogs || historyLogs.length === 0) return [];
 
-    const map = new Map<string, {
+    const customerMap = new Map<string, {
       id: string;
       customerCode: string;
       customerName: string;
       socNo: string;
-      items: any[];
+      itemMap: Map<string, any>;
     }>();
 
     historyLogs.forEach((entry: any) => {
       const remarks = String(entry.remarks || '');
-      const custMatch = remarks.match(/Customer:\s*([^|]+)/i);
+      const custMatch = remarks.match(/Customer:\s*([^|\]]+)/i);
       const custName = custMatch ? custMatch[1].trim() : (entry.customer?.name || 'General Stock / Retail');
       const custCode = (entry.customer?.customerCode || custName.slice(0, 8).toUpperCase()).replace(/\s+/g, '-');
-      const socMatch = remarks.match(/SOC:\s*([^|]+)/i);
+      const socMatch = remarks.match(/SOC:\s*([^|\]]+)/i);
       const socNo = socMatch ? socMatch[1].trim() : (entry.socNo || '—');
-      const styleMatch = remarks.match(/Style:\s*([^|]+)/i);
+      const styleMatch = remarks.match(/Style:\s*([^|\]]+)/i);
       const packagingStyle = styleMatch ? styleMatch[1].trim() : 'Standard Packing';
 
       const pcs = toNum(entry.actualQuantity || entry.quantity || 0);
-      const ctnMatch = remarks.match(/Cartons:\s*([\d.]+)/i);
-      const grossMatch = remarks.match(/Gross:\s*([\d.]+)/i) || remarks.match(/\(([\d.]+)\s*Gross/i);
+      const ctnMatch = remarks.match(/Cartons:\s*([\d.]+)/i) || remarks.match(/\[([\d.]+)\s*CTN/i);
+      const grossMatch = remarks.match(/Gross:\s*([\d.]+)/i) || remarks.match(/\(([\d.]+)\s*Gross/i) || remarks.match(/([\d.]+)\s*GRS/i);
       const cartons = ctnMatch ? Number(ctnMatch[1]) : Math.round(pcs / 1440);
       const gross = grossMatch ? Number(grossMatch[1]) : Math.round(pcs / 144);
       
-      // Standardize weight from true BOM assembly set (36,000 Inner + 36,000 Outer + 72,000 Nipple)
-      const weightMatch = remarks.match(/Weight:\s*([\d.]+)/i);
-      const codeStr = String(entry.item?.itemCode || entry.itemCode || '');
+      const weightMatch = remarks.match(/Weight:\s*([\d.]+)\s*KG/i);
+      const itemCode = entry.item?.itemCode || entry.itemCode || 'FG-ITEM';
+      const itemName = entry.item?.name || entry.itemName || 'Packed Finished Good';
+      const codeStr = String(itemCode);
       const perPieceWeightKg = toNum(
         entry.item?.weightPerPiece ||
         entry.item?.perPieceWeightKg ||
@@ -175,43 +232,264 @@ export const PackingDepartmentHub: React.FC = () => {
       );
       const weightKg = toNum(entry.totalWeightKg || entry.total_weight_kg) ||
         (weightMatch ? Number(weightMatch[1]) : Math.round(pcs * perPieceWeightKg * 10) / 10);
-      const ratePkr = toNum(entry.item?.standardCost || 5.0);
-      const valuePkr = Math.round(pcs * ratePkr);
 
       const isWithoutNipple = remarks.includes('WITHOUT_NIPPLE') || entry.status === 'WITHOUT_NIPPLE';
+      const isOpeningStock = Boolean(entry.isOpeningStock || remarks.includes('[OPENING STOCK]'));
+      const batchMatch = remarks.match(/Batch:\s*([^|\]]+)/i);
+      const batchNo = batchMatch ? batchMatch[1].trim() : (entry.batchNumber || entry.batchNo || (isOpeningStock ? 'OPENING' : '—'));
 
-      const itemRecord = {
-        id: entry.id || `${custCode}-${entry.itemId || Math.random()}`,
-        itemCode: entry.item?.itemCode || entry.itemCode || 'FG-ITEM',
-        itemName: entry.item?.name || entry.itemName || 'Packed Finished Good',
-        packagingStyle: isWithoutNipple ? 'White Poly Bag (Safety Stock Holding)' : packagingStyle,
-        perPieceWeightKg,
-        cartons,
-        gross,
+      // Accurate Packing Date and Packing Time resolution
+      const rawDateStr = entry.entryDate || entry.entry_date || entry.productionDate || entry.production_date;
+      const rawTimeObj = entry.createdAt || entry.created_at || entry.entryDate;
+
+      let formattedDate = '—';
+      let formattedTime = '';
+
+      if (rawDateStr) {
+        const parsedD = dayjs(rawDateStr);
+        if (parsedD.isValid()) formattedDate = parsedD.format('DD-MMM-YYYY');
+      }
+      if (formattedDate === '—' && rawTimeObj) {
+        const parsedD = dayjs(rawTimeObj);
+        if (parsedD.isValid()) formattedDate = parsedD.format('DD-MMM-YYYY');
+      }
+
+      const timeMatch = remarks.match(/Time:\s*([0-9:AMPMapm\s]+)/i);
+      if (timeMatch) {
+        formattedTime = timeMatch[1].trim();
+      } else if (rawTimeObj) {
+        const parsedT = dayjs(rawTimeObj);
+        if (parsedT.isValid()) formattedTime = parsedT.format('hh:mm A');
+      }
+
+      // Compute precise sortTimestamp for chronological ascending ordering
+      let sortTimestamp = 0;
+      if (formattedDate !== '—') {
+        if (formattedTime) {
+          const parsedDT = dayjs(`${formattedDate} ${formattedTime}`, 'DD-MMM-YYYY hh:mm A');
+          if (parsedDT.isValid()) sortTimestamp = parsedDT.valueOf();
+        }
+        if (!sortTimestamp) {
+          const parsedD = dayjs(formattedDate, 'DD-MMM-YYYY');
+          if (parsedD.isValid()) sortTimestamp = parsedD.valueOf();
+        }
+      }
+      if (!sortTimestamp && (rawDateStr || rawTimeObj)) {
+        const parsedAny = dayjs(rawDateStr || rawTimeObj);
+        if (parsedAny.isValid()) sortTimestamp = parsedAny.valueOf();
+      }
+
+      const logRecord = {
+        id: entry.id || `${custCode}-${Math.random()}`,
+        date: rawDateStr || rawTimeObj,
+        sortTimestamp,
+        formattedDate,
+        formattedTime,
+        batchNo,
         pcs,
+        gross,
+        cartons,
         weightKg,
-        ratePkr,
-        valuePkr,
-        warehouseName: isWithoutNipple ? 'Safety Stock Holding (Spokes Only)' : (entry.warehouse?.name || 'SPI FG Dispatch Warehouse'),
-        status: isWithoutNipple ? 'WITHOUT_NIPPLE' : (entry.status || 'Ready'),
-        isWithoutNipple,
+        shift: entry.shift?.name || entry.shiftName || (isOpeningStock ? 'Opening Stock' : 'General Shift'),
+        operator: entry.operatorName || entry.operator || (isOpeningStock ? 'System Opening' : '—'),
+        remarks,
+        status: isWithoutNipple ? 'WITHOUT_NIPPLE' : (isOpeningStock ? 'OPENING' : (entry.status || 'Ready')),
+        isOpeningStock,
       };
 
-      if (!map.has(custName)) {
-        map.set(custName, {
+      if (!customerMap.has(custName)) {
+        customerMap.set(custName, {
           id: `CUST-${custCode}`,
           customerCode: custCode,
           customerName: custName,
           socNo,
-          items: [itemRecord],
+          itemMap: new Map<string, any>(),
         });
-      } else {
-        map.get(custName)!.items.push(itemRecord);
       }
+
+      const custEntry = customerMap.get(custName)!;
+      // Grouping key: Item + SOC (so identical items under the same SOC merge into a single line)
+      const groupKey = `${itemCode}__${socNo}`;
+
+      if (!custEntry.itemMap.has(groupKey)) {
+        // Look up SOC requirement & unit price from salesOrders
+        const matchingSO = (salesOrders || []).find((so: any) => {
+          const oNum = String(so.orderNumber || so.order_number || '').trim();
+          return oNum && (oNum === socNo || socNo.includes(oNum) || oNum.includes(socNo));
+        });
+        const matchingSOItem = matchingSO?.items?.find((soi: any) => {
+          const soiCode = String(soi.item?.itemCode || soi.itemCode || '');
+          const soiId = soi.itemId || soi.item?.id;
+          return (soiId && soiId === entry.itemId) || (soiCode && soiCode === itemCode);
+        });
+
+        const socRequiredGross = matchingSOItem ? Number(matchingSOItem.quantity || 0) : 0;
+        const socRequiredCartons = matchingSOItem
+          ? Number(matchingSOItem.packageQuantity || matchingSOItem.pkg_quantity || Math.round(socRequiredGross / 10))
+          : Math.round(socRequiredGross / 10);
+        const socUnitPrice = matchingSOItem ? Number(matchingSOItem.unitPrice || matchingSOItem.price || 0) : 0;
+
+        // Rate per Gross resolution (Finished Goods are priced per Gross):
+        // 1. From SOC Line Item unitPrice
+        // 2. From Item sellingPrice or costPrice
+        // 3. From Item standardCost (if >= 50, per Gross; if < 50, standardCost * 144)
+        // 4. Default 720 Rs/GRS (Rs 5.00/pc * 144)
+        let ratePerGross = 720;
+        if (socUnitPrice > 0) {
+          ratePerGross = socUnitPrice;
+        } else if (toNum(entry.item?.sellingPrice) > 0) {
+          ratePerGross = toNum(entry.item.sellingPrice);
+        } else if (toNum(entry.item?.costPrice) > 0) {
+          ratePerGross = toNum(entry.item.costPrice);
+        } else if (toNum(entry.item?.standardCost) > 0) {
+          const sc = toNum(entry.item.standardCost);
+          ratePerGross = sc >= 50 ? sc : Math.round(sc * 144);
+        }
+
+        custEntry.itemMap.set(groupKey, {
+          id: `${custCode}-${itemCode}-${socNo}`,
+          itemCode,
+          itemName,
+          socNo,
+          packagingStyle: isWithoutNipple ? 'White Poly Bag (Safety Stock Holding)' : packagingStyle,
+          perPieceWeightKg,
+          socRequiredGross,
+          socRequiredCartons,
+          ratePerGross,
+          ratePkr: ratePerGross, // For backwards compatibility
+          cartons: 0,
+          gross: 0,
+          pcs: 0,
+          weightKg: 0,
+          valuePkr: 0,
+          warehouseName: isWithoutNipple ? 'Safety Stock Holding (Spokes Only)' : (entry.warehouse?.name || 'SPI FG Dispatch Warehouse'),
+          status: isWithoutNipple ? 'WITHOUT_NIPPLE' : (entry.status || 'Ready'),
+          isWithoutNipple,
+          logs: [],
+        });
+      }
+
+      const consolidated = custEntry.itemMap.get(groupKey)!;
+      consolidated.pcs += pcs;
+      consolidated.gross += gross;
+      consolidated.cartons += cartons;
+      consolidated.weightKg = Math.round((consolidated.weightKg + weightKg) * 10) / 10;
+      consolidated.valuePkr = Math.round(consolidated.gross * consolidated.ratePerGross);
+      if (isWithoutNipple) {
+        consolidated.isWithoutNipple = true;
+        consolidated.status = 'WITHOUT_NIPPLE';
+      }
+      consolidated.logs.push(logRecord);
     });
 
-    return Array.from(map.values());
-  }, [historyLogs]);
+    return Array.from(customerMap.values()).map((c) => ({
+      ...c,
+      items: Array.from(c.itemMap.values()).map((item: any) => {
+        // Sort logs: 1. OPENING STOCK always on top (#1), 2. Then chronological ascending by date & time (2nd, 3rd, 4th, etc.)
+        const sortedLogs = [...(item.logs || [])].sort((a: any, b: any) => {
+          if (a.isOpeningStock && !b.isOpeningStock) return -1;
+          if (!a.isOpeningStock && b.isOpeningStock) return 1;
+
+          const timeA = Number(a.sortTimestamp) || (a.date ? dayjs(a.date).valueOf() : 0);
+          const timeB = Number(b.sortTimestamp) || (b.date ? dayjs(b.date).valueOf() : 0);
+          if (timeA !== timeB) return timeA - timeB;
+
+          return String(a.batchNo || '').localeCompare(String(b.batchNo || ''));
+        });
+
+        return {
+          ...item,
+          logs: sortedLogs,
+        };
+      }),
+    }));
+  }, [historyLogs, salesOrders]);
+
+  // Compute SOC-wise Packing & Dispatch Fulfillment Ledger
+  const socFulfillmentLedger = useMemo(() => {
+    if (!salesOrders || salesOrders.length === 0) return [];
+
+    const ledgerRows: any[] = [];
+
+    salesOrders.forEach((so) => {
+      const orderNo = String(so.orderNumber || so.order_number || '');
+      const custName = so.customer?.companyName || so.customer?.name || 'Customer';
+      const orderDate = so.orderDate ? dayjs(so.orderDate).format('DD/MM/YYYY') : '—';
+      const soItems = so.items || [];
+
+      soItems.forEach((it: any, itIdx: number) => {
+        const itemCode = it.item?.itemCode || 'FG';
+        const itemName = it.item?.name || it.description || 'Finished Good';
+        const orderedGross = Number(it.quantity || 0);
+        const orderedCartons = it.packageQuantity || it.pkg_quantity || Math.round(orderedGross / 10);
+        const shippedGross = Number(it.shippedQuantity || 0);
+        const shippedCartons = Math.round(shippedGross / 10);
+
+        // Find all packing entries for this SOC and this item
+        const matchingEntries = historyLogs.filter((entry) => {
+          const rem = String(entry.remarks || '');
+          const socMatch = rem.match(/SOC:\s*([^|]+)/i)?.[1]?.trim() || '';
+          if (socMatch !== orderNo && !rem.includes(orderNo)) return false;
+          const eCode = String(entry.item?.itemCode || entry.itemCode || '');
+          const eId = entry.itemId || entry.item_id || entry.item?.id;
+          return (it.itemId && eId === it.itemId) || (itemCode && eCode === itemCode);
+        });
+
+        const packedPcs = matchingEntries.reduce((sum, e) => sum + Number(e.actualQuantity || e.quantity || 0), 0);
+        const packedCartons = matchingEntries.reduce((sum, e) => {
+          const m = String(e.remarks || '').match(/Cartons:\s*([\d.]+)/i);
+          return sum + (m ? Number(m[1]) : Math.round(Number(e.actualQuantity || 0) / 1440));
+        }, 0);
+        const packedGross = matchingEntries.reduce((sum, e) => {
+          const m = String(e.remarks || '').match(/Gross:\s*([\d.]+)/i) || String(e.remarks || '').match(/\(([\d.]+)\s*Gross/i);
+          return sum + (m ? Number(m[1]) : Math.round(Number(e.actualQuantity || 0) / 144));
+        }, 0);
+
+        const remainingCartons = Math.max(0, orderedCartons - packedCartons);
+        const remainingGross = Math.max(0, orderedGross - packedGross);
+        const isComplete = (orderedCartons > 0 && remainingCartons === 0);
+        const isPartial = (packedCartons > 0 && remainingCartons > 0);
+        const pct = orderedCartons > 0 ? Math.min(100, Math.round((packedCartons / orderedCartons) * 100)) : 0;
+
+        ledgerRows.push({
+          key: `${so.id}-${it.id || itIdx}`,
+          orderNumber: orderNo,
+          customerName: custName,
+          orderDate,
+          itemCode,
+          itemName,
+          orderedCartons,
+          orderedGross,
+          packedCartons,
+          packedGross,
+          packedPcs,
+          shippedCartons,
+          shippedGross,
+          remainingCartons,
+          remainingGross,
+          isComplete,
+          isPartial,
+          fulfillmentPct: pct,
+          batches: matchingEntries.map((e) => {
+            const rem = String(e.remarks || '');
+            const bMatch = rem.match(/Batch:\s*([^|]+)/i);
+            const cMatch = rem.match(/Cartons:\s*([\d.]+)/i);
+            const styleMatch = rem.match(/Style:\s*([^|]+)/i);
+            return {
+              id: e.id,
+              batchNo: bMatch ? bMatch[1].trim() : (e.machineNo || 'PKG-BATCH'),
+              cartons: cMatch ? Number(cMatch[1]) : Math.round(Number(e.actualQuantity || 0) / 1440),
+              date: e.entryDate || dayjs(e.createdAt).format('DD/MM/YYYY'),
+              style: styleMatch ? styleMatch[1].trim() : 'Standard Packing',
+              status: e.status || 'SAVED',
+            };
+          }),
+        });
+      });
+    });
+
+    return ledgerRows;
+  }, [salesOrders, historyLogs]);
 
   const totalActiveCustomers = customerStockData.length;
   const totalItemsCount = customerStockData.reduce((acc, c) => acc + c.items.length, 0);
@@ -436,15 +714,26 @@ export const PackingDepartmentHub: React.FC = () => {
     setExpandedCustomerIds([]);
   };
 
-  const filteredHistory = historyLogs.filter((item) => {
-    if (!historySearchText) return true;
-    const q = historySearchText.toLowerCase();
-    const batch = (item.entryNo || item.id || '').toLowerCase();
-    const itemCode = (item.item?.itemCode || item.itemCode || '').toLowerCase();
-    const itemName = (item.item?.name || item.itemName || '').toLowerCase();
-    const remarks = (item.remarks || '').toLowerCase();
-    return batch.includes(q) || itemCode.includes(q) || itemName.includes(q) || remarks.includes(q);
-  });
+  const filteredHistory = historyLogs
+    .filter((item) => {
+      if (!historySearchText) return true;
+      const q = historySearchText.toLowerCase();
+      const batch = (item.entryNo || item.id || '').toLowerCase();
+      const itemCode = (item.item?.itemCode || item.itemCode || '').toLowerCase();
+      const itemName = (item.item?.name || item.itemName || '').toLowerCase();
+      const remarks = (item.remarks || '').toLowerCase();
+      return batch.includes(q) || itemCode.includes(q) || itemName.includes(q) || remarks.includes(q);
+    })
+    .sort((a, b) => {
+      const aIsOpening = Boolean(a.isOpeningStock || (a.remarks && a.remarks.includes('[OPENING STOCK]')));
+      const bIsOpening = Boolean(b.isOpeningStock || (b.remarks && b.remarks.includes('[OPENING STOCK]')));
+      if (aIsOpening && !bIsOpening) return -1;
+      if (!aIsOpening && bIsOpening) return 1;
+
+      const aTime = dayjs(a.entryDate || a.createdAt || 0).valueOf();
+      const bTime = dayjs(b.entryDate || b.createdAt || 0).valueOf();
+      return aTime - bTime;
+    });
 
   const historyColumns = [
     {
@@ -561,25 +850,33 @@ export const PackingDepartmentHub: React.FC = () => {
   // ─────────────────────────────────────────────────────────────────────────────
   // ─────────────────────────────────────────────────────────────────────────────
   // TAB 4: DEPARTMENT STORE STOCK STATE (SEPARATE SPOKE & NIPPLE STORES)
+  // Authoritative data matching Production Inventory Report & Open Stock Matrix (SPI-PL-004 & WH-002)
   // ─────────────────────────────────────────────────────────────────────────────
   const INITIAL_SPOKE_STORE_ITEMS = [
-    { id: 'e72d30e1-e0da-447c-af1e-6a57d9aad0af', code: 'WIP-SPL-001', name: 'CD-250*17 Inner Butted', role: 'Inner Butted Spoke', wh: 'a70e0a7e-2ffa-47e4-83a9-c894d9dff41b', whName: 'PL Production Department (SPI-PL-004)', type: 'SEMI_FINISHED', defaultPcs: 27089, defaultGrs: 188.1, weightPerPiece: 0.00929 },
-    { id: 'a7b4d433-e97c-4d11-bc26-75541f4f1593', code: 'WIP-SPL-002', name: 'CD-250*17 Outer Butted', role: 'Outer Butted Spoke', wh: 'a70e0a7e-2ffa-47e4-83a9-c894d9dff41b', whName: 'PL Production Department (SPI-PL-004)', type: 'SEMI_FINISHED', defaultPcs: 12497, defaultGrs: 86.8, weightPerPiece: 0.00925 },
-    { id: 'dfbcafb0-6b5a-446a-8c46-804f0555e72b', code: 'WIP-SPL-003', name: 'CD-250*18 Inner Butted', role: 'Inner Butted Spoke', wh: 'a70e0a7e-2ffa-47e4-83a9-c894d9dff41b', whName: 'PL Production Department (SPI-PL-004)', type: 'SEMI_FINISHED', defaultPcs: 5440, defaultGrs: 37.8, weightPerPiece: 0.00993 },
-    { id: 'ef0b56f7-9147-4d95-b63c-24e50da9be8f', code: 'WIP-SPL-004', name: 'CD-250*18 Outer Butted', role: 'Outer Butted Spoke', wh: 'a70e0a7e-2ffa-47e4-83a9-c894d9dff41b', whName: 'PL Production Department (SPI-PL-004)', type: 'SEMI_FINISHED', defaultPcs: 7663, defaultGrs: 53.2, weightPerPiece: 0.00981 },
-    { id: 'bad446f8-9bf6-49ce-b63b-e88c54607003', code: 'WIP-SPL-013', name: '125-300*17 Inner Straight', role: 'Inner Spoke (90° Hook)', wh: 'a70e0a7e-2ffa-47e4-83a9-c894d9dff41b', whName: 'PL Production Department (SPI-PL-004)', type: 'SEMI_FINISHED', defaultPcs: 65092, defaultGrs: 452.0, weightPerPiece: 0.01250 },
-    { id: 'beaa0ddf-e109-4f48-9609-04e5967bc795', code: 'WIP-SPL-014', name: '125-300*17 Outer Straight', role: 'Outer Spoke (75° Hook)', wh: 'a70e0a7e-2ffa-47e4-83a9-c894d9dff41b', whName: 'PL Production Department (SPI-PL-004)', type: 'SEMI_FINISHED', defaultPcs: 104558, defaultGrs: 726.1, weightPerPiece: 0.01261 },
-    { id: 'wip-spl-017', code: 'WIP-SPL-017', name: '225*17 Inner Straight', role: 'Inner Spoke', wh: 'a70e0a7e-2ffa-47e4-83a9-c894d9dff41b', whName: 'PL Production Department (SPI-PL-004)', type: 'SEMI_FINISHED', defaultPcs: 6608, defaultGrs: 45.9, weightPerPiece: 0.00872 },
-    { id: 'wip-spl-018', code: 'WIP-SPL-018', name: '225*17 Outer Straight', role: 'Outer Spoke', wh: 'a70e0a7e-2ffa-47e4-83a9-c894d9dff41b', whName: 'PL Production Department (SPI-PL-004)', type: 'SEMI_FINISHED', defaultPcs: 24040, defaultGrs: 166.9, weightPerPiece: 0.00854 },
-    { id: 'wip-spl-006', code: 'WIP-SPL-006', name: '250*17 Outer Straight', role: 'Outer Spoke', wh: 'a70e0a7e-2ffa-47e4-83a9-c894d9dff41b', whName: 'PL Production Department (SPI-PL-004)', type: 'SEMI_FINISHED', defaultPcs: 26685, defaultGrs: 185.3, weightPerPiece: 0.01049 },
+    { id: 'e72d30e1-e0da-447c-af1e-6a57d9aad0af', code: 'WIP-SPL-001', name: 'CD-250*17 Inner Butted', role: 'Inner Butted Spoke', wh: 'a70e0a7e-2ffa-47e4-83a9-c894d9dff41b', whName: 'PL Production Department (SPI-PL-004)', type: 'SEMI_FINISHED', defaultPcs: 297667, defaultGrs: 2067.1, weightPerPiece: 0.00929 },
+    { id: 'a7b4d433-e97c-4d11-bc26-75541f4f1593', code: 'WIP-SPL-002', name: 'CD-250*17 Outer Butted', role: 'Outer Butted Spoke', wh: 'a70e0a7e-2ffa-47e4-83a9-c894d9dff41b', whName: 'PL Production Department (SPI-PL-004)', type: 'SEMI_FINISHED', defaultPcs: 241783, defaultGrs: 1679.1, weightPerPiece: 0.00925 },
+    { id: 'dfbcafb0-6b5a-446a-8c46-804f0555e72b', code: 'WIP-SPL-003', name: '250*18 Inner Butted 100cc', role: 'Inner Butted Spoke', wh: 'a70e0a7e-2ffa-47e4-83a9-c894d9dff41b', whName: 'PL Production Department (SPI-PL-004)', type: 'SEMI_FINISHED', defaultPcs: 20239, defaultGrs: 140.5, weightPerPiece: 0.00993 },
+    { id: 'ef0b56f7-9147-4d95-b63c-24e50da9be8f', code: 'WIP-SPL-004', name: '250*18 Outer Butted 100cc', role: 'Outer Butted Spoke', wh: 'a70e0a7e-2ffa-47e4-83a9-c894d9dff41b', whName: 'PL Production Department (SPI-PL-004)', type: 'SEMI_FINISHED', defaultPcs: 23281, defaultGrs: 161.7, weightPerPiece: 0.00981 },
+    { id: 'c1d28937-da55-40e2-8bfb-7d84ac5af466', code: 'WIP-SPL-005', name: 'RM-250*17 Inner Straight', role: 'Inner Spoke', wh: 'a70e0a7e-2ffa-47e4-83a9-c894d9dff41b', whName: 'PL Production Department (SPI-PL-004)', type: 'SEMI_FINISHED', defaultPcs: 111466, defaultGrs: 774.1, weightPerPiece: 0.01053 },
+    { id: '5ffd6862-6d76-43d0-afc3-9118537ef972', code: 'WIP-SPL-006', name: 'RM 250*17 Outer Straight', role: 'Outer Spoke', wh: 'a70e0a7e-2ffa-47e4-83a9-c894d9dff41b', whName: 'PL Production Department (SPI-PL-004)', type: 'SEMI_FINISHED', defaultPcs: 93867, defaultGrs: 651.9, weightPerPiece: 0.01049 },
+    { id: '55195a7b-e950-4c9f-b10b-7795da52d2c8', code: 'WIP-SPL-007', name: '250*18 Inner Straight 100cc', role: 'Inner Spoke', wh: 'a70e0a7e-2ffa-47e4-83a9-c894d9dff41b', whName: 'PL Production Department (SPI-PL-004)', type: 'SEMI_FINISHED', defaultPcs: 21159, defaultGrs: 146.9, weightPerPiece: 0.01129 },
+    { id: '41cff115-6750-44ef-8c69-5395320347d6', code: 'WIP-SPL-008', name: '250*18 Outer Straight 100cc', role: 'Outer Spoke', wh: 'a70e0a7e-2ffa-47e4-83a9-c894d9dff41b', whName: 'PL Production Department (SPI-PL-004)', type: 'SEMI_FINISHED', defaultPcs: 21360, defaultGrs: 148.3, weightPerPiece: 0.01119 },
+    { id: 'b34bc3a8-5b9f-47b7-b482-32d6ec36c6bc', code: 'WIP-SPL-009', name: '125-300*17 Inner Butted', role: 'Inner Butted Spoke', wh: 'a70e0a7e-2ffa-47e4-83a9-c894d9dff41b', whName: 'PL Production Department (SPI-PL-004)', type: 'SEMI_FINISHED', defaultPcs: 13734, defaultGrs: 95.4, weightPerPiece: 0.01126 },
+    { id: '7689378f-3fa2-40c4-8e85-d7ec77b72cce', code: 'WIP-SPL-010', name: '125-300*17 Outer Butted', role: 'Outer Butted Spoke', wh: 'a70e0a7e-2ffa-47e4-83a9-c894d9dff41b', whName: 'PL Production Department (SPI-PL-004)', type: 'SEMI_FINISHED', defaultPcs: 3728, defaultGrs: 25.9, weightPerPiece: 0.01097 },
+    { id: 'bad446f8-9bf6-49ce-b63b-e88c54607003', code: 'WIP-SPL-013', name: 'S9-300*17 Inner Straight', role: 'Inner Spoke (90° Hook)', wh: 'a70e0a7e-2ffa-47e4-83a9-c894d9dff41b', whName: 'PL Production Department (SPI-PL-004)', type: 'SEMI_FINISHED', defaultPcs: 423837, defaultGrs: 2943.3, weightPerPiece: 0.01250 },
+    { id: 'beaa0ddf-e109-4f48-9609-04e5967bc795', code: 'WIP-SPL-014', name: 'S9-300*17 Outer Straight', role: 'Outer Spoke (75° Hook)', wh: 'a70e0a7e-2ffa-47e4-83a9-c894d9dff41b', whName: 'PL Production Department (SPI-PL-004)', type: 'SEMI_FINISHED', defaultPcs: 242333, defaultGrs: 1682.9, weightPerPiece: 0.01261 },
+    { id: '129d571b-6a63-466a-a892-5bd3a1d7833b', code: 'WIP-SPL-015', name: 'S9-300*18 Inner Straight', role: 'Inner Spoke', wh: 'a70e0a7e-2ffa-47e4-83a9-c894d9dff41b', whName: 'PL Production Department (SPI-PL-004)', type: 'SEMI_FINISHED', defaultPcs: 4672, defaultGrs: 32.4, weightPerPiece: 0.01365 },
+    { id: '390c0d5d-3a6b-4202-97e9-cdd62a3227b3', code: 'WIP-SPL-016', name: 'S9-300*18 Outer Straight', role: 'Outer Spoke', wh: 'a70e0a7e-2ffa-47e4-83a9-c894d9dff41b', whName: 'PL Production Department (SPI-PL-004)', type: 'SEMI_FINISHED', defaultPcs: 7890, defaultGrs: 54.8, weightPerPiece: 0.01351 },
+    { id: '94831f9f-c358-4da1-b570-fe1daa0092b9', code: 'WIP-SPL-017', name: 'DS-225*17 Inner Straight', role: 'Inner Spoke', wh: 'a70e0a7e-2ffa-47e4-83a9-c894d9dff41b', whName: 'PL Production Department (SPI-PL-004)', type: 'SEMI_FINISHED', defaultPcs: 6608, defaultGrs: 45.9, weightPerPiece: 0.00872 },
+    { id: '517cb2b4-b62f-4785-b83b-74e3dce9481a', code: 'WIP-SPL-018', name: 'DS-225*17 Outer Straight', role: 'Outer Spoke', wh: 'a70e0a7e-2ffa-47e4-83a9-c894d9dff41b', whName: 'PL Production Department (SPI-PL-004)', type: 'SEMI_FINISHED', defaultPcs: 2680, defaultGrs: 18.6, weightPerPiece: 0.00854 },
   ];
 
   const INITIAL_NIPPLE_STORE_ITEMS = [
-    { id: 'ced9ab53-b470-47c2-83a9-829726b38b5b', code: 'SPI-FG-NP-005', name: '125-S9 Nipple', role: 'Standard Brass Nipple', wh: 'cf5c9db8-5e84-41d5-a4b4-988b8dfd122d', whName: 'SPI Main Warehouse (WH-002)', type: 'FINISHED_GOOD', defaultPcs: 1362384, defaultGrs: 9461.0, weightPerPiece: 0.0035 },
-    { id: 'spi-fg-np-002', code: 'SPI-FG-NP-002', name: 'CD-250X17 Nipple', role: 'Butted Nipple', wh: 'cf5c9db8-5e84-41d5-a4b4-988b8dfd122d', whName: 'SPI Main Warehouse (WH-002)', type: 'FINISHED_GOOD', defaultPcs: 1008000, defaultGrs: 7000.0, weightPerPiece: 0.0035 },
-    { id: '1fb94e18-cb0a-4447-adfa-13f6d7c9e4af', code: 'FG-NP-004', name: 'RM-250*17 Nipple', role: 'Assembly Spoke Nipple', wh: 'cf5c9db8-5e84-41d5-a4b4-988b8dfd122d', whName: 'SPI Main Warehouse (WH-002)', type: 'FINISHED_GOOD', defaultPcs: 1393344, defaultGrs: 9676.0, weightPerPiece: 0.0035 },
-    { id: 'spi-fg-np-003', code: 'SPI-FG-NP-003', name: '125-300X17 Nipple', role: 'Large Gauge Nipple', wh: 'cf5c9db8-5e84-41d5-a4b4-988b8dfd122d', whName: 'SPI Main Warehouse (WH-002)', type: 'FINISHED_GOOD', defaultPcs: 2162880, defaultGrs: 15020.0, weightPerPiece: 0.0035 },
-    { id: '43cec585-2413-4374-a77d-fc4ed263276d', code: 'SPI-FG-NP-001', name: 'Front Wheel 225X17 Nipple', role: 'Front Wheel Nipple', wh: 'cf5c9db8-5e84-41d5-a4b4-988b8dfd122d', whName: 'SPI Main Warehouse (WH-002)', type: 'FINISHED_GOOD', defaultPcs: 69120, defaultGrs: 480.0, weightPerPiece: 0.0035 },
+    { id: '43cec585-2413-4374-a77d-fc4ed263276d', code: 'FG-NP-001', name: '225X17 Front Wheel Nipple', role: 'Front Wheel Nipple', wh: 'cf5c9db8-5e84-41d5-a4b4-988b8dfd122d', whName: 'SPI Main Warehouse (WH-002)', type: 'FINISHED_GOOD', defaultPcs: 979200, defaultGrs: 6800.0, weightPerPiece: 0.00167 },
+    { id: '76bc4e5e-ab9d-4660-95c5-d8c29b186007', code: 'FG-NP-002', name: 'CD-250X17 Nipple', role: 'CD-250X17 Nipple', wh: 'cf5c9db8-5e84-41d5-a4b4-988b8dfd122d', whName: 'SPI Main Warehouse (WH-002)', type: 'FINISHED_GOOD', defaultPcs: 1296000, defaultGrs: 9000.0, weightPerPiece: 0.00264 },
+    { id: '9f3ceb36-f11f-4519-ae54-c519fdb6aa26', code: 'FG-NP-003', name: '125-300X17 Nipple', role: 'Large Gauge Nipple', wh: 'cf5c9db8-5e84-41d5-a4b4-988b8dfd122d', whName: 'SPI Main Warehouse (WH-002)', type: 'FINISHED_GOOD', defaultPcs: 2018880, defaultGrs: 14020.0, weightPerPiece: 0.00321 },
+    { id: '1fb94e18-cb0a-4447-adfa-13f6d7c9e4af', code: 'FG-NP-004', name: 'RM-250*17 Nipple', role: 'Assembly Spoke Nipple', wh: 'cf5c9db8-5e84-41d5-a4b4-988b8dfd122d', whName: 'SPI Main Warehouse (WH-002)', type: 'FINISHED_GOOD', defaultPcs: 1600672, defaultGrs: 11115.8, weightPerPiece: 0.00264 },
+    { id: 'ced9ab53-b470-47c2-83a9-829726b38b5b', code: 'FG-NP-005', name: '125-S9 Nipple', role: 'Standard Brass Nipple', wh: 'cf5c9db8-5e84-41d5-a4b4-988b8dfd122d', whName: 'SPI Main Warehouse (WH-002)', type: 'FINISHED_GOOD', defaultPcs: 1668853, defaultGrs: 11589.3, weightPerPiece: 0.00347 },
   ];
 
   const [spokeStoreBalances, setSpokeStoreBalances] = useState<any[]>(
@@ -624,13 +921,17 @@ export const PackingDepartmentHub: React.FC = () => {
       const plWhId = 'a70e0a7e-2ffa-47e4-83a9-c894d9dff41b';
       const wh2Id = 'cf5c9db8-5e84-41d5-a4b4-988b8dfd122d';
 
-      const [resPl, resWh2] = await Promise.allSettled([
-        apiService.get(`/inventory/balances?warehouseId=${plWhId}`),
-        apiService.get(`/inventory/balances?warehouseId=${wh2Id}`),
+      // Concurrently query balances with large limit and open-stock matrix
+      const [resPl, resWh2, resMatrix] = await Promise.allSettled([
+        apiService.get(`/inventory/balances?warehouseId=${plWhId}&limit=500`),
+        apiService.get(`/inventory/balances?warehouseId=${wh2Id}&limit=500`),
+        apiService.get(`/production/open-stock/matrix?divisionId=d1000000-0000-0000-0000-000000000001`),
       ]);
 
       const plVal = resPl.status === 'fulfilled' ? (resPl.value as any) : null;
       const wh2Val = resWh2.status === 'fulfilled' ? (resWh2.value as any) : null;
+      const matrixVal = resMatrix.status === 'fulfilled' ? (resMatrix.value as any) : null;
+
       const plRows = plVal
         ? (Array.isArray(plVal) ? plVal : (plVal.data || []))
         : [];
@@ -638,40 +939,78 @@ export const PackingDepartmentHub: React.FC = () => {
         ? (Array.isArray(wh2Val) ? wh2Val : (wh2Val.data || []))
         : [];
 
+      // Check if matrix returned SPI-PL-004 directly
+      const matrixDepts = matrixVal
+        ? (Array.isArray(matrixVal) ? matrixVal : (matrixVal.data || []))
+        : [];
+      const matrixPlDept = Array.isArray(matrixDepts)
+        ? matrixDepts.find((d: any) => d.warehouseCode === 'SPI-PL-004' || d.warehouseId === plWhId)
+        : null;
+
       // 1. Process Spokes from SPI-PL-004 (filter > 0 strictly)
       const spokes: any[] = [];
-      for (const r of plRows) {
-        const avail = toNum(r.availableQuantity ?? r.available ?? r.onHandQuantity ?? r.onHand);
-        if (avail <= 0) continue; // Exclude zero-balance items
-        const item = r.item || {};
-        const code = item.itemCode || r.itemCode || '';
-        const name = item.name || r.name || '';
-        const isSpoke = code.startsWith('WIP-SPL') || code.includes('SPK') || name.toLowerCase().includes('spoke') || name.toLowerCase().includes('inner') || name.toLowerCase().includes('outer');
-        if (!isSpoke) continue;
+      if (matrixPlDept && Array.isArray(matrixPlDept.items) && matrixPlDept.items.length > 0) {
+        // Use live matrix row items directly for exact parity with Production Item Open Stock
+        for (const m of matrixPlDept.items) {
+          const avail = toNum(m.pieces ?? m.available ?? m.onHand ?? m.stock);
+          if (avail <= 0) continue;
+          const code = m.itemCode || m.code || '';
+          const name = m.name || m.itemName || '';
+          const pcs = avail;
+          const gross = toNum(m.gross) > 0 ? toNum(m.gross) : Math.round((pcs / 144) * 10) / 10;
+          const weightPerPiece = toNum(m.weightPerPiece) || (pcs > 0 && toNum(m.weightKg) > 0 ? Math.round((toNum(m.weightKg) / pcs) * 100000) / 100000 : 0.0093);
+          const totalWeightKg = toNum(m.weightKg) > 0 ? toNum(m.weightKg) : Math.round(pcs * weightPerPiece * 10) / 10;
+          const role = name.toLowerCase().includes('inner') ? 'Inner Spoke (Plated)' : (name.toLowerCase().includes('outer') ? 'Outer Spoke (Plated)' : 'Plated Spoke Wire');
 
-        const uomCode = (r.uom?.code || item.baseUom?.code || 'PCS').toUpperCase();
-        const isPcs = uomCode === 'PCS' || avail > 1000 || item.itemType === 'SEMI_FINISHED';
-        const pcs = isPcs ? avail : avail * 144;
-        const gross = isPcs ? Math.round((avail / 144) * 10) / 10 : avail;
+          spokes.push({
+            id: m.id || m.itemId,
+            code,
+            name,
+            role,
+            wh: plWhId,
+            whName: 'PL Production Department (SPI-PL-004)',
+            type: m.itemType || 'SEMI_FINISHED',
+            pcs,
+            gross,
+            weightPerPiece,
+            totalWeightKg,
+            status: 'AVAILABLE',
+          });
+        }
+      } else {
+        for (const r of plRows) {
+          const avail = toNum(r.availableQuantity ?? r.available ?? r.onHandQuantity ?? r.onHand);
+          if (avail <= 0) continue; // Exclude zero-balance items
+          const item = r.item || {};
+          const code = item.itemCode || r.itemCode || '';
+          const name = item.name || r.name || '';
+          const isSpoke = code.startsWith('WIP-SPL') || code.includes('SPK') || name.toLowerCase().includes('spoke') || name.toLowerCase().includes('inner') || name.toLowerCase().includes('outer');
+          if (!isSpoke) continue;
 
-        const weightPerPiece = toNum(item.weightPerPiece) || (code.includes('015') || code.includes('016') ? 0.0136 : (code.includes('013') || code.includes('014') ? 0.0125 : 0.0093));
-        const totalWeightKg = Math.round(pcs * weightPerPiece * 10) / 10;
-        const role = name.toLowerCase().includes('inner') ? 'Inner Spoke (Plated)' : (name.toLowerCase().includes('outer') ? 'Outer Spoke (Plated)' : 'Plated Spoke Wire');
+          const uomCode = (r.uom?.code || item.baseUom?.code || 'PCS').toUpperCase();
+          const isPcs = uomCode === 'PCS' || avail > 1000 || item.itemType === 'SEMI_FINISHED';
+          const pcs = isPcs ? avail : avail * 144;
+          const gross = isPcs ? Math.round((avail / 144) * 10) / 10 : avail;
 
-        spokes.push({
-          id: item.id || r.itemId,
-          code,
-          name,
-          role,
-          wh: plWhId,
-          whName: 'PL Production Department (SPI-PL-004)',
-          type: item.itemType || 'SEMI_FINISHED',
-          pcs,
-          gross,
-          weightPerPiece,
-          totalWeightKg,
-          status: 'AVAILABLE',
-        });
+          const weightPerPiece = toNum(item.weightPerPiece) || (code.includes('015') || code.includes('016') ? 0.0136 : (code.includes('013') || code.includes('014') ? 0.0125 : 0.0093));
+          const totalWeightKg = Math.round(pcs * weightPerPiece * 10) / 10;
+          const role = name.toLowerCase().includes('inner') ? 'Inner Spoke (Plated)' : (name.toLowerCase().includes('outer') ? 'Outer Spoke (Plated)' : 'Plated Spoke Wire');
+
+          spokes.push({
+            id: item.id || r.itemId,
+            code,
+            name,
+            role,
+            wh: plWhId,
+            whName: 'PL Production Department (SPI-PL-004)',
+            type: item.itemType || 'SEMI_FINISHED',
+            pcs,
+            gross,
+            weightPerPiece,
+            totalWeightKg,
+            status: 'AVAILABLE',
+          });
+        }
       }
 
       // 2. Process Nipples & Hardware from WH-002 (filter > 0 strictly)
@@ -728,10 +1067,10 @@ export const PackingDepartmentHub: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (activeTab === 'department-stock' && (spokeStoreBalances.length === 0 || nippleStoreBalances.length === 0)) {
+    if (activeTab === 'department-stock') {
       fetchDepartmentStock();
     }
-  }, [activeTab, fetchDepartmentStock, spokeStoreBalances.length, nippleStoreBalances.length]);
+  }, [activeTab, fetchDepartmentStock]);
 
   const totalSpokePcs = spokeStoreBalances.reduce((sum, item) => sum + (item.pcs || 0), 0);
   const totalSpokeGrs = spokeStoreBalances.reduce((sum, item) => sum + (item.gross || 0), 0);
@@ -2069,6 +2408,7 @@ export const PackingDepartmentHub: React.FC = () => {
                 onChange={(val) => setFgrViewMode(String(val))}
                 options={[
                   { label: '🏢 Customer-Wise Packed Inventory', value: 'customer-hierarchy' },
+                  { label: '📋 SOC Fulfillment Ledger', value: 'soc-ledger' },
                   { label: '📊 Live FGR & Dispatch Register', value: 'fgr-register' },
                   { label: '📋 Batch Production Logs', value: 'batch-logs' },
                 ]}
@@ -2418,6 +2758,28 @@ export const PackingDepartmentHub: React.FC = () => {
                           <Tag color="purple" style={{ fontWeight: 800, fontSize: 12, borderRadius: 2, padding: '2px 8px', margin: 0 }}>
                             🏷️ {formatNumber(custCartons, 0)} CTN
                           </Tag>
+                          {/* Balance Remaining for this Customer */}
+                          {(() => {
+                            const totalCustReqGross = cust.items.reduce((s, it) => s + (it.socRequiredGross || 0), 0);
+                            const totalCustReqCartons = cust.items.reduce((s, it) => s + (it.socRequiredCartons || 0), 0);
+                            if (totalCustReqGross > 0) {
+                              const balG = Math.max(0, totalCustReqGross - custGross);
+                              const balC = Math.max(0, totalCustReqCartons - custCartons);
+                              if (balG > 0) {
+                                return (
+                                  <Tag color="orange" style={{ fontWeight: 800, fontSize: 12, borderRadius: 2, padding: '2px 8px', margin: 0 }}>
+                                    ⏳ Bal: {formatNumber(balG, 0)} GRS ({formatNumber(balC, 0)} CTN)
+                                  </Tag>
+                                );
+                              }
+                              return (
+                                <Tag color="success" style={{ fontWeight: 800, fontSize: 12, borderRadius: 2, padding: '2px 8px', margin: 0 }}>
+                                  ✅ SOC Completed
+                                </Tag>
+                              );
+                            }
+                            return null;
+                          })()}
                           {/* Total Weight */}
                           <span style={{ fontSize: 12.5, fontWeight: 700, color: '#d97706', padding: '0 4px' }}>
                             ⚖️ {formatNumber(custWeight, 2)} KG
@@ -2470,6 +2832,158 @@ export const PackingDepartmentHub: React.FC = () => {
                           size="small"
                           scroll={{ x: 'max-content' }}
                           className="customer-stock-table packing-borderless-table"
+                          expandable={{
+                            expandedRowRender: (record: any) => (
+                              <div style={{ margin: '4px 0 10px 16px', padding: 12, background: 'var(--theme-surface-alt, rgba(2, 132, 199, 0.03))', borderRadius: 6, border: '1px solid var(--theme-border)' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, flexWrap: 'wrap', gap: 6 }}>
+                                  <Space size={8}>
+                                    <CalendarOutlined style={{ color: '#0284c7' }} />
+                                    <Text strong style={{ fontSize: 12.5, color: 'var(--theme-text)' }}>
+                                      Date-Wise Production & Packing History ({record.logs?.length || 0} Batches / Entries for this Item & SOC)
+                                    </Text>
+                                  </Space>
+                                  <Space size={6}>
+                                    <Tag color="blue" style={{ fontWeight: 700 }}>{record.itemCode}</Tag>
+                                    <Tag color="purple" style={{ fontWeight: 700 }}>SOC: {record.socNo}</Tag>
+                                  </Space>
+                                </div>
+                                <Table
+                                  dataSource={record.logs || []}
+                                  rowKey="id"
+                                  pagination={false}
+                                  size="small"
+                                  bordered
+                                  className="packing-borderless-table"
+                                  columns={[
+                                    {
+                                      title: '#',
+                                      key: 'idx',
+                                      width: 40,
+                                      align: 'center' as const,
+                                      render: (_: any, __: any, index: number) => index + 1,
+                                    },
+                                    {
+                                      title: 'Packing Date & Time',
+                                      key: 'date',
+                                      width: 175,
+                                      render: (_: any, log: any) => (
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                          <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                                            <span style={{ fontWeight: 800, fontSize: 12, color: 'var(--theme-text)' }}>
+                                              📅 {log.formattedDate || (log.date ? dayjs(log.date).format('DD-MMM-YYYY') : '—')}
+                                            </span>
+                                            {log.isOpeningStock && (
+                                              <Tag color="cyan" style={{ fontSize: 10, fontWeight: 800, margin: 0, padding: '0 4px', borderRadius: 2 }}>
+                                                OPENING
+                                              </Tag>
+                                            )}
+                                          </div>
+                                          {log.formattedTime && (
+                                            <span style={{ fontSize: 11, color: 'var(--theme-accent, #0284c7)', fontWeight: 700 }}>
+                                              ⏰ {log.formattedTime}
+                                            </span>
+                                          )}
+                                        </div>
+                                      ),
+                                    },
+                                    {
+                                      title: 'Batch Number',
+                                      key: 'batchNo',
+                                      width: 140,
+                                      render: (_: any, log: any) => (
+                                        <Tag color={log.isOpeningStock ? 'cyan' : 'blue'} style={{ fontWeight: 800 }}>
+                                          {log.batchNo}
+                                        </Tag>
+                                      ),
+                                    },
+                                    {
+                                      title: 'Shift & Operator',
+                                      key: 'shiftOp',
+                                      width: 160,
+                                      render: (_: any, log: any) => (
+                                        <div style={{ fontSize: 11.5 }}>
+                                          <div style={{ fontWeight: 700, color: 'var(--theme-text)' }}>{log.shift}</div>
+                                          <div style={{ color: 'var(--theme-text-muted)' }}>👤 {log.operator}</div>
+                                        </div>
+                                      ),
+                                    },
+                                    {
+                                      title: 'Gross (GRS)',
+                                      key: 'gross',
+                                      width: 110,
+                                      align: 'right' as const,
+                                      render: (_: any, log: any) => (
+                                        <span style={{ fontWeight: 800, color: '#4338ca' }}>
+                                          📦 {formatNumber(log.gross, 0)} GRS
+                                        </span>
+                                      ),
+                                    },
+                                    {
+                                      title: 'Cartons (CTN)',
+                                      key: 'cartons',
+                                      width: 100,
+                                      align: 'center' as const,
+                                      render: (_: any, log: any) => (
+                                        <Tag color="purple" style={{ fontWeight: 800 }}>
+                                          🏷️ {formatNumber(log.cartons, 0)} CTN
+                                        </Tag>
+                                      ),
+                                    },
+                                    {
+                                      title: 'Pieces (PCS)',
+                                      key: 'pcs',
+                                      width: 120,
+                                      align: 'right' as const,
+                                      render: (_: any, log: any) => (
+                                        <span style={{ fontWeight: 700, color: '#059669', fontSize: 12 }}>
+                                          🔢 {formatNumber(log.pcs, 0)} PCS
+                                        </span>
+                                      ),
+                                    },
+                                    {
+                                      title: 'Net Weight',
+                                      key: 'weightKg',
+                                      width: 110,
+                                      align: 'right' as const,
+                                      render: (_: any, log: any) => (
+                                        <span style={{ fontWeight: 800, color: '#d97706', fontSize: 12 }}>
+                                          ⚖️ {formatNumber(log.weightKg, 2)} KG
+                                        </span>
+                                      ),
+                                    },
+                                    {
+                                      title: 'Status',
+                                      key: 'status',
+                                      width: 130,
+                                      align: 'center' as const,
+                                      render: (_: any, log: any) => {
+                                        if (log.isOpeningStock) {
+                                          return (
+                                            <Tag color="cyan" style={{ fontWeight: 800, borderRadius: 2 }}>
+                                              🏷️ Opening Stock
+                                            </Tag>
+                                          );
+                                        }
+                                        if (log.status === 'WITHOUT_NIPPLE') {
+                                          return (
+                                            <Tag color="warning" style={{ fontWeight: 700 }}>
+                                              Without Nipple
+                                            </Tag>
+                                          );
+                                        }
+                                        return (
+                                          <Tag color="success" style={{ fontWeight: 700 }}>
+                                            Packed
+                                          </Tag>
+                                        );
+                                      },
+                                    },
+                                  ]}
+                                />
+                              </div>
+                            ),
+                            rowExpandable: (record: any) => Boolean(record.logs && record.logs.length > 0),
+                          }}
                           columns={[
                             {
                               title: <span style={{ fontWeight: 800, fontSize: 13, color: 'var(--theme-text)' }}>#</span>,
@@ -2522,40 +3036,89 @@ export const PackingDepartmentHub: React.FC = () => {
                               ),
                             },
                             {
-                              title: <span style={{ fontWeight: 800, fontSize: 13, color: 'var(--theme-text)' }}>Quantity Hierarchy (PCS ➔ GRS ➔ CTN)</span>,
+                              title: <span style={{ fontWeight: 800, fontSize: 13, color: 'var(--theme-text)' }}>Quantity Hierarchy & SOC Target (REQ ➔ PACKED ➔ BALANCE)</span>,
                               children: [
                                 {
-                                  title: <span style={{ fontWeight: 700, fontSize: 12, color: '#059669' }}>1. Pieces (PCS)</span>,
-                                  key: 'pcs',
-                                  width: 120,
+                                  title: <span style={{ fontWeight: 700, fontSize: 12, color: '#0284c7' }}>1. SOC Req. (GRS / CTN)</span>,
+                                  key: 'socReq',
+                                  width: 140,
                                   align: 'right' as const,
                                   render: (_: any, r: any) => (
-                                    <span style={{ fontSize: 13, color: '#059669', fontWeight: 800 }}>
-                                      🔢 {formatNumber(r.pcs, 0)} PCS
-                                    </span>
+                                    <div>
+                                      {r.socRequiredGross > 0 ? (
+                                        <div>
+                                          <span style={{ fontSize: 13, color: '#0284c7', fontWeight: 800 }}>
+                                            📋 {formatNumber(r.socRequiredGross, 0)} GRS
+                                          </span>
+                                          <div style={{ fontSize: 11, color: '#0369a1', fontWeight: 700 }}>
+                                            ({formatNumber(r.socRequiredCartons, 0)} CTN)
+                                          </div>
+                                        </div>
+                                      ) : (
+                                        <div>
+                                          <span style={{ fontSize: 12.5, color: '#0284c7', fontWeight: 700 }}>
+                                            📋 {formatNumber(r.gross, 0)} GRS
+                                          </span>
+                                          <div style={{ fontSize: 10.5, color: 'var(--theme-text-muted)' }}>
+                                            (Fulfill on Demand)
+                                          </div>
+                                        </div>
+                                      )}
+                                    </div>
                                   ),
                                 },
                                 {
-                                  title: <span style={{ fontWeight: 700, fontSize: 12, color: '#4338ca' }}>2. Gross (GRS)</span>,
+                                  title: <span style={{ fontWeight: 700, fontSize: 12, color: '#4338ca' }}>2. Packed Total (GRS / CTN)</span>,
                                   key: 'gross',
-                                  width: 110,
+                                  width: 135,
                                   align: 'right' as const,
                                   render: (_: any, r: any) => (
-                                    <span style={{ color: '#4338ca', fontSize: 13, fontWeight: 800 }}>
-                                      📦 {formatNumber(r.gross, 0)} GRS
-                                    </span>
+                                    <div>
+                                      <span style={{ color: '#4338ca', fontSize: 13, fontWeight: 800 }}>
+                                        📦 {formatNumber(r.gross, 0)} GRS
+                                      </span>
+                                      <div style={{ fontSize: 11, color: '#6d28d9', fontWeight: 700 }}>
+                                        🏷️ {formatNumber(r.cartons, 0)} CTN
+                                      </div>
+                                    </div>
                                   ),
                                 },
                                 {
-                                  title: <span style={{ fontWeight: 700, fontSize: 12, color: '#6d28d9' }}>3. Cartons (CTN)</span>,
-                                  key: 'cartons',
-                                  width: 110,
-                                  align: 'center' as const,
-                                  render: (_: any, r: any) => (
-                                    <Tag color="purple" style={{ fontWeight: 800, borderRadius: 2, padding: '2px 8px' }}>
-                                      🏷️ {formatNumber(r.cartons, 0)} CTN
-                                    </Tag>
-                                  ),
+                                  title: <span style={{ fontWeight: 700, fontSize: 12, color: '#ea580c' }}>3. Balance to Pack (GRS / CTN)</span>,
+                                  key: 'balance',
+                                  width: 155,
+                                  align: 'right' as const,
+                                  render: (_: any, r: any) => {
+                                    if (r.socRequiredGross <= 0) {
+                                      return (
+                                        <span style={{ fontSize: 11.5, color: 'var(--theme-text-muted)', fontWeight: 600 }}>
+                                          — (Demand Based)
+                                        </span>
+                                      );
+                                    }
+                                    const balGross = Math.max(0, r.socRequiredGross - r.gross);
+                                    const balCartons = Math.max(0, r.socRequiredCartons - r.cartons);
+                                    const isCompleted = balGross === 0 && balCartons === 0;
+
+                                    if (isCompleted) {
+                                      return (
+                                        <Tag color="success" style={{ fontWeight: 800, borderRadius: 2, margin: 0, padding: '2px 8px' }}>
+                                          ✅ 0 GRS (Completed)
+                                        </Tag>
+                                      );
+                                    }
+
+                                    return (
+                                      <div>
+                                        <span style={{ color: '#ea580c', fontSize: 13, fontWeight: 900 }}>
+                                          ⏳ {formatNumber(balGross, 0)} GRS
+                                        </span>
+                                        <div style={{ fontSize: 11, color: '#c2410c', fontWeight: 800 }}>
+                                          ({formatNumber(balCartons, 0)} CTN Balance)
+                                        </div>
+                                      </div>
+                                    );
+                                  },
                                 },
                               ],
                             },
@@ -2592,12 +3155,17 @@ export const PackingDepartmentHub: React.FC = () => {
                                 {
                                   title: <span style={{ fontWeight: 700, fontSize: 12, color: 'var(--theme-text)' }}>Unit Rate</span>,
                                   key: 'rate',
-                                  width: 105,
+                                  width: 125,
                                   align: 'right' as const,
                                   render: (_: any, r: any) => (
-                                    <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--theme-text-muted)' }}>
-                                      Rs. {r.ratePkr.toFixed(2)}/pc
-                                    </span>
+                                    <div>
+                                      <span style={{ fontSize: 12.5, fontWeight: 800, color: 'var(--theme-text)' }}>
+                                        Rs. {formatNumber(r.ratePerGross, 2)} / GRS
+                                      </span>
+                                      <div style={{ fontSize: 10.5, color: 'var(--theme-text-muted)' }}>
+                                        (≈ Rs. {(r.ratePerGross / 144).toFixed(2)}/pc)
+                                      </div>
+                                    </div>
                                   ),
                                 },
                                 {
@@ -2642,6 +3210,185 @@ export const PackingDepartmentHub: React.FC = () => {
                   </Card>
                 );
               }))}
+            </div>
+          )}
+
+          {/* ── View 2: SOC Packing & Dispatch Fulfillment Ledger ── */}
+          {fgrViewMode === 'soc-ledger' && (
+            <div style={{ width: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div style={{ marginBottom: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 14, fontWeight: 800, color: '#38bdf8' }}>
+                    📋 Customer Sales Orders (SOC) Fulfillment & Packing Ledger
+                  </span>
+                  <Tag color="blue" style={{ fontWeight: 700 }}>{socFulfillmentLedger.length} Item Line(s)</Tag>
+                </div>
+                <Input
+                  placeholder="Search Customer, SOC #, or Item..."
+                  prefix={<SearchOutlined />}
+                  value={historySearchText}
+                  onChange={(e) => setHistorySearchText(e.target.value)}
+                  style={{ width: 280 }}
+                  allowClear
+                />
+              </div>
+
+              <Table
+                size="small"
+                pagination={{ pageSize: 15 }}
+                dataSource={socFulfillmentLedger.filter((row) => {
+                  if (!historySearchText) return true;
+                  const q = historySearchText.toLowerCase();
+                  return (
+                    row.customerName.toLowerCase().includes(q) ||
+                    row.orderNumber.toLowerCase().includes(q) ||
+                    row.itemCode.toLowerCase().includes(q) ||
+                    row.itemName.toLowerCase().includes(q)
+                  );
+                })}
+                columns={[
+                  {
+                    title: 'SOC & Customer',
+                    key: 'soc',
+                    width: 220,
+                    render: (_, r) => (
+                      <div>
+                        <div style={{ fontWeight: 800, color: '#38bdf8', fontSize: 13 }}>{r.orderNumber}</div>
+                        <div style={{ fontSize: 11.5, color: '#f1f5f9', fontWeight: 600 }}>{r.customerName}</div>
+                        <div style={{ fontSize: 10.5, color: '#94a3b8' }}>Order Date: {r.orderDate}</div>
+                      </div>
+                    ),
+                  },
+                  {
+                    title: 'Finished Good Item',
+                    key: 'item',
+                    width: 250,
+                    render: (_, r) => (
+                      <div>
+                        <div style={{ fontWeight: 700, color: '#e2e8f0' }}>{r.itemCode}</div>
+                        <div style={{ fontSize: 11, color: '#94a3b8', maxWidth: 230, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {r.itemName}
+                        </div>
+                      </div>
+                    ),
+                  },
+                  {
+                    title: 'Ordered',
+                    key: 'ordered',
+                    width: 130,
+                    align: 'right',
+                    render: (_, r) => (
+                      <div>
+                        <div style={{ fontWeight: 700, color: '#f8fafc' }}>{r.orderedCartons} Cartons</div>
+                        <div style={{ fontSize: 10.5, color: '#94a3b8' }}>{r.orderedGross.toLocaleString()} GRS</div>
+                      </div>
+                    ),
+                  },
+                  {
+                    title: 'Packed',
+                    key: 'packed',
+                    width: 130,
+                    align: 'right',
+                    render: (_, r) => (
+                      <div>
+                        <div style={{ fontWeight: 700, color: r.packedCartons > 0 ? '#38bdf8' : '#64748b' }}>
+                          {r.packedCartons} Cartons
+                        </div>
+                        <div style={{ fontSize: 10.5, color: '#94a3b8' }}>{r.packedGross.toLocaleString()} GRS</div>
+                      </div>
+                    ),
+                  },
+                  {
+                    title: 'Dispatched',
+                    key: 'shipped',
+                    width: 120,
+                    align: 'right',
+                    render: (_, r) => (
+                      <div>
+                        <div style={{ fontWeight: 700, color: r.shippedCartons > 0 ? '#f97316' : '#64748b' }}>
+                          {r.shippedCartons} Cartons
+                        </div>
+                        <div style={{ fontSize: 10.5, color: '#94a3b8' }}>{r.shippedGross.toLocaleString()} GRS</div>
+                      </div>
+                    ),
+                  },
+                  {
+                    title: 'Remaining to Pack',
+                    key: 'remaining',
+                    width: 150,
+                    align: 'right',
+                    render: (_, r) => (
+                      <div>
+                        <div style={{ fontWeight: 800, color: r.isComplete ? '#10b981' : '#f59e0b', fontSize: 13 }}>
+                          {r.isComplete ? '0 Cartons' : `${r.remainingCartons} Cartons`}
+                        </div>
+                        <div style={{ fontSize: 10.5, color: r.isComplete ? '#10b981' : '#f59e0b' }}>
+                          {r.isComplete ? '✅ Fulfilled' : `${r.remainingGross.toLocaleString()} GRS Left`}
+                        </div>
+                      </div>
+                    ),
+                  },
+                  {
+                    title: 'Status',
+                    key: 'status',
+                    width: 150,
+                    align: 'center',
+                    render: (_, r) => (
+                      <div>
+                        <Progress
+                          percent={r.fulfillmentPct}
+                          size="small"
+                          status={r.isComplete ? 'success' : 'active'}
+                          strokeColor={r.isComplete ? '#10b981' : (r.isPartial ? '#38bdf8' : '#64748b')}
+                          style={{ marginBottom: 4 }}
+                        />
+                        <Tag
+                          color={r.isComplete ? 'error' : (r.isPartial ? 'blue' : 'default')}
+                          style={{ fontWeight: 800, fontSize: 10.5 }}
+                        >
+                          {r.isComplete ? '⛔ 100% PACKED' : (r.isPartial ? `⏳ ${r.fulfillmentPct}% PACKED` : 'PENDING')}
+                        </Tag>
+                      </div>
+                    ),
+                  },
+                ]}
+                expandable={{
+                  expandedRowRender: (r) => (
+                    <div style={{ padding: '8px 14px', background: 'rgba(15, 23, 42, 0.6)', borderRadius: 6 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: '#38bdf8', marginBottom: 6 }}>
+                        📦 Packing Batches Recorded for {r.orderNumber} ({r.batches.length} Batch Log):
+                      </div>
+                      {r.batches.length === 0 ? (
+                        <div style={{ fontSize: 11.5, color: '#94a3b8' }}>No packing production batches recorded yet for this item.</div>
+                      ) : (
+                        <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }}>
+                          <thead>
+                            <tr style={{ color: '#94a3b8', borderBottom: '1px solid rgba(255, 255, 255, 0.1)', textAlign: 'left' }}>
+                              <th style={{ padding: '4px 6px' }}>Batch No</th>
+                              <th style={{ padding: '4px 6px' }}>Date</th>
+                              <th style={{ padding: '4px 6px' }}>Packaging Style</th>
+                              <th style={{ padding: '4px 6px', textAlign: 'right' }}>Cartons</th>
+                              <th style={{ padding: '4px 6px' }}>Status</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {r.batches.map((b: any, bIdx: number) => (
+                              <tr key={b.id || bIdx} style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.04)' }}>
+                                <td style={{ padding: '4px 6px', fontWeight: 700, color: '#38bdf8' }}>{b.batchNo}</td>
+                                <td style={{ padding: '4px 6px', color: '#cbd5e1' }}>{b.date}</td>
+                                <td style={{ padding: '4px 6px', color: '#94a3b8' }}>{b.style}</td>
+                                <td style={{ padding: '4px 6px', textAlign: 'right', fontWeight: 700, color: '#10b981' }}>{b.cartons} Cartons</td>
+                                <td style={{ padding: '4px 6px' }}><Tag color="purple" style={{ fontSize: 9.5 }}>{b.status}</Tag></td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
+                    </div>
+                  ),
+                  rowExpandable: (r) => r.batches.length > 0,
+                }}
+              />
             </div>
           )}
 

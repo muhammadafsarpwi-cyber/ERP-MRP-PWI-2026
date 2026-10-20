@@ -56,10 +56,48 @@ export class ProductionOpenStockLineDto {
   @Min(0)
   ratePerKg?: number;
 
+  @ApiPropertyOptional({ description: 'Cost rate per Gross in PKR', example: 720 })
+  @IsNumber()
+  @IsOptional()
+  @Min(0)
+  ratePerGross?: number;
+
   @ApiPropertyOptional({ description: 'Batch or Heat Number' })
   @IsString()
   @IsOptional()
   batchNumber?: string;
+
+  @ApiPropertyOptional({ description: 'Customer UUID or Identifier' })
+  @IsString()
+  @IsOptional()
+  customerId?: string;
+
+  @ApiPropertyOptional({ description: 'Customer Name' })
+  @IsString()
+  @IsOptional()
+  customerName?: string;
+
+  @ApiPropertyOptional({ description: 'SOC / Sales Order Number' })
+  @IsString()
+  @IsOptional()
+  socNumber?: string;
+
+  @ApiPropertyOptional({ description: 'Sales Order UUID' })
+  @IsUUID('loose')
+  @IsOptional()
+  salesOrderId?: string;
+
+  @ApiPropertyOptional({ description: 'Cartons count' })
+  @IsNumber()
+  @IsOptional()
+  @Min(0)
+  cartons?: number;
+
+  @ApiPropertyOptional({ description: 'Gross count' })
+  @IsNumber()
+  @IsOptional()
+  @Min(0)
+  gross?: number;
 
   @ApiPropertyOptional({ description: 'Line notes' })
   @IsString()
@@ -183,6 +221,12 @@ export class ProductionStockAdjustmentLineDto {
   @IsOptional()
   @Min(0)
   ratePerKg?: number;
+
+  @ApiPropertyOptional({ description: 'Cost rate per Gross in PKR', example: 720 })
+  @IsNumber()
+  @IsOptional()
+  @Min(0)
+  ratePerGross?: number;
 
   @ApiPropertyOptional({ description: 'Item Code' })
   @IsString()

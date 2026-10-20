@@ -3,7 +3,7 @@ import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource, In } from 'typeorm';
 import { Item, ItemType, Uom } from '../../item/entities';
 import { Warehouse, Department, Division } from '../../organization/entities';
-import { StockLedger, InventoryBalance } from '../../inventory/entities';
+import { StockLedger, InventoryBalance, Batch } from '../../inventory/entities';
 import { StockLedgerService } from '../../inventory/services/stock-ledger.service';
 import { InventoryBalanceService } from '../../inventory/services/inventory-balance.service';
 import { applyDivisionScopeFilter } from '../../../common/division-scope.util';
@@ -220,6 +220,54 @@ export class ProductionOpenStockService {
           uomId = it?.baseUomId || '';
         }
 
+        const lineNoteParts: string[] = [];
+        if (line.customerName) lineNoteParts.push(`Customer: ${line.customerName}`);
+        if (line.socNumber) lineNoteParts.push(`SOC: ${line.socNumber}`);
+        if (line.cartons && Number(line.cartons) > 0) lineNoteParts.push(`Cartons: ${line.cartons}`);
+        if (line.gross && Number(line.gross) > 0) lineNoteParts.push(`Gross: ${line.gross}`);
+        if (line.batchNumber) lineNoteParts.push(`Batch: ${line.batchNumber}`);
+        if (line.notes) lineNoteParts.push(line.notes);
+
+        const mergedNotes = lineNoteParts.length > 0
+          ? lineNoteParts.join(' | ')
+          : dto.notes || `Production Item Open Stock (${refNumber})`;
+
+        // Resolve or create batch if batchNumber string provided
+        let batchId: string | undefined = undefined;
+        if (line.batchNumber && typeof line.batchNumber === 'string' && line.batchNumber.trim().length > 0) {
+          const bNum = line.batchNumber.trim();
+          try {
+            let batch = await manager.getRepository(Batch).findOne({
+              where: { companyId, itemId: line.itemId, batchNumber: bNum },
+            });
+            if (!batch) {
+              batch = manager.getRepository(Batch).create({
+                companyId,
+                itemId: line.itemId,
+                warehouseId: dto.warehouseId,
+                batchNumber: bNum,
+                quantity: Number(line.quantity),
+                status: 'ACTIVE',
+              });
+              await manager.getRepository(Batch).save(batch);
+            } else {
+              batch.quantity = Number(batch.quantity || 0) + Number(line.quantity);
+              await manager.getRepository(Batch).save(batch);
+            }
+            batchId = batch.id;
+          } catch (batchErr: any) {
+            this.logger.warn(`Failed to resolve/create batch for ${bNum}: ${batchErr?.message || batchErr}`);
+          }
+        }
+
+        // Validate UUID for referenceId (stock_ledger.reference_id is UUID column)
+        const isUuid = (val?: string) => !!val && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
+        const refId = (line.salesOrderId && isUuid(line.salesOrderId))
+          ? line.salesOrderId
+          : (line.customerId && isUuid(line.customerId))
+          ? line.customerId
+          : undefined;
+
         const ledgerEntry = await this.stockLedgerService.create(
           {
             companyId,
@@ -232,10 +280,12 @@ export class ProductionOpenStockService {
             direction: 'IN',
             referenceType: 'PRODUCTION_ITEM_OPEN_STOCK',
             referenceNumber: refNumber,
+            referenceId: refId,
+            batchId: batchId || undefined,
             divisionId: dto.divisionId || null,
             sectionId: dto.sectionId || null,
             departmentId: dto.departmentId || null,
-            notes: line.notes || dto.notes || `Production Item Open Stock (${refNumber})`,
+            notes: mergedNotes,
             createdBy: userId,
           },
           manager,
@@ -246,7 +296,7 @@ export class ProductionOpenStockService {
           line.itemId,
           dto.warehouseId,
           null,
-          null,
+          batchId || null,
           uomId,
           Number(line.quantity),
           'IN',
@@ -257,6 +307,9 @@ export class ProductionOpenStockService {
           ledgerId: ledgerEntry.id,
           itemId: line.itemId,
           quantity: Number(line.quantity),
+          customerName: line.customerName || null,
+          socNumber: line.socNumber || null,
+          cartons: line.cartons || null,
         });
       }
 

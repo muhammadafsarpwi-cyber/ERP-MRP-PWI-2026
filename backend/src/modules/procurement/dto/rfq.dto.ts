@@ -12,12 +12,12 @@ export class CreateRfqLineDto {
   lineNumber: number;
 
   @ApiProperty({ description: 'Item ID' })
-  @IsUUID()
+  @IsString()
   @IsNotEmpty()
   itemId: string;
 
   @ApiProperty({ description: 'UOM ID' })
-  @IsUUID()
+  @IsString()
   @IsNotEmpty()
   uomId: string;
 
@@ -27,6 +27,41 @@ export class CreateRfqLineDto {
   @Min(0.0001)
   quantity: number;
 
+  @ApiPropertyOptional({ description: 'Unit price' })
+  @IsNumber()
+  @IsOptional()
+  unitPrice?: number;
+
+  @ApiPropertyOptional({ description: 'Rate' })
+  @IsNumber()
+  @IsOptional()
+  rate?: number;
+
+  @ApiPropertyOptional({ description: 'Tax percent' })
+  @IsNumber()
+  @IsOptional()
+  taxPercent?: number;
+
+  @ApiPropertyOptional({ description: 'Line total' })
+  @IsNumber()
+  @IsOptional()
+  lineTotal?: number;
+
+  @ApiPropertyOptional({ description: 'Item code' })
+  @IsString()
+  @IsOptional()
+  itemCode?: string;
+
+  @ApiPropertyOptional({ description: 'Item name' })
+  @IsString()
+  @IsOptional()
+  itemName?: string;
+
+  @ApiPropertyOptional({ description: 'UOM code' })
+  @IsString()
+  @IsOptional()
+  uomCode?: string;
+
   @ApiPropertyOptional({ description: 'Notes' })
   @IsString()
   @IsOptional()
@@ -35,7 +70,7 @@ export class CreateRfqLineDto {
 
 export class CreateRfqDto {
   @ApiProperty({ description: 'Company ID' })
-  @IsUUID()
+  @IsString()
   @IsNotEmpty()
   companyId: string;
 
@@ -57,12 +92,12 @@ export class CreateRfqDto {
   description?: string;
 
   @ApiProperty({ description: 'Supplier ID' })
-  @IsUUID()
+  @IsString()
   @IsNotEmpty()
   supplierId: string;
 
   @ApiPropertyOptional({ description: 'Requisition ID' })
-  @IsUUID()
+  @IsString()
   @IsOptional()
   requisitionId?: string;
 

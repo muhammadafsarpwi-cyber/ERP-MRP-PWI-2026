@@ -730,6 +730,8 @@ export class ProductionInventoryReportService {
           .leftJoin('pei.item', 'it')
           .select([
             'pei.productionEntryId AS "peId"',
+            'pei.lineNumber AS "lineNumber"',
+            'pei.actualQuantity AS "actualQuantity"',
             'it.id AS "itemId"',
             'it.itemCode AS "itemCode"',
             'it.name AS "itemName"',
@@ -737,6 +739,7 @@ export class ProductionInventoryReportService {
           ])
           .where('pei.productionEntryId IN (:...peIds)', { peIds })
           .andWhere('pei.entryKind = :kind', { kind: ProductionEntryItemKind.OUTPUT })
+          .orderBy('pei.lineNumber', 'ASC')
           .getRawMany();
 
         const outputsByPeId = new Map<string, any[]>();
@@ -747,6 +750,8 @@ export class ProductionInventoryReportService {
             itemCode: row.itemCode,
             name: row.itemName,
             productionInItemId: row.productionInItemId,
+            actualQuantity: Number(row.actualQuantity || 0),
+            lineNumber: Number(row.lineNumber || 0),
           });
         }
 
@@ -777,6 +782,7 @@ export class ProductionInventoryReportService {
       0,
     );
     let running = R4(openingBalance + fullDelta - visibleDelta);
+    const claimedOutputsByPe = new Map<string, Set<string>>();
     const rows = visible.map((r) => {
       const quantity = R4(N(r.quantity));
       if (r.direction === 'IN') running = R4(running + quantity);
@@ -836,11 +842,43 @@ export class ProductionInventoryReportService {
         producingItem = { id: item.id, itemCode: item.itemCode, name: item.name };
       } else if (r.direction === 'OUT') {
         const outputs = pe?.outputs || [];
-        const matched = outputs.find((o: any) => o.productionInItemId === r.itemId || o.productionInItemId === item.id);
-        if (matched) {
-          producingItem = { id: matched.id, itemCode: matched.itemCode, name: matched.name };
-        } else if (outputs.length === 1) {
-          producingItem = { id: outputs[0].id, itemCode: outputs[0].itemCode, name: outputs[0].name };
+        const peIdKey = pe?.id || r.referenceId || '';
+        const claimed = claimedOutputsByPe.get(peIdKey) || new Set<string>();
+
+        // 1. Try to find an unclaimed output item whose actualQuantity matches this OUT movement quantity
+        let targetOutput = outputs.find(
+          (o: any) =>
+            !claimed.has(o.id) &&
+            (o.productionInItemId === r.itemId || o.productionInItemId === item.id) &&
+            Math.abs(N(o.actualQuantity) - quantity) < 0.001,
+        );
+
+        // 2. If no unclaimed quantity match, try any quantity match
+        if (!targetOutput) {
+          targetOutput = outputs.find(
+            (o: any) =>
+              (o.productionInItemId === r.itemId || o.productionInItemId === item.id) &&
+              Math.abs(N(o.actualQuantity) - quantity) < 0.001,
+          );
+        }
+
+        // 3. If still no quantity match, pick the first unclaimed output consuming this item
+        if (!targetOutput) {
+          targetOutput = outputs.find(
+            (o: any) => !claimed.has(o.id) && (o.productionInItemId === r.itemId || o.productionInItemId === item.id),
+          );
+        }
+
+        // 4. Fallback to any matched output, or outputs[0], or pe.item
+        if (!targetOutput) {
+          targetOutput = outputs.find((o: any) => o.productionInItemId === r.itemId || o.productionInItemId === item.id)
+            || (outputs.length === 1 ? outputs[0] : null);
+        }
+
+        if (targetOutput) {
+          claimed.add(targetOutput.id);
+          claimedOutputsByPe.set(peIdKey, claimed);
+          producingItem = { id: targetOutput.id, itemCode: targetOutput.itemCode, name: targetOutput.name };
         } else if (pe?.item) {
           producingItem = { id: pe.item.id, itemCode: pe.item.itemCode, name: pe.item.name };
         }

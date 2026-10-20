@@ -1306,9 +1306,22 @@ export class RawMaterialReceivingService {
       }
     }
 
+    const poIds = data.map((h) => h.purchaseOrderId).filter(Boolean) as string[];
+    const poMap = new Map<string, string>();
+    if (poIds.length > 0) {
+      const pos: any[] = await this.receiptRepo.manager.query(
+        `SELECT id, po_code FROM purchase_orders WHERE id = ANY($1)`,
+        [poIds],
+      );
+      for (const p of pos) {
+        poMap.set(p.id, p.po_code);
+      }
+    }
+
     return {
       data: data.map((h) => ({
         ...h,
+        poCode: poMap.get(h.purchaseOrderId || '') || h.reference || null,
         lineCount: (h as any).lineCount ?? (linesMap[h.id]?.length || 0),
         gatePassTotal: totals[h.id]?.gatePassTotal ?? 0,
         receivedTotal: totals[h.id]?.receivedTotal ?? 0,
@@ -1346,8 +1359,18 @@ export class RawMaterialReceivingService {
       differenceTotal += gp - rc;
     }
 
+    let poCode: string | null = header.reference || null;
+    if (header.purchaseOrderId && !poCode) {
+      const poRows = await this.receiptRepo.manager.query(
+        `SELECT po_code FROM purchase_orders WHERE id = $1`,
+        [header.purchaseOrderId],
+      );
+      if (poRows.length > 0) poCode = poRows[0].po_code;
+    }
+
     return {
       ...header,
+      poCode,
       lineCount: header.lines.length,
       lineCountPosted: ledgerEntries.length,
       gatePassTotal,

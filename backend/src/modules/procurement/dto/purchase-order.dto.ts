@@ -7,7 +7,7 @@ import { Type } from 'class-transformer';
 
 export class CreatePurchaseOrderLineDto {
   @ApiPropertyOptional({ description: 'Line ID' })
-  @IsUUID()
+  @IsString()
   @IsOptional()
   id?: string;
 
@@ -17,12 +17,12 @@ export class CreatePurchaseOrderLineDto {
   lineNumber?: number;
 
   @ApiProperty({ description: 'Item ID' })
-  @IsUUID()
+  @IsString()
   @IsNotEmpty()
   itemId: string;
 
   @ApiPropertyOptional({ description: 'UOM ID' })
-  @IsUUID()
+  @IsString()
   @IsOptional()
   uomId?: string;
 
@@ -43,7 +43,7 @@ export class CreatePurchaseOrderLineDto {
   discountPercent?: number;
 
   @ApiPropertyOptional({ description: 'Warehouse ID' })
-  @IsUUID()
+  @IsString()
   @IsOptional()
   warehouseId?: string;
 
@@ -51,6 +51,56 @@ export class CreatePurchaseOrderLineDto {
   @IsDateString()
   @IsOptional()
   requiredDate?: string;
+
+  @ApiPropertyOptional({ description: 'Tax percent' })
+  @IsNumber()
+  @IsOptional()
+  taxPercent?: number;
+
+  @ApiPropertyOptional({ description: 'GST percent' })
+  @IsNumber()
+  @IsOptional()
+  gstPercent?: number;
+
+  @ApiPropertyOptional({ description: 'Tax amount' })
+  @IsNumber()
+  @IsOptional()
+  taxAmount?: number;
+
+  @ApiPropertyOptional({ description: 'Line total' })
+  @IsNumber()
+  @IsOptional()
+  lineTotal?: number;
+
+  @ApiPropertyOptional({ description: 'Total price' })
+  @IsNumber()
+  @IsOptional()
+  totalPrice?: number;
+
+  @ApiPropertyOptional({ description: 'Rate' })
+  @IsNumber()
+  @IsOptional()
+  rate?: number;
+
+  @ApiPropertyOptional({ description: 'Item code' })
+  @IsString()
+  @IsOptional()
+  itemCode?: string;
+
+  @ApiPropertyOptional({ description: 'Item name' })
+  @IsString()
+  @IsOptional()
+  itemName?: string;
+
+  @ApiPropertyOptional({ description: 'UOM code' })
+  @IsString()
+  @IsOptional()
+  uomCode?: string;
+
+  @ApiPropertyOptional({ description: 'UOM name' })
+  @IsString()
+  @IsOptional()
+  uomName?: string;
 
   @ApiPropertyOptional({ description: 'Notes' })
   @IsString()
@@ -60,7 +110,7 @@ export class CreatePurchaseOrderLineDto {
 
 export class CreatePurchaseOrderDto {
   @ApiProperty({ description: 'Company ID' })
-  @IsUUID()
+  @IsString()
   @IsNotEmpty()
   companyId: string;
 
@@ -71,22 +121,22 @@ export class CreatePurchaseOrderDto {
   poCode: string;
 
   @ApiProperty({ description: 'Supplier ID' })
-  @IsUUID()
+  @IsString()
   @IsNotEmpty()
   supplierId: string;
 
   @ApiPropertyOptional({ description: 'Quotation ID' })
-  @IsUUID()
+  @IsString()
   @IsOptional()
   quotationId?: string;
 
   @ApiPropertyOptional({ description: 'Requisition ID' })
-  @IsUUID()
+  @IsString()
   @IsOptional()
   requisitionId?: string;
 
   @ApiPropertyOptional({ description: 'Warehouse ID' })
-  @IsUUID()
+  @IsString()
   @IsOptional()
   warehouseId?: string;
 
@@ -108,7 +158,6 @@ export class CreatePurchaseOrderDto {
   @ApiPropertyOptional({ description: 'Payment terms' })
   @IsString()
   @IsOptional()
-  @MaxLength(100)
   paymentTerms?: string;
 
   @ApiPropertyOptional({ description: 'Currency code', default: 'PKR' })
@@ -157,7 +206,7 @@ export class CreatePurchaseOrderDto {
 
 export class UpdatePurchaseOrderDto {
   @ApiPropertyOptional({ description: 'Company ID' })
-  @IsUUID()
+  @IsString()
   @IsOptional()
   companyId?: string;
 
@@ -168,12 +217,12 @@ export class UpdatePurchaseOrderDto {
   poCode?: string;
 
   @ApiPropertyOptional({ description: 'Supplier ID' })
-  @IsUUID()
+  @IsString()
   @IsOptional()
   supplierId?: string;
 
   @ApiPropertyOptional({ description: 'Warehouse ID' })
-  @IsUUID()
+  @IsString()
   @IsOptional()
   warehouseId?: string;
 

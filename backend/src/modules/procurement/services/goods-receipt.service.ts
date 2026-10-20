@@ -2,7 +2,7 @@ import { Injectable, NotFoundException, ConflictException, BadRequestException, 
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { GoodsReceipt, GoodsReceiptLine, PurchaseOrder, PurchaseOrderLine } from '../entities';
-import { CreateGoodsReceiptDto, GoodsReceiptFilterDto } from '../dto';
+import { CreateGoodsReceiptDto, UpdateGoodsReceiptDto, GoodsReceiptFilterDto } from '../dto';
 import { StockLedgerService } from '../../inventory/services/stock-ledger.service';
 import { InventoryBalanceService } from '../../inventory/services/inventory-balance.service';
 import { Warehouse } from '../../organization/entities/warehouse.entity';
@@ -59,9 +59,9 @@ export class GoodsReceiptService {
 
     // Clean poId: ensure only valid non-empty string or null is passed
     const cleanPoId = poId && poId.trim().length > 0 ? poId.trim() : null;
-
     const receipt = this.repo.create({
       ...restDto,
+      divisionId: divisionId || null,
       poId: cleanPoId as any,
       notes: combinedNotes || dto.notes || null,
       status: 'DRAFT',
@@ -95,6 +95,7 @@ export class GoodsReceiptService {
       .leftJoinAndSelect('gr.supplier', 'supplier')
       .leftJoinAndSelect('gr.po', 'po')
       .leftJoinAndSelect('gr.warehouse', 'warehouse');
+
     let hasWhere = false;
     if (companyId) { qb.where('gr.companyId = :companyId', { companyId }); hasWhere = true; }
     if (poId) { qb[hasWhere ? 'andWhere' : 'where']('gr.poId = :poId', { poId }); hasWhere = true; }
@@ -111,6 +112,7 @@ export class GoodsReceiptService {
       (item as any).poCode = item.po?.poCode;
       (item as any).supplierName = item.supplier?.name;
       (item as any).warehouseName = item.warehouse?.name;
+      (item as any).divisionId = item.divisionId || item.warehouse?.divisionId || (item.notes?.match(/\[Division:\s*([^\]]+)\]/)?.[1]);
     }
 
     return { data, total };
@@ -123,6 +125,10 @@ export class GoodsReceiptService {
     });
     if (!receipt) throw new NotFoundException(`Goods receipt with ID '${id}' not found`);
     this.assertCompanyOwned(receipt, companyId);
+    (receipt as any).poCode = receipt.po?.poCode;
+    (receipt as any).supplierName = receipt.supplier?.name;
+    (receipt as any).warehouseName = receipt.warehouse?.name;
+    (receipt as any).divisionId = receipt.divisionId || receipt.warehouse?.divisionId || (receipt.notes?.match(/\[Division:\s*([^\]]+)\]/)?.[1]);
     return receipt;
   }
 
@@ -328,10 +334,165 @@ export class GoodsReceiptService {
     return this.findOne(id);
   }
 
+  async update(id: string, dto: UpdateGoodsReceiptDto, userId?: string, companyId?: string): Promise<GoodsReceipt> {
+    const receipt = await this.findOne(id);
+    this.assertCompanyOwned(receipt, companyId);
+
+    // Apply header fields to receipt
+    if (dto.supplierId !== undefined && dto.supplierId.trim().length > 0) {
+      receipt.supplierId = dto.supplierId.trim();
+    }
+    if (dto.poId !== undefined) {
+      receipt.poId = (dto.poId && dto.poId.trim().length > 0 ? dto.poId.trim() : null) as any;
+    }
+    if (dto.warehouseId !== undefined && dto.warehouseId.trim().length > 0) {
+      receipt.warehouseId = dto.warehouseId.trim();
+    }
+    if (dto.divisionId !== undefined) {
+      receipt.divisionId = dto.divisionId && dto.divisionId.trim().length > 0 ? dto.divisionId.trim() : null;
+    }
+    if (dto.receiptDate !== undefined) {
+      receipt.receiptDate = dto.receiptDate ? new Date(dto.receiptDate) : null;
+    }
+    if (dto.grnNumber !== undefined) receipt.grnNumber = dto.grnNumber;
+    if (dto.deliveryNoteNumber !== undefined) receipt.deliveryNoteNumber = dto.deliveryNoteNumber;
+
+    if (dto.divisionId !== undefined || dto.purchaseType !== undefined || dto.notes !== undefined) {
+      const metaParts: string[] = [];
+      const div = dto.divisionId || receipt.divisionId;
+      if (div) metaParts.push(`[Division: ${div}]`);
+      if (dto.purchaseType) metaParts.push(`[Origin: ${dto.purchaseType}]`);
+      const prefix = metaParts.join(' ');
+      const userNotes = dto.notes !== undefined ? dto.notes : receipt.notes?.replace(/\[(Division|Origin):[^\]]+\]\s*/g, '').trim();
+      receipt.notes = [prefix, userNotes].filter(Boolean).join('\n') || userNotes || null;
+    }
+
+    if (receipt.status === 'POSTED') {
+      // For POSTED receipts, header metadata is updated; stock ledger lines are preserved to prevent inventory discrepancy
+      receipt.updatedBy = userId || null;
+      await this.repo.save(receipt);
+      return this.findOne(id);
+    }
+
+    const { divisionId, purchaseType, lines, poId, ...restDto } = dto;
+    Object.assign(receipt, restDto);
+    receipt.updatedBy = userId || null;
+    await this.repo.save(receipt);
+
+    if (lines && Array.isArray(lines)) {
+      await this.lineRepo.delete({ receiptId: id });
+      for (const lineDto of lines) {
+        const { poLineId, locationId, batchId, ...restLine } = lineDto;
+        const line = this.lineRepo.create({
+          receiptId: receipt.id,
+          ...restLine,
+          poLineId: poLineId && poLineId.trim().length > 0 ? poLineId.trim() : undefined,
+          locationId: locationId && locationId.trim().length > 0 ? locationId.trim() : undefined,
+          batchId: batchId && batchId.trim().length > 0 ? batchId.trim() : undefined,
+          createdBy: userId || null,
+          updatedBy: userId || null,
+        });
+        await this.lineRepo.save(line);
+      }
+    }
+
+    return this.findOne(id);
+  }
+
+  async cancel(id: string, userId?: string, companyId?: string): Promise<GoodsReceipt> {
+    const receipt = await this.findOne(id);
+    this.assertCompanyOwned(receipt, companyId);
+    if (receipt.status === 'CANCELLED') {
+      throw new BadRequestException('Goods receipt is already cancelled');
+    }
+
+    if (receipt.status === 'POSTED') {
+      await this.repo.manager.transaction(async (manager) => {
+        const locked = await manager.getRepository(GoodsReceipt).findOne({
+          where: { id },
+          relations: ['lines'],
+        });
+        if (!locked) throw new NotFoundException('Goods receipt not found');
+
+        for (const line of locked.lines || []) {
+          const acceptedQty = Number(line.quantityAccepted || 0);
+          if (acceptedQty <= 0) continue;
+
+          let postQty = acceptedQty;
+          let postUomId = line.uomId;
+
+          if (line.itemId) {
+            const item = await manager.getRepository(Item).findOne({ where: { id: line.itemId } });
+            if (item && item.baseUomId && line.uomId && item.baseUomId !== line.uomId) {
+              const conv = await manager.getRepository(UomConversion).findOne({
+                where: { fromUomId: line.uomId, toUomId: item.baseUomId },
+              });
+              if (conv && Number(conv.conversionFactor) > 0) {
+                postQty = acceptedQty * Number(conv.conversionFactor);
+                postUomId = item.baseUomId;
+              }
+            }
+          }
+
+          // Inverse stock movement: OUT of warehouse
+          await this.stockLedgerService.create({
+            companyId: locked.companyId,
+            transactionType: 'ADJUSTMENT',
+            transactionDate: new Date(),
+            itemId: line.itemId,
+            warehouseId: locked.warehouseId,
+            locationId: line.locationId || undefined,
+            batchId: line.batchId || undefined,
+            quantity: postQty,
+            uomId: postUomId,
+            direction: 'OUT',
+            referenceType: GRN_REFERENCE_TYPE,
+            referenceId: locked.id,
+            referenceNumber: locked.grnNumber || locked.receiptCode,
+            notes: `Cancellation reversal for ${locked.receiptCode}`,
+            createdBy: userId ?? undefined,
+          }, manager);
+
+          await this.inventoryBalanceService.updateBalance(
+            locked.companyId, line.itemId, locked.warehouseId,
+            line.locationId, line.batchId, postUomId, postQty, 'OUT', manager,
+          );
+
+          if (line.poLineId && locked.poId) {
+            const poLine = await manager.getRepository(PurchaseOrderLine).findOne({ where: { id: line.poLineId } });
+            if (poLine) {
+              const newRec = Math.max(0, Number(poLine.receivedQuantity || 0) - acceptedQty);
+              await manager.getRepository(PurchaseOrderLine).update(poLine.id, { receivedQuantity: newRec });
+            }
+          }
+        }
+
+        if (locked.poId) {
+          const poLines = await manager.getRepository(PurchaseOrderLine).find({ where: { poId: locked.poId } });
+          const anyRec = poLines.some(l => Number(l.receivedQuantity || 0) > 0);
+          await manager.getRepository(PurchaseOrder).update(locked.poId, {
+            status: anyRec ? 'PARTIALLY_RECEIVED' : 'APPROVED',
+          });
+        }
+
+        await manager.getRepository(GoodsReceipt).update(locked.id, {
+          status: 'CANCELLED',
+          updatedBy: userId || null,
+        });
+      });
+    } else {
+      receipt.status = 'CANCELLED';
+      receipt.updatedBy = userId || null;
+      await this.repo.save(receipt);
+    }
+
+    return this.findOne(id);
+  }
+
   async remove(id: string): Promise<void> {
     const receipt = await this.findOne(id);
     if (receipt.status === 'POSTED') {
-      throw new BadRequestException('Cannot delete a goods receipt that has already been posted to inventory');
+      throw new BadRequestException('Cannot delete a goods receipt that has already been posted to inventory. Please cancel/reverse it first.');
     }
     await this.lineRepo.delete({ receiptId: id });
     await this.repo.remove(receipt);

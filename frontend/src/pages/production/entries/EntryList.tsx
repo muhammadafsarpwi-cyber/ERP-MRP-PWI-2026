@@ -51,6 +51,7 @@ import {
   FilterOutlined,
   ClearOutlined,
   DownOutlined,
+  UpOutlined,
   CarryOutOutlined,
   FieldTimeOutlined,
   DeleteOutlined,
@@ -576,15 +577,17 @@ export function isMultiItemRow(row: ProductionEntryRow | null | undefined): bool
   return nestedItemsOf(row).length >= MULTI_ITEM_THRESHOLD;
 }
 
-/** The ➕ / − trigger at the head of the Item / Product cell. Returns null for
- *  a single-item row so no empty affordance is ever painted. */
-const NestedItemsToggle: React.FC<{
+/** The ▲ / ▼ trigger at the head of the row (first column). Returns an empty placeholder for
+ *  a single-item row so table columns align across rows. */
+const RowExpandIcon: React.FC<{
   row: ProductionEntryRow;
   open: boolean;
   onToggle: () => void;
 }> = ({ row, open, onToggle }) => {
   const count = nestedItemsOf(row).length;
-  if (count < MULTI_ITEM_THRESHOLD) return null;
+  if (count < MULTI_ITEM_THRESHOLD) {
+    return <span style={{ display: 'inline-block', width: 22 }} />;
+  }
   const label = open
     ? `Hide the ${count} items produced by this document`
     : `Show all ${count} items produced by this document`;
@@ -595,17 +598,35 @@ const NestedItemsToggle: React.FC<{
         size="small"
         aria-label={label}
         aria-expanded={open}
-        className="entry-grid-item-toggle"
-        icon={open ? <MinusOutlined style={{ fontSize: 11 }} /> : <PlusOutlined style={{ fontSize: 11 }} />}
+        className="entry-grid-row-expand-btn"
+        icon={
+          open ? (
+            <UpOutlined style={{ fontSize: 11, fontWeight: 900, color: 'var(--theme-primary, #0284c7)' }} />
+          ) : (
+            <DownOutlined style={{ fontSize: 11, fontWeight: 900, color: 'var(--theme-text-muted, #64748b)' }} />
+          )
+        }
         style={{
-          width: 18,
-          height: 18,
-          minWidth: 18,
+          width: 22,
+          height: 22,
+          minWidth: 22,
           padding: 0,
-          flex: '0 0 auto',
-          color: 'var(--theme-primary, #2563eb)',
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          borderRadius: 4,
+          border: open
+            ? '1px solid rgba(2, 132, 199, 0.45)'
+            : '1px solid rgba(148, 163, 184, 0.25)',
+          background: open
+            ? 'rgba(2, 132, 199, 0.14)'
+            : 'rgba(148, 163, 184, 0.08)',
+          cursor: 'pointer',
         }}
-        onClick={onToggle}
+        onClick={(e) => {
+          e.stopPropagation();
+          onToggle();
+        }}
       />
     </Tooltip>
   );
@@ -2280,21 +2301,8 @@ const EntryList: React.FC = () => {
         const itemName = r.item?.name || r.item?.shortName || r.item?.itemCode;
         const itemCode = r.item?.itemCode;
         const hasDiffCode = itemCode && itemName && itemCode !== itemName;
-        const open = expandedRowKeys.includes(r.id);
         return (
           <div style={{ maxWidth: 220, lineHeight: 1.25, display: 'flex', alignItems: 'flex-start', gap: 3 }}>
-            {/* ➕ sits at the head of the item field, tree-style. The component
-                renders NOTHING unless the document holds 2 or more produced
-                items, so single-item rows keep their current clean look. */}
-            <NestedItemsToggle
-              row={r}
-              open={open}
-              onToggle={() =>
-                setExpandedRowKeys((prev) =>
-                  prev.includes(r.id) ? prev.filter((k) => k !== r.id) : [...prev, r.id],
-                )
-              }
-            />
             <div style={{ flex: 1, minWidth: 0 }}>
               <ItemBadge item={r.item} fallback="—" />
               {hasDiffCode && (
@@ -3526,19 +3534,24 @@ const EntryList: React.FC = () => {
                       dense
                       className="entry-grid-compact"
                       containerClassName="erp-table-striped"
-                      /* THE ➕ ACCORDION. antd's own LEADING expand column is
-                         switched off — the trigger lives inside the Item /
-                         Product cell instead (see NestedItemsToggle), so the
-                         open state is driven from `expandedRowKeys`.
-                         `rowExpandable` is the hard gate: a document holding a
-                         single produced item can NEVER open, even if a stale
-                         key were ever to name it. */
+                      /* The ▲ / ▼ expand trigger lives at the very START of the table (column index 0).
+                         Only multi-item documents render the interactive arrow button. */
                       expandable={{
                         expandedRowKeys,
                         onExpandedRowsChange: (keys) => setExpandedRowKeys([...keys]),
                         rowExpandable: isMultiItemRow,
                         expandedRowRender: (r) => <NestedItemsPanel row={r} />,
-                        showExpandColumn: false,
+                        columnWidth: 42,
+                        expandIconColumnIndex: 0,
+                        expandIcon: ({ expanded, onExpand, record }) => (
+                          <RowExpandIcon
+                            row={record}
+                            open={expanded}
+                            onToggle={() => {
+                              onExpand(record, {} as any);
+                            }}
+                          />
+                        ),
                       }}
                   pagination={{
                     current: page,

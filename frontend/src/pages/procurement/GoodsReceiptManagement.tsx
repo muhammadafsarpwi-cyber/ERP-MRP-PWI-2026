@@ -7,13 +7,16 @@ import {
   PlusOutlined, SearchOutlined, CheckOutlined, ReloadOutlined,
   InboxOutlined, ApartmentOutlined, ShopOutlined, GlobalOutlined,
   FileDoneOutlined, InfoCircleOutlined, CheckCircleOutlined, DeleteOutlined,
-  ExclamationCircleOutlined,
+  ExclamationCircleOutlined, EyeOutlined, EditOutlined, PrinterOutlined,
+  SafetyCertificateOutlined, RollbackOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import apiService from '../../services/api';
 import { useUserStore } from '../../store/userStore';
 import { ERPLineItems, ERPLine, DraggableResizableModal } from '../../components/shared';
+import { printGoodsReceiptDocument, printGatePassDocument } from '../../utils/printTemplates';
+import './GoodsReceiptManagement.css';
 
 interface GoodsReceipt {
   id: string;
@@ -74,6 +77,10 @@ const GoodsReceiptManagement: React.FC = () => {
   const [pageSize] = useState(20);
   const [lineItems, setLineItems] = useState<ERPLine[]>([]);
   const [companyId, setCompanyId] = useState('');
+  const [editingItem, setEditingItem] = useState<GoodsReceipt | null>(null);
+  const [viewModalVisible, setViewModalVisible] = useState(false);
+  const [viewingItem, setViewingItem] = useState<any>(null);
+  const [viewLoading, setViewLoading] = useState(false);
   
   // Master lists
   const [suppliers, setSuppliers] = useState<Array<{ id: string; name: string }>>([]);
@@ -165,6 +172,7 @@ const GoodsReceiptManagement: React.FC = () => {
   }, [total, data.length]);
 
   const handleCreate = () => {
+    setEditingItem(null);
     form.resetFields();
     loadReferences();
     const autoCode = generateReceiptCode();
@@ -175,6 +183,211 @@ const GoodsReceiptManagement: React.FC = () => {
     });
     setLineItems([]);
     setModalVisible(true);
+  };
+
+  const handleOpenViewModal = async (record: GoodsReceipt) => {
+    setViewLoading(true);
+    setViewModalVisible(true);
+    try {
+      const res = await apiService.get<any>(`/procurement/receipts/${record.id}`);
+      setViewingItem(res?.data || res);
+    } catch {
+      setViewingItem(record);
+      message.error('Failed to load full receipt details');
+    } finally {
+      setViewLoading(false);
+    }
+  };
+
+  const handlePrintReceipt = async (record: GoodsReceipt) => {
+    try {
+      const res = await apiService.get<any>(`/procurement/receipts/${record.id}`);
+      const detailed = res?.data || res;
+      printGoodsReceiptDocument(detailed || record);
+    } catch {
+      printGoodsReceiptDocument(record);
+    }
+  };
+
+  const handlePrintGatePass = async (record: GoodsReceipt) => {
+    try {
+      const res = await apiService.get<any>(`/procurement/receipts/${record.id}`);
+      const detailed = res?.data || res;
+      const sName = detailed.supplier?.name || detailed.supplierName || (record.supplierId && suppliers.find((s) => s.id === record.supplierId)?.name) || 'Supplier';
+      const itemsList = detailed.lines || detailed.items || [];
+      const gatePassData = {
+        passNumber: detailed.deliveryNoteNumber || detailed.grnNumber || detailed.receiptCode,
+        passType: 'INWARD' as const,
+        issueDate: detailed.receiptDate || detailed.createdAt || new Date().toISOString(),
+        partyName: sName,
+        vehicleNumber: detailed.notes?.match(/Vehicle:?\s*([A-Za-z0-9 -]+)/i)?.[1] || '—',
+        driverName: '—',
+        purpose: `Goods Receipt ${detailed.receiptCode} (${detailed.poCode || 'PO/PR'})`,
+        department: detailed.divisionName || 'Main Division',
+        remarks: detailed.notes || 'Inbound Goods Receipt at factory warehouse',
+        items: itemsList.map((l: any, idx: number) => ({
+          srNo: idx + 1,
+          itemCode: l.itemCode || l.item?.itemCode || `ITEM-${idx + 1}`,
+          description: l.itemName || l.item?.name || l.conditionNotes || 'Item',
+          quantity: Number(l.quantityReceived || l.quantity || 0),
+          uom: l.uomCode || l.uom?.code || 'PCS',
+          remarks: `Accepted: ${l.quantityAccepted || l.quantityReceived || 0}`,
+        })),
+      };
+      printGatePassDocument(gatePassData);
+    } catch {
+      message.error('Failed to generate gate pass');
+    }
+  };
+
+  const handleOpenEditModal = async (record: GoodsReceipt) => {
+    try {
+      const res = await apiService.get<any>(`/procurement/receipts/${record.id}`);
+      const detailed = res?.data || res;
+      setEditingItem(detailed);
+      form.resetFields();
+      await loadReferences();
+
+      const derivedDivisionId =
+        detailed.divisionId ||
+        detailed.warehouse?.divisionId ||
+        (detailed.warehouseId && warehouses.find((w) => w.id === detailed.warehouseId)?.divisionId) ||
+        (detailed.notes && typeof detailed.notes === 'string'
+          ? detailed.notes.match(/\[Division:\s*([^\]]+)\]/)?.[1]
+          : undefined);
+
+      const refKey = detailed.poId ? `PO:${detailed.poId}` : undefined;
+
+      form.setFieldsValue({
+        referenceKey: refKey,
+        receiptCode: detailed.receiptCode,
+        poId: detailed.poId || undefined,
+        supplierId: detailed.supplierId || detailed.supplier?.id || undefined,
+        divisionId: derivedDivisionId,
+        warehouseId: detailed.warehouseId || undefined,
+        purchaseType: detailed.purchaseType || 'LOCAL',
+        receiptDate: detailed.receiptDate ? dayjs(detailed.receiptDate) : dayjs(),
+        grnNumber: detailed.grnNumber || undefined,
+        deliveryNoteNumber: detailed.deliveryNoteNumber || undefined,
+        notes: detailed.notes ? detailed.notes.replace(/\[(Division|Origin):[^\]]+\]\s*/g, '').trim() : undefined,
+      });
+
+      // If linked to a PO, fetch the PO to get up-to-date line received quantities
+      const poLineMap = new Map<string, any>();
+      if (detailed.poId) {
+        try {
+          const poRes = await apiService.get<any>(`/procurement/orders/${detailed.poId}`);
+          const poData = poRes?.data || poRes;
+          const poLines = poData?.lines || poData?.items || [];
+          for (const pl of poLines) {
+            if (pl.id) poLineMap.set(pl.id, pl);
+            if (pl.itemId) poLineMap.set(pl.itemId, pl);
+          }
+        } catch {
+          // Fallback if PO fetch fails
+        }
+      }
+
+      const linesSource = detailed.lines || detailed.items || [];
+      const mappedLines: ERPLine[] = linesSource.map((l: any, idx: number) => {
+        const poLine = (l.poLineId && poLineMap.get(l.poLineId)) || (l.itemId && poLineMap.get(l.itemId));
+        const ordQty = poLine ? Number(poLine.quantity || 0) : Number(l.quantityOrdered || l.quantity || 0);
+        const thisRecQty = Number(l.quantityReceived || l.quantity || 0);
+
+        let pastRec = 0;
+        if (poLine) {
+          const totalReceivedInPoLine = Number(poLine.receivedQuantity || 0);
+          if (detailed.status === 'POSTED') {
+            pastRec = Math.max(0, totalReceivedInPoLine - thisRecQty);
+          } else {
+            pastRec = totalReceivedInPoLine;
+          }
+        }
+
+        const openBalance = Math.max(0, ordQty - pastRec);
+
+        return {
+          id: `line-${idx + 1}-${Date.now()}`,
+          poLineId: l.poLineId,
+          itemId: l.itemId,
+          itemCode: l.itemCode || l.item?.itemCode,
+          itemName: l.itemName || l.item?.name || l.conditionNotes,
+          uomId: l.uomId,
+          uomCode: l.uomCode || l.uom?.code || 'PCS',
+          orderQuantity: ordQty,
+          pastReceived: pastRec,
+          orderBalance: openBalance,
+          quantity: thisRecQty,
+          rate: Number(l.unitPrice || l.rate || 0),
+          discountPercent: 0,
+          taxPercent: 18,
+          lineTotal: Number(l.lineTotal || (thisRecQty * (l.unitPrice || 0))),
+          packagingSize: l.packagingSize,
+          packagingUnit: l.packagingUnit,
+          packageQuantity: l.packageQuantity,
+          salesOrderNumber: detailed.poCode,
+        };
+      });
+
+      setLineItems(mappedLines);
+      setModalVisible(true);
+    } catch {
+      message.error('Failed to load goods receipt for editing');
+    }
+  };
+
+  const handleSubmit = async () => {
+    try {
+      const values = await form.validateFields();
+      if (lineItems.length === 0) {
+        message.warning('Add at least one receipt line item');
+        return;
+      }
+      setSubmitting(true);
+
+      const targetCompanyId = companyId || values.companyId || useUserStore.getState().user?.defaultCompanyId;
+
+      const payload = {
+        companyId: targetCompanyId,
+        receiptCode: values.receiptCode,
+        poId: values.poId && String(values.poId).trim().length > 0 ? String(values.poId).trim() : undefined,
+        supplierId: values.supplierId,
+        warehouseId: values.warehouseId,
+        divisionId: values.divisionId || undefined,
+        purchaseType: values.purchaseType || 'LOCAL',
+        receiptDate: values.receiptDate ? dayjs(values.receiptDate).format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD'),
+        grnNumber: values.grnNumber || undefined,
+        deliveryNoteNumber: values.deliveryNoteNumber || undefined,
+        notes: values.notes || undefined,
+        lines: lineItems.map((l) => ({
+          poLineId: l.poLineId && String(l.poLineId).trim().length > 0 ? String(l.poLineId).trim() : undefined,
+          itemId: l.itemId,
+          uomId: l.uomId,
+          quantityOrdered: Number(l.orderQuantity || l.quantity || 0),
+          quantityReceived: Number(l.quantity || 0),
+          quantityAccepted: Number(l.quantity || 0),
+          quantityRejected: 0,
+          unitPrice: Number(l.rate || 0),
+          conditionNotes: l.salesOrderNumber ? `Ref: ${l.salesOrderNumber}` : (l.itemName || l.itemCode),
+        })),
+      };
+
+      if (editingItem) {
+        await apiService.patch(`/procurement/receipts/${editingItem.id}`, payload);
+        message.success(`Goods Receipt ${values.receiptCode} updated successfully`);
+      } else {
+        await apiService.post('/procurement/receipts', payload);
+        message.success(`Goods Receipt ${values.receiptCode} created successfully`);
+      }
+      setModalVisible(false);
+      setEditingItem(null);
+      fetchData(page);
+    } catch (error: any) {
+      const msg = error?.response?.data?.message;
+      message.error(Array.isArray(msg) ? msg[0] : (typeof msg === 'string' ? msg : 'Failed to save goods receipt'));
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   // Handle PO / PR Selection and auto-populate all header and line item data
@@ -189,11 +402,16 @@ const GoodsReceiptManagement: React.FC = () => {
         if (!poData) return;
 
         // Auto-fill header fields
+        const derivedPoDivId =
+          poData.divisionId ||
+          (poData.warehouseId && warehouses.find((w) => w.id === poData.warehouseId)?.divisionId);
+
         form.setFieldsValue({
+          referenceKey: refKey,
           poId: poData.id,
           supplierId: poData.supplierId,
-          divisionId: poData.divisionId,
-          warehouseId: poData.warehouseId,
+          divisionId: derivedPoDivId || form.getFieldValue('divisionId'),
+          warehouseId: poData.warehouseId || form.getFieldValue('warehouseId'),
           notes: `Goods received against PO #${poData.poCode}`,
         });
 
@@ -201,9 +419,11 @@ const GoodsReceiptManagement: React.FC = () => {
         const linesSource = poData.items || poData.lines || [];
         const mappedLines: ERPLine[] = linesSource.map((pl: any, idx: number) => {
           const ordQty = Number(pl.quantity || pl.quantityOrdered || 0);
+          const pastRec = Number(pl.receivedQuantity || 0);
+          const remainingBalance = Math.max(0, ordQty - pastRec);
           const pSize = pl.packagingSize ? Number(pl.packagingSize) : (pl.item?.packagingSize ? Number(pl.item.packagingSize) : undefined);
           const pUnit = pl.packagingUnit || pl.item?.packagingUnit || (pl.item?.packagingType ? pl.item.packagingType.toLowerCase() : undefined);
-          const pkgQty = pSize && pSize > 0 ? Math.round((ordQty / pSize) * 100) / 100 : undefined;
+          const pkgQty = pSize && pSize > 0 ? Math.round((remainingBalance / pSize) * 100) / 100 : undefined;
 
           return {
             id: `line-${idx + 1}-${Date.now()}`,
@@ -214,11 +434,13 @@ const GoodsReceiptManagement: React.FC = () => {
             uomId: pl.uomId || pl.item?.baseUomId,
             uomCode: pl.uomCode || pl.uom?.code || pl.item?.purchaseUom?.code || pl.item?.baseUom?.code || 'PCS',
             orderQuantity: ordQty,
-            quantity: ordQty, // Default to ordered quantity; user adjusts received quantity
+            pastReceived: pastRec,
+            orderBalance: remainingBalance,
+            quantity: remainingBalance, // Pre-fill with remaining unfulfilled balance
             rate: Number(pl.unitPrice || pl.rate || 0),
             discountPercent: 0,
             taxPercent: 18,
-            lineTotal: Number(pl.lineTotal || (ordQty * (pl.unitPrice || 0))),
+            lineTotal: Number(remainingBalance * (pl.unitPrice || pl.rate || 0)),
             packagingSize: pSize,
             packagingUnit: pUnit,
             packageQuantity: pkgQty,
@@ -270,53 +492,6 @@ const GoodsReceiptManagement: React.FC = () => {
     }
   };
 
-  const handleSubmit = async () => {
-    try {
-      const values = await form.validateFields();
-      if (lineItems.length === 0) {
-        message.warning('Add at least one receipt line item');
-        return;
-      }
-      setSubmitting(true);
-
-      const targetCompanyId = companyId || values.companyId || useUserStore.getState().user?.defaultCompanyId;
-
-      const payload = {
-        companyId: targetCompanyId,
-        receiptCode: values.receiptCode,
-        poId: values.poId && String(values.poId).trim().length > 0 ? String(values.poId).trim() : undefined,
-        supplierId: values.supplierId,
-        warehouseId: values.warehouseId,
-        divisionId: values.divisionId || undefined,
-        purchaseType: values.purchaseType || 'LOCAL',
-        receiptDate: values.receiptDate ? dayjs(values.receiptDate).format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD'),
-        grnNumber: values.grnNumber || undefined,
-        deliveryNoteNumber: values.deliveryNoteNumber || undefined,
-        notes: values.notes || undefined,
-        lines: lineItems.map((l) => ({
-          poLineId: l.poLineId && String(l.poLineId).trim().length > 0 ? String(l.poLineId).trim() : undefined,
-          itemId: l.itemId,
-          uomId: l.uomId,
-          quantityOrdered: Number(l.orderQuantity || l.quantity || 0),
-          quantityReceived: Number(l.quantity || 0),
-          quantityAccepted: Number(l.quantity || 0),
-          quantityRejected: 0,
-          unitPrice: Number(l.rate || 0),
-          conditionNotes: l.salesOrderNumber ? `Ref: ${l.salesOrderNumber}` : (l.itemName || l.itemCode),
-        })),
-      };
-
-      await apiService.post('/procurement/receipts', payload);
-      message.success(`Goods Receipt ${values.receiptCode} created successfully`);
-      setModalVisible(false);
-      fetchData(page);
-    } catch (error: any) {
-      const msg = error?.response?.data?.message;
-      message.error(Array.isArray(msg) ? msg[0] : (typeof msg === 'string' ? msg : 'Failed to create goods receipt'));
-    } finally {
-      setSubmitting(false);
-    }
-  };
 
   const handleAction = async (id: string, action: string) => {
     try {
@@ -456,6 +631,29 @@ const GoodsReceiptManagement: React.FC = () => {
     });
   };
 
+  const promptCancelReceipt = (record: GoodsReceipt) => {
+    setConfirmModal({
+      open: true,
+      title: '↩️ Reverse Stock & Cancel GRN',
+      message: `Are you sure you want to REVERSE stock and CANCEL Goods Receipt ${record.receiptCode}?`,
+      stepExplanation: '💡 Why this step: Reverses the posted inventory entries by generating Stock Ledger OUT entries, restores the remaining balance on the linked Purchase Order, and marks the GRN as CANCELLED.',
+      confirmText: 'Reverse Stock & Cancel',
+      cancelText: 'Keep As Is',
+      isDanger: true,
+      onConfirm: async () => {
+        setConfirmModal((prev) => ({ ...prev, open: false }));
+        try {
+          await apiService.patch(`/procurement/receipts/${record.id}/cancel`);
+          message.success(`Receipt ${record.receiptCode} reversed and cancelled successfully`);
+          fetchData(page);
+        } catch (error: any) {
+          const msg = error?.response?.data?.message;
+          message.error(Array.isArray(msg) ? msg[0] : (typeof msg === 'string' ? msg : 'Failed to cancel goods receipt'));
+        }
+      },
+    });
+  };
+
   // Grouped options for PO and PR selector
   const referenceOptions = useMemo(() => {
     const supplierMap = new Map(suppliers.map((s) => [s.id, s.name]));
@@ -553,14 +751,61 @@ const GoodsReceiptManagement: React.FC = () => {
     {
       title: 'Actions',
       key: 'actions',
-      width: 270,
+      width: 280,
       render: (_, record: any) => (
-        <Space size="small">
+        <div className="gr-actions-group">
+          {/* 1. View Details Modal */}
+          <Tooltip title="View Receipt Details">
+            <button
+              type="button"
+              className="btn-gr-action-icon view"
+              onClick={() => handleOpenViewModal(record)}
+            >
+              <EyeOutlined />
+            </button>
+          </Tooltip>
+
+          {/* 2. Print Official GRN Document */}
+          <Tooltip title="Print GRN Slip">
+            <button
+              type="button"
+              className="btn-gr-action-icon print"
+              onClick={() => handlePrintReceipt(record)}
+            >
+              <PrinterOutlined />
+            </button>
+          </Tooltip>
+
+          {/* 3. Print Inward Gate Pass */}
+          <Tooltip title="Print Inward Gate Pass">
+            <button
+              type="button"
+              className="btn-gr-action-icon gatepass"
+              onClick={() => handlePrintGatePass(record)}
+            >
+              <SafetyCertificateOutlined />
+            </button>
+          </Tooltip>
+
+          {/* 4. Edit Receipt */}
+          {record.status !== 'CANCELLED' && (
+            <Tooltip title={record.status === 'POSTED' ? 'Edit Metadata / Notes' : 'Edit Receipt'}>
+              <button
+                type="button"
+                className="btn-gr-action-icon edit"
+                onClick={() => handleOpenEditModal(record)}
+              >
+                <EditOutlined />
+              </button>
+            </Tooltip>
+          )}
+
+          {/* 5. Workflow Stage Actions */}
           {record.status === 'DRAFT' && (
             <Button
               size="small"
               type="primary"
-              style={{ background: '#0284c7', borderColor: '#0284c7' }}
+              style={{ background: '#0284c7', borderColor: '#0284c7', height: 30, fontSize: 12, padding: '0 8px' }}
               icon={<CheckCircleOutlined />}
               onClick={() => promptReceive(record)}
             >
@@ -568,35 +813,73 @@ const GoodsReceiptManagement: React.FC = () => {
             </Button>
           )}
           {record.status === 'RECEIVED' && (
-            <Button size="small" type="primary" onClick={() => promptInspect(record)}>
+            <Button
+              size="small"
+              type="primary"
+              style={{ height: 30, fontSize: 12, padding: '0 8px' }}
+              onClick={() => promptInspect(record)}
+            >
               Inspect
             </Button>
           )}
           {record.status === 'INSPECTION' && (
             <>
-              <Button size="small" type="primary" icon={<CheckOutlined />} onClick={() => promptAccept(record)}>
+              <Button
+                size="small"
+                type="primary"
+                style={{ height: 30, fontSize: 12, padding: '0 8px' }}
+                icon={<CheckOutlined />}
+                onClick={() => promptAccept(record)}
+              >
                 Accept
               </Button>
-              <Button size="small" danger onClick={() => promptReject(record)}>
+              <Button
+                size="small"
+                danger
+                style={{ height: 30, fontSize: 12, padding: '0 8px' }}
+                onClick={() => promptReject(record)}
+              >
                 Reject
               </Button>
             </>
           )}
           {record.status === 'ACCEPTED' && (
-            <Button size="small" type="primary" style={{ background: '#7c3aed', borderColor: '#7c3aed' }} onClick={() => promptPost(record)}>
-              Post to Inventory
-            </Button>
-          )}
-          {record.status !== 'POSTED' && (
             <Button
               size="small"
-              danger
-              icon={<DeleteOutlined />}
-              title="Delete Receipt"
-              onClick={() => promptDelete(record)}
-            />
+              type="primary"
+              style={{ background: '#7c3aed', borderColor: '#7c3aed', height: 30, fontSize: 12, padding: '0 8px' }}
+              onClick={() => promptPost(record)}
+            >
+              Post Stock
+            </Button>
           )}
-        </Space>
+
+          {/* 6. Reverse / Cancel for POSTED */}
+          {record.status === 'POSTED' && (
+            <Tooltip title="Reverse Stock & Cancel GRN">
+              <button
+                type="button"
+                className="btn-gr-action-icon reverse"
+                onClick={() => promptCancelReceipt(record)}
+              >
+                <RollbackOutlined />
+              </button>
+            </Tooltip>
+          )}
+
+          {/* 7. Delete (allowed for DRAFT, REJECTED, CANCELLED) */}
+          {(record.status === 'DRAFT' || record.status === 'REJECTED' || record.status === 'CANCELLED') && (
+            <Tooltip title="Delete Permanently">
+              <button
+                type="button"
+                className="btn-gr-action-icon delete"
+                onClick={() => promptDelete(record)}
+              >
+                <DeleteOutlined />
+              </button>
+            </Tooltip>
+          )}
+        </div>
       ),
     },
   ];
@@ -659,14 +942,20 @@ const GoodsReceiptManagement: React.FC = () => {
 
       {/* Upgraded Desktop Draggable & Resizable Modal */}
       <DraggableResizableModal
-        title="Create Goods Receipt (CGR)"
-        subtitle="🏬 Inbound stock reception with PO/PR verification, store stock balance & live order calculation"
+        title={editingItem ? `Edit Goods Receipt: ${editingItem.receiptCode}` : "Create Goods Receipt (CGR)"}
+        subtitle={editingItem ? "✏️ Update goods receipt details, header references, or line items" : "🏬 Inbound stock reception with PO/PR verification, store stock balance & live order calculation"}
         open={modalVisible}
-        onCancel={() => setModalVisible(false)}
+        onCancel={() => {
+          setModalVisible(false);
+          setEditingItem(null);
+        }}
         width={1120}
         height={760}
         footer={[
-          <Button key="cancel" onClick={() => setModalVisible(false)}>
+          <Button key="cancel" onClick={() => {
+            setModalVisible(false);
+            setEditingItem(null);
+          }}>
             Cancel
           </Button>,
           <Button
@@ -676,7 +965,7 @@ const GoodsReceiptManagement: React.FC = () => {
             onClick={handleSubmit}
             style={{ fontWeight: 600 }}
           >
-            Create & Save Goods Receipt
+            {editingItem ? 'Update Goods Receipt' : 'Create & Save Goods Receipt'}
           </Button>,
         ]}
       >
@@ -703,6 +992,7 @@ const GoodsReceiptManagement: React.FC = () => {
 
               <Col span={8}>
                 <Form.Item
+                  name="referenceKey"
                   label={
                     <span style={{ fontWeight: 600, color: '#38bdf8' }}>
                       📋 Link PO / PR Reference
@@ -841,6 +1131,158 @@ const GoodsReceiptManagement: React.FC = () => {
             </Col>
           </Row>
         </Form>
+      </DraggableResizableModal>
+
+      {/* View Goods Receipt Details Modal */}
+      <DraggableResizableModal
+        title={
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <EyeOutlined style={{ color: '#38bdf8', fontSize: 18 }} />
+            <span style={{ fontWeight: 700, fontSize: 16 }}>Goods Receipt Details: {viewingItem?.receiptCode}</span>
+            {viewingItem?.status && (
+              <Tag color={statusColorMap[viewingItem.status] || 'default'} style={{ fontWeight: 700, marginLeft: 8 }}>
+                {viewingItem.status}
+              </Tag>
+            )}
+          </div>
+        }
+        open={viewModalVisible}
+        onCancel={() => {
+          setViewModalVisible(false);
+          setViewingItem(null);
+        }}
+        width={920}
+        height={650}
+        footer={[
+          <Button key="close" onClick={() => {
+            setViewModalVisible(false);
+            setViewingItem(null);
+          }}>
+            Close
+          </Button>,
+          <Button
+            key="gatepass"
+            icon={<SafetyCertificateOutlined />}
+            onClick={() => viewingItem && handlePrintGatePass(viewingItem)}
+          >
+            Print Gate Pass
+          </Button>,
+          <Button
+            key="print"
+            type="primary"
+            icon={<PrinterOutlined />}
+            style={{ background: '#f59e0b', borderColor: '#f59e0b' }}
+            onClick={() => viewingItem && handlePrintReceipt(viewingItem)}
+          >
+            Print GRN Slip
+          </Button>,
+        ]}
+      >
+        {viewLoading ? (
+          <div style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>Loading receipt details...</div>
+        ) : viewingItem ? (
+          <div>
+            <div className="gr-view-meta-grid">
+              <div className="gr-view-meta-card">
+                <div className="gr-view-meta-label">Receipt Code</div>
+                <div className="gr-view-meta-val" style={{ color: '#38bdf8', fontFamily: 'monospace' }}>
+                  {viewingItem.receiptCode}
+                </div>
+              </div>
+              <div className="gr-view-meta-card">
+                <div className="gr-view-meta-label">PO / PR Reference</div>
+                <div className="gr-view-meta-val">
+                  {viewingItem.po?.poCode || viewingItem.poCode || viewingItem.notes?.match(/PO #([A-Z0-9-]+)/)?.[1] || '—'}
+                </div>
+              </div>
+              <div className="gr-view-meta-card">
+                <div className="gr-view-meta-label">GRN Number</div>
+                <div className="gr-view-meta-val">{viewingItem.grnNumber || '—'}</div>
+              </div>
+              <div className="gr-view-meta-card">
+                <div className="gr-view-meta-label">Receipt Date</div>
+                <div className="gr-view-meta-val">
+                  {viewingItem.receiptDate ? dayjs(viewingItem.receiptDate).format('DD/MM/YYYY') : '—'}
+                </div>
+              </div>
+              <div className="gr-view-meta-card">
+                <div className="gr-view-meta-label">Supplier</div>
+                <div className="gr-view-meta-val">
+                  {viewingItem.supplier?.name || viewingItem.supplierName || '—'}
+                </div>
+              </div>
+              <div className="gr-view-meta-card">
+                <div className="gr-view-meta-label">Receiving Warehouse</div>
+                <div className="gr-view-meta-val">
+                  {viewingItem.warehouse?.name || viewingItem.warehouseName || '—'}
+                </div>
+              </div>
+              <div className="gr-view-meta-card">
+                <div className="gr-view-meta-label">Division</div>
+                <div className="gr-view-meta-val">
+                  {viewingItem.division?.name || viewingItem.divisionName || '—'}
+                </div>
+              </div>
+              <div className="gr-view-meta-card">
+                <div className="gr-view-meta-label">Purchase Type</div>
+                <div className="gr-view-meta-val">{viewingItem.purchaseType || 'LOCAL'}</div>
+              </div>
+            </div>
+
+            {viewingItem.notes && (
+              <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 6, padding: '8px 12px', marginBottom: 16 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' }}>Notes: </span>
+                <span style={{ fontSize: 13, color: '#e2e8f0' }}>{viewingItem.notes}</span>
+              </div>
+            )}
+
+            <div style={{ fontWeight: 700, fontSize: 14, color: '#f8fafc', marginBottom: 8 }}>
+              Received Line Items ({(viewingItem.lines || viewingItem.items || []).length})
+            </div>
+            <table className="gr-view-table">
+              <thead>
+                <tr>
+                  <th style={{ width: 40 }}>#</th>
+                  <th>Item Code / Name</th>
+                  <th style={{ textAlign: 'right', width: 90 }}>Ordered</th>
+                  <th style={{ textAlign: 'right', width: 90 }}>Received</th>
+                  <th style={{ textAlign: 'right', width: 90 }}>Accepted</th>
+                  <th style={{ textAlign: 'right', width: 80 }}>Rejected</th>
+                  <th style={{ textAlign: 'right', width: 110 }}>Unit Price</th>
+                  <th style={{ textAlign: 'right', width: 120 }}>Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(viewingItem.lines || viewingItem.items || []).map((line: any, idx: number) => {
+                  const qtyRec = Number(line.quantityReceived || line.quantity || 0);
+                  const rate = Number(line.unitPrice || line.rate || 0);
+                  const totalAmt = Number(line.lineTotal || (qtyRec * rate));
+                  return (
+                    <tr key={line.id || idx}>
+                      <td>{idx + 1}</td>
+                      <td>
+                        <div style={{ fontWeight: 600, color: '#f8fafc' }}>
+                          {line.itemName || line.item?.name || line.conditionNotes || 'Item'}
+                        </div>
+                        <div style={{ fontSize: 11, color: '#94a3b8' }}>
+                          {line.itemCode || line.item?.itemCode || '—'} {line.uomCode || line.uom?.code ? `(${line.uomCode || line.uom?.code})` : ''}
+                        </div>
+                      </td>
+                      <td style={{ textAlign: 'right' }}>{Number(line.quantityOrdered || 0).toLocaleString()}</td>
+                      <td style={{ textAlign: 'right', fontWeight: 700, color: '#38bdf8' }}>{qtyRec.toLocaleString()}</td>
+                      <td style={{ textAlign: 'right', color: '#10b981' }}>{Number(line.quantityAccepted || qtyRec).toLocaleString()}</td>
+                      <td style={{ textAlign: 'right', color: Number(line.quantityRejected || 0) > 0 ? '#ef4444' : '#94a3b8' }}>
+                        {Number(line.quantityRejected || 0).toLocaleString()}
+                      </td>
+                      <td style={{ textAlign: 'right' }}>PKR {rate.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                      <td style={{ textAlign: 'right', fontWeight: 600 }}>PKR {totalAmt.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
       </DraggableResizableModal>
 
       {/* Action Explanation & Confirmation Dialog */}

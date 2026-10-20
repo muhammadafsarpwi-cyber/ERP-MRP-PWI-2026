@@ -425,21 +425,35 @@ const RfqManagement: React.FC = () => {
         return;
       }
       setQuoteSubmitting(true);
-      const payload = {
-        ...values,
-        companyId: companyId || values.companyId,
-        quotationDate: values.quotationDate ? dayjs(values.quotationDate).format('YYYY-MM-DD') : undefined,
-        validUntil: values.validUntil ? dayjs(values.validUntil).format('YYYY-MM-DD') : undefined,
-        lines: quoteLineItems.map((l, idx) => ({
+
+      let grandTotal = 0;
+      const formattedLines = quoteLineItems.map((l, idx) => {
+        const qty = Number(l.quantity || 0);
+        const rate = Number(l.rate || (l as any).unitPrice || 0);
+        const disc = Number(l.discountPercent || 0);
+        const tax = Number(l.taxPercent || 18);
+        const lineBase = qty * rate * (1 - disc / 100);
+        const lineWithTax = lineBase * (1 + tax / 100);
+        grandTotal += lineWithTax;
+        return {
           lineNumber: idx + 1,
           itemId: l.itemId,
           uomId: l.uomId,
-          quantity: Number(l.quantity || 0),
-          unitPrice: Number(l.rate || (l as any).unitPrice || 0),
-          discountPercent: Number(l.discountPercent || 0),
-          taxPercent: Number(l.taxPercent || 18),
-          lineTotal: Number(l.lineTotal || 0),
-        })),
+          quantity: qty,
+          unitPrice: rate,
+          discountPercent: disc,
+          taxPercent: tax,
+          lineTotal: Math.round(lineWithTax * 100) / 100,
+        };
+      });
+
+      const payload = {
+        ...values,
+        companyId: companyId || values.companyId,
+        totalAmount: Math.round(grandTotal * 100) / 100,
+        quotationDate: values.quotationDate ? dayjs(values.quotationDate).format('YYYY-MM-DD') : undefined,
+        validUntil: values.validUntil ? dayjs(values.validUntil).format('YYYY-MM-DD') : undefined,
+        lines: formattedLines,
       };
       await apiService.post('/procurement/quotations', payload);
       message.success(`Vendor quotation ${values.quotationCode} saved successfully!`);

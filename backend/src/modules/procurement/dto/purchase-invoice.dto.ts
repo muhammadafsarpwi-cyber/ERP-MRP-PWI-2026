@@ -7,17 +7,17 @@ import { Type } from 'class-transformer';
 
 export class CreatePurchaseInvoiceLineDto {
   @ApiPropertyOptional({ description: 'PO line ID' })
-  @IsUUID()
+  @IsString()
   @IsOptional()
   poLineId?: string;
 
   @ApiProperty({ description: 'Item ID' })
-  @IsUUID()
+  @IsString()
   @IsNotEmpty()
   itemId: string;
 
   @ApiProperty({ description: 'UOM ID' })
-  @IsUUID()
+  @IsString()
   @IsNotEmpty()
   uomId: string;
 
@@ -40,7 +40,7 @@ export class CreatePurchaseInvoiceLineDto {
 
 export class CreatePurchaseInvoiceDto {
   @ApiProperty({ description: 'Company ID' })
-  @IsUUID()
+  @IsString()
   @IsNotEmpty()
   companyId: string;
 
@@ -57,12 +57,12 @@ export class CreatePurchaseInvoiceDto {
   supplierInvoiceNumber: string;
 
   @ApiProperty({ description: 'PO ID' })
-  @IsUUID()
+  @IsString()
   @IsNotEmpty()
   poId: string;
 
   @ApiProperty({ description: 'Supplier ID' })
-  @IsUUID()
+  @IsString()
   @IsNotEmpty()
   supplierId: string;
 

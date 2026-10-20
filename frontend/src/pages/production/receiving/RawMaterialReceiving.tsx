@@ -124,6 +124,8 @@ interface ReceiptHeader {
   department?: OrgOption | null;
   warehouse?: WarehouseOption | null;
   productionOrderId?: string | null;
+  purchaseOrderId?: string | null;
+  poCode?: string | null;
   lineCount?: number;
   gatePassTotal?: number;
   receivedTotal?: number;
@@ -259,9 +261,8 @@ const getWarehouseBadgeStyle = (name?: string, id?: string) => {
 };
 
 const ALL_RECEIPT_COLUMNS: { key: string; label: string }[] = [
-  { key: 'receiptCode', label: 'Receipt Code' },
-  { key: 'receiptDate', label: 'Date' },
   { key: 'gatePassNo', label: 'Gate Pass No' },
+  { key: 'poNumber', label: 'PO Number' },
   { key: 'heatNumber', label: 'Heat Number' },
   { key: 'orgHierarchy', label: 'Division / Section / Department' },
   { key: 'warehouse', label: 'Warehouse' },
@@ -270,6 +271,8 @@ const ALL_RECEIPT_COLUMNS: { key: string; label: string }[] = [
   { key: 'receivedTotal', label: 'Received Qty' },
   { key: 'differenceTotal', label: 'Difference' },
   { key: 'status', label: 'Status' },
+  { key: 'receiptDate', label: 'Date' },
+  { key: 'receiptCode', label: 'Receipt Code' },
   { key: 'createdByNameDate', label: 'Created By' },
   { key: 'updatedByNameDate', label: 'Updated By' },
   { key: 'actions', label: 'Actions' },
@@ -357,7 +360,13 @@ const RawMaterialReceiving: React.FC = () => {
       const saved = localStorage.getItem('pwi_rmr_visible_columns');
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const set = new Set(parsed);
+          set.add('gatePassNo');
+          set.add('poNumber');
+          set.add('heatNumber');
+          return Array.from(set);
+        }
       }
     } catch { /* ignore */ }
     return DEFAULT_VISIBLE_COLUMNS;
@@ -1507,6 +1516,7 @@ const RawMaterialReceiving: React.FC = () => {
   const buildShareInfoFromDetail = useCallback((d: ReceiptHeader): ShareReceiptInfo => ({
     receiptCode: d.receiptCode,
     gatePassNo: d.gatePassNo || undefined,
+    poCode: (d as any).poCode || d.reference || undefined,
     sourceNo: d.sourceNo || undefined,
     heatNumber: d.heatNumber || undefined,
     receiptDate: d.receiptDate,
@@ -1864,23 +1874,11 @@ const RawMaterialReceiving: React.FC = () => {
   };
 
   const columns: ColumnsType<ReceiptHeader> = [
-    { title: 'Receipt Code', dataIndex: 'receiptCode', key: 'receiptCode', width: 130, render: (v: string) => <Text strong>{v}</Text> },
-    {
-      title: 'Date',
-      dataIndex: 'receiptDate',
-      key: 'receiptDate',
-      width: 130,
-      render: (v: string) => (
-        <span style={{ whiteSpace: 'nowrap', fontWeight: 600, color: '#e2e8f0' }}>
-          {v ? dayjs(v).format('DD-MMM-YYYY') : '—'}
-        </span>
-      ),
-    },
     {
       title: 'Gate Pass No',
       dataIndex: 'gatePassNo',
       key: 'gatePassNo',
-      width: 135,
+      width: 130,
       render: (v?: string) => {
         if (!v || v === '-') return <span style={{ color: 'var(--theme-text-muted, #64748b)' }}>—</span>;
         const val = String(v).trim();
@@ -1907,6 +1905,33 @@ const RawMaterialReceiving: React.FC = () => {
       },
     },
     {
+      title: 'PO Number',
+      key: 'poNumber',
+      width: 145,
+      render: (_, r) => {
+        const po = (r as any).poCode || r.reference || (r.purchaseOrderId ? 'PO Linked' : null);
+        if (!po || po === '-') return <span style={{ color: 'var(--theme-text-muted, #64748b)' }}>—</span>;
+        return (
+          <span
+            style={{
+              fontFamily: 'monospace, var(--theme-font-mono, sans-serif)',
+              fontWeight: 700,
+              fontSize: 12,
+              color: '#38bdf8',
+              background: 'rgba(56, 189, 248, 0.14)',
+              padding: '2px 8px',
+              borderRadius: 4,
+              border: '1px solid rgba(56, 189, 248, 0.35)',
+              whiteSpace: 'nowrap',
+              display: 'inline-block',
+            }}
+          >
+            {po}
+          </span>
+        );
+      },
+    },
+    {
       title: 'Heat Number',
       dataIndex: 'heatNumber',
       key: 'heatNumber',
@@ -1920,11 +1945,12 @@ const RawMaterialReceiving: React.FC = () => {
               fontWeight: 700,
               fontSize: 12,
               color: '#f59e0b',
-              background: 'rgba(245, 158, 11, 0.12)',
+              background: 'rgba(245, 158, 11, 0.14)',
               padding: '2px 8px',
               borderRadius: 4,
-              border: '1px solid rgba(245, 158, 11, 0.28)',
+              border: '1px solid rgba(245, 158, 11, 0.35)',
               whiteSpace: 'nowrap',
+              display: 'inline-block',
             }}
           >
             {v}
@@ -1932,6 +1958,18 @@ const RawMaterialReceiving: React.FC = () => {
         );
       },
     },
+    {
+      title: 'Date',
+      dataIndex: 'receiptDate',
+      key: 'receiptDate',
+      width: 125,
+      render: (v: string) => (
+        <span style={{ whiteSpace: 'nowrap', fontWeight: 600, color: '#e2e8f0' }}>
+          {v ? dayjs(v).format('DD-MMM-YYYY') : '—'}
+        </span>
+      ),
+    },
+    { title: 'Receipt Code', dataIndex: 'receiptCode', key: 'receiptCode', width: 130, render: (v: string) => <Text strong>{v}</Text> },
     {
       title: (
         <div>
@@ -3574,6 +3612,12 @@ const RawMaterialReceiving: React.FC = () => {
                         <strong>{detail.gatePassNo}</strong>
                       </span>
                     ) : null}
+                    {(detail.reference || (detail as any).poCode) ? (
+                      <span className="rmr-detail-code-chip" style={{ borderColor: 'rgba(56, 189, 248, 0.4)' }}>
+                        <span className="rmr-detail-code-label" style={{ color: '#38bdf8' }}>PO Number</span>
+                        <strong style={{ color: '#38bdf8' }}>{(detail as any).poCode || detail.reference}</strong>
+                      </span>
+                    ) : null}
                     {detail.sourceNo ? (
                       <span className="rmr-detail-code-chip">
                         <span className="rmr-detail-code-label">Source / DC No</span>
@@ -3627,6 +3671,12 @@ const RawMaterialReceiving: React.FC = () => {
                   <span className="rmr-detail-field-label">Warehouse</span>
                   <span className="rmr-detail-field-value">{detail.warehouse?.name || '-'}</span>
                 </div>
+                {(detail.reference || (detail as any).poCode) ? (
+                  <div className="rmr-detail-field">
+                    <span className="rmr-detail-field-label">PO Number</span>
+                    <span className="rmr-detail-field-value" style={{ fontWeight: 700, color: '#38bdf8' }}>{(detail as any).poCode || detail.reference}</span>
+                  </div>
+                ) : null}
                 {detail.heatNumber ? (
                   <div className="rmr-detail-field">
                     <span className="rmr-detail-field-label">Heat Number</span>

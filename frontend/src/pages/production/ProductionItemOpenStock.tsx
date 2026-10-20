@@ -20,6 +20,7 @@ import {
   Badge,
   Upload,
   Tooltip,
+  AutoComplete,
 } from 'antd';
 import {
   DatabaseOutlined,
@@ -267,6 +268,42 @@ export function computeWeightAndMeters(
   return { totalWeightKg, calculatedMeters, calculatedPieces };
 }
 
+export function computeLineTotalValue(
+  line: {
+    quantity: number;
+    unitCost: number;
+    totalWeightKg?: number;
+    itemType?: string;
+    itemCode?: string;
+    gross?: number;
+    cartons?: number;
+    uomCode?: string;
+  },
+  isFgWarehouseContext: boolean = false
+): number {
+  const isFgLine =
+    isFgWarehouseContext ||
+    line.itemType === 'FINISHED_GOOD' ||
+    (line.itemCode || '').startsWith('SPI-FG') ||
+    (line.itemCode || '').startsWith('FG-');
+
+  const rate = Number(line.unitCost) || 0;
+  if (rate <= 0) return 0;
+
+  if (isFgLine) {
+    const gross = (line.gross !== undefined && Number(line.gross) > 0)
+      ? Number(line.gross)
+      : (line.quantity > 0 ? Number((line.quantity / 144).toFixed(2)) : 0);
+    return Math.round(gross * rate);
+  }
+
+  const wt = Number(line.totalWeightKg) || 0;
+  if (wt > 0) {
+    return Math.round(wt * rate);
+  }
+  return Math.round((Number(line.quantity) || 0) * rate);
+}
+
 export interface OpenStockLine {
   key: string;
   itemId: string;
@@ -277,6 +314,12 @@ export interface OpenStockLine {
   uomCode: string;
   currentBalance: number;
   quantity: number; // Stock UOM quantity (KG for coils/strips, PCS for spokes, M for meters)
+  cartons?: number; // Finished goods packed cartons count
+  gross?: number; // Finished goods gross count
+  customerId?: string; // Target customer for packed FG
+  customerName?: string; // Target customer name
+  socNumber?: string; // Sales Order Confirmation #
+  salesOrderId?: string; // Sales Order UUID
   weightPerPiece: number; // Unit weight in Kg (per piece or per meter)
   weightPerMeter?: number; // Weight per meter in Kg/M
   weightMode?: 'METER' | 'PCS';
@@ -405,6 +448,18 @@ export const ProductionItemOpenStock: React.FC = () => {
   const [openStockLines, setOpenStockLines] = useState<OpenStockLine[]>([]);
   const [submittingOpenStock, setSubmittingOpenStock] = useState(false);
   const [filterItemType, setFilterItemType] = useState<string>('ALL');
+
+  // Customer & Sales Order (SOC) metadata for FG Opening Stock
+  const SAFETY_STOCK_CUSTOMER = {
+    id: 'SAFETY_STOCK',
+    name: 'Safety Stock',
+    customerCode: 'SAFETY',
+  };
+  const [customersList, setCustomersList] = useState<Array<{ id: string; name: string; customerCode?: string }>>([
+    SAFETY_STOCK_CUSTOMER,
+  ]);
+  const [salesOrdersList, setSalesOrdersList] = useState<Array<{ id: string; orderNumber: string; customerId?: string; customerName?: string }>>([]);
+  const [loadingCustOrders, setLoadingCustOrders] = useState(false);
 
   // Tab 2: Stock Adjustment State
   const [adjWarehouseId, setAdjWarehouseId] = useState<string>('');
@@ -591,6 +646,54 @@ export const ProductionItemOpenStock: React.FC = () => {
     loadWarehouses();
   }, [loadWarehouses]);
 
+  // Load Customers & Sales Orders for FG Dispatch Opening Stock
+  useEffect(() => {
+    let isMounted = true;
+    (async () => {
+      setLoadingCustOrders(true);
+      try {
+        const [custRes, soRes]: [any, any] = await Promise.all([
+          apiService.get('/customer/customers', { status: 'ACTIVE', page: 1, limit: 500 }).catch(() => null),
+          apiService.get('/sales/orders', { limit: 500 }).catch(() => null),
+        ]);
+        if (!isMounted) return;
+        if (custRes) {
+          const cArr = Array.isArray(custRes?.data) ? custRes.data : Array.isArray(custRes) ? custRes : [];
+          const list = [
+            SAFETY_STOCK_CUSTOMER,
+            ...cArr
+              .map((c: any) => ({
+                id: c.id,
+                name: c.name || c.customerName || '',
+                customerCode: c.customerCode || c.code || '',
+              }))
+              .filter((c: any) => c.name && c.id !== 'SAFETY_STOCK' && !c.name.toLowerCase().includes('safety stock')),
+          ];
+          setCustomersList(list);
+        }
+        if (soRes) {
+          const sArr = Array.isArray(soRes?.data) ? soRes.data : Array.isArray(soRes) ? soRes : [];
+          const list = sArr
+            .map((s: any) => ({
+              id: s.id,
+              orderNumber: s.orderNumber || s.soNumber || '',
+              customerId: s.customerId || s.customer?.id || '',
+              customerName: s.customerName || s.customer?.name || '',
+            }))
+            .filter((s: any) => s.orderNumber);
+          setSalesOrdersList(list);
+        }
+      } catch (err) {
+        console.warn('Failed to load customers/orders for open stock:', err);
+      } finally {
+        if (isMounted) setLoadingCustOrders(false);
+      }
+    })();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   // The warehouse whose inventory balances govern the active screen
   const currentActiveWarehouseId = useMemo(() => {
     if (activeTab === 'adjustment') return adjWarehouseId || selectedWarehouseId;
@@ -645,6 +748,22 @@ export const ProductionItemOpenStock: React.FC = () => {
     const name = (wh.warehouseName || (wh as any).name || '').toUpperCase();
     const div = (wh.divisionName || (wh as any).division?.name || '').toUpperCase();
     return code.startsWith('SPI') || name.includes('SPOKE') || div.includes('SPOKE');
+  }, [activeTab, adjWh, selectedWh]);
+
+  // Determine if active warehouse is Finished Goods / Dispatch Warehouse
+  const isFgWarehouse = useMemo(() => {
+    const wh = activeTab === 'adjustment' ? adjWh : selectedWh;
+    if (!wh) return false;
+    const code = (wh.warehouseCode || (wh as any).code || '').toUpperCase();
+    const name = (wh.warehouseName || (wh as any).name || '').toLowerCase();
+    const isNippleWh = code.includes('WH-002') || name.includes('nipple') || code.includes('NIP');
+    return (
+      !isNippleWh &&
+      (code.includes('FGDW') ||
+        code.includes('DISPATCH') ||
+        name.includes('dispatch') ||
+        (code.includes('FG') && !code.includes('NP')))
+    );
   }, [activeTab, adjWh, selectedWh]);
 
   // Auto-sync system balances and weights for adjustment lines if items finish loading or warehouse changes
@@ -833,12 +952,57 @@ export const ProductionItemOpenStock: React.FC = () => {
               unitCost: cost,
             };
           }
+        } else if (field === 'cartons') {
+          const newCartons = Number(value) || 0;
+          const isCS = (line.itemCode || '').toUpperCase().includes('011') || (line.itemCode || '').toUpperCase().includes('012') || (line.itemName || '').toUpperCase().includes('CS');
+          const grossPerCarton = isCS ? 10.555556 : 10;
+          const newGross = Number((newCartons * grossPerCarton).toFixed(2));
+          const newQtyPcs = Math.round(newGross * 144);
+          const meta = getItemWeightMeta(itemsMap.get(line.itemId));
+          const effectiveWt = line.weightPerPiece > 0 ? line.weightPerPiece : meta.rate;
+          const { totalWeightKg, calculatedMeters, calculatedPieces } = computeWeightAndMeters(newQtyPcs, effectiveWt, line.uomCode, line.weightMode || meta.mode);
+          updated = {
+            ...line,
+            cartons: newCartons,
+            gross: newGross,
+            quantity: newQtyPcs,
+            totalWeightKg,
+            calculatedMeters,
+            calculatedPieces,
+          };
+        } else if (field === 'gross') {
+          const newGross = Number(value) || 0;
+          const isCS = (line.itemCode || '').toUpperCase().includes('011') || (line.itemCode || '').toUpperCase().includes('012') || (line.itemName || '').toUpperCase().includes('CS');
+          const grossPerCarton = isCS ? 10.555556 : 10;
+          const newCartons = Number((newGross / grossPerCarton).toFixed(2));
+          const newQtyPcs = Math.round(newGross * 144);
+          const meta = getItemWeightMeta(itemsMap.get(line.itemId));
+          const effectiveWt = line.weightPerPiece > 0 ? line.weightPerPiece : meta.rate;
+          const { totalWeightKg, calculatedMeters, calculatedPieces } = computeWeightAndMeters(newQtyPcs, effectiveWt, line.uomCode, line.weightMode || meta.mode);
+          updated = {
+            ...line,
+            gross: newGross,
+            cartons: newCartons,
+            quantity: newQtyPcs,
+            totalWeightKg,
+            calculatedMeters,
+            calculatedPieces,
+          };
         } else if (field === 'quantity') {
           const newQty = Number(value) || 0;
           const meta = getItemWeightMeta(itemsMap.get(line.itemId));
           const effectiveWt = line.weightPerPiece > 0 ? line.weightPerPiece : meta.rate;
           const { totalWeightKg, calculatedMeters, calculatedPieces } = computeWeightAndMeters(newQty, effectiveWt, line.uomCode, line.weightMode || meta.mode);
-          updated = { ...line, quantity: newQty, totalWeightKg, calculatedMeters, calculatedPieces };
+          const isFgLine = isFgWarehouse || line.itemType === 'FINISHED_GOOD' || (line.itemCode || '').startsWith('SPI-FG');
+          let extraSync = {};
+          if (isFgLine) {
+            const isCS = (line.itemCode || '').toUpperCase().includes('011') || (line.itemCode || '').toUpperCase().includes('012') || (line.itemName || '').toUpperCase().includes('CS');
+            const grossPerCarton = isCS ? 10.555556 : 10;
+            const gross = Number((newQty / 144).toFixed(2));
+            const cartons = Number((gross / grossPerCarton).toFixed(2));
+            extraSync = { gross, cartons };
+          }
+          updated = { ...line, quantity: newQty, totalWeightKg, calculatedMeters, calculatedPieces, ...extraSync };
         } else if (field === 'weightPerPiece') {
           const newWeight = Number(value) || 0;
           const meta = getItemWeightMeta(itemsMap.get(line.itemId));
@@ -862,39 +1026,55 @@ export const ProductionItemOpenStock: React.FC = () => {
     message.info('All lines cleared.');
   };
 
-  // CSV Template Download
+  // CSV Template Download with Customer, SOC & Cartons
   const handleDownloadTemplate = () => {
     const headers = [
       'ItemCode',
       'ItemName',
       'ItemType',
-      'UOM',
+      'Customer',
+      'SOCNumber',
+      'PackedCartons',
       'OpeningQuantityPcs',
+      'UOM',
       'PerPieceWeightKg',
       'TotalWeightKg',
       'RatePerKg',
       'BatchNumber',
       'Notes',
     ];
-    const sampleRows = items.slice(0, 15).map((it) => {
+    const sampleCustomer = customersList[0]?.name || 'Atlas Honda Limited';
+    const sampleSoc = salesOrdersList[0]?.orderNumber || 'SOC-2026-5810';
+
+    const sampleRows = items.slice(0, 15).map((it, idx) => {
       const name = it.itemName || it.name || it.itemCode;
       const meta = getItemWeightMeta(it);
       const uom = it.uomCode || (it as any).baseUom?.code || meta.qtyUnit;
-      const cost = it.unitCost ?? (it as any).costPrice ?? 0;
+      const cost = it.unitCost ?? (it as any).costPrice ?? 950;
       const wt = meta.rate;
-      const qty = it.currentBalance || 100;
-      const totWt = wt > 0 ? (qty * wt).toFixed(4) : (uom.toUpperCase() === 'KG' ? qty : 0);
+      const isFg = isFgWarehouse || it.itemType === 'FINISHED_GOOD' || (it.itemCode || '').startsWith('SPI-FG');
+      const isCS = (it.itemCode || '').toUpperCase().includes('011') || (it.itemCode || '').toUpperCase().includes('012') || name.toUpperCase().includes('CS');
+      const grossPerCarton = isCS ? 10.555556 : 10;
+      const sampleCartons = isFg ? 10 : '';
+      const sampleQty = isFg ? Math.round(10 * grossPerCarton * 144) : (it.currentBalance || 14400);
+      const totWt = wt > 0 ? (sampleQty * wt).toFixed(4) : (uom.toUpperCase() === 'KG' ? sampleQty : 0);
+      const custVal = isFg ? (customersList[idx % Math.max(1, customersList.length)]?.name || sampleCustomer) : '';
+      const socVal = isFg ? (salesOrdersList[idx % Math.max(1, salesOrdersList.length)]?.orderNumber || sampleSoc) : '';
+
       return [
         `"${it.itemCode}"`,
         `"${name.replace(/"/g, '""')}"`,
         `"${it.itemType}"`,
+        `"${custVal}"`,
+        `"${socVal}"`,
+        sampleCartons,
+        sampleQty,
         `"${uom}"`,
-        qty,
         wt,
         totWt,
         cost,
-        `"BATCH-001"`,
-        `"Floor opening stock"`,
+        `"BAT-2610"`,
+        `"Floor opening stock balance"`,
       ];
     });
 
@@ -906,10 +1086,10 @@ export const ProductionItemOpenStock: React.FC = () => {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    message.success('CSV Template downloaded!');
+    message.success('CSV Template with Customer, SOC & Cartons downloaded!');
   };
 
-  // CSV Import
+  // CSV Import with Customer, SOC, Cartons & Robust Header Mapping
   const handleCsvUpload = (file: File) => {
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -922,53 +1102,160 @@ export const ProductionItemOpenStock: React.FC = () => {
           return;
         }
 
+        const headerRow = rows[0]
+          .split(',')
+          .map((h) => h.replace(/^"|"$/g, '').trim().toLowerCase().replace(/[\s_\-#]/g, ''));
+
+        const findColIdx = (keywords: string[]) => {
+          return headerRow.findIndex((h) => keywords.some((k) => h.includes(k)));
+        };
+
+        const colItemCode = findColIdx(['itemcode', 'code']);
+        const colCust = findColIdx(['customer', 'client']);
+        const colSoc = findColIdx(['soc', 'salesorder', 'ordernumber', 'order']);
+        const colCartons = findColIdx(['packedcarton', 'carton', 'ctn']);
+        const colQty = findColIdx(['openingquantity', 'quantity', 'qty', 'pcs', 'pieces']);
+        const colWt = findColIdx(['perpieceweight', 'unitweight', 'weightperpiece', 'perunitwt']);
+        const colRate = findColIdx(['rate', 'cost', 'unitcost', 'price']);
+        const colBatch = findColIdx(['batch', 'lot']);
+        const colNotes = findColIdx(['note', 'remark']);
+
+        const isNewFormat = colCust !== -1 || colSoc !== -1 || colCartons !== -1;
+
         const newLines: OpenStockLine[] = [];
         for (let i = 1; i < rows.length; i++) {
-          const cols = rows[i].split(',').map((c) => c.replace(/^"|"$/g, '').trim());
-          if (cols.length >= 5) {
-            const itemCode = cols[0];
-            const matchingItem = items.find((it) => it.itemCode.toLowerCase() === itemCode.toLowerCase());
-            const qty = parseFloat(cols[4]) || 0;
-            const meta = getItemWeightMeta(matchingItem);
-            const wtPerUnit = cols[5] !== undefined && cols[5] !== '' ? parseFloat(cols[5]) : meta.rate;
-            const rate = cols[7] !== undefined && cols[7] !== '' ? parseFloat(cols[7]) : (matchingItem?.unitCost ?? (matchingItem as any)?.costPrice ?? 0);
-            const batch = cols[8] || '';
-            const notes = cols[9] || '';
-
-            if (matchingItem) {
-              const itemName = matchingItem.itemName || matchingItem.name || matchingItem.itemCode;
-              const uom = matchingItem.uomCode || (matchingItem as any).baseUom?.code || meta.qtyUnit;
-              const totalWeightKg = wtPerUnit > 0
-                ? Number((qty * wtPerUnit).toFixed(4))
-                : (uom.toUpperCase() === 'KG' ? qty : 0);
-
-              newLines.push({
-                key: `csv-${matchingItem.id}-${Date.now()}-${i}`,
-                itemId: matchingItem.id,
-                itemCode: matchingItem.itemCode,
-                itemName: itemName,
-                itemType: matchingItem.itemType,
-                uomId: matchingItem.uomId || matchingItem.baseUomId || '',
-                uomCode: uom,
-                currentBalance: matchingItem.currentBalance || 0,
-                quantity: qty,
-                weightPerPiece: wtPerUnit,
-                weightPerMeter: matchingItem.weightPerMeter ? Number(matchingItem.weightPerMeter) : undefined,
-                weightMode: meta.mode,
-                weightUnitLabel: meta.weightUnit,
-                qtyUnitLabel: meta.qtyUnit,
-                totalWeightKg,
-                unitCost: rate,
-                batchNumber: batch,
-                notes: notes,
-              });
+          const rowText = rows[i];
+          const cols: string[] = [];
+          let currentCell = '';
+          let inQuotes = false;
+          for (let c = 0; c < rowText.length; c++) {
+            const char = rowText[c];
+            if (char === '"') {
+              inQuotes = !inQuotes;
+            } else if (char === ',' && !inQuotes) {
+              cols.push(currentCell.trim());
+              currentCell = '';
+            } else {
+              currentCell += char;
             }
+          }
+          cols.push(currentCell.trim());
+
+          if (cols.length >= 2) {
+            const getVal = (idx: number, fallbackIdx: number) => {
+              const actualIdx = idx !== -1 ? idx : fallbackIdx;
+              if (actualIdx >= 0 && actualIdx < cols.length) {
+                return cols[actualIdx].replace(/^"|"$/g, '').trim();
+              }
+              return '';
+            };
+
+            const itemCode = getVal(colItemCode, 0);
+            if (!itemCode) continue;
+
+            const matchingItem = items.find((it) => it.itemCode.toLowerCase() === itemCode.toLowerCase());
+            if (!matchingItem) continue;
+
+            const rawCust = isNewFormat ? getVal(colCust, -1) : '';
+            const rawSoc = isNewFormat ? getVal(colSoc, -1) : '';
+            const rawCartons = isNewFormat ? getVal(colCartons, -1) : '';
+            const rawQty = getVal(colQty, isNewFormat ? 6 : 4);
+            const rawWt = getVal(colWt, isNewFormat ? 8 : 5);
+            const rawRate = getVal(colRate, isNewFormat ? 10 : 7);
+            const rawBatch = getVal(colBatch, isNewFormat ? 11 : 8);
+            const rawNotes = getVal(colNotes, isNewFormat ? 12 : 9);
+
+            const meta = getItemWeightMeta(matchingItem);
+            const wtPerUnit = rawWt !== '' ? parseFloat(rawWt) : meta.rate;
+            const rate = rawRate !== '' ? parseFloat(rawRate) : (matchingItem.unitCost ?? (matchingItem as any)?.costPrice ?? 0);
+            const batch = rawBatch || '';
+            const notes = rawNotes || '';
+
+            let matchedCustId: string | undefined = undefined;
+            let matchedCustName: string | undefined = rawCust || undefined;
+            if (rawCust) {
+              const cust = customersList.find((c) =>
+                c.name.toLowerCase() === rawCust.toLowerCase() ||
+                (c.customerCode && c.customerCode.toLowerCase() === rawCust.toLowerCase()) ||
+                c.id === rawCust
+              );
+              if (cust) {
+                matchedCustId = cust.id;
+                matchedCustName = cust.name;
+              } else if (rawCust.toLowerCase().includes('safety')) {
+                matchedCustId = 'SAFETY_STOCK';
+                matchedCustName = 'Safety Stock';
+              }
+            }
+
+            let matchedSocId: string | undefined = undefined;
+            let matchedSocNum: string | undefined = rawSoc || undefined;
+            if (rawSoc) {
+              const so = salesOrdersList.find((s) =>
+                s.orderNumber.toLowerCase() === rawSoc.toLowerCase() ||
+                s.id === rawSoc
+              );
+              if (so) {
+                matchedSocId = so.id;
+                matchedSocNum = so.orderNumber;
+                if (!matchedCustId && so.customerId) {
+                  matchedCustId = so.customerId;
+                  matchedCustName = so.customerName;
+                }
+              }
+            }
+
+            const isCS = (matchingItem.itemCode || '').toUpperCase().includes('011') || (matchingItem.itemCode || '').toUpperCase().includes('012') || (matchingItem.itemName || '').toUpperCase().includes('CS');
+            const grossPerCarton = isCS ? 10.555556 : 10;
+            let parsedCartons = rawCartons !== '' ? parseFloat(rawCartons) : undefined;
+            let parsedQty = rawQty !== '' ? parseFloat(rawQty) : 0;
+
+            if (parsedCartons !== undefined && parsedCartons > 0 && parsedQty === 0) {
+              parsedQty = Math.round(parsedCartons * grossPerCarton * 144);
+            } else if (parsedQty > 0 && (parsedCartons === undefined || isNaN(parsedCartons))) {
+              parsedCartons = Number((parsedQty / (grossPerCarton * 144)).toFixed(2));
+            }
+
+            const parsedGross = parsedQty > 0 ? Number((parsedQty / 144).toFixed(2)) : (parsedCartons ? Number((parsedCartons * grossPerCarton).toFixed(2)) : undefined);
+
+            const itemName = matchingItem.itemName || matchingItem.name || matchingItem.itemCode;
+            const uom = matchingItem.uomCode || (matchingItem as any).baseUom?.code || meta.qtyUnit;
+            const totalWeightKg = wtPerUnit > 0
+              ? Number((parsedQty * wtPerUnit).toFixed(4))
+              : (uom.toUpperCase() === 'KG' ? parsedQty : 0);
+
+            newLines.push({
+              key: `csv-${matchingItem.id}-${Date.now()}-${i}`,
+              itemId: matchingItem.id,
+              itemCode: matchingItem.itemCode,
+              itemName: itemName,
+              itemType: matchingItem.itemType,
+              customerId: matchedCustId,
+              customerName: matchedCustName,
+              socNumber: matchedSocNum,
+              salesOrderId: matchedSocId,
+              cartons: parsedCartons,
+              gross: parsedGross,
+              uomId: matchingItem.uomId || matchingItem.baseUomId || '',
+              uomCode: uom,
+              currentBalance: matchingItem.currentBalance || 0,
+              quantity: parsedQty,
+              weightPerPiece: wtPerUnit,
+              weightPerMeter: matchingItem.weightPerMeter ? Number(matchingItem.weightPerMeter) : undefined,
+              weightMode: meta.mode,
+              weightUnitLabel: meta.weightUnit,
+              qtyUnitLabel: meta.qtyUnit,
+              totalWeightKg,
+              unitCost: rate,
+              batchNumber: batch,
+              notes: notes,
+            });
           }
         }
 
         if (newLines.length > 0) {
           setOpenStockLines((prev) => [...prev, ...newLines]);
-          message.success(`Imported ${newLines.length} items from CSV successfully!`);
+          message.success(`Imported ${newLines.length} items with Customer, SOC & Cartons from CSV successfully!`);
         } else {
           message.warning('No matching production item codes found in CSV file.');
         }
@@ -1010,26 +1297,44 @@ export const ProductionItemOpenStock: React.FC = () => {
           const uom = (l.uomCode || itemObj?.uomCode || '').toUpperCase();
           const mode = l.weightMode || masterMeta.mode;
           const { totalWeightKg, calculatedMeters } = computeWeightAndMeters(Number(l.quantity) || 0, effectiveWt, uom, mode);
-          const totVal = totalWeightKg > 0 ? (totalWeightKg * l.unitCost) : (l.quantity * l.unitCost);
+          const isFgLine = isFgWarehouse || l.itemType === 'FINISHED_GOOD' || (l.itemCode || '').startsWith('SPI-FG');
+          const grossVal = (l.gross !== undefined && Number(l.gross) > 0)
+            ? Number(l.gross)
+            : (l.quantity > 0 ? Number((l.quantity / 144).toFixed(2)) : 0);
+          const totVal = computeLineTotalValue({ ...l, totalWeightKg }, isFgWarehouse);
           const isMeter = mode === 'METER';
           const unitLbl = l.weightUnitLabel || masterMeta.weightUnit;
           const lengthRemark = calculatedMeters && calculatedMeters > 0 ? `, ≈ ${fmtNum(calculatedMeters, 1)} M` : '';
-          const weightRemark = totalWeightKg > 0
-            ? ` (${fmtNum(totalWeightKg)} Kg @ ${l.unitCost} Rs/Kg [${unitLbl}: ${effectiveWt}${lengthRemark}])`
-            : '';
+          const priceRemark = isFgLine
+            ? ` (${fmtNum(grossVal)} GRS @ ${l.unitCost} Rs/GRS = ${fmtNum(totVal)} Rs, Wt: ${fmtNum(totalWeightKg, 2)} Kg)`
+            : (totalWeightKg > 0 ? ` (${fmtNum(totalWeightKg)} Kg @ ${l.unitCost} Rs/Kg [${unitLbl}: ${effectiveWt}${lengthRemark}])` : '');
+          const custRemark = l.customerName ? ` [Customer: ${l.customerName}]` : '';
+          const socRemark = l.socNumber ? ` [SOC: ${l.socNumber}]` : '';
+          const ctnRemark = l.cartons && Number(l.cartons) > 0 ? ` [${l.cartons} CTN / ${grossVal} GRS]` : '';
+          const combinedNotes = [l.notes, `${priceRemark}${custRemark}${socRemark}${ctnRemark}`.trim()].filter(Boolean).join(' ');
           const effectiveUnitCost = l.quantity > 0 ? Number((totVal / l.quantity).toFixed(4)) : l.unitCost;
 
-          return {
-            itemId: l.itemId,
-            uomId: l.uomId || undefined,
-            quantity: Number(l.quantity),
-            unitCost: effectiveUnitCost,
-            weightPerPiece: !isMeter && effectiveWt > 0 ? Number(effectiveWt) : undefined,
-            weightPerMeter: isMeter && effectiveWt > 0 ? Number(effectiveWt) : undefined,
-            totalWeightKg: totalWeightKg > 0 ? Number(totalWeightKg) : undefined,
-            ratePerKg: l.unitCost > 0 ? Number(l.unitCost) : undefined,
-            batchNumber: l.batchNumber || undefined,
-            notes: (l.notes ? `${l.notes}${weightRemark}` : weightRemark.trim()) || undefined,
+            const isRealUuid = (val?: string) => !!val && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
+            const isSafety = l.customerId === 'SAFETY_STOCK' || (l.customerName || '').toLowerCase().includes('safety');
+
+            return {
+              itemId: l.itemId,
+              uomId: l.uomId || undefined,
+              quantity: Number(l.quantity),
+              unitCost: effectiveUnitCost,
+              weightPerPiece: !isMeter && effectiveWt > 0 ? Number(effectiveWt) : undefined,
+              weightPerMeter: isMeter && effectiveWt > 0 ? Number(effectiveWt) : undefined,
+              totalWeightKg: totalWeightKg > 0 ? Number(totalWeightKg) : undefined,
+              ratePerKg: !isFgLine && l.unitCost > 0 ? Number(l.unitCost) : undefined,
+              ratePerGross: isFgLine && l.unitCost > 0 ? Number(l.unitCost) : undefined,
+              batchNumber: l.batchNumber || undefined,
+              customerId: (l.customerId && isRealUuid(l.customerId)) ? l.customerId : undefined,
+              customerName: isSafety ? 'Safety Stock' : (l.customerName || undefined),
+              socNumber: l.socNumber || (isSafety ? 'SAFETY-STOCK' : undefined),
+              salesOrderId: l.salesOrderId || undefined,
+            cartons: l.cartons && Number(l.cartons) > 0 ? Number(l.cartons) : undefined,
+            gross: grossVal > 0 ? Number(grossVal) : undefined,
+            notes: combinedNotes || undefined,
           };
         }),
       };
@@ -1304,15 +1609,18 @@ export const ProductionItemOpenStock: React.FC = () => {
     let totalWeight = 0;
     let totalValue = 0;
     let totalMeters = 0;
+    let totalCartons = 0;
     openStockLines.forEach((line) => {
       const q = Number(line.quantity) || 0;
       const w = Number(line.totalWeightKg) || 0;
-      const c = Number(line.unitCost) || 0;
       const m = Number(line.calculatedMeters) || 0;
+      const ctn = Number(line.cartons) || 0;
+      const lineVal = computeLineTotalValue(line, isFgWarehouse);
       totalQty += q;
       totalWeight += w;
-      totalValue += w > 0 ? (w * c) : (q * c);
+      totalValue += lineVal;
       totalMeters += m;
+      totalCartons += ctn;
     });
     return {
       lineCount: openStockLines.length,
@@ -1321,8 +1629,21 @@ export const ProductionItemOpenStock: React.FC = () => {
       totalWeight,
       totalValue,
       totalMeters,
+      totalCartons,
     };
-  }, [openStockLines]);
+  }, [openStockLines, isFgWarehouse]);
+
+  const primaryUom = useMemo(() => {
+    const firstValidLine = openStockLines.find((l) => l.itemId && l.quantity > 0);
+    if (firstValidLine) {
+      const u = (firstValidLine.uomCode || firstValidLine.qtyUnitLabel || '').toUpperCase();
+      if (u === 'PCS' || firstValidLine.itemType === 'FINISHED_GOOD') return 'Pcs';
+      if (u === 'KG') return 'Kg';
+      if (u === 'M' || u === 'METER') return 'M';
+      return firstValidLine.uomCode || 'Pcs';
+    }
+    return isCcdDivision ? 'Kg / M' : 'Pcs';
+  }, [openStockLines, isCcdDivision]);
 
   const adjSummary = useMemo(() => {
     let surplusCount = 0;
@@ -1363,267 +1684,482 @@ export const ProductionItemOpenStock: React.FC = () => {
   // -------------------------------------------------------------------------
   // Columns for Tables
   // -------------------------------------------------------------------------
-  const openStockColumns: ColumnsType<OpenStockLine> = [
-    {
-      title: '#',
-      width: 45,
-      render: (_, __, idx) => idx + 1,
-    },
-    {
-      title: 'Item (Name & Code)',
-      dataIndex: 'itemId',
-      key: 'itemId',
-      width: 290,
-      render: (val, record) => {
-        const displayName = record.itemName || (record as any).name || '';
-        return (
-          <div>
-            <Select
-              showSearch
-              placeholder="Select production item..."
-              value={val || undefined}
-              onChange={(newVal) => handleUpdateLine(record.key, 'itemId', newVal)}
-              filterOption={(input, option) =>
-                String(option?.children || '')
-                  .toLowerCase()
-                  .includes(input.toLowerCase())
-              }
-              style={{ width: '100%' }}
-            >
-              {items
-                .filter((it) => filterItemType === 'ALL' || it.itemType === filterItemType)
-                .map((it) => {
-                  const itName = it.itemName || it.name || '';
-                  return (
-                    <Option key={it.id} value={it.id}>
-                      {itName
-                        ? `${itName} (${it.itemCode}${it.departmentName ? ` — ${it.departmentName}` : ''})`
-                        : it.itemCode}
-                    </Option>
-                  );
-                })}
-            </Select>
+  const showCustomerAndSoc = useMemo(() => {
+    return (
+      isFgWarehouse ||
+      filterItemType === 'FINISHED_GOOD' ||
+      openStockLines.some(
+        (l) => l.itemType === 'FINISHED_GOOD' || (l.itemCode || '').startsWith('SPI-FG') || (l.itemCode || '').startsWith('FG-')
+      )
+    );
+  }, [isFgWarehouse, filterItemType, openStockLines]);
 
-            {/* Prominent Name and Details Badge */}
-            <div style={{ marginTop: 5 }}>
-              {displayName ? (
-                <div style={{ fontWeight: 600, color: '#096dd9', fontSize: 13, marginBottom: 2 }}>
-                  {displayName}
-                </div>
-              ) : null}
-              <Space size={6} wrap style={{ marginTop: 2 }}>
-                {record.itemCode && (
-                  <Text type="secondary" code style={{ fontSize: 11 }}>
-                    {record.itemCode}
-                  </Text>
-                )}
-                {record.itemType && (
-                  <Tag color={ITEM_TYPE_COLORS[record.itemType] || 'default'} style={{ fontSize: 10 }}>
-                    {ITEM_TYPE_LABELS[record.itemType] || record.itemType}
-                  </Tag>
-                )}
-                <Text type="secondary" style={{ fontSize: 11 }}>
-                  UOM: {record.uomCode || 'PCS'}
-                </Text>
-              </Space>
-            </div>
-          </div>
-        );
+  const openStockColumns: ColumnsType<OpenStockLine> = useMemo(() => {
+    const cols: ColumnsType<OpenStockLine> = [
+      {
+        title: '#',
+        width: 45,
+        render: (_, __, idx) => idx + 1,
       },
-    },
-    {
-      title: 'Floor Stock',
-      dataIndex: 'currentBalance',
-      key: 'currentBalance',
-      width: 120,
-      render: (val, record) => (
-        <Badge
-          count={`${fmtNum(val)} ${record.uomCode || 'PCS'}`}
-          style={{ backgroundColor: (val || 0) > 0 ? '#108ee9' : '#8c8c8c' }}
-        />
+      {
+        title: 'Item (Name & Code)',
+        dataIndex: 'itemId',
+        key: 'itemId',
+        width: 290,
+        render: (val, record) => {
+          const displayName = record.itemName || (record as any).name || '';
+          return (
+            <div>
+              <Select
+                showSearch
+                placeholder="Select production item..."
+                value={val || undefined}
+                onChange={(newVal) => handleUpdateLine(record.key, 'itemId', newVal)}
+                filterOption={(input, option) =>
+                  String(option?.children || '')
+                    .toLowerCase()
+                    .includes(input.toLowerCase())
+                }
+                style={{ width: '100%' }}
+              >
+                {items
+                  .filter((it) => filterItemType === 'ALL' || it.itemType === filterItemType)
+                  .map((it) => {
+                    const itName = it.itemName || it.name || '';
+                    return (
+                      <Option key={it.id} value={it.id}>
+                        {itName
+                          ? `${itName} (${it.itemCode}${it.departmentName ? ` — ${it.departmentName}` : ''})`
+                          : it.itemCode}
+                      </Option>
+                    );
+                  })}
+              </Select>
+
+              {/* Prominent Name and Details Badge */}
+              <div style={{ marginTop: 5 }}>
+                {displayName ? (
+                  <div style={{ fontWeight: 600, color: '#096dd9', fontSize: 13, marginBottom: 2, maxWidth: 270, wordBreak: 'break-word' }}>
+                    {displayName}
+                  </div>
+                ) : null}
+                <Space size={6} wrap style={{ marginTop: 2 }}>
+                  {record.itemCode && (
+                    <Text type="secondary" code style={{ fontSize: 11 }}>
+                      {record.itemCode}
+                    </Text>
+                  )}
+                  {record.itemType && (
+                    <Tag color={ITEM_TYPE_COLORS[record.itemType] || 'default'} style={{ fontSize: 10 }}>
+                      {ITEM_TYPE_LABELS[record.itemType] || record.itemType}
+                    </Tag>
+                  )}
+                  <Text type="secondary" style={{ fontSize: 11 }}>
+                    UOM: {record.uomCode || 'PCS'}
+                  </Text>
+                </Space>
+              </div>
+            </div>
+          );
+        },
+      },
+    ];
+
+    if (showCustomerAndSoc) {
+      cols.push(
+        {
+          title: (
+            <span>
+              Customer
+              <div style={{ fontSize: 10, fontWeight: 'normal', color: '#8c8c8c' }}>کسٹمر</div>
+            </span>
+          ),
+          dataIndex: 'customerId',
+          key: 'customerId',
+          width: 230,
+          render: (val, record) => {
+            const isFg = isFgWarehouse || record.itemType === 'FINISHED_GOOD' || (record.itemCode || '').startsWith('SPI-FG');
+            if (!isFg) {
+              return <Text type="secondary" style={{ fontSize: 12 }}>—</Text>;
+            }
+            return (
+              <Select
+                showSearch
+                allowClear
+                placeholder="Select Customer / Safety Stock..."
+                value={record.customerId || record.customerName || undefined}
+                onChange={(newCustId) => {
+                  const isSafety = newCustId === 'SAFETY_STOCK' || newCustId === 'Safety Stock';
+                  if (isSafety) {
+                    handleUpdateLine(record.key, 'customerId', 'SAFETY_STOCK');
+                    handleUpdateLine(record.key, 'customerName', 'Safety Stock');
+                    if (!record.socNumber) {
+                      handleUpdateLine(record.key, 'socNumber', 'SAFETY-STOCK');
+                    }
+                  } else {
+                    const cust = customersList.find((c) => c.id === newCustId || c.name === newCustId);
+                    handleUpdateLine(record.key, 'customerId', cust?.id || newCustId);
+                    handleUpdateLine(record.key, 'customerName', cust?.name || newCustId);
+                  }
+                }}
+                filterOption={(input, option) =>
+                  String(option?.label || option?.value || '')
+                    .toLowerCase()
+                    .includes(input.toLowerCase())
+                }
+                options={customersList.map((c) => {
+                  const isSafety = c.id === 'SAFETY_STOCK' || c.name === 'Safety Stock';
+                  return {
+                    value: c.id,
+                    label: isSafety ? '🛡️ Safety Stock (Buffer / General)' : `${c.name} ${c.customerCode ? `(${c.customerCode})` : ''}`,
+                  };
+                })}
+                style={{ width: '100%', minWidth: 190, borderColor: '#faad14', borderRadius: 6 }}
+              />
+            );
+          },
+        },
+        {
+          title: (
+            <span>
+              SOC # / Order
+              <div style={{ fontSize: 10, fontWeight: 'normal', color: '#8c8c8c' }}>ایس او سی نمبر</div>
+            </span>
+          ),
+          dataIndex: 'socNumber',
+          key: 'socNumber',
+          width: 220,
+          render: (val, record) => {
+            const isFg = isFgWarehouse || record.itemType === 'FINISHED_GOOD' || (record.itemCode || '').startsWith('SPI-FG');
+            if (!isFg) {
+              return <Text type="secondary" style={{ fontSize: 12 }}>—</Text>;
+            }
+            const isSafety = record.customerId === 'SAFETY_STOCK' || (record.customerName || '').toLowerCase().includes('safety');
+            const filteredOrders = isSafety
+              ? []
+              : record.customerId
+              ? salesOrdersList.filter((s) => s.customerId === record.customerId)
+              : salesOrdersList;
+
+            const safetyOptions = [
+              { value: 'SAFETY-STOCK', label: '🛡️ SAFETY-STOCK (Buffer Holding)' },
+              { value: 'BUFFER', label: '📦 BUFFER (General Stock)' },
+              { value: 'N/A', label: 'N/A (No Customer Order)' },
+            ];
+
+            const orderOptions = filteredOrders.map((s) => ({
+              value: s.orderNumber,
+              label: `${s.orderNumber}${s.customerName ? ` (${s.customerName})` : ''}`,
+            }));
+
+            const options = isSafety ? safetyOptions : orderOptions;
+
+            return (
+              <AutoComplete
+                value={record.socNumber || ''}
+                options={options}
+                placeholder={isSafety ? "SAFETY-STOCK / Buffer..." : "Type or select SOC..."}
+                onChange={(newSoc) => {
+                  const so = salesOrdersList.find((s) => s.orderNumber === newSoc);
+                  handleUpdateLine(record.key, 'socNumber', newSoc);
+                  if (so) {
+                    handleUpdateLine(record.key, 'salesOrderId', so.id);
+                    if (so.customerId && !record.customerId) {
+                      handleUpdateLine(record.key, 'customerId', so.customerId);
+                      handleUpdateLine(record.key, 'customerName', so.customerName);
+                    }
+                  }
+                }}
+                filterOption={(inputValue, option) =>
+                  String(option?.label || option?.value || '')
+                    .toUpperCase()
+                    .includes(inputValue.toUpperCase())
+                }
+                style={{ width: '100%', minWidth: 180, borderColor: '#faad14', borderRadius: 6 }}
+              />
+            );
+          },
+        }
+      );
+    }
+
+    cols.push(
+      {
+        title: 'Floor Stock',
+        dataIndex: 'currentBalance',
+        key: 'currentBalance',
+        width: 120,
+        render: (val, record) => (
+          <Badge
+            count={`${fmtNum(val)} ${record.uomCode || 'PCS'}`}
+            style={{ backgroundColor: (val || 0) > 0 ? '#108ee9' : '#8c8c8c' }}
+          />
+        ),
+      }
+    );
+
+    if (showCustomerAndSoc) {
+      cols.push({
+        title: (
+          <span>
+            Packed Cartons
+            <div style={{ fontSize: 10, fontWeight: 'normal', color: '#8c8c8c' }}>کاٹن (CTN)</div>
+          </span>
+        ),
+        dataIndex: 'cartons',
+        key: 'cartons',
+        width: 175,
+        render: (val, record) => {
+          const isFg = isFgWarehouse || record.itemType === 'FINISHED_GOOD' || (record.itemCode || '').startsWith('SPI-FG');
+          if (!isFg) {
+            return <Text type="secondary" style={{ fontSize: 12 }}>—</Text>;
+          }
+          const isCS = (record.itemCode || '').toUpperCase().includes('011') || (record.itemCode || '').toUpperCase().includes('012') || (record.itemName || '').toUpperCase().includes('CS');
+          const grossPerCarton = isCS ? 10.555556 : 10;
+          const cartons = val !== undefined && val !== null ? val : (record.quantity > 0 ? Number((record.quantity / (grossPerCarton * 144)).toFixed(2)) : undefined);
+          return (
+            <InputNumber
+              controls={false}
+              className="prod-qty-input"
+              min={0}
+              step={1}
+              value={cartons === 0 ? null : cartons}
+              onFocus={(e) => e.target.select()}
+              addonAfter={<span style={{ fontSize: 11, fontWeight: 700, color: '#faad14' }}>CTN</span>}
+              onChange={(newCtn) => handleUpdateLine(record.key, 'cartons', newCtn !== null && newCtn !== undefined ? newCtn : 0)}
+              formatter={(v) => v !== undefined && v !== null ? `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : ''}
+              parser={(v) => v ? parseFloat(v.replace(/,/g, '')) : 0}
+              style={{ width: '100%', minWidth: 155, borderColor: '#faad14', borderWidth: 1.5, borderRadius: 6, fontWeight: 'bold', fontSize: 14 }}
+              placeholder="0"
+            />
+          );
+        },
+      });
+    }
+
+    cols.push({
+      title: (
+        <span>
+          Opening Qty
+          <div style={{ fontSize: 10, fontWeight: 'normal', color: '#8c8c8c' }}>پیسز / مقدار</div>
+        </span>
       ),
-    },
-    {
-      title: 'Opening Qty',
       dataIndex: 'quantity',
       key: 'quantity',
-      width: 210,
+      width: 260,
       render: (val, record) => {
         const itemObj = itemsMap.get(record.itemId);
         const meta = getItemWeightMeta(itemObj);
         const uom = record.qtyUnitLabel || record.uomCode || itemObj?.uomCode || meta.qtyUnit || 'PCS';
-        return (
-          <InputNumber
-            controls={false}
-            className="prod-qty-input"
-            min={0}
-            step={uom.toUpperCase() === 'KG' ? 0.1 : 1}
-            value={val === 0 ? null : val}
-            onFocus={(e) => e.target.select()}
-            addonAfter={<span style={{ fontSize: 11, fontWeight: 700 }}>{uom}</span>}
-            onChange={(newVal) => handleUpdateLine(record.key, 'quantity', newVal !== null && newVal !== undefined ? newVal : 0)}
-            style={{ width: '100%', borderColor: '#52c41a', fontWeight: 'bold', fontSize: 14 }}
-            placeholder="0"
-          />
-        );
-      },
-    },
-    {
-      title: (
-        <Tooltip title="Unit weight rate loaded automatically from Item Master. For Meters: Kg per Meter (Kg/M). For Pieces: Kg per Piece (Kg/pc).">
-          <span>
-            Per Unit Wt (Kg) <Tag color="blue" style={{ fontSize: 10, marginLeft: 2, padding: '0 4px', lineHeight: '16px' }}>AUTO</Tag>
-            <div style={{ fontSize: 10, fontWeight: 'normal', color: '#8c8c8c' }}>(Kg/pc or Kg/M)</div>
-          </span>
-        </Tooltip>
-      ),
-      dataIndex: 'weightPerPiece',
-      key: 'weightPerPiece',
-      width: 170,
-      render: (val, record) => {
-        const itemObj = itemsMap.get(record.itemId);
-        const meta = getItemWeightMeta(itemObj);
-        const masterWt = meta.rate;
-        const currentVal = (val !== undefined && Number(val) > 0) ? Number(val) : (masterWt > 0 ? Number(masterWt) : undefined);
-        const unitLabel = record.weightUnitLabel || meta.weightUnit || (meta.mode === 'METER' ? 'Kg/M' : 'Kg/pc');
-        return (
-          <InputNumber
-            controls={false}
-            onFocus={(e) => e.target.select()}
-            min={0}
-            step={0.0001}
-            precision={6}
-            value={currentVal}
-            addonAfter={<span style={{ fontSize: 11, fontWeight: 600 }}>{unitLabel}</span>}
-            onChange={(newVal) => handleUpdateLine(record.key, 'weightPerPiece', newVal || 0)}
-            style={{ width: '100%', borderColor: '#1890ff', fontWeight: 500 }}
-            placeholder={masterWt > 0 ? masterWt.toFixed(6) : "0.000000"}
-          />
-        );
-      },
-    },
-    {
-      title: (
-        <Tooltip title="Total Weight in Kg, plus calculated Equivalent Length in Meters (for meters) or Pieces based on Unit Weight rate.">
-          <span>
-            Total Wt (Kg)
-            <div style={{ fontSize: 10, fontWeight: 'normal', color: '#8c8c8c' }}>& Equiv Length / Pcs</div>
-          </span>
-        </Tooltip>
-      ),
-      key: 'totalWeightKg',
-      width: 150,
-      render: (_, record) => {
-        const itemObj = itemsMap.get(record.itemId);
-        const meta = getItemWeightMeta(itemObj);
-        const effectiveWt = (record.weightPerPiece && Number(record.weightPerPiece) > 0) ? Number(record.weightPerPiece) : Number(meta.rate);
-        const qty = Number(record.quantity) || 0;
-        const uom = (record.uomCode || itemObj?.uomCode || '').toUpperCase();
-        const mode = record.weightMode || meta.mode;
-        const { totalWeightKg, calculatedMeters, calculatedPieces } = computeWeightAndMeters(qty, effectiveWt, uom, mode);
+        const isFg = isFgWarehouse || record.itemType === 'FINISHED_GOOD' || (record.itemCode || '').startsWith('SPI-FG');
+        const gross = record.gross !== undefined ? record.gross : (val > 0 ? Number((val / 144).toFixed(2)) : undefined);
 
         return (
           <div>
-            <Tag color={totalWeightKg > 0 ? 'cyan' : 'default'} style={{ fontWeight: 700, fontSize: 13, padding: '2px 8px' }}>
-              {fmtNum(totalWeightKg, 2)} Kg
-            </Tag>
-            {calculatedMeters !== undefined && calculatedMeters > 0 && (
+            <InputNumber
+              controls={false}
+              className="prod-qty-input"
+              min={0}
+              step={uom.toUpperCase() === 'KG' ? 0.1 : 100}
+              value={val === 0 ? null : val}
+              onFocus={(e) => e.target.select()}
+              addonAfter={<span style={{ fontSize: 11, fontWeight: 700, color: '#faad14' }}>{uom}</span>}
+              onChange={(newVal) => handleUpdateLine(record.key, 'quantity', newVal !== null && newVal !== undefined ? newVal : 0)}
+              formatter={(v) => v !== undefined && v !== null ? `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : ''}
+              parser={(v) => v ? parseFloat(v.replace(/,/g, '')) : 0}
+              style={{ width: '100%', minWidth: 235, borderColor: '#faad14', borderWidth: 1.5, borderRadius: 6, fontWeight: 'bold', fontSize: 14 }}
+              placeholder="0"
+            />
+            {isFg && (
               <div style={{ fontSize: 11, color: '#13c2c2', marginTop: 3, fontWeight: 600 }}>
-                ≈ {fmtNum(calculatedMeters, 1)} M
-              </div>
-            )}
-            {calculatedPieces !== undefined && calculatedPieces > 0 && uom === 'KG' && (
-              <div style={{ fontSize: 11, color: '#1890ff', marginTop: 3, fontWeight: 500 }}>
-                ≈ {fmtNum(calculatedPieces)} PCS
+                ≈ {fmtNum(gross || 0)} Gross (GRS)
               </div>
             )}
           </div>
         );
       },
     },
-    {
-      title: (
-        <Tooltip title="Cost Rate in PKR per Kg (multiplied with Total Weight Kg to get Total Value)">
-          <span>Rate / Kg (PKR)</span>
-        </Tooltip>
-      ),
-      dataIndex: 'unitCost',
-      key: 'unitCost',
-      width: 125,
-      render: (val, record) => (
-        <InputNumber
-          controls={false}
-          onFocus={(e) => e.target.select()}
-          min={0}
-          step={0.5}
-          value={val}
-          onChange={(newVal) => handleUpdateLine(record.key, 'unitCost', newVal || 0)}
-          style={{ width: '100%', borderColor: '#faad14' }}
-          placeholder="310.0"
-        />
-      ),
-    },
-    {
-      title: (
-        <Tooltip title="Total Value = Total Weight (Kg) × Rate / Kg">
-          <span>Total Value (PKR)</span>
-        </Tooltip>
-      ),
-      key: 'totalValue',
-      width: 135,
-      render: (_, record) => {
-        const itemObj = itemsMap.get(record.itemId);
-        const meta = getItemWeightMeta(itemObj);
-        const effectiveWt = (record.weightPerPiece && Number(record.weightPerPiece) > 0) ? Number(record.weightPerPiece) : Number(meta.rate);
-        const qty = Number(record.quantity) || 0;
-        const uom = (record.uomCode || itemObj?.uomCode || '').toUpperCase();
-        const mode = record.weightMode || meta.mode;
-        const { totalWeightKg } = computeWeightAndMeters(qty, effectiveWt, uom, mode);
-        const rate = Number(record.unitCost) || 0;
-        const total = totalWeightKg > 0 ? (totalWeightKg * rate) : (qty * rate);
-        return <Text strong style={{ color: '#096dd9', fontSize: 13 }}>{fmtNum(total)} Rs</Text>;
+      {
+        title: (
+          <Tooltip title="Unit weight rate loaded automatically from Item Master. For Meters: Kg per Meter (Kg/M). For Pieces: Kg per Piece (Kg/pc).">
+            <span>
+              Per Unit Wt (Kg) <Tag color="blue" style={{ fontSize: 10, marginLeft: 2, padding: '0 4px', lineHeight: '16px' }}>AUTO</Tag>
+              <div style={{ fontSize: 10, fontWeight: 'normal', color: '#8c8c8c' }}>(Kg/pc or Kg/M)</div>
+            </span>
+          </Tooltip>
+        ),
+        dataIndex: 'weightPerPiece',
+        key: 'weightPerPiece',
+        width: 180,
+        render: (val, record) => {
+          const itemObj = itemsMap.get(record.itemId);
+          const meta = getItemWeightMeta(itemObj);
+          const masterWt = meta.rate;
+          const currentVal = (val !== undefined && Number(val) > 0) ? Number(val) : (masterWt > 0 ? Number(masterWt) : undefined);
+          const unitLabel = record.weightUnitLabel || meta.weightUnit || (meta.mode === 'METER' ? 'Kg/M' : 'Kg/pc');
+          return (
+            <InputNumber
+              controls={false}
+              onFocus={(e) => e.target.select()}
+              min={0}
+              step={0.0001}
+              precision={6}
+              value={currentVal}
+              addonAfter={<span style={{ fontSize: 11, fontWeight: 600, color: '#faad14' }}>{unitLabel}</span>}
+              onChange={(newVal) => handleUpdateLine(record.key, 'weightPerPiece', newVal || 0)}
+              style={{ width: '100%', minWidth: 150, borderColor: '#faad14', borderWidth: 1.5, borderRadius: 6, fontWeight: 600, fontSize: 14 }}
+              placeholder={masterWt > 0 ? masterWt.toFixed(6) : "0.000000"}
+            />
+          );
+        },
       },
-    },
-    {
-      title: 'Batch / Lot #',
-      dataIndex: 'batchNumber',
-      key: 'batchNumber',
-      width: 120,
-      render: (val, record) => (
-        <Input
-          value={val}
-          onChange={(e) => handleUpdateLine(record.key, 'batchNumber', e.target.value)}
-          placeholder="e.g. BAT-2609"
-        />
-      ),
-    },
-    {
-      title: 'Notes',
-      dataIndex: 'notes',
-      key: 'notes',
-      width: 130,
-      render: (val, record) => (
-        <Input
-          value={val}
-          onChange={(e) => handleUpdateLine(record.key, 'notes', e.target.value)}
-          placeholder="Remarks"
-        />
-      ),
-    },
-    {
-      title: 'Action',
-      key: 'action',
-      width: 50,
-      render: (_, record) => (
-        <Button
-          type="text"
-          danger
-          icon={<DeleteOutlined />}
-          onClick={() => handleDeleteLine(record.key)}
-        />
-      ),
-    },
-  ];
+      {
+        title: (
+          <Tooltip title="Total Weight in Kg, plus calculated Equivalent Length in Meters (for meters) or Pieces based on Unit Weight rate.">
+            <span>
+              Total Wt (Kg)
+              <div style={{ fontSize: 10, fontWeight: 'normal', color: '#8c8c8c' }}>& Equiv Length / Pcs</div>
+            </span>
+          </Tooltip>
+        ),
+        key: 'totalWeightKg',
+        width: 160,
+        render: (_, record) => {
+          const itemObj = itemsMap.get(record.itemId);
+          const meta = getItemWeightMeta(itemObj);
+          const effectiveWt = (record.weightPerPiece && Number(record.weightPerPiece) > 0) ? Number(record.weightPerPiece) : Number(meta.rate);
+          const qty = Number(record.quantity) || 0;
+          const uom = (record.uomCode || itemObj?.uomCode || '').toUpperCase();
+          const mode = record.weightMode || meta.mode;
+          const { totalWeightKg, calculatedMeters, calculatedPieces } = computeWeightAndMeters(qty, effectiveWt, uom, mode);
+
+          return (
+            <div>
+              <Tag color={totalWeightKg > 0 ? 'cyan' : 'default'} style={{ fontWeight: 700, fontSize: 13, padding: '2px 8px' }}>
+                {fmtNum(totalWeightKg, 2)} Kg
+              </Tag>
+              {calculatedMeters !== undefined && calculatedMeters > 0 && (
+                <div style={{ fontSize: 11, color: '#13c2c2', marginTop: 3, fontWeight: 600 }}>
+                  ≈ {fmtNum(calculatedMeters, 1)} M
+                </div>
+              )}
+              {calculatedPieces !== undefined && calculatedPieces > 0 && uom === 'KG' && (
+                <div style={{ fontSize: 11, color: '#1890ff', marginTop: 3, fontWeight: 500 }}>
+                  ≈ {fmtNum(calculatedPieces)} PCS
+                </div>
+              )}
+            </div>
+          );
+        },
+      },
+      {
+        title: (
+          <Tooltip title={isFgWarehouse || filterItemType === 'FINISHED_GOOD' ? "Finished Goods Sales Rate in PKR per Gross (1 Gross = 144 Pcs)" : "Cost Rate in PKR per Kg (for Raw/WIP) or per Gross (for FG)"}>
+            <span>
+              {isFgWarehouse || filterItemType === 'FINISHED_GOOD' ? 'Rate / Gross (PKR)' : 'Rate / Kg or GRS'}
+              <div style={{ fontSize: 10, fontWeight: 'normal', color: '#8c8c8c' }}>
+                {isFgWarehouse || filterItemType === 'FINISHED_GOOD' ? 'ریٹ فی گروس (GRS)' : 'ریٹ فی گروس / کے جی'}
+              </div>
+            </span>
+          </Tooltip>
+        ),
+        dataIndex: 'unitCost',
+        key: 'unitCost',
+        width: 155,
+        render: (val, record) => {
+          const isFgLine = isFgWarehouse || record.itemType === 'FINISHED_GOOD' || (record.itemCode || '').startsWith('SPI-FG');
+          const rateUnit = isFgLine ? 'GRS' : (record.uomCode === 'KG' ? 'Kg' : (record.qtyUnitLabel || record.uomCode || 'Kg'));
+          return (
+            <InputNumber
+              controls={false}
+              onFocus={(e) => e.target.select()}
+              min={0}
+              step={isFgLine ? 10 : 0.5}
+              value={val}
+              onChange={(newVal) => handleUpdateLine(record.key, 'unitCost', newVal || 0)}
+              addonAfter={<span style={{ fontSize: 11, fontWeight: 700, color: '#faad14' }}>{rateUnit}</span>}
+              style={{ width: '100%', minWidth: 140, borderColor: '#faad14', borderWidth: 1.5, borderRadius: 6, fontWeight: 'bold', fontSize: 14 }}
+              placeholder={isFgLine ? "950.0" : "310.0"}
+            />
+          );
+        },
+      },
+      {
+        title: (
+          <Tooltip title="For Finished Goods: Gross × Rate/Gross. For WIP/RM: Weight (Kg) × Rate/Kg">
+            <span>
+              Total Value (PKR)
+              <div style={{ fontSize: 10, fontWeight: 'normal', color: '#8c8c8c' }}>کل مالیت</div>
+            </span>
+          </Tooltip>
+        ),
+        key: 'totalValue',
+        width: 155,
+        render: (_, record) => {
+          const itemObj = itemsMap.get(record.itemId);
+          const meta = getItemWeightMeta(itemObj);
+          const effectiveWt = (record.weightPerPiece && Number(record.weightPerPiece) > 0) ? Number(record.weightPerPiece) : Number(meta.rate);
+          const qty = Number(record.quantity) || 0;
+          const uom = (record.uomCode || itemObj?.uomCode || '').toUpperCase();
+          const mode = record.weightMode || meta.mode;
+          const { totalWeightKg } = computeWeightAndMeters(qty, effectiveWt, uom, mode);
+          const total = computeLineTotalValue({ ...record, totalWeightKg }, isFgWarehouse);
+          return <Text strong style={{ color: '#096dd9', fontSize: 13 }}>{fmtNum(total)} Rs</Text>;
+        },
+      },
+      {
+        title: 'Batch / Lot #',
+        dataIndex: 'batchNumber',
+        key: 'batchNumber',
+        width: 140,
+        render: (val, record) => (
+          <Input
+            value={val}
+            onChange={(e) => handleUpdateLine(record.key, 'batchNumber', e.target.value)}
+            placeholder="e.g. BAT-2610"
+            style={{ width: '100%', minWidth: 115, borderColor: '#faad14', borderRadius: 6 }}
+          />
+        ),
+      },
+      {
+        title: 'Notes',
+        dataIndex: 'notes',
+        key: 'notes',
+        width: 260,
+        render: (val, record) => (
+          <Input
+            value={val}
+            onChange={(e) => handleUpdateLine(record.key, 'notes', e.target.value)}
+            placeholder="Remarks / Opening stock notes"
+            style={{ width: '100%', minWidth: 230, borderColor: '#faad14', borderRadius: 6 }}
+          />
+        ),
+      },
+      {
+        title: 'Action',
+        key: 'action',
+        width: 50,
+        render: (_, record) => (
+          <Button
+            type="text"
+            danger
+            icon={<DeleteOutlined />}
+            onClick={() => handleDeleteLine(record.key)}
+          />
+        ),
+      }
+    );
+
+    return cols;
+  }, [
+    items,
+    filterItemType,
+    itemsMap,
+    showCustomerAndSoc,
+    isFgWarehouse,
+    customersList,
+    salesOrdersList,
+  ]);
 
   const adjColumns: ColumnsType<StockAdjustmentLine> = [
     {
@@ -2320,10 +2856,11 @@ export const ProductionItemOpenStock: React.FC = () => {
                   {/* Open Stock Grid Table */}
                   <div style={{ marginTop: 12 }}>
                     <Table
+                      tableLayout="fixed"
                       dataSource={filteredOpenStockLines}
                       columns={openStockColumns}
                       pagination={{ pageSize: 25, showSizeChanger: true }}
-                      scroll={{ x: 1300 }}
+                      scroll={{ x: showCustomerAndSoc ? 2900 : 1900 }}
                       size="middle"
                       locale={{
                         emptyText: (
@@ -2355,9 +2892,17 @@ export const ProductionItemOpenStock: React.FC = () => {
                           <Statistic
                             title="Total Quantity"
                             value={fmtNum(openStockSummary.totalQty)}
-                            suffix={isCcdDivision ? 'Kg / M' : isSpokeDivision ? 'Pcs' : ''}
+                            suffix={openStockSummary.totalCartons > 0 || primaryUom === 'Pcs' ? 'Pcs' : primaryUom}
                             valueStyle={{ fontSize: 18, color: '#389e0d' }}
                           />
+                          {openStockSummary.totalCartons > 0 && (
+                            <Statistic
+                              title="Total Cartons"
+                              value={fmtNum(openStockSummary.totalCartons)}
+                              suffix={`CTN (${fmtNum(openStockSummary.totalCartons * 10)} GRS)`}
+                              valueStyle={{ fontSize: 18, color: '#1890ff' }}
+                            />
+                          )}
                           <Statistic
                             title="Total Weight (Kg)"
                             value={fmtNum(openStockSummary.totalWeight, 2)}

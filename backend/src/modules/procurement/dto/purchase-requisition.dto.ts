@@ -12,12 +12,12 @@ export class CreatePurchaseRequisitionLineDto {
   lineNumber: number;
 
   @ApiProperty({ description: 'Item ID' })
-  @IsUUID()
+  @IsString()
   @IsNotEmpty()
   itemId: string;
 
   @ApiProperty({ description: 'UOM ID' })
-  @IsUUID()
+  @IsString()
   @IsNotEmpty()
   uomId: string;
 
@@ -38,12 +38,12 @@ export class CreatePurchaseRequisitionLineDto {
   requiredDate?: string;
 
   @ApiPropertyOptional({ description: 'Warehouse ID' })
-  @IsUUID()
+  @IsString()
   @IsOptional()
   warehouseId?: string;
 
   @ApiPropertyOptional({ description: 'Supplier ID' })
-  @IsUUID()
+  @IsString()
   @IsOptional()
   supplierId?: string;
 

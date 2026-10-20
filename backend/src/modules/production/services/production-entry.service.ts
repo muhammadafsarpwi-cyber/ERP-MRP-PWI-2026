@@ -2228,7 +2228,10 @@ addToDept(org, {
 
     for (const output of outputs) {
       if (Number(output.actualQuantity) <= 0 && Number(output.scrapQuantity || 0) <= 0) continue;
-      const configuredInputs = this.resolveRoutingInputsForOutput(routing, output.itemId);
+      const outputRouting = output.itemId === entry.itemId
+        ? routing
+        : (await this.safeGetEffectiveRouting(companyId, output.itemId)) || routing;
+      const configuredInputs = this.resolveRoutingInputsForOutput(outputRouting, output.itemId);
       const consumed = await this.consumeForProductionItem(
         manager, companyId, output, entry, sourceStoreId, configuredInputs, userId, componentWarehouses, true,
         componentRejections,
@@ -3172,7 +3175,10 @@ addToDept(org, {
         // Zero production / 100% downtime: no raw material consumption or inventory receipt needed
         continue;
       }
-      const configuredInputs = this.resolveRoutingInputsForOutput(routing, output.itemId);
+      const outputRouting = output.itemId === entry.itemId
+        ? routing
+        : (await this.safeGetEffectiveRouting(companyId, output.itemId)) || routing;
+      const configuredInputs = this.resolveRoutingInputsForOutput(outputRouting, output.itemId);
       const consumed = await this.consumeForProductionItem(
         manager, companyId, output, entry, sourceStoreId, configuredInputs, userId, componentWarehouses,
         false, componentRejections,

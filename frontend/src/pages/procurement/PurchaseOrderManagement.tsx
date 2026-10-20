@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   Table, Button, Input, Select, DatePicker, App, Modal, Tooltip,
-  Row, Col, Form, InputNumber, Tag, Badge,
+  Row, Col, Form, InputNumber, Tag, Badge, Progress, Spin, Card, Space,
 } from 'antd';
 import {
   PlusOutlined, ReloadOutlined, FileTextOutlined, PrinterOutlined,
@@ -122,6 +122,176 @@ interface ResultModalState {
   title: string;
   subtitle: string;
 }
+
+interface PoFulfillmentLedgerProps {
+  poId: string;
+  poCode: string;
+}
+
+export const PoFulfillmentLedger: React.FC<PoFulfillmentLedgerProps> = ({ poId, poCode }) => {
+  const [loading, setLoading] = useState(true);
+  const [poDetails, setPoDetails] = useState<any>(null);
+  const [receipts, setReceipts] = useState<any[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      setLoading(true);
+      try {
+        const [poRes, grRes]: any = await Promise.all([
+          apiService.get(`/procurement/orders/${poId}`).catch(() => null),
+          apiService.get('/procurement/receipts', { poId, limit: 100 }).catch(() => null),
+        ]);
+        if (!active) return;
+        setPoDetails(poRes?.data || poRes);
+        const grList = grRes?.data || (Array.isArray(grRes) ? grRes : []);
+        setReceipts(grList);
+      } catch (err) {
+        console.warn('Failed to load PO ledger', err);
+      } finally {
+        if (active) setLoading(false);
+      }
+    })();
+    return () => { active = false; };
+  }, [poId]);
+
+  if (loading) {
+    return (
+      <div style={{ padding: '16px 24px', textAlign: 'center', background: 'rgba(15, 23, 42, 0.4)', borderRadius: 6 }}>
+        <Spin size="small" /> <span style={{ marginLeft: 8, color: '#94a3b8', fontSize: 12 }}>Loading Inbound Receiving Ledger for #{poCode}...</span>
+      </div>
+    );
+  }
+
+  const lines = poDetails?.items || poDetails?.lines || [];
+  if (lines.length === 0) {
+    return (
+      <div style={{ padding: '12px 20px', background: 'rgba(15, 23, 42, 0.4)', borderRadius: 6, color: '#94a3b8', fontSize: 12 }}>
+        No items recorded for Purchase Order #{poCode}.
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ padding: '14px 18px', background: 'rgba(15, 23, 42, 0.75)', border: '1px solid rgba(56, 189, 248, 0.3)', borderRadius: 8, margin: '6px 0' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 13.5, fontWeight: 800, color: '#38bdf8' }}>
+            📦 Inbound Receiving Ledger & Fulfillment History:
+          </span>
+          <Tag color="blue" style={{ fontWeight: 700 }}>PO #{poCode}</Tag>
+          <span style={{ fontSize: 12, color: '#94a3b8' }}>
+            Supplier: <strong style={{ color: '#cbd5e1' }}>{poDetails?.supplier?.name || poDetails?.supplierName || 'Supplier'}</strong>
+          </span>
+        </div>
+        <div>
+          <Tag color={receipts.length > 0 ? 'purple' : 'default'} style={{ fontWeight: 700 }}>
+            {receipts.length} Goods Receipt(s) Linked
+          </Tag>
+        </div>
+      </div>
+
+      {/* Item-wise Fulfillment Summary Table */}
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, marginBottom: 16 }}>
+        <thead>
+          <tr style={{ background: 'rgba(30, 41, 59, 0.95)', borderBottom: '1px solid rgba(56, 189, 248, 0.3)', color: '#94a3b8', textAlign: 'left' }}>
+            <th style={{ padding: '8px 10px' }}>Item Code</th>
+            <th style={{ padding: '8px 10px' }}>Item Description</th>
+            <th style={{ padding: '8px 10px', textAlign: 'right' }}>Ordered Qty</th>
+            <th style={{ padding: '8px 10px', textAlign: 'right' }}>Total Received</th>
+            <th style={{ padding: '8px 10px', textAlign: 'right' }}>Remaining Balance</th>
+            <th style={{ padding: '8px 10px', textAlign: 'center' }}>Fulfillment Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {lines.map((l: any, idx: number) => {
+            const ord = Number(l.quantity || 0);
+            const rec = Number(l.receivedQuantity || 0);
+            const bal = Math.max(0, ord - rec);
+            const uom = l.uom?.code || l.uomCode || 'PCS';
+            const pct = ord > 0 ? Math.min(100, Math.round((rec / ord) * 100)) : 0;
+            const isFull = (ord > 0 && rec >= ord);
+
+            return (
+              <tr key={l.id || idx} style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.05)', background: idx % 2 === 0 ? 'transparent' : 'rgba(255, 255, 255, 0.02)' }}>
+                <td style={{ padding: '8px 10px', fontWeight: 700, color: '#38bdf8' }}>{l.item?.itemCode || l.itemCode || 'ITEM'}</td>
+                <td style={{ padding: '8px 10px', color: '#cbd5e1' }}>{l.item?.name || l.itemName || l.name || '—'}</td>
+                <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, color: '#f1f5f9' }}>{ord.toLocaleString()} {uom}</td>
+                <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, color: isFull ? '#10b981' : '#38bdf8' }}>{rec.toLocaleString()} {uom}</td>
+                <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 800, color: isFull ? '#10b981' : '#f59e0b' }}>
+                  {isFull ? `0 ${uom} (Fulfilled)` : `${bal.toLocaleString()} ${uom} Left`}
+                </td>
+                <td style={{ padding: '8px 10px', textAlign: 'center' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                    <Progress
+                      percent={pct}
+                      size="small"
+                      status={isFull ? 'success' : 'active'}
+                      style={{ width: 90, margin: 0 }}
+                      strokeColor={isFull ? '#10b981' : '#38bdf8'}
+                    />
+                    <Tag color={isFull ? 'success' : (rec > 0 ? 'warning' : 'default')} style={{ margin: 0, fontWeight: 700, fontSize: 10 }}>
+                      {isFull ? '✅ FULLY RECEIVED' : (rec > 0 ? 'PARTIAL' : 'PENDING')}
+                    </Tag>
+                  </div>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+
+      {/* Receipts Chronological Inbound History */}
+      {receipts.length > 0 && (
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span>🚚 Chronological Inbound Receipts Audit Trail ({receipts.length} Receipt Entry):</span>
+          </div>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5 }}>
+            <thead>
+              <tr style={{ background: 'rgba(30, 41, 59, 0.65)', borderBottom: '1px solid rgba(255, 255, 255, 0.1)', color: '#94a3b8', textAlign: 'left' }}>
+                <th style={{ padding: '6px 8px' }}>#</th>
+                <th style={{ padding: '6px 8px' }}>Receipt Code</th>
+                <th style={{ padding: '6px 8px' }}>GRN #</th>
+                <th style={{ padding: '6px 8px' }}>Receipt Date</th>
+                <th style={{ padding: '6px 8px' }}>Target Warehouse</th>
+                <th style={{ padding: '6px 8px' }}>Status</th>
+                <th style={{ padding: '6px 8px', textAlign: 'right' }}>Received Qty</th>
+              </tr>
+            </thead>
+            <tbody>
+              {receipts.map((gr: any, gIdx: number) => {
+                const grLines = gr.lines || gr.items || [];
+                const totReceived = grLines.reduce((sum: number, gl: any) => sum + Number(gl.quantityReceived || gl.quantity || 0), 0);
+                const isPosted = gr.status === 'POSTED';
+
+                return (
+                  <tr key={gr.id || gIdx} style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.04)' }}>
+                    <td style={{ padding: '6px 8px', color: '#64748b' }}>{gIdx + 1}</td>
+                    <td style={{ padding: '6px 8px', fontWeight: 700, color: '#38bdf8' }}>{gr.receiptCode}</td>
+                    <td style={{ padding: '6px 8px', color: '#cbd5e1' }}>{gr.grnNumber || '—'}</td>
+                    <td style={{ padding: '6px 8px', color: '#94a3b8' }}>
+                      {gr.receiptDate ? dayjs(gr.receiptDate).format('DD/MM/YYYY') : '—'}
+                    </td>
+                    <td style={{ padding: '6px 8px', color: '#cbd5e1' }}>{gr.warehouse?.name || gr.warehouseName || '—'}</td>
+                    <td style={{ padding: '6px 8px' }}>
+                      <Tag color={isPosted ? 'purple' : 'blue'} style={{ fontSize: 10, fontWeight: 700 }}>
+                        {gr.status}
+                      </Tag>
+                    </td>
+                    <td style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 700, color: '#10b981' }}>
+                      {totReceived.toLocaleString()} GRS
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+};
 
 const PurchaseOrderManagement: React.FC = () => {
   const { message } = App.useApp();
@@ -955,14 +1125,30 @@ const PurchaseOrderManagement: React.FC = () => {
 
   const executeSave = async (values: any) => {
     try {
-      const targetCompanyId = editingItem?.companyId || companyId || undefined;
+      for (let i = 0; i < lines.length; i++) {
+        if (!lines[i].itemId) {
+          message.warning(`Please select a product for line #${i + 1}`);
+          return;
+        }
+      }
+
+      let targetCompanyId = editingItem?.companyId || companyId;
+      if (!targetCompanyId) {
+        try {
+          const userStr = localStorage.getItem('erp_user');
+          if (userStr) {
+            const parsed = JSON.parse(userStr);
+            targetCompanyId = parsed?.defaultCompanyId || parsed?.companyId;
+          }
+        } catch { /* ignore */ }
+      }
+
       const selectedSupplierId = values.supplierId || editingItem?.supplierId || suppliers[0]?.id;
       const finalPoCode = values.poCode || editingItem?.poCode || `PO-${dayjs().format('YYYY')}-${Date.now().toString().slice(-4)}`;
-
-      const selectedWh = values.warehouseId || selectedWarehouseId || undefined;
+      const selectedWh = (values.warehouseId || selectedWarehouseId || '').trim() || undefined;
 
       const payload: any = {
-        companyId: targetCompanyId,
+        companyId: targetCompanyId || undefined,
         warehouseId: selectedWh,
         poCode: finalPoCode,
         supplierId: selectedSupplierId,
@@ -973,16 +1159,20 @@ const PurchaseOrderManagement: React.FC = () => {
         discountPercent: formDiscount,
         notes: values.notes || '',
         currencyCode: 'PKR',
-        lines: lines.map((l, idx) => ({
-          id: (l.id && l.id.length > 20 && !l.id.includes('sample') && !l.id.startsWith('new-')) ? l.id : undefined,
-          lineNumber: idx + 1,
-          itemId: l.itemId || itemsCatalog[0]?.id,
-          warehouseId: selectedWh,
-          uomId: l.uomId || undefined,
-          quantity: Number(l.quantity) || 1,
-          unitPrice: Number(l.unitPrice) || 0,
-          discountPercent: 0,
-        })),
+        lines: lines.map((l, idx) => {
+          const matchedItem = itemsCatalog.find((it) => it.id === l.itemId);
+          const resolvedUomId = l.uomId || matchedItem?.purchaseUomId || matchedItem?.baseUomId || undefined;
+          return {
+            id: (l.id && l.id.length > 20 && !l.id.includes('sample') && !l.id.startsWith('new-')) ? l.id : undefined,
+            lineNumber: idx + 1,
+            itemId: l.itemId,
+            warehouseId: selectedWh,
+            uomId: resolvedUomId,
+            quantity: Number(l.quantity) || 1,
+            unitPrice: Number(l.unitPrice) || 0,
+            discountPercent: 0,
+          };
+        }),
       };
 
       if (editingItem) {
@@ -1629,6 +1819,12 @@ const PurchaseOrderManagement: React.FC = () => {
           loading={loading}
           pagination={false}
           className="po-custom-table"
+          expandable={{
+            expandedRowRender: (record) => (
+              <PoFulfillmentLedger poId={record.id} poCode={record.poCode} />
+            ),
+            rowExpandable: () => true,
+          }}
           rowClassName={(record) => {
             const st = (record.status || '').toUpperCase();
             if (st === 'PENDING' || st === 'DRAFT' || st === 'SUBMITTED') return 'po-row-pending';
@@ -2143,6 +2339,11 @@ const PurchaseOrderManagement: React.FC = () => {
                 <p><strong>Notes:</strong> {viewingItem.notes || 'None'}</p>
               </Col>
             </Row>
+
+            {/* Inbound Item Receiving Ledger */}
+            <div style={{ marginTop: 12 }}>
+              <PoFulfillmentLedger poId={viewingItem.id} poCode={viewingItem.poCode} />
+            </div>
           </div>
         )}
       </DraggableResizableModal>

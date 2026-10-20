@@ -49,68 +49,61 @@ interface DepartmentOption {
 }
 
 const DEFAULT_DIVISIONS: DivisionOption[] = [
-  { id: 'div-spk', code: 'SPD', name: 'Spoke Division' },
-  { id: 'div-ccd', code: 'CCD', name: 'Control Cable Division' },
-  { id: 'div-wd', code: 'WD', name: 'Wire Drawing Division' },
-  { id: 'div-galv', code: 'GALV', name: 'Galvanizing Division' },
-  { id: 'div-nail', code: 'NAIL', name: 'Nail & Fastener Division' },
-  { id: 'div-corp', code: 'CORP', name: 'Corporate & Master Store' },
+  { id: 'd1000000-0000-0000-0000-000000000001', code: 'DIV-SPD', name: 'Spoke Division' },
+  { id: 'd1000000-0000-0000-0000-000000000002', code: 'DIV-CCD', name: 'Control Cable Division' },
+  { id: '83ecd746-1cc9-4849-bec4-d00bcc3ceeec', code: 'DIV-PWI', name: 'Main Division E-51' },
+  { id: '50824516-9c24-4122-86e7-c8e6fa1c5869', code: 'DIV-001', name: 'Manufacturing Division' },
+  { id: '3f222d46-6f96-44f6-9ead-27467c7e93a1', code: 'DIV-003', name: 'Supply Chain Division' },
+  { id: 'b28f9d4f-53f3-4883-afb4-2af73c4dcca7', code: 'DIV-002', name: 'Sales & Marketing Division' },
 ];
 
 const DEFAULT_DEPARTMENTS: DepartmentOption[] = [
   // Spoke Plant (DIV-SPD)
-  { id: 'dept-spd-st', code: 'SPD-DEPT001', name: 'Straightener Department', divisionId: 'div-spk' },
-  { id: 'dept-spd-sw', code: 'SPD-DEPT002', name: 'Swagging Department', divisionId: 'div-spk' },
-  { id: 'dept-spd-spk', code: 'SPD-DEPT003', name: 'Spoke Production Department', divisionId: 'div-spk' },
-  { id: 'dept-spd-hdr', code: 'SPD-DEPT004', name: 'Header Department', divisionId: 'div-spk' },
-  { id: 'dept-spd-nip', code: 'SPD-DEPT005', name: 'Nipple Department', divisionId: 'div-spk' },
-  { id: 'dept-spd-plt', code: 'SPD-DEPT006', name: 'Spoke Plating Department', divisionId: 'div-spk' },
-  { id: 'dept-spd-nplt', code: 'SPD-DEPT007', name: 'Nipple Plating Department', divisionId: 'div-spk' },
-  { id: 'dept-spd-pck', code: 'SPD-DEPT008', name: 'Spoke Packing Department', divisionId: 'div-spk' },
-  { id: 'dept-spd-maint', code: 'SPD-DEPT009', name: 'Facility Maintenance (SPD)', divisionId: 'div-spk' },
+  { id: 'd3000000-0000-0000-0000-000000000001', code: 'SPD-DEPT001', name: 'Straightener Department', divisionId: 'd1000000-0000-0000-0000-000000000001' },
+  { id: 'd3000000-0000-0000-0000-000000000002', code: 'SPD-DEPT002', name: 'Swagging Department', divisionId: 'd1000000-0000-0000-0000-000000000001' },
+  { id: 'd3000000-0000-0000-0000-000000000003', code: 'SPD-DEPT003', name: 'Spoke Production Department', divisionId: 'd1000000-0000-0000-0000-000000000001' },
+  { id: 'd3000000-0000-0000-0000-000000000004', code: 'SPD-DEPT004', name: 'Header Department', divisionId: 'd1000000-0000-0000-0000-000000000001' },
+  { id: 'd3000000-0000-0000-0000-000000000005', code: 'SPD-DEPT005', name: 'Nipple Department', divisionId: 'd1000000-0000-0000-0000-000000000001' },
+  { id: 'd3000000-0000-0000-0000-000000000006', code: 'SPD-DEPT006', name: 'Spoke Plating Department', divisionId: 'd1000000-0000-0000-0000-000000000001' },
+  { id: 'd3000000-0000-0000-0000-000000000007', code: 'SPD-DEPT007', name: 'Nipple Plating Department', divisionId: 'd1000000-0000-0000-0000-000000000001' },
+  { id: 'd3000000-0000-0000-0000-000000000008', code: 'SPD-DEPT008', name: 'Spoke Packing Department', divisionId: 'd1000000-0000-0000-0000-000000000001' },
+  { id: 'd3000000-0000-0000-0000-000000000009', code: 'SPD-DEPT009', name: 'Facility Maintenance (SPD)', divisionId: 'd1000000-0000-0000-0000-000000000001' },
 
   // Control Cable Plant (DIV-CCD)
-  { id: 'dept-ccd-flt', code: 'CCD-DEPT001', name: 'Flattening Department', divisionId: 'div-ccd' },
-  { id: 'dept-ccd-spr', code: 'CCD-DEPT002', name: 'Spiral Department', divisionId: 'div-ccd' },
-  { id: 'dept-ccd-pvc', code: 'CCD-DEPT003', name: 'PVC Extrusion Department', divisionId: 'div-ccd' },
-  { id: 'dept-ccd-pck', code: 'CCD-DEPT004', name: 'CCD Packing Department', divisionId: 'div-ccd' },
+  { id: 'd3000000-0000-0000-0000-000000000010', code: 'CCD-DEPT001', name: 'Flattening Department', divisionId: 'd1000000-0000-0000-0000-000000000002' },
+  { id: 'd3000000-0000-0000-0000-000000000011', code: 'CCD-DEPT002', name: 'Spiral Department', divisionId: 'd1000000-0000-0000-0000-000000000002' },
+  { id: 'd3000000-0000-0000-0000-000000000012', code: 'CCD-DEPT003', name: 'PVC Extrusion Department', divisionId: 'd1000000-0000-0000-0000-000000000002' },
+  { id: 'd3000000-0000-0000-0000-000000000013', code: 'CCD-DEPT004', name: 'CCD Packing Department', divisionId: 'd1000000-0000-0000-0000-000000000002' },
+  { id: 'd8cf64a6-ebfc-4a94-a807-4960d3166752', code: 'CCD-DEPT111', name: 'CCD Stores', divisionId: 'd1000000-0000-0000-0000-000000000002' },
 
-  // Wire Drawing & Galvanizing
-  { id: 'dept-wd-prod', code: 'WD-DEPT001', name: 'Wire Drawing Production', divisionId: 'div-wd' },
-  { id: 'dept-galv-prod', code: 'GALV-DEPT001', name: 'Galvanizing Production', divisionId: 'div-galv' },
-
-  // Central / Corporate Departments
-  { id: 'dept-sc', code: 'CENT-SC', name: 'Supply Chain & Procurement', divisionId: 'div-corp' },
-  { id: 'dept-maint', code: 'CENT-MAINT', name: 'Central Engineering & Maintenance', divisionId: 'div-corp' },
-  { id: 'dept-qe', code: 'CENT-QE', name: 'Quality Assurance & Engineering', divisionId: 'div-corp' },
-  { id: 'dept-it', code: 'CENT-IT', name: 'IT & Systems', divisionId: 'div-corp' },
-  { id: 'dept-fin', code: 'CENT-FIN', name: 'Accounts & Finance', divisionId: 'div-corp' },
-  { id: 'dept-hr', code: 'CENT-HR', name: 'Human Resources', divisionId: 'div-corp' },
-  { id: 'dept-adm', code: 'CENT-ADM', name: 'Administration & Security', divisionId: 'div-corp' },
+  // Central Departments
+  { id: '959c34f7-b712-473f-975a-330535f0229d', code: 'CENT-SC', name: 'Supply Chain & Procurement', divisionId: '3f222d46-6f96-44f6-9ead-27467c7e93a1' },
+  { id: '89e75347-5f07-400e-81b4-da06faaec104', code: 'CENT-MAINT', name: 'Central Engineering & Maintenance', divisionId: '83ecd746-1cc9-4849-bec4-d00bcc3ceeec' },
+  { id: '29915792-70af-4bb0-be28-17bc77226c77', code: 'CENT-QE', name: 'Quality Assurance & Engineering', divisionId: 'a6b0f919-fcfc-4e31-85e0-ebd35766f9c2' },
+  { id: 'fe0d5e8b-7cd2-428b-815b-5e32638ffd0a', code: 'CENT-IT', name: 'IT & Systems', divisionId: '83ecd746-1cc9-4849-bec4-d00bcc3ceeec' },
+  { id: 'c50825a6-5ff0-49cf-9e6a-db832a4eb576', code: 'CENT-FIN', name: 'Accounts & Finance', divisionId: '9efc527e-811d-4b45-92ea-4a562ab212cc' },
+  { id: 'cd29a8bb-6564-412c-92f4-89876d6a4368', code: 'CENT-HR', name: 'Human Resources', divisionId: '9efc527e-811d-4b45-92ea-4a562ab212cc' },
+  { id: '02a79d88-033b-4401-979b-ff0ee7b4f756', code: 'CENT-ADM', name: 'Administration & Security', divisionId: '9efc527e-811d-4b45-92ea-4a562ab212cc' },
 ];
 
 const DEFAULT_WAREHOUSES: Array<{ id: string; warehouseCode: string; name: string; warehouseType?: string; divisionId?: string }> = [
   // Spoke Division Stores & Warehouses
-  { id: '2ec20775-616c-4c6e-818e-1f76912d6dfa', warehouseCode: 'SPI-ST-001', name: 'ST Production Store (SPD)', warehouseType: 'WORK_IN_PROGRESS', divisionId: 'div-spk' },
-  { id: 'd5685ddf-923a-4f7c-ba19-a5715cafa02e', warehouseCode: 'SPI-SW-002', name: 'SW Production Store (SPD)', warehouseType: 'WORK_IN_PROGRESS', divisionId: 'div-spk' },
-  { id: 'a70e0a7e-2ffa-47e4-83a9-c894d9dff41b', warehouseCode: 'SPI-PL-004', name: 'PL Production Store (SPD)', warehouseType: 'WORK_IN_PROGRESS', divisionId: 'div-spk' },
-  { id: 'a4c9ee6c-938f-4c34-b293-6686cfc3add3', warehouseCode: 'SPI002ST', name: 'SPI Raw Material Warehouse', warehouseType: 'RAW_MATERIAL', divisionId: 'div-spk' },
-  { id: 'cf5c9db8-5e84-41d5-a4b4-988b8dfd122d', warehouseCode: 'WH-002', name: 'SPI Main Store / Warehouse', warehouseType: 'FINISHED_GOODS', divisionId: 'div-spk' },
-  { id: '2f6aabde-69c1-4068-a0ea-b0fe1b8fb0b5', warehouseCode: 'SPI-FGDW-001', name: 'SPI FG Dispatch Warehouse', warehouseType: 'FINISHED_GOODS', divisionId: 'div-spk' },
+  { id: '2ec20775-616c-4c6e-818e-1f76912d6dfa', warehouseCode: 'SPI-ST-001', name: 'ST Straightener Department', warehouseType: 'WORK_IN_PROGRESS', divisionId: 'd1000000-0000-0000-0000-000000000001' },
+  { id: 'd5685ddf-923a-4f7c-ba19-a5715cafa02e', warehouseCode: 'SPI-SW-002', name: 'SW Swagging Department', warehouseType: 'WORK_IN_PROGRESS', divisionId: 'd1000000-0000-0000-0000-000000000001' },
+  { id: 'a70e0a7e-2ffa-47e4-83a9-c894d9dff41b', warehouseCode: 'SPI-PL-004', name: 'SPL Spoke Plating Department', warehouseType: 'WORK_IN_PROGRESS', divisionId: 'd1000000-0000-0000-0000-000000000001' },
+  { id: 'a4c9ee6c-938f-4c34-b293-6686cfc3add3', warehouseCode: 'RM-002-SPI', name: 'SPI Raw Material Warehouse', warehouseType: 'RAW_MATERIAL', divisionId: 'd1000000-0000-0000-0000-000000000001' },
+  { id: 'cf5c9db8-5e84-41d5-a4b4-988b8dfd122d', warehouseCode: 'WH-002', name: 'SPI Nipple Packing Warehouse', warehouseType: 'FINISHED_GOODS', divisionId: 'd1000000-0000-0000-0000-000000000001' },
+  { id: '2f6aabde-69c1-4068-a0ea-b0fe1b8fb0b5', warehouseCode: 'SPI-FGDW-001', name: 'SPI FG Dispatch Warehouse', warehouseType: 'FINISHED_GOODS', divisionId: 'd1000000-0000-0000-0000-000000000001' },
 
   // Control Cable Division Stores
-  { id: '64a9a1b1-dee5-4da4-ab3e-ae68d04999a7', warehouseCode: 'CCD-FT-001', name: 'FT Production Store (CCD)', warehouseType: 'WORK_IN_PROGRESS', divisionId: 'div-ccd' },
-  { id: 'dc212cb0-364c-47ba-88db-1bde18f842de', warehouseCode: 'CCD-SP-002', name: 'SP Production Store (CCD)', warehouseType: 'WORK_IN_PROGRESS', divisionId: 'div-ccd' },
-  { id: '37dac1e5-a0b9-479a-b63e-3849a0dd0dd8', warehouseCode: 'CCD-PVC-003', name: 'PVC Production Store (CCD)', warehouseType: 'WORK_IN_PROGRESS', divisionId: 'div-ccd' },
-  { id: '45de05e2-d7d0-45d1-936f-425e317362db', warehouseCode: 'CCD002ST', name: 'CCD Raw Material Warehouse', warehouseType: 'RAW_MATERIAL', divisionId: 'div-ccd' },
-  { id: 'c7735271-bc28-48ce-8f17-bf6241eb6b5a', warehouseCode: 'WH-001', name: 'CCD Main Warehouse', warehouseType: 'FINISHED_GOODS', divisionId: 'div-ccd' },
+  { id: '64a9a1b1-dee5-4da4-ab3e-ae68d04999a7', warehouseCode: 'CCD-FT-001', name: 'FT Production Department', warehouseType: 'WORK_IN_PROGRESS', divisionId: 'd1000000-0000-0000-0000-000000000002' },
+  { id: 'dc212cb0-364c-47ba-88db-1bde18f842de', warehouseCode: 'CCD-SP-002', name: 'SP Production Department', warehouseType: 'WORK_IN_PROGRESS', divisionId: 'd1000000-0000-0000-0000-000000000002' },
+  { id: '37dac1e5-a0b9-479a-b63e-3849a0dd0dd8', warehouseCode: 'CCD-PVC-003', name: 'PVC Production Department', warehouseType: 'WORK_IN_PROGRESS', divisionId: 'd1000000-0000-0000-0000-000000000002' },
+  { id: '45de05e2-d7d0-45d1-936f-425e317362db', warehouseCode: 'RM-001-CCD', name: 'CCD Raw Material Warehouse', warehouseType: 'RAW_MATERIAL', divisionId: 'd1000000-0000-0000-0000-000000000002' },
+  { id: 'c7735271-bc28-48ce-8f17-bf6241eb6b5a', warehouseCode: 'WH-001', name: 'CCD Main Warehouse', warehouseType: 'FINISHED_GOODS', divisionId: 'd1000000-0000-0000-0000-000000000002' },
 
-  // Central & Plant Stores
-  { id: 'aa9fedcb-27ac-47d2-a963-40d01c2594bc', warehouseCode: 'WH-MAIN-001', name: 'Central General Store (PWI-E51)', warehouseType: 'GENERAL', divisionId: 'div-corp' },
-  { id: 'wh-central-raw', warehouseCode: 'WH-RAW-001', name: 'Central Raw Material Yard', warehouseType: 'RAW_MATERIAL' },
-  { id: 'wh-eng-store', warehouseCode: 'WH-ENG-001', name: 'Central Engineering & Spare Parts Store', warehouseType: 'GENERAL' },
-  { id: 'wh-wd-store', warehouseCode: 'WH-WD-001', name: 'Wire Drawing Consumables Store', warehouseType: 'RAW_MATERIAL', divisionId: 'div-wd' },
-  { id: 'wh-galv-store', warehouseCode: 'WH-GALV-001', name: 'Galvanizing Chemical & Zinc Store', warehouseType: 'RAW_MATERIAL', divisionId: 'div-galv' },
+  // Central Store
+  { id: 'aa9fedcb-27ac-47d2-a963-40d01c2594bc', warehouseCode: 'WH-MAIN-001', name: 'Main Warehouse (PWI-E51)', warehouseType: 'GENERAL', divisionId: '83ecd746-1cc9-4849-bec4-d00bcc3ceeec' },
 ];
 
 const STATUS_OPTIONS = ['DRAFT', 'SUBMITTED', 'APPROVED', 'CANCELLED'];
@@ -241,7 +234,7 @@ const PurchaseRequisitionManagement: React.FC = () => {
         if (items.length > 0) {
           const existingIds = new Set(items.map((x: any) => x.id));
           const merged = [...items, ...DEFAULT_WAREHOUSES.filter((d) => !existingIds.has(d.id))];
-          setWarehouses(merged);
+          setWarehouses(merged.filter((w) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(w.id)));
         }
       } catch { /* keep DEFAULT_WAREHOUSES */ }
 
@@ -349,13 +342,43 @@ const PurchaseRequisitionManagement: React.FC = () => {
     setModalVisible(true);
   };
 
+  const isUuid = (val?: string) => Boolean(val && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val));
+
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields();
-      if (lineItems.length === 0) {
-        message.warning('Add at least one requisition line item');
+
+      // Check if user entered quantity/rate on a row without selecting an item
+      const incompleteLines = lineItems.filter((l) => !l.itemId && ((l.quantity && Number(l.quantity) > 1) || (l.rate && Number(l.rate) > 0)));
+      if (incompleteLines.length > 0) {
+        message.error('Please select an item for all entered rows or remove the unfinished line.');
         return;
       }
+
+      // Filter lines that have an item selected (cleanly ignoring accidental empty rows at bottom)
+      const validLines = lineItems.filter((l) => Boolean(l.itemId));
+      if (validLines.length === 0) {
+        message.warning('Please add at least one requisition line item with an item selected');
+        return;
+      }
+
+      // Validate each selected line has a valid UUID itemId and positive quantity
+      for (let i = 0; i < validLines.length; i++) {
+        const l = validLines[i];
+        if (!l.itemId || !isUuid(l.itemId)) {
+          message.error(`Line #${i + 1} does not have a valid item selected. Please choose an item from the item list or delete the row.`);
+          return;
+        }
+        if (!l.quantity || Number(l.quantity) <= 0) {
+          message.error(`Line #${i + 1} (${l.itemCode || 'Item'}) must have a quantity greater than 0.`);
+          return;
+        }
+        if (!l.uomId || !isUuid(l.uomId)) {
+          message.error(`Line #${i + 1} (${l.itemCode || 'Item'}) is missing a valid Unit of Measure (UOM).`);
+          return;
+        }
+      }
+
       setSubmitting(true);
 
       const targetCompanyId = companyId || values.companyId || useUserStore.getState().user?.defaultCompanyId;
@@ -370,6 +393,8 @@ const PurchaseRequisitionManagement: React.FC = () => {
       const prefix = metaParts.join(' ');
       const combinedNotes = [prefix, values.notes].filter(Boolean).join('\n');
 
+      const targetWarehouseId = isUuid(values.warehouseId) ? values.warehouseId : undefined;
+
       const payload: any = {
         companyId: targetCompanyId,
         requisitionCode: values.requisitionCode,
@@ -380,13 +405,16 @@ const PurchaseRequisitionManagement: React.FC = () => {
         requestedDeliveryDate: values.requestedDeliveryDate ? dayjs(values.requestedDeliveryDate).format('YYYY-MM-DD') : undefined,
         projectCode: values.projectCode || undefined,
         notes: combinedNotes || undefined,
-        lines: lineItems.map((l, idx) => ({
+        divisionId: isUuid(values.divisionId) ? values.divisionId : undefined,
+        warehouseId: targetWarehouseId,
+        purchaseType: values.purchaseType || undefined,
+        lines: validLines.map((l, idx) => ({
           lineNumber: idx + 1,
           itemId: l.itemId,
           uomId: l.uomId,
           quantity: Number(l.quantity || 0),
           estimatedUnitPrice: Number(l.rate || 0),
-          warehouseId: values.warehouseId || undefined,
+          warehouseId: targetWarehouseId,
           justification: l.itemName || l.itemCode || undefined,
           requiredDate: values.requestedDeliveryDate ? dayjs(values.requestedDeliveryDate).format('YYYY-MM-DD') : undefined,
         })),

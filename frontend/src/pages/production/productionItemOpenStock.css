@@ -1426,9 +1426,10 @@ body.dark .prod-result-details-val {
   border-color: var(--theme-border, #334155) !important;
 }
 
-/* ── Opening Qty & Stock Inputs (Wide, Large, No Steppers) ── */
+/* ── Opening Qty & Stock Inputs (Wide, Large, Golden Border, No Steppers) ── */
 .prod-qty-input {
   width: 100% !important;
+  min-width: 150px !important;
 }
 
 .prod-qty-input .ant-input-number-handler-wrap {
@@ -1438,20 +1439,47 @@ body.dark .prod-result-details-val {
   pointer-events: none !important;
 }
 
+.prod-qty-input .ant-input-number {
+  border-color: #faad14 !important;
+  border-width: 1.5px !important;
+  border-radius: 6px 0 0 6px !important;
+  min-width: 100px !important;
+}
+
 .prod-qty-input .ant-input-number-input {
   font-size: 14px !important;
-  font-weight: 800 !important;
+  font-weight: 700 !important;
   text-align: left !important;
-  padding: 4px 10px !important;
+  padding: 4px 6px !important;
   height: 34px !important;
+  letter-spacing: 0.3px !important;
+  min-width: 85px !important;
 }
 
 .prod-qty-input .ant-input-number-group-addon {
-  padding: 0 10px !important;
-  background: var(--theme-surface-alt, #f1f5f9) !important;
-  color: var(--theme-text-secondary, #475569) !important;
+  padding: 0 8px !important;
+  background: rgba(250, 173, 20, 0.12) !important;
+  color: #faad14 !important;
+  border-color: #faad14 !important;
+  border-width: 1.5px !important;
   font-weight: 800 !important;
   font-size: 12px !important;
+  white-space: nowrap !important;
+  min-width: 42px !important;
+  text-align: center !important;
 }
+
+.prod-qty-input.ant-input-number-group-wrapper {
+  border-radius: 6px !important;
+  min-width: 150px !important;
+}
+
+.prod-qty-input:hover .ant-input-number,
+.prod-qty-input:hover .ant-input-number-group-addon,
+.prod-qty-input-focused .ant-input-number {
+  border-color: #d48806 !important;
+  box-shadow: 0 0 0 2px rgba(250, 173, 20, 0.2) !important;
+}
+
 
 

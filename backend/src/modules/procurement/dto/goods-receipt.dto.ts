@@ -12,12 +12,12 @@ export class CreateGoodsReceiptLineDto {
   poLineId?: string;
 
   @ApiProperty({ description: 'Item ID' })
-  @IsUUID()
+  @IsString()
   @IsNotEmpty()
   itemId: string;
 
   @ApiProperty({ description: 'UOM ID' })
-  @IsUUID()
+  @IsString()
   @IsNotEmpty()
   uomId: string;
 
@@ -61,6 +61,71 @@ export class CreateGoodsReceiptLineDto {
   @IsOptional()
   conditionNotes?: string;
 
+  @ApiPropertyOptional({ description: 'Quantity (alias for received)' })
+  @IsNumber()
+  @IsOptional()
+  quantity?: number;
+
+  @ApiPropertyOptional({ description: 'Rate / Unit price' })
+  @IsNumber()
+  @IsOptional()
+  rate?: number;
+
+  @ApiPropertyOptional({ description: 'Discount percent' })
+  @IsNumber()
+  @IsOptional()
+  discountPercent?: number;
+
+  @ApiPropertyOptional({ description: 'Tax percent' })
+  @IsNumber()
+  @IsOptional()
+  taxPercent?: number;
+
+  @ApiPropertyOptional({ description: 'Line total' })
+  @IsNumber()
+  @IsOptional()
+  lineTotal?: number;
+
+  @ApiPropertyOptional({ description: 'Item code' })
+  @IsString()
+  @IsOptional()
+  itemCode?: string;
+
+  @ApiPropertyOptional({ description: 'Item name' })
+  @IsString()
+  @IsOptional()
+  itemName?: string;
+
+  @ApiPropertyOptional({ description: 'UOM code' })
+  @IsString()
+  @IsOptional()
+  uomCode?: string;
+
+  @ApiPropertyOptional({ description: 'UOM name' })
+  @IsString()
+  @IsOptional()
+  uomName?: string;
+
+  @ApiPropertyOptional({ description: 'Packaging size' })
+  @IsNumber()
+  @IsOptional()
+  packagingSize?: number;
+
+  @ApiPropertyOptional({ description: 'Packaging unit' })
+  @IsString()
+  @IsOptional()
+  packagingUnit?: string;
+
+  @ApiPropertyOptional({ description: 'Package quantity' })
+  @IsNumber()
+  @IsOptional()
+  packageQuantity?: number;
+
+  @ApiPropertyOptional({ description: 'Sales order / PO reference' })
+  @IsString()
+  @IsOptional()
+  salesOrderNumber?: string;
+
   @ApiPropertyOptional({ description: 'Notes' })
   @IsString()
   @IsOptional()
@@ -69,7 +134,7 @@ export class CreateGoodsReceiptLineDto {
 
 export class CreateGoodsReceiptDto {
   @ApiProperty({ description: 'Company ID' })
-  @IsUUID()
+  @IsString()
   @IsNotEmpty()
   companyId: string;
 
@@ -85,14 +150,81 @@ export class CreateGoodsReceiptDto {
   poId?: string;
 
   @ApiProperty({ description: 'Supplier ID' })
-  @IsUUID()
+  @IsString()
   @IsNotEmpty()
   supplierId: string;
 
   @ApiProperty({ description: 'Warehouse ID' })
-  @IsUUID()
+  @IsString()
   @IsNotEmpty()
   warehouseId: string;
+
+  @ApiPropertyOptional({ description: 'Division ID' })
+  @IsString()
+  @IsOptional()
+  divisionId?: string;
+
+  @ApiPropertyOptional({ description: 'Purchase Origin Type (LOCAL / IMPORT)' })
+  @IsString()
+  @IsOptional()
+  purchaseType?: string;
+
+  @ApiPropertyOptional({ description: 'Receipt date' })
+  @IsDateString()
+  @IsOptional()
+  receiptDate?: string;
+
+  @ApiPropertyOptional({ description: 'Delivery note number' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(100)
+  deliveryNoteNumber?: string;
+
+  @ApiPropertyOptional({ description: 'GRN number' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(100)
+  grnNumber?: string;
+
+  @ApiPropertyOptional({ description: 'Notes' })
+  @IsString()
+  @IsOptional()
+  notes?: string;
+
+  @ApiPropertyOptional({ description: 'Lines' })
+  @IsArray()
+  @IsOptional()
+  @ValidateNested({ each: true })
+  @Type(() => CreateGoodsReceiptLineDto)
+  lines?: CreateGoodsReceiptLineDto[];
+}
+
+export class UpdateGoodsReceiptDto {
+  @ApiPropertyOptional({ description: 'Company ID' })
+  @IsString()
+  @IsOptional()
+  companyId?: string;
+
+  @ApiPropertyOptional({ description: 'Receipt code' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(50)
+  receiptCode?: string;
+
+  @ApiPropertyOptional({ description: 'PO ID' })
+  @IsString()
+  @IsOptional()
+  poId?: string;
+
+  @ApiPropertyOptional({ description: 'Supplier ID' })
+  @IsString()
+  @IsOptional()
+  supplierId?: string;
+
+  @ApiPropertyOptional({ description: 'Warehouse ID' })
+  @IsString()
+  @IsOptional()
+  warehouseId?: string;
 
   @ApiPropertyOptional({ description: 'Division ID' })
   @IsString()

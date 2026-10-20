@@ -31,6 +31,7 @@ export interface ERPLine {
   salesOrderNumber?: string;
   customerPo?: string;
   orderQuantity?: number;
+  pastReceived?: number;
   orderBalance?: number;
 }
 
@@ -591,11 +592,18 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
                 </Tag>
               )}
 
+              {record.pastReceived !== undefined && record.pastReceived > 0 && (
+                <Tag color="cyan" style={{ fontSize: 10.5, fontWeight: 700, margin: 0, padding: '1px 6px', borderRadius: 4 }}>
+                  📦 Past Recv: {Number(record.pastReceived).toLocaleString()} {record.uomCode || 'PCS'}
+                </Tag>
+              )}
+
               {record.orderQuantity !== undefined && record.quantity !== undefined && (
                 (() => {
                   const ord = Number(record.orderQuantity || 0);
+                  const past = Number(record.pastReceived || 0);
                   const rec = Number(record.quantity || 0);
-                  const bal = ord - rec;
+                  const bal = ord - past - rec;
                   if (bal > 0) {
                     return (
                       <Tag color="warning" style={{ fontSize: 10.5, fontWeight: 700, margin: 0, padding: '1px 6px', borderRadius: 4 }}>
@@ -605,7 +613,7 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
                   } else if (bal === 0 && ord > 0) {
                     return (
                       <Tag color="success" style={{ fontSize: 10.5, fontWeight: 700, margin: 0, padding: '1px 6px', borderRadius: 4 }}>
-                        ✅ Fully Received
+                        ✅ Fully Received (0 {record.uomCode || 'PCS'} Remaining)
                       </Tag>
                     );
                   } else if (bal < 0) {
@@ -788,13 +796,16 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
         const pSize = record.packagingSize ?? (opt?.packagingSize ? Number(opt.packagingSize) : undefined);
         const orderTarget = record.orderBalance !== undefined && record.orderBalance !== null
           ? Number(record.orderBalance)
-          : (record.orderQuantity !== undefined && record.orderQuantity !== null ? Number(record.orderQuantity) : undefined);
-        const hasOrderLimit = orderTarget !== undefined && orderTarget > 0;
+          : (record.orderQuantity !== undefined && record.orderQuantity !== null
+              ? Math.max(0, Number(record.orderQuantity) - Number(record.pastReceived || 0))
+              : undefined);
+        const hasOrderLimit = orderTarget !== undefined;
         const currentQty = Number(record.quantity || 0);
-        const orderBal = orderTarget || 0;
+        const orderBal = Math.max(0, orderTarget ?? 0);
         const isExcess = hasOrderLimit && currentQty > orderBal;
         const isFullBalance = hasOrderLimit && currentQty === orderBal && orderBal > 0;
         const isPartial = hasOrderLimit && currentQty < orderBal && currentQty > 0;
+        const isAlreadyZero = hasOrderLimit && orderBal === 0 && currentQty === 0;
         const effectiveUom = (isSalesContext && (opt?.salesUom?.code || (opt?.salesUomId && 'GRS'))) || record.uomCode || (isPurchaseContext && opt?.purchaseUom?.code) || opt?.baseUom?.code || 'PCS';
         const docLabel = isPurchaseContext || record.salesOrderNumber?.startsWith('P') ? 'PO/PR' : 'SOC';
 
@@ -860,7 +871,23 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
                       lineHeight: 1.2,
                     }}
                   >
-                    ✅ Full {docLabel} Balance ({orderBal.toLocaleString()})
+                    ✅ Full {docLabel} Balance (0 {effectiveUom} left)
+                  </div>
+                )}
+                {isAlreadyZero && (
+                  <div
+                    style={{
+                      padding: '2px 5px',
+                      borderRadius: 4,
+                      fontSize: 10,
+                      fontWeight: 600,
+                      background: 'rgba(16, 185, 129, 0.12)',
+                      border: '1px solid #10b981',
+                      color: '#10b981',
+                      lineHeight: 1.2,
+                    }}
+                  >
+                    ✅ Fully Received (0 {effectiveUom} left)
                   </div>
                 )}
                 {isPartial && (

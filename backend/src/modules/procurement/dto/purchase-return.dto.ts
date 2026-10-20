@@ -7,17 +7,17 @@ import { Type } from 'class-transformer';
 
 export class CreatePurchaseReturnLineDto {
   @ApiPropertyOptional({ description: 'PO line ID' })
-  @IsUUID()
+  @IsString()
   @IsOptional()
   poLineId?: string;
 
   @ApiProperty({ description: 'Item ID' })
-  @IsUUID()
+  @IsString()
   @IsNotEmpty()
   itemId: string;
 
   @ApiProperty({ description: 'UOM ID' })
-  @IsUUID()
+  @IsString()
   @IsNotEmpty()
   uomId: string;
 
@@ -45,7 +45,7 @@ export class CreatePurchaseReturnLineDto {
 
 export class CreatePurchaseReturnDto {
   @ApiProperty({ description: 'Company ID' })
-  @IsUUID()
+  @IsString()
   @IsNotEmpty()
   companyId: string;
 
@@ -56,17 +56,17 @@ export class CreatePurchaseReturnDto {
   returnCode: string;
 
   @ApiProperty({ description: 'PO ID' })
-  @IsUUID()
+  @IsString()
   @IsNotEmpty()
   poId: string;
 
   @ApiProperty({ description: 'Supplier ID' })
-  @IsUUID()
+  @IsString()
   @IsNotEmpty()
   supplierId: string;
 
   @ApiProperty({ description: 'Warehouse ID' })
-  @IsUUID()
+  @IsString()
   @IsNotEmpty()
   warehouseId: string;
 

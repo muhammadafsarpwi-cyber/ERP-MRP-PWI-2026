@@ -1,0 +1,127 @@
+/* GoodsReceiptManagement.css */
+
+.gr-actions-group {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.btn-gr-action-icon {
+  width: 30px !important;
+  height: 30px !important;
+  padding: 0 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  background-color: #1f2937 !important;
+  color: #94a3b8 !important;
+  border: 1px solid #374151 !important;
+  border-radius: 4px !important;
+  cursor: pointer;
+  transition: all 0.15s ease !important;
+}
+
+.btn-gr-action-icon:hover {
+  background-color: #374151 !important;
+  color: #38bdf8 !important;
+  border-color: #38bdf8 !important;
+  transform: translateY(-1px);
+}
+
+.btn-gr-action-icon.view:hover {
+  color: #38bdf8 !important;
+  border-color: #38bdf8 !important;
+}
+
+.btn-gr-action-icon.print:hover {
+  color: #f59e0b !important;
+  border-color: #f59e0b !important;
+}
+
+.btn-gr-action-icon.gatepass:hover {
+  color: #10b981 !important;
+  border-color: #10b981 !important;
+}
+
+.btn-gr-action-icon.edit:hover {
+  color: #a855f7 !important;
+  border-color: #a855f7 !important;
+}
+
+.btn-gr-action-icon.danger:hover,
+.btn-gr-action-icon.delete:hover {
+  background-color: rgba(220, 38, 38, 0.2) !important;
+  color: #ef4444 !important;
+  border-color: #ef4444 !important;
+}
+
+.btn-gr-action-icon.reverse:hover {
+  background-color: rgba(245, 158, 11, 0.2) !important;
+  color: #f59e0b !important;
+  border-color: #f59e0b !important;
+}
+
+.btn-gr-action-icon svg {
+  font-size: 13px;
+}
+
+/* View Modal Styling */
+.gr-view-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.gr-view-meta-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  padding: 10px 14px;
+}
+
+.gr-view-meta-label {
+  font-size: 11px;
+  color: #94a3b8;
+  text-transform: uppercase;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+
+.gr-view-meta-val {
+  font-size: 13px;
+  font-weight: 700;
+  color: #f8fafc;
+}
+
+.gr-view-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.gr-view-table th {
+  background: rgba(255, 255, 255, 0.05);
+  color: #94a3b8;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.gr-view-table td {
+  padding: 8px 10px;
+  font-size: 12px;
+  color: #e2e8f0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.gr-view-table tr:last-child td {
+  border-bottom: none;
+}

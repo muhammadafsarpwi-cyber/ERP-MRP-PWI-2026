@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Patch, Delete, Body, Param, Query, HttpCode, HttpStatus, UseGuards, Req } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { GoodsReceiptService } from '../services/goods-receipt.service';
-import { CreateGoodsReceiptDto } from '../dto';
+import { CreateGoodsReceiptDto, UpdateGoodsReceiptDto } from '../dto';
 import { SupabaseJwtGuard } from '../../auth/guards/supabase-jwt.guard';
 import { OrgScopeGuard, RequireOrgScope } from '../../auth/guards/org-scope.guard';
 import { PermissionGuard, RequirePermission } from '../../auth/guards/permission.guard';
@@ -52,6 +52,25 @@ export class GoodsReceiptController {
   async findOne(@Param('id') id: string) {
     const receipt = await this.service.findOne(id);
     return { success: true, data: receipt };
+  }
+
+  @Patch(':id')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('procurement.receipt.create')
+  @ApiOperation({ summary: 'Update goods receipt' })
+  async update(@Param('id') id: string, @Body() dto: UpdateGoodsReceiptDto, @Req() req: any) {
+    const receipt = await this.service.update(id, dto, this.getUserId(req), this.getCompanyId(req));
+    return { success: true, data: receipt, message: 'Goods receipt updated successfully' };
+  }
+
+  @Patch(':id/cancel')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('procurement.receipt.create')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Cancel / Reverse goods receipt' })
+  async cancel(@Param('id') id: string, @Req() req: any) {
+    const receipt = await this.service.cancel(id, this.getUserId(req), this.getCompanyId(req));
+    return { success: true, data: receipt, message: 'Goods receipt cancelled and stock reversed successfully' };
   }
 
   @Patch(':id/receive')

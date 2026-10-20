@@ -12,12 +12,12 @@ export class CreateQuotationLineDto {
   lineNumber: number;
 
   @ApiProperty({ description: 'Item ID' })
-  @IsUUID()
+  @IsString()
   @IsNotEmpty()
   itemId: string;
 
   @ApiProperty({ description: 'UOM ID' })
-  @IsUUID()
+  @IsString()
   @IsNotEmpty()
   uomId: string;
 
@@ -42,6 +42,46 @@ export class CreateQuotationLineDto {
   @IsOptional()
   leadTimeDays?: number;
 
+  @ApiPropertyOptional({ description: 'Tax percent' })
+  @IsNumber()
+  @IsOptional()
+  taxPercent?: number;
+
+  @ApiPropertyOptional({ description: 'Tax amount' })
+  @IsNumber()
+  @IsOptional()
+  taxAmount?: number;
+
+  @ApiPropertyOptional({ description: 'Line total' })
+  @IsNumber()
+  @IsOptional()
+  lineTotal?: number;
+
+  @ApiPropertyOptional({ description: 'Total price' })
+  @IsNumber()
+  @IsOptional()
+  totalPrice?: number;
+
+  @ApiPropertyOptional({ description: 'Item code' })
+  @IsString()
+  @IsOptional()
+  itemCode?: string;
+
+  @ApiPropertyOptional({ description: 'Item name / description' })
+  @IsString()
+  @IsOptional()
+  itemName?: string;
+
+  @ApiPropertyOptional({ description: 'UOM code' })
+  @IsString()
+  @IsOptional()
+  uomCode?: string;
+
+  @ApiPropertyOptional({ description: 'Rate' })
+  @IsNumber()
+  @IsOptional()
+  rate?: number;
+
   @ApiPropertyOptional({ description: 'Notes' })
   @IsString()
   @IsOptional()
@@ -50,7 +90,7 @@ export class CreateQuotationLineDto {
 
 export class CreateQuotationDto {
   @ApiProperty({ description: 'Company ID' })
-  @IsUUID()
+  @IsString()
   @IsNotEmpty()
   companyId: string;
 
@@ -61,12 +101,12 @@ export class CreateQuotationDto {
   quotationCode: string;
 
   @ApiProperty({ description: 'RFQ ID' })
-  @IsUUID()
+  @IsString()
   @IsNotEmpty()
   rfqId: string;
 
   @ApiProperty({ description: 'Supplier ID' })
-  @IsUUID()
+  @IsString()
   @IsNotEmpty()
   supplierId: string;
 

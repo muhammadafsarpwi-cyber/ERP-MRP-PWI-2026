@@ -12,6 +12,7 @@ export interface ShareLine {
 export interface ShareReceiptInfo {
   receiptCode: string;
   gatePassNo?: string;
+  poCode?: string;
   sourceNo?: string;
   heatNumber?: string;
   receiptDate: string;
@@ -48,6 +49,7 @@ export function buildReceiptWhatsAppMessage(info: ShareReceiptInfo): string {
   lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━');
   lines.push(`📋 *Receipt Code:* ${info.receiptCode}`);
   if (info.gatePassNo) lines.push(`🎫 *Gate Pass No:* ${info.gatePassNo}`);
+  if (info.poCode) lines.push(`📑 *PO Number:* ${info.poCode}`);
   if (info.sourceNo) lines.push(`📄 *Source / DC No:* ${info.sourceNo}`);
   if (info.heatNumber) lines.push(`🔥 *Heat Number:* ${info.heatNumber}`);
   if (date) lines.push(`📅 *Receipt Date:* ${date}`);

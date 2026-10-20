@@ -39,6 +39,9 @@ export class GoodsReceipt extends BaseEntity {
   @JoinColumn({ name: 'warehouse_id' })
   warehouse: Warehouse;
 
+  @Column({ name: 'division_id', type: 'uuid', nullable: true })
+  divisionId: string | null;
+
   @Column({ name: 'receipt_date', type: 'timestamp with time zone', nullable: true })
   receiptDate: Date | null;
 
