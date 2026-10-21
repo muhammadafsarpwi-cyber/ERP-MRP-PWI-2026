@@ -9,6 +9,7 @@
     "@ant-design/icons": "^5.2.6",
     "@ant-design/pro-components": "^2.6.43",
     "@types/jsbarcode": "^3.11.4",
+    "@types/three": "^0.169.0",
     "ajv": "^8.20.0",
     "antd": "^5.12.2",
     "axios": "^1.6.2",
@@ -22,6 +23,7 @@
     "react-router-dom": "^6.21.0",
     "react-scripts": "5.0.1",
     "recharts": "^3.10.1",
+    "three": "^0.169.0",
     "zustand": "^4.4.7"
   },
   "devDependencies": {
