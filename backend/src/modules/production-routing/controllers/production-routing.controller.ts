@@ -149,6 +149,26 @@ export class ProductionRoutingController {
     return { message: 'Routing deleted successfully' };
   }
 
+  @Post(':id/copy')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('manufacturing.routing.create')
+  @ApiOperation({ summary: 'Copy a routing (header + all operations) into a new DRAFT routing' })
+  @HttpCode(HttpStatus.CREATED)
+  async copy(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: { name?: string; productId?: string },
+    @Req() req: any,
+  ) {
+    const companyId = this.getCompanyId(req);
+    const userId = req.erpUser?.id || req.user?.id;
+    const routing = await this.routingService.copyRouting(id, companyId, userId, {
+      name: typeof body?.name === 'string' && body.name.trim() ? body.name.trim() : undefined,
+      productId: typeof body?.productId === 'string' && body.productId ? body.productId : undefined,
+    });
+    return { data: routing, message: 'Routing copied successfully' };
+  }
+
   @Post(':id/operations')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()

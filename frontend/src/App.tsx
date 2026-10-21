@@ -9,7 +9,7 @@ import ResetPassword from './pages/auth/ResetPassword';
 import ChangePassword from './pages/auth/ChangePassword';
 import Dashboard from './pages/dashboard/Dashboard';
 import Products from './pages/products/Products';
-import { CustomerManagement } from './pages/customers';
+import { CustomerManagement, CustomerAnalytics } from './pages/customers';
 import FinancePage from './pages/finance/FinancePage';
 import ChartOfAccounts from './pages/finance/ChartOfAccounts';
 import JournalEntries from './pages/finance/JournalEntries';
@@ -179,6 +179,7 @@ const App: React.FC = () => {
                   <Route path="/change-password" element={<ChangePassword />} />
                   <Route path="/products/*" element={<Products />} />
                   <Route path="/customers" element={<CustomerManagement />} />
+                  <Route path="/customers/analytics" element={<CustomerAnalytics />} />
                   <Route path="/sales/analytics" element={<SalesAnalyticsDashboard />} />
                   <Route path="/sales/dashboard" element={<Navigate to="/sales/analytics" replace />} />
                   <Route path="/sales/finished-goods" element={<FinishedGoodsInventory />} />

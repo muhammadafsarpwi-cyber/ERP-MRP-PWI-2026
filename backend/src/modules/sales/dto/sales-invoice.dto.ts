@@ -1,9 +1,17 @@
 import {
-  IsString, IsNotEmpty, IsOptional, IsUUID, IsNumber, IsIn, IsArray, ValidateNested,
-  MaxLength, IsDateString,
+  IsString,
+  IsNotEmpty,
+  IsOptional,
+  IsNumber,
+  IsIn,
+  IsArray,
+  ValidateNested,
+  MaxLength,
+  IsDateString,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
+import { IsUUID } from '../../../common/uuid-loose.validator';
 
 export class CreateSalesInvoiceDto {
   @ApiPropertyOptional({ description: 'Company ID (set from JWT if omitted)' })

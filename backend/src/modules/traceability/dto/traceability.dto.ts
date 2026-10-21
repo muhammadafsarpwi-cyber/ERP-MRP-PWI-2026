@@ -1,4 +1,5 @@
-import { IsOptional, IsUUID, IsDateString, IsNumberString, IsString } from 'class-validator';
+import { IsOptional, IsDateString, IsNumberString, IsString } from 'class-validator';
+import { IsUUID } from '../../../common/uuid-loose.validator';
 
 /**
  * Shared filters for the read-only traceability/reporting endpoints.

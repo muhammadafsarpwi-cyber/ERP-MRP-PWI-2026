@@ -2,7 +2,6 @@ import {
   IsString,
   IsNotEmpty,
   IsOptional,
-  IsUUID,
   IsNumber,
   IsArray,
   ValidateNested,
@@ -11,6 +10,7 @@ import {
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
+import { IsUUID } from '../../../common/uuid-loose.validator';
 
 export class OpeningStockLineDto {
   @ApiProperty({ description: 'Item ID' })

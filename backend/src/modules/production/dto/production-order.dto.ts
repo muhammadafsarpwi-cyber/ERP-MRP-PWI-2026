@@ -2,7 +2,6 @@ import {
   IsString,
   IsNotEmpty,
   IsOptional,
-  IsUUID,
   IsEnum,
   IsNumber,
   IsDateString,
@@ -11,6 +10,7 @@ import {
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { ProductionDemandSource, ProductionOrderPriority } from '../entities';
+import { IsUUID } from '../../../common/uuid-loose.validator';
 
 export class CreateProductionOrderDto {
   @ApiProperty({ description: 'Product item ID to manufacture' })

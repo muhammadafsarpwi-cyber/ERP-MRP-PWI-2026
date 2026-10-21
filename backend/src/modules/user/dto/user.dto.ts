@@ -1,7 +1,8 @@
-import { IsString, IsNotEmpty, IsOptional, IsUUID, IsEmail, MaxLength, Matches, IsEnum, IsArray, ValidateNested } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsEmail, MaxLength, Matches, IsEnum, IsArray, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { ErpUserStatus, ScopeLevel, OrgScopeStatus } from '../entities';
+import { IsUUID } from '../../../common/uuid-loose.validator';
 
 /**
  * Prompt #16A — the id shape the database `uuid` columns actually accept.

@@ -1,6 +1,7 @@
-import { IsArray, IsBoolean, IsNotEmpty, IsOptional, IsString, IsUUID, ValidateNested } from 'class-validator';
+import { IsArray, IsBoolean, IsNotEmpty, IsOptional, IsString, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
+import { IsUUID } from '../../../common/uuid-loose.validator';
 
 export class PermissionToggleDto {
   @ApiProperty({ description: 'Permission ID to toggle' })

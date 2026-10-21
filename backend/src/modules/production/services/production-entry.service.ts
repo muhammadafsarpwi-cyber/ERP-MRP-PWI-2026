@@ -528,6 +528,71 @@ export class ProductionEntryService {
   }
 
   /**
+   * Ultra-fast query for Hand Packing & Packing Department Hub.
+   * Directly fetches only packing entries without heavy audit/target joins.
+   */
+  async findPackingEntries(companyId: string, limit = 1000, search?: string): Promise<any[]> {
+    let searchClause = '';
+    const params: any[] = [companyId];
+    if (search?.trim()) {
+      params.push(`%${search.trim()}%`);
+      searchClause = ` AND (pe.remarks ILIKE $${params.length} OR pe.entry_number ILIKE $${params.length} OR it.item_code ILIKE $${params.length} OR it.name ILIKE $${params.length})`;
+    }
+    params.push(limit);
+    const limitParam = `$${params.length}`;
+
+    const rows = await this.entryRepo.query(
+      `SELECT pe.id, pe.entry_number AS "entryNumber", pe.entry_date AS "entryDate", pe.created_at AS "createdAt",
+              pe.machine_no AS "machineNo", pe.operator_name AS "operatorName", pe.actual_quantity AS "actualQuantity",
+              pe.remarks, pe.company_id AS "companyId", pe.inventory_reference_id AS "inventoryReferenceId",
+              pe.item_id AS "itemId",
+              it.item_code AS "itemCode", it.name AS "itemName", it.weight_per_piece AS "itemWeightPerPiece",
+              it.selling_price AS "itemSellingPrice", it.cost_price AS "itemCostPrice",
+              sh.id AS "shiftId", sh.name AS "shiftName",
+              w.id AS "warehouseId", w.name AS "warehouseName", w.warehouse_code AS "warehouseCode"
+       FROM production_entries pe
+       LEFT JOIN items it ON it.id = pe.item_id
+       LEFT JOIN shifts sh ON sh.id = pe.shift_id
+       LEFT JOIN warehouses w ON w.id = pe.warehouse_id
+       WHERE pe.company_id = $1
+         AND pe.is_active = true
+         AND (
+           pe.remarks ILIKE '%[hand packing]%'
+           OR pe.remarks ILIKE '%customer:%'
+           OR pe.machine_no ILIKE 'hand-pack%'
+           OR pe.remarks ILIKE '%[packing]%'
+         )
+         ${searchClause}
+       ORDER BY pe.entry_date ASC, pe.created_at ASC
+       LIMIT ${limitParam}`,
+      params,
+    );
+
+    return (rows || []).map((r: any) => ({
+      id: r.id,
+      entryNumber: r.entryNumber,
+      entryDate: r.entryDate,
+      createdAt: r.createdAt,
+      machineNo: r.machineNo,
+      operatorName: r.operatorName,
+      actualQuantity: Number(r.actualQuantity || 0),
+      remarks: r.remarks,
+      status: r.inventoryReferenceId ? 'POSTED' : 'COMPLETED',
+      itemId: r.itemId,
+      item: {
+        id: r.itemId,
+        itemCode: r.itemCode,
+        name: r.itemName,
+        weightPerPiece: r.itemWeightPerPiece ? Number(r.itemWeightPerPiece) : null,
+        sellingPrice: r.itemSellingPrice ? Number(r.itemSellingPrice) : null,
+        costPrice: r.itemCostPrice ? Number(r.itemCostPrice) : null,
+      },
+      shift: { id: r.shiftId, name: r.shiftName },
+      warehouse: { id: r.warehouseId, name: r.warehouseName, warehouseCode: r.warehouseCode },
+    }));
+  }
+
+  /**
    * TARGET GRID — ship the LOCKED planned hourly rate with every entry.
    *
    * Reads it straight from the row's own `machine_targets` snapshot record

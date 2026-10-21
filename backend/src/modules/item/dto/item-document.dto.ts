@@ -2,13 +2,13 @@ import {
   IsString,
   IsNotEmpty,
   IsOptional,
-  IsUUID,
   IsEnum,
   IsNumber,
   MaxLength,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { DocumentType } from '../entities/item-document.entity';
+import { IsUUID } from '../../../common/uuid-loose.validator';
 
 export class CreateItemDocumentDto {
   @ApiProperty({ description: 'Item ID' })

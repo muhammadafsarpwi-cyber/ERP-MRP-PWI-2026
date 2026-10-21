@@ -480,7 +480,7 @@ const Inventory: React.FC = () => {
                       });
                     }
                   }}
-                  title={itemId ? 'Click to view stock ledger history (اسٹاک لیجر)' : undefined}
+                  title={itemId ? 'Click to view stock ledger history' : undefined}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <span

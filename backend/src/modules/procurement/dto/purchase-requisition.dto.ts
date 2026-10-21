@@ -1,9 +1,18 @@
 import {
-  IsString, IsNotEmpty, IsOptional, IsUUID, IsNumber, IsIn, IsArray, ValidateNested, IsDateString,
-  MaxLength, Min,
+  IsString,
+  IsNotEmpty,
+  IsOptional,
+  IsNumber,
+  IsIn,
+  IsArray,
+  ValidateNested,
+  IsDateString,
+  MaxLength,
+  Min,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
+import { IsUUID } from '../../../common/uuid-loose.validator';
 
 export class CreatePurchaseRequisitionLineDto {
   @ApiProperty({ description: 'Line number' })

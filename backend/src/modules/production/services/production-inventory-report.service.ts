@@ -296,12 +296,20 @@ export class ProductionInventoryReportService {
       .where('sl.companyId = :companyId', { companyId })
       .andWhere('sl.itemId IN (:...itemIds)', { itemIds })
       .andWhere(`(
-        sl.reference_type <> 'PRODUCTION_ENTRY'
+        UPPER(COALESCE(sl.reference_type, '')) <> 'PRODUCTION_ENTRY'
         OR sl.reference_id IS NULL
-        OR NOT EXISTS (
-          SELECT 1 FROM production_entries pe_chk
-          WHERE pe_chk.id = sl.reference_id
-            AND (pe_chk.is_active = false OR pe_chk.deleted_at IS NOT NULL)
+        OR (
+          NOT EXISTS (
+            SELECT 1 FROM production_entries pe_chk
+            WHERE pe_chk.id = sl.reference_id
+              AND (pe_chk.is_active = false OR pe_chk.deleted_at IS NOT NULL)
+          )
+          AND EXISTS (
+            SELECT 1 FROM production_entries pe_rel
+            LEFT JOIN production_entry_items pei_rel ON pei_rel.production_entry_id = pe_rel.id
+            WHERE pe_rel.id = sl.reference_id
+              AND (pe_rel.item_id = sl.item_id OR pei_rel.item_id = sl.item_id)
+          )
         )
       )`)
       .setParameters({ dateFrom: start, dateTo: end, movementType: filters.movementType ?? '__NONE__' })
@@ -600,12 +608,20 @@ export class ProductionInventoryReportService {
 
     // Opening balance: everything before range, never including scrap.
     const activeEntryCond = `(
-      sl.reference_type <> 'PRODUCTION_ENTRY'
+      UPPER(COALESCE(sl.reference_type, '')) <> 'PRODUCTION_ENTRY'
       OR sl.reference_id IS NULL
-      OR NOT EXISTS (
-        SELECT 1 FROM production_entries pe_chk
-        WHERE pe_chk.id = sl.reference_id
-          AND (pe_chk.is_active = false OR pe_chk.deleted_at IS NOT NULL)
+      OR (
+        NOT EXISTS (
+          SELECT 1 FROM production_entries pe_chk
+          WHERE pe_chk.id = sl.reference_id
+            AND (pe_chk.is_active = false OR pe_chk.deleted_at IS NOT NULL)
+        )
+        AND EXISTS (
+          SELECT 1 FROM production_entries pe_rel
+          LEFT JOIN production_entry_items pei_rel ON pei_rel.production_entry_id = pe_rel.id
+          WHERE pe_rel.id = sl.reference_id
+            AND (pe_rel.item_id = sl.item_id OR pei_rel.item_id = sl.item_id)
+        )
       )
     )`;
 

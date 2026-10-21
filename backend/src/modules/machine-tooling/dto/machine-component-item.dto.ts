@@ -1,5 +1,4 @@
 import {
-  IsUUID,
   IsOptional,
   IsString,
   IsNumber,
@@ -10,6 +9,7 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsUUID } from '../../../common/uuid-loose.validator';
 
 /** Version-agnostic UUID check (same convention as machine-target / machine-component DTOs). */
 export const UUID_LOOSE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;

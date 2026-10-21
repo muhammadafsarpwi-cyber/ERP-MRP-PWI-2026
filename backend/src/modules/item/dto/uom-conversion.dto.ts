@@ -1,11 +1,11 @@
 import {
   IsNotEmpty,
   IsOptional,
-  IsUUID,
   IsNumber,
   Min,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsUUID } from '../../../common/uuid-loose.validator';
 
 export class CreateUomConversionDto {
   @ApiProperty({ description: 'Source UOM ID' })

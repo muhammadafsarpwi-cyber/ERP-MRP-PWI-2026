@@ -2,7 +2,6 @@ import {
   IsOptional,
   IsString,
   MaxLength,
-  IsUUID,
   IsIn,
   IsInt,
   IsNumber,
@@ -12,6 +11,7 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { MachineCriticality, MachineStatus } from '../../production/entities';
+import { IsUUID } from '../../../common/uuid-loose.validator';
 
 const DATE_YYYYMMDD = /^\d{4}-\d{2}-\d{2}$/;
 

@@ -1,6 +1,7 @@
-import { IsNumber, IsOptional, IsString, Min, IsUUID, IsNotEmpty, IsArray, ValidateNested } from 'class-validator';
+import { IsNumber, IsOptional, IsString, Min, IsNotEmpty, IsArray, ValidateNested } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
+import { IsUUID } from '../../../common/uuid-loose.validator';
 
 export class CompleteOperationDto {
   @ApiProperty({ description: 'Total quantity input to the operation' })

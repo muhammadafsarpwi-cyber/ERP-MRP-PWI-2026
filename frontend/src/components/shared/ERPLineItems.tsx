@@ -55,7 +55,7 @@ export interface ERPLineItemsProps {
   currency?: string;
   showAvailability?: boolean;
   availableSalesOrders?: Array<{ id: string; orderNumber: string; customerPo?: string }>;
-  context?: 'sales' | 'purchase' | 'inventory';
+  context?: 'sales' | 'purchase' | 'inventory' | 'delivery';
   customerId?: string;
   orderId?: string;
 }
@@ -69,6 +69,7 @@ export interface ItemAvailabilityInfo {
   shortageQty: number;
   orderShortageQty?: number;
   productionRequirementQty?: number;
+  socPackedQty?: number;
   uomCode: string;
   status: string;
   statusLabel: string;
@@ -147,15 +148,19 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
   customerId,
   orderId,
 }) => {
-  const isPurchaseContext = context === 'purchase' ||
-    Boolean(label && (/purchase|rfq|requisition|receipt|return|inbound/i.test(label))) ||
-    Boolean(isPurchasable);
+  const isDeliveryContext = context === 'delivery' || Boolean(label && /delivery|dispatch/i.test(label));
 
-  const isSalesContext = !isPurchaseContext && (
+  const isPurchaseContext = !isDeliveryContext && (
+    context === 'purchase' ||
+    Boolean(label && (/purchase|rfq|requisition|receipt|return|inbound/i.test(label))) ||
+    Boolean(isPurchasable)
+  );
+
+  const isSalesContext = isDeliveryContext || (!isPurchaseContext && (
     context === 'sales' ||
     Boolean(label && (/sales|so|delivery|dispatch|pack|soc/i.test(label))) ||
     Boolean(availableSalesOrders && availableSalesOrders.length > 0)
-  );
+  ));
 
   const [itemOptions, setItemOptions] = useState<ItemOption[]>([]);
   const [searchText, setSearchText] = useState('');
@@ -185,12 +190,15 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
       await Promise.all(
         linesWithItem.map(async (line) => {
           try {
+            const effectiveOrderId = line.salesOrderId || orderId;
             const res = await apiService.get<any>(
               `/sales/finished-goods/item-availability/${line.itemId}`,
               { 
                 orderQuantity: isPurchaseContext ? 0 : (line.quantity || 1),
                 customerId: customerId || undefined,
-                orderId: orderId || undefined,
+                orderId: effectiveOrderId || undefined,
+                context: isDeliveryContext ? 'delivery' : undefined,
+                socNo: line.salesOrderNumber || undefined,
               }
             );
             if (res?.data && active) {
@@ -215,6 +223,27 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
                   uomCode: res.data.uomCode,
                   status: 'INBOUND',
                   statusLabel: `+${qty.toLocaleString()} Inbound`,
+                };
+              } else if (isDeliveryContext) {
+                // In Sales Delivery: Dispatching goods to customer to fulfill order
+                const remainingAfterDelivery = phys - qty;
+                const isShort = remainingAfterDelivery < 0;
+                const shortage = isShort ? Math.abs(remainingAfterDelivery) : 0;
+                const isReady = !isShort;
+
+                updates[line.id] = {
+                  physicalStock: phys,
+                  committedStock: comm,
+                  availableStock: phys,
+                  safetyStock: safety,
+                  projectedBalance: remainingAfterDelivery,
+                  shortageQty: shortage,
+                  orderShortageQty: shortage,
+                  productionRequirementQty: 0,
+                  socPackedQty: res.data?.socPackedQty !== undefined ? Number(res.data.socPackedQty) : undefined,
+                  uomCode: res.data.uomCode,
+                  status: isReady ? 'AVAILABLE' : 'SHORT',
+                  statusLabel: isReady ? `Ready for Delivery (${qty.toLocaleString()} ${res.data.uomCode})` : `Short by ${shortage.toLocaleString()} ${res.data.uomCode}`,
                 };
               } else {
                 updates[line.id] = {
@@ -246,7 +275,7 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
     return () => {
       active = false;
     };
-  }, [value, showAvailability, customerId, orderId, isPurchaseContext]);
+  }, [value, showAvailability, customerId, orderId, isPurchaseContext, isDeliveryContext]);
 
   const loadItems = useCallback(async (search?: string) => {
     if (!companyId) return;
@@ -643,12 +672,16 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
                 fontSize: 11,
                 background: isPurchaseContext
                   ? 'rgba(16, 185, 129, 0.08)'
+                  : isDeliveryContext
+                  ? (avail.shortageQty > 0 ? 'rgba(239, 68, 68, 0.12)' : 'rgba(16, 185, 129, 0.12)')
                   : (avail.shortageQty > 0
                       ? 'rgba(239, 68, 68, 0.12)'
                       : (avail.projectedBalance < avail.safetyStock ? 'rgba(245, 158, 11, 0.12)' : 'rgba(16, 185, 129, 0.1)')),
                 border: `1px solid ${
                   isPurchaseContext
                     ? '#10b981'
+                    : isDeliveryContext
+                    ? (avail.shortageQty > 0 ? '#ef4444' : '#10b981')
                     : (avail.shortageQty > 0 ? '#ef4444' : (avail.projectedBalance < avail.safetyStock ? '#f59e0b' : '#10b981'))
                 }`,
                 display: 'flex',
@@ -660,13 +693,32 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
                 <div style={{ color: 'var(--inv-text-primary, #0f172a)', display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
                   <span>Stock: <strong>{avail.physicalStock}</strong> {avail.uomCode}</span>
                   <span style={{ color: '#94a3b8' }}>|</span>
-                  <span>Committed: <strong>{avail.committedStock}</strong></span>
-                  <span style={{ color: '#94a3b8' }}>|</span>
-                  <span>Safety: <strong>{avail.safetyStock}</strong></span>
-                  <span style={{ color: '#94a3b8' }}>|</span>
-                  <span>Avail: <strong style={{ color: avail.availableStock > 0 ? '#10b981' : '#f59e0b' }}>{avail.availableStock}</strong></span>
-                  <span style={{ color: '#94a3b8' }}>|</span>
-                  {isPurchaseContext ? (
+                  {isDeliveryContext ? (
+                    <>
+                      <span>Dispatch Qty: <strong style={{ color: '#0284c7' }}>{Number(record.quantity || 0).toLocaleString()}</strong> {avail.uomCode}</span>
+                      <span style={{ color: '#94a3b8' }}>|</span>
+                      <span>Avail to Ship: <strong style={{ color: avail.availableStock >= Number(record.quantity || 0) ? '#10b981' : '#ef4444' }}>{avail.availableStock.toLocaleString()}</strong> {avail.uomCode}</span>
+                      <span style={{ color: '#94a3b8' }}>|</span>
+                      <span>Remaining After Dispatch: <strong style={{ color: avail.projectedBalance >= 0 ? '#10b981' : '#ef4444' }}>{avail.projectedBalance.toLocaleString()}</strong> {avail.uomCode}</span>
+                      {avail.socPackedQty !== undefined && avail.socPackedQty > 0 ? (
+                        <>
+                          <span style={{ color: '#94a3b8' }}>|</span>
+                          <span style={{ color: '#059669', fontWeight: 700 }}>
+                            📦 Packed for SOC: {avail.socPackedQty.toLocaleString()} {avail.uomCode}
+                          </span>
+                        </>
+                      ) : (
+                        record.salesOrderNumber && (
+                          <>
+                            <span style={{ color: '#94a3b8' }}>|</span>
+                            <span style={{ color: '#059669', fontWeight: 700 }}>
+                              ✅ Ready for {record.salesOrderNumber}
+                            </span>
+                          </>
+                        )
+                      )}
+                    </>
+                  ) : isPurchaseContext ? (
                     <>
                       <span style={{ color: '#3b82f6', fontWeight: 600 }}>
                         Inbound Order: <strong>+{Number(record.quantity || 0).toLocaleString()}</strong> {avail.uomCode}
@@ -678,6 +730,12 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
                     </>
                   ) : (
                     <>
+                      <span>Committed: <strong>{avail.committedStock}</strong></span>
+                      <span style={{ color: '#94a3b8' }}>|</span>
+                      <span>Safety: <strong>{avail.safetyStock}</strong></span>
+                      <span style={{ color: '#94a3b8' }}>|</span>
+                      <span>Avail: <strong style={{ color: avail.availableStock > 0 ? '#10b981' : '#f59e0b' }}>{avail.availableStock}</strong></span>
+                      <span style={{ color: '#94a3b8' }}>|</span>
                       <span>Projected: <strong style={{ color: avail.projectedBalance >= 0 ? '#10b981' : '#ef4444' }}>{avail.projectedBalance}</strong></span>
                       {avail.productionRequirementQty !== undefined && avail.productionRequirementQty > 0 && (
                         <>
@@ -691,10 +749,20 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
                   )}
                 </div>
                 <Tag
-                  color={isPurchaseContext ? 'success' : (avail.shortageQty > 0 ? 'error' : (avail.projectedBalance < avail.safetyStock ? 'warning' : 'success'))}
+                  color={
+                    isPurchaseContext
+                      ? 'success'
+                      : isDeliveryContext
+                      ? (avail.shortageQty > 0 ? 'error' : 'success')
+                      : (avail.shortageQty > 0 ? 'error' : (avail.projectedBalance < avail.safetyStock ? 'warning' : 'success'))
+                  }
                   style={{ margin: 0, fontSize: 10, fontWeight: 700 }}
                 >
-                  {isPurchaseContext ? `📥 Inbound Order (+${Number(record.quantity || 0).toLocaleString()} ${avail.uomCode})` : avail.statusLabel}
+                  {isPurchaseContext
+                    ? `📥 Inbound Order (+${Number(record.quantity || 0).toLocaleString()} ${avail.uomCode})`
+                    : isDeliveryContext
+                    ? (avail.shortageQty > 0 ? `⚠️ Short by ${avail.shortageQty.toLocaleString()} ${avail.uomCode}` : `✅ Ready to Dispatch (${Number(record.quantity || 0).toLocaleString()} ${avail.uomCode})`)
+                    : avail.statusLabel}
                 </Tag>
               </div>
             )}

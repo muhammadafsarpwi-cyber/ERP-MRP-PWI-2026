@@ -706,26 +706,31 @@ export class SalesOrderService {
     }
 
     // Auto-resolve routing if not explicitly supplied
+    // Only routings that belong to this exact product are valid — never fall back
+    // to an unrelated routing (production-order validation would reject it).
     let routingId = dto.routingId;
     if (!routingId && orderItem.itemId) {
       try {
         const routingRows = await this.repo.manager.query(
-          `SELECT id FROM production_routings WHERE product_id = $1 AND status = 'ACTIVE' LIMIT 1`,
-          [orderItem.itemId]
+          `SELECT id FROM production_routings
+            WHERE product_id = $1 AND company_id = $2 AND status = 'ACTIVE'
+            ORDER BY is_default DESC, updated_at DESC NULLS LAST
+            LIMIT 1`,
+          [orderItem.itemId, order.companyId]
         );
         if (routingRows && routingRows.length > 0) {
           routingId = routingRows[0].id;
-        } else {
-          const anyRows = await this.repo.manager.query(
-            `SELECT id FROM production_routings WHERE status = 'ACTIVE' LIMIT 1`
-          );
-          if (anyRows && anyRows.length > 0) {
-            routingId = anyRows[0].id;
-          }
         }
       } catch (e) {
         this.logger.warn(`Could not auto-resolve routing for item ${orderItem.itemId}: ${e}`);
       }
+    }
+    if (!routingId) {
+      const itemLabel = orderItem.item?.itemCode || orderItem.item?.name || orderItem.itemId || 'this item';
+      throw new BadRequestException(
+        `No ACTIVE production routing found for product '${itemLabel}'. ` +
+        `Please create and activate a routing for this product before planning production.`
+      );
     }
 
     // Auto-resolve BOM if not explicitly supplied

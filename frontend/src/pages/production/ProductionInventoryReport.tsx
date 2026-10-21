@@ -2425,6 +2425,20 @@ const ProductionInventoryReport: React.FC = () => {
               <div style={{ display: 'flex', gap: 8 }}>
                 <Button
                   size="small"
+                  icon={<ReloadOutlined style={{ color: '#0284c7' }} />}
+                  loading={ledgerLoading}
+                  onClick={() => {
+                    if (selectedRow) {
+                      ledgerCacheRef.current.clear();
+                      void openLedger(selectedRow);
+                    }
+                  }}
+                  title="Refresh ledger from server"
+                >
+                  Refresh
+                </Button>
+                <Button
+                  size="small"
                   icon={<NodeIndexOutlined style={{ color: '#16a34a' }} />}
                   onClick={() => openJourneyFromLedger(ledger)}
                 >

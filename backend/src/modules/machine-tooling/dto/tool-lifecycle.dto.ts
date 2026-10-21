@@ -1,5 +1,4 @@
 import {
-  IsUUID,
   IsOptional,
   IsString,
   IsNumber,
@@ -13,6 +12,7 @@ import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { ComponentConditionStatus, ToolDispositionType } from '../entities/component-change.entity';
 import { UUID_LOOSE } from './machine-component.dto';
+import { IsUUID } from '../../../common/uuid-loose.validator';
 
 /**
  * TASK26 — lifecycle commands for the Machine Tool & Component page.

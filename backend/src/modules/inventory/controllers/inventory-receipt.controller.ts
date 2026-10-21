@@ -5,7 +5,7 @@ import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery, ApiConsumes } from '@ne
 import { FileInterceptor } from '@nestjs/platform-express';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { IsUUID, IsNumber, Min, IsOptional, IsString, MaxLength, IsDateString } from 'class-validator';
+import { IsNumber, Min, IsOptional, IsString, MaxLength, IsDateString } from 'class-validator';
 import { SupabaseJwtGuard } from '../../auth/guards/supabase-jwt.guard';
 import { PermissionGuard, RequirePermission } from '../../auth/guards/permission.guard';
 import { OrgScopeGuard, RequireOrgScope } from '../../auth/guards/org-scope.guard';
@@ -20,6 +20,7 @@ import { Warehouse } from '../../organization/entities/warehouse.entity';
 import { Item } from '../../item/entities/item.entity';
 import { Uom } from '../../item/entities/uom.entity';
 import { StockLedger } from '../entities';
+import { IsUUID } from '../../../common/uuid-loose.validator';
 
 class CreateInventoryReceiptDto {
   @IsUUID('loose')

@@ -1,5 +1,6 @@
-import { IsString, IsNotEmpty, IsOptional, MaxLength, Matches, IsBoolean, IsArray, IsUUID } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, MaxLength, Matches, IsBoolean, IsArray } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsUUID } from '../../../common/uuid-loose.validator';
 
 export class CreateRoleDto {
   @ApiProperty({ description: 'Unique role code' })

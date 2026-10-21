@@ -1,5 +1,6 @@
-import { IsString, IsNotEmpty, IsOptional, IsUUID, IsNumber, IsIn, IsDateString, IsInt, MaxLength, Min, Max, MinLength } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsNumber, IsIn, IsDateString, IsInt, MaxLength, Min, Max, MinLength } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsUUID } from '../../../common/uuid-loose.validator';
 
 /** Canonical attendance statuses accepted by the HR module. */
 export const HR_ATTENDANCE_STATUSES = ['PRESENT', 'ABSENT', 'LEAVE', 'HALF_DAY', 'HOLIDAY', 'WEEKEND', 'LATE'];

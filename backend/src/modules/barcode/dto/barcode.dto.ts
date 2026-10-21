@@ -1,6 +1,7 @@
-import { IsString, IsEnum, IsOptional, IsBoolean, IsUUID } from 'class-validator';
+import { IsString, IsEnum, IsOptional, IsBoolean } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { BarcodeEntityType, BarcodeStatus } from '../entities/barcode.entity';
+import { IsUUID } from '../../../common/uuid-loose.validator';
 
 export class CreateBarcodeDto {
   @ApiProperty({ enum: BarcodeEntityType })

@@ -1,7 +1,18 @@
 import { Type } from 'class-transformer';
 import {
-  ArrayMinSize, IsArray, IsDateString, IsNotEmpty, IsNumber, IsOptional, IsString, IsUUID, MaxLength, Min, MinLength, ValidateNested,
+  ArrayMinSize,
+  IsArray,
+  IsDateString,
+  IsNotEmpty,
+  IsNumber,
+  IsOptional,
+  IsString,
+  MaxLength,
+  Min,
+  MinLength,
+  ValidateNested,
 } from 'class-validator';
+import { IsUUID } from '../../../common/uuid-loose.validator';
 
 export class RawMaterialReceiptLineDto {
   @IsUUID('loose')

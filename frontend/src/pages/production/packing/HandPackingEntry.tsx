@@ -213,6 +213,7 @@ export interface RecentPackingLog {
   pendingNippleCode?: string;
   pendingNippleGross?: number;
   pendingNipplePcs?: number;
+  isOpeningStock?: boolean;
 }
 
 /** Parse a saved Production Entry (hand packing) back into a shift-log row using its structured remarks. */
@@ -1019,19 +1020,91 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
   const loadRecentEntries = useCallback(async () => {
     setRecentLoading(true);
     try {
-      const res: any = await apiService.get(
-        `/production/entries?machineNo=HAND-PACK&limit=100&sortBy=createdAt&sortDir=DESC`
-      );
-      const rows = extractArray(res)
+      const [res, openStockRes]: any = await Promise.all([
+        apiService.get(
+          `/production/entries?machineNo=HAND-PACK&limit=100&sortBy=createdAt&sortDir=DESC`
+        ).catch(() => []),
+        apiService.get(`/production/open-stock/history?limit=200`).catch(() => []),
+      ]);
+
+      const liveRows = extractArray(res)
         .map(parseHandPackingEntry)
-        .filter((r): r is RecentPackingLog => !!r)
-        .sort((a, b) => b.createdAtMs - a.createdAtMs);
+        .filter((r): r is RecentPackingLog => !!r);
+
+      const openStockList = extractArray(openStockRes);
+      const openStockRows: RecentPackingLog[] = [];
+
+      openStockList.forEach((os: any) => {
+        const notes = String(os.notes || '');
+        const custMatch = notes.match(/Customer:\s*([^|\]]+)/i);
+        const socMatch = notes.match(/SOC:\s*([^|\]]+)/i);
+        const ctnMatch = notes.match(/Cartons:\s*([\d.]+)/i) || notes.match(/\[([\d.]+)\s*CTN/i);
+        const grossMatch = notes.match(/Gross:\s*([\d.]+)/i) || notes.match(/([\d.]+)\s*GRS/i);
+        const batchMatch = notes.match(/Batch:\s*([^|\]]+)/i);
+
+        const pcs = Number(os.quantity || 0);
+        if (pcs <= 0) return;
+        const cartons = ctnMatch ? Number(ctnMatch[1]) : Math.round(pcs / 1440);
+        const gross = grossMatch ? Number(grossMatch[1]) : Math.round(pcs / 144);
+        const batchNo = batchMatch ? batchMatch[1].trim() : (os.referenceNumber || 'OPENING-STOCK');
+        let custName = custMatch ? custMatch[1].trim() : (os.customerName || 'General Stock');
+        let socNo = socMatch ? socMatch[1].trim() : (os.socNo || '—');
+
+        const isSafety =
+          custName.toUpperCase().replace(/[\s_-]+/g, '') === 'SAFETYSTOCK' ||
+          socNo.toUpperCase().replace(/[\s_-]+/g, '') === 'SAFETYSTOCK' ||
+          notes.toUpperCase().includes('CUSTOMER: SAFETY') ||
+          notes.toUpperCase().includes('SOC: SAFETY');
+
+        if (isSafety) {
+          custName = 'SAFETY STOCK';
+          socNo = 'SAFETY_STOCK';
+        }
+
+        const created = dayjs(os.createdAt || os.transactionDate);
+        const entryDay = dayjs(os.transactionDate || os.createdAt);
+
+        openStockRows.push({
+          id: String(os.id),
+          batchNo: `${batchNo} (Open Stock)`,
+          divisionName: os.divisionName || 'Spoke Division',
+          divisionCode: 'DIV-SPD',
+          divisionId: os.divisionId || '',
+          entryDate: entryDay.isValid() ? entryDay.format('DD/MM/YYYY') : '',
+          entryTime: created.isValid() ? created.format('hh:mm A') : '',
+          customerName: custName,
+          socNo: socNo,
+          packagingStyle: 'White Poly Bag (Safety Stock Holding)',
+          line: 'Opening Stock',
+          targetCartons: cartons,
+          targetPcs: pcs,
+          fgItemId: os.itemId || os.item?.id || '',
+          fgItemCode: os.itemCode || os.item?.itemCode || '',
+          fgItemName: os.itemName || os.item?.name || '',
+          cartons,
+          gross,
+          pcs,
+          weightKg: Math.round(cartons * 18.936 * 10) / 10,
+          rejectionPcs: 0,
+          rejectionKg: 0,
+          rejectionPct: null,
+          overtimeHours: 0,
+          shiftName: 'Opening Stock',
+          status: 'OPENING',
+          createdAtMs: created.isValid() ? created.valueOf() : 0,
+          components: [],
+          rawEntry: os,
+          isOpeningStock: true,
+        });
+      });
+
+      const rows = [...liveRows, ...openStockRows].sort((a, b) => b.createdAtMs - a.createdAtMs);
       setRecentSavedEntries(rows);
       tabSessionCache.set(RECENT_CACHE_KEY, rows);
 
-      // Prevent duplicate batch numbers: next batch = highest saved batch + 1
+      // Prevent duplicate batch numbers: next batch = highest saved batch + 1 (calculated from live production batches only)
       const year = dayjs().format('YYYY');
-      const maxNo = rows.reduce((mx, r) => {
+      const maxNo = liveRows.reduce((mx, r) => {
         const m = r.batchNo.match(new RegExp(`^PKG-${year}-(\\d+)$`));
         return m ? Math.max(mx, parseInt(m[1], 10)) : mx;
       }, 0);
@@ -1119,7 +1192,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
     return () => { active = false; };
   }, []);
 
-  // Fetch production entries for selected SOC to calculate already-packed quantities per item
+  // Fetch production entries and open stock for selected SOC to calculate already-packed quantities per item
   useEffect(() => {
     if (!socNo || socNo === 'SAFETY_STOCK' || socNo === 'N/A') {
       setSocPackedStats({});
@@ -1130,37 +1203,58 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
     (async () => {
       setSocPackedStatsLoading(true);
       try {
-        const res: any = await apiService.get('/production/entries', {
-          search: cleanSoc,
-          limit: 500,
-        }).catch(() => null);
+        const [res, openStockRes]: any = await Promise.all([
+          apiService.get('/production/entries', {
+            search: cleanSoc,
+            limit: 1000,
+          }).catch(() => null),
+          apiService.get('/production/open-stock/history', {
+            limit: 1000,
+          }).catch(() => null),
+        ]);
         const list = extractArray(res);
+        const openStockList = extractArray(openStockRes);
         const stats: Record<string, { packedCartons: number; packedGross: number; packedPcs: number }> = {};
+
+        const recordStats = (k?: string, ctn = 0, grs = 0, pcs = 0) => {
+          if (!k) return;
+          if (!stats[k]) {
+            stats[k] = { packedCartons: 0, packedGross: 0, packedPcs: 0 };
+          }
+          stats[k].packedCartons += ctn;
+          stats[k].packedGross += grs;
+          stats[k].packedPcs += pcs;
+        };
 
         for (const raw of list) {
           const remarks = String(raw.remarks || '');
-          if (!remarks.includes(cleanSoc)) continue;
+          if (!remarks.toLowerCase().includes(cleanSoc.toLowerCase())) continue;
           const parsed = parseHandPackingEntry(raw);
-          if (!parsed) continue;
 
-          const itId = parsed.fgItemId || raw.itemId || raw.item_id;
-          const itCode = parsed.fgItemCode || raw.item?.itemCode;
-          const ctn = Number(parsed.cartons || 0);
-          const grs = Number(parsed.gross || 0);
-          const pcs = Number(parsed.pcs || 0);
+          const itId = parsed?.fgItemId || raw.itemId || raw.item_id || raw.item?.id;
+          const itCode = parsed?.fgItemCode || raw.item?.itemCode;
+          const ctnMatch = remarks.match(/Cartons:\s*([\d.]+)/i) || remarks.match(/\[([\d.]+)\s*CTN/i);
+          const grossMatch = remarks.match(/Gross:\s*([\d.]+)/i) || remarks.match(/\(([\d.]+)\s*Gross/i) || remarks.match(/([\d.]+)\s*GRS/i);
+          const pcs = Number(parsed?.pcs || raw.actualQuantity || raw.actual_quantity || raw.quantity || 0);
+          const ctn = ctnMatch ? Number(ctnMatch[1]) : (parsed?.cartons || Math.round(pcs / 1440));
+          const grs = grossMatch ? Number(grossMatch[1]) : (parsed?.gross || Math.round(pcs / 144));
 
-          const recordStats = (k?: string) => {
-            if (!k) return;
-            if (!stats[k]) {
-              stats[k] = { packedCartons: 0, packedGross: 0, packedPcs: 0 };
-            }
-            stats[k].packedCartons += ctn;
-            stats[k].packedGross += grs;
-            stats[k].packedPcs += pcs;
-          };
+          recordStats(itId, ctn, grs, pcs);
+          recordStats(itCode, ctn, grs, pcs);
+        }
 
-          recordStats(itId);
-          recordStats(itCode);
+        for (const os of openStockList) {
+          const notes = String(os.notes || '');
+          if (!notes.toLowerCase().includes(cleanSoc.toLowerCase())) continue;
+          const ctnMatch = notes.match(/Cartons:\s*([\d.]+)/i) || notes.match(/\[([\d.]+)\s*CTN/i);
+          const grossMatch = notes.match(/Gross:\s*([\d.]+)/i) || notes.match(/([\d.]+)\s*GRS/i);
+          const pcs = Number(os.quantity || 0);
+          const ctn = ctnMatch ? Number(ctnMatch[1]) : Math.round(pcs / 1440);
+          const grs = grossMatch ? Number(grossMatch[1]) : Math.round(pcs / 144);
+          const itId = os.itemId || os.item?.id;
+          const itCode = os.item?.itemCode;
+          recordStats(itId, ctn, grs, pcs);
+          recordStats(itCode, ctn, grs, pcs);
         }
 
         if (isMounted) {
@@ -2518,6 +2612,10 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
   // Handle Editing an existing saved packing production entry
   const handleEditEntry = useCallback(
     (r: RecentPackingLog) => {
+      if (r.isOpeningStock) {
+        message.info('Opening stock batches can be allocated directly to a customer SOC via the "Move / Allocate Safety Stock" button.');
+        return;
+      }
       setEditingEntryId(r.id);
       setCurrentBatchNo(r.batchNo);
       if (r.entryDate) {
@@ -2598,7 +2696,12 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
   const handleDeleteEntry = useCallback(
     async (entryId: string) => {
       try {
-        await apiService.delete(`/production/entries/${entryId}`);
+        const target = recentSavedEntries.find((r) => r.id === entryId);
+        if (target?.isOpeningStock) {
+          await apiService.delete(`/production/open-stock/history/${entryId}`);
+        } else {
+          await apiService.delete(`/production/entries/${entryId}`);
+        }
         message.success('Packing production entry deleted and stock reversed successfully');
         loadRecentEntries();
         if (editingEntryId === entryId) {
@@ -2608,8 +2711,20 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         message.error(err?.response?.data?.message || err?.message || 'Failed to delete packing entry');
       }
     },
-    [editingEntryId, handleCancelEdit, loadRecentEntries, message]
+    [editingEntryId, handleCancelEdit, loadRecentEntries, message, recentSavedEntries]
   );
+
+  // Active Sales Order object resolved from currently selected SOC #
+  const activeSocOrder = useMemo(() => {
+    if (!socNo || socNo === 'SAFETY_STOCK' || socNo === 'N/A' || !selectedCustomer || selectedCustomer === 'SAFETY STOCK') {
+      return null;
+    }
+    const cleanSoc = socNo.toLowerCase().trim();
+    return salesOrders.find((so) => {
+      const num = String(so.orderNumber || so.order_number || '').toLowerCase().trim();
+      return num === cleanSoc || num.endsWith(cleanSoc);
+    }) || null;
+  }, [socNo, selectedCustomer, salesOrders]);
 
   // Handle Finished Good selection change on a row
   const handleProductSelect = useCallback(
@@ -2621,9 +2736,34 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
       const fgFactors = getItemPackagingFactors(itemCode, itemName, found?.packagingSize);
 
       const currentRow = masterItems.find((r) => r.key === rowKey);
-      const currentCartons = currentRow?.cartons || 50;
-      const nextGross = Math.round(currentCartons * fgFactors.grossPerCarton * 100) / 100;
-      const nextPcs = Math.round(currentCartons * fgFactors.pcsPerCarton);
+      let targetCartons = currentRow?.cartons || 50;
+
+      // If active SOC is present, ensure we clamp to remaining balance
+      if (activeSocOrder && activeSocOrder.items) {
+        const soItem = activeSocOrder.items.find((it: any) =>
+          it.itemId === newProductId ||
+          it.item?.id === newProductId ||
+          it.item?.itemCode === itemCode
+        );
+        if (soItem) {
+          const qtyGross = Number(soItem.quantity) || 0;
+          const ctnFromOrder = soItem.packageQuantity || soItem.pkg_quantity || soItem.pkgQuantity;
+          const totalOrderedCartons = ctnFromOrder ? Number(ctnFromOrder) : Math.round(qtyGross / fgFactors.grossPerCarton);
+          const packedInfo = socPackedStats[soItem.itemId] || socPackedStats[soItem.item?.id] || socPackedStats[itemCode] || { packedCartons: 0 };
+          const alreadyPackedCartons = Math.max(0, Number(packedInfo.packedCartons || 0));
+          const remainingCartons = Math.max(0, Math.round((totalOrderedCartons - alreadyPackedCartons) * 100) / 100);
+
+          if (remainingCartons === 0) {
+            targetCartons = 0;
+            message.warning(`${itemCode} is already 100% packed (${alreadyPackedCartons}/${totalOrderedCartons} Cartons) for SOC #${socNo}!`);
+          } else if (targetCartons > remainingCartons) {
+            targetCartons = remainingCartons;
+          }
+        }
+      }
+
+      const nextGross = Math.round(targetCartons * fgFactors.grossPerCarton * 100) / 100;
+      const nextPcs = Math.round(targetCartons * fgFactors.pcsPerCarton);
 
       setMasterItems((prev) =>
         prev.map((r) =>
@@ -2633,7 +2773,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
               itemId: newProductId,
               itemCode,
               itemName,
-              cartons: currentCartons,
+              cartons: targetCartons,
               gross: nextGross,
               quantityPcs: nextPcs,
               bom: null,
@@ -2648,7 +2788,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
 
       expandBomForMasterItem(rowKey, newProductId, nextPcs);
     },
-    [fgItems, masterItems, expandBomForMasterItem]
+    [fgItems, masterItems, expandBomForMasterItem, activeSocOrder, socPackedStats, socNo, message]
   );
 
   // Synchronize when urlProductId changes (e.g. user clicked "Use for Packing" on FG BOM Catalog).
@@ -2918,17 +3058,6 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
     });
   }, [selectedCustomer, salesOrders]);
 
-  // Active Sales Order object resolved from currently selected SOC #
-  const activeSocOrder = useMemo(() => {
-    if (!socNo || socNo === 'SAFETY_STOCK' || socNo === 'N/A' || !selectedCustomer || selectedCustomer === 'SAFETY STOCK') {
-      return null;
-    }
-    const cleanSoc = socNo.toLowerCase().trim();
-    return salesOrders.find((so) => {
-      const num = String(so.orderNumber || so.order_number || '').toLowerCase().trim();
-      return num === cleanSoc || num.endsWith(cleanSoc);
-    }) || null;
-  }, [socNo, selectedCustomer, salesOrders]);
 
   // Handle Customer selection change
   const handleCustomerChange = (val?: string) => {
@@ -3134,16 +3263,46 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
           const remainingCartons = Math.max(0, totalOrderedCartons - alreadyPackedCartons);
 
           if (totalOrderedCartons > 0 && remainingCartons === 0) {
-            message.error(
-              `Cannot save: ${primaryItem.itemCode} is already 100% packed (${alreadyPackedCartons}/${totalOrderedCartons} Cartons) for SOC #${socNo}! Extra packing is blocked.`
-            );
+            Modal.error({
+              title: 'Packing Blocked: SOC Allocation Completed',
+              content: (
+                <div style={{ fontSize: 13, lineHeight: 1.6 }}>
+                  <p style={{ color: '#ef4444', fontWeight: 700, fontSize: 15, margin: '6px 0' }}>
+                    Cannot save extra packing!
+                  </p>
+                  <p>
+                    Item <strong>{primaryItem.itemCode}</strong> is already <strong>100% completed</strong> ({alreadyPackedCartons}/{totalOrderedCartons} Cartons) for <strong>SOC #{socNo}</strong>.
+                  </p>
+                  <p style={{ color: '#64748b', fontSize: 12 }}>
+                    The system does not allow packing beyond the approved Sales Order Confirmation balance.
+                  </p>
+                </div>
+              ),
+              okText: 'Close',
+            });
             return;
           }
 
           if (primaryItem.cartons > remainingCartons) {
-            message.error(
-              `Cannot save: You are trying to pack ${primaryItem.cartons} Cartons, but only ${remainingCartons} Cartons remain on SOC #${socNo} (Total: ${totalOrderedCartons}, Packed: ${alreadyPackedCartons}).`
-            );
+            Modal.error({
+              title: 'Packing Blocked: Exceeds Remaining SOC Balance',
+              content: (
+                <div style={{ fontSize: 13, lineHeight: 1.6 }}>
+                  <p style={{ color: '#ef4444', fontWeight: 700, fontSize: 15, margin: '6px 0' }}>
+                    Entered quantity exceeds SOC requirement!
+                  </p>
+                  <p>
+                    You are trying to pack <strong>{primaryItem.cartons} Cartons</strong>, but only <strong>{remainingCartons} Cartons</strong> remain to be packed on <strong>SOC #{socNo}</strong>.
+                  </p>
+                  <div style={{ background: '#f8fafc', padding: '10px 14px', borderRadius: 6, margin: '10px 0', border: '1px solid #e2e8f0' }}>
+                    <div>Total Ordered: <strong>{totalOrderedCartons} CTN</strong></div>
+                    <div>Already Packed: <strong>{alreadyPackedCartons} CTN</strong></div>
+                    <div style={{ color: '#0284c7', fontWeight: 700 }}>Maximum Allowed Balance: <strong>{remainingCartons} CTN</strong></div>
+                  </div>
+                </div>
+              ),
+              okText: 'Understood',
+            });
             return;
           }
         }
@@ -4420,13 +4579,14 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
 
   // Move / Allocate Safety Stock to Customer SOC Modal
   const renderAllocateModal = () => {
-    // Find all entries recorded as SAFETY STOCK
+    // Find all entries recorded as SAFETY STOCK (live packing batches + opening stock safety batches)
     const safetyStockLogs = recentSavedEntries.filter(
       (r) =>
-        r.customerName === 'SAFETY STOCK' ||
-        r.socNo === 'SAFETY_STOCK' ||
+        r.customerName.toUpperCase().replace(/[\s_-]+/g, '') === 'SAFETYSTOCK' ||
+        r.socNo.toUpperCase().replace(/[\s_-]+/g, '') === 'SAFETYSTOCK' ||
         (r.customerName || '').toLowerCase().includes('safety stock') ||
-        (r.socNo || '').toLowerCase().includes('safety_stock')
+        (r.socNo || '').toLowerCase().includes('safety_stock') ||
+        (r.socNo || '').toLowerCase().includes('safety-stock')
     );
 
     const targetCustomerMatches = salesOrders.filter((so) => {
@@ -4462,16 +4622,40 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
       setAllocating(true);
       try {
         const entryId = allocateSourceBatch.id;
-        const newRemarks = `[HAND PACKING] Batch: ${allocateSourceBatch.batchNo} | Customer: ${allocateTargetCustomer} | SOC: ${allocateTargetSoc} | Style: ${allocateSourceBatch.packagingStyle || 'OEM Packing'} | Cartons: ${allocateCartons} (${allocateSourceBatch.gross} Gross / ${allocateSourceBatch.pcs} PCS) | Allocated from Safety Stock on ${dayjs().format('YYYY-MM-DD HH:mm')}`;
 
-        if (entryId && entryId.length === 36) {
-          await apiService.put(`/production/entries/${entryId}`, {
-            remarks: newRemarks,
+        if (allocateSourceBatch.isOpeningStock) {
+          const oldNotes = String(allocateSourceBatch.rawEntry?.notes || '');
+          let newNotes = oldNotes;
+          if (newNotes.includes('Customer:')) {
+            newNotes = newNotes
+              .replace(/Customer:\s*[^|\]]+/i, `Customer: ${allocateTargetCustomer}`)
+              .replace(/SOC:\s*[^|\]]+/i, `SOC: ${allocateTargetSoc}`)
+              .replace(/\[Customer:[^\]]+\]/i, `[Customer: ${allocateTargetCustomer}]`)
+              .replace(/\[SOC:[^\]]+\]/i, `[SOC: ${allocateTargetSoc}]`);
+          } else {
+            newNotes = `Customer: ${allocateTargetCustomer} | SOC: ${allocateTargetSoc} | ${newNotes}`;
+          }
+          newNotes += ` | Allocated from Safety Stock to ${allocateTargetCustomer} (${allocateTargetSoc}) on ${dayjs().format('YYYY-MM-DD HH:mm')}`;
+
+          await apiService.patch(`/production/open-stock/history/${entryId}`, {
+            notes: newNotes,
           }).catch(async () => {
-            await apiService.patch(`/production/entries/${entryId}`, {
-              remarks: newRemarks,
+            await apiService.put(`/production/open-stock/history/${entryId}`, {
+              notes: newNotes,
             });
           });
+        } else {
+          const newRemarks = `[HAND PACKING] Batch: ${allocateSourceBatch.batchNo} | Customer: ${allocateTargetCustomer} | SOC: ${allocateTargetSoc} | Style: ${allocateSourceBatch.packagingStyle || 'OEM Packing'} | Cartons: ${allocateCartons} (${allocateSourceBatch.gross} Gross / ${allocateSourceBatch.pcs} PCS) | Allocated from Safety Stock on ${dayjs().format('YYYY-MM-DD HH:mm')}`;
+
+          if (entryId && entryId.length === 36) {
+            await apiService.put(`/production/entries/${entryId}`, {
+              remarks: newRemarks,
+            }).catch(async () => {
+              await apiService.patch(`/production/entries/${entryId}`, {
+                remarks: newRemarks,
+              });
+            });
+          }
         }
 
         // Update local register state
@@ -4495,6 +4679,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         setAllocateSourceBatch(null);
         setAllocateTargetCustomer('');
         setAllocateTargetSoc('');
+        loadRecentEntries();
       } catch (err: any) {
         const msg = err?.response?.data?.message || err?.message || 'Failed to allocate stock to customer order';
         message.error(msg);
@@ -7109,19 +7294,81 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                   options={itemOptions}
                 />
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-                <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--theme-text, #cbd5e1)' }}>
-                  Cartons:
-                </span>
-                <InputNumber
-                  controls={false}
-                  min={0}
-                  inputMode="numeric"
-                  value={primaryItem.cartons}
-                  onChange={(val) => handleItemValueChange(primaryItem.key, 'cartons', Number(val) || 0)}
-                  style={{ width: 90, fontWeight: 800, fontSize: 14 }}
-                />
-              </div>
+              {(() => {
+                const soItem = activeSocOrder?.items?.find((it: any) =>
+                  it.itemId === primaryItem.itemId ||
+                  it.item?.id === primaryItem.itemId ||
+                  it.item?.itemCode === primaryItem.itemCode
+                );
+                const fgFactors = getItemPackagingFactors(primaryItem.itemCode, primaryItem.itemName);
+                const qtyGross = Number(soItem?.quantity) || 0;
+                const ctnFromOrder = soItem?.packageQuantity || soItem?.pkg_quantity || soItem?.pkgQuantity;
+                const totalOrderedCartons = ctnFromOrder ? Number(ctnFromOrder) : Math.round(qtyGross / fgFactors.grossPerCarton);
+                const packedInfo = soItem
+                  ? (socPackedStats[soItem.itemId] || socPackedStats[soItem.item?.id] || socPackedStats[primaryItem.itemCode] || { packedCartons: 0, packedGross: 0, packedPcs: 0 })
+                  : { packedCartons: 0, packedGross: 0, packedPcs: 0 };
+                const alreadyPackedCartons = Math.max(0, Math.round(Number(packedInfo.packedCartons || 0) * 100) / 100 - (editingEntryId ? Number(primaryItem.cartons || 0) : 0));
+                const remainingCartons = soItem ? Math.max(0, Math.round((totalOrderedCartons - alreadyPackedCartons) * 100) / 100) : undefined;
+                const isFullyPacked = Boolean(soItem && totalOrderedCartons > 0 && remainingCartons === 0);
+
+                return (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                    <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--theme-text, #cbd5e1)' }}>
+                      Cartons:
+                    </span>
+                    <InputNumber
+                      controls={false}
+                      min={0}
+                      max={remainingCartons !== undefined ? remainingCartons : undefined}
+                      disabled={isFullyPacked}
+                      inputMode="numeric"
+                      value={primaryItem.cartons}
+                      onChange={(val) => {
+                        const entered = Math.max(0, Number(val) || 0);
+                        if (remainingCartons !== undefined && entered > remainingCartons) {
+                          Modal.warning({
+                            title: 'SOC Packing Limit Exceeded',
+                            content: (
+                              <div style={{ fontSize: 13, lineHeight: 1.6 }}>
+                                <p style={{ color: '#ef4444', fontWeight: 700, fontSize: 15, margin: '6px 0' }}>
+                                  Over-packing is strictly prohibited!
+                                </p>
+                                <p>
+                                  You entered <strong>{entered} Cartons</strong>, but only <strong>{remainingCartons} Cartons</strong> remain to be packed for <strong>{primaryItem.itemCode}</strong> under <strong>SOC #{socNo}</strong>.
+                                </p>
+                                <div style={{ background: '#f8fafc', padding: '10px 14px', borderRadius: 6, margin: '10px 0', border: '1px solid #e2e8f0' }}>
+                                  <div>SOC Requirement: <strong>{totalOrderedCartons} Cartons</strong> ({qtyGross.toLocaleString()} Gross)</div>
+                                  <div>Already Packed: <strong>{alreadyPackedCartons} Cartons</strong></div>
+                                  <div style={{ color: '#0284c7', fontWeight: 700 }}>Available Balance: <strong>{remainingCartons} Cartons</strong></div>
+                                </div>
+                                <p style={{ margin: 0, color: '#475569' }}>
+                                  The packing quantity has been automatically set to the maximum available balance ({remainingCartons} Cartons).
+                                </p>
+                              </div>
+                            ),
+                            okText: 'Understood',
+                          });
+                          handleItemValueChange(primaryItem.key, 'cartons', remainingCartons);
+                          return;
+                        }
+                        handleItemValueChange(primaryItem.key, 'cartons', entered);
+                      }}
+                      style={{
+                        width: 90,
+                        fontWeight: 800,
+                        fontSize: 14,
+                        borderColor: isFullyPacked ? '#ef4444' : undefined,
+                        background: isFullyPacked ? 'rgba(239, 68, 68, 0.08)' : undefined,
+                      }}
+                    />
+                    {isFullyPacked && (
+                      <Tag color="error" style={{ fontWeight: 800, margin: 0 }}>
+                        ⛔ 100% Packed
+                      </Tag>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
 
             {/* Dual Calculation Tag from Mockup */}

@@ -242,6 +242,33 @@ const RoutingManagement: React.FC = () => {
     setDetailVisible(true);
   };
 
+  const handleCopyRouting = (id: string, code?: string) => {
+    modal.confirm({
+      centered: true,
+      title: 'Copy Routing',
+      content: `Create a duplicate copy of routing ${code || ''} (including all operations and input/output configurations)?`,
+      okText: 'Copy Routing',
+      onOk: async () => {
+        try {
+          const res = await apiService.post<any>(`/production/routings/${id}/copy`, {});
+          message.success('Routing duplicated successfully as a new Draft');
+          await fetchRoutings();
+          const newId = res?.data?.id || res?.id;
+          if (newId) {
+            await refreshDetail(newId);
+            setDetailVisible(true);
+          }
+        } catch (err: any) {
+          modal.error({
+            centered: true,
+            title: 'Copy Failed',
+            content: describeRequestError(err) || 'Failed to copy routing',
+          });
+        }
+      },
+    });
+  };
+
   const handleSave = async () => {
     if (routingSaving) return;
     let raw: any;
@@ -487,10 +514,11 @@ const RoutingManagement: React.FC = () => {
     { title: 'Updated By', key: 'updatedBy', width: 140, render: (_, r) => r.updatedByName || (r.updatedBy ? 'Admin' : '-') },
     { title: 'Updated Date', key: 'updatedAt', width: 150, render: (_, r) => formatDateTime(r.updatedAt) },
     {
-      title: 'Actions', key: 'actions', width: 130, fixed: 'right', render: (_, r) => (
+      title: 'Actions', key: 'actions', width: 160, fixed: 'right', render: (_, r) => (
         <Space size="small">
           <Tooltip title="View Details"><Button size="small" icon={<EyeOutlined />} onClick={() => handleViewDetail(r)} /></Tooltip>
           <Tooltip title="Edit Routing"><Button size="small" icon={<EditOutlined />} onClick={() => handleEdit(r)} /></Tooltip>
+          <Tooltip title="Copy Routing"><Button size="small" icon={<CopyOutlined />} onClick={() => handleCopyRouting(r.id, r.routingCode)} /></Tooltip>
           <Tooltip title="Delete Routing"><Button size="small" danger icon={<DeleteOutlined />} onClick={() => handleDelete(r.id, r.routingCode)} /></Tooltip>
         </Space>
       ),
@@ -518,8 +546,8 @@ const RoutingManagement: React.FC = () => {
     {
       title: 'Actions', key: 'actions', width: 150, render: (_, r) => (
         <Space size="small" wrap>
-          <Tooltip title="Edit"><Button size="small" icon={<EditOutlined />} disabled={selectedRouting?.status !== 'DRAFT'} onClick={() => handleEditOp(r)} /></Tooltip>
-          {selectedRouting?.status === 'DRAFT' && (
+          <Tooltip title="Edit"><Button size="small" icon={<EditOutlined />} disabled={selectedRouting?.status === 'OBSOLETE'} onClick={() => handleEditOp(r)} /></Tooltip>
+          {selectedRouting?.status !== 'OBSOLETE' && (
             <>
               <Tooltip title="Move up"><Button size="small" icon={<ArrowUpOutlined />} onClick={() => handleReorderOp(r, -1)} /></Tooltip>
               <Tooltip title="Move down"><Button size="small" icon={<ArrowDownOutlined />} onClick={() => handleReorderOp(r, 1)} /></Tooltip>
@@ -540,6 +568,8 @@ const RoutingManagement: React.FC = () => {
             <Button icon={<ArrowLeftOutlined />} onClick={() => { setDetailVisible(false); setSelectedRouting(null); }}>Back to List</Button>
             <Title level={4} style={{ margin: 0 }}>{selectedRouting.routingCode} - {selectedRouting.name}</Title>
             <Tag color={STATUS_COLORS[selectedRouting.status]}>{selectedRouting.status}</Tag>
+            <Button size="small" icon={<CopyOutlined />} onClick={() => handleCopyRouting(selectedRouting.id, selectedRouting.routingCode)}>Copy Routing</Button>
+            <Button size="small" icon={<EditOutlined />} onClick={() => handleEdit(selectedRouting)}>Edit Header</Button>
           </Space>
           <Descriptions bordered size="small" column={4}>
             <Descriptions.Item label="Routing Code">{selectedRouting.routingCode}</Descriptions.Item>
@@ -563,7 +593,7 @@ const RoutingManagement: React.FC = () => {
                 { label: 'Process Flow', value: 'flow', icon: <ApartmentOutlined /> },
               ]}
             />
-            {viewMode === 'table' && selectedRouting.status === 'DRAFT' && (
+            {viewMode === 'table' && selectedRouting.status !== 'OBSOLETE' && (
               <Button type="primary" size="small" icon={<PlusOutlined />} onClick={handleAddOp}>
                 Add Operation
               </Button>
@@ -572,7 +602,7 @@ const RoutingManagement: React.FC = () => {
 
           {viewMode === 'table' ? (
             <Card title="Routing Operations" extra={
-              selectedRouting.status === 'DRAFT' ? <Button type="primary" size="small" icon={<PlusOutlined />} onClick={handleAddOp}>Add Operation</Button> : null
+              selectedRouting.status !== 'OBSOLETE' ? <Button type="primary" size="small" icon={<PlusOutlined />} onClick={handleAddOp}>Add Operation</Button> : null
             }>
               <Table dataSource={selectedRouting.operations || []} columns={opColumns} rowKey="id" size="small" pagination={false} />
             </Card>

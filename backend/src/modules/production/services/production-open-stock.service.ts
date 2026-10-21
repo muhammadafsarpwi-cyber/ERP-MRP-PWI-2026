@@ -1335,4 +1335,19 @@ export class ProductionOpenStockService {
     }
     return out;
   }
+
+  /**
+   * Update notes / customer / SOC allocation remarks on a stock ledger entry.
+   */
+  async updateNotes(companyId: string, id: string, notes: string) {
+    const entry = await this.ledgerRepo.findOne({
+      where: { id, companyId },
+    });
+    if (!entry) {
+      throw new BadRequestException('Transaction record not found.');
+    }
+    entry.notes = notes;
+    await this.ledgerRepo.save(entry);
+    return { success: true, message: 'Stock ledger entry updated successfully', data: entry };
+  }
 }

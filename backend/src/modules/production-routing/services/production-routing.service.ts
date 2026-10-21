@@ -306,8 +306,8 @@ export class ProductionRoutingService {
   async update(id: string, dto: UpdateRoutingDto, companyId: string, userId?: string): Promise<ProductionRouting> {
     const routing = await this.findOne(id, companyId);
 
-    if (routing.status !== RoutingStatus.DRAFT && dto.operations) {
-      throw new BadRequestException('Only DRAFT routings can have operations replaced. Please change status to DRAFT first.');
+    if (dto.operations) {
+      this.assertEditable(routing);
     }
 
     if (dto.productId && dto.productId !== routing.productId) {
@@ -342,27 +342,28 @@ export class ProductionRoutingService {
       await this.clearDefaultRouting(dto.productId ?? routing.productId, companyId, id);
     }
 
-    Object.assign(routing, {
-      name: dto.name ?? routing.name,
-      description: dto.description ?? routing.description,
-      productId: dto.productId ?? routing.productId,
-      bomId: dto.bomId ?? routing.bomId,
-      routeTypeId: nextRouteTypeId,
-      baseQuantity: dto.baseQuantity ?? routing.baseQuantity,
-      isDefault: dto.isDefault ?? routing.isDefault,
-      effectiveFrom: dto.effectiveFrom ?? routing.effectiveFrom,
-      effectiveTo: dto.effectiveTo ?? routing.effectiveTo,
+    const updatedFields: any = {
+      name: dto.name !== undefined ? dto.name : routing.name,
+      description: dto.description !== undefined ? dto.description : routing.description,
+      productId: dto.productId !== undefined ? dto.productId : routing.productId,
+      bomId: dto.bomId !== undefined ? (dto.bomId || null) : routing.bomId,
+      routeTypeId: nextRouteTypeId !== undefined ? (nextRouteTypeId || null) : routing.routeTypeId,
+      baseQuantity: dto.baseQuantity !== undefined ? dto.baseQuantity : routing.baseQuantity,
+      isDefault: dto.isDefault !== undefined ? dto.isDefault : routing.isDefault,
+      effectiveFrom: dto.effectiveFrom !== undefined ? dto.effectiveFrom : routing.effectiveFrom,
+      effectiveTo: dto.effectiveTo !== undefined ? dto.effectiveTo : routing.effectiveTo,
       updatedBy: userId || null,
-    });
+    };
+
+    await this.routingRepo.update(id, updatedFields);
 
     if (dto.operations) {
       await this.operationRepo.delete({ routingId: id });
       const operations = await this.createOperations(id, companyId, dto.operations, userId);
-      routing.operations = operations;
-      routing.estimatedTotalTime = this.calculateTotalTime(operations);
+      const totalTime = this.calculateTotalTime(operations);
+      await this.routingRepo.update(id, { estimatedTotalTime: totalTime });
     }
 
-    await this.routingRepo.save(routing);
     return this.findOne(id, companyId);
   }
 
@@ -399,6 +400,117 @@ export class ProductionRoutingService {
     return this.findOne(id, companyId);
   }
 
+  /**
+   * Operations can be changed while a routing is DRAFT or ACTIVE. Production
+   * orders copy routing operations when they are released, so edits apply to
+   * orders released afterwards; already-released orders are unaffected.
+   * Only OBSOLETE routings are locked.
+   */
+  private assertEditable(routing: ProductionRouting): void {
+    if (routing.status === RoutingStatus.OBSOLETE) {
+      throw new BadRequestException(
+        `Routing '${routing.routingCode}' is OBSOLETE. Restore it to Draft (or copy it) before editing.`,
+      );
+    }
+  }
+
+  /**
+   * Creates a full copy of a routing (header + all operations with their
+   * inputs/outputs). The copy starts as DRAFT, non-default, with a new code.
+   */
+  async copyRouting(
+    id: string,
+    companyId: string,
+    userId?: string,
+    overrides?: { name?: string; productId?: string },
+  ): Promise<ProductionRouting> {
+    const source = await this.findOne(id, companyId);
+    const targetProductId = overrides?.productId || source.productId;
+    if (targetProductId !== source.productId) {
+      await this.validateProductExists(targetProductId, companyId);
+    }
+
+    const sourceOps = await this.operationRepo.find({
+      where: { routingId: id, isActive: true },
+      relations: ['inputs', 'outputs'],
+      order: { sequenceNo: 'ASC' },
+    });
+
+    const copy = await this.routingRepo.save(
+      this.routingRepo.create({
+        companyId,
+        routingCode: await this.generateRoutingCode(companyId),
+        name: (overrides?.name || `${source.name} (Copy)`).slice(0, 255),
+        description: source.description,
+        productId: targetProductId,
+        bomId: targetProductId === source.productId ? source.bomId : null,
+        routeTypeId: source.routeTypeId ?? null,
+        status: RoutingStatus.DRAFT,
+        baseQuantity: source.baseQuantity || 1,
+        isDefault: false,
+        effectiveFrom: source.effectiveFrom || null,
+        effectiveTo: source.effectiveTo || null,
+        estimatedTotalTime: 0,
+        createdBy: userId || null,
+      }),
+    );
+
+    const opDtos = sourceOps.map((op) => ({
+      sequenceNo: op.sequenceNo,
+      operationId: op.operationId || undefined,
+      operationCode: op.operationCode,
+      operationName: op.operationName,
+      description: op.description,
+      divisionId: op.divisionId,
+      sectionId: op.sectionId,
+      departmentId: op.departmentId,
+      setupTimeMinutes: Number(op.setupTimeMinutes) || 0,
+      runTimeMinutes: Number(op.runTimeMinutes) || 0,
+      queueTimeMinutes: Number(op.queueTimeMinutes) || 0,
+      waitTimeMinutes: Number(op.waitTimeMinutes) || 0,
+      laborRequired: op.laborRequired,
+      machineRequired: op.machineRequired,
+      machineId: op.machineId,
+      scrapPercentage: Number(op.scrapPercentage) || 0,
+      setupScrapPercentage: Number(op.setupScrapPercentage) || 0,
+      status: op.status,
+      remarks: op.remarks,
+      inputItemId: op.inputItemId,
+      outputItemId: op.outputItemId,
+      inputQuantity: Number(op.inputQuantity) || 0,
+      outputQuantity: Number(op.outputQuantity) || 0,
+      uomId: op.uomId,
+      inputs: [...(op.inputs || [])]
+        .sort((a, b) => Number(a.lineNumber) - Number(b.lineNumber))
+        .map((i) => ({
+          itemId: i.itemId,
+          quantity: Number(i.quantity) || 0,
+          uomId: i.uomId || undefined,
+          sourceWarehouseId: i.sourceWarehouseId ?? null,
+          scrapBasis: i.scrapBasis,
+          isPrimary: i.isPrimary,
+          lineNumber: i.lineNumber,
+        })),
+      outputs: [...(op.outputs || [])]
+        .sort((a, b) => Number(a.lineNumber) - Number(b.lineNumber))
+        .map((o) => ({
+          itemId: o.itemId,
+          quantity: Number(o.quantity) || 0,
+          uomId: o.uomId || undefined,
+          outputType: o.outputType,
+          yieldPercentage: Number(o.yieldPercentage) || 100,
+          isPrimary: o.isPrimary,
+          lineNumber: o.lineNumber,
+        })),
+    }));
+
+    if (opDtos.length) {
+      await this.createOperations(copy.id, companyId, opDtos, userId);
+      await this.recalculateTotalTime(copy.id, companyId);
+    }
+    return this.findOne(copy.id, companyId);
+  }
+
   async remove(id: string, companyId: string, userId?: string): Promise<void> {
     const routing = await this.findOne(id, companyId);
     routing.isActive = false;
@@ -420,9 +532,7 @@ export class ProductionRoutingService {
   ): Promise<ProductionRouting> {
     const routing = await this.findOne(routingId, companyId);
 
-    if (routing.status !== RoutingStatus.DRAFT) {
-      throw new BadRequestException('Only DRAFT routings can be edited');
-    }
+    this.assertEditable(routing);
 
     await this.validateOrgHierarchy([dto], companyId);
     await this.validateOperationIO([dto]);
@@ -452,9 +562,7 @@ export class ProductionRoutingService {
 
     const routing = await this.findOne(operation.routingId, companyId);
 
-    if (routing.status !== RoutingStatus.DRAFT) {
-      throw new BadRequestException('Only DRAFT routings can be edited');
-    }
+    this.assertEditable(routing);
 
     const merged = {
       departmentId: dto.departmentId ?? operation.departmentId,
@@ -579,9 +687,7 @@ export class ProductionRoutingService {
   ): Promise<ProductionRouting> {
     const routing = await this.findOne(routingId, companyId);
 
-    if (routing.status !== RoutingStatus.DRAFT) {
-      throw new BadRequestException('Only DRAFT routings can be edited');
-    }
+    this.assertEditable(routing);
 
     const operations = await this.operationRepo.find({
       where: { routingId, isActive: true },
@@ -623,9 +729,7 @@ export class ProductionRoutingService {
   ): Promise<ProductionRouting> {
     const routing = await this.findOne(routingId, companyId);
 
-    if (routing.status !== RoutingStatus.DRAFT) {
-      throw new BadRequestException('Only DRAFT routings can be edited');
-    }
+    this.assertEditable(routing);
 
     const source = await this.operationRepo.findOne({
       where: { id: operationId, routingId, isActive: true },

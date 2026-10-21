@@ -255,6 +255,7 @@ export const NAV_ENTRIES: NavEntry[] = [
     color: 'success',
     children: [
       { key: '/customers', label: 'Customer List', icon: TeamOutlined, color: 'success', permissions: ['customer.customer.view'] },
+      { key: '/customers/analytics', label: 'Customer Analytics', icon: BarChartOutlined, color: 'success', permissions: ['customer.customer.view'] },
     ],
   },
 

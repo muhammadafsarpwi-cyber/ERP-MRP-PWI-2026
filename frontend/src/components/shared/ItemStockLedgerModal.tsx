@@ -262,7 +262,7 @@ export const ItemStockLedgerModal: React.FC<ItemStockLedgerModalProps> = ({
       render: (type: string, r: StockLedgerMovement) => getBadgeForType(type, r.direction),
     },
     {
-      title: 'Movement Flow (کہاں سے آیا / کہاں گیا)',
+      title: 'Movement Flow (Origin / Destination)',
       key: 'flow',
       width: 240,
       render: (_, r: StockLedgerMovement) => {
@@ -413,7 +413,7 @@ export const ItemStockLedgerModal: React.FC<ItemStockLedgerModalProps> = ({
           </div>
           <div>
             <div style={{ fontWeight: 800, fontSize: 17, color: '#f8fafc', letterSpacing: '-0.02em' }}>
-              Stock Movement History &amp; Item Ledger (اسٹاک لیجر)
+              Stock Movement History &amp; Item Ledger
             </div>
             <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 1 }}>
               Complete chronological audit trail showing where stock came from (+ IN), where it went (- OUT), and live running balances

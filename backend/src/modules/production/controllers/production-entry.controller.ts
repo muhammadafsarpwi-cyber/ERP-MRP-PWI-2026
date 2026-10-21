@@ -274,6 +274,17 @@ export class ProductionEntryController {
     return { success: true, data };
   }
 
+  @Get('entries/packing')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('manufacturing.production.entries.view')
+  @ApiOperation({ summary: 'Ultra-fast hand packing entries for Packing Department Hub' })
+  async packingEntries(@Req() req: any, @Query('limit') limit?: number, @Query('search') search?: string) {
+    const companyId = this.getCompanyId(req);
+    const data = await this.entryService.findPackingEntries(companyId, limit ? Number(limit) : 1000, search);
+    return { success: true, data };
+  }
+
   // ─── Single entry operations ────────────────────────────────────────────────
 
   @Get('entries/:id')

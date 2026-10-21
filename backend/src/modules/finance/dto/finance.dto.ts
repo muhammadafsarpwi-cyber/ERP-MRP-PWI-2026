@@ -1,7 +1,8 @@
-import { IsString, IsNotEmpty, IsOptional, IsUUID, IsNumber, IsIn, IsDateString, Min, MaxLength, IsArray, ValidateNested, IsInt } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsNumber, IsIn, IsDateString, Min, MaxLength, IsArray, ValidateNested, IsInt } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { AccountType, NormalBalance } from '../entities';
+import { IsUUID } from '../../../common/uuid-loose.validator';
 
 export class CreateAccountDto {
   @ApiProperty() @IsUUID() @IsNotEmpty() companyId: string;

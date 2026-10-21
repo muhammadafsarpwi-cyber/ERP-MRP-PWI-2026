@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsUUID, IsString, IsNotEmpty, IsOptional, MaxLength, Matches, IsIn } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, MaxLength, Matches, IsIn } from 'class-validator';
 import { ItemTypeStatus } from '../entities/item-type.entity';
+import { IsUUID } from '../../../common/uuid-loose.validator';
 
 export class CreateItemTypeDto {
   @ApiProperty()

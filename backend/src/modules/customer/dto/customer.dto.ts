@@ -1,9 +1,20 @@
 import {
-  IsString, IsNotEmpty, IsOptional, IsUUID, IsNumber, IsIn, IsEmail,
-  MaxLength, Min, IsBoolean, IsDateString, Max, ValidateIf,
+  IsString,
+  IsNotEmpty,
+  IsOptional,
+  IsNumber,
+  IsIn,
+  IsEmail,
+  MaxLength,
+  Min,
+  IsBoolean,
+  IsDateString,
+  Max,
+  ValidateIf,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
+import { IsUUID } from '../../../common/uuid-loose.validator';
 
 export class CreateCustomerDto {
   @ApiPropertyOptional({ description: 'Active toggle flag' })

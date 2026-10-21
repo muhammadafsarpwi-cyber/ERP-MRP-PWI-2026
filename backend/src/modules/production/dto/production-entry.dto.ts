@@ -1,5 +1,4 @@
 import {
-  IsUUID,
   IsDateString,
   IsString,
   IsOptional,
@@ -14,6 +13,7 @@ import {
   ArrayMaxSize,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { IsUUID } from '../../../common/uuid-loose.validator';
 
 /** A single production item line within a shift/machine entry. */
 export class ProductionEntryItemDto {

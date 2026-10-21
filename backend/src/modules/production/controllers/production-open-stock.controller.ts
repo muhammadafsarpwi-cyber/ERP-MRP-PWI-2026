@@ -2,6 +2,8 @@ import {
   Controller,
   Get,
   Post,
+  Put,
+  Patch,
   Delete,
   Body,
   Query,
@@ -281,6 +283,36 @@ export class ProductionOpenStockController {
     const companyId = this.getCompanyId(req);
     const userId = req.erpUser?.id || req.user?.id;
     return await this.openStockService.deleteTransaction(companyId, id, userId);
+  }
+
+  @Patch('history/:id')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('manufacturing.production.entries.create')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Update customer/SOC allocation notes on an opening stock or adjustment ledger entry' })
+  async patchHistoryNotes(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body('notes') notes: string,
+  ) {
+    const companyId = this.getCompanyId(req);
+    return await this.openStockService.updateNotes(companyId, id, notes);
+  }
+
+  @Put('history/:id')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('manufacturing.production.entries.create')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Update customer/SOC allocation notes on an opening stock or adjustment ledger entry' })
+  async putHistoryNotes(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body('notes') notes: string,
+  ) {
+    const companyId = this.getCompanyId(req);
+    return await this.openStockService.updateNotes(companyId, id, notes);
   }
 }
 

@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, BadRequestException, Logger } from '@nes
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SalesDelivery, SalesDeliveryLine, SalesCustomer, SalesOrder, SalesOrderItem, SalesInvoice } from '../entities';
+import { Item, Uom, UomConversion } from '../../item/entities';
 import { InventoryBalanceService } from '../../inventory/services/inventory-balance.service';
 import { StockLedgerService } from '../../inventory/services/stock-ledger.service';
 import {
@@ -9,6 +10,9 @@ import {
   assertDivisionInScope,
   DivisionAccess,
 } from '../../../common/division-scope.util';
+
+const isUuid = (val?: string | null): boolean =>
+  typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
 
 @Injectable()
 export class SalesDeliveryService {
@@ -27,6 +31,12 @@ export class SalesDeliveryService {
     private readonly orderItemRepo: Repository<SalesOrderItem>,
     @InjectRepository(SalesInvoice)
     private readonly invoiceRepo: Repository<SalesInvoice>,
+    @InjectRepository(Item)
+    private readonly itemRepo: Repository<Item>,
+    @InjectRepository(Uom)
+    private readonly uomRepo: Repository<Uom>,
+    @InjectRepository(UomConversion)
+    private readonly uomConversionRepo: Repository<UomConversion>,
     private readonly balanceService: InventoryBalanceService,
     private readonly ledgerService: StockLedgerService,
   ) {}
@@ -48,24 +58,25 @@ export class SalesDeliveryService {
       }
     }
 
+    const safeUserId = isUuid(userId) ? userId : null;
     const deliveryNumber = await this.generateDeliveryNumber(dto.companyId);
 
     const delivery = this.repo.create({
       companyId: dto.companyId,
-      salesOrderId: dto.salesOrderId || null,
+      salesOrderId: isUuid(dto.salesOrderId) ? dto.salesOrderId : null,
       customerPo: dto.customerPo || null,
       customerId: dto.customerId,
       deliveryNumber,
       deliveryDate: dto.deliveryDate || new Date().toISOString().split('T')[0],
       expectedDate: dto.expectedDate || null,
-      warehouseId: dto.warehouseId || null,
+      warehouseId: isUuid(dto.warehouseId) ? dto.warehouseId : null,
       shipToAddress: dto.shipToAddress || null,
       carrier: dto.carrier || null,
       trackingNumber: dto.trackingNumber || null,
       notes: dto.notes || null,
       status: 'DRAFT',
-      createdBy: userId || null,
-      updatedBy: userId || null,
+      createdBy: safeUserId,
+      updatedBy: safeUserId,
     });
     const saved = await this.repo.save(delivery) as SalesDelivery;
 
@@ -77,11 +88,11 @@ export class SalesDeliveryService {
         const line = this.lineRepo.create({
           deliveryId: saved.id,
           lineNumber: lineNumber++,
-          itemId: lineDto.itemId,
+          itemId: isUuid(lineDto.itemId) ? lineDto.itemId : null,
           description: lineDto.description || null,
           quantity: lineDto.quantity,
-          uomId: lineDto.uomId,
-          warehouseId: lineDto.warehouseId || null,
+          uomId: isUuid(lineDto.uomId) ? lineDto.uomId : null,
+          warehouseId: isUuid(lineDto.warehouseId) ? lineDto.warehouseId : (isUuid(saved.warehouseId) ? saved.warehouseId : null),
           unitPrice: lineDto.unitPrice,
           taxAmount: lineDto.taxAmount || 0,
           lineTotal,
@@ -108,7 +119,13 @@ export class SalesDeliveryService {
       .leftJoinAndSelect('sd.customer', 'customer')
       .leftJoinAndSelect('sd.salesOrder', 'salesOrder')
       .leftJoinAndSelect('salesOrder.division', 'division')
-      .leftJoinAndSelect('salesOrder.section', 'section');
+      .leftJoinAndSelect('salesOrder.section', 'section')
+      .leftJoinAndSelect('sd.lines', 'lines')
+      .leftJoinAndSelect('lines.item', 'lineItem')
+      .leftJoinAndSelect('lines.uom', 'lineUom')
+      .leftJoinAndSelect('salesOrder.items', 'orderItems')
+      .leftJoinAndSelect('orderItems.item', 'orderItemObj')
+      .leftJoinAndSelect('orderItems.uom', 'orderItemUom');
     let hasWhere = false;
     if (companyId) { qb.where('sd.companyId = :companyId', { companyId }); hasWhere = true; }
     if (status) { qb[hasWhere ? 'andWhere' : 'where']('sd.status ILIKE :status', { status }); hasWhere = true; }
@@ -123,12 +140,94 @@ export class SalesDeliveryService {
     qb.orderBy(`sd.${field}`, order);
     qb.skip((page - 1) * limit).take(limit);
     const [rawDeliveries, total] = await qb.getManyAndCount();
-    const data = rawDeliveries.map((sd: any) => ({
-      ...sd,
-      salesOrderNumber: sd.salesOrder?.orderNumber || null,
-      divisionName: sd.salesOrder?.division?.name || null,
-      sectionName: sd.salesOrder?.section?.name || null,
-    }));
+    const data = rawDeliveries.map((sd: any) => {
+      const lines = (sd.lines || []).map((l: any) => ({
+        ...l,
+        itemCode: l.item?.itemCode || l.itemCode,
+        itemName: l.item?.name || l.itemName || l.description,
+        packagingSize: Number(l.item?.packagingSize || 10) || 10,
+        packagingUnit: l.item?.packagingUnit || 'CTN',
+        uomCode: l.uom?.code || 'GRS',
+      }));
+
+      const orderItems = (sd.salesOrder?.items || []).map((oi: any) => ({
+        ...oi,
+        itemCode: oi.item?.itemCode || oi.itemCode,
+        itemName: oi.item?.name || oi.itemName || oi.description,
+        packagingSize: Number(oi.item?.packagingSize || 10) || 10,
+        packagingUnit: oi.item?.packagingUnit || 'CTN',
+        uomCode: oi.uom?.code || 'GRS',
+      }));
+
+      // Calculate totals
+      const totalDispatchQuantity = lines.reduce((sum: number, l: any) => sum + (Number(l.quantity) || 0), 0);
+      const totalOrderQuantity = orderItems.reduce((sum: number, oi: any) => sum + (Number(oi.quantity) || 0), 0);
+      const totalDeliveredQuantity = orderItems.reduce((sum: number, oi: any) => sum + (Number(oi.shippedQuantity ?? oi.shipped_quantity) || 0), 0);
+      const totalBalanceQuantity = Math.max(0, totalOrderQuantity - totalDeliveredQuantity);
+      const isCompleted = totalOrderQuantity > 0 && totalBalanceQuantity <= 0;
+
+      // Calculate cartons
+      const totalDispatchCartons = lines.reduce((sum: number, l: any) => {
+        const pSize = Number(l.packagingSize || 10) || 10;
+        return sum + Math.round(((Number(l.quantity) || 0) / pSize) * 100) / 100;
+      }, 0);
+
+      const totalOrderCartons = orderItems.reduce((sum: number, oi: any) => {
+        const pSize = Number(oi.packagingSize || 10) || 10;
+        return sum + Math.round(((Number(oi.quantity) || 0) / pSize) * 100) / 100;
+      }, 0);
+
+      const totalBalanceCartons = orderItems.reduce((sum: number, oi: any) => {
+        const pSize = Number(oi.packagingSize || 10) || 10;
+        const bal = Math.max(0, (Number(oi.quantity) || 0) - (Number(oi.shippedQuantity ?? oi.shipped_quantity) || 0));
+        return sum + Math.round((bal / pSize) * 100) / 100;
+      }, 0);
+
+      // Item-level quantities summary
+      const itemsSummary = orderItems.map((oi: any) => {
+        const pSize = Number(oi.packagingSize || 10) || 10;
+        const pUnit = oi.packagingUnit || 'CTN';
+        const ordered = Number(oi.quantity) || 0;
+        const shipped = Number(oi.shippedQuantity ?? oi.shipped_quantity) || 0;
+        const bal = Math.max(0, ordered - shipped);
+        const thisLine = lines.find((l: any) => l.itemId === oi.itemId || (l.itemCode && l.itemCode === oi.itemCode));
+        const thisDispatched = thisLine ? (Number(thisLine.quantity) || 0) : 0;
+
+        return {
+          itemId: oi.itemId,
+          itemCode: oi.itemCode || '-',
+          itemName: oi.itemName || 'Product',
+          orderedQuantity: ordered,
+          orderedCartons: Math.round((ordered / pSize) * 100) / 100,
+          dispatchedQuantity: thisDispatched,
+          dispatchedCartons: Math.round((thisDispatched / pSize) * 100) / 100,
+          totalShippedQuantity: shipped,
+          totalShippedCartons: Math.round((shipped / pSize) * 100) / 100,
+          balanceQuantity: bal,
+          balanceCartons: Math.round((bal / pSize) * 100) / 100,
+          isCompleted: ordered > 0 && bal <= 0,
+          uom: oi.uomCode || 'GRS',
+          packagingUnit: pUnit,
+        };
+      });
+
+      return {
+        ...sd,
+        lines,
+        salesOrderNumber: sd.salesOrder?.orderNumber || null,
+        divisionName: sd.salesOrder?.division?.name || null,
+        sectionName: sd.salesOrder?.section?.name || null,
+        totalDispatchQuantity,
+        totalDispatchCartons,
+        totalOrderQuantity,
+        totalOrderCartons,
+        totalDeliveredQuantity,
+        totalBalanceQuantity,
+        totalBalanceCartons,
+        isCompleted,
+        itemsSummary,
+      };
+    });
     return { data, total };
   }
 
@@ -145,6 +244,9 @@ export class SalesDeliveryService {
         'salesOrder',
         'salesOrder.division',
         'salesOrder.section',
+        'salesOrder.items',
+        'salesOrder.items.item',
+        'salesOrder.items.uom',
         'lines',
         'lines.item',
         'lines.uom',
@@ -185,23 +287,18 @@ export class SalesDeliveryService {
       throw new BadRequestException('Can only update deliveries in DRAFT status');
     }
 
-    Object.assign(delivery, {
-      salesOrderId: dto.salesOrderId !== undefined ? (dto.salesOrderId || null) : delivery.salesOrderId,
-      customerPo: dto.customerPo !== undefined ? (dto.customerPo || null) : delivery.customerPo,
-      deliveryDate: dto.deliveryDate ? dto.deliveryDate : delivery.deliveryDate,
-      expectedDate: dto.expectedDate ? dto.expectedDate : null,
-      warehouseId: dto.warehouseId ? dto.warehouseId : delivery.warehouseId,
-      shipToAddress: dto.shipToAddress !== undefined ? (dto.shipToAddress || null) : delivery.shipToAddress,
-      carrier: dto.carrier !== undefined ? (dto.carrier || null) : delivery.carrier,
-      trackingNumber: dto.trackingNumber !== undefined ? (dto.trackingNumber || null) : delivery.trackingNumber,
-      notes: dto.notes !== undefined ? (dto.notes || null) : delivery.notes,
-      updatedBy: userId || null,
-    });
+    const isUuid = (val?: string | null): boolean =>
+      typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
+    const safeUserId = isUuid(userId) ? userId : null;
+
+    let subtotal = Number(delivery.subtotal || 0);
+    let taxAmount = Number(delivery.taxAmount || 0);
+    let totalAmount = Number(delivery.totalAmount || 0);
 
     if (dto.lines && Array.isArray(dto.lines) && dto.lines.length > 0) {
-      let subtotal = 0;
-      let taxAmount = 0;
-      let totalAmount = 0;
+      subtotal = 0;
+      taxAmount = 0;
+      totalAmount = 0;
 
       await this.lineRepo.delete({ deliveryId: id });
       const newLines = dto.lines.map((l: any, idx: number) => {
@@ -217,11 +314,11 @@ export class SalesDeliveryService {
         return this.lineRepo.create({
           deliveryId: id,
           lineNumber: idx + 1,
-          itemId: l.itemId || null,
+          itemId: isUuid(l.itemId) ? l.itemId : null,
           description: l.description || l.itemName || null,
           quantity: qty,
-          uomId: l.uomId || null,
-          warehouseId: l.warehouseId || delivery.warehouseId || null,
+          uomId: isUuid(l.uomId) ? l.uomId : null,
+          warehouseId: isUuid(l.warehouseId) ? l.warehouseId : (isUuid(delivery.warehouseId) ? delivery.warehouseId : null),
           unitPrice: rate,
           taxAmount: lTax,
           lineTotal: lTot,
@@ -229,12 +326,25 @@ export class SalesDeliveryService {
       });
 
       await this.lineRepo.save(newLines);
-      delivery.subtotal = subtotal;
-      delivery.taxAmount = taxAmount;
-      delivery.totalAmount = totalAmount;
     }
 
-    return this.repo.save(delivery);
+    await this.repo.update(id, {
+      salesOrderId: dto.salesOrderId !== undefined ? (dto.salesOrderId || null) : delivery.salesOrderId,
+      customerPo: dto.customerPo !== undefined ? (dto.customerPo || null) : delivery.customerPo,
+      deliveryDate: dto.deliveryDate ? dto.deliveryDate : delivery.deliveryDate,
+      expectedDate: dto.expectedDate ? dto.expectedDate : null,
+      warehouseId: isUuid(dto.warehouseId) ? dto.warehouseId : delivery.warehouseId,
+      shipToAddress: dto.shipToAddress !== undefined ? (dto.shipToAddress || null) : delivery.shipToAddress,
+      carrier: dto.carrier !== undefined ? (dto.carrier || null) : delivery.carrier,
+      trackingNumber: dto.trackingNumber !== undefined ? (dto.trackingNumber || null) : delivery.trackingNumber,
+      notes: dto.notes !== undefined ? (dto.notes || null) : delivery.notes,
+      subtotal,
+      taxAmount,
+      totalAmount,
+      updatedBy: safeUserId,
+    });
+
+    return this.findOne(id, companyId, allowedDivisionIds);
   }
 
   async ship(id: string, userId?: string, companyId?: string, allowedDivisionIds?: DivisionAccess): Promise<SalesDelivery> {
@@ -281,7 +391,51 @@ export class SalesDeliveryService {
         throw new BadRequestException(`Delivery line ${line.lineNumber} has no UOM assigned`);
       }
       const lineWarehouse = line.warehouseId || warehouseId;
-      const qty = Number(line.quantity);
+      const rawQty = Number(line.quantity || 0);
+
+      // Resolve item and base UOM to ensure accurate physical stock deduction
+      const item = await this.itemRepo.findOne({
+        where: { id: line.itemId },
+        relations: ['baseUom'],
+      });
+
+      const lineUom = await this.uomRepo.findOne({ where: { id: line.uomId } });
+      const lineUomCode = (lineUom?.code || '').toUpperCase();
+      const baseUomId = item?.baseUomId || line.uomId;
+      const baseUomCode = (item?.baseUom?.code || lineUomCode || 'PCS').toUpperCase();
+
+      // Convert quantity to base UOM if line UOM differs (e.g. GRS -> 144 PCS, CTN -> cartons * grossPerCarton * 144)
+      let baseQty = rawQty;
+      if (line.uomId !== baseUomId && lineUomCode !== baseUomCode) {
+        if (lineUomCode === 'GRS' && baseUomCode === 'PCS') {
+          baseQty = rawQty * 144;
+        } else if (lineUomCode === 'CTN' && baseUomCode === 'PCS') {
+          const itemPkgSize = Number(item?.packagingSize) || 0;
+          const isCS =
+            (item?.itemCode || '').toUpperCase().includes('011') ||
+            (item?.itemCode || '').toUpperCase().includes('012') ||
+            (item?.name || '').toUpperCase().includes('CS');
+          const grossPerCarton = itemPkgSize > 0 ? itemPkgSize : (isCS ? 10.555556 : 10);
+          baseQty = Math.round(rawQty * grossPerCarton * 144);
+        } else if (lineUomCode === 'PCS' && baseUomCode === 'GRS') {
+          baseQty = rawQty / 144;
+        } else {
+          // Check global UOM conversions table
+          const conv = await this.uomConversionRepo.findOne({
+            where: { fromUomId: line.uomId, toUomId: baseUomId },
+          });
+          if (conv && Number(conv.conversionFactor) > 0) {
+            baseQty = rawQty * Number(conv.conversionFactor);
+          } else {
+            const invConv = await this.uomConversionRepo.findOne({
+              where: { fromUomId: baseUomId, toUomId: line.uomId },
+            });
+            if (invConv && Number(invConv.conversionFactor) > 0) {
+              baseQty = rawQty / Number(invConv.conversionFactor);
+            }
+          }
+        }
+      }
 
       await this.ledgerService.create({
         companyId: delivery.companyId,
@@ -289,13 +443,13 @@ export class SalesDeliveryService {
         transactionDate: new Date(),
         itemId: line.itemId,
         warehouseId: lineWarehouse,
-        quantity: qty,
-        uomId: line.uomId,
+        quantity: baseQty,
+        uomId: baseUomId,
         direction: 'OUT',
         referenceType: 'SALES_DELIVERY',
         referenceId: delivery.id,
         referenceNumber: delivery.deliveryNumber,
-        notes: `Sales delivery ${delivery.deliveryNumber} confirmed`,
+        notes: `Sales delivery ${delivery.deliveryNumber} confirmed (${rawQty} ${lineUomCode || 'GRS'} = ${baseQty} ${baseUomCode})`,
         createdBy: userId,
       });
 
@@ -305,8 +459,8 @@ export class SalesDeliveryService {
         lineWarehouse,
         null,
         null,
-        line.uomId,
-        qty,
+        baseUomId,
+        baseQty,
         'OUT',
       );
     }
@@ -406,7 +560,8 @@ export class SalesDeliveryService {
    */
   async remove(id: string, userId?: string, companyId?: string, allowedDivisionIds?: DivisionAccess): Promise<SalesDelivery> {
     const delivery = await this.findOne(id, companyId, allowedDivisionIds);
-    if ((delivery.status || '').toUpperCase() !== 'DRAFT') {
+    const sUpper = (delivery.status || '').toUpperCase();
+    if (sUpper !== 'DRAFT' && sUpper !== 'CANCELLED') {
       throw new BadRequestException(
         `A ${delivery.status || 'confirmed'} gate pass has already been raised and cannot be recycled. ` +
           'Cancel the delivery instead.',
@@ -417,16 +572,21 @@ export class SalesDeliveryService {
     return this.repo.save(delivery);
   }
 
-  private async generateDeliveryNumber(companyId: string): Promise<string> {
+  private async generateDeliveryNumber(companyId?: string): Promise<string> {
     const year = new Date().getFullYear();
     const prefix = `DN-${year}-`;
-    const result = await this.repo
+    const qb = this.repo
       .createQueryBuilder('sd')
-      .select("MAX(CAST(SUBSTRING(sd.deliveryNumber FROM 'DN-[0-9]{4}-([0-9]+)') AS INT))", 'maxNum')
-      .where('sd.companyId = :companyId', { companyId })
-      .andWhere('sd.deliveryNumber LIKE :prefix', { prefix: `${prefix}%` })
-      .getRawOne();
-    const maxNum = result?.maxNum || 0;
+      .withDeleted()
+      .select("MAX(CAST(SUBSTRING(sd.delivery_number FROM 'DN-[0-9]{4}-([0-9]+)') AS INT))", 'maxNum')
+      .where('sd.delivery_number LIKE :prefix', { prefix: `${prefix}%` });
+
+    if (companyId) {
+      qb.andWhere('sd.company_id = :companyId', { companyId });
+    }
+
+    const result = await qb.getRawOne();
+    const maxNum = Number(result?.maxNum || result?.maxnum || 0);
     const nextNum = maxNum + 1;
     return `${prefix}${String(nextNum).padStart(5, '0')}`;
   }

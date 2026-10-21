@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { useLocation } from 'react-router-dom';
 import {
-  Table, Button, Form, Input, Select, App, Modal,
-  Row, Col, Descriptions, Divider, Tooltip, Tag, Badge,
+  Table, Button, Form, Input, Select, App, Modal, Popconfirm,
+  Row, Col, Descriptions, Divider, Tooltip, Tag, Badge, Popover, Progress,
 } from 'antd';
 import {
   PlusOutlined, EditOutlined, SearchOutlined, EyeOutlined, CheckOutlined,
@@ -9,7 +10,7 @@ import {
   PrinterOutlined, FilterOutlined, CloseCircleOutlined, UserOutlined,
   CalendarOutlined, NumberOutlined, ShopOutlined, FileTextOutlined,
   BranchesOutlined, SafetyCertificateOutlined, ApartmentOutlined, WarningFilled,
-  CloseOutlined, ClearOutlined,
+  CloseOutlined, ClearOutlined, DeleteOutlined, CheckCircleOutlined, ClockCircleOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
@@ -57,6 +58,30 @@ interface SalesDelivery {
   status: string;
   notes?: string;
   lines?: any[];
+  totalDispatchQuantity?: number;
+  totalDispatchCartons?: number;
+  totalOrderQuantity?: number;
+  totalOrderCartons?: number;
+  totalDeliveredQuantity?: number;
+  totalBalanceQuantity?: number;
+  totalBalanceCartons?: number;
+  isCompleted?: boolean;
+  itemsSummary?: Array<{
+    itemId?: string;
+    itemCode?: string;
+    itemName?: string;
+    orderedQuantity: number;
+    orderedCartons: number;
+    dispatchedQuantity: number;
+    dispatchedCartons: number;
+    totalShippedQuantity: number;
+    totalShippedCartons: number;
+    balanceQuantity: number;
+    balanceCartons: number;
+    isCompleted: boolean;
+    uom?: string;
+    packagingUnit?: string;
+  }>;
   relatedInvoices?: Array<{
     id: string;
     invoiceNumber: string;
@@ -72,6 +97,15 @@ const STATUS_OPTIONS = ['All statuses', 'DRAFT', 'SHIPPED', 'DELIVERED', 'CONFIR
 
 const SalesDeliveryManagement: React.FC = () => {
   const { message } = App.useApp();
+  const location = useLocation();
+  const routeTabId = location.pathname || '/sales/deliveries';
+
+  useEffect(() => {
+    const store = useHeaderActions.getState();
+    store.claimActionsSlot(routeTabId);
+    return () => store.releaseActionsSlot(routeTabId);
+  }, [routeTabId]);
+
   const [data, setData] = useState<SalesDelivery[]>([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
@@ -112,6 +146,7 @@ const SalesDeliveryManagement: React.FC = () => {
   const [warningModalVisible, setWarningModalVisible] = useState(false);
   const [pendingExcessWarnings, setPendingExcessWarnings] = useState<any[]>([]);
   const [pendingSavePayload, setPendingSavePayload] = useState<any>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [form] = Form.useForm();
   const [lineItems, setLineItems] = useState<ERPLine[]>([]);
   const [companyId, setCompanyId] = useState('');
@@ -432,9 +467,10 @@ const SalesDeliveryManagement: React.FC = () => {
       items: lines.map((it: any, idx: number) => {
         const orderQty = it.orderQuantity != null ? Number(it.orderQuantity) : (it.orderedQuantity != null ? Number(it.orderedQuantity) : undefined);
         const currentQty = Number(it.quantity) || 1;
-        const bal = orderQty != null ? Math.max(0, orderQty - currentQty) : it.balanceQuantity;
-        const pkgUnit = it.packagingUnit || 'Coils';
-        const pkgQty = it.packageQuantity != null ? Number(it.packageQuantity) : undefined;
+        const bal = it.orderBalance != null ? Number(it.orderBalance) - currentQty : (orderQty != null ? Math.max(0, orderQty - currentQty) : it.balanceQuantity);
+        const pkgUnit = it.packagingUnit || 'CTN';
+        const pkgSize = Number(it.packagingSize) || 10;
+        const pkgQty = it.packageQuantity != null ? Number(it.packageQuantity) : (pkgSize > 1 ? Number((currentQty / pkgSize).toFixed(2)) : undefined);
         const descSocMatch = (it.description || '').match(/\[SOC:\s*([^\]]+)\]/);
         const lineSoc = it.socNumber || it.salesOrderNumber || (descSocMatch ? descSocMatch[1] : undefined) || (uniqueSocs.length === 1 ? String(uniqueSocs[0]) : undefined);
         return {
@@ -444,11 +480,11 @@ const SalesDeliveryManagement: React.FC = () => {
           customerPo: it.customerPo || (uniquePos.length === 1 ? String(uniquePos[0]) : undefined),
           orderQuantity: orderQty,
           quantity: currentQty,
-          balanceQuantity: bal,
-          uom: it.uomCode || it.uom || 'M',
+          balanceQuantity: bal != null ? Math.max(0, bal) : undefined,
+          uom: it.uomCode || it.uom || 'GRS',
           packageQuantity: pkgQty,
           packagingUnit: pkgUnit,
-          packaging: pkgQty != null && pkgQty > 0 ? `${pkgQty} ${pkgUnit}` : (it.packaging || 'Pallets / Bundles'),
+          packaging: pkgQty != null && pkgQty > 0 ? `${pkgQty} ${pkgUnit}` : (it.packaging || `${Number((currentQty / 10).toFixed(1))} CTN`),
           remarks: it.remarks || it.notes || '-',
         };
       }),
@@ -529,12 +565,12 @@ const SalesDeliveryManagement: React.FC = () => {
           </Button>
         ),
       },
-    ]);
+    ], routeTabId);
 
     return () => {
-      clearHeaderActions();
+      clearHeaderActions(routeTabId);
     };
-  }, [page, pageSize, handleCreate, handleExportCsv, handlePrint, fetchData]);
+  }, [routeTabId, page, pageSize, handleCreate, handleExportCsv, handlePrint, fetchData]);
 
   const handleModalDivisionChange = (divisionId?: string) => {
     setModalDivisionId(divisionId);
@@ -615,29 +651,48 @@ const SalesDeliveryManagement: React.FC = () => {
       expectedDate: selectedOrders[0]?.deliveryDate ? dayjs(selectedOrders[0].deliveryDate).format('YYYY-MM-DD') : form.getFieldValue('expectedDate'),
     });
 
-    // Populate balance lines from ALL selected SOCs
+    // Populate balance lines from ALL selected SOCs, strictly accounting for prior dispatches
     const allPendingLines: ERPLine[] = [];
     selectedOrders.forEach((order: any) => {
+      // Find all existing deliveries in state for this sales order to account for partial shipments
+      const orderDeliveries = data.filter((d: any) => 
+        (d.salesOrderId === order.id || d.salesOrderNumber === order.orderNumber) &&
+        (d.status || '').toUpperCase() !== 'CANCELLED' &&
+        (!editingItem || d.id !== editingItem.id)
+      );
+
+      // Map already dispatched quantities per item from prior deliveries
+      const itemDispatchedMap: Record<string, number> = {};
+      orderDeliveries.forEach((del: any) => {
+        (del.lines || []).forEach((l: any) => {
+          const keyById = String(l.itemId || l.item_id || '');
+          const keyByCode = String(l.itemCode || '');
+          const qty = Number(l.quantity) || 0;
+          if (keyById) itemDispatchedMap[keyById] = (itemDispatchedMap[keyById] || 0) + qty;
+          if (keyByCode && keyByCode !== keyById) itemDispatchedMap[keyByCode] = (itemDispatchedMap[keyByCode] || 0) + qty;
+        });
+      });
+
       const orderLines: ERPLine[] = (order.items || [])
-        .filter((it: any) => {
-          const qty = Number(it.quantity) || 0;
-          const shipped = Number(it.shippedQuantity ?? it.shipped_quantity) || 0;
-          return (qty - shipped) > 0;
-        })
         .map((it: any, idx: number) => {
           const qty = Number(it.quantity) || 0;
-          const shipped = Number(it.shippedQuantity ?? it.shipped_quantity) || 0;
-          const balance = qty - shipped;
+          const dbShipped = Number(it.shippedQuantity ?? it.shipped_quantity) || 0;
+          const keyById = String(it.itemId || it.item_id || '');
+          const keyByCode = String(it.item?.itemCode || it.itemCode || '');
+          const priorShipped = (keyById ? itemDispatchedMap[keyById] : 0) || (keyByCode ? itemDispatchedMap[keyByCode] : 0) || 0;
+          const totalAlreadyShipped = Math.max(dbShipped, priorShipped);
+          const balance = Math.max(0, qty - totalAlreadyShipped);
 
           const itemObj = it.item || {};
           const itemName = itemObj.name || it.description || 'Product';
-          let pkgSize = Number(itemObj.packagingSize ?? itemObj.packaging_size) || 1;
+          let pkgSize = Number(itemObj.packagingSize ?? itemObj.packaging_size) || 10;
           if (pkgSize <= 1) {
             const lower = itemName.toLowerCase();
             if (lower.includes('5 mm') || lower.includes('6 mm')) pkgSize = 500;
             else if (lower.includes('7 mm') || lower.includes('8 mm')) pkgSize = 250;
+            else pkgSize = 10; // Standard 10 Gross per Carton
           }
-          const pkgUnit = itemObj.packagingUnit ?? itemObj.packaging_unit ?? 'Coil';
+          const pkgUnit = itemObj.packagingUnit ?? itemObj.packaging_unit ?? 'CTN';
           const pkgQty = pkgSize > 1 ? Number((balance / pkgSize).toFixed(2)) : balance;
           const unitPrice = Number(it.unitPrice ?? it.unit_price) || 0;
           const taxRate = Number(it.taxRate ?? it.tax_rate ?? 18) || 18;
@@ -648,7 +703,7 @@ const SalesDeliveryManagement: React.FC = () => {
             itemCode: itemObj.itemCode ?? itemObj.item_code ?? it.itemCode,
             itemName,
             uomId: it.uomId ?? it.uom_id,
-            uomCode: it.uom?.code ?? it.uom?.name ?? 'M',
+            uomCode: it.uom?.code ?? it.uom?.name ?? 'GRS',
             packagingSize: pkgSize,
             packagingUnit: pkgUnit,
             packageQuantity: pkgQty,
@@ -663,7 +718,9 @@ const SalesDeliveryManagement: React.FC = () => {
             orderQuantity: qty,
             orderBalance: balance,
           };
-        });
+        })
+        .filter((line: ERPLine) => Number(line.quantity || 0) > 0);
+
       allPendingLines.push(...orderLines);
     });
 
@@ -673,7 +730,14 @@ const SalesDeliveryManagement: React.FC = () => {
       customerPo: linkedPos.join(', '),
       pendingCount: allPendingLines.length,
     });
-    message.success(`${selectedOrders.length} SOC(s) linked: ${allPendingLines.length} balance item(s) loaded`);
+    if (allPendingLines.length === 0 && selectedOrders.length > 0) {
+      Modal.info({
+        title: 'SOC 100% Fulfilled',
+        content: `All items for the selected Sales Order Confirmation (${linkedOrderNumbers.join(', ')}) have already been completely dispatched in prior deliveries! No pending balance remains to dispatch.`,
+      });
+    } else {
+      message.success(`${selectedOrders.length} SOC(s) linked: ${allPendingLines.length} pending balance item(s) loaded`);
+    }
   };
 
   const handleSalesOrderChange = handleSalesOrdersChange;
@@ -849,8 +913,10 @@ const SalesDeliveryManagement: React.FC = () => {
   };
 
   const executeSave = async (payloadOverride?: any) => {
+    if (isSubmitting) return;
     const payload = payloadOverride || pendingSavePayload;
     if (!payload) return;
+    setIsSubmitting(true);
     try {
       if (editingItem) {
         await apiService.patch(`/sales/deliveries/${editingItem.id}`, payload);
@@ -868,6 +934,8 @@ const SalesDeliveryManagement: React.FC = () => {
       const resp = error?.response?.data;
       const msg = resp?.message || error?.message;
       message.error(Array.isArray(msg) ? msg[0] : (typeof msg === 'string' ? msg : 'Failed to save delivery'));
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -1063,6 +1131,99 @@ const SalesDeliveryManagement: React.FC = () => {
       ),
     },
     {
+      title: (
+        <span>
+          Quantities & Balance
+          <div style={{ fontSize: 10, fontWeight: 'normal', color: '#64748b' }}>Ordered / Dispatched / Balance</div>
+        </span>
+      ),
+      key: 'quantities',
+      width: 250,
+      render: (_, record) => {
+        const orderCtn = record.totalOrderCartons ?? (record.totalOrderQuantity ? Number((record.totalOrderQuantity / 10).toFixed(1)) : 0);
+        const orderQty = record.totalOrderQuantity ?? (orderCtn * 10);
+        const dispCtn = record.totalDispatchCartons ?? (record.totalDispatchQuantity ? Number((record.totalDispatchQuantity / 10).toFixed(1)) : 0);
+        const dispQty = record.totalDispatchQuantity ?? (dispCtn * 10);
+        const balCtn = record.totalBalanceCartons ?? (record.totalBalanceQuantity ? Number((record.totalBalanceQuantity / 10).toFixed(1)) : 0);
+        const balQty = record.totalBalanceQuantity ?? (balCtn * 10);
+        const isDone = record.isCompleted || (orderQty > 0 && balQty <= 0);
+        const pct = orderQty > 0 ? Math.min(100, Math.round(((orderQty - balQty) / orderQty) * 100)) : 100;
+
+        const popoverContent = (
+          <div style={{ maxWidth: 360, padding: 4 }}>
+            <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8, color: '#1e293b' }}>
+              Itemized Delivery Breakdown
+            </div>
+            {record.itemsSummary && record.itemsSummary.length > 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {record.itemsSummary.map((item, idx) => (
+                  <div key={idx} style={{ padding: '6px 8px', background: '#f8fafc', borderRadius: 6, border: '1px solid #e2e8f0' }}>
+                    <div style={{ fontWeight: 600, fontSize: 12, color: '#0f172a' }}>
+                      {item.itemCode ? `[${item.itemCode}] ` : ''}{item.itemName || 'Item'}
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginTop: 4, color: '#475569' }}>
+                      <span>Ordered: <b>{item.orderedCartons} CTN</b> ({item.orderedQuantity} GRS)</span>
+                      <span style={{ color: '#2563eb' }}>This Disp: <b>{item.dispatchedCartons} CTN</b></span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginTop: 2 }}>
+                      <span style={{ color: '#059669' }}>Total Shipped: <b>{item.totalShippedCartons} CTN</b></span>
+                      <span style={{ fontWeight: 700, color: item.isCompleted ? '#16a34a' : '#d97706' }}>
+                        {item.isCompleted ? '✅ Complete' : `Bal: ${item.balanceCartons} CTN`}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={{ fontSize: 12, color: '#64748b' }}>
+                Dispatch: {dispCtn} CTN ({dispQty} GRS)
+              </div>
+            )}
+          </div>
+        );
+
+        return (
+          <Popover content={popoverContent} title={null} trigger="hover">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 3, cursor: 'pointer' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: 11, color: '#64748b', fontWeight: 500 }}>Ordered:</span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: '#1e293b' }}>
+                  {orderCtn > 0 ? `${orderCtn} CTN` : '-'} <span style={{ fontSize: 10, color: '#64748b', fontWeight: 'normal' }}>({orderQty} GRS)</span>
+                </span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: 11, color: '#2563eb', fontWeight: 600 }}>Dispatched:</span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: '#2563eb' }}>
+                  {dispCtn} CTN <span style={{ fontSize: 10, color: '#3b82f6', fontWeight: 'normal' }}>({dispQty} GRS)</span>
+                </span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: 11, color: isDone ? '#16a34a' : '#d97706', fontWeight: 600 }}>Balance:</span>
+                <span style={{ fontSize: 12, fontWeight: 800, color: isDone ? '#16a34a' : '#ea580c' }}>
+                  {isDone ? (
+                    <Tag color="success" style={{ margin: 0, fontWeight: 700 }}>
+                      <CheckCircleOutlined style={{ marginRight: 3 }} /> Complete (0 Bal)
+                    </Tag>
+                  ) : (
+                    `${balCtn} CTN (${balQty} GRS)`
+                  )}
+                </span>
+              </div>
+              {orderQty > 0 && (
+                <Progress
+                  percent={pct}
+                  size="small"
+                  status={isDone ? 'success' : 'active'}
+                  strokeColor={isDone ? '#16a34a' : '#2563eb'}
+                  style={{ margin: 0 }}
+                />
+              )}
+            </div>
+          </Popover>
+        );
+      },
+    },
+    {
       title: 'Logistics',
       key: 'logistics',
       width: 200,
@@ -1230,6 +1391,30 @@ const SalesDeliveryManagement: React.FC = () => {
                   <StopOutlined />
                 </button>
               </Tooltip>
+            )}
+            {(s === 'DRAFT' || s === 'CANCELLED') && (
+              <Popconfirm
+                title="Delete Delivery Note"
+                description={`Are you sure you want to delete ${record.deliveryNumber}?`}
+                okText="Yes, Delete"
+                cancelText="No"
+                okButtonProps={{ danger: true }}
+                onConfirm={async () => {
+                  try {
+                    await apiService.delete(`/sales/deliveries/${record.id}`);
+                    message.success(`Delivery ${record.deliveryNumber} deleted successfully`);
+                    fetchData(page, pageSize);
+                  } catch (err: any) {
+                    message.error(err?.response?.data?.message || 'Failed to delete delivery');
+                  }
+                }}
+              >
+                <Tooltip title="Delete Delivery">
+                  <button className="inv-action-btn inv-btn-cancel" style={{ color: '#ef4444' }}>
+                    <DeleteOutlined />
+                  </button>
+                </Tooltip>
+              </Popconfirm>
             )}
           </div>
         );
@@ -1590,7 +1775,7 @@ const SalesDeliveryManagement: React.FC = () => {
           <Button key="cancel" onClick={() => setModalVisible(false)}>
             Cancel
           </Button>,
-          <Button key="submit" type="primary" onClick={handleSubmitForm}>
+          <Button key="submit" type="primary" loading={isSubmitting} disabled={isSubmitting} onClick={handleSubmitForm}>
             {editingItem ? 'Update Delivery' : 'Save & Create Delivery'}
           </Button>,
         ]}
@@ -1763,7 +1948,17 @@ const SalesDeliveryManagement: React.FC = () => {
             </Col>
           </Row>
 
-          <ERPLineItems companyId={companyId} value={lineItems} onChange={setLineItems} showWarehouse={false} label="Delivery Items" currency="PKR" context="sales" />
+          <ERPLineItems
+            companyId={companyId}
+            value={lineItems}
+            onChange={setLineItems}
+            showWarehouse={false}
+            label="Delivery Items"
+            currency="PKR"
+            context="delivery"
+            customerId={form.getFieldValue('customerId')}
+            orderId={form.getFieldValue('salesOrderId')}
+          />
           <Form.Item name="notes" label="Dispatch & Delivery Notes">
             <Input.TextArea rows={3} placeholder="Add any special handling or delivery instructions..." />
           </Form.Item>
@@ -1796,6 +1991,8 @@ const SalesDeliveryManagement: React.FC = () => {
             type="primary"
             danger
             size="large"
+            loading={isSubmitting}
+            disabled={isSubmitting}
             onClick={() => executeSave()}
             style={{ fontWeight: 700, height: 42, padding: '0 20px', backgroundColor: '#dc2626', borderColor: '#dc2626' }}
           >

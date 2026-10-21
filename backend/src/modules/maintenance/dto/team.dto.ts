@@ -1,7 +1,8 @@
-import { IsString, IsNotEmpty, IsOptional, IsUUID, IsBoolean, IsArray, ValidateNested } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsBoolean, IsArray, ValidateNested } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsUuid } from '../../../common/validators';
+import { IsUUID } from '../../../common/uuid-loose.validator';
 
 export class CreateTeamDto {
   @ApiProperty({ description: 'Company ID' })

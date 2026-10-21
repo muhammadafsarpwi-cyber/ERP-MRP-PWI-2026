@@ -2,7 +2,6 @@ import {
   IsString,
   IsEnum,
   IsOptional,
-  IsUUID,
   IsNumber,
   IsPositive,
   IsArray,
@@ -18,6 +17,7 @@ import {
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { ProductionUnitCodeType, ProductionUnitStatus } from '../entities/production-unit.entity';
+import { IsUUID } from '../../../common/uuid-loose.validator';
 
 // ─── Individual unit row sent from frontend after generation ─────────────────
 export class UnitRowDto {

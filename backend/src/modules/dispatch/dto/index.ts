@@ -2,7 +2,6 @@ import {
   IsString,
   IsNotEmpty,
   IsOptional,
-  IsUUID,
   IsArray,
   IsDateString,
   IsEnum,
@@ -11,6 +10,7 @@ import {
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { DispatchPackageStatus } from '../entities/dispatch-package.entity';
+import { IsUUID } from '../../../common/uuid-loose.validator';
 
 export class CreateDispatchPackageDto {
   @ApiPropertyOptional()

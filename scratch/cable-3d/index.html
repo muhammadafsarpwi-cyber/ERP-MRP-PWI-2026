@@ -1,0 +1,750 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MOTO-CABLE // 3D INDUSTRIAL ANIMATION</title>
+<style>
+  :root{ --cy:#5fe6ff; --am:#ff8a3d; }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; height:100%; background:#05070a; overflow:hidden;
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Roboto Mono",monospace;
+    color:#c9d6e2; -webkit-font-smoothing:antialiased; }
+  #view{ position:fixed; inset:0; width:100%; height:100%; display:block; cursor:grab; }
+  #view.drag{ cursor:grabbing; }
+  .hud{ position:fixed; pointer-events:none; z-index:5; }
+  #brand{ top:18px; left:22px; letter-spacing:.22em; font-size:11px; color:#7fa5bd; text-transform:uppercase; }
+  #brand b{ display:block; font-size:19px; letter-spacing:.34em; color:#eaf5ff; font-weight:600; margin-bottom:5px; }
+  #brand s{ text-decoration:none; opacity:.5; }
+  #stats{ top:18px; right:22px; text-align:right; font-size:10.5px; line-height:1.85; letter-spacing:.14em; color:#6f8ea3; text-transform:uppercase; }
+  #stats i{ font-style:normal; color:var(--cy); }
+  #panel{ bottom:18px; left:22px; display:flex; gap:9px; align-items:center; flex-wrap:wrap;
+    pointer-events:auto; max-width:calc(100vw - 44px); }
+  button, select{ font:inherit; font-size:10.5px; letter-spacing:.16em; text-transform:uppercase; color:#bcd6e8;
+    background:rgba(11,17,25,.74); border:1px solid rgba(120,180,220,.26); padding:9px 13px; border-radius:2px;
+    backdrop-filter:blur(9px); cursor:pointer; transition:.16s; }
+  button:hover, select:hover{ border-color:var(--cy); color:#eaf7ff; box-shadow:0 0 20px rgba(95,230,255,.2) inset; }
+  button.on{ border-color:var(--am); color:#ffd9bd; }
+  .grp{ display:flex; align-items:center; gap:9px; background:rgba(11,17,25,.74); border:1px solid rgba(120,180,220,.26);
+    padding:7px 12px; border-radius:2px; backdrop-filter:blur(9px); font-size:10.5px; letter-spacing:.14em; text-transform:uppercase; color:#8fb2c7; }
+  input[type=range]{ width:104px; accent-color:#5fe6ff; cursor:pointer; }
+  #hint{ bottom:20px; right:22px; font-size:10px; letter-spacing:.2em; color:#4f657a; text-align:right; line-height:1.9; text-transform:uppercase; }
+  #loader{ position:fixed; inset:0; display:grid; place-items:center; background:#05070a; z-index:20;
+    transition:opacity .7s ease; font-size:11px; letter-spacing:.45em; color:#5fe6ff; text-transform:uppercase; }
+  #loader.gone{ opacity:0; pointer-events:none; }
+  #err{ position:fixed; left:22px; top:96px; color:#ff6b5a; font-size:11px; white-space:pre-wrap; z-index:30; max-width:74vw; }
+  #vig{ position:fixed; inset:0; pointer-events:none; z-index:4;
+    background:radial-gradient(120% 90% at 50% 45%, rgba(0,0,0,0) 42%, rgba(0,0,0,.55) 100%); }
+</style>
+<script type="importmap">
+{ "imports": { "three": "./vendor/three/three.module.js", "three/addons/": "./vendor/three/" } }
+</script>
+</head>
+<body>
+<canvas id="view"></canvas>
+<div id="vig"></div>
+<div id="loader">initializing render pipeline</div>
+<div id="err"></div>
+
+<div class="hud" id="brand">
+  <b>CABLE//SYSTEM</b>
+  <s>control cables &amp; protective casings — inner wire motion study</s>
+</div>
+
+<div class="hud" id="stats">
+  fps <i id="sFps">--</i><br/>
+  draw <i id="sDraw">--</i><br/>
+  tris <i id="sTri">--</i><br/>
+  res <i id="sRes">--</i>
+</div>
+
+<div class="hud" id="panel">
+  <button id="btnPlay" class="on">❙❙ pause</button>
+  <div class="grp">flow <input id="rngSpeed" type="range" min="0" max="300" value="100" /></div>
+  <button id="btnShell" class="on">shell on</button>
+  <button id="btnOrbit" class="on">orbit on</button>
+  <button id="btnReset">reset view</button>
+  <div class="grp">out
+    <select id="selRes">
+      <option value="1920x1080">1920×1080</option>
+      <option value="2560x1440">2560×1440</option>
+      <option value="3840x2160" selected>3840×2160 (4K)</option>
+    </select>
+  </div>
+  <button id="btnShot">⤓ capture frame</button>
+</div>
+
+<div class="hud" id="hint">drag to orbit · wheel to dolly<br/>glossy pbr · cutaway casings · animated core</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+
+const V3 = THREE.Vector3;
+const $ = (id) => document.getElementById(id);
+window.onerror = (m, s, l) => { $('err').textContent = 'ERR ' + m + ' @' + s + ':' + l; };
+
+/* ============================== renderer ============================== */
+const canvas = $('view');
+const renderer = new THREE.WebGLRenderer({
+  canvas, antialias: true, alpha: false, powerPreference: 'high-performance',
+  preserveDrawingBuffer: true, stencil: false
+});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.setSize(innerWidth, innerHeight, false);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 0.88;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.info.autoReset = false;
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.FogExp2(0x04060c, 0.033);
+
+const camera = new THREE.PerspectiveCamera(34, innerWidth / innerHeight, 0.1, 400);
+
+/* ============================== procedural maps ============================== */
+function canvasTex(w, h, draw, { rep = null, srgb = false } = {}) {
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  draw(c.getContext('2d'), w, h);
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+  if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+  if (rep) t.repeat.set(rep[0], rep[1]);
+  return t;
+}
+
+// longitudinal brushed-metal streaks (used as roughness map: x = along cable)
+const brushedTex = () => canvasTex(512, 512, (x, w, h) => {
+  x.fillStyle = '#8a8a8a'; x.fillRect(0, 0, w, h);
+  for (let y = 0; y < h; y++) {
+    const v = 120 + Math.random() * 90;
+    x.strokeStyle = 'rgba(' + (v | 0) + ',' + (v | 0) + ',' + (v | 0) + ',.55)';
+    x.lineWidth = 1;
+    x.beginPath(); x.moveTo(0, y + .5); x.lineTo(w, y + .5); x.stroke();
+  }
+  for (let i = 0; i < 90; i++) {                       // scratches
+    const y = Math.random() * h, len = 40 + Math.random() * 300, sx = Math.random() * w;
+    x.strokeStyle = 'rgba(255,255,255,' + (0.05 + Math.random() * 0.16).toFixed(3) + ')';
+    x.lineWidth = Math.random() < .8 ? 1 : 2;
+    x.beginPath(); x.moveTo(sx, y); x.lineTo(sx + len, y + (Math.random() - .5) * 3); x.stroke();
+  }
+}, { rep: [6, 2] });
+
+// wound / braided silver striations for the core wire (color map, flows along x)
+const strandTex = () => canvasTex(256, 128, (x, w, h) => {
+  x.fillStyle = '#9aa4b1'; x.fillRect(0, 0, w, h);
+  x.lineWidth = 7; x.lineCap = 'round';
+  for (let i = -2; i < 14; i++) {
+    x.strokeStyle = i % 2 ? '#dfe7f1' : '#6a7482';
+    x.beginPath(); x.moveTo(i * 22, 0); x.lineTo(i * 22 + 54, h); x.stroke();
+  }
+  x.globalAlpha = .5; x.lineWidth = 3;
+  for (let i = -2; i < 14; i++) { x.strokeStyle = '#ffffff'; x.beginPath(); x.moveTo(i * 22 + 8, 0); x.lineTo(i * 22 + 62, h); x.stroke(); }
+}, { rep: [1, 1], srgb: true });
+
+// emissive floor grid
+const gridTex = () => canvasTex(256, 256, (x, w, h) => {
+  x.fillStyle = '#000'; x.fillRect(0, 0, w, h);
+  x.strokeStyle = '#31d7ff'; x.lineWidth = 10; x.globalAlpha = .16; x.strokeRect(0, 0, w, h);
+  x.lineWidth = 3; x.globalAlpha = .5; x.strokeRect(0, 0, w, h);
+  x.lineWidth = 1.4; x.globalAlpha = 1; x.strokeRect(0, 0, w, h);
+  x.fillStyle = '#9df3ff'; x.globalAlpha = .8;
+  [[0, 0], [w, 0], [0, h], [w, h]].forEach(p => { x.beginPath(); x.arc(p[0], p[1], 5, 0, 7); x.fill(); });
+}, { rep: [96, 96] });
+
+/* ============================== environment (studio HDRI-ish) ============================== */
+function buildEnvironment() {
+  const s = new THREE.Scene();
+  const room = new THREE.Mesh(new THREE.SphereGeometry(40, 32, 16),
+    new THREE.MeshBasicMaterial({ side: THREE.BackSide, color: new THREE.Color(0.02, 0.03, 0.045) }));
+  s.add(room);
+  const panel = (w, h, col, pos) => {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ color: col, side: THREE.DoubleSide }));
+    m.position.copy(pos); m.lookAt(0, 0, 0); s.add(m);
+  };
+  panel(26, 14, new THREE.Color(3.4, 3.5, 3.9), new V3(0, 16, 4));      // key softbox
+  panel(7, 30, new THREE.Color(0.15, 1.9, 3.4), new V3(-17, 5, 3));      // cyan strip
+  panel(7, 30, new THREE.Color(3.0, 1.15, 0.24), new V3(17, 4, -3));     // amber strip
+  panel(30, 12, new THREE.Color(0.45, 0.58, 0.82), new V3(0, 5, -18));   // cool back fill
+  panel(34, 34, new THREE.Color(0.15, 0.19, 0.27), new V3(0, -14, 0));   // floor bounce
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  const rt = pmrem.fromScene(s, 0.03);
+  pmrem.dispose();
+  return rt.texture;
+}
+scene.environment = buildEnvironment();
+if ('environmentIntensity' in scene) scene.environmentIntensity = 0.8;
+
+/* ============================== sky / floor / tech props ============================== */
+const sky = new THREE.Mesh(
+  new THREE.SphereGeometry(120, 48, 32),
+  new THREE.ShaderMaterial({
+    side: THREE.BackSide, depthWrite: false, fog: false,
+    vertexShader: 'varying vec3 vP; void main(){ vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
+    fragmentShader: `
+      varying vec3 vP;
+      void main(){
+        vec3 d = normalize(vP);
+        float h = d.y * 0.5 + 0.5;
+        vec3 col = mix(vec3(0.012,0.019,0.031), vec3(0.002,0.004,0.008), smoothstep(0.42,1.0,h));
+        col = mix(col, vec3(0.020,0.055,0.085), smoothstep(0.58,0.34,h));
+        float g = pow(max(0.0, dot(d, normalize(vec3(-0.35,0.40,0.85)))), 6.0);
+        col += vec3(0.05,0.12,0.17) * g;
+        float g2 = pow(max(0.0, dot(d, normalize(vec3(0.75,0.25,-0.55)))), 10.0);
+        col += vec3(0.14,0.07,0.03) * g2;
+        gl_FragColor = vec4(col, 1.0);
+      }`
+  }));
+scene.add(sky);
+
+const floorMat = new THREE.MeshStandardMaterial({
+  color: 0x04060a, roughness: 0.5, metalness: 0.55, envMapIntensity: 0.35,
+  emissive: 0x17a8c8, emissiveIntensity: 0.3, emissiveMap: gridTex()
+});
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(240, 240), floorMat);
+floor.rotation.x = -Math.PI / 2; floor.position.y = 0; floor.receiveShadow = true;
+scene.add(floor);
+
+// background light bars (picked up by bloom)
+const bars = new THREE.Group();
+const barMat = (r, g, b) => new THREE.MeshBasicMaterial({ color: new THREE.Color(r, g, b) });
+[
+  { p: [-9.5, 3.4, -13], s: [0.07, 6.8, 0.07], c: [0.25, 2.4, 3.6] },
+  { p: [-6.0, 2.2, -17], s: [0.06, 4.4, 0.06], c: [0.2, 1.7, 2.7] },
+  { p: [8.8, 3.0, -12], s: [0.07, 6.0, 0.07], c: [3.4, 1.35, 0.35] },
+  { p: [12.4, 2.0, -18], s: [0.06, 4.2, 0.06], c: [0.2, 1.6, 2.5] },
+  { p: [2.0, 4.6, -21], s: [9.0, 0.06, 0.06], c: [0.25, 1.5, 2.2] },
+  { p: [-13.5, 5.4, -22], s: [0.06, 8.4, 0.06], c: [2.6, 1.0, 0.3] },
+].forEach(b => {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(b.s[0], b.s[1], b.s[2]), barMat(b.c[0], b.c[1], b.c[2]));
+  m.position.set(b.p[0], b.p[1], b.p[2]); bars.add(m);
+});
+scene.add(bars);
+
+/* ============================== lights ============================== */
+scene.add(new THREE.HemisphereLight(0x24405a, 0x04060a, 0.28));
+
+const key = new THREE.SpotLight(0xfff1e2, 260, 70, 0.62, 0.72, 2);
+key.position.set(-7.5, 13, 11); key.target.position.set(0, 1.8, 0);
+key.castShadow = true;
+key.shadow.mapSize.set(2048, 2048);
+key.shadow.bias = -0.0007; key.shadow.normalBias = 0.02;
+key.shadow.camera.near = 3; key.shadow.camera.far = 55;
+scene.add(key, key.target);
+
+const rim = new THREE.SpotLight(0x64dcff, 260, 70, 0.7, 0.8, 2);
+rim.position.set(11, 7.5, -12); rim.target.position.set(0, 2, -1);
+scene.add(rim, rim.target);
+
+const warm = new THREE.PointLight(0xff8a44, 45, 46, 2);
+warm.position.set(-11, 3.4, -8);
+scene.add(warm);
+
+const fill = new THREE.PointLight(0x86c8ff, 30, 46, 2);
+fill.position.set(3, 6.5, 9);
+scene.add(fill);
+
+/* ============================== cable shader patches ============================== */
+const anim = [];   // { u: {uPulse, uPhase}, tex: [...], speed }
+
+function patchCable(mat, { pulseColor = 0x7ff0ff, pulseAmp = 0.55, pulseDiv = 1, key = 'cablePulse', strand = null, flowTex = null, flowSpeed = 0.3, speed = 1, offset = 0 } = {}) {
+  const u = {
+    uPulse: { value: offset % 1 },
+    uPhase: { value: 0 },
+    uPulseColor: { value: new THREE.Color(pulseColor) },
+    uPulseAmp: { value: pulseAmp },
+    uPulseDiv: { value: pulseDiv },
+    uHelixR: { value: strand ? strand.helixR : 0 },
+    uStrandR: { value: strand ? strand.strandR : 0 },
+  };
+  mat.onBeforeCompile = (sh) => {
+    Object.assign(sh.uniforms, u);
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', `#include <common>
+        varying vec2 vCbl;
+        ${strand ? `
+        attribute vec3 aCenter; attribute vec3 aN; attribute vec3 aB; attribute vec3 aT; attribute vec2 aParams;
+        uniform float uPhase; uniform float uHelixR; uniform float uStrandR;` : ''}`)
+      .replace('#include <beginnormal_vertex>', strand ? `
+        float th_ = aParams.x + uPhase;
+        float ph_ = aParams.y;
+        float ct_ = cos(th_), st_ = sin(th_);
+        vec3 dirR_ = ct_ * aN + st_ * aB;
+        vec3 e2_  = -st_ * aN + ct_ * aB;
+        vec3 c_   = aCenter + dirR_ * uHelixR;
+        vec3 objectNormal = normalize(cos(ph_) * e2_ + sin(ph_) * aT);`
+        : `#include <beginnormal_vertex>`)
+      .replace('#include <begin_vertex>', strand ? `
+        vec3 transformed = c_ + uStrandR * (cos(ph_) * e2_ + sin(ph_) * aT);
+        vCbl = uv;`
+        : `#include <begin_vertex>
+        vCbl = uv;`);
+
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', `#include <common>
+        varying vec2 vCbl; uniform float uPulse; uniform vec3 uPulseColor; uniform float uPulseAmp; uniform float uPulseDiv;`)
+      .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+        float pc_ = fract(vCbl.x / uPulseDiv - uPulse);
+        float pd_ = abs(pc_ - floor(pc_ + 0.5));
+        float band_ = smoothstep(0.032, 0.0, pd_);
+        float tail_ = smoothstep(0.16, 0.0, pd_);
+        totalEmissiveRadiance += uPulseColor * (band_ * uPulseAmp + tail_ * uPulseAmp * 0.22);`);
+  };
+  mat.customProgramCacheKey = () => key;
+  anim.push({ u, flowTex, flowSpeed, speed, offset });
+  return mat;
+}
+
+/* ============================== geometry builders ============================== */
+function shellGeometry({ pts, frames, angles, width, rOut, rIn, segs, radial, ribs, uRep }) {
+  const pos = [], uv = [], idx = [];
+  const R = radial + 1;
+  const angleAt = (i, j) => angles[i] + width * (j / radial - 0.5);
+  const rOutAt = (i, a) => {
+    if (!ribs) return rOut;
+    const ph = ribs.turns * Math.PI * 2 * (i / segs) - a;
+    const shape = Math.pow(0.5 + 0.5 * Math.cos(ph), 1.6);
+    return rOut - ribs.amp + ribs.amp * shape;
+  };
+  const P = (i, j, r) => {
+    const a = angleAt(i, j), N = frames.normals[i], B = frames.binormals[i];
+    const c = Math.cos(a) * r, s = Math.sin(a) * r;
+    return new V3(pts[i].x + N.x * c + B.x * s, pts[i].y + N.y * c + B.y * s, pts[i].z + N.z * c + B.z * s);
+  };
+  const grid = (radiusFn) => {
+    const s0 = pos.length / 3;
+    for (let i = 0; i <= segs; i++) for (let j = 0; j <= radial; j++) {
+      const p = P(i, j, radiusFn(i, angleAt(i, j)));
+      pos.push(p.x, p.y, p.z);
+      uv.push((i / segs) * uRep, j / radial);
+    }
+    for (let i = 0; i < segs; i++) for (let j = 0; j < radial; j++) {
+      const a = s0 + i * R + j, b = a + R, c = a + 1, d = b + 1;
+      idx.push(a, b, c, c, b, d);
+    }
+  };
+  const ribbon = (seq) => {
+    const s0 = pos.length / 3;
+    for (const [a, b] of seq) { pos.push(a.x, a.y, a.z, b.x, b.y, b.z); uv.push(0, 0, 0.02, 0); }
+    for (let k = 0; k < seq.length - 1; k++) {
+      const p = s0 + 2 * k;
+      idx.push(p, p + 2, p + 1, p + 1, p + 2, p + 3);
+    }
+  };
+  grid(rOutAt);
+  const c0 = idx.length;
+  grid(() => rIn);
+  const c1 = idx.length;
+  for (const j of [0, radial]) {
+    const seq = [];
+    for (let i = 0; i <= segs; i++) seq.push([P(i, j, rOutAt(i, angleAt(i, j))), P(i, j, rIn)]);
+    ribbon(seq);
+  }
+  const c2 = idx.length;
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  g.addGroup(0, c0, 0);                 // outer armour / gloss skin
+  g.addGroup(c0, c1 - c0, 1);           // dark inner liner
+  g.addGroup(c1, c2 - c1, 0);           // cut-edge lips
+  g.computeVertexNormals();
+  g.computeBoundingSphere();
+  return g;
+}
+
+function strandGeometry({ pts, frames, segs, radial, helixR, strandR, turns, phase0, uRep }) {
+  const pos = [], nrm = [], uv = [], idx = [];
+  const aC = [], aN = [], aB = [], aT = [], aP = [];
+  const R = radial + 1;
+  for (let i = 0; i <= segs; i++) {
+    const P = pts[i], N = frames.normals[i], B = frames.binormals[i], T = frames.tangents[i];
+    const th = turns * Math.PI * 2 * (i / segs) + phase0;
+    const ct = Math.cos(th), st = Math.sin(th);
+    const rx = N.x * ct + B.x * st, ry = N.y * ct + B.y * st, rz = N.z * ct + B.z * st;
+    const e2x = -N.x * st + B.x * ct, e2y = -N.y * st + B.y * ct, e2z = -N.z * st + B.z * ct;
+    const cx = P.x + rx * helixR, cy = P.y + ry * helixR, cz = P.z + rz * helixR;
+    for (let j = 0; j <= radial; j++) {
+      const ph = Math.PI * 2 * (j / radial), cp = Math.cos(ph), sp = Math.sin(ph);
+      const nx = e2x * cp + T.x * sp, ny = e2y * cp + T.y * sp, nz = e2z * cp + T.z * sp;
+      pos.push(cx + strandR * nx, cy + strandR * ny, cz + strandR * nz);
+      nrm.push(nx, ny, nz);
+      uv.push((i / segs) * uRep, j / radial);
+      aC.push(P.x, P.y, P.z);
+      aN.push(N.x, N.y, N.z);
+      aB.push(B.x, B.y, B.z);
+      aT.push(T.x, T.y, T.z);
+      aP.push(th, ph);
+    }
+  }
+  for (let i = 0; i < segs; i++) for (let j = 0; j < radial; j++) {
+    const a = i * R + j, b = a + R, c = a + 1, d = b + 1;
+    idx.push(a, b, c, c, b, d);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setAttribute('aCenter', new THREE.Float32BufferAttribute(aC, 3));
+  g.setAttribute('aN', new THREE.Float32BufferAttribute(aN, 3));
+  g.setAttribute('aB', new THREE.Float32BufferAttribute(aB, 3));
+  g.setAttribute('aT', new THREE.Float32BufferAttribute(aT, 3));
+  g.setAttribute('aParams', new THREE.Float32BufferAttribute(aP, 2));
+  g.setIndex(idx);
+  g.computeBoundingSphere();
+  return g;
+}
+
+/* ============================== hardware (ferrules / adjusters) ============================== */
+const M = {
+  chrome: () => new THREE.MeshStandardMaterial({ color: 0xb6c0cc, metalness: 1, roughness: 0.09, envMapIntensity: 1.25 }),
+  steel: () => new THREE.MeshStandardMaterial({ color: 0x8e98a5, metalness: 1, roughness: 0.27, roughnessMap: brushedTex(), envMapIntensity: 1.05 }),
+  dark: () => new THREE.MeshStandardMaterial({ color: 0x12151a, metalness: 0.55, roughness: 0.38, envMapIntensity: 0.9 }),
+  accent: (c) => new THREE.MeshStandardMaterial({ color: c, metalness: 0.85, roughness: 0.32, envMapIntensity: 1.1 }),
+};
+
+function ferrule(rOut, accent, flip) {
+  const g = new THREE.Group();
+  const L1 = rOut * 3.2, L2 = rOut * 2.4;
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(rOut * 1.06, rOut * 1.06, L1, 28), M.chrome());
+  body.position.y = L1 / 2; g.add(body);
+  for (let i = 0; i < 4; i++) {                       // crimp rings
+    const t = new THREE.Mesh(new THREE.TorusGeometry(rOut * 1.1, rOut * 0.1, 8, 30), M.steel());
+    t.rotation.x = Math.PI / 2; t.position.y = L1 * (0.14 + i * 0.19); g.add(t);
+  }
+  const band = new THREE.Mesh(new THREE.CylinderGeometry(rOut * 1.14, rOut * 1.14, rOut * 0.5, 28), M.accent(accent));
+  band.position.y = L1 + rOut * 0.3; g.add(band);
+  const hex = new THREE.Mesh(new THREE.CylinderGeometry(rOut * 1.3, rOut * 1.3, rOut * 1.5, 6), M.steel());
+  hex.position.y = L1 + rOut * 1.4; g.add(hex);
+  const adj = new THREE.Mesh(new THREE.CylinderGeometry(rOut * 0.82, rOut * 0.9, L2, 26), M.chrome());
+  adj.position.y = L1 + rOut * 2.2 + L2 / 2; g.add(adj);
+  const tip = new THREE.Mesh(new THREE.CylinderGeometry(rOut * 0.6, rOut * 0.78, rOut * 1.6, 24), M.dark());
+  tip.position.y = L1 + rOut * 2.2 + L2 + rOut * 0.8; g.add(tip);
+  const collar = new THREE.Mesh(new THREE.TorusGeometry(rOut * 0.92, rOut * 0.09, 8, 28), M.accent(accent));
+  collar.rotation.x = Math.PI / 2; collar.position.y = L1 + rOut * 2.2 + L2; g.add(collar);
+  g.traverse(o => { if (o.isMesh) { o.castShadow = false; o.receiveShadow = false; } });
+  if (flip) g.rotation.z = Math.PI;    // not used — orientation handled by quaternion
+  return g;
+}
+
+function actuator(rOut, accent) {
+  const g = new THREE.Group();
+  const base = new THREE.Mesh(new THREE.BoxGeometry(rOut * 4.4, rOut * 1.6, rOut * 3.4), M.dark());
+  base.position.y = rOut * 0.8; g.add(base);
+  const boss = new THREE.Mesh(new THREE.CylinderGeometry(rOut * 1.5, rOut * 1.7, rOut * 2.2, 24), M.steel());
+  boss.position.y = rOut * 2.4; g.add(boss);
+  const pin = new THREE.Mesh(new THREE.CylinderGeometry(rOut * 0.42, rOut * 0.42, rOut * 4.0, 16), M.chrome());
+  pin.rotation.x = Math.PI / 2; pin.position.y = rOut * 3.4; g.add(pin);
+  const arm = new THREE.Group(); arm.position.y = rOut * 3.4;
+  const lever = new THREE.Mesh(new THREE.BoxGeometry(rOut * 5.6, rOut * 0.9, rOut * 1.1), M.accent(accent));
+  lever.position.x = rOut * 2.4; arm.add(lever);
+  const pad = new THREE.Mesh(new THREE.CylinderGeometry(rOut * 1.05, rOut * 1.05, rOut * 1.3, 20), M.dark());
+  pad.rotation.x = Math.PI / 2; pad.position.x = rOut * 5.1; arm.add(pad);
+  g.add(arm);
+  const screw = new THREE.Mesh(new THREE.CylinderGeometry(rOut * 0.5, rOut * 0.5, rOut * 0.5, 6), M.chrome());
+  screw.rotation.x = Math.PI / 2; screw.position.y = rOut * 3.4; screw.position.z = rOut * 2.1; g.add(screw);
+  g.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  g.userData.arm = arm;
+  return g;
+}
+
+/* ============================== cables ============================== */
+const CABLE_DEFS = [
+  {
+    name: 'throttle', hero: true,
+    pts: [[-6.0, 1.00, 2.7], [-3.4, 2.20, 2.4], [-0.5, 1.40, 2.05], [2.8, 2.55, 1.65], [6.0, 1.35, 1.3]],
+    r: 0.26, style: 'coil', window: 2.6, ribs: { turns: 30, amp: 0.034 }, accent: 0xff5a3c, speed: 1.0, offset: 0.0,
+  },
+  {
+    name: 'clutch',
+    pts: [[-6.0, 1.85, 0.45], [-3.0, 3.05, 0.05], [0.2, 2.20, -0.35], [3.2, 3.25, -0.75], [6.2, 2.10, -1.15]],
+    r: 0.175, style: 'gloss', window: 1.9, ribs: null, accent: 0x2ea8ff, speed: 0.85, offset: 0.32
+  },
+  {
+    name: 'brake',
+    pts: [[-5.8, 0.78, -1.5], [-2.6, 1.75, -1.95], [0.6, 1.05, -2.35], [3.4, 1.95, -2.75], [5.9, 1.15, -3.15]],
+    r: 0.15, style: 'coil', window: 1.7, ribs: { turns: 34, amp: 0.026 }, accent: 0x5fe6a0, speed: 1.15, offset: 0.6
+  },
+  {
+    name: 'sensor',
+    pts: [[-5.4, 2.85, -3.7], [-2.2, 3.75, -4.05], [1.0, 3.15, -4.45], [4.4, 3.85, -4.85]],
+    r: 0.12, style: 'gloss', window: 1.4, ribs: null, accent: 0xffc44d, speed: 0.7, offset: 0.8
+  },
+];
+
+const cablesGroup = new THREE.Group();
+scene.add(cablesGroup);
+const shells = [];
+const arms = [];
+let heroCurve = null, heroPulse = null;
+const pulseLight = new THREE.PointLight(0x93efff, 9, 5, 2);
+const _pv = new V3();
+scene.add(pulseLight);
+
+function buildCable(def) {
+  const curve = new THREE.CatmullRomCurve3(def.pts.map(p => new V3(p[0], p[1], p[2])), false, 'catmullrom', 0.5);
+  const segs = 340, radial = 30;
+  const frames = curve.computeFrenetFrames(segs, false);
+  const pts = curve.getSpacedPoints(segs);
+
+  const amp = def.ribs ? def.ribs.amp : 0;
+  const wall = def.r * 0.15;
+  const rIn = def.r - amp - wall;
+
+  // window always faces the camera side (+Z, slightly up), following the curve
+  const ref = new V3(0, 0.52, 1).normalize();
+  const angles = pts.map((P, i) => {
+    const T = frames.tangents[i];
+    const D = ref.clone().addScaledVector(T, -ref.dot(T));
+    if (D.lengthSq() < 1e-6) D.copy(frames.normals[i]);
+    D.normalize();
+    return Math.atan2(D.dot(frames.binormals[i]), D.dot(frames.normals[i]));
+  });
+
+  const g = new THREE.Group();
+  const uRep = def.style === 'coil' ? 26 : 18;
+
+  /* --- protective outer casing (cut away) --- */
+  const shellGeo = shellGeometry({
+    pts, frames, angles, width: def.window, rOut: def.r, rIn,
+    segs, radial, ribs: def.ribs, uRep
+  });
+  const shellMat = def.style === 'coil'
+    ? new THREE.MeshStandardMaterial({
+      color: 0xff0000, metalness: 0.1, roughness: 0.9, roughnessMap: brushedTex(),
+      envMapIntensity: 0.9, side: THREE.DoubleSide
+    })
+    : new THREE.MeshPhysicalMaterial({
+      color: 0x13161c, metalness: 0.62, roughness: 0.14, clearcoat: 1, clearcoatRoughness: 0.07,
+      roughnessMap: brushedTex(), envMapIntensity: 1.1, side: THREE.DoubleSide
+    });
+  patchCable(shellMat, {
+    pulseColor: def.style === 'coil' ? 0x8ef4ff : 0x4fd8ff, pulseAmp: 0.3, pulseDiv: uRep,
+    key: 'cableShell', speed: def.speed, offset: def.offset
+  });
+  if (def.hero) { heroCurve = curve; heroPulse = anim[anim.length - 1].u.uPulse; }
+  const shell = new THREE.Mesh(shellGeo, [
+    shellMat,
+    new THREE.MeshStandardMaterial({
+      color: 0x00ff00, roughness: 0.9, metalness: 0.1, envMapIntensity: 0.7, side: THREE.DoubleSide
+    })
+  ]);
+  shell.castShadow = true; shell.receiveShadow = true;
+  shells.push(shell);
+  g.add(shell);
+
+  /* --- flexible silver inner wires --- */
+  const helixR = rIn * 0.48, strandR = rIn * 0.22, turns = 12;
+  for (let s = 0; s < 3; s++) {
+    const geo = strandGeometry({
+      pts, frames, segs, radial: 9, helixR, strandR, turns,
+      phase0: s * Math.PI * 2 / 3, uRep: 1
+    });
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0xb9c2ce, metalness: 1, roughness: 0.26, roughnessMap: brushedTex(),
+      envMapIntensity: 0.75, side: THREE.DoubleSide
+    });
+    patchCable(mat, {
+      pulseColor: 0xd8fbff, pulseAmp: 0.55, key: 'cableStrand',
+      strand: { helixR, strandR }, speed: def.speed, offset: def.offset
+    });
+    const m = new THREE.Mesh(geo, mat);
+    m.frustumCulled = false;
+    g.add(m);
+  }
+
+  /* --- central core wire (surface pattern flows = sliding read) --- */
+  const coreR = rIn * 0.18;
+  const coreGeo = new THREE.TubeGeometry(curve, segs, coreR, 18, false);
+  const coreTex = strandTex();
+  coreTex.repeat.set(46, 1);
+  const coreMat = new THREE.MeshStandardMaterial({
+    color: 0x8b95a2, map: coreTex, metalness: 1, roughness: 0.26,
+    envMapIntensity: 1.0, side: THREE.DoubleSide
+  });
+  patchCable(coreMat, {
+    pulseColor: 0xa8ecff, pulseAmp: 0.5, key: 'cableCore',
+    flowTex: coreTex, flowSpeed: 0.34, speed: def.speed, offset: def.offset
+  });
+  g.add(new THREE.Mesh(coreGeo, coreMat));
+
+  /* --- end hardware --- */
+  const up = new V3(0, 1, 0);
+  const q0 = new THREE.Quaternion().setFromUnitVectors(up, frames.tangents[0].clone().negate());
+  const f0 = ferrule(def.r, def.accent);
+  f0.position.copy(pts[0]); f0.quaternion.copy(q0); g.add(f0);
+
+  const q1 = new THREE.Quaternion().setFromUnitVectors(up, frames.tangents[segs]);
+  const f1 = ferrule(def.r, def.accent);
+  f1.position.copy(pts[segs]); f1.quaternion.copy(q1); g.add(f1);
+
+  if (def.hero) {
+    const a = actuator(def.r, def.accent);
+    a.position.copy(pts[0]).addScaledVector(frames.tangents[0], -def.r * 4.6);
+    a.quaternion.copy(q0);
+    a.rotateY(Math.PI / 2);
+    g.add(a);
+    arms.push(a.userData.arm);
+  }
+
+  cablesGroup.add(g);
+  return g;
+}
+CABLE_DEFS.forEach(buildCable);
+
+/* ============================== post ============================== */
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.48, 0.5, 0.86);
+composer.addPass(bloom);
+composer.addPass(new OutputPass());
+
+/* ============================== camera control ============================== */
+const target = new V3(0, 2.15, -1.0);
+const view = { theta: 0.42, phi: 1.36, radius: 15.2, auto: true };
+let dragging = false, lastX = 0, lastY = 0;
+
+function applyCamera(t) {
+  const th = view.theta + (view.auto ? t * 0.045 : 0);
+  const ph = view.phi;
+  const r = view.radius + Math.sin(t * 0.22) * 0.55;
+  camera.position.set(
+    target.x + r * Math.sin(ph) * Math.sin(th),
+    target.y + r * Math.cos(ph) + Math.sin(t * 0.33) * 0.16,
+    target.z + r * Math.sin(ph) * Math.cos(th)
+  );
+  camera.lookAt(target.x, target.y + Math.sin(t * 0.27) * 0.12, target.z);
+}
+canvas.addEventListener('pointerdown', e => { dragging = true; lastX = e.clientX; lastY = e.clientY; canvas.classList.add('drag'); canvas.setPointerCapture(e.pointerId); });
+canvas.addEventListener('pointerup', e => { dragging = false; canvas.classList.remove('drag'); });
+canvas.addEventListener('pointermove', e => {
+  if (!dragging) return;
+  view.theta -= (e.clientX - lastX) * 0.006;
+  view.phi = Math.max(0.35, Math.min(1.54, view.phi - (e.clientY - lastY) * 0.005));
+  lastX = e.clientX; lastY = e.clientY;
+});
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  view.radius = Math.max(5, Math.min(34, view.radius + e.deltaY * 0.012));
+}, { passive: false });
+
+/* ============================== ui ============================== */
+const state = { playing: true, speed: 1, shell: true };
+$('btnPlay').onclick = () => {
+  state.playing = !state.playing;
+  $('btnPlay').textContent = state.playing ? '❙❙ pause' : '▶ play';
+  $('btnPlay').classList.toggle('on', state.playing);
+};
+$('rngSpeed').oninput = e => { state.speed = e.target.value / 100; };
+$('btnShell').onclick = () => {
+  state.shell = !state.shell;
+  shells.forEach(s => s.visible = state.shell);
+  $('btnShell').textContent = state.shell ? 'shell on' : 'shell off';
+  $('btnShell').classList.toggle('on', state.shell);
+};
+$('btnOrbit').onclick = () => {
+  view.auto = !view.auto;
+  $('btnOrbit').textContent = view.auto ? 'orbit on' : 'orbit off';
+  $('btnOrbit').classList.toggle('on', view.auto);
+};
+$('btnReset').onclick = () => { view.theta = 0.42; view.phi = 1.36; view.radius = 15.2; };
+window.__view = view; window.__target = target;
+
+function capture() {
+  const [W, H] = $('selRes').value.split('x').map(Number);
+  const pr = renderer.getPixelRatio();
+  const prev = new THREE.Vector2(); renderer.getSize(prev);
+  const prevAspect = camera.aspect;
+  try {
+    renderer.setPixelRatio(1);
+    renderer.setSize(W, H, false);
+    composer.setPixelRatio(1);
+    composer.setSize(W, H);
+    camera.aspect = W / H; camera.updateProjectionMatrix();
+    composer.render();
+    const url = canvas.toDataURL('image/png');
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'cable-frame-' + W + 'x' + H + '.png';
+    a.click();
+    $('err').textContent = '';
+  } catch (e) {
+    $('err').textContent = 'capture failed: ' + e.message;
+  } finally {
+    renderer.setPixelRatio(pr);
+    renderer.setSize(prev.x, prev.y, false);
+    composer.setPixelRatio(pr);
+    composer.setSize(prev.x, prev.y);
+    camera.aspect = prevAspect; camera.updateProjectionMatrix();
+    $('sRes').textContent = Math.round(prev.x * pr) + '×' + Math.round(prev.y * pr);
+  }
+}
+$('btnShot').onclick = capture;
+window.__capture = capture;
+
+function resize() {
+  const w = innerWidth, h = innerHeight;
+  camera.aspect = w / h; camera.updateProjectionMatrix();
+  renderer.setSize(w, h, false);
+  composer.setSize(w, h);
+  bloom.setSize(w, h);
+  $('sRes').textContent = Math.round(w * renderer.getPixelRatio()) + '×' + Math.round(h * renderer.getPixelRatio());
+}
+addEventListener('resize', resize);
+resize();
+
+/* ============================== loop ============================== */
+let t = 0, last = performance.now(), fpsT = 0, frames = 0;
+const wrap01 = (x) => { const v = x - Math.floor(x); return v === v ? v : 0; };
+
+function tick(now) {
+  requestAnimationFrame(tick);
+  const dt = Math.min(0.05, Math.max(0, (now - last) / 1000)); last = now;
+  if (state.playing) t += dt;
+
+  const sp = state.speed;
+  for (const a of anim) {
+    a.u.uPulse.value = wrap01(t * 0.26 * a.speed * sp + a.offset);
+    a.u.uPhase.value = t * 2.4 * a.speed * sp;
+    if (a.flowTex) a.flowTex.offset.x = -wrap01(t * a.flowSpeed * a.speed * sp);
+  }
+  arms.forEach((arm, i) => {
+    arm.rotation.z = Math.sin(t * 1.15 + i) * 0.16 * (state.playing ? 1 : 0);
+  });
+  if (heroCurve && heroPulse) {
+    try { pulseLight.position.copy(heroCurve.getPointAt(wrap01(heroPulse.value), _pv)); }
+    catch (e) { window.__pulseErr = String(e); }
+  }
+
+  applyCamera(t);
+  renderer.info.reset();
+  composer.render();
+
+  frames++;
+  if (now - fpsT > 500) {
+    $('sFps').textContent = Math.round(frames * 1000 / (now - fpsT));
+    $('sDraw').textContent = renderer.info.render.calls;
+    $('sTri').textContent = (renderer.info.render.triangles / 1000).toFixed(0) + 'k';
+    fpsT = now; frames = 0;
+  }
+  if (!window.__ready && frames > 2) {
+    window.__ready = true;
+    $('loader').classList.add('gone');
+  }
+}
+fpsT = performance.now();
+requestAnimationFrame(tick);
+
+if (new URLSearchParams(location.search).get('auto') === 'shot') {
+  const waitFor = () => (window.__ready ? capture() : setTimeout(waitFor, 250));
+  setTimeout(waitFor, 800);
+}
+</script>
+</body>
+</html>

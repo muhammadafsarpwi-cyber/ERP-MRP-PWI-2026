@@ -2,7 +2,6 @@ import {
   IsString,
   IsNotEmpty,
   IsOptional,
-  IsUUID,
   IsEnum,
   IsNumber,
   IsArray,
@@ -13,6 +12,7 @@ import {
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { BomStatus } from '../entities';
+import { IsUUID } from '../../../common/uuid-loose.validator';
 
 export class CreateBomLineDto {
   @ApiProperty({ description: 'Item ID for the component material' })

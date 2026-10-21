@@ -1771,7 +1771,7 @@ export const ProductionItemOpenStock: React.FC = () => {
           title: (
             <span>
               Customer
-              <div style={{ fontSize: 10, fontWeight: 'normal', color: '#8c8c8c' }}>کسٹمر</div>
+              <div style={{ fontSize: 10, fontWeight: 'normal', color: '#8c8c8c' }}>Party / Client</div>
             </span>
           ),
           dataIndex: 'customerId',
@@ -1823,7 +1823,7 @@ export const ProductionItemOpenStock: React.FC = () => {
           title: (
             <span>
               SOC # / Order
-              <div style={{ fontSize: 10, fontWeight: 'normal', color: '#8c8c8c' }}>ایس او سی نمبر</div>
+              <div style={{ fontSize: 10, fontWeight: 'normal', color: '#8c8c8c' }}>Order Ref #</div>
             </span>
           ),
           dataIndex: 'socNumber',
@@ -1903,7 +1903,7 @@ export const ProductionItemOpenStock: React.FC = () => {
         title: (
           <span>
             Packed Cartons
-            <div style={{ fontSize: 10, fontWeight: 'normal', color: '#8c8c8c' }}>کاٹن (CTN)</div>
+            <div style={{ fontSize: 10, fontWeight: 'normal', color: '#8c8c8c' }}>Cartons (CTN)</div>
           </span>
         ),
         dataIndex: 'cartons',
@@ -1941,7 +1941,7 @@ export const ProductionItemOpenStock: React.FC = () => {
       title: (
         <span>
           Opening Qty
-          <div style={{ fontSize: 10, fontWeight: 'normal', color: '#8c8c8c' }}>پیسز / مقدار</div>
+          <div style={{ fontSize: 10, fontWeight: 'normal', color: '#8c8c8c' }}>Pieces / Quantity</div>
         </span>
       ),
       dataIndex: 'quantity',
@@ -2058,7 +2058,7 @@ export const ProductionItemOpenStock: React.FC = () => {
             <span>
               {isFgWarehouse || filterItemType === 'FINISHED_GOOD' ? 'Rate / Gross (PKR)' : 'Rate / Kg or GRS'}
               <div style={{ fontSize: 10, fontWeight: 'normal', color: '#8c8c8c' }}>
-                {isFgWarehouse || filterItemType === 'FINISHED_GOOD' ? 'ریٹ فی گروس (GRS)' : 'ریٹ فی گروس / کے جی'}
+                {isFgWarehouse || filterItemType === 'FINISHED_GOOD' ? 'Rate per Gross (GRS)' : 'Rate per Gross / Kg'}
               </div>
             </span>
           </Tooltip>
@@ -2089,7 +2089,7 @@ export const ProductionItemOpenStock: React.FC = () => {
           <Tooltip title="For Finished Goods: Gross × Rate/Gross. For WIP/RM: Weight (Kg) × Rate/Kg">
             <span>
               Total Value (PKR)
-              <div style={{ fontSize: 10, fontWeight: 'normal', color: '#8c8c8c' }}>کل مالیت</div>
+              <div style={{ fontSize: 10, fontWeight: 'normal', color: '#8c8c8c' }}>Total Amount</div>
             </span>
           </Tooltip>
         ),

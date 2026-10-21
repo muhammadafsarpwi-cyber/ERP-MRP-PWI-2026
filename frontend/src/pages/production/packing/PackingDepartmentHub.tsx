@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useLocation } from 'react-router-dom';
 import {
   Tabs, Card, Tag, Typography, Space, Button, Table, Input, Row, Col, Segmented,
-  Modal, message, Popover, Checkbox, Empty, Progress,
+  Modal, message, Popover, Checkbox, Empty, Progress, Spin,
 } from 'antd';
 import {
   InboxOutlined, SettingOutlined, HistoryOutlined,
@@ -14,6 +14,7 @@ import {
   PrinterOutlined, FilePdfOutlined, FileExcelOutlined, WhatsAppOutlined,
   CopyOutlined, CheckOutlined, AimOutlined, TeamOutlined, AppstoreOutlined,
   DollarCircleOutlined, ShopOutlined, ClockCircleOutlined, CalendarOutlined,
+  FolderOpenOutlined, EyeOutlined,
 } from '@ant-design/icons';
 import HandPackingEntry from './HandPackingEntry';
 import FinishedGoodBomSetup from '../bom/FinishedGoodBomSetup';
@@ -22,6 +23,7 @@ import Breadcrumbs from '../../../components/shared/Breadcrumbs';
 import apiService from '../../../services/api';
 import { formatNumber, toNum } from '../../../utils/numberFormat';
 import dayjs from 'dayjs';
+import { useHeaderActions } from '../../../components/layout/headerActionsStore';
 import customParseFormat from 'dayjs/plugin/customParseFormat';
 import '../productionItemOpenStock.css';
 
@@ -34,6 +36,17 @@ export const PackingDepartmentHub: React.FC = () => {
   const initialTab = searchParams.get('tab') || 'packing-entry';
 
   const [activeTab, setActiveTab] = useState<string>(initialTab);
+  const location = useLocation();
+  const routeTabId = location.pathname;
+
+  useEffect(() => {
+    const store = useHeaderActions.getState();
+    store.claimActionsSlot(routeTabId);
+    store.setHeaderActions([], routeTabId);
+    return () => {
+      store.releaseActionsSlot(routeTabId);
+    };
+  }, [routeTabId]);
 
   // Sync tab with search params without losing state
   useEffect(() => {
@@ -78,6 +91,14 @@ export const PackingDepartmentHub: React.FC = () => {
   // ─────────────────────────────────────────────────────────────────────────────
   const [fgrViewMode, setFgrViewMode] = useState<string>('customer-hierarchy');
   const [expandedCustomerIds, setExpandedCustomerIds] = useState<string[]>([]);
+  const [selectedSocModalData, setSelectedSocModalData] = useState<{
+    customerName: string;
+    customerCode: string;
+    socNo: string;
+    socGroup: any;
+  } | null>(null);
+  const [expandedSocKeys, setExpandedSocKeys] = useState<string[]>([]);
+  const [customerHierarchyViewType, setCustomerHierarchyViewType] = useState<'soc-grouped' | 'flat-items'>('soc-grouped');
   const [loadingHistory, setLoadingHistory] = useState<boolean>(false);
   const [historyLogs, setHistoryLogs] = useState<any[]>([]);
   const [salesOrders, setSalesOrders] = useState<any[]>([]);
@@ -102,29 +123,17 @@ export const PackingDepartmentHub: React.FC = () => {
   const fetchPackingHistory = useCallback(async () => {
     setLoadingHistory(true);
     try {
+      // Direct, ultra-fast queries for packing production entries, sales orders and open stock
       const [res, soRes, openStockRes]: any = await Promise.all([
-        apiService.get('/production/entries?limit=500&sortBy=createdAt&sortDir=DESC').catch(() => null),
-        apiService.get('/sales/orders?limit=500').catch(() => null),
-        apiService.get('/production/open-stock/history?limit=500').catch(() => null),
+        apiService.get('/production/entries/packing?limit=1000').catch(() => null),
+        apiService.get('/sales/orders?limit=100').catch(() => null),
+        apiService.get('/production/open-stock/history?limit=200').catch(() => null),
       ]);
       let list: any[] = [];
       if (Array.isArray(res)) list = res;
       else if (Array.isArray(res?.data)) list = res.data;
       else if (Array.isArray(res?.items)) list = res.items;
       else if (Array.isArray(res?.data?.items)) list = res.data.items;
-
-      // Strictly filter only genuine packing entries
-      const packingEntries = list.filter((e) => {
-        const rem = String(e.remarks || '').toLowerCase();
-        const machine = String(e.machineNo || e.machine_no || '').toLowerCase();
-        const type = String(e.entryType || '').toLowerCase();
-        return (
-          rem.includes('[hand packing]') ||
-          rem.includes('customer:') ||
-          machine.startsWith('hand-pack') ||
-          type === 'packing'
-        );
-      });
 
       // Integrate customer opening stock entries from stock ledger (e.g. CROWN FIT PAKISTAN, etc.)
       const openStockList = Array.isArray(openStockRes)
@@ -173,7 +182,7 @@ export const PackingDepartmentHub: React.FC = () => {
         });
 
       // Unified history: live packing production + customer opening stock
-      setHistoryLogs([...packingEntries, ...openStockEntries]);
+      setHistoryLogs([...list, ...openStockEntries]);
       const soList = Array.isArray(soRes) ? soRes : (Array.isArray(soRes?.data) ? soRes.data : (Array.isArray(soRes?.items) ? soRes.items : []));
       setSalesOrders(soList);
       setHistoryFetched(true);
@@ -186,11 +195,12 @@ export const PackingDepartmentHub: React.FC = () => {
     }
   }, []);
 
+  // Preload packing history immediately on mount in background so it's ready when user opens Tab 3
   useEffect(() => {
-    if (activeTab === 'packing-history' && !historyFetched) {
+    if (!historyFetched && !loadingHistory) {
       fetchPackingHistory();
     }
-  }, [activeTab, fetchPackingHistory, historyFetched]);
+  }, [fetchPackingHistory, historyFetched, loadingHistory]);
 
   // Compute Customer-Wise Packed Inventory from real packing entries, consolidating identical Item + SOC
   const customerStockData = useMemo(() => {
@@ -297,19 +307,39 @@ export const PackingDepartmentHub: React.FC = () => {
         isOpeningStock,
       };
 
-      if (!customerMap.has(custName)) {
-        customerMap.set(custName, {
-          id: `CUST-${custCode}`,
-          customerCode: custCode,
-          customerName: custName,
-          socNo,
+      const isSafetyStock =
+        custName.toUpperCase().replace(/[\s_-]+/g, '') === 'SAFETYSTOCK' ||
+        socNo.toUpperCase().replace(/[\s_-]+/g, '') === 'SAFETYSTOCK' ||
+        remarks.toUpperCase().includes('CUSTOMER: SAFETY') ||
+        remarks.toUpperCase().includes('SOC: SAFETY');
+
+      let finalCustName = custName;
+      let finalCustCode = custCode;
+      let finalSocNo = socNo;
+
+      if (isSafetyStock) {
+        finalCustName = 'SAFETY STOCK';
+        finalCustCode = 'SAFETY-S';
+        finalSocNo = 'SAFETY_STOCK';
+      } else {
+        finalCustName = custName.trim().replace(/\s+/g, ' ');
+      }
+
+      const mapKey = isSafetyStock ? 'SAFETY STOCK' : finalCustName.toUpperCase();
+
+      if (!customerMap.has(mapKey)) {
+        customerMap.set(mapKey, {
+          id: `CUST-${finalCustCode}`,
+          customerCode: finalCustCode,
+          customerName: finalCustName,
+          socNo: finalSocNo,
           itemMap: new Map<string, any>(),
         });
       }
 
-      const custEntry = customerMap.get(custName)!;
+      const custEntry = customerMap.get(mapKey)!;
       // Grouping key: Item + SOC (so identical items under the same SOC merge into a single line)
-      const groupKey = `${itemCode}__${socNo}`;
+      const groupKey = `${itemCode}__${finalSocNo}`;
 
       if (!custEntry.itemMap.has(groupKey)) {
         // Look up SOC requirement & unit price from salesOrders
@@ -347,10 +377,10 @@ export const PackingDepartmentHub: React.FC = () => {
         }
 
         custEntry.itemMap.set(groupKey, {
-          id: `${custCode}-${itemCode}-${socNo}`,
+          id: `${finalCustCode}-${itemCode}-${finalSocNo}`,
           itemCode,
           itemName,
-          socNo,
+          socNo: finalSocNo,
           packagingStyle: isWithoutNipple ? 'White Poly Bag (Safety Stock Holding)' : packagingStyle,
           perPieceWeightKg,
           socRequiredGross,
@@ -382,9 +412,8 @@ export const PackingDepartmentHub: React.FC = () => {
       consolidated.logs.push(logRecord);
     });
 
-    return Array.from(customerMap.values()).map((c) => ({
-      ...c,
-      items: Array.from(c.itemMap.values()).map((item: any) => {
+    return Array.from(customerMap.values()).map((c) => {
+      const items = Array.from(c.itemMap.values()).map((item: any) => {
         // Sort logs: 1. OPENING STOCK always on top (#1), 2. Then chronological ascending by date & time (2nd, 3rd, 4th, etc.)
         const sortedLogs = [...(item.logs || [])].sort((a: any, b: any) => {
           if (a.isOpeningStock && !b.isOpeningStock) return -1;
@@ -401,34 +430,108 @@ export const PackingDepartmentHub: React.FC = () => {
           ...item,
           logs: sortedLogs,
         };
-      }),
-    }));
+      });
+
+      // Group items strictly by SOC Number under this customer
+      const socMap = new Map<string, any>();
+      items.forEach((it: any) => {
+        const sNo = it.socNo || 'General Stock';
+        if (!socMap.has(sNo)) {
+          socMap.set(sNo, {
+            id: `${c.id}__${sNo}`,
+            socNo: sNo,
+            customerName: c.customerName,
+            customerCode: c.customerCode,
+            items: [],
+            totalRequiredGross: 0,
+            totalRequiredCartons: 0,
+            totalPackedGross: 0,
+            totalPackedCartons: 0,
+            totalPackedPcs: 0,
+            totalWeightKg: 0,
+            totalValuation: 0,
+          });
+        }
+        const sGroup = socMap.get(sNo)!;
+        sGroup.items.push(it);
+        sGroup.totalRequiredGross += Number(it.socRequiredGross || 0);
+        sGroup.totalRequiredCartons += Number(it.socRequiredCartons || 0);
+        sGroup.totalPackedGross += Number(it.gross || 0);
+        sGroup.totalPackedCartons += Number(it.cartons || 0);
+        sGroup.totalPackedPcs += Number(it.pcs || 0);
+        sGroup.totalWeightKg = Math.round((sGroup.totalWeightKg + Number(it.weightKg || 0)) * 10) / 10;
+        sGroup.totalValuation += Number(it.valuePkr || 0);
+      });
+
+      const socGroups = Array.from(socMap.values()).map((sg) => {
+        const remGross = Math.max(0, sg.totalRequiredGross - sg.totalPackedGross);
+        const remCartons = Math.max(0, sg.totalRequiredCartons - sg.totalPackedCartons);
+        const isComplete = sg.totalRequiredGross > 0 && remGross === 0 && remCartons === 0;
+        return {
+          ...sg,
+          remainingGross: remGross,
+          remainingCartons: remCartons,
+          isComplete,
+        };
+      });
+
+      return {
+        ...c,
+        items,
+        socGroups,
+      };
+    });
   }, [historyLogs, salesOrders]);
 
-  // Compute SOC-wise Packing & Dispatch Fulfillment Ledger
+  // Compute SOC-wise Packing & Dispatch Fulfillment Ledger (One Parent Row Per SOC, Newest on Top)
   const socFulfillmentLedger = useMemo(() => {
     if (!salesOrders || salesOrders.length === 0) return [];
 
-    const ledgerRows: any[] = [];
+    const socMap = new Map<string, {
+      id: string;
+      orderNumber: string;
+      customerName: string;
+      customerCode: string;
+      orderDate: string;
+      rawDate: any;
+      items: any[];
+    }>();
 
     salesOrders.forEach((so) => {
-      const orderNo = String(so.orderNumber || so.order_number || '');
+      const orderNo = String(so.orderNumber || so.order_number || '').trim();
+      if (!orderNo) return;
       const custName = so.customer?.companyName || so.customer?.name || 'Customer';
+      const custCode = so.customer?.customerCode || '';
       const orderDate = so.orderDate ? dayjs(so.orderDate).format('DD/MM/YYYY') : '—';
+      const rawDate = so.orderDate || so.createdAt;
+
+      if (!socMap.has(orderNo)) {
+        socMap.set(orderNo, {
+          id: so.id || orderNo,
+          orderNumber: orderNo,
+          customerName: custName,
+          customerCode: custCode,
+          orderDate,
+          rawDate,
+          items: [],
+        });
+      }
+
+      const socGroup = socMap.get(orderNo)!;
       const soItems = so.items || [];
 
       soItems.forEach((it: any, itIdx: number) => {
-        const itemCode = it.item?.itemCode || 'FG';
-        const itemName = it.item?.name || it.description || 'Finished Good';
+        const itemCode = it.item?.itemCode || it.itemCode || 'FG';
+        const itemName = it.item?.name || it.itemName || it.description || 'Finished Good';
         const orderedGross = Number(it.quantity || 0);
-        const orderedCartons = it.packageQuantity || it.pkg_quantity || Math.round(orderedGross / 10);
+        const orderedCartons = Number(it.packageQuantity || it.pkg_quantity || Math.round(orderedGross / 10));
         const shippedGross = Number(it.shippedQuantity || 0);
         const shippedCartons = Math.round(shippedGross / 10);
 
         // Find all packing entries for this SOC and this item
         const matchingEntries = historyLogs.filter((entry) => {
           const rem = String(entry.remarks || '');
-          const socMatch = rem.match(/SOC:\s*([^|]+)/i)?.[1]?.trim() || '';
+          const socMatch = rem.match(/SOC:\s*([^|\]]+)/i)?.[1]?.trim() || '';
           if (socMatch !== orderNo && !rem.includes(orderNo)) return false;
           const eCode = String(entry.item?.itemCode || entry.itemCode || '');
           const eId = entry.itemId || entry.item_id || entry.item?.id;
@@ -451,8 +554,8 @@ export const PackingDepartmentHub: React.FC = () => {
         const isPartial = (packedCartons > 0 && remainingCartons > 0);
         const pct = orderedCartons > 0 ? Math.min(100, Math.round((packedCartons / orderedCartons) * 100)) : 0;
 
-        ledgerRows.push({
-          key: `${so.id}-${it.id || itIdx}`,
+        socGroup.items.push({
+          key: `${orderNo}-${it.id || itIdx}-${itemCode}`,
           orderNumber: orderNo,
           customerName: custName,
           orderDate,
@@ -472,12 +575,12 @@ export const PackingDepartmentHub: React.FC = () => {
           fulfillmentPct: pct,
           batches: matchingEntries.map((e) => {
             const rem = String(e.remarks || '');
-            const bMatch = rem.match(/Batch:\s*([^|]+)/i);
+            const bMatch = rem.match(/Batch:\s*([^|\]]+)/i);
             const cMatch = rem.match(/Cartons:\s*([\d.]+)/i);
-            const styleMatch = rem.match(/Style:\s*([^|]+)/i);
+            const styleMatch = rem.match(/Style:\s*([^|\]]+)/i);
             return {
               id: e.id,
-              batchNo: bMatch ? bMatch[1].trim() : (e.machineNo || 'PKG-BATCH'),
+              batchNo: bMatch ? bMatch[1].trim() : (e.batchNumber || e.machineNo || 'PKG-BATCH'),
               cartons: cMatch ? Number(cMatch[1]) : Math.round(Number(e.actualQuantity || 0) / 1440),
               date: e.entryDate || dayjs(e.createdAt).format('DD/MM/YYYY'),
               style: styleMatch ? styleMatch[1].trim() : 'Standard Packing',
@@ -488,7 +591,64 @@ export const PackingDepartmentHub: React.FC = () => {
       });
     });
 
-    return ledgerRows;
+    const result = Array.from(socMap.values()).map((soc) => {
+      const totalOrderedCartons = soc.items.reduce((sum, it) => sum + (it.orderedCartons || 0), 0);
+      const totalOrderedGross = soc.items.reduce((sum, it) => sum + (it.orderedGross || 0), 0);
+      const totalPackedCartons = soc.items.reduce((sum, it) => sum + (it.packedCartons || 0), 0);
+      const totalPackedGross = soc.items.reduce((sum, it) => sum + (it.packedGross || 0), 0);
+      const totalPackedPcs = soc.items.reduce((sum, it) => sum + (it.packedPcs || 0), 0);
+      const totalShippedCartons = soc.items.reduce((sum, it) => sum + (it.shippedCartons || 0), 0);
+      const totalShippedGross = soc.items.reduce((sum, it) => sum + (it.shippedGross || 0), 0);
+
+      const totalRemainingCartons = Math.max(0, totalOrderedCartons - totalPackedCartons);
+      const totalRemainingGross = Math.max(0, totalOrderedGross - totalPackedGross);
+
+      const isComplete = totalOrderedCartons > 0 && totalRemainingCartons === 0;
+      const isPartial = totalPackedCartons > 0 && totalRemainingCartons > 0;
+      const overallPct = totalOrderedCartons > 0 ? Math.min(100, Math.round((totalPackedCartons / totalOrderedCartons) * 100)) : 0;
+
+      return {
+        key: `SOC-${soc.orderNumber}`,
+        id: soc.id,
+        orderNumber: soc.orderNumber,
+        customerName: soc.customerName,
+        customerCode: soc.customerCode,
+        orderDate: soc.orderDate,
+        rawDate: soc.rawDate,
+        itemCount: soc.items.length,
+        items: soc.items,
+        orderedCartons: totalOrderedCartons,
+        orderedGross: totalOrderedGross,
+        packedCartons: totalPackedCartons,
+        packedGross: totalPackedGross,
+        packedPcs: totalPackedPcs,
+        shippedCartons: totalShippedCartons,
+        shippedGross: totalShippedGross,
+        remainingCartons: totalRemainingCartons,
+        remainingGross: totalRemainingGross,
+        isComplete,
+        isPartial,
+        fulfillmentPct: overallPct,
+      };
+    });
+
+    // Helper: Extract last numeric sequence from SOC string (e.g. SOC-2026-05819 -> 5819)
+    const getSocNum = (orderNo: string): number => {
+      const match = String(orderNo || '').match(/(\d+)(?!.*\d)/);
+      return match ? parseInt(match[1], 10) : 0;
+    };
+
+    // Sort: Newest SOC # on top (highest number at top, descending down to older/lower numbers)
+    result.sort((a, b) => {
+      const numA = getSocNum(a.orderNumber);
+      const numB = getSocNum(b.orderNumber);
+      if (numA !== numB) return numB - numA;
+      const timeA = dayjs(a.rawDate || a.orderDate).valueOf() || 0;
+      const timeB = dayjs(b.rawDate || b.orderDate).valueOf() || 0;
+      return timeB - timeA;
+    });
+
+    return result;
   }, [salesOrders, historyLogs]);
 
   const totalActiveCustomers = customerStockData.length;
@@ -701,17 +861,35 @@ export const PackingDepartmentHub: React.FC = () => {
   };
 
   const toggleCustomerExpand = (custId: string) => {
-    setExpandedCustomerIds((prev) =>
-      prev.includes(custId) ? prev.filter((id) => id !== custId) : [...prev, custId]
+    setExpandedCustomerIds((prev) => {
+      const willExpand = !prev.includes(custId);
+      if (willExpand) {
+        // Also auto-expand all SOCs under this customer
+        const cust = customerStockData.find((c) => c.id === custId);
+        if (cust?.socGroups) {
+          const keys = cust.socGroups.map((sg: any) => sg.id);
+          setExpandedSocKeys((kPrev) => Array.from(new Set([...kPrev, ...keys])));
+        }
+      }
+      return willExpand ? [...prev, custId] : prev.filter((id) => id !== custId);
+    });
+  };
+
+  const toggleSocExpand = (socKey: string) => {
+    setExpandedSocKeys((prev) =>
+      prev.includes(socKey) ? prev.filter((k) => k !== socKey) : [...prev, socKey]
     );
   };
 
   const expandAllCustomers = () => {
     setExpandedCustomerIds(customerStockData.map((c) => c.id));
+    const allSocKeys = customerStockData.flatMap((c) => (c.socGroups || []).map((sg: any) => sg.id));
+    setExpandedSocKeys(allSocKeys);
   };
 
   const collapseAllCustomers = () => {
     setExpandedCustomerIds([]);
+    setExpandedSocKeys([]);
   };
 
   const filteredHistory = historyLogs
@@ -2236,6 +2414,418 @@ export const PackingDepartmentHub: React.FC = () => {
 
 
   // ─────────────────────────────────────────────────────────────────────────────
+  // REUSABLE CUSTOMER / SOC ITEMS TABLE COMPONENT
+  // ─────────────────────────────────────────────────────────────────────────────
+  const renderItemsTable = (itemsToRender: any[], parentSocNo?: string) => (
+    <div className="packing-table-responsive-wrapper" style={{ width: '100%', maxWidth: '100%', overflowX: 'auto', overflowY: 'hidden', WebkitOverflowScrolling: 'touch' }}>
+      <Table
+        dataSource={itemsToRender}
+        rowKey="id"
+        pagination={false}
+        bordered={false}
+        size="small"
+        scroll={{ x: 'max-content' }}
+        className="customer-stock-table packing-borderless-table"
+        expandable={{
+          expandedRowRender: (record: any) => (
+            <div style={{ margin: '4px 0 10px 16px', padding: 12, background: 'var(--theme-surface-alt, rgba(2, 132, 199, 0.03))', borderRadius: 6, border: '1px solid var(--theme-border)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, flexWrap: 'wrap', gap: 6 }}>
+                <Space size={8}>
+                  <CalendarOutlined style={{ color: '#0284c7' }} />
+                  <Text strong style={{ fontSize: 12.5, color: 'var(--theme-text)' }}>
+                    Date-Wise Production & Packing History ({record.logs?.length || 0} Batches / Entries for this Item & SOC)
+                  </Text>
+                </Space>
+                <Space size={6}>
+                  <Tag color="blue" style={{ fontWeight: 700 }}>{record.itemCode}</Tag>
+                  <Tag color="purple" style={{ fontWeight: 700 }}>SOC: {record.socNo || parentSocNo}</Tag>
+                </Space>
+              </div>
+              <Table
+                dataSource={record.logs || []}
+                rowKey="id"
+                pagination={false}
+                size="small"
+                bordered
+                className="packing-borderless-table"
+                columns={[
+                  {
+                    title: '#',
+                    key: 'idx',
+                    width: 40,
+                    align: 'center' as const,
+                    render: (_: any, __: any, index: number) => index + 1,
+                  },
+                  {
+                    title: 'Packing Date & Time',
+                    key: 'date',
+                    width: 175,
+                    render: (_: any, log: any) => (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                          <span style={{ fontWeight: 800, fontSize: 12, color: 'var(--theme-text)' }}>
+                            📅 {log.formattedDate || (log.date ? dayjs(log.date).format('DD-MMM-YYYY') : '—')}
+                          </span>
+                          {log.isOpeningStock && (
+                            <Tag color="cyan" style={{ fontSize: 10, fontWeight: 800, margin: 0, padding: '0 4px', borderRadius: 2 }}>
+                              OPENING
+                            </Tag>
+                          )}
+                        </div>
+                        {log.formattedTime && (
+                          <span style={{ fontSize: 11, color: 'var(--theme-accent, #0284c7)', fontWeight: 700 }}>
+                            ⏰ {log.formattedTime}
+                          </span>
+                        )}
+                      </div>
+                    ),
+                  },
+                  {
+                    title: 'Batch Number',
+                    key: 'batchNo',
+                    width: 140,
+                    render: (_: any, log: any) => (
+                      <Tag color={log.isOpeningStock ? 'cyan' : 'blue'} style={{ fontWeight: 800 }}>
+                        {log.batchNo}
+                      </Tag>
+                    ),
+                  },
+                  {
+                    title: 'Shift & Operator',
+                    key: 'shiftOp',
+                    width: 160,
+                    render: (_: any, log: any) => (
+                      <div style={{ fontSize: 11.5 }}>
+                        <div style={{ fontWeight: 700, color: 'var(--theme-text)' }}>{log.shift}</div>
+                        <div style={{ color: 'var(--theme-text-muted)' }}>👤 {log.operator}</div>
+                      </div>
+                    ),
+                  },
+                  {
+                    title: 'Gross (GRS)',
+                    key: 'gross',
+                    width: 110,
+                    align: 'right' as const,
+                    render: (_: any, log: any) => (
+                      <span style={{ fontWeight: 800, color: '#4338ca' }}>
+                        📦 {formatNumber(log.gross, 0)} GRS
+                      </span>
+                    ),
+                  },
+                  {
+                    title: 'Cartons (CTN)',
+                    key: 'cartons',
+                    width: 100,
+                    align: 'center' as const,
+                    render: (_: any, log: any) => (
+                      <Tag color="purple" style={{ fontWeight: 800 }}>
+                        🏷️ {formatNumber(log.cartons, 0)} CTN
+                      </Tag>
+                    ),
+                  },
+                  {
+                    title: 'Pieces (PCS)',
+                    key: 'pcs',
+                    width: 120,
+                    align: 'right' as const,
+                    render: (_: any, log: any) => (
+                      <span style={{ fontWeight: 700, color: '#059669', fontSize: 12 }}>
+                        🔢 {formatNumber(log.pcs, 0)} PCS
+                      </span>
+                    ),
+                  },
+                  {
+                    title: 'Net Weight',
+                    key: 'weightKg',
+                    width: 110,
+                    align: 'right' as const,
+                    render: (_: any, log: any) => (
+                      <span style={{ fontWeight: 800, color: '#d97706', fontSize: 12 }}>
+                        ⚖️ {formatNumber(log.weightKg, 2)} KG
+                      </span>
+                    ),
+                  },
+                  {
+                    title: 'Status',
+                    key: 'status',
+                    width: 130,
+                    align: 'center' as const,
+                    render: (_: any, log: any) => {
+                      if (log.isOpeningStock) {
+                        return (
+                          <Tag color="cyan" style={{ fontWeight: 800, borderRadius: 2 }}>
+                            🏷️ Opening Stock
+                          </Tag>
+                        );
+                      }
+                      if (log.status === 'WITHOUT_NIPPLE') {
+                        return (
+                          <Tag color="warning" style={{ fontWeight: 700 }}>
+                            Without Nipple
+                          </Tag>
+                        );
+                      }
+                      return (
+                        <Tag color="success" style={{ fontWeight: 700 }}>
+                          Packed
+                        </Tag>
+                      );
+                    },
+                  },
+                ]}
+              />
+            </div>
+          ),
+          rowExpandable: (record: any) => Boolean(record.logs && record.logs.length > 0),
+        }}
+        columns={[
+          {
+            title: <span style={{ fontWeight: 800, fontSize: 13, color: 'var(--theme-text)' }}>#</span>,
+            key: 'idx',
+            width: 45,
+            align: 'center' as const,
+            render: (_: any, __: any, index: number) => (
+              <Tag color="default" style={{ fontWeight: 800, margin: 0, borderRadius: 2 }}>
+                {index + 1}
+              </Tag>
+            ),
+          },
+          {
+            title: <span style={{ fontWeight: 800, fontSize: 13, color: 'var(--theme-text)' }}>Item (Name & Code)</span>,
+            key: 'item',
+            width: 250,
+            render: (_: any, r: any) => (
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 13, color: 'var(--theme-accent, #0284c7)', fontWeight: 800 }}>
+                    {r.itemCode}
+                  </span>
+                  <Tag color="green" style={{ fontSize: 10, margin: 0, padding: '1px 6px', fontWeight: 700, borderRadius: 2 }}>
+                    Finished Good
+                  </Tag>
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--theme-text)', fontWeight: 600, marginTop: 3 }}>
+                  {r.itemName}
+                </div>
+              </div>
+            ),
+          },
+          {
+            title: <span style={{ fontWeight: 800, fontSize: 13, color: 'var(--theme-text)' }}>SOC & Packaging Style</span>,
+            key: 'socAndPacking',
+            width: 190,
+            render: (_: any, r: any) => {
+              const currentSoc = r.socNo || parentSocNo;
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <div>
+                    <Tag
+                      color="purple"
+                      style={{ fontWeight: 800, fontSize: 11.5, margin: 0, padding: '2px 8px', borderRadius: 2, cursor: 'pointer' }}
+                      onClick={() => {
+                        if (currentSoc && currentSoc !== '—') {
+                          for (const c of customerStockData) {
+                            const matchedSg = c.socGroups?.find((sg: any) => sg.socNo === currentSoc);
+                            if (matchedSg) {
+                              setSelectedSocModalData({
+                                customerName: c.customerName,
+                                customerCode: c.customerCode,
+                                socNo: matchedSg.socNo,
+                                socGroup: matchedSg,
+                              });
+                              return;
+                            }
+                          }
+                        }
+                      }}
+                      title="Click to view SOC details popup"
+                    >
+                      📂 {currentSoc}
+                    </Tag>
+                  </div>
+                  <div>
+                    <Tag color="geekblue" style={{ fontWeight: 600, fontSize: 11, margin: 0, padding: '2px 8px', whiteSpace: 'normal', textAlign: 'left', borderRadius: 2 }}>
+                      {r.packagingStyle}
+                    </Tag>
+                  </div>
+                </div>
+              );
+            },
+          },
+          {
+            title: <span style={{ fontWeight: 800, fontSize: 13, color: 'var(--theme-text)' }}>Quantity Hierarchy & SOC Target (REQ ➔ PACKED ➔ BALANCE)</span>,
+            children: [
+              {
+                title: <span style={{ fontWeight: 700, fontSize: 12, color: '#0284c7' }}>1. SOC Req. (GRS / CTN)</span>,
+                key: 'socReq',
+                width: 140,
+                align: 'right' as const,
+                render: (_: any, r: any) => (
+                  <div>
+                    {r.socRequiredGross > 0 ? (
+                      <div>
+                        <span style={{ fontSize: 13, color: '#0284c7', fontWeight: 800 }}>
+                          📋 {formatNumber(r.socRequiredGross, 0)} GRS
+                        </span>
+                        <div style={{ fontSize: 11, color: '#0369a1', fontWeight: 700 }}>
+                          ({formatNumber(r.socRequiredCartons, 0)} CTN)
+                        </div>
+                      </div>
+                    ) : (
+                      <div>
+                        <span style={{ fontSize: 12.5, color: '#0284c7', fontWeight: 700 }}>
+                          📋 {formatNumber(r.gross, 0)} GRS
+                        </span>
+                        <div style={{ fontSize: 10.5, color: 'var(--theme-text-muted)' }}>
+                          (Fulfill on Demand)
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ),
+              },
+              {
+                title: <span style={{ fontWeight: 700, fontSize: 12, color: '#4338ca' }}>2. Packed Total (GRS / CTN)</span>,
+                key: 'gross',
+                width: 135,
+                align: 'right' as const,
+                render: (_: any, r: any) => (
+                  <div>
+                    <span style={{ color: '#4338ca', fontSize: 13, fontWeight: 800 }}>
+                      📦 {formatNumber(r.gross, 0)} GRS
+                    </span>
+                    <div style={{ fontSize: 11, color: '#6d28d9', fontWeight: 700 }}>
+                      🏷️ {formatNumber(r.cartons, 0)} CTN
+                    </div>
+                  </div>
+                ),
+              },
+              {
+                title: <span style={{ fontWeight: 700, fontSize: 12, color: '#ea580c' }}>3. Balance to Pack (GRS / CTN)</span>,
+                key: 'balance',
+                width: 155,
+                align: 'right' as const,
+                render: (_: any, r: any) => {
+                  if (r.socRequiredGross <= 0) {
+                    return (
+                      <span style={{ fontSize: 11.5, color: 'var(--theme-text-muted)', fontWeight: 600 }}>
+                        — (Demand Based)
+                      </span>
+                    );
+                  }
+                  const balGross = Math.max(0, r.socRequiredGross - r.gross);
+                  const balCartons = Math.max(0, r.socRequiredCartons - r.cartons);
+                  const isCompleted = balGross === 0 && balCartons === 0;
+
+                  if (isCompleted) {
+                    return (
+                      <Tag color="success" style={{ fontWeight: 800, borderRadius: 2, margin: 0, padding: '2px 8px' }}>
+                        ✅ 0 GRS (Completed)
+                      </Tag>
+                    );
+                  }
+
+                  return (
+                    <div>
+                      <span style={{ color: '#ea580c', fontSize: 13, fontWeight: 900 }}>
+                        ⏳ {formatNumber(balGross, 0)} GRS
+                      </span>
+                      <div style={{ fontSize: 11, color: '#c2410c', fontWeight: 800 }}>
+                        ({formatNumber(balCartons, 0)} CTN Balance)
+                      </div>
+                    </div>
+                  );
+                },
+              },
+            ],
+          },
+          {
+            title: <span style={{ fontWeight: 800, fontSize: 13, color: 'var(--theme-text)' }}>Weight & Spec</span>,
+            children: [
+              {
+                title: <span style={{ fontWeight: 700, fontSize: 12, color: 'var(--theme-text)' }}>Total Weight</span>,
+                key: 'weightKg',
+                width: 120,
+                align: 'right' as const,
+                render: (_: any, r: any) => (
+                  <span style={{ fontSize: 12.5, color: '#d97706', fontWeight: 800 }}>
+                    ⚖️ {formatNumber(r.weightKg, 2)} KG
+                  </span>
+                ),
+              },
+              {
+                title: <span style={{ fontWeight: 700, fontSize: 12, color: 'var(--theme-text)' }}>Per-Pc Weight</span>,
+                key: 'weightPerPc',
+                width: 110,
+                align: 'right' as const,
+                render: (_: any, r: any) => (
+                  <Text strong style={{ fontSize: 12, color: 'var(--theme-text-muted)' }}>
+                    {r.perPieceWeightKg.toFixed(4)} KG
+                  </Text>
+                ),
+              },
+            ],
+          },
+          {
+            title: <span style={{ fontWeight: 800, fontSize: 13, color: 'var(--theme-text)' }}>Commercial Value</span>,
+            children: [
+              {
+                title: <span style={{ fontWeight: 700, fontSize: 12, color: 'var(--theme-text)' }}>Unit Rate</span>,
+                key: 'rate',
+                width: 125,
+                align: 'right' as const,
+                render: (_: any, r: any) => (
+                  <div>
+                    <span style={{ fontSize: 12.5, fontWeight: 800, color: 'var(--theme-text)' }}>
+                      Rs. {formatNumber(r.ratePerGross, 2)} / GRS
+                    </span>
+                    <div style={{ fontSize: 10.5, color: 'var(--theme-text-muted)' }}>
+                      (≈ Rs. {(r.ratePerGross / 144).toFixed(2)}/pc)
+                    </div>
+                  </div>
+                ),
+              },
+              {
+                title: <span style={{ fontWeight: 700, fontSize: 12, color: 'var(--theme-text)' }}>Valuation (PKR)</span>,
+                key: 'valuation',
+                width: 130,
+                align: 'right' as const,
+                render: (_: any, r: any) => (
+                  <span style={{ fontWeight: 800, color: 'var(--theme-accent, #096dd9)', fontSize: 13 }}>
+                    Rs. {formatNumber(r.valuePkr, 0)}
+                  </span>
+                ),
+              },
+            ],
+          },
+          {
+            title: <span style={{ fontWeight: 800, fontSize: 13, color: 'var(--theme-text)' }}>Store / Status</span>,
+            key: 'loc',
+            width: 140,
+            align: 'center' as const,
+            render: (_: any, r: any) => (
+              <div>
+                {r.isWithoutNipple || r.status === 'WITHOUT_NIPPLE' ? (
+                  <Tag color="warning" icon={<ClockCircleOutlined />} style={{ fontWeight: 800, borderRadius: 2 }}>
+                    HELD IN SAFETY STOCK
+                  </Tag>
+                ) : (
+                  <Tag color="success" icon={<CheckCircleFilled />} style={{ fontWeight: 700, borderRadius: 2 }}>
+                    {r.status || 'Ready for Dispatch'}
+                  </Tag>
+                )}
+                <div style={{ fontSize: 11, color: r.isWithoutNipple ? '#dc2626' : 'var(--theme-text-muted)', fontWeight: r.isWithoutNipple ? 700 : 400, marginTop: 3 }}>
+                  {r.isWithoutNipple ? '⛔ Nipple Pending (Not Dispatchable)' : r.warehouseName}
+                </div>
+              </div>
+            ),
+          },
+        ]}
+      />
+    </div>
+  );
+
+  // ─────────────────────────────────────────────────────────────────────────────
   // RENDER TABS
   // ─────────────────────────────────────────────────────────────────────────────
   const tabItems = [
@@ -2343,11 +2933,20 @@ export const PackingDepartmentHub: React.FC = () => {
             <Space wrap size={10}>
               {fgrViewMode === 'customer-hierarchy' && (
                 <>
+                  <Segmented
+                    value={customerHierarchyViewType}
+                    onChange={(val) => setCustomerHierarchyViewType(val as any)}
+                    options={[
+                      { label: '📂 Group by SOC', value: 'soc-grouped' },
+                      { label: '📄 All Items List', value: 'flat-items' },
+                    ]}
+                    style={{ borderRadius: 4, fontWeight: 700 }}
+                  />
                   <Button
                     icon={<PlusCircleOutlined style={{ color: 'var(--theme-accent, #0284c7)' }} />}
                     onClick={expandAllCustomers}
                     style={{
-                      borderRadius: 0,
+                      borderRadius: 4,
                       background: 'rgba(2, 132, 199, 0.1)',
                       borderColor: 'rgba(2, 132, 199, 0.3)',
                       fontWeight: 600,
@@ -2361,7 +2960,7 @@ export const PackingDepartmentHub: React.FC = () => {
                     icon={<MinusCircleOutlined style={{ color: 'var(--theme-text-muted)' }} />}
                     onClick={collapseAllCustomers}
                     style={{
-                      borderRadius: 0,
+                      borderRadius: 4,
                       background: 'var(--theme-surface-alt, rgba(255, 255, 255, 0.05))',
                       borderColor: 'var(--theme-border)',
                       fontWeight: 600,
@@ -2450,7 +3049,7 @@ export const PackingDepartmentHub: React.FC = () => {
                   </div>
                 </div>
                 <div style={{ fontSize: 24, fontWeight: 800, color: '#0f172a', lineHeight: 1.2 }}>
-                  {totalActiveCustomers}
+                  {loadingHistory ? <Spin size="small" /> : totalActiveCustomers}
                 </div>
                 <div style={{ fontSize: 11, color: '#3b82f6', fontWeight: 600, marginTop: 3 }}>
                   Dispatch Accounts
@@ -2481,7 +3080,7 @@ export const PackingDepartmentHub: React.FC = () => {
                   </div>
                 </div>
                 <div style={{ fontSize: 24, fontWeight: 800, color: '#0284c7', lineHeight: 1.2 }}>
-                  {totalItemsCount}
+                  {loadingHistory ? <Spin size="small" /> : totalItemsCount}
                 </div>
                 <div style={{ fontSize: 11, color: '#0369a1', fontWeight: 600, marginTop: 3 }}>
                   Active SKUs
@@ -2512,7 +3111,7 @@ export const PackingDepartmentHub: React.FC = () => {
                   </div>
                 </div>
                 <div style={{ fontSize: 22, fontWeight: 800, color: '#059669', lineHeight: 1.2 }}>
-                  {formatNumber(totalStockPcs, 0)}
+                  {loadingHistory ? <Spin size="small" /> : formatNumber(totalStockPcs, 0)}
                 </div>
                 <div style={{ fontSize: 11, color: '#047857', fontWeight: 700, marginTop: 3 }}>
                   PCS In Stock
@@ -2543,7 +3142,7 @@ export const PackingDepartmentHub: React.FC = () => {
                   </div>
                 </div>
                 <div style={{ fontSize: 22, fontWeight: 800, color: '#4338ca', lineHeight: 1.2 }}>
-                  {formatNumber(totalStockGross, 0)}
+                  {loadingHistory ? <Spin size="small" /> : formatNumber(totalStockGross, 0)}
                 </div>
                 <div style={{ fontSize: 11, color: '#4338ca', fontWeight: 700, marginTop: 3 }}>
                   Gross (144 pcs/grs)
@@ -2574,7 +3173,7 @@ export const PackingDepartmentHub: React.FC = () => {
                   </div>
                 </div>
                 <div style={{ fontSize: 22, fontWeight: 800, color: '#6d28d9', lineHeight: 1.2 }}>
-                  {formatNumber(totalStockCartons, 0)}
+                  {loadingHistory ? <Spin size="small" /> : formatNumber(totalStockCartons, 0)}
                 </div>
                 <div style={{ fontSize: 11, color: '#6d28d9', fontWeight: 700, marginTop: 3 }}>
                   Cartons Packed
@@ -2605,7 +3204,7 @@ export const PackingDepartmentHub: React.FC = () => {
                   </div>
                 </div>
                 <div style={{ fontSize: 22, fontWeight: 800, color: '#d97706', lineHeight: 1.2 }}>
-                  {formatNumber(totalStockKg, 2)}
+                  {loadingHistory ? <Spin size="small" /> : formatNumber(totalStockKg, 2)}
                 </div>
                 <div style={{ fontSize: 11, color: '#b45309', fontWeight: 700, marginTop: 3 }}>
                   Net Weight (KG)
@@ -2636,7 +3235,7 @@ export const PackingDepartmentHub: React.FC = () => {
                   </div>
                 </div>
                 <div style={{ fontSize: 22, fontWeight: 800, color: '#92400e', lineHeight: 1.2 }}>
-                  Rs. {formatNumber(totalStockValuation, 0)}
+                  {loadingHistory ? <Spin size="small" /> : `Rs. ${formatNumber(totalStockValuation, 0)}`}
                 </div>
                 <div style={{ fontSize: 11, color: '#92400e', fontWeight: 700, marginTop: 3 }}>
                   Estimated Worth
@@ -2648,7 +3247,17 @@ export const PackingDepartmentHub: React.FC = () => {
           {/* ── View 1: Customer-Wise Packed Stock Hierarchy (Zero-Border Edge-to-Edge) ── */}
           {fgrViewMode === 'customer-hierarchy' && (
             <div className="packing-customer-hierarchy-list" style={{ width: '100%', maxWidth: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {customerStockData.length === 0 ? (
+              {loadingHistory ? (
+                <div style={{ textAlign: 'center', padding: '60px 16px', background: 'var(--theme-card-bg)', border: '1px solid var(--theme-border)', borderRadius: 4 }}>
+                  <Spin size="large" />
+                  <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--theme-text)', marginTop: 16 }}>
+                    Loading Customer-Wise Packed Inventory...
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--theme-text-muted)', marginTop: 4 }}>
+                    Fetching live packing production entries and warehouse stock...
+                  </div>
+                </div>
+              ) : customerStockData.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '60px 16px', background: 'var(--theme-card-bg)', border: '1px dashed var(--theme-border)', borderRadius: 0 }}>
                   <Empty
                     image={Empty.PRESENTED_IMAGE_SIMPLE}
@@ -2736,9 +3345,15 @@ export const PackingDepartmentHub: React.FC = () => {
                           <Text strong style={{ fontSize: 15, color: 'var(--theme-text)' }}>
                             {cust.customerName}
                           </Text>
-                          <Tag color="purple" style={{ fontSize: 11, fontWeight: 700, borderRadius: 2 }}>
-                            {cust.socNo}
-                          </Tag>
+                          {cust.socGroups && cust.socGroups.length > 0 ? (
+                            <Tag color="purple" style={{ fontSize: 11, fontWeight: 700, borderRadius: 2 }}>
+                              {cust.socGroups.length} Active SOC{cust.socGroups.length > 1 ? 's' : ''}
+                            </Tag>
+                          ) : (
+                            <Tag color="purple" style={{ fontSize: 11, fontWeight: 700, borderRadius: 2 }}>
+                              {cust.socNo}
+                            </Tag>
+                          )}
                         </Space>
 
                         {/* Customer Row Metrics in Sequence: PCS ➔ GRS ➔ CTN + WhatsApp Button */}
@@ -2823,388 +3438,119 @@ export const PackingDepartmentHub: React.FC = () => {
                     }
                   >
                     {isExpanded && (
-                      <div className="packing-table-responsive-wrapper" style={{ width: '100%', maxWidth: '100%', overflowX: 'auto', overflowY: 'hidden', WebkitOverflowScrolling: 'touch' }}>
-                        <Table
-                          dataSource={cust.items}
-                          rowKey="id"
-                          pagination={false}
-                          bordered={false}
-                          size="small"
-                          scroll={{ x: 'max-content' }}
-                          className="customer-stock-table packing-borderless-table"
-                          expandable={{
-                            expandedRowRender: (record: any) => (
-                              <div style={{ margin: '4px 0 10px 16px', padding: 12, background: 'var(--theme-surface-alt, rgba(2, 132, 199, 0.03))', borderRadius: 6, border: '1px solid var(--theme-border)' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, flexWrap: 'wrap', gap: 6 }}>
-                                  <Space size={8}>
-                                    <CalendarOutlined style={{ color: '#0284c7' }} />
-                                    <Text strong style={{ fontSize: 12.5, color: 'var(--theme-text)' }}>
-                                      Date-Wise Production & Packing History ({record.logs?.length || 0} Batches / Entries for this Item & SOC)
-                                    </Text>
-                                  </Space>
-                                  <Space size={6}>
-                                    <Tag color="blue" style={{ fontWeight: 700 }}>{record.itemCode}</Tag>
-                                    <Tag color="purple" style={{ fontWeight: 700 }}>SOC: {record.socNo}</Tag>
-                                  </Space>
-                                </div>
-                                <Table
-                                  dataSource={record.logs || []}
-                                  rowKey="id"
-                                  pagination={false}
-                                  size="small"
-                                  bordered
-                                  className="packing-borderless-table"
-                                  columns={[
-                                    {
-                                      title: '#',
-                                      key: 'idx',
-                                      width: 40,
-                                      align: 'center' as const,
-                                      render: (_: any, __: any, index: number) => index + 1,
-                                    },
-                                    {
-                                      title: 'Packing Date & Time',
-                                      key: 'date',
-                                      width: 175,
-                                      render: (_: any, log: any) => (
-                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                                          <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                                            <span style={{ fontWeight: 800, fontSize: 12, color: 'var(--theme-text)' }}>
-                                              📅 {log.formattedDate || (log.date ? dayjs(log.date).format('DD-MMM-YYYY') : '—')}
-                                            </span>
-                                            {log.isOpeningStock && (
-                                              <Tag color="cyan" style={{ fontSize: 10, fontWeight: 800, margin: 0, padding: '0 4px', borderRadius: 2 }}>
-                                                OPENING
-                                              </Tag>
-                                            )}
-                                          </div>
-                                          {log.formattedTime && (
-                                            <span style={{ fontSize: 11, color: 'var(--theme-accent, #0284c7)', fontWeight: 700 }}>
-                                              ⏰ {log.formattedTime}
-                                            </span>
-                                          )}
-                                        </div>
-                                      ),
-                                    },
-                                    {
-                                      title: 'Batch Number',
-                                      key: 'batchNo',
-                                      width: 140,
-                                      render: (_: any, log: any) => (
-                                        <Tag color={log.isOpeningStock ? 'cyan' : 'blue'} style={{ fontWeight: 800 }}>
-                                          {log.batchNo}
+                      <div style={{ padding: '8px 12px' }}>
+                        {customerHierarchyViewType === 'soc-grouped' ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                            {cust.socGroups && cust.socGroups.length > 0 ? (
+                              cust.socGroups.map((sg: any) => {
+                                const isSocExpanded = expandedSocKeys.includes(sg.id);
+                                return (
+                                  <div
+                                    key={sg.id}
+                                    style={{
+                                      border: '1px solid var(--theme-border, #cbd5e1)',
+                                      borderRadius: 6,
+                                      background: 'var(--theme-card-bg, #ffffff)',
+                                      boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+                                      overflow: 'hidden',
+                                    }}
+                                  >
+                                    {/* SOC Accordion Header */}
+                                    <div
+                                      onClick={() => toggleSocExpand(sg.id)}
+                                      style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'space-between',
+                                        flexWrap: 'wrap',
+                                        gap: 10,
+                                        padding: '9px 14px',
+                                        background: isSocExpanded ? 'rgba(99, 102, 241, 0.07)' : 'var(--theme-surface-alt, #f8fafc)',
+                                        cursor: 'pointer',
+                                        borderBottom: isSocExpanded ? '1px solid var(--theme-border, #cbd5e1)' : 'none',
+                                        transition: 'all 0.15s ease',
+                                      }}
+                                    >
+                                      <Space size={8} wrap align="center">
+                                        <Button
+                                          type="text"
+                                          size="small"
+                                          icon={isSocExpanded ? <ShrinkOutlined style={{ fontSize: 13, color: '#4f46e5' }} /> : <ArrowsAltOutlined style={{ fontSize: 13, color: '#6366f1' }} />}
+                                          style={{ width: 26, height: 26, padding: 0 }}
+                                        />
+                                        <Tag color="purple" style={{ fontSize: 13, fontWeight: 900, padding: '3px 10px', borderRadius: 4, margin: 0 }}>
+                                          📂 SOC #{sg.socNo}
                                         </Tag>
-                                      ),
-                                    },
-                                    {
-                                      title: 'Shift & Operator',
-                                      key: 'shiftOp',
-                                      width: 160,
-                                      render: (_: any, log: any) => (
-                                        <div style={{ fontSize: 11.5 }}>
-                                          <div style={{ fontWeight: 700, color: 'var(--theme-text)' }}>{log.shift}</div>
-                                          <div style={{ color: 'var(--theme-text-muted)' }}>👤 {log.operator}</div>
-                                        </div>
-                                      ),
-                                    },
-                                    {
-                                      title: 'Gross (GRS)',
-                                      key: 'gross',
-                                      width: 110,
-                                      align: 'right' as const,
-                                      render: (_: any, log: any) => (
-                                        <span style={{ fontWeight: 800, color: '#4338ca' }}>
-                                          📦 {formatNumber(log.gross, 0)} GRS
-                                        </span>
-                                      ),
-                                    },
-                                    {
-                                      title: 'Cartons (CTN)',
-                                      key: 'cartons',
-                                      width: 100,
-                                      align: 'center' as const,
-                                      render: (_: any, log: any) => (
-                                        <Tag color="purple" style={{ fontWeight: 800 }}>
-                                          🏷️ {formatNumber(log.cartons, 0)} CTN
+                                        <Tag color="blue" style={{ fontWeight: 800, borderRadius: 3, margin: 0 }}>
+                                          🏷️ {sg.items.length} Product{sg.items.length > 1 ? 's' : ''}
                                         </Tag>
-                                      ),
-                                    },
-                                    {
-                                      title: 'Pieces (PCS)',
-                                      key: 'pcs',
-                                      width: 120,
-                                      align: 'right' as const,
-                                      render: (_: any, log: any) => (
-                                        <span style={{ fontWeight: 700, color: '#059669', fontSize: 12 }}>
-                                          🔢 {formatNumber(log.pcs, 0)} PCS
-                                        </span>
-                                      ),
-                                    },
-                                    {
-                                      title: 'Net Weight',
-                                      key: 'weightKg',
-                                      width: 110,
-                                      align: 'right' as const,
-                                      render: (_: any, log: any) => (
-                                        <span style={{ fontWeight: 800, color: '#d97706', fontSize: 12 }}>
-                                          ⚖️ {formatNumber(log.weightKg, 2)} KG
-                                        </span>
-                                      ),
-                                    },
-                                    {
-                                      title: 'Status',
-                                      key: 'status',
-                                      width: 130,
-                                      align: 'center' as const,
-                                      render: (_: any, log: any) => {
-                                        if (log.isOpeningStock) {
-                                          return (
-                                            <Tag color="cyan" style={{ fontWeight: 800, borderRadius: 2 }}>
-                                              🏷️ Opening Stock
-                                            </Tag>
-                                          );
-                                        }
-                                        if (log.status === 'WITHOUT_NIPPLE') {
-                                          return (
-                                            <Tag color="warning" style={{ fontWeight: 700 }}>
-                                              Without Nipple
-                                            </Tag>
-                                          );
-                                        }
-                                        return (
-                                          <Tag color="success" style={{ fontWeight: 700 }}>
-                                            Packed
+                                      </Space>
+
+                                      <Space size={8} wrap align="center" onClick={(e) => e.stopPropagation()}>
+                                        {/* SOC Metrics */}
+                                        {sg.totalRequiredGross > 0 && (
+                                          <Tag color="cyan" style={{ fontWeight: 800, fontSize: 12, margin: 0, padding: '2px 8px' }}>
+                                            📋 Req: {formatNumber(sg.totalRequiredGross, 0)} GRS ({formatNumber(sg.totalRequiredCartons, 0)} CTN)
                                           </Tag>
-                                        );
-                                      },
-                                    },
-                                  ]}
-                                />
-                              </div>
-                            ),
-                            rowExpandable: (record: any) => Boolean(record.logs && record.logs.length > 0),
-                          }}
-                          columns={[
-                            {
-                              title: <span style={{ fontWeight: 800, fontSize: 13, color: 'var(--theme-text)' }}>#</span>,
-                              key: 'idx',
-                              width: 45,
-                              align: 'center' as const,
-                              render: (_: any, __: any, index: number) => (
-                                <Tag color="default" style={{ fontWeight: 800, margin: 0, borderRadius: 2 }}>
-                                  {index + 1}
-                                </Tag>
-                              ),
-                            },
-                            {
-                              title: <span style={{ fontWeight: 800, fontSize: 13, color: 'var(--theme-text)' }}>Item (Name & Code)</span>,
-                              key: 'item',
-                              width: 250,
-                              render: (_: any, r: any) => (
-                                <div>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                                    <span style={{ fontSize: 13, color: 'var(--theme-accent, #0284c7)', fontWeight: 800 }}>
-                                      {r.itemCode}
-                                    </span>
-                                    <Tag color="green" style={{ fontSize: 10, margin: 0, padding: '1px 6px', fontWeight: 700, borderRadius: 2 }}>
-                                      Finished Good
-                                    </Tag>
-                                  </div>
-                                  <div style={{ fontSize: 12, color: 'var(--theme-text)', fontWeight: 600, marginTop: 3 }}>
-                                    {r.itemName}
-                                  </div>
-                                </div>
-                              ),
-                            },
-                            {
-                              title: <span style={{ fontWeight: 800, fontSize: 13, color: 'var(--theme-text)' }}>SOC & Packaging Style</span>,
-                              key: 'socAndPacking',
-                              width: 190,
-                              render: (_: any, r: any) => (
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                                  <div>
-                                    <Tag color="purple" style={{ fontWeight: 800, fontSize: 11.5, margin: 0, padding: '2px 8px', borderRadius: 2 }}>
-                                      {r.socNo || cust.socNo}
-                                    </Tag>
-                                  </div>
-                                  <div>
-                                    <Tag color="geekblue" style={{ fontWeight: 600, fontSize: 11, margin: 0, padding: '2px 8px', whiteSpace: 'normal', textAlign: 'left', borderRadius: 2 }}>
-                                      {r.packagingStyle}
-                                    </Tag>
-                                  </div>
-                                </div>
-                              ),
-                            },
-                            {
-                              title: <span style={{ fontWeight: 800, fontSize: 13, color: 'var(--theme-text)' }}>Quantity Hierarchy & SOC Target (REQ ➔ PACKED ➔ BALANCE)</span>,
-                              children: [
-                                {
-                                  title: <span style={{ fontWeight: 700, fontSize: 12, color: '#0284c7' }}>1. SOC Req. (GRS / CTN)</span>,
-                                  key: 'socReq',
-                                  width: 140,
-                                  align: 'right' as const,
-                                  render: (_: any, r: any) => (
-                                    <div>
-                                      {r.socRequiredGross > 0 ? (
-                                        <div>
-                                          <span style={{ fontSize: 13, color: '#0284c7', fontWeight: 800 }}>
-                                            📋 {formatNumber(r.socRequiredGross, 0)} GRS
-                                          </span>
-                                          <div style={{ fontSize: 11, color: '#0369a1', fontWeight: 700 }}>
-                                            ({formatNumber(r.socRequiredCartons, 0)} CTN)
-                                          </div>
-                                        </div>
-                                      ) : (
-                                        <div>
-                                          <span style={{ fontSize: 12.5, color: '#0284c7', fontWeight: 700 }}>
-                                            📋 {formatNumber(r.gross, 0)} GRS
-                                          </span>
-                                          <div style={{ fontSize: 10.5, color: 'var(--theme-text-muted)' }}>
-                                            (Fulfill on Demand)
-                                          </div>
-                                        </div>
-                                      )}
-                                    </div>
-                                  ),
-                                },
-                                {
-                                  title: <span style={{ fontWeight: 700, fontSize: 12, color: '#4338ca' }}>2. Packed Total (GRS / CTN)</span>,
-                                  key: 'gross',
-                                  width: 135,
-                                  align: 'right' as const,
-                                  render: (_: any, r: any) => (
-                                    <div>
-                                      <span style={{ color: '#4338ca', fontSize: 13, fontWeight: 800 }}>
-                                        📦 {formatNumber(r.gross, 0)} GRS
-                                      </span>
-                                      <div style={{ fontSize: 11, color: '#6d28d9', fontWeight: 700 }}>
-                                        🏷️ {formatNumber(r.cartons, 0)} CTN
-                                      </div>
-                                    </div>
-                                  ),
-                                },
-                                {
-                                  title: <span style={{ fontWeight: 700, fontSize: 12, color: '#ea580c' }}>3. Balance to Pack (GRS / CTN)</span>,
-                                  key: 'balance',
-                                  width: 155,
-                                  align: 'right' as const,
-                                  render: (_: any, r: any) => {
-                                    if (r.socRequiredGross <= 0) {
-                                      return (
-                                        <span style={{ fontSize: 11.5, color: 'var(--theme-text-muted)', fontWeight: 600 }}>
-                                          — (Demand Based)
-                                        </span>
-                                      );
-                                    }
-                                    const balGross = Math.max(0, r.socRequiredGross - r.gross);
-                                    const balCartons = Math.max(0, r.socRequiredCartons - r.cartons);
-                                    const isCompleted = balGross === 0 && balCartons === 0;
-
-                                    if (isCompleted) {
-                                      return (
-                                        <Tag color="success" style={{ fontWeight: 800, borderRadius: 2, margin: 0, padding: '2px 8px' }}>
-                                          ✅ 0 GRS (Completed)
+                                        )}
+                                        <Tag color="purple" style={{ fontWeight: 800, fontSize: 12, margin: 0, padding: '2px 8px' }}>
+                                          📦 Packed: {formatNumber(sg.totalPackedGross, 0)} GRS ({formatNumber(sg.totalPackedCartons, 0)} CTN)
                                         </Tag>
-                                      );
-                                    }
-
-                                    return (
-                                      <div>
-                                        <span style={{ color: '#ea580c', fontSize: 13, fontWeight: 900 }}>
-                                          ⏳ {formatNumber(balGross, 0)} GRS
+                                        {sg.totalRequiredGross > 0 ? (
+                                          sg.isComplete ? (
+                                            <Tag color="success" style={{ fontWeight: 800, fontSize: 12, margin: 0, padding: '2px 8px' }}>
+                                              ✅ 100% Completed
+                                            </Tag>
+                                          ) : (
+                                            <Tag color="orange" style={{ fontWeight: 800, fontSize: 12, margin: 0, padding: '2px 8px' }}>
+                                              ⏳ Bal: {formatNumber(sg.remainingGross, 0)} GRS ({formatNumber(sg.remainingCartons, 0)} CTN)
+                                            </Tag>
+                                          )
+                                        ) : (
+                                          <Tag color="default" style={{ fontWeight: 700, margin: 0 }}>
+                                            Demand Stock
+                                          </Tag>
+                                        )}
+                                        <span style={{ fontSize: 12, fontWeight: 700, color: '#d97706', padding: '0 4px' }}>
+                                          ⚖️ {formatNumber(sg.totalWeightKg, 1)} KG
                                         </span>
-                                        <div style={{ fontSize: 11, color: '#c2410c', fontWeight: 800 }}>
-                                          ({formatNumber(balCartons, 0)} CTN Balance)
-                                        </div>
-                                      </div>
-                                    );
-                                  },
-                                },
-                              ],
-                            },
-                            {
-                              title: <span style={{ fontWeight: 800, fontSize: 13, color: 'var(--theme-text)' }}>Weight & Spec</span>,
-                              children: [
-                                {
-                                  title: <span style={{ fontWeight: 700, fontSize: 12, color: 'var(--theme-text)' }}>Total Weight</span>,
-                                  key: 'weightKg',
-                                  width: 120,
-                                  align: 'right' as const,
-                                  render: (_: any, r: any) => (
-                                    <span style={{ fontSize: 12.5, color: '#d97706', fontWeight: 800 }}>
-                                      ⚖️ {formatNumber(r.weightKg, 2)} KG
-                                    </span>
-                                  ),
-                                },
-                                {
-                                  title: <span style={{ fontWeight: 700, fontSize: 12, color: 'var(--theme-text)' }}>Per-Pc Weight</span>,
-                                  key: 'weightPerPc',
-                                  width: 110,
-                                  align: 'right' as const,
-                                  render: (_: any, r: any) => (
-                                    <Text strong style={{ fontSize: 12, color: 'var(--theme-text-muted)' }}>
-                                      {r.perPieceWeightKg.toFixed(4)} KG
-                                    </Text>
-                                  ),
-                                },
-                              ],
-                            },
-                            {
-                              title: <span style={{ fontWeight: 800, fontSize: 13, color: 'var(--theme-text)' }}>Commercial Value</span>,
-                              children: [
-                                {
-                                  title: <span style={{ fontWeight: 700, fontSize: 12, color: 'var(--theme-text)' }}>Unit Rate</span>,
-                                  key: 'rate',
-                                  width: 125,
-                                  align: 'right' as const,
-                                  render: (_: any, r: any) => (
-                                    <div>
-                                      <span style={{ fontSize: 12.5, fontWeight: 800, color: 'var(--theme-text)' }}>
-                                        Rs. {formatNumber(r.ratePerGross, 2)} / GRS
-                                      </span>
-                                      <div style={{ fontSize: 10.5, color: 'var(--theme-text-muted)' }}>
-                                        (≈ Rs. {(r.ratePerGross / 144).toFixed(2)}/pc)
-                                      </div>
+                                        <span style={{ fontSize: 12, fontWeight: 700, color: '#096dd9', padding: '0 4px' }}>
+                                          💰 Rs. {formatNumber(sg.totalValuation, 0)}
+                                        </span>
+                                        <Button
+                                          size="small"
+                                          type="primary"
+                                          ghost
+                                          icon={<SearchOutlined />}
+                                          onClick={() => setSelectedSocModalData({
+                                            customerName: cust.customerName,
+                                            customerCode: cust.customerCode,
+                                            socNo: sg.socNo,
+                                            socGroup: sg,
+                                          })}
+                                          style={{ fontWeight: 700, fontSize: 12, height: 26, borderRadius: 4 }}
+                                        >
+                                          View SOC Popup Details
+                                        </Button>
+                                      </Space>
                                     </div>
-                                  ),
-                                },
-                                {
-                                  title: <span style={{ fontWeight: 700, fontSize: 12, color: 'var(--theme-text)' }}>Valuation (PKR)</span>,
-                                  key: 'valuation',
-                                  width: 130,
-                                  align: 'right' as const,
-                                  render: (_: any, r: any) => (
-                                    <span style={{ fontWeight: 800, color: 'var(--theme-accent, #096dd9)', fontSize: 13 }}>
-                                      Rs. {formatNumber(r.valuePkr, 0)}
-                                    </span>
-                                  ),
-                                },
-                              ],
-                            },
-                            {
-                              title: <span style={{ fontWeight: 800, fontSize: 13, color: 'var(--theme-text)' }}>Store / Status</span>,
-                              key: 'loc',
-                              width: 140,
-                              align: 'center' as const,
-                              render: (_: any, r: any) => (
-                                <div>
-                                  {r.isWithoutNipple || r.status === 'WITHOUT_NIPPLE' ? (
-                                    <Tag color="warning" icon={<ClockCircleOutlined />} style={{ fontWeight: 800, borderRadius: 2 }}>
-                                      HELD IN SAFETY STOCK
-                                    </Tag>
-                                  ) : (
-                                    <Tag color="success" icon={<CheckCircleFilled />} style={{ fontWeight: 700, borderRadius: 2 }}>
-                                      {r.status || 'Ready for Dispatch'}
-                                    </Tag>
-                                  )}
-                                  <div style={{ fontSize: 11, color: r.isWithoutNipple ? '#dc2626' : 'var(--theme-text-muted)', fontWeight: r.isWithoutNipple ? 700 : 400, marginTop: 3 }}>
-                                    {r.isWithoutNipple ? '⛔ Nipple Pending (Not Dispatchable)' : r.warehouseName}
+
+                                    {/* Items in this SOC */}
+                                    {isSocExpanded && (
+                                      <div style={{ padding: '6px 0' }}>
+                                        {renderItemsTable(sg.items, sg.socNo)}
+                                      </div>
+                                    )}
                                   </div>
-                                </div>
-                              ),
-                            },
-                          ]}
-                        />
+                                );
+                              })
+                            ) : (
+                              renderItemsTable(cust.items, cust.socNo)
+                            )}
+                          </div>
+                        ) : (
+                          renderItemsTable(cust.items, cust.socNo)
+                        )}
                       </div>
                     )}
                   </Card>
@@ -3221,7 +3567,9 @@ export const PackingDepartmentHub: React.FC = () => {
                   <span style={{ fontSize: 14, fontWeight: 800, color: '#38bdf8' }}>
                     📋 Customer Sales Orders (SOC) Fulfillment & Packing Ledger
                   </span>
-                  <Tag color="blue" style={{ fontWeight: 700 }}>{socFulfillmentLedger.length} Item Line(s)</Tag>
+                  <Tag color="blue" style={{ fontWeight: 700 }}>
+                    {socFulfillmentLedger.length} Orders ({socFulfillmentLedger.reduce((sum, s) => sum + s.itemCount, 0)} Items)
+                  </Tag>
                 </div>
                 <Input
                   placeholder="Search Customer, SOC #, or Item..."
@@ -3235,6 +3583,7 @@ export const PackingDepartmentHub: React.FC = () => {
 
               <Table
                 size="small"
+                loading={loadingHistory}
                 pagination={{ pageSize: 15 }}
                 dataSource={socFulfillmentLedger.filter((row) => {
                   if (!historySearchText) return true;
@@ -3242,84 +3591,98 @@ export const PackingDepartmentHub: React.FC = () => {
                   return (
                     row.customerName.toLowerCase().includes(q) ||
                     row.orderNumber.toLowerCase().includes(q) ||
-                    row.itemCode.toLowerCase().includes(q) ||
-                    row.itemName.toLowerCase().includes(q)
+                    (row.customerCode && row.customerCode.toLowerCase().includes(q)) ||
+                    row.items.some((it: any) =>
+                      it.itemCode.toLowerCase().includes(q) ||
+                      it.itemName.toLowerCase().includes(q)
+                    )
                   );
                 })}
                 columns={[
                   {
-                    title: 'SOC & Customer',
+                    title: 'SOC & CUSTOMER',
                     key: 'soc',
-                    width: 220,
+                    width: 230,
                     render: (_, r) => (
                       <div>
-                        <div style={{ fontWeight: 800, color: '#38bdf8', fontSize: 13 }}>{r.orderNumber}</div>
-                        <div style={{ fontSize: 11.5, color: '#f1f5f9', fontWeight: 600 }}>{r.customerName}</div>
-                        <div style={{ fontSize: 10.5, color: '#94a3b8' }}>Order Date: {r.orderDate}</div>
+                        <div style={{ fontWeight: 800, color: 'var(--theme-accent, #38bdf8)', fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span>{r.orderNumber}</span>
+                          {r.itemCount > 1 && (
+                            <Tag color="cyan" style={{ fontSize: 10, lineHeight: '16px', padding: '0 5px', borderRadius: 8, fontWeight: 700 }}>
+                              {r.itemCount} Items
+                            </Tag>
+                          )}
+                        </div>
+                        <div style={{ fontSize: 11.5, color: 'var(--theme-text, #1e293b)', fontWeight: 700, marginTop: 2 }}>
+                          {r.customerName} {r.customerCode ? `(${r.customerCode})` : ''}
+                        </div>
+                        <div style={{ fontSize: 10.5, color: 'var(--theme-text-muted, #64748b)' }}>Order Date: {r.orderDate}</div>
                       </div>
                     ),
                   },
                   {
-                    title: 'Finished Good Item',
-                    key: 'item',
+                    title: 'FINISHED GOOD ITEMS',
+                    key: 'itemSummary',
                     width: 250,
                     render: (_, r) => (
                       <div>
-                        <div style={{ fontWeight: 700, color: '#e2e8f0' }}>{r.itemCode}</div>
-                        <div style={{ fontSize: 11, color: '#94a3b8', maxWidth: 230, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {r.itemName}
+                        <div style={{ fontWeight: 700, color: 'var(--theme-accent, #38bdf8)', fontSize: 12 }}>
+                          {r.itemCount === 1 ? r.items[0]?.itemCode : `${r.itemCount} Product Lines`}
+                        </div>
+                        <div style={{ fontSize: 11, color: 'var(--theme-text, #1e293b)', fontWeight: 600, maxWidth: 230, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {r.itemCount === 1 ? r.items[0]?.itemName : r.items.map((it: any) => it.itemCode).join(', ')}
                         </div>
                       </div>
                     ),
                   },
                   {
-                    title: 'Ordered',
+                    title: 'ORDERED',
                     key: 'ordered',
                     width: 130,
                     align: 'right',
                     render: (_, r) => (
                       <div>
-                        <div style={{ fontWeight: 700, color: '#f8fafc' }}>{r.orderedCartons} Cartons</div>
-                        <div style={{ fontSize: 10.5, color: '#94a3b8' }}>{r.orderedGross.toLocaleString()} GRS</div>
+                        <div style={{ fontWeight: 700, color: 'var(--theme-text, #1e293b)', fontSize: 12.5 }}>{r.orderedCartons} Cartons</div>
+                        <div style={{ fontSize: 10.5, color: 'var(--theme-text-muted, #64748b)' }}>{r.orderedGross.toLocaleString()} GRS</div>
                       </div>
                     ),
                   },
                   {
-                    title: 'Packed',
+                    title: 'PACKED',
                     key: 'packed',
                     width: 130,
                     align: 'right',
                     render: (_, r) => (
                       <div>
-                        <div style={{ fontWeight: 700, color: r.packedCartons > 0 ? '#38bdf8' : '#64748b' }}>
+                        <div style={{ fontWeight: 700, color: r.packedCartons > 0 ? 'var(--theme-accent, #38bdf8)' : 'var(--theme-text-muted, #64748b)', fontSize: 12.5 }}>
                           {r.packedCartons} Cartons
                         </div>
-                        <div style={{ fontSize: 10.5, color: '#94a3b8' }}>{r.packedGross.toLocaleString()} GRS</div>
+                        <div style={{ fontSize: 10.5, color: 'var(--theme-text-muted, #64748b)' }}>{r.packedGross.toLocaleString()} GRS</div>
                       </div>
                     ),
                   },
                   {
-                    title: 'Dispatched',
+                    title: 'DISPATCHED',
                     key: 'shipped',
                     width: 120,
                     align: 'right',
                     render: (_, r) => (
                       <div>
-                        <div style={{ fontWeight: 700, color: r.shippedCartons > 0 ? '#f97316' : '#64748b' }}>
+                        <div style={{ fontWeight: 700, color: r.shippedCartons > 0 ? '#f97316' : 'var(--theme-text-muted, #64748b)', fontSize: 12.5 }}>
                           {r.shippedCartons} Cartons
                         </div>
-                        <div style={{ fontSize: 10.5, color: '#94a3b8' }}>{r.shippedGross.toLocaleString()} GRS</div>
+                        <div style={{ fontSize: 10.5, color: 'var(--theme-text-muted, #64748b)' }}>{r.shippedGross.toLocaleString()} GRS</div>
                       </div>
                     ),
                   },
                   {
-                    title: 'Remaining to Pack',
+                    title: 'REMAINING TO PACK',
                     key: 'remaining',
                     width: 150,
                     align: 'right',
                     render: (_, r) => (
                       <div>
-                        <div style={{ fontWeight: 800, color: r.isComplete ? '#10b981' : '#f59e0b', fontSize: 13 }}>
+                        <div style={{ fontWeight: 800, color: r.isComplete ? '#10b981' : '#f59e0b', fontSize: 12.5 }}>
                           {r.isComplete ? '0 Cartons' : `${r.remainingCartons} Cartons`}
                         </div>
                         <div style={{ fontSize: 10.5, color: r.isComplete ? '#10b981' : '#f59e0b' }}>
@@ -3329,64 +3692,266 @@ export const PackingDepartmentHub: React.FC = () => {
                     ),
                   },
                   {
-                    title: 'Status',
+                    title: 'STATUS',
                     key: 'status',
-                    width: 150,
+                    width: 195,
                     align: 'center',
                     render: (_, r) => (
-                      <div>
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 7,
+                        flexWrap: 'nowrap',
+                      }}>
                         <Progress
+                          type="circle"
                           percent={r.fulfillmentPct}
-                          size="small"
-                          status={r.isComplete ? 'success' : 'active'}
+                          size={36}
+                          strokeWidth={8}
                           strokeColor={r.isComplete ? '#10b981' : (r.isPartial ? '#38bdf8' : '#64748b')}
-                          style={{ marginBottom: 4 }}
+                          format={(percent) => (
+                            <span style={{ fontSize: 8.5, fontWeight: 800, color: r.isComplete ? '#10b981' : (r.isPartial ? '#38bdf8' : 'var(--theme-text-muted, #64748b)') }}>
+                              {percent}%
+                            </span>
+                          )}
                         />
-                        <Tag
-                          color={r.isComplete ? 'error' : (r.isPartial ? 'blue' : 'default')}
-                          style={{ fontWeight: 800, fontSize: 10.5 }}
-                        >
-                          {r.isComplete ? '⛔ 100% PACKED' : (r.isPartial ? `⏳ ${r.fulfillmentPct}% PACKED` : 'PENDING')}
-                        </Tag>
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
+                          <Tag
+                            color={r.isComplete ? 'success' : (r.isPartial ? 'blue' : 'default')}
+                            style={{ fontWeight: 800, fontSize: 10, margin: 0, lineHeight: '18px' }}
+                          >
+                            {r.isComplete ? '✅ DONE' : (r.isPartial ? `⏳ ${r.fulfillmentPct}%` : '⬜ PENDING')}
+                          </Tag>
+                          <span style={{ fontSize: 9, color: 'var(--theme-text-muted, #64748b)', lineHeight: '12px' }}>
+                            {r.isComplete ? 'Fulfilled' : `${r.packedCartons}/${r.orderedCartons} CTN`}
+                          </span>
+                        </div>
                       </div>
                     ),
                   },
                 ]}
                 expandable={{
-                  expandedRowRender: (r) => (
-                    <div style={{ padding: '8px 14px', background: 'rgba(15, 23, 42, 0.6)', borderRadius: 6 }}>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: '#38bdf8', marginBottom: 6 }}>
-                        📦 Packing Batches Recorded for {r.orderNumber} ({r.batches.length} Batch Log):
-                      </div>
-                      {r.batches.length === 0 ? (
-                        <div style={{ fontSize: 11.5, color: '#94a3b8' }}>No packing production batches recorded yet for this item.</div>
+                  expandIcon: ({ expanded, onExpand, record }) => (
+                    <button
+                      type="button"
+                      onClick={(e) => onExpand(record, e)}
+                      style={{
+                        background: expanded ? 'rgba(56, 189, 248, 0.2)' : 'var(--theme-row-hover, rgba(99,102,241,0.06))',
+                        border: `1px solid ${expanded ? '#38bdf8' : 'var(--theme-border, rgba(99,102,241,0.2))'}`,
+                        borderRadius: 4,
+                        cursor: 'pointer',
+                        width: 22,
+                        height: 22,
+                        padding: 0,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: expanded ? '#38bdf8' : 'var(--theme-text-muted, #64748b)',
+                        marginRight: 8,
+                        transition: 'all 0.2s ease',
+                      }}
+                      title={expanded ? 'Collapse SOC Items' : 'Expand SOC Items'}
+                    >
+                      {expanded ? (
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="4 14 10 14 10 20" />
+                          <polyline points="20 10 14 10 14 4" />
+                          <line x1="14" y1="10" x2="21" y2="3" />
+                          <line x1="3" y1="21" x2="10" y2="14" />
+                        </svg>
                       ) : (
-                        <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }}>
-                          <thead>
-                            <tr style={{ color: '#94a3b8', borderBottom: '1px solid rgba(255, 255, 255, 0.1)', textAlign: 'left' }}>
-                              <th style={{ padding: '4px 6px' }}>Batch No</th>
-                              <th style={{ padding: '4px 6px' }}>Date</th>
-                              <th style={{ padding: '4px 6px' }}>Packaging Style</th>
-                              <th style={{ padding: '4px 6px', textAlign: 'right' }}>Cartons</th>
-                              <th style={{ padding: '4px 6px' }}>Status</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {r.batches.map((b: any, bIdx: number) => (
-                              <tr key={b.id || bIdx} style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.04)' }}>
-                                <td style={{ padding: '4px 6px', fontWeight: 700, color: '#38bdf8' }}>{b.batchNo}</td>
-                                <td style={{ padding: '4px 6px', color: '#cbd5e1' }}>{b.date}</td>
-                                <td style={{ padding: '4px 6px', color: '#94a3b8' }}>{b.style}</td>
-                                <td style={{ padding: '4px 6px', textAlign: 'right', fontWeight: 700, color: '#10b981' }}>{b.cartons} Cartons</td>
-                                <td style={{ padding: '4px 6px' }}><Tag color="purple" style={{ fontSize: 9.5 }}>{b.status}</Tag></td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="9 3 3 3 3 9" />
+                          <line x1="3" y1="3" x2="10" y2="10" />
+                          <polyline points="15 21 21 21 21 15" />
+                          <line x1="21" y1="21" x2="14" y2="14" />
+                        </svg>
                       )}
+                    </button>
+                  ),
+                  expandedRowRender: (socRecord) => (
+                    <div style={{ padding: '12px 14px', background: 'var(--theme-card-bg, rgba(15,23,42,0.7))', border: '1px solid var(--theme-border, rgba(56,189,248,0.2))', borderRadius: 8, margin: '4px 0' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, borderBottom: '1px solid var(--theme-border, rgba(99,102,241,0.15))', paddingBottom: 6 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--theme-accent, #38bdf8)' }}>
+                            📦 Finished Good Items for {socRecord.orderNumber}
+                          </span>
+                          <Tag color="cyan" style={{ fontWeight: 700 }}>{socRecord.items.length} Product Lines</Tag>
+                        </div>
+                        <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #64748b)' }}>
+                          Customer: <strong style={{ color: 'var(--theme-text, #1e293b)' }}>{socRecord.customerName}</strong> | Ordered: <strong style={{ color: 'var(--theme-text, #1e293b)' }}>{socRecord.orderedCartons} CTN</strong> | Packed: <strong style={{ color: 'var(--theme-accent, #38bdf8)' }}>{socRecord.packedCartons} CTN</strong>
+                        </div>
+                      </div>
+
+                      <Table
+                        size="small"
+                        pagination={false}
+                        dataSource={socRecord.items}
+                        columns={[
+                          {
+                            title: 'FINISHED GOOD ITEM',
+                            key: 'item',
+                            width: 250,
+                            render: (_, it) => (
+                              <div>
+                                <div style={{ fontWeight: 700, color: 'var(--theme-accent, #38bdf8)', fontSize: 12 }}>{it.itemCode}</div>
+                                <div style={{ fontSize: 11, color: 'var(--theme-text, #1e293b)', fontWeight: 600 }}>{it.itemName}</div>
+                              </div>
+                            ),
+                          },
+                          {
+                            title: 'ORDERED',
+                            key: 'ordered',
+                            width: 120,
+                            align: 'right',
+                            render: (_, it) => (
+                              <div>
+                                <div style={{ fontWeight: 700, color: 'var(--theme-text, #1e293b)' }}>{it.orderedCartons} Cartons</div>
+                                <div style={{ fontSize: 10.5, color: 'var(--theme-text-muted, #64748b)' }}>{it.orderedGross.toLocaleString()} GRS</div>
+                              </div>
+                            ),
+                          },
+                          {
+                            title: 'PACKED',
+                            key: 'packed',
+                            width: 120,
+                            align: 'right',
+                            render: (_, it) => (
+                              <div>
+                                <div style={{ fontWeight: 700, color: it.packedCartons > 0 ? 'var(--theme-accent, #38bdf8)' : 'var(--theme-text-muted, #64748b)' }}>
+                                  {it.packedCartons} Cartons
+                                </div>
+                                <div style={{ fontSize: 10.5, color: 'var(--theme-text-muted, #64748b)' }}>{it.packedGross.toLocaleString()} GRS</div>
+                              </div>
+                            ),
+                          },
+                          {
+                            title: 'DISPATCHED',
+                            key: 'shipped',
+                            width: 110,
+                            align: 'right',
+                            render: (_, it) => (
+                              <div>
+                                <div style={{ fontWeight: 700, color: it.shippedCartons > 0 ? '#f97316' : 'var(--theme-text-muted, #64748b)' }}>
+                                  {it.shippedCartons} Cartons
+                                </div>
+                                <div style={{ fontSize: 10.5, color: 'var(--theme-text-muted, #64748b)' }}>{it.shippedGross.toLocaleString()} GRS</div>
+                              </div>
+                            ),
+                          },
+                          {
+                            title: 'REMAINING TO PACK',
+                            key: 'remaining',
+                            width: 140,
+                            align: 'right',
+                            render: (_, it) => (
+                              <div>
+                                <div style={{ fontWeight: 800, color: it.isComplete ? '#10b981' : '#f59e0b', fontSize: 12.5 }}>
+                                  {it.isComplete ? '0 Cartons' : `${it.remainingCartons} Cartons`}
+                                </div>
+                                <div style={{ fontSize: 10, color: it.isComplete ? '#10b981' : '#f59e0b' }}>
+                                  {it.isComplete ? '✅ Fulfilled' : `${it.remainingGross.toLocaleString()} GRS Left`}
+                                </div>
+                              </div>
+                            ),
+                          },
+                          {
+                            title: 'STATUS / PROGRESS',
+                            key: 'status',
+                            width: 180,
+                            align: 'center',
+                            render: (_, it) => (
+                              <div style={{ minWidth: 150 }}>
+                                <Progress
+                                  percent={it.fulfillmentPct}
+                                  size="small"
+                                  status={it.isComplete ? 'success' : 'active'}
+                                  strokeColor={it.isComplete ? '#10b981' : (it.isPartial ? '#38bdf8' : '#64748b')}
+                                  style={{ marginBottom: 4 }}
+                                />
+                                <Tag
+                                  color={it.isComplete ? 'success' : (it.isPartial ? 'blue' : 'default')}
+                                  style={{ fontWeight: 800, fontSize: 10 }}
+                                >
+                                  {it.isComplete ? '✅ DONE' : (it.isPartial ? `⏳ ${it.fulfillmentPct}% PACKED` : '⬜ PENDING')}
+                                </Tag>
+                              </div>
+                            ),
+                          },
+                        ]}
+                        expandable={{
+                          rowExpandable: (it) => (it.batches || []).length > 0,
+                          expandIcon: ({ expanded, onExpand, record }) => (
+                            <button
+                              type="button"
+                              onClick={(e) => onExpand(record, e)}
+                              style={{
+                                background: expanded ? 'rgba(56, 189, 248, 0.2)' : 'var(--theme-row-hover, rgba(99,102,241,0.06))',
+                                border: `1px solid ${expanded ? '#38bdf8' : 'var(--theme-border, rgba(99,102,241,0.2))'}`,
+                                borderRadius: 3,
+                                cursor: 'pointer',
+                                width: 18,
+                                height: 18,
+                                padding: 0,
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                color: expanded ? '#38bdf8' : 'var(--theme-text-muted, #64748b)',
+                                marginRight: 6,
+                              }}
+                              title={expanded ? 'Hide Batches' : 'View Batches'}
+                            >
+                              {expanded ? (
+                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                  <polyline points="4 14 10 14 10 20" />
+                                  <polyline points="20 10 14 10 14 4" />
+                                  <line x1="14" y1="10" x2="21" y2="3" />
+                                  <line x1="3" y1="21" x2="10" y2="14" />
+                                </svg>
+                              ) : (
+                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                  <polyline points="9 3 3 3 3 9" />
+                                  <line x1="3" y1="3" x2="10" y2="10" />
+                                  <polyline points="15 21 21 21 21 15" />
+                                  <line x1="21" y1="21" x2="14" y2="14" />
+                                </svg>
+                              )}
+                            </button>
+                          ),
+                          expandedRowRender: (it) => (
+                            <div style={{ padding: '6px 12px', background: 'rgba(2, 6, 23, 0.7)', borderRadius: 4, margin: '2px 0' }}>
+                              <div style={{ fontSize: 11, fontWeight: 700, color: '#38bdf8', marginBottom: 4 }}>
+                                📦 Packing Batches Recorded ({it.batches.length}):
+                              </div>
+                              <table style={{ width: '100%', fontSize: 10.5, borderCollapse: 'collapse' }}>
+                                <thead>
+                                  <tr style={{ color: '#94a3b8', borderBottom: '1px solid rgba(255, 255, 255, 0.1)', textAlign: 'left' }}>
+                                    <th style={{ padding: '3px 6px' }}>Batch No</th>
+                                    <th style={{ padding: '3px 6px' }}>Date</th>
+                                    <th style={{ padding: '3px 6px' }}>Packaging Style</th>
+                                    <th style={{ padding: '3px 6px', textAlign: 'right' }}>Cartons</th>
+                                    <th style={{ padding: '3px 6px' }}>Status</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {it.batches.map((b: any, bIdx: number) => (
+                                    <tr key={b.id || bIdx} style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.04)' }}>
+                                      <td style={{ padding: '3px 6px', fontWeight: 700, color: '#38bdf8' }}>{b.batchNo}</td>
+                                      <td style={{ padding: '3px 6px', color: '#cbd5e1' }}>{b.date}</td>
+                                      <td style={{ padding: '3px 6px', color: '#94a3b8' }}>{b.style}</td>
+                                      <td style={{ padding: '3px 6px', textAlign: 'right', fontWeight: 700, color: '#10b981' }}>{b.cartons} Cartons</td>
+                                      <td style={{ padding: '3px 6px' }}><Tag color="purple" style={{ fontSize: 9 }}>{b.status}</Tag></td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          ),
+                        }}
+                      />
                     </div>
                   ),
-                  rowExpandable: (r) => r.batches.length > 0,
                 }}
               />
             </div>
@@ -3475,6 +4040,7 @@ export const PackingDepartmentHub: React.FC = () => {
                 }
               >
                 <Table
+                  loading={loadingHistory}
                   dataSource={customerStockData.flatMap((c) =>
                     c.items.map((it) => ({
                       ...it,

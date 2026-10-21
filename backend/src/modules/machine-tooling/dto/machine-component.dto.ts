@@ -1,5 +1,4 @@
 import {
-  IsUUID,
   IsOptional,
   IsString,
   IsNumber,
@@ -12,6 +11,7 @@ import {
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { ComponentType } from '../entities/machine-component.entity';
+import { IsUUID } from '../../../common/uuid-loose.validator';
 
 /**
  * Version-agnostic UUID check (same convention as machine-target): org seed

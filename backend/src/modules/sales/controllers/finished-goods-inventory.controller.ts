@@ -56,6 +56,8 @@ export class FinishedGoodsInventoryController {
       this.divisionScope(req),
       query.customerId,
       query.orderId,
+      query.context,
+      query.socNo,
     );
     return { success: true, data };
   }

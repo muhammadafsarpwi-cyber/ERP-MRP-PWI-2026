@@ -1,5 +1,4 @@
 import {
-  IsUUID,
   IsOptional,
   IsString,
   IsNumber,
@@ -13,6 +12,7 @@ import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { ComponentConditionStatus } from '../entities/component-change.entity';
 import { ComponentType } from '../entities/machine-component.entity';
+import { IsUUID } from '../../../common/uuid-loose.validator';
 
 export class CreateComponentChangeDto {
   @ApiProperty({ description: 'Machine UUID (from Machine Master)' })

@@ -2,7 +2,6 @@ import {
   IsString,
   IsNotEmpty,
   IsOptional,
-  IsUUID,
   Matches,
   IsEnum,
   IsNumber,
@@ -15,6 +14,7 @@ import {
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { RoutingStatus, RoutingInputScrapBasis, RoutingOutputType, RoutingConnectionType } from '../entities';
+import { IsUUID } from '../../../common/uuid-loose.validator';
 
 /**
  * Version-agnostic UUID check. Org seed data uses synthetic UUIDs

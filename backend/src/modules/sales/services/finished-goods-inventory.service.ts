@@ -42,6 +42,7 @@ export interface FinishedGoodsItemAvailability {
   productionRequirementQty: number;
   excessQty: number;
   onProductionQty: number;
+  socPackedQty?: number;
   status: 'AVAILABLE' | 'LOW_STOCK' | 'BELOW_SAFETY_STOCK' | 'SHORT' | 'EXCESS' | 'ON_PRODUCTION';
   statusLabel: string;
   canFulfillImmediate: boolean;
@@ -461,6 +462,8 @@ export class FinishedGoodsInventoryService {
     allowedDivisionIds?: DivisionAccess,
     customerId?: string,
     orderId?: string,
+    context?: string,
+    socNo?: string,
   ): Promise<FinishedGoodsItemAvailability> {
     const item = await this.itemRepo.findOne({
       where: { id: itemId, companyId },
@@ -501,48 +504,97 @@ export class FinishedGoodsInventoryService {
     // Convert raw physical stock to Sales UOM (e.g. 72000 PCS / 144 = 500 GRS)
     let physicalStock = this.convertQty(rawOnHandBase, baseUomCode, salesUomCode);
 
-    // Check customer-dedicated packed stock
-    // If packed goods are explicitly tagged for another customer in packing entries,
-    // they cannot be used as free stock for this customer!
-    let otherCustomerDedicatedStock = 0;
-    if (customerId) {
-      const custRows = await this.itemRepo.manager.query(
-        `SELECT id, name, customer_code FROM customers WHERE id = $1`,
-        [customerId],
-      );
-      const currentCustName = (custRows?.[0]?.name || '').toLowerCase().trim();
-      const currentCustCode = (custRows?.[0]?.customer_code || '').toLowerCase().trim();
-
-      const packingEntries = await this.itemRepo.manager.query(
-        `SELECT pe.remarks, pei.actual_quantity 
-         FROM production_entry_items pei
-         JOIN production_entries pe ON pe.id = pei.production_entry_id
-         WHERE pei.item_id = $1 AND pe.remarks ILIKE '%Customer:%'`,
-        [itemId],
-      );
-
-      for (const pe of packingEntries) {
-        const remarks = String(pe.remarks || '');
-        const custMatch = remarks.match(/Customer:\s*([^|]+)/i);
-        if (custMatch) {
-          const entryCust = custMatch[1].toLowerCase().trim();
-          if (
-            entryCust &&
-            !entryCust.includes('general') &&
-            !entryCust.includes('retail') &&
-            !entryCust.includes('safety') &&
-            !entryCust.includes(currentCustName) &&
-            (!currentCustCode || !entryCust.includes(currentCustCode))
-          ) {
-            const packedPcs = Number(pe.actual_quantity || 0);
-            otherCustomerDedicatedStock += this.convertQty(packedPcs, baseUomCode, salesUomCode);
-          }
-        }
+    // In delivery context, physical stock is the actual warehouse stock available for dispatch.
+    // Do not deduct historical packing entries from other customers (which may have already shipped).
+    let socPackedQty = 0;
+    if (socNo) {
+      try {
+        const cleanSoc = String(socNo).trim();
+        const socRows = await this.itemRepo.manager.query(
+          `SELECT SUM(pei.actual_quantity) as total_pcs
+           FROM production_entry_items pei
+           JOIN production_entries pe ON pe.id = pei.production_entry_id
+           WHERE pei.item_id = $1 AND pe.remarks ILIKE $2 AND pe.is_active = true`,
+          [itemId, `%${cleanSoc}%`],
+        );
+        const socPcs = Number(socRows?.[0]?.total_pcs || 0);
+        socPackedQty = this.convertQty(socPcs, baseUomCode, salesUomCode);
+      } catch (err: any) {
+        this.logger.warn(`Failed to query socPackedQty: ${err.message}`);
       }
     }
 
-    if (otherCustomerDedicatedStock > 0) {
-      physicalStock = Math.max(0, physicalStock - otherCustomerDedicatedStock);
+    // Safety stock
+    let safetyStock = item.safetyStockLevel !== null && item.safetyStockLevel !== undefined
+      ? Number(item.safetyStockLevel)
+      : 0;
+    if (safetyStock === 0) {
+      const rawPolicy = await this.policyRepo
+        .createQueryBuilder('p')
+        .select('MAX(p.safetyStock)', 'policySafety')
+        .where('p.companyId = :companyId', { companyId })
+        .andWhere('p.itemId = :itemId', { itemId })
+        .getRawOne();
+      safetyStock = Number(rawPolicy?.policySafety || 0);
+    }
+
+    // Active production
+    const rawProduction = await this.poRepo
+      .createQueryBuilder('po')
+      .select('SUM(GREATEST(0, po.plannedQuantity - COALESCE(po.completedQuantity, 0)))', 'onProdQty')
+      .where('po.companyId = :companyId', { companyId })
+      .andWhere('po.productId = :itemId', { itemId })
+      .andWhere('po.status IN (:...activePoStatuses)', {
+        activePoStatuses: [
+          ProductionOrderStatus.DRAFT,
+          ProductionOrderStatus.RELEASED,
+          ProductionOrderStatus.IN_PROGRESS,
+        ],
+      })
+      .getRawOne();
+    const onProductionQty = Number(rawProduction?.onProdQty || 0);
+
+    // ── Delivery Note Context (Fulfilling an Order / Dispatch) ──
+    if (context === 'delivery') {
+      const deliveryQty = Math.max(0, Number(orderQuantity || 0));
+      const shortage = deliveryQty > physicalStock ? deliveryQty - physicalStock : 0;
+      const remainingAfterDelivery = physicalStock - deliveryQty;
+      const isReady = shortage === 0;
+
+      return {
+        itemId: item.id,
+        itemCode: item.itemCode,
+        itemName: item.name,
+        itemType: item.itemType,
+        divisionId: item.divisionId,
+        divisionCode: item.division?.divisionCode || null,
+        divisionName: item.division?.name || null,
+        sectionId: item.sectionId,
+        sectionCode: item.section?.sectionCode || null,
+        sectionName: item.section?.name || null,
+        uomId: item.baseUomId,
+        uomCode,
+        uomName,
+        physicalStock,
+        committedStock: 0,
+        availableStock: physicalStock,
+        safetyStock,
+        aboveSafetyStock: Math.max(0, physicalStock - safetyStock),
+        openSalesOrderQty: deliveryQty,
+        newOrderQty: deliveryQty,
+        netAvailableAfterOrders: Math.max(0, remainingAfterDelivery),
+        projectedBalance: remainingAfterDelivery,
+        shortageQty: shortage,
+        orderShortageQty: shortage,
+        productionRequirementQty: 0,
+        excessQty: 0,
+        onProductionQty,
+        socPackedQty,
+        status: isReady ? 'AVAILABLE' : 'SHORT',
+        statusLabel: isReady ? `Ready for Delivery (${deliveryQty} ${uomCode})` : `Short by ${shortage} ${uomCode}`,
+        canFulfillImmediate: isReady,
+        productionRequired: shortage > 0,
+      };
     }
 
     // Existing commitments from other open sales orders (excluding current order being edited)
@@ -562,36 +614,6 @@ export class FinishedGoodsInventoryService {
 
     const rawCommitment = await commitQb.getRawOne();
     const committedStock = Number(rawCommitment?.openQty || 0);
-
-    // Active production
-    const rawProduction = await this.poRepo
-      .createQueryBuilder('po')
-      .select('SUM(GREATEST(0, po.plannedQuantity - COALESCE(po.completedQuantity, 0)))', 'onProdQty')
-      .where('po.companyId = :companyId', { companyId })
-      .andWhere('po.productId = :itemId', { itemId })
-      .andWhere('po.status IN (:...activePoStatuses)', {
-        activePoStatuses: [
-          ProductionOrderStatus.DRAFT,
-          ProductionOrderStatus.RELEASED,
-          ProductionOrderStatus.IN_PROGRESS,
-        ],
-      })
-      .getRawOne();
-    const onProductionQty = Number(rawProduction?.onProdQty || 0);
-
-    // Safety stock
-    let safetyStock = item.safetyStockLevel !== null && item.safetyStockLevel !== undefined
-      ? Number(item.safetyStockLevel)
-      : 0;
-    if (safetyStock === 0) {
-      const rawPolicy = await this.policyRepo
-        .createQueryBuilder('p')
-        .select('MAX(p.safetyStock)', 'policySafety')
-        .where('p.companyId = :companyId', { companyId })
-        .andWhere('p.itemId = :itemId', { itemId })
-        .getRawOne();
-      safetyStock = Number(rawPolicy?.policySafety || 0);
-    }
 
     const availableStock = Math.max(0, physicalStock - committedStock);
     const aboveSafetyStock = Math.max(0, availableStock - safetyStock);

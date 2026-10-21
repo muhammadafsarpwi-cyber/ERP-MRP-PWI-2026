@@ -2,7 +2,6 @@ import {
   IsString,
   IsNotEmpty,
   IsOptional,
-  IsUUID,
   IsBoolean,
   IsNumber,
   IsInt,
@@ -15,6 +14,7 @@ import {
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { RouteType } from '../entities/item.entity';
+import { IsUUID } from '../../../common/uuid-loose.validator';
 
 export const ROUTE_TYPES = Object.values(RouteType) as string[];
 

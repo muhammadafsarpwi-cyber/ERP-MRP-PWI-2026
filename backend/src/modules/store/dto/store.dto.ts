@@ -1,5 +1,6 @@
-import { IsString, IsOptional, IsBoolean, IsUUID, IsNumber, IsArray, ValidateNested, Min, MaxLength, IsDateString, IsIn, ValidateIf } from 'class-validator';
+import { IsString, IsOptional, IsBoolean, IsNumber, IsArray, ValidateNested, Min, MaxLength, IsDateString, IsIn, ValidateIf } from 'class-validator';
 import { Type } from 'class-transformer';
+import { IsUUID } from '../../../common/uuid-loose.validator';
 
 export class CreateStoreDto {
   @IsOptional()

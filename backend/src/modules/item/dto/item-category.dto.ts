@@ -2,10 +2,10 @@ import {
   IsString,
   IsNotEmpty,
   IsOptional,
-  IsUUID,
   MaxLength,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsUUID } from '../../../common/uuid-loose.validator';
 
 export class CreateItemCategoryDto {
   @ApiProperty({ description: 'Company ID' })

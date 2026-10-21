@@ -1,8 +1,9 @@
-import { IsString, IsNotEmpty, IsOptional, IsUUID, IsEnum, IsNumber, IsArray, MaxLength, Min } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsEnum, IsNumber, IsArray, MaxLength, Min } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsUuid } from '../../../common/validators';
 import { MaintenancePriority, MaintenanceType } from '../enums';
+import { IsUUID } from '../../../common/uuid-loose.validator';
 
 export class CreateJobCardDto {
   @ApiProperty({ description: 'Company ID' })

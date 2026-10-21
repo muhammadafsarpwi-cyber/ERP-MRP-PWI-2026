@@ -1,6 +1,7 @@
-import { IsString, IsNotEmpty, IsOptional, IsUUID, MaxLength } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, MaxLength } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsUuid } from '../../../common/validators';
+import { IsUUID } from '../../../common/uuid-loose.validator';
 
 export class CreateTechnicianDto {
   @ApiProperty({ description: 'Unique employee code (e.g. EMP001)' })

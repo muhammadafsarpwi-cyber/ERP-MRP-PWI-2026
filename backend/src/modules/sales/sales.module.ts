@@ -31,6 +31,8 @@ import { InventoryBalance } from '../inventory/entities/inventory-balance.entity
 import { StockLedger, InventoryPolicy } from '../inventory/entities';
 import { Warehouse } from '../organization/entities/warehouse.entity';
 import { Item } from '../item/entities/item.entity';
+import { Uom } from '../item/entities/uom.entity';
+import { UomConversion } from '../item/entities/uom-conversion.entity';
 import { Customer } from '../customer/entities/customer.entity';
 import { CustomerModule } from '../customer/customer.module';
 import { ProductionModule } from '../production/production.module';
@@ -54,6 +56,8 @@ import { FinishedGoodsInventoryController } from './controllers/finished-goods-i
       InventoryPolicy,
       StockLedger,
       Item,
+      Uom,
+      UomConversion,
       Customer,
       Warehouse,
     ]),

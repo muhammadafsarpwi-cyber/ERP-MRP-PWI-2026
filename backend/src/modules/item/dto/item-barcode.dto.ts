@@ -2,13 +2,13 @@ import {
   IsString,
   IsNotEmpty,
   IsOptional,
-  IsUUID,
   IsEnum,
   IsBoolean,
   MaxLength,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { BarcodeType } from '../entities/item-barcode.entity';
+import { IsUUID } from '../../../common/uuid-loose.validator';
 
 export class CreateItemBarcodeDto {
   @ApiProperty({ description: 'Item ID' })

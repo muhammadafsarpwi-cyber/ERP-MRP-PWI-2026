@@ -66,5 +66,15 @@ export class ItemAvailabilityQueryDto {
   @IsOptional()
   @IsString()
   orderId?: string;
+
+  @ApiPropertyOptional({ description: 'Commercial context: sales, delivery, purchase' })
+  @IsOptional()
+  @IsString()
+  context?: string;
+
+  @ApiPropertyOptional({ description: 'SOC or Sales Order Number' })
+  @IsOptional()
+  @IsString()
+  socNo?: string;
 }
 

@@ -3,7 +3,6 @@ import {
   IsString,
   IsNotEmpty,
   MaxLength,
-  IsUUID,
   IsIn,
   IsInt,
   IsNumber,
@@ -11,6 +10,7 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { OperationStatus } from '../entities';
+import { IsUUID } from '../../../common/uuid-loose.validator';
 
 export class CreateOperationDto {
   @IsString()
