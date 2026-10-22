@@ -2197,7 +2197,7 @@ export const GeneralReports: React.FC = () => {
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(14);
       doc.setTextColor(15, 23, 42);
-      doc.text('PAKISTAN WIRE INDUSTRIES (PVT) LTD.', 14, 12);
+      doc.text('Pakistan Wire Industries (Pvt.) LTD', 14, 12);
 
       doc.setFontSize(11);
       doc.setTextColor(30, 41, 59);
@@ -2556,7 +2556,7 @@ export const GeneralReports: React.FC = () => {
 </head>
 <body>
   <div class="header">
-    <h1>PAKISTAN WIRE INDUSTRIES (PVT) LTD.</h1>
+    <h1>Pakistan Wire Industries (Pvt.) LTD</h1>
     <h2>${title}</h2>
     <div class="meta">${dateText} · Generated: ${dayjs().format('DD-MMM-YYYY, hh:mm A')} · ${detailMode === 'summary' ? 'Summary Table' : 'Detailed Records'}</div>
   </div>

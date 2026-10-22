@@ -52,7 +52,7 @@ const Welcome: React.FC = () => {
   const slides = useMemo(() => WELCOME_SLIDE_ITEMS, []);
 
   useEffect(() => {
-    document.title = 'Welcome | PWI — Pakistan Wire & Industry';
+    document.title = 'Welcome | PWI — Pakistan Wire Industries (Pvt.) LTD';
   }, []);
 
   const handleNextSlide = useCallback(() => {
@@ -125,7 +125,7 @@ const Welcome: React.FC = () => {
 
   return (
     <div className={`erp-welcome-root${exiting ? ' is-exiting' : ''}`}>
-      {/* Top Slide Ribbon (Pakistan Wire & Industry Showcase + Logo + Classical Music Toggle) */}
+      {/* Top Slide Ribbon (Pakistan Wire Industries (Pvt.) LTD Showcase + Logo + Classical Music Toggle) */}
       <WelcomeTopRibbon
         isMusicPlaying={isMusicPlaying}
         onToggleMusic={handleToggleMusic}
@@ -174,12 +174,12 @@ const Welcome: React.FC = () => {
       {/* Center Stage Compact Glass Console */}
       <div className="erp-welcome-panel">
         {/* Seamless Rounded Metallic Medallion Logo */}
-        <div className="erp-welcome-logo-wrap" title="Pakistan Wire & Industry (Private) Limited">
+        <div className="erp-welcome-logo-wrap" title="Pakistan Wire Industries (Pvt.) LTD">
           <div className="erp-welcome-logo-badge">
             <img
               className="erp-welcome-logo"
               src={`${process.env.PUBLIC_URL}/logo.png`}
-              alt="PWI — Pakistan Wire & Industry logo"
+              alt="PWI — Pakistan Wire Industries (Pvt.) LTD logo"
             />
           </div>
         </div>

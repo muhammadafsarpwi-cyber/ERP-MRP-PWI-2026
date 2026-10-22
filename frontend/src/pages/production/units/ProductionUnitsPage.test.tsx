@@ -204,7 +204,7 @@ describe('ProductionUnitsPage Component', () => {
       // Verifies label content is present and not blank
       expect(screen.getByTestId('label-CN-001')).toBeInTheDocument();
       expect(screen.getByTestId('label-CN-002')).toBeInTheDocument();
-      expect(screen.getAllByText('PAKISTAN WIRE INDUSTRIES (PVT) LTD').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('Pakistan Wire Industries (Pvt.) LTD').length).toBeGreaterThan(0);
       expect(screen.getByText('REPRINT #2')).toBeInTheDocument(); // Unit 1 has printCount = 1
     });
   });

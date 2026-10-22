@@ -46,7 +46,7 @@ const mockCompanies = [
     id: COMPANY_ID,
     companyCode: 'COMP-001',
     tradeName: 'Pakistan Wire Industries',
-    legalName: 'Pakistan Wire Industries (Pvt) Ltd',
+    legalName: 'Pakistan Wire Industries (Pvt.) LTD',
   },
 ];
 
@@ -58,7 +58,7 @@ const companyWideScope = {
   scopeLevel: 'COMPANY',
   isFullScope: true,
   status: 'ACTIVE',
-  company: { id: COMPANY_ID, legalName: 'Pakistan Wire Industries (Pvt) Ltd' },
+  company: { id: COMPANY_ID, legalName: 'Pakistan Wire Industries (Pvt.) LTD' },
   division: null,
 };
 

@@ -366,7 +366,7 @@ export function printInvoiceDocument(inv: any): void {
           PWI
         </div>
         <div>
-          <div style="font-size: 18px; font-weight: 800; color: #0f172a; line-height: 1.2;">Pakistan Wire Industries (Pvt) Ltd.</div>
+          <div style="font-size: 18px; font-weight: 800; color: #0f172a; line-height: 1.2;">Pakistan Wire Industries (Pvt.) LTD</div>
           <div style="font-size: 11px; color: #475569; margin-top: 2px;">State: ${custState}</div>
         </div>
       </div>
@@ -491,7 +491,7 @@ export function printInvoiceDocument(inv: any): void {
       </div>
       <div style="text-align: center; width: 230px;">
         <div style="border-top: 1px solid #94a3b8; padding-top: 4px; font-size: 10.5px; font-weight: 700; color: #0f172a;">
-          for Pakistan Wire Industries (Pvt) Ltd.
+          for Pakistan Wire Industries (Pvt.) LTD
         </div>
       </div>
     </div>
@@ -570,7 +570,7 @@ export function printPurchaseOrderDocument(po: any): void {
           PWI
         </div>
         <div>
-          <div style="font-size: 18px; font-weight: 800; color: #0f172a; line-height: 1.2;">Pakistan Wire Industries (Pvt) Ltd.</div>
+          <div style="font-size: 18px; font-weight: 800; color: #0f172a; line-height: 1.2;">Pakistan Wire Industries (Pvt.) LTD</div>
           <div style="font-size: 11px; color: #475569; margin-top: 2px;">State: ${supState}</div>
         </div>
       </div>
@@ -695,7 +695,7 @@ export function printPurchaseOrderDocument(po: any): void {
       </div>
       <div style="text-align: center; width: 230px;">
         <div style="border-top: 1px solid #94a3b8; padding-top: 4px; font-size: 10.5px; font-weight: 700; color: #0f172a;">
-          for Pakistan Wire Industries (Pvt) Ltd.
+          for Pakistan Wire Industries (Pvt.) LTD
         </div>
       </div>
     </div>
@@ -738,7 +738,7 @@ export function printSalesOrderDocument(order: any): void {
       <div class="company-logo-info">
         <img class="company-logo" src="${getLogoUrl()}" alt="Logo" onerror="this.style.display='none'" />
         <div>
-          <div class="company-name">PAKISTAN WIRE INDUSTRIES (PVT) LTD</div>
+          <div class="company-name">Pakistan Wire Industries (Pvt.) LTD</div>
           <div class="company-sub">Industrial Wire & Fastener Manufacturers | Lahore, Pakistan</div>
           <div class="company-tax">Tel: +92 42 35889900 | sales@pwi.com.pk</div>
         </div>
@@ -834,7 +834,7 @@ export function printDeliveryNoteDocument(delivery: any): void {
       <div class="company-logo-info">
         <img class="company-logo" src="${getLogoUrl()}" alt="Logo" onerror="this.style.display='none'" />
         <div>
-          <div class="company-name">PAKISTAN WIRE INDUSTRIES (PVT) LTD</div>
+          <div class="company-name">Pakistan Wire Industries (Pvt.) LTD</div>
           <div class="company-sub">Dispatch & Logistics Department | Lahore, Pakistan</div>
         </div>
       </div>
@@ -1016,7 +1016,7 @@ export function printGatePassDocument(data: {
       <div class="company-logo-info">
         <img class="company-logo" src="${getLogoUrl()}" alt="Logo" onerror="this.style.display='none'" />
         <div>
-          <div class="company-name">PAKISTAN WIRE INDUSTRIES (PVT) LTD</div>
+          <div class="company-name">Pakistan Wire Industries (Pvt.) LTD</div>
           <div class="company-sub">Security, Weighbridge & Gate Control | Lahore, Pakistan</div>
           <div class="company-tax">Division: ${data.divisionName || 'Wire Drawing Division'}</div>
         </div>
@@ -1150,7 +1150,7 @@ export function printSalesReturnDocument(ret: any): void {
       <div class="company-logo-info">
         <img class="company-logo" src="${getLogoUrl()}" alt="Logo" onerror="this.style.display='none'" />
         <div>
-          <div class="company-name">PAKISTAN WIRE INDUSTRIES (PVT) LTD</div>
+          <div class="company-name">Pakistan Wire Industries (Pvt.) LTD</div>
           <div class="company-sub">Quality Assurance & Finished Goods Return | Lahore, Pakistan</div>
         </div>
       </div>
@@ -1249,7 +1249,7 @@ export function printQuotationDocument(q: any): void {
       <div class="company-logo-info">
         <img class="company-logo" src="${getLogoUrl()}" alt="Logo" onerror="this.style.display='none'" />
         <div>
-          <div class="company-name">PAKISTAN WIRE INDUSTRIES (PVT) LTD</div>
+          <div class="company-name">Pakistan Wire Industries (Pvt.) LTD</div>
           <div class="company-sub">Official Commercial Quotation & Technical Proposal | Lahore, Pakistan</div>
         </div>
       </div>
@@ -1331,7 +1331,7 @@ export function printTableList(title: string, headers: string[], rows: (string |
       <div class="company-logo-info">
         <img class="company-logo" src="${getLogoUrl()}" alt="Logo" onerror="this.style.display='none'" />
         <div>
-          <div class="company-name">PAKISTAN WIRE INDUSTRIES (PVT) LTD</div>
+          <div class="company-name">Pakistan Wire Industries (Pvt.) LTD</div>
           <div class="company-sub">Enterprise Management Report | Printed on ${new Date().toLocaleDateString()}</div>
         </div>
       </div>
@@ -1397,7 +1397,7 @@ export function printCustomerStatementDocument(customer: any, statementData: any
       <div class="company-logo-info">
         <img class="company-logo" src="${getLogoUrl()}" alt="Logo" onerror="this.style.display='none'" />
         <div>
-          <div class="company-name">PAKISTAN WIRE INDUSTRIES (PVT) LTD</div>
+          <div class="company-name">Pakistan Wire Industries (Pvt.) LTD</div>
           <div class="company-sub">Accounts & Receivables Department | Lahore, Pakistan</div>
           <div class="company-tax">NTN: 0819234-7 | STRN: 17-00-9812-001</div>
         </div>
@@ -1549,7 +1549,7 @@ export function printLoadingAdviceSlip(delivery: any, order?: any): void {
         <div style="display: flex; align-items: center; gap: 12px;">
           <img src="${getLogoUrl()}" alt="Logo" style="height: 55px; object-fit: contain;" onerror="this.style.display='none'" />
           <div>
-            <div style="font-size: 18px; font-weight: 900; letter-spacing: 0.5px; color: #0f172a;">PAKISTAN WIRE INDUSTRIES (PVT) LTD</div>
+            <div style="font-size: 18px; font-weight: 900; letter-spacing: 0.5px; color: #0f172a;">Pakistan Wire Industries (Pvt.) LTD</div>
             <div style="font-size: 10.5px; color: #475569; font-weight: 600;">Plot 14-16, Phase II, Industrial Estate, Hattar, Pakistan</div>
             <div style="font-size: 10px; color: #64748b;">Tel: +92-995-617150 | Email: dispatch@pwi.com.pk</div>
           </div>
@@ -1718,7 +1718,7 @@ export function printGoodsReceiptDocument(gr: any): void {
           PWI
         </div>
         <div>
-          <div style="font-size: 18px; font-weight: 800; color: #0f172a; line-height: 1.2;">Pakistan Wire Industries (Pvt) Ltd.</div>
+          <div style="font-size: 18px; font-weight: 800; color: #0f172a; line-height: 1.2;">Pakistan Wire Industries (Pvt.) LTD</div>
           <div style="font-size: 11px; color: #475569; margin-top: 2px;">Inbound Quality & Warehouse Reception System</div>
         </div>
       </div>

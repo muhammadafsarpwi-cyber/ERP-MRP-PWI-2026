@@ -10,8 +10,9 @@ const types = {
 };
 
 http.createServer(async (req, res) => {
+  let p = '/';
   try {
-    let p = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+    p = decodeURIComponent(new URL(req.url, 'http://x').pathname);
     if (p.endsWith('/')) p += 'index.html';
     const file = join(root, normalize(p).replace(/^(\.\.[/\\])+/, ''));
     const st = await stat(file);
@@ -20,6 +21,14 @@ http.createServer(async (req, res) => {
     res.writeHead(200, { 'content-type': types[extname(file)] || 'application/octet-stream', 'cache-control': 'no-store' });
     res.end(body);
   } catch {
+    // SPA fallback: client-side routes (e.g. /login) must render index.html
+    if (!extname(p)) {
+      try {
+        const body = await readFile(join(root, 'index.html'));
+        res.writeHead(200, { 'content-type': types['.html'], 'cache-control': 'no-store' });
+        return res.end(body);
+      } catch {}
+    }
     res.writeHead(404, { 'content-type': 'text/plain' });
     res.end('404');
   }

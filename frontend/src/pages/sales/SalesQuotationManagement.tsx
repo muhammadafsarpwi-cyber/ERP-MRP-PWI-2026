@@ -1765,7 +1765,7 @@ const SalesQuotationManagement: React.FC = () => {
             <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '2px solid #0f172a', paddingBottom: 16 }}>
               <div>
                 <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: '#0f172a', letterSpacing: '0.5px' }}>
-                  PAKISTAN WIRE INDUSTRIES (PVT) LTD
+                  Pakistan Wire Industries (Pvt.) LTD
                 </h1>
                 <div style={{ fontSize: 12, color: '#475569', marginTop: 4 }}>
                   Manufacturers of High Tensile Steel Wire, Galvanized Wire & Fasteners

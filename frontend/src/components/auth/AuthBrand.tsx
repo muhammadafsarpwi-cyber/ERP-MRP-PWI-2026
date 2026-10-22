@@ -28,7 +28,7 @@ const AuthBrand: React.FC<AuthBrandProps> = ({
     .join(' ');
 
   return (
-    <div className={cls} aria-label="PWI — Pakistan Wire & Industry">
+    <div className={cls} aria-label="PWI — Pakistan Wire Industries (Pvt.) LTD">
       <img
         className="erp-brand-mark"
         src={PWI_BRAND_MARK}
@@ -38,7 +38,7 @@ const AuthBrand: React.FC<AuthBrandProps> = ({
       />
       <span className="erp-brand-lockup">
         <span className="erp-brand-name">PWI</span>
-        <span className="erp-brand-sub">Pakistan Wire &amp; Industry</span>
+        <span className="erp-brand-sub">Pakistan Wire Industries (Pvt.) LTD</span>
       </span>
     </div>
   );

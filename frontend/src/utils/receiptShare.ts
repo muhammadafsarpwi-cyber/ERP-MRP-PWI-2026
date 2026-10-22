@@ -44,7 +44,7 @@ export function buildReceiptWhatsAppMessage(info: ShareReceiptInfo): string {
   const date = info.receiptDate || '';
   const lines: string[] = [];
 
-  lines.push('📦 *PAKISTAN WIRE INDUSTRIES (PVT) LTD*');
+  lines.push('📦 *Pakistan Wire Industries (Pvt.) LTD*');
   lines.push('*RAW MATERIAL RECEIPT (GATE PASS)*');
   lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━');
   lines.push(`📋 *Receipt Code:* ${info.receiptCode}`);
@@ -134,7 +134,7 @@ export function buildReturnWhatsAppMessage(info: ShareReturnInfo): string {
   const date = info.returnDate || '';
   const lines: string[] = [];
 
-  lines.push('🔄 *PAKISTAN WIRE INDUSTRIES (PVT) LTD*');
+  lines.push('🔄 *Pakistan Wire Industries (Pvt.) LTD*');
   lines.push('*RAW MATERIAL RETURN*');
   lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━');
   lines.push(`📋 *Return Code:* ${info.returnCode}`);

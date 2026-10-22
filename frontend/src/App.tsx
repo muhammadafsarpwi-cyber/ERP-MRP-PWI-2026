@@ -193,7 +193,8 @@ const App: React.FC = () => {
                   <Route path="/invoices" element={<SalesInvoiceManagement />} />
                   <Route path="/sales/returns" element={<SalesReturnManagement />} />
                   <Route path="/inventory" element={<Inventory />} />
-                <Route path="/inventory/receiving" element={<Navigate to="/production/receiving" replace />} />
+                  <Route path="/inventory/finished-goods" element={<Navigate to="/inventory" replace />} />
+                  <Route path="/inventory/receiving" element={<Navigate to="/production/receiving" replace />} />
                   <Route path="/inventory/policies" element={<InventoryPolicyManagement />} />
                   <Route path="/inventory/batches" element={<BatchManagement />} />
                   <Route path="/inventory/serial-numbers" element={<SerialNumberManagement />} />

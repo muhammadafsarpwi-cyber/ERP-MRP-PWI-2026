@@ -955,7 +955,7 @@ const CustomerAnalytics: React.FC = () => {
           icon={<InboxOutlined />}
           gradient="linear-gradient(135deg, #0284c7 0%, #0369a1 100%)"
           actionText="Finished goods"
-          onAction={() => navigate('/inventory/finished-goods')}
+          onAction={() => navigate('/inventory')}
         />
         <ActionKpiCard
           value={`${overallFulfillment}%`}

@@ -16,7 +16,7 @@ const ForgotPassword: React.FC = () => {
   const [submittedEmail, setSubmittedEmail] = useState('');
 
   useEffect(() => {
-    document.title = 'Reset Password | PWI — Pakistan Wire & Industry';
+    document.title = 'Reset Password | PWI — Pakistan Wire Industries (Pvt.) LTD';
   }, []);
 
   const onFinish = async (values: { email: string }) => {

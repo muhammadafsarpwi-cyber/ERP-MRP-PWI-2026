@@ -997,7 +997,7 @@ export const buildChainGrid = (
  * banner, the Excel workbook and the PDF all read from here.
  */
 export const LETTERHEAD = {
-  company: 'PWI — Pakistan Wire & Industry',
+  company: 'PWI — Pakistan Wire Industries (Pvt.) LTD',
   subtitle: 'ERP / MRP Command Center — Manufacturing Division',
   reportTitle: 'Item-Wise Production Ledger Flow',
   division: 'Production & Spoke Department',

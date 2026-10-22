@@ -59,7 +59,7 @@ function formatDuration(minutes?: number): string {
 export function buildJobCardWhatsAppMessage(card: JobCardShareData): string {
   const lines: string[] = [];
 
-  lines.push('🏭 *PAKISTAN WIRE INDUSTRIES (PVT) LTD*');
+  lines.push('🏭 *Pakistan Wire Industries (Pvt.) LTD*');
   lines.push('🔧 *MAINTENANCE JOB CARD SUMMARY*');
   lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━');
   lines.push(`🎫 *Job Card #:* *${card.jobCardNo}*`);

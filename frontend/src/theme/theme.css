@@ -789,7 +789,7 @@ html, body {
 .btn-close-modal,
 button[aria-label="Close"],
 span.anticon-close {
-  transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1), color 0.25s ease, background-color 0.25s ease, box-shadow 0.25s ease !important;
+  transition: color 0.25s ease, background-color 0.25s ease, box-shadow 0.25s ease !important;
   cursor: pointer !important;
   display: inline-flex !important;
   align-items: center !important;
@@ -817,7 +817,7 @@ span.anticon-close:hover,
 .reference-modal-header-actions .anticon-close:hover {
   color: #ef4444 !important;
   background-color: rgba(239, 68, 68, 0.22) !important;
-  transform: rotate(90deg) scale(1.18) !important;
+  transform: none !important;
   box-shadow: 0 0 10px rgba(239, 68, 68, 0.38) !important;
 }
 

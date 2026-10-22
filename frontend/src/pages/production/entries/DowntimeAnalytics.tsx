@@ -297,7 +297,7 @@ const DowntimeAnalytics: React.FC<DowntimeAnalyticsProps> = ({ seed, buildFilter
       .join('\n');
 
     const msg = [
-      `*🏭 PAKISTAN WIRE INDUSTRIES (PVT) LTD*`,
+      `*🏭 Pakistan Wire Industries (Pvt.) LTD*`,
       `*Daily Production & Downtime Report*`,
       `📅 Date: ${node.date} (${node.weekday})`,
       `━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
@@ -381,7 +381,7 @@ const DowntimeAnalytics: React.FC<DowntimeAnalyticsProps> = ({ seed, buildFilter
       <body>
         <div style="display: flex; justify-content: space-between; border-bottom: 2px solid #0f172a; padding-bottom: 8px;">
           <div>
-            <h2 style="margin: 0; font-size: 18px; text-transform: uppercase;">PAKISTAN WIRE INDUSTRIES (PVT) LTD</h2>
+            <h2 style="margin: 0; font-size: 18px; text-transform: uppercase;">Pakistan Wire Industries (Pvt.) LTD</h2>
             <div style="font-size: 13px; font-weight: 600; color: #475569;">Daily Production Shift & Downtime Audit</div>
           </div>
           <div style="text-align: right;">

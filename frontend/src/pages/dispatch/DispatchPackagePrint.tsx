@@ -196,7 +196,7 @@ export function generateDispatchPackageHtml(pkg: DispatchPackage): string {
   <body>
     <div class="header-container">
       <div>
-        <h1 class="brand-title">PAKISTAN WIRE INDUSTRIES (PVT) LTD</h1>
+        <h1 class="brand-title">Pakistan Wire Industries (Pvt.) LTD</h1>
         <p class="brand-subtitle">Enterprise ERP &amp; MRP System &bull; Dispatch &amp; Package Manifest</p>
         <span class="doc-badge">DISPATCH PACKAGE: ${pkg.packageNo}</span>
       </div>

@@ -1879,9 +1879,147 @@ export class RawMaterialReceivingService {
 
     const records = await qb.getMany();
 
+    // Enrich sales delivery movements with customer name, PO #, and SOC # from erp_sales
+    const deliveryNumbers = records
+      .filter((r) => r.referenceType === 'SALES_DELIVERY' || r.transactionType === 'SALES_DELIVERY')
+      .map((r) => r.referenceNumber)
+      .filter(Boolean);
+
+    const deliveryInfoMap = new Map<string, { customerName: string; customerCode?: string; poNumber?: string; socNumber?: string; deliveryCreatedAt?: Date }>();
+    if (deliveryNumbers.length > 0) {
+      try {
+        const rows = await this.ledgerRepo.manager.query(
+          `SELECT sd.delivery_number, sd.created_at, c.company_name, c.customer_code,
+                  COALESCE(sd.customer_po, so.customer_po) as po_number,
+                  so.order_number as default_soc_number,
+                  sdl.description as line_description,
+                  sdl.quantity as line_qty
+           FROM erp_sales.sales_deliveries sd
+           LEFT JOIN erp_sales.customers c ON c.id = sd.customer_id
+           LEFT JOIN erp_sales.sales_orders so ON so.id = sd.sales_order_id
+           LEFT JOIN erp_sales.sales_delivery_lines sdl ON sdl.delivery_id = sd.id AND sdl.item_id = $2
+           WHERE sd.delivery_number = ANY($1)`,
+          [deliveryNumbers, itemId],
+        );
+        for (const row of rows) {
+          if (row.delivery_number) {
+            let itemSoc = row.default_soc_number || null;
+            if (row.line_description) {
+              const socMatch = row.line_description.match(/SOC[:\s]+(SOC-[A-Za-z0-9-]+|[0-9A-Za-z-]+)/i);
+              if (socMatch) itemSoc = socMatch[1].trim();
+            }
+            deliveryInfoMap.set(row.delivery_number, {
+              customerName: row.company_name || null,
+              customerCode: row.customer_code || null,
+              poNumber: row.po_number || null,
+              socNumber: itemSoc || null,
+              deliveryCreatedAt: row.created_at || null,
+            });
+          }
+        }
+
+        const distinctSocs = Array.from(
+          new Set(
+            Array.from(deliveryInfoMap.values())
+              .map((v) => v.socNumber)
+              .filter(Boolean) as string[],
+          ),
+        );
+        if (distinctSocs.length > 0) {
+          const soRows = await this.ledgerRepo.manager.query(
+            `SELECT so.order_number, so.customer_po, c.company_name
+             FROM erp_sales.sales_orders so
+             LEFT JOIN erp_sales.customers c ON c.id = so.customer_id
+             WHERE so.order_number = ANY($1)`,
+            [distinctSocs],
+          );
+          const soMap = new Map<string, any>();
+          for (const s of soRows) {
+            if (s.order_number) soMap.set(s.order_number, s);
+          }
+          for (const dInfo of deliveryInfoMap.values()) {
+            if (dInfo.socNumber && soMap.has(dInfo.socNumber)) {
+              const sData = soMap.get(dInfo.socNumber);
+              if (!dInfo.poNumber && sData.customer_po) dInfo.poNumber = sData.customer_po;
+              if (!dInfo.customerName && sData.company_name) dInfo.customerName = sData.company_name;
+            }
+          }
+        }
+      } catch (err) {
+        console.warn(`Failed to resolve delivery info for ledger: ${(err as any)?.message}`);
+      }
+    }
+
+    // Enrich production entries (PE-...) with SOC #, customer name, and PO #
+    const peNumbers = records
+      .filter((r) => r.referenceType === 'PRODUCTION_ENTRY' || (r.referenceNumber && r.referenceNumber.startsWith('PE-')))
+      .map((r) => r.referenceNumber)
+      .filter(Boolean);
+
+    const peInfoMap = new Map<string, { customerName?: string; poNumber?: string; socNumber?: string; peCreatedAt?: Date }>();
+    if (peNumbers.length > 0) {
+      try {
+        const peRows = await this.ledgerRepo.manager.query(
+          `SELECT pe.entry_number, pe.remarks, pe.created_at, pe.entry_date
+           FROM public.production_entries pe
+           WHERE pe.entry_number = ANY($1)`,
+          [peNumbers],
+        );
+        for (const row of peRows) {
+          if (row.entry_number) {
+            const remarks = row.remarks || '';
+            const socMatch = remarks.match(/SOC[:\s]+(SOC-[A-Za-z0-9-]+|[0-9A-Za-z-]+)/i);
+            const custMatch = remarks.match(/Customer[:\s]+([^|]+)/i);
+            const poMatch = remarks.match(/PO[:\s]+([A-Za-z0-9-]+)/i);
+            const socNumber = socMatch ? socMatch[1].trim() : null;
+            const customerName = custMatch ? custMatch[1].trim() : null;
+            const poNumber = poMatch ? poMatch[1].trim() : null;
+            peInfoMap.set(row.entry_number, {
+              socNumber: socNumber || undefined,
+              customerName: customerName || undefined,
+              poNumber: poNumber || undefined,
+              peCreatedAt: row.created_at || (row.entry_date ? new Date(row.entry_date) : undefined),
+            });
+          }
+        }
+
+        // Cross-enrich from sales orders if socNumber was found
+        const socList = Array.from(
+          new Set(
+            Array.from(peInfoMap.values())
+              .map((v) => v.socNumber)
+              .filter(Boolean) as string[],
+          ),
+        );
+        if (socList.length > 0) {
+          const soRows = await this.ledgerRepo.manager.query(
+            `SELECT so.order_number, so.customer_po, c.company_name, c.customer_code
+             FROM erp_sales.sales_orders so
+             LEFT JOIN erp_sales.customers c ON c.id = so.customer_id
+             WHERE so.order_number = ANY($1)`,
+            [socList],
+          );
+          const soMap = new Map<string, any>();
+          for (const so of soRows) {
+            if (so.order_number) soMap.set(so.order_number, so);
+          }
+          for (const peInfo of peInfoMap.values()) {
+            if (peInfo.socNumber && soMap.has(peInfo.socNumber)) {
+              const soData = soMap.get(peInfo.socNumber);
+              if (!peInfo.poNumber && soData.customer_po) peInfo.poNumber = soData.customer_po;
+              if (!peInfo.customerName && soData.company_name) peInfo.customerName = soData.company_name;
+            }
+          }
+        }
+      } catch (err) {
+        console.warn(`Failed to resolve production entry info for ledger: ${(err as any)?.message}`);
+      }
+    }
+
     let runningBalance = 0;
     let totalIn = 0;
     let totalOut = 0;
+    let totalDispatched = 0;
 
     const movements = records.map((r) => {
       const qty = Number(r.quantity || 0);
@@ -1892,11 +2030,52 @@ export class RawMaterialReceivingService {
       } else {
         runningBalance -= qty;
         totalOut += qty;
+        if (r.referenceType === 'SALES_DELIVERY' || r.transactionType === 'SALES_DELIVERY') {
+          totalDispatched += qty;
+        }
+      }
+
+      const delInfo = r.referenceNumber ? deliveryInfoMap.get(r.referenceNumber) : undefined;
+      const peInfo = r.referenceNumber ? peInfoMap.get(r.referenceNumber) : undefined;
+
+      // Extract PO and SOC from delInfo, peInfo, or notes
+      let poNumber = delInfo?.poNumber || peInfo?.poNumber || null;
+      let socNumber = delInfo?.socNumber || peInfo?.socNumber || null;
+      let customerName = delInfo?.customerName || peInfo?.customerName || null;
+      let customerCode = delInfo?.customerCode || null;
+
+      if (!socNumber && r.notes) {
+        const socMatch = r.notes.match(/SOC[:\s]+(SOC-[A-Za-z0-9-]+|[0-9A-Za-z-]+)/i);
+        if (socMatch) socNumber = socMatch[1];
+      }
+      if (!poNumber && r.notes) {
+        const poMatch = r.notes.match(/PO[:\s]+([A-Za-z0-9-]+)/i);
+        if (poMatch) poNumber = poMatch[1];
+      }
+      if (!customerName && r.notes) {
+        const custMatch = r.notes.match(/Customer[:\s]+([^|,;]+)/i);
+        if (custMatch) customerName = custMatch[1].trim();
+      }
+
+      // Preserve actual time instead of displaying 00:00 midnight
+      let actualDate = r.transactionDate ? new Date(r.transactionDate) : (r.createdAt ? new Date(r.createdAt) : new Date());
+      const isMidnight =
+        (actualDate.getUTCHours() === 0 && actualDate.getUTCMinutes() === 0) ||
+        (actualDate.getUTCHours() === 19 && actualDate.getUTCMinutes() === 0);
+      if (isMidnight) {
+        const timeSource = delInfo?.deliveryCreatedAt || peInfo?.peCreatedAt || r.createdAt;
+        if (timeSource) {
+          const t = new Date(timeSource);
+          actualDate = new Date(actualDate);
+          actualDate.setHours(t.getHours(), t.getMinutes(), t.getSeconds());
+        }
       }
 
       return {
         id: r.id,
-        date: r.transactionDate,
+        date: actualDate,
+        transactionDate: r.transactionDate,
+        createdAt: r.createdAt,
         transactionType: r.transactionType,
         direction: r.direction,
         quantity: qty,
@@ -1906,6 +2085,10 @@ export class RawMaterialReceivingService {
         referenceType: r.referenceType,
         referenceNumber: r.referenceNumber || '-',
         notes: r.notes || '',
+        customerName: customerName || null,
+        customerCode: customerCode || null,
+        poNumber: poNumber || null,
+        socNumber: socNumber || null,
         warehouse: r.warehouse ? { id: r.warehouse.id, name: r.warehouse.name, code: r.warehouse.warehouseCode } : null,
         division: r.division ? { id: r.division.id, name: r.division.name } : null,
         section: r.section ? { id: r.section.id, name: r.section.name } : null,
@@ -1923,6 +2106,7 @@ export class RawMaterialReceivingService {
       summary: {
         totalIn: Math.round(totalIn * 10000) / 10000,
         totalOut: Math.round(totalOut * 10000) / 10000,
+        totalDispatched: Math.round(totalDispatched * 10000) / 10000,
         currentBalance: Math.round(runningBalance * 10000) / 10000,
         totalMovements: movements.length,
       },

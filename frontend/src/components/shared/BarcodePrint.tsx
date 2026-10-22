@@ -47,7 +47,7 @@ const BarcodePrint: React.FC<BarcodePrintProps> = ({
   itemName,
   sku,
   barcode,
-  companyName = 'Pakistan Wire Industries (Pvt) Ltd',
+  companyName = 'Pakistan Wire Industries (Pvt.) LTD',
   initialFormat = 'BOTH',
 }) => {
   const printRef = useRef<HTMLDivElement>(null);

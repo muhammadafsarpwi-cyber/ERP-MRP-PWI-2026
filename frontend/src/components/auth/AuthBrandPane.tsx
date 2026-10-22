@@ -20,7 +20,7 @@ const AuthBrandPane: React.FC = () => {
 
       <p className="erp-auth-pane-text">
         Real-time production scheduling, automated quality control, inventory
-        and high-speed dispatch for Pakistan Wire &amp; Industry (Private) Limited.
+        and high-speed dispatch for Pakistan Wire Industries (Pvt.) LTD.
       </p>
 
       {/* 2027 Live Plant Division Telemetry Cards */}

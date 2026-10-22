@@ -27,7 +27,7 @@ const ResetPassword: React.FC = () => {
   const [success, setSuccess] = useState(false);
 
   useEffect(() => {
-    document.title = 'Set New Password | PWI — Pakistan Wire & Industry';
+    document.title = 'Set New Password | PWI — Pakistan Wire Industries (Pvt.) LTD';
   }, []);
 
   const onFinish = async (values: { password: string; confirmPassword: string }) => {

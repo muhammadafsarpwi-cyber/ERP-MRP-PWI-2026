@@ -539,7 +539,7 @@ const CustomerManagement: React.FC = () => {
   // Template Download
   const handleDownloadTemplate = useCallback(() => {
     const headers = ['customerCode', 'name', 'legalName', 'customerType', 'contactPerson', 'email', 'phone', 'city', 'state', 'taxNumber', 'salesTaxNumber', 'creditLimit', 'openingBalance'];
-    const sample = ['CUS-000001', 'Pakistan Wire Demo Customer', 'Pakistan Wire Industries Ltd', 'Domestic Customer', 'Muhammad Afsar', 'afsar@demo.com', '03001000001', 'Lahore', 'Punjab', '1234567-8', '32-00-1234567-8', '1000000', '150000'];
+    const sample = ['CUS-000001', 'Pakistan Wire Demo Customer', 'Pakistan Wire Industries (Pvt.) LTD', 'Domestic Customer', 'Muhammad Afsar', 'afsar@demo.com', '03001000001', 'Lahore', 'Punjab', '1234567-8', '32-00-1234567-8', '1000000', '150000'];
     const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), sample.join(',')].join('\n');
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement('a');
@@ -2982,7 +2982,7 @@ const CustomerManagement: React.FC = () => {
         itemName={printModal.customer?.name || ''}
         sku={printModal.customer?.customerCategory || printModal.customer?.customerType}
         barcode={printModal.customer?.customerCode || ''}
-        companyName="Pakistan Wire Industries (Pvt) Ltd"
+        companyName="Pakistan Wire Industries (Pvt.) LTD"
       />
 
       {/* Enterprise Delete Confirmation Dialog */}

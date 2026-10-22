@@ -2392,7 +2392,7 @@ export function buildDailyProductionWhatsApp(
   const out: string[] = [];
 
   // 1. Header Banner
-  out.push('🏭 *PAKISTAN WIRE INDUSTRIES (PVT) LTD*');
+  out.push('🏭 *Pakistan Wire Industries (Pvt.) LTD*');
   out.push(`📊 *DAILY PRODUCTION REPORT — ${model.divisionName.toUpperCase()}*`);
   out.push(`📅 *${model.dateLabel}*${model.shiftLabel ? ` | *Shift:* ${model.shiftLabel}` : ''}`);
   out.push(`⚡ *Audited:* ${model.grand.machines} Machines · ${model.grand.entries} Entries · ${model.sections.length} Depts`);

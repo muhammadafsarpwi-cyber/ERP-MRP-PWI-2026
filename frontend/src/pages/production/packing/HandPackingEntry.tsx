@@ -378,8 +378,8 @@ export interface InventoryOrderImpact {
 
 // Authoritative factory warehouses with exact database UUIDs
 const DEFAULT_FACTORY_WAREHOUSES = [
-  { id: 'cf5c9db8-5e84-41d5-a4b4-988b8dfd122d', warehouseCode: 'WH-002', name: 'SPI Nipple Packing Warehouse', warehouseType: 'FINISHED_GOODS' },
   { id: '2f6aabde-69c1-4068-a0ea-b0fe1b8fb0b5', warehouseCode: 'SPI-FGDW-001', name: 'SPI FG Dispatch Warehouse', warehouseType: 'FINISHED_GOODS' },
+  { id: 'cf5c9db8-5e84-41d5-a4b4-988b8dfd122d', warehouseCode: 'WH-002', name: 'SPI Nipple Packing Warehouse', warehouseType: 'FINISHED_GOODS' },
   { id: 'a70e0a7e-2ffa-47e4-83a9-c894d9dff41b', warehouseCode: 'SPI-PL-004', name: 'PL Spoke Plating Department', warehouseType: 'WORK_IN_PROGRESS' },
   { id: '29e71f41-713e-45dc-bd69-4a3ce05a3801', warehouseCode: 'SPI-SPK-003', name: 'SPK Spoke Department', warehouseType: 'WORK_IN_PROGRESS' },
   { id: 'd5685ddf-923a-4f7c-ba19-a5715cafa02e', warehouseCode: 'SPI-SW-002', name: 'SW Swagging Department', warehouseType: 'WORK_IN_PROGRESS' },

@@ -21,7 +21,7 @@ describe('DepartmentService', () => {
 
   const mockCompany = {
     id: companyId,
-    legalName: 'Pakistan Wire Industries',
+    legalName: 'Pakistan Wire Industries (Pvt.) LTD',
     status: 'ACTIVE',
   } as Company;
 

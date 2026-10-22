@@ -2,7 +2,7 @@
 
 This folder contains the background images used by the application **Welcome
 screen** slideshow and the **Login** authentication screens for the PWI
-(Pakistan Wire Industries) ERP / MRP platform.
+Pakistan Wire Industries (Pvt.) LTD ERP / MRP platform.
 
 ## How to replace with real PWI factory images
 

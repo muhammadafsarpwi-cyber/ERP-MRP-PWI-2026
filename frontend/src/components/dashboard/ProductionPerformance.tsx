@@ -428,7 +428,7 @@ export const ProductionPerformance: React.FC<ProductionPerformanceProps> = ({
           <table class="header-table">
             <tr>
               <td style="vertical-align: middle;">
-                <div class="company-name">PAKISTAN WIRE INDUSTRIES (PVT) LTD</div>
+                <div class="company-name">Pakistan Wire Industries (Pvt.) LTD</div>
                 <div class="report-title">Shop Floor Production Performance Report</div>
               </td>
               <td class="meta-info" style="vertical-align: middle;">

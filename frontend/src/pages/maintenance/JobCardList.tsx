@@ -465,8 +465,8 @@ export const JobCardList: React.FC = () => {
   useEffect(() => { loadQueue(); }, [loadQueue]);
 
   useEffect(() => {
-    document.title = 'Maintenance Job Cards | PWI — Pakistan Wire & Industry';
-    return () => { document.title = 'PWI — Pakistan Wire & Industry | ERP / MRP Command Center'; };
+    document.title = 'Maintenance Job Cards | PWI — Pakistan Wire Industries (Pvt.) LTD';
+    return () => { document.title = 'PWI — Pakistan Wire Industries (Pvt.) LTD | ERP / MRP Command Center'; };
   }, []);
 
   const load = useCallback(async (force = false) => {

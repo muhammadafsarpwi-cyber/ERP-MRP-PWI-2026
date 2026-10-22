@@ -22,7 +22,8 @@ interface Line {
 /**
  * Sequential handwriting script:
  *   Stage 1 — "P"     Stage 2 — "PW"     Stage 3 — "PWI"
- *   Stage 4 — "Welcome to Pakistan Wire & Industry" then "(Private) Limited"
+ *   Stage 4 — "Pakistan Wire Industries" then "(Pvt.) LTD" — the exact
+ *   corporate title, revealed at natural word boundaries.
  * Strokes are real sub-phrases, so the pen pauses at natural letter/word breaks.
  */
 const LINES: Line[] = [
@@ -37,23 +38,22 @@ const LINES: Line[] = [
     ],
   },
   {
-    text: 'Welcome to Pakistan Wire & Industry',
+    text: 'Pakistan Wire Industries',
     cls: 'pwi-line--company',
     tag: 'h2',
     strokes: [
-      { from: 0.0, to: 0.3, duration: 620 }, // "Welcome to "
-      { from: 0.3, to: 0.58, duration: 640 }, // "Pakistan "
-      { from: 0.58, to: 0.82, duration: 560 }, // "Wire & "
-      { from: 0.82, to: 1.0, duration: 480 }, // "Industry"
+      { from: 0.0, to: 0.375, duration: 620 }, // "Pakistan "
+      { from: 0.375, to: 0.583, duration: 640 }, // "Wire "
+      { from: 0.583, to: 1.0, duration: 560 }, // "Industries"
     ],
   },
   {
-    text: '(Private) Limited',
+    text: '(Pvt.) LTD',
     cls: 'pwi-line--sub',
     tag: 'span',
     strokes: [
-      { from: 0.0, to: 0.62, duration: 520 },
-      { from: 0.62, to: 1.0, duration: 420 },
+      { from: 0.0, to: 0.64, duration: 520 }, // "(Pvt.) "
+      { from: 0.64, to: 1.0, duration: 420 }, // "LTD"
     ],
   },
 ];

@@ -857,8 +857,8 @@ const SalesInvoiceManagement: React.FC = () => {
   // Email invoice
   const handleEmail = (record: SalesInvoice) => {
     const custName = getCustomerDisplayName(record);
-    const subject = `Invoice ${record.invoiceNo} from Pakistan Wire Industries`;
-    const body = `Dear ${custName},\n\nPlease find the details for invoice ${record.invoiceNo}.\nAmount: Rs ${formatDecimal(record.totalAmount)}\nDue Date: ${record.dueDate || 'Immediate'}\n\nThank you for your business.\nPakistan Wire Industries (Pvt) Ltd`;
+    const subject = `Invoice ${record.invoiceNo} from Pakistan Wire Industries (Pvt.) LTD`;
+    const body = `Dear ${custName},\n\nPlease find the details for invoice ${record.invoiceNo}.\nAmount: Rs ${formatDecimal(record.totalAmount)}\nDue Date: ${record.dueDate || 'Immediate'}\n\nThank you for your business.\nPakistan Wire Industries (Pvt.) LTD`;
     const mailto = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
     window.location.href = mailto;
   };
@@ -1808,7 +1808,7 @@ const SalesInvoiceManagement: React.FC = () => {
               <div className="inv-split-sidebar">
                 {/* Brand Card */}
                 <div className="inv-sidebar-logo-card">
-                  <div className="inv-sidebar-logo-title">Pakistan Wire Industries</div>
+                  <div className="inv-sidebar-logo-title">Pakistan Wire Industries (Pvt.) LTD</div>
                   <div className="inv-sidebar-logo-sub">Enterprise Sales & Logistics</div>
                 </div>
 
@@ -1862,7 +1862,7 @@ const SalesInvoiceManagement: React.FC = () => {
                   <div className="inv-sidebar-sec-title">
                     <ShopOutlined /> From
                   </div>
-                  <div className="inv-sidebar-firm-name">Pakistan Wire Industries (Pvt) Ltd</div>
+                  <div className="inv-sidebar-firm-name">Pakistan Wire Industries (Pvt.) LTD</div>
                   <div className="inv-sidebar-firm-text">
                     Plot 42-B, Industrial Estate, Lahore, Pakistan<br />
                     NTN: 0819234-7 | STRN: 17-00-9812-001
@@ -2216,11 +2216,11 @@ const SalesInvoiceManagement: React.FC = () => {
               <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
                 <img
                   src="/logo.png"
-                  alt="Pakistan Wire Industries Logo"
+                  alt="Pakistan Wire Industries (Pvt.) LTD Logo"
                   style={{ width: 66, height: 66, objectFit: 'contain' }}
                 />
                 <div>
-                  <div className="pwi-print-company-name">PAKISTAN WIRE INDUSTRIES (PVT) LTD</div>
+                  <div className="pwi-print-company-name">Pakistan Wire Industries (Pvt.) LTD</div>
                   <div style={{ fontSize: 11, color: '#333', fontWeight: 600, marginTop: 1 }}>
                     Manufacturer of High Tensile Steel Wires, Galvanized Wires & Engineering Fasteners
                   </div>
@@ -2352,7 +2352,7 @@ const SalesInvoiceManagement: React.FC = () => {
             <div className="pwi-print-sig-line">Prepared By</div>
             <div className="pwi-print-sig-line">Checked & Verified</div>
             <div className="pwi-print-sig-line">Customer Acceptance & Stamp</div>
-            <div className="pwi-print-sig-line" style={{ fontWeight: 700 }}>For Pakistan Wire Industries (Pvt) Ltd</div>
+            <div className="pwi-print-sig-line" style={{ fontWeight: 700 }}>For Pakistan Wire Industries (Pvt.) LTD</div>
           </div>
         </div>
       )}

@@ -55,7 +55,7 @@ const companyWideScope = {
   scopeLevel: 'COMPANY',
   isFullScope: true,
   status: 'ACTIVE',
-  company: { id: COMPANY_ID, legalName: 'Pakistan Wire Industries (Pvt) Ltd' },
+  company: { id: COMPANY_ID, legalName: 'Pakistan Wire Industries (Pvt.) LTD' },
   division: null,
 };
 
@@ -66,13 +66,13 @@ const ccdScope = {
   scopeLevel: 'DIVISION',
   isFullScope: false,
   status: 'ACTIVE',
-  company: { id: COMPANY_ID, legalName: 'Pakistan Wire Industries (Pvt) Ltd' },
+  company: { id: COMPANY_ID, legalName: 'Pakistan Wire Industries (Pvt.) LTD' },
   division: { id: D_CCD, divisionCode: 'DIV-CCD', name: 'Control Cable Division' },
 };
 
 const mockRoles = [{ id: 'role-prod', roleCode: 'PRODUCTION', name: 'Production' }];
 const mockCompanies = [
-  { id: COMPANY_ID, companyCode: 'COMP-001', tradeName: 'Pakistan Wire Industries', legalName: 'Pakistan Wire Industries (Pvt) Ltd' },
+  { id: COMPANY_ID, companyCode: 'COMP-001', tradeName: 'Pakistan Wire Industries', legalName: 'Pakistan Wire Industries (Pvt.) LTD' },
 ];
 const mockDivisions = [
   { id: D_CCD, divisionCode: 'DIV-CCD', name: 'Control Cable Division', status: 'ACTIVE' },
@@ -261,7 +261,7 @@ describe('UserManagement — Division Access save workflow (PROMPT #26)', () => 
       scopeLevel: 'SECTION',
       isFullScope: false,
       status: 'ACTIVE',
-      company: { id: COMPANY_ID, legalName: 'Pakistan Wire Industries (Pvt) Ltd' },
+      company: { id: COMPANY_ID, legalName: 'Pakistan Wire Industries (Pvt.) LTD' },
       division: null,
     };
     seedUsers({ scopes: [sectionScope], effective: { unrestricted: true, divisionIds: [] } });

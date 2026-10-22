@@ -968,7 +968,7 @@ export function VisitorManagement() {
       // Header
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(14);
-      doc.text('Pakistan Wire Industries (Pvt.) Ltd.', 14, 14);
+      doc.text('Pakistan Wire Industries (Pvt.) LTD', 14, 14);
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(8);
       doc.text('Visitor Register', 14, 20);

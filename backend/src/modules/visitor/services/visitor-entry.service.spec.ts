@@ -167,7 +167,7 @@ describe('VisitorEntryService', () => {
     companyRepo.findOne.mockResolvedValue({
       id: COMPANY,
       companyCode: 'PWI',
-      legalName: 'Pakistan Wire Industries (Pvt) Ltd.',
+      legalName: 'Pakistan Wire Industries (Pvt.) LTD',
       tradeName: 'PWI',
     });
 
@@ -985,7 +985,7 @@ describe('VisitorEntryService', () => {
         const slip = await service.getSlip(ENTRY, COMPANY, [CCD]);
 
         // §4 — company, visitor, host, location, times, status, reference, audit.
-        expect(slip.companyName).toBe('Pakistan Wire Industries (Pvt) Ltd.');
+        expect(slip.companyName).toBe('Pakistan Wire Industries (Pvt.) LTD');
         expect(slip.companyCode).toBe('PWI');
         expect(slip).toMatchObject({
           visitorReference: 'VIS-2026-000042',
@@ -1155,7 +1155,7 @@ describe('VisitorEntryService', () => {
 
         const slip = await service.getSlip(ENTRY, COMPANY, [CCD]);
 
-        expect(slip.companyName).toBe('PAKISTAN WIRE INDUSTRIES (PVT) LTD.');
+        expect(slip.companyName).toBe('Pakistan Wire Industries (Pvt.) LTD');
       });
     });
 

@@ -47,12 +47,12 @@ async function main() {
     // Wait for main dashboard / layout
     await page.waitForSelector('.erp-desktop-sider, .ant-layout-sider', { timeout: 15000 });
 
-    // 2. Verify Sidebar Branding: PWI ERP System & Pakistan Wire Industries
+    // 2. Verify Sidebar Branding: PWI ERP System & Pakistan Wire Industries (Pvt.) LTD
     const siderText = await page.locator('.erp-desktop-sider').innerText();
     const hasPwiTitle = siderText.includes('PWI ERP System');
-    const hasPwiSub = siderText.includes('Pakistan Wire Industries');
+    const hasPwiSub = siderText.includes('Pakistan Wire Industries (Pvt.) LTD');
     check('Sidebar Branding Title: "PWI ERP System"', hasPwiTitle);
-    check('Sidebar Branding Subtitle: "Pakistan Wire Industries"', hasPwiSub);
+    check('Sidebar Branding Subtitle: "Pakistan Wire Industries (Pvt.) LTD"', hasPwiSub);
 
     await page.screenshot({ path: path.join(SHOT_DIR, '01_pwi_sidebar_branding.png') });
 

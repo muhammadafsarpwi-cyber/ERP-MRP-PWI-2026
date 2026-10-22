@@ -35,7 +35,7 @@ const mockUsers = [
         scopeLevel: 'DIVISION',
         isFullScope: false,
         status: 'ACTIVE',
-        company: { id: 'comp-1', legalName: 'Pakistan Wire Industries (Pvt) Ltd' },
+        company: { id: 'comp-1', legalName: 'Pakistan Wire Industries (Pvt.) LTD' },
         division: { id: 'div-ccd', divisionCode: 'DIV-CCD', name: 'Control Cable Division' },
       },
     ],

@@ -69,7 +69,7 @@ describe('ProductionUnitLabelCard Component', () => {
     render(<ProductionUnitLabelCard unit={sampleUnit} template="PVC_COIL" />);
 
     // Company and Subheader
-    expect(screen.getByText('PAKISTAN WIRE INDUSTRIES (PVT) LTD')).toBeInTheDocument();
+    expect(screen.getByText('Pakistan Wire Industries (Pvt.) LTD')).toBeInTheDocument();
     expect(screen.getByText(/Quality Wire & Cable Division/i)).toBeInTheDocument();
 
     // Template badge
@@ -168,7 +168,7 @@ describe('printProductionUnitLabels Engine', () => {
     const bodyText = doc?.body.innerHTML || '';
     expect(bodyText).toContain('CN-001');
     expect(bodyText).toContain('PWI-PU-2026000001');
-    expect(bodyText).toContain('PAKISTAN WIRE INDUSTRIES (PVT) LTD');
+    expect(bodyText).toContain('Pakistan Wire Industries (Pvt.) LTD');
     expect(bodyText).toContain('26.10 KG');
     expect(bodyText).toContain('250 M');
 
@@ -182,7 +182,7 @@ describe('printProductionUnitLabels Engine', () => {
     expect(bcSvg).toBeInTheDocument();
 
     // Verify ERP shell elements are NOT present in iframe
-    expect(bodyText).not.toContain('PWI — Pakistan Wire & Industry | ERP / MRP Command Center');
+    expect(bodyText).not.toContain('PWI — Pakistan Wire Industries (Pvt.) LTD | ERP / MRP Command Center');
     expect(bodyText).not.toContain('ant-layout-sider');
     expect(bodyText).not.toContain('ant-menu');
   });

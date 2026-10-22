@@ -8,6 +8,7 @@ import {
 import apiService from '../../services/api';
 import { formatNumber } from '../../utils/numberFormat';
 import { ERPTable, ItemStockLedgerModal } from '../../components/shared';
+import { useThemeStore } from '../../theme/themeStore';
 
 const getPcsGrossCarton = (
   quantity: number,
@@ -45,24 +46,27 @@ const getPcsGrossCarton = (
   let gross = 0;
   let ctn = 0;
 
+  const isCS = codeStr.includes('011') || codeStr.includes('012') || codeStr.includes('(CS)') || codeStr.includes(' CS');
+  const grossPerCarton = isCS ? 10.555556 : 10;
+
   if (isPcs) {
     pcs = quantity;
     gross = quantity / 144;
-    ctn = gross / 10;
+    ctn = Math.round(gross / grossPerCarton);
   } else if (isGross) {
     gross = quantity;
     pcs = quantity * 144;
-    ctn = gross / 10;
+    ctn = Math.round(gross / grossPerCarton);
   } else if (isCtn) {
-    ctn = quantity;
-    gross = quantity * 10;
+    ctn = Math.round(quantity);
+    gross = ctn * grossPerCarton;
     pcs = gross * 144;
   }
 
   return {
-    pcs,
+    pcs: Math.round(pcs),
     gross: Math.round(gross * 100) / 100,
-    ctn: Math.round(ctn * 100) / 100,
+    ctn: Math.round(ctn), // Cartons are physical whole boxes; never fractional/decimal
   };
 };
 
@@ -92,6 +96,7 @@ interface WarehouseOption {
 }
 
 const Inventory: React.FC = () => {
+  const isDark = useThemeStore((state) => state.draft.mode === 'dark');
   const [summary, setSummary] = useState<StockBalance[]>([]);
   const [warehouses, setWarehouses] = useState<WarehouseOption[]>([]);
   const [selectedWarehouse, setSelectedWarehouse] = useState<string | undefined>(undefined);
@@ -120,16 +125,40 @@ const Inventory: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const params: Record<string, any> = { limit: 200 };
+      const params: Record<string, any> = { limit: 1000 };
       if (warehouseId) params.warehouseId = warehouseId;
       const res = await apiService.get<{ data: StockBalance[]; total: number }>('/inventory/balances', params);
       const records = Array.isArray(res?.data) ? res.data : (Array.isArray(res) ? res : []);
-      records.sort((a, b) => {
+      
+      // Group by itemId and warehouseId so each item appears EXACTLY ONCE per warehouse
+      const map = new Map<string, StockBalance>();
+      for (const r of records) {
+        const itemId = r.item?.id || (r as any).itemId;
+        if (!itemId) continue;
+        const whId = r.warehouse?.id || (r as any).warehouseId || '';
+        const key = `${itemId}_${whId}`;
+        if (!map.has(key)) {
+          map.set(key, {
+            ...r,
+            id: key, // Use stable composite key for React rows
+            onHand: Number(r.onHand || 0),
+            reserved: Number(r.reserved || 0),
+            available: Number(r.available || 0),
+          });
+        } else {
+          const existing = map.get(key)!;
+          existing.onHand += Number(r.onHand || 0);
+          existing.reserved += Number(r.reserved || 0);
+          existing.available += Number(r.available || 0);
+        }
+      }
+      const aggregatedRecords = Array.from(map.values());
+      aggregatedRecords.sort((a, b) => {
         const codeA = (a.item?.itemCode || (a as any).itemCode || '').trim();
         const codeB = (b.item?.itemCode || (b as any).itemCode || '').trim();
         return codeA.localeCompare(codeB, undefined, { numeric: true, sensitivity: 'base' });
       });
-      setSummary(records);
+      setSummary(aggregatedRecords);
     } catch (err: any) {
       const msg = err?.response?.data?.message || err?.message || 'Failed to fetch inventory balances';
       setError(Array.isArray(msg) ? msg[0] : String(msg));
@@ -248,7 +277,7 @@ const Inventory: React.FC = () => {
             <Card>
               <Statistic
                 title="Total Gross (GR)"
-                value={`${formatNumber(totalGross, 2)} GR`}
+                value={`${formatNumber(totalGross, totalGross % 1 === 0 ? 0 : 2)} GR`}
                 prefix={<AppstoreOutlined style={{ color: '#c084fc' }} />}
                 valueStyle={{ color: '#c084fc', fontWeight: 700 }}
               />
@@ -258,7 +287,7 @@ const Inventory: React.FC = () => {
             <Card>
               <Statistic
                 title="Total Cartons (CTN)"
-                value={`${formatNumber(totalCartons, 2)} CTN`}
+                value={`${formatNumber(Math.round(totalCartons), 0)} CTN`}
                 prefix={<CheckCircleOutlined style={{ color: '#38bdf8' }} />}
                 valueStyle={{ color: '#38bdf8', fontWeight: 700 }}
               />
@@ -369,7 +398,7 @@ const Inventory: React.FC = () => {
             ) : (
               <span>Showing all warehouses across division</span>
             )}
-            {' · '}{filteredBalances.length} records found
+            {' · '}{filteredBalances.length} items found
           </span>
         </div>
 
@@ -449,8 +478,8 @@ const Inventory: React.FC = () => {
           {
             title: (
               <div>
-                <div style={{ color: '#38bdf8', fontSize: 11, fontWeight: 700, letterSpacing: '0.4px' }}>ITEM CODE</div>
-                <div style={{ color: '#94a3b8', fontSize: 10, fontWeight: 600 }}>ITEM NAME</div>
+                <div style={{ color: isDark ? '#38bdf8' : '#0284c7', fontSize: 11, fontWeight: 700, letterSpacing: '0.4px' }}>ITEM CODE</div>
+                <div style={{ color: isDark ? '#94a3b8' : '#64748b', fontSize: 10, fontWeight: 600 }}>ITEM NAME</div>
               </div>
             ),
             key: 'itemName',
@@ -487,10 +516,10 @@ const Inventory: React.FC = () => {
                       style={{
                         fontWeight: 700,
                         fontSize: 13,
-                        color: '#38bdf8',
+                        color: isDark ? '#38bdf8' : '#0284c7',
                         letterSpacing: '0.4px',
                         fontFamily: 'monospace, var(--theme-font-mono, sans-serif)',
-                        textDecoration: 'underline dotted rgba(56, 189, 248, 0.45)',
+                        textDecoration: `underline dotted ${isDark ? 'rgba(56, 189, 248, 0.45)' : 'rgba(2, 132, 199, 0.45)'}`,
                       }}
                     >
                       {code}
@@ -500,11 +529,11 @@ const Inventory: React.FC = () => {
                         style={{
                           fontSize: 10,
                           fontWeight: 700,
-                          color: '#38bdf8',
-                          background: 'rgba(56, 189, 248, 0.12)',
+                          color: isDark ? '#38bdf8' : '#0284c7',
+                          background: isDark ? 'rgba(56, 189, 248, 0.12)' : 'rgba(2, 132, 199, 0.08)',
                           padding: '1px 6px',
                           borderRadius: 4,
-                          border: '1px solid rgba(56, 189, 248, 0.25)',
+                          border: `1px solid ${isDark ? 'rgba(56, 189, 248, 0.25)' : 'rgba(2, 132, 199, 0.25)'}`,
                           display: 'inline-flex',
                           alignItems: 'center',
                           gap: 3,
@@ -517,8 +546,9 @@ const Inventory: React.FC = () => {
                   {name && (
                     <div
                       style={{
-                        color: '#f1f5f9',
+                        color: isDark ? '#f1f5f9' : '#0f172a',
                         fontSize: 12,
+                        fontWeight: 500,
                         marginTop: 4,
                         lineHeight: 1.45,
                         whiteSpace: 'normal',
@@ -538,11 +568,11 @@ const Inventory: React.FC = () => {
             width: 220,
             render: (_, r) => (
               <div>
-                <span style={{ fontWeight: 600, color: 'var(--theme-text)' }}>
+                <span style={{ fontWeight: 600, color: 'var(--theme-text, #0f172a)' }}>
                   {r.warehouse?.name || (r as any).warehouseName || '—'}
                 </span>
                 {r.warehouse?.warehouseCode && (
-                  <span style={{ fontSize: 11, color: '#94a3b8', display: 'block', marginTop: 2 }}>
+                  <span style={{ fontSize: 11, color: isDark ? '#94a3b8' : '#64748b', display: 'block', marginTop: 2 }}>
                     {r.warehouse.warehouseCode}
                   </span>
                 )}
@@ -550,79 +580,89 @@ const Inventory: React.FC = () => {
             ),
           },
           {
-            title: 'On Hand (PCs)',
-            dataIndex: 'onHand',
-            key: 'onHand',
-            width: 140,
-            align: 'right' as const,
-            render: (v: unknown) => {
-              const num = Number(v || 0);
-              const isNegative = num < -0.0001;
-              const isZero = Math.abs(num) <= 0.0001;
-              return (
-                <span
-                  style={{
-                    fontWeight: 700,
-                    fontSize: 13,
-                    fontVariantNumeric: 'tabular-nums',
-                    color: isNegative ? '#ef4444' : isZero ? 'var(--theme-text-muted, #64748b)' : '#f8fafc',
-                  }}
-                >
-                  {isNegative && <span style={{ marginRight: 4 }}>⚠️</span>}
-                  {formatNumber(v, 0)}
-                </span>
-              );
-            },
-          },
-          {
             title: (
               <div style={{ textAlign: 'right' }}>
-                <div style={{ color: '#c084fc', fontSize: 11, fontWeight: 700 }}>GROSS (GR)</div>
-                <div style={{ color: '#38bdf8', fontSize: 10, fontWeight: 600 }}>CARTON (CTN)</div>
+                <div style={{ color: isDark ? '#38bdf8' : '#0284c7', fontSize: 11, fontWeight: 700, letterSpacing: '0.4px' }}>
+                  ON HAND STOCK
+                </div>
+                <div style={{ color: isDark ? '#94a3b8' : '#64748b', fontSize: 10, fontWeight: 600 }}>
+                  GROSS · CARTON · PCS
+                </div>
               </div>
             ),
-            key: 'grossCarton',
+            key: 'onHand',
+            width: 170,
             align: 'right' as const,
-            width: 150,
+            sorter: (a, b) => Number(a.onHand || 0) - Number(b.onHand || 0),
             render: (_, r) => {
+              const num = Number(r.onHand || 0);
+              const isNegative = num < -0.0001;
+              const isZero = Math.abs(num) <= 0.0001;
+
+              if (isZero) {
+                return (
+                  <span style={{ color: isDark ? '#64748b' : '#94a3b8', fontWeight: 700, fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
+                    0
+                  </span>
+                );
+              }
+
               const conv = getPcsGrossCarton(
-                Number(r.onHand || 0),
+                num,
                 r.uom?.code || r.uomCode || r.item?.uom?.code,
                 r.item?.itemType || (r as any).itemType,
                 r.item?.itemCode || (r as any).itemCode
               );
-              if (!conv) return <span style={{ color: 'var(--theme-text-muted, #64748b)' }}>—</span>;
-              return (
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+
+              if (!conv) {
+                return (
                   <span
                     style={{
                       fontWeight: 700,
-                      fontSize: 12,
-                      color: '#c084fc',
-                      background: 'rgba(192, 132, 252, 0.14)',
-                      padding: '2px 8px',
-                      borderRadius: 4,
-                      border: '1px solid rgba(192, 132, 252, 0.3)',
-                      display: 'inline-block',
+                      fontSize: 13,
+                      fontVariantNumeric: 'tabular-nums',
+                      color: isNegative ? '#ef4444' : (isDark ? '#f8fafc' : '#0f172a'),
+                    }}
+                  >
+                    {isNegative && <span style={{ marginRight: 4 }}>⚠️</span>}
+                    {formatNumber(num, 0)} {r.uom?.code || r.uomCode || 'PCS'}
+                  </span>
+                );
+              }
+
+              // 1. Gross -> 2. Carton (Whole Number) -> 3. Pieces (NO BOXES)
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2, lineHeight: 1.35 }}>
+                  <span
+                    style={{
+                      fontWeight: 800,
+                      fontSize: 13,
+                      color: isNegative ? '#ef4444' : (isDark ? '#c084fc' : '#7e22ce'),
                       fontVariantNumeric: 'tabular-nums',
                     }}
                   >
-                    {formatNumber(conv.gross, 2)} GR
+                    {isNegative && <span style={{ marginRight: 4 }}>⚠️</span>}
+                    {formatNumber(conv.gross, conv.gross % 1 === 0 ? 0 : 2)} GR
                   </span>
                   <span
                     style={{
                       fontWeight: 700,
-                      fontSize: 11,
-                      color: '#38bdf8',
-                      background: 'rgba(56, 189, 248, 0.14)',
-                      padding: '2px 8px',
-                      borderRadius: 4,
-                      border: '1px solid rgba(56, 189, 248, 0.3)',
-                      display: 'inline-block',
+                      fontSize: 12,
+                      color: isDark ? '#38bdf8' : '#0284c7',
                       fontVariantNumeric: 'tabular-nums',
                     }}
                   >
-                    {formatNumber(conv.ctn, 2)} CTN
+                    {formatNumber(conv.ctn, 0)} CTN
+                  </span>
+                  <span
+                    style={{
+                      fontWeight: 600,
+                      fontSize: 11,
+                      color: isDark ? '#cbd5e1' : '#475569',
+                      fontVariantNumeric: 'tabular-nums',
+                    }}
+                  >
+                    {formatNumber(conv.pcs, 0)} PCS
                   </span>
                 </div>
               );
@@ -641,41 +681,90 @@ const Inventory: React.FC = () => {
             ),
           },
           {
-            title: 'Available',
+            title: (
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ color: isDark ? '#4ade80' : '#15803d', fontSize: 11, fontWeight: 700, letterSpacing: '0.4px' }}>
+                  AVAILABLE
+                </div>
+                <div style={{ color: isDark ? '#94a3b8' : '#64748b', fontSize: 10, fontWeight: 600 }}>
+                  GROSS · CARTON · PCS
+                </div>
+              </div>
+            ),
             dataIndex: 'available',
             key: 'available',
             width: 170,
             align: 'right' as const,
+            sorter: (a, b) => Number(a.available || 0) - Number(b.available || 0),
             render: (v: unknown, r) => {
               const num = Number(v || 0);
               const isNegative = num < -0.0001;
               const isZero = Math.abs(num) <= 0.0001;
+
+              if (isZero) {
+                return (
+                  <span style={{ color: isDark ? '#64748b' : '#94a3b8', fontWeight: 700, fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
+                    0
+                  </span>
+                );
+              }
+
               const conv = getPcsGrossCarton(
                 num,
                 r.uom?.code || r.uomCode || r.item?.uom?.code,
                 r.item?.itemType || (r as any).itemType,
                 r.item?.itemCode || (r as any).itemCode
               );
-              return (
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
+
+              if (!conv) {
+                return (
                   <span
                     style={{
                       fontWeight: 700,
                       fontSize: 13,
                       fontVariantNumeric: 'tabular-nums',
-                      color: isNegative ? '#ef4444' : isZero ? 'var(--theme-text-muted, #64748b)' : 'var(--theme-success, #22c55e)',
+                      color: isNegative ? '#ef4444' : (isDark ? '#4ade80' : '#15803d'),
                     }}
                   >
                     {isNegative && <span style={{ marginRight: 4 }}>⚠️</span>}
-                    {formatNumber(v, 0)}
+                    {formatNumber(num, 0)} {r.uom?.code || r.uomCode || 'PCS'}
                   </span>
-                  {conv && (
-                    <div style={{ fontSize: 11, display: 'flex', gap: 4, alignItems: 'center', marginTop: 2 }}>
-                      <span style={{ color: '#c084fc', fontWeight: 600 }}>{formatNumber(conv.gross, 2)} GR</span>
-                      <span style={{ color: 'var(--theme-text-muted, #64748b)' }}>·</span>
-                      <span style={{ color: '#38bdf8', fontWeight: 600 }}>{formatNumber(conv.ctn, 2)} CTN</span>
-                    </div>
-                  )}
+                );
+              }
+
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2, lineHeight: 1.35 }}>
+                  <span
+                    style={{
+                      fontWeight: 800,
+                      fontSize: 13,
+                      color: isNegative ? '#ef4444' : (isDark ? '#c084fc' : '#7e22ce'),
+                      fontVariantNumeric: 'tabular-nums',
+                    }}
+                  >
+                    {isNegative && <span style={{ marginRight: 4 }}>⚠️</span>}
+                    {formatNumber(conv.gross, conv.gross % 1 === 0 ? 0 : 2)} GR
+                  </span>
+                  <span
+                    style={{
+                      fontWeight: 700,
+                      fontSize: 12,
+                      color: isDark ? '#38bdf8' : '#0284c7',
+                      fontVariantNumeric: 'tabular-nums',
+                    }}
+                  >
+                    {formatNumber(conv.ctn, 0)} CTN
+                  </span>
+                  <span
+                    style={{
+                      fontWeight: 600,
+                      fontSize: 11,
+                      color: isDark ? '#4ade80' : '#15803d',
+                      fontVariantNumeric: 'tabular-nums',
+                    }}
+                  >
+                    {formatNumber(conv.pcs, 0)} PCS
+                  </span>
                 </div>
               );
             },
@@ -700,7 +789,7 @@ const Inventory: React.FC = () => {
               return (
                 <Button
                   size="small"
-                  icon={<HistoryOutlined style={{ color: '#38bdf8' }} />}
+                  icon={<HistoryOutlined style={{ color: isDark ? '#38bdf8' : '#0284c7' }} />}
                   onClick={(e) => {
                     e.stopPropagation();
                     if (itemId) {
@@ -714,9 +803,9 @@ const Inventory: React.FC = () => {
                     }
                   }}
                   style={{
-                    background: 'rgba(56, 189, 248, 0.1)',
-                    borderColor: 'rgba(56, 189, 248, 0.3)',
-                    color: '#38bdf8',
+                    background: isDark ? 'rgba(56, 189, 248, 0.1)' : 'rgba(2, 132, 199, 0.08)',
+                    borderColor: isDark ? 'rgba(56, 189, 248, 0.3)' : 'rgba(2, 132, 199, 0.3)',
+                    color: isDark ? '#38bdf8' : '#0284c7',
                     fontSize: 11,
                     fontWeight: 700,
                   }}

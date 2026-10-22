@@ -1,0 +1,59 @@
+/* =====================================================================
+   COMMAND CENTER WEBGL BACKDROP (Enterprise Command Center scene)
+   ------------------------------------------------------------------------
+   Sits at the very bottom of the auth stacking order:
+     z0 .erp-command-scene (this layer — fixed, edge-to-edge)
+     z4 .erp-auth-corners  (corner brackets)
+     z5 .erp-auth-top / .erp-auth-body / .erp-auth-footer
+   Nothing else claims the viewport-fixed band, so the canvas covers the
+   screen exactly: zero borders, zero margins, no in-flow footprint (the
+   glassmorphic login card never shifts when the canvas mounts).
+
+   Hard requirements honoured here:
+   - edge-to-edge: position fixed inset 0 — exactly the viewport box on
+     every scroll position, independent of the root's own scrolling;
+   - zero overflow: width/height are viewport-derived, this layer can never
+     widen the page (html/body/#root also carry overflow-x: clip);
+   - non-interactive: pointer-events none, so the theme toggle, brand pane,
+     telemetry cards and login form keep receiving input;
+   - themed fallback: while the canvas paints (and permanently when WebGL
+     is unavailable) the container itself shows the same gradient the scene
+     renders — premium silver-slate in light theme, deep carbon in dark —
+     cross-fading over 0.8 s exactly like the structural CSS.
+   ===================================================================== */
+
+.erp-command-scene {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  pointer-events: none;
+  background: linear-gradient(180deg, #f5f5f7 0%, #e4e4e9 100%);
+  transition: background 0.8s ease;
+}
+
+html[data-theme='dark'] .erp-command-scene {
+  background: linear-gradient(180deg, #12161c 0%, #0a0d11 100%);
+}
+
+.erp-command-canvas {
+  display: block; /* kills the inline-baseline gap that would add a scrollbar */
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  outline: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .erp-command-scene {
+    transition: none;
+  }
+}

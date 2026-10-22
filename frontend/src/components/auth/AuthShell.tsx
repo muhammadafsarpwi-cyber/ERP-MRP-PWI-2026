@@ -1,28 +1,29 @@
 import React from 'react';
 import AuthBrand from './AuthBrand';
+import CommandCenterScene from './CommandCenterScene';
 import ThemeToggle from './ThemeToggle';
-import { WELCOME_SLIDES } from './WelcomeSlideshow';
 
 interface AuthShellProps {
-  /** Background image URL (defaults to the first welcome image). */
-  image?: string;
   children: React.ReactNode;
   footer?: React.ReactNode;
 }
 
 /**
  * Shared layout for the Login, Forgot Password and Reset Password screens:
- * full-bleed industrial photography, readability overlay, engineering grid,
- * corner brackets, brand top bar and a two-column auth body.
+ * the theme-driven "Enterprise Command Center" WebGL hall (structural walls,
+ * seam floor, side storage racks with wire rod coils, wire treatment
+ * modules), corner brackets, brand top bar and a two-column auth body with
+ * the glassmorphic login container.
+ *
+ * The old static dark photo + readability shade + engineering grid layers
+ * are gone: the 3D hall renders the backdrop and responds live to the
+ * central Light/Dark theme state (see CommandCenterScene / webglCommandCenter),
+ * and every structural element below follows the same theme tokens.
  */
-const AuthShell: React.FC<AuthShellProps> = ({ image, children, footer }) => {
-  const bg = image || WELCOME_SLIDES[0]?.src;
-
+const AuthShell: React.FC<AuthShellProps> = ({ children, footer }) => {
   return (
     <div className="erp-auth-root">
-      <div className="erp-auth-media-static" style={{ backgroundImage: `url(${bg})` }} />
-      <div className="erp-auth-shade" />
-      <div className="erp-auth-grid" />
+      <CommandCenterScene />
       <div className="erp-auth-corners" aria-hidden="true">
         <span className="erp-corner erp-corner-tl" />
         <span className="erp-corner erp-corner-tr" />

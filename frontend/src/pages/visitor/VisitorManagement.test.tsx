@@ -173,7 +173,7 @@ const CREATED_ROW = { ...LIST_ROW, cnic: '12345-1234567-1' };
  */
 const SLIP_PENDING = {
   visitorReference: 'VIS-2026-000001',
-  companyName: 'PAKISTAN WIRE INDUSTRIES (PVT) LTD.',
+  companyName: 'Pakistan Wire Industries (Pvt.) LTD',
   visitorName: 'Muhammad Test',
   cnic: '12345-*******-1',
   mobile: '0300-1234567',
@@ -1233,7 +1233,7 @@ describe('VisitorManagement', () => {
         'Control Cable Division',
         'Main Gate',
         asSlipDisplayed(SLIP_PENDING.timeIn), // Time-In, as the SLIP prints it
-        'Pakistan Wire Industries (Pvt.) LTD.',
+        'Pakistan Wire Industries (Pvt.) LTD',
       ]) {
         expect(within(slip).getByText(text)).toBeInTheDocument();
       }
@@ -1272,7 +1272,7 @@ describe('VisitorManagement', () => {
       expect(within(slip).getByText(/host identity not verified/)).toBeInTheDocument();
 
       // §3/§4 — the production letterhead, and the development fixture gone.
-      expect(within(slip).getByText(/Pakistan Wire Industries \(Pvt\.\) LTD\./)).toBeInTheDocument();
+      expect(within(slip).getByText(/Pakistan Wire Industries \(Pvt\.\) LTD/)).toBeInTheDocument();
       expect(within(slip).getByText(/Karachi, Pakistan/)).toBeInTheDocument();
       expect(slip.textContent).not.toMatch(/Lahore/i);
     });

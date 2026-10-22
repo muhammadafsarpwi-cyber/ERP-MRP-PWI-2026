@@ -861,7 +861,7 @@ export class VisitorEntryService {
       visitorReference: entry.visitorReference,
       // §3/§4 — the real company name from the database, with the ERP's
       // established PWI fallback so a slip is never printed headerless.
-      companyName: company?.legalName?.trim() || 'PAKISTAN WIRE INDUSTRIES (PVT) LTD.',
+      companyName: company?.legalName?.trim() || 'Pakistan Wire Industries (Pvt.) LTD',
       companyCode: company?.companyCode ?? null,
       visitorName: entry.visitorName,
       cnic: maskCnic(entry.cnic),

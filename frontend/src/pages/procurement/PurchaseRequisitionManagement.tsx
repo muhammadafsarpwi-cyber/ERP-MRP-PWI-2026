@@ -524,7 +524,7 @@ const PurchaseRequisitionManagement: React.FC = () => {
       <div style="font-family: Arial, sans-serif; color: #0f172a; padding: 12px;">
         <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #0284c7; padding-bottom: 8px; margin-bottom: 14px;">
           <div>
-            <div style="font-size: 18px; font-weight: 800; color: #0284c7;">PAKISTAN WIRE INDUSTRIES (PVT) LTD</div>
+            <div style="font-size: 18px; font-weight: 800; color: #0284c7;">Pakistan Wire Industries (Pvt.) LTD</div>
             <div style="font-size: 13px; font-weight: 700; color: #334155; margin-top: 2px;">PURCHASE REQUISITION VOUCHER</div>
           </div>
           <div style="text-align: right;">
@@ -1075,7 +1075,7 @@ const PurchaseRequisitionManagement: React.FC = () => {
                 >
                   <div>
                     <div style={{ fontSize: 11, fontWeight: 700, color: '#38bdf8', letterSpacing: 1, textTransform: 'uppercase' }}>
-                      PAKISTAN WIRE INDUSTRIES (PVT) LTD • PROCUREMENT
+                      Pakistan Wire Industries (Pvt.) LTD • PROCUREMENT
                     </div>
                     <div style={{ fontSize: 17, fontWeight: 700, color: '#f8fafc', marginTop: 3 }}>
                       {viewingItem.title || 'Purchase Requisition'}

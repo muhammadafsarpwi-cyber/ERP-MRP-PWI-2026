@@ -62,7 +62,7 @@ export interface VisitorSlipData {
  *
  * WHY NOT `slip.companyName`
  *   Every other printed document in this ERP states its letterhead as a literal
- *   (`printTemplates.ts` → "PAKISTAN WIRE INDUSTRIES (PVT) LTD" on the invoice,
+ *   (`printTemplates.ts` → "Pakistan Wire Industries (Pvt.) LTD" on the invoice,
  *   the dispatch note and the weighbridge slip). The visitor slip is the same
  *   class of document: a pre-printed stationery item for one site. The API
  *   still returns the `companies` row, and it is still used for authorization
@@ -74,7 +74,7 @@ export interface VisitorSlipData {
  *   has not been supplied, and inventing one on a security document would be
  *   worse than omitting it (#19A §8).
  */
-export const SLIP_COMPANY_NAME = 'Pakistan Wire Industries (Pvt.) LTD.';
+export const SLIP_COMPANY_NAME = 'Pakistan Wire Industries (Pvt.) LTD';
 export const SLIP_COMPANY_CITY = 'Karachi, Pakistan';
 export const SLIP_COMPANY_UNIT = 'Security & Reception';
 

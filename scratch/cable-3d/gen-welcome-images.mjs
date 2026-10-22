@@ -167,7 +167,7 @@ const scene1 = () => {
     ${rr(330, 700, 1010, 152, 10, '#1d2a3a')}
     ${rr(330, 700, 1010, 152, 10, 'none', 'stroke="#d4af37" stroke-width="3"')}
     ${gearMark(432, 776, 52, 14, '#f2f5f8', '#1d2a3a', 'P')}
-    ${text(512, 768, 'PAKISTAN WIRE &amp; INDUSTRY', 56, '#f2f5f8', 'font-weight="800" letter-spacing="2"')}
+    ${text(512, 768, 'PAKISTAN WIRE INDUSTRIES (PVT.) LTD', 44, '#f2f5f8', 'font-weight="800" letter-spacing="2"')}
     ${text(514, 820, 'PWI &#8212; WIRE &#183; SPOKES &#183; CONTROL CABLES', 28, '#d4af37', 'letter-spacing="6" font-weight="600"')}
 
     <!-- boundary wall + gate + guard cabin -->

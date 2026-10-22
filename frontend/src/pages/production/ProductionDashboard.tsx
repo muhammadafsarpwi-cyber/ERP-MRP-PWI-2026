@@ -1020,7 +1020,7 @@ export const ProductionDashboard: React.FC = () => {
               </span>
             </div>
             <div className="pwi-dashboard-subtitle">
-              Pakistan Wire Industries (PWI) · Live Operations Intelligence &amp; Plant Analytics
+              Pakistan Wire Industries (Pvt.) LTD · Live Operations Intelligence &amp; Plant Analytics
             </div>
           </div>
 

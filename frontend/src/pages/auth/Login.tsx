@@ -72,7 +72,7 @@ const Login: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    document.title = '2027 Enterprise Command Access | PWI — Pakistan Wire & Industry';
+    document.title = '2027 Enterprise Command Access | PWI — Pakistan Wire Industries (Pvt.) LTD';
 
     // If starting a fresh session without passing the Welcome screen first, redirect to Welcome (/)
     if (process.env.NODE_ENV !== 'test') {
@@ -182,7 +182,7 @@ const Login: React.FC = () => {
 
         {/* Circular Gold Medallion Logo (Brand Mark included for test compatibility) */}
         <div className="erp-auth-panel-brand erp-auth-logo-center">
-          <div className="erp-welcome-logo-wrap" title="Pakistan Wire & Industry (Private) Limited">
+          <div className="erp-welcome-logo-wrap" title="Pakistan Wire Industries (Pvt.) LTD">
             <div className="erp-welcome-logo-badge">
               <img
                 className="erp-welcome-logo erp-brand-mark"

@@ -67,10 +67,13 @@ interface SalesDelivery {
   totalBalanceQuantity?: number;
   totalBalanceCartons?: number;
   isCompleted?: boolean;
+  salesOrderNumbers?: string[];
+  salesOrdersSummary?: any[];
   itemsSummary?: Array<{
     itemId?: string;
     itemCode?: string;
     itemName?: string;
+    socNumber?: string;
     orderedQuantity: number;
     orderedCartons: number;
     dispatchedQuantity: number;
@@ -1550,20 +1553,53 @@ const SalesDeliveryManagement: React.FC = () => {
                 </span>
               </div>
             )}
-            {(record.salesOrderNumber || record.salesOrder?.orderNumber || (record as any).customerPo) && (
-              <div className="inv-sub-row">
-                {(record.salesOrderNumber || record.salesOrder?.orderNumber) && (
-                  <span className="badge-inv-type" style={{ background: 'rgba(56, 189, 248, 0.12)', color: '#38bdf8', borderColor: 'rgba(56, 189, 248, 0.3)' }}>
-                    <BranchesOutlined style={{ marginRight: 3 }} /> {record.salesOrderNumber || record.salesOrder?.orderNumber}
-                  </span>
-                )}
-                {(record as any).customerPo && (
-                  <span className="inv-sub-val" style={{ color: '#fbbf24', fontSize: 11, fontWeight: 600 }}>
-                    PO: {(record as any).customerPo}
-                  </span>
-                )}
-              </div>
-            )}
+            {(() => {
+              const socList: string[] = (record as any).salesOrderNumbers && (record as any).salesOrderNumbers.length > 0
+                ? (record as any).salesOrderNumbers
+                : [record.salesOrderNumber || record.salesOrder?.orderNumber].filter(Boolean);
+              const soSummaryList: any[] = (record as any).salesOrdersSummary || [];
+
+              if (socList.length === 0 && !(record as any).customerPo) return null;
+
+              return (
+                <div className="inv-sub-row" style={{ display: 'flex', flexDirection: 'column', gap: 3, alignItems: 'flex-start', marginTop: 4 }}>
+                  {socList.map((soc: string, sIdx: number) => {
+                    const summary = soSummaryList.find((s: any) => s.socNumber === soc);
+                    const isMulti = socList.length > 1;
+                    return (
+                      <span
+                        key={sIdx}
+                        className="badge-inv-type"
+                        style={{
+                          background: sIdx === 0 ? 'rgba(56, 189, 248, 0.12)' : 'rgba(192, 132, 252, 0.14)',
+                          color: sIdx === 0 ? '#0284c7' : '#9333ea',
+                          borderColor: sIdx === 0 ? 'rgba(56, 189, 248, 0.35)' : 'rgba(192, 132, 252, 0.35)',
+                          fontWeight: 700,
+                          fontSize: 11,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 3,
+                          padding: '1px 6px',
+                          borderRadius: 4,
+                        }}
+                      >
+                        <BranchesOutlined style={{ marginRight: 2 }} /> {soc}
+                        {summary && isMulti && (
+                          <span style={{ fontSize: 10, fontWeight: 800, color: sIdx === 0 ? '#0369a1' : '#7c3aed', marginLeft: 2 }}>
+                            ({summary.thisDeliveryCartons} CTN)
+                          </span>
+                        )}
+                      </span>
+                    );
+                  })}
+                  {(record as any).customerPo && (
+                    <span className="inv-sub-val" style={{ color: '#fbbf24', fontSize: 11, fontWeight: 600 }}>
+                      PO: {(record as any).customerPo}
+                    </span>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         );
       },
@@ -1605,6 +1641,7 @@ const SalesDeliveryManagement: React.FC = () => {
       key: 'quantities',
       width: 250,
       render: (_, record) => {
+        const soSummaryList: any[] = (record as any).salesOrdersSummary || [];
         const orderCtn = record.totalOrderCartons ?? (record.totalOrderQuantity ? Number((record.totalOrderQuantity / 10).toFixed(1)) : 0);
         const orderQty = record.totalOrderQuantity ?? (orderCtn * 10);
         const dispCtn = record.totalDispatchCartons ?? (record.totalDispatchQuantity ? Number((record.totalDispatchQuantity / 10).toFixed(1)) : 0);
@@ -1615,7 +1652,33 @@ const SalesDeliveryManagement: React.FC = () => {
         const pct = orderQty > 0 ? Math.min(100, Math.round(((orderQty - balQty) / orderQty) * 100)) : 100;
 
         const popoverContent = (
-          <div style={{ maxWidth: 360, padding: 4 }}>
+          <div style={{ maxWidth: 380, padding: 4 }}>
+            {soSummaryList.length > 1 && (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontWeight: 800, fontSize: 13, marginBottom: 6, color: '#0369a1' }}>
+                  Per-SOC Breakdown ({soSummaryList.length} Orders in this Delivery)
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {soSummaryList.map((soc: any, sIdx: number) => (
+                    <div key={sIdx} style={{ padding: '6px 8px', background: '#f0f9ff', borderRadius: 6, border: '1px solid #bae6fd' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontWeight: 800, fontSize: 12, color: sIdx === 0 ? '#0284c7' : '#7c3aed' }}>
+                          <BranchesOutlined style={{ marginRight: 3 }} /> {soc.socNumber}
+                        </span>
+                        <span style={{ fontWeight: 700, fontSize: 11, color: soc.isCompleted ? '#16a34a' : '#ea580c' }}>
+                          {soc.isCompleted ? '✅ Complete' : `Bal: ${soc.balanceCartons} CTN`}
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginTop: 4, color: '#475569' }}>
+                        <span>Ord: <b>{soc.totalOrderCartons} CTN</b></span>
+                        <span style={{ color: '#2563eb' }}>This Disp: <b>{soc.thisDeliveryCartons} CTN</b></span>
+                        <span style={{ color: '#059669' }}>Shipped: <b>{soc.totalShippedCartons} CTN</b></span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8, color: '#1e293b' }}>
               Itemized Delivery Breakdown
             </div>
@@ -1623,8 +1686,13 @@ const SalesDeliveryManagement: React.FC = () => {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {record.itemsSummary.map((item, idx) => (
                   <div key={idx} style={{ padding: '6px 8px', background: '#f8fafc', borderRadius: 6, border: '1px solid #e2e8f0' }}>
-                    <div style={{ fontWeight: 600, fontSize: 12, color: '#0f172a' }}>
-                      {item.itemCode ? `[${item.itemCode}] ` : ''}{item.itemName || 'Item'}
+                    <div style={{ fontWeight: 600, fontSize: 12, color: '#0f172a', display: 'flex', justifyContent: 'space-between' }}>
+                      <span>{item.itemCode ? `[${item.itemCode}] ` : ''}{item.itemName || 'Item'}</span>
+                      {item.socNumber && (
+                        <Tag color="purple" style={{ margin: 0, fontSize: 10, fontWeight: 700 }}>
+                          {item.socNumber}
+                        </Tag>
+                      )}
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginTop: 4, color: '#475569' }}>
                       <span>Ordered: <b>{item.orderedCartons} CTN</b> ({item.orderedQuantity} GRS)</span>
@@ -1674,6 +1742,33 @@ const SalesDeliveryManagement: React.FC = () => {
                   )}
                 </span>
               </div>
+              {soSummaryList.length > 1 && (
+                <div style={{ marginTop: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  {soSummaryList.map((soc: any, sIdx: number) => (
+                    <div
+                      key={sIdx}
+                      style={{
+                        fontSize: 10,
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        color: '#334155',
+                        background: sIdx === 0 ? 'rgba(56, 189, 248, 0.08)' : 'rgba(192, 132, 252, 0.1)',
+                        border: `1px solid ${sIdx === 0 ? 'rgba(56, 189, 248, 0.25)' : 'rgba(192, 132, 252, 0.25)'}`,
+                        padding: '1px 5px',
+                        borderRadius: 4,
+                      }}
+                    >
+                      <span style={{ fontWeight: 700, color: sIdx === 0 ? '#0284c7' : '#7c3aed' }}>
+                        {soc.socNumber}:
+                      </span>
+                      <span>
+                        Disp: <b>{soc.thisDeliveryCartons}</b> | Bal: <b style={{ color: soc.isCompleted ? '#16a34a' : '#ea580c' }}>{soc.balanceCartons}</b> CTN
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
               {orderQty > 0 && (
                 <Progress
                   percent={pct}
@@ -3001,7 +3096,10 @@ const SalesDeliveryManagement: React.FC = () => {
         width={1120}
       >
         {detailItem && (() => {
-          const salesOrderDisplay = detailItem.salesOrderNumber || detailItem.salesOrder?.orderNumber || (detailItem.salesOrderId ? `SO-${detailItem.salesOrderId.slice(0, 8).toUpperCase()}` : 'Direct Delivery');
+          const allDetailSocs: string[] = (detailItem as any).salesOrderNumbers && (detailItem as any).salesOrderNumbers.length > 0
+            ? (detailItem as any).salesOrderNumbers
+            : [detailItem.salesOrderNumber || detailItem.salesOrder?.orderNumber].filter(Boolean);
+          const salesOrderDisplay = allDetailSocs.length > 0 ? allDetailSocs.join(', ') : (detailItem.salesOrderId ? `SO-${detailItem.salesOrderId.slice(0, 8).toUpperCase()}` : 'Direct Delivery');
           const effectiveDivision = detailItem.divisionName || detailItem.salesOrder?.division?.name || 'Control Cable Division';
 
           return (
@@ -3012,7 +3110,7 @@ const SalesDeliveryManagement: React.FC = () => {
                 <div className="doc-sidebar-brand">
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <ApartmentOutlined style={{ color: '#2563eb', fontSize: 16 }} />
-                    <div className="doc-sidebar-company-title">PAKISTAN WIRE INDUSTRIES (PVT) LTD</div>
+                    <div className="doc-sidebar-company-title">Pakistan Wire Industries (Pvt.) LTD</div>
                   </div>
                   <Tag color="geekblue" style={{ fontWeight: 700, marginTop: 4, width: 'fit-content', padding: '2px 8px' }}>
                     {effectiveDivision}
@@ -3094,9 +3192,19 @@ const SalesDeliveryManagement: React.FC = () => {
                     <span className="doc-sidebar-k"># Number:</span>
                     <span className="doc-sidebar-v">{detailItem.deliveryNumber}</span>
                   </div>
-                  <div className="doc-sidebar-kv">
+                  <div className="doc-sidebar-kv" style={{ alignItems: 'flex-start' }}>
                     <span className="doc-sidebar-k">Sales Order #:</span>
-                    <span className="doc-sidebar-v" style={{ color: '#38bdf8' }}>{salesOrderDisplay}</span>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      {allDetailSocs.length > 0 ? (
+                        allDetailSocs.map((soc: string, idx: number) => (
+                          <span key={idx} className="doc-sidebar-v" style={{ color: idx === 0 ? '#38bdf8' : '#c084fc', fontWeight: 700 }}>
+                            {soc}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="doc-sidebar-v" style={{ color: '#38bdf8' }}>{salesOrderDisplay}</span>
+                      )}
+                    </div>
                   </div>
                   <div className="doc-sidebar-kv">
                     <span className="doc-sidebar-k">Customer PO #:</span>
@@ -3135,7 +3243,17 @@ const SalesDeliveryManagement: React.FC = () => {
                     <Col span={8}>
                       <div className="doc-traceability-step">
                         <div className="doc-step-label">ORIGINATING SALES ORDER</div>
-                        <div className="doc-step-val" style={{ color: '#38bdf8' }}>{salesOrderDisplay}</div>
+                        <div className="doc-step-val" style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                          {allDetailSocs.length > 0 ? (
+                            allDetailSocs.map((soc: string, idx: number) => (
+                              <div key={idx} style={{ color: idx === 0 ? '#38bdf8' : '#c084fc', fontWeight: 700, fontSize: 13 }}>
+                                {soc}
+                              </div>
+                            ))
+                          ) : (
+                            <div style={{ color: '#38bdf8' }}>{salesOrderDisplay}</div>
+                          )}
+                        </div>
                       </div>
                     </Col>
                     <Col span={8}>
@@ -3175,7 +3293,26 @@ const SalesDeliveryManagement: React.FC = () => {
                     dataSource={detailItem.lines || []}
                     columns={[
                       { title: '#', key: 'idx', width: 45, align: 'center', render: (_: any, __: any, index: number) => index + 1 },
-                      { title: 'PRODUCT / DESCRIPTION', dataIndex: 'description', key: 'description' },
+                      {
+                        title: 'PRODUCT / DESCRIPTION',
+                        dataIndex: 'description',
+                        key: 'description',
+                        render: (text: string, row: any) => {
+                          const socMatch = text?.match(/\[SOC:\s*([^\]]+)\]/i);
+                          const cleanText = socMatch ? text.replace(socMatch[0], '').trim() : text;
+                          const lineSoc = socMatch ? socMatch[1].trim() : row.socNumber;
+                          return (
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                              <span style={{ fontWeight: 600 }}>{cleanText}</span>
+                              {lineSoc && (
+                                <Tag color="purple" style={{ margin: 0, fontWeight: 700, fontSize: 11 }}>
+                                  SOC: {lineSoc}
+                                </Tag>
+                              )}
+                            </div>
+                          );
+                        },
+                      },
                       { title: 'QTY', dataIndex: 'quantity', key: 'quantity', width: 100, align: 'right', render: (v: any) => formatDecimal(v) },
                       { title: 'RATE', dataIndex: 'unitPrice', key: 'unitPrice', width: 120, align: 'right', render: (v: any) => `Rs ${formatDecimal(v)}` },
                       { title: 'TAX', dataIndex: 'taxAmount', key: 'taxAmount', width: 110, align: 'right', render: (v: any) => `Rs ${formatDecimal(v || 0)}` },

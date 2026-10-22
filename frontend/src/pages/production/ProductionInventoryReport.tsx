@@ -946,7 +946,7 @@ const ProductionInventoryReport: React.FC = () => {
     const deptName = applied.departmentId ? departments.find((d) => d.id === applied.departmentId)?.name : 'All Departments';
     const dateStr = applied.dateFrom || applied.dateTo ? `${applied.dateFrom || 'Start'} to ${applied.dateTo || 'Present'}` : 'All Time';
     return {
-      company: 'PAKISTAN WIRE INDUSTRIES (PVT) LTD',
+      company: 'Pakistan Wire Industries (Pvt.) LTD',
       title: 'Production Inventory Report',
       subtitle: `Division: ${divName} | Department: ${deptName} | Date Range: ${dateStr}`,
       divName,

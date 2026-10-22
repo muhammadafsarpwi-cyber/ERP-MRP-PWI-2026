@@ -409,7 +409,7 @@ const OpeningStock: React.FC = () => {
     // Header
     doc.setFontSize(18);
     doc.setTextColor(20, 35, 60);
-    doc.text('PAKISTAN WIRE INDUSTRIES (PVT) LTD', 40, 42);
+    doc.text('Pakistan Wire Industries (Pvt.) LTD', 40, 42);
 
     doc.setFontSize(12);
     doc.setTextColor(37, 99, 235);

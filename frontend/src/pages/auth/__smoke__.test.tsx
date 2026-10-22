@@ -44,9 +44,12 @@ describe('auth screens smoke', () => {
       </MemoryRouter>
     );
     expect(screen.getByRole('heading', { level: 1, name: 'PWI' })).toBeInTheDocument();
-    expect(
-      screen.getByRole('heading', { level: 2, name: 'Pakistan Wire & Industry' })
-    ).toBeInTheDocument();
+    // The handwriting engine reveals the exact corporate title line by line:
+    expect(screen.getByRole('heading', { level: 2, name: 'Pakistan Wire Industries' })).toBeInTheDocument();
+    expect(screen.getByText('(Pvt.) LTD')).toBeInTheDocument();
+    // …and the full legal title appears verbatim in the official ticker
+    // (the marquee duplicates its track for a seamless CSS loop):
+    expect(screen.getAllByText('Pakistan Wire Industries (Pvt.) LTD').length).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: /enter system/i })).toBeInTheDocument();
   });
 
@@ -216,7 +219,7 @@ describe('auth screens smoke', () => {
       </MemoryRouter>
     );
     await user.click(screen.getByRole('button', { name: /sign in/i }));
-    expect(await screen.findByText('Please enter your email')).toBeInTheDocument();
-    expect(screen.getByText('Please enter your password')).toBeInTheDocument();
+    expect(await screen.findByText('Operator credentials required')).toBeInTheDocument();
+    expect(screen.getByText('Security key required')).toBeInTheDocument();
   });
 });

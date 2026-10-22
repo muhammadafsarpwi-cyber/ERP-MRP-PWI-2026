@@ -16,7 +16,7 @@ interface TopSlide {
 const ANNOUNCEMENTS: TopSlide[] = [
   {
     badge: 'PWI OFFICIAL',
-    title: 'PAKISTAN WIRE & INDUSTRY (PVT) LTD.',
+    title: 'Pakistan Wire Industries (Pvt.) LTD',
     tagline: 'Leader in Precision Wire, Spoke & Cable Manufacturing Since 1978',
   },
   {

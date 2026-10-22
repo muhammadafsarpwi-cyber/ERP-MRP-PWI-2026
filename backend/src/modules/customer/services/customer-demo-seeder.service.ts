@@ -38,7 +38,7 @@ export class CustomerDemoSeederService {
       {
         customerCode: 'DEMO-CUS-001',
         name: 'Pakistan Wire Industries Demo Customer',
-        legalName: 'Pakistan Wire Industries (Pvt) Ltd (Demo Entity)',
+        legalName: 'Pakistan Wire Industries (Pvt.) LTD (Demo Entity)',
         shortName: 'PWI Demo',
         customerType: 'Domestic Customer',
         customerCategory: 'Key Account',

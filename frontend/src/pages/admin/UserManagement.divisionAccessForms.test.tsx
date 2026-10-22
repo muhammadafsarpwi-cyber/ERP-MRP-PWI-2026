@@ -51,7 +51,7 @@ const mockCompanies = [
     id: COMPANY_ID,
     companyCode: 'COMP-001',
     tradeName: 'Pakistan Wire Industries',
-    legalName: 'Pakistan Wire Industries (Pvt) Ltd',
+    legalName: 'Pakistan Wire Industries (Pvt.) LTD',
   },
 ];
 const mockDivisions = [
@@ -85,7 +85,7 @@ function divisionScope(scopeId: string, divisionId: string) {
     scopeLevel: 'DIVISION',
     isFullScope: false,
     status: 'ACTIVE',
-    company: { id: COMPANY_ID, legalName: 'Pakistan Wire Industries (Pvt) Ltd' },
+    company: { id: COMPANY_ID, legalName: 'Pakistan Wire Industries (Pvt.) LTD' },
     division,
   };
 }
@@ -102,7 +102,7 @@ function companyScope() {
     scopeLevel: 'COMPANY',
     isFullScope: true,
     status: 'ACTIVE',
-    company: { id: COMPANY_ID, legalName: 'Pakistan Wire Industries (Pvt) Ltd' },
+    company: { id: COMPANY_ID, legalName: 'Pakistan Wire Industries (Pvt.) LTD' },
     division: null,
   };
 }
@@ -365,7 +365,7 @@ describe('Prompt #16B — Division Access from New User, Edit User and Actions',
       scopeLevel: 'NONE',
       isFullScope: false,
       status: 'ACTIVE',
-      company: { id: COMPANY_ID, legalName: 'Pakistan Wire Industries (Pvt) Ltd' },
+      company: { id: COMPANY_ID, legalName: 'Pakistan Wire Industries (Pvt.) LTD' },
       division: null,
     };
     seedScopes({ [listUser.id]: [denyScope] });

@@ -41,7 +41,7 @@ afterEach(() => {
 
 const SLIP: VisitorSlipData = {
   visitorReference: 'VIS-2026-000042',
-  companyName: 'PAKISTAN WIRE INDUSTRIES (PVT) LTD.',
+  companyName: 'Pakistan Wire Industries (Pvt.) LTD',
   visitorName: 'Muhammad Test',
   cnic: '12345-*******-1',
   mobile: '0300-1234567',

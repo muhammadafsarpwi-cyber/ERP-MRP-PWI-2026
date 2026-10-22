@@ -185,11 +185,20 @@ export class SalesAnalyticsService {
     applyDivisionScopeFilter(orderQb as any, 'so.divisionId', allowedDivisionIds);
     const orders = await orderQb.getMany();
 
-    const totalSalesOrders = orders.length;
-    const openOrders = orders.filter(o => !['Delivered', 'Cancelled', 'Closed'].includes(o.status)).length;
-    const ordersInProduction = orders.filter(o => ['Processing', 'IN_PRODUCTION'].includes(o.status)).length;
-    const deliveredOrders = orders.filter(o => ['Delivered', 'Partially Delivered', 'PARTIALLY_DELIVERED'].includes(o.status)).length;
-    const pendingDelivery = orders.filter(o => ['Confirmed', 'Processing', 'Ready', 'PARTIALLY_DELIVERED'].includes(o.status)).length;
+    // Authoritative real-time fulfillment analysis for order status & delivery progress
+    const fulfillmentAnalysis = await this.getOrderFulfillmentAnalysis(companyId, filter, allowedDivisionIds);
+    const totalSalesOrders = fulfillmentAnalysis.length > 0 ? fulfillmentAnalysis.length : orders.length;
+    const deliveredOrders = fulfillmentAnalysis.filter(o => o.status === 'Delivered' || o.fulfillmentPercentage >= 100).length;
+    const openOrders = fulfillmentAnalysis.filter(o => o.status !== 'Delivered' && o.status !== 'Cancelled' && o.status !== 'Closed').length;
+    const ordersInProduction = fulfillmentAnalysis.filter(o => (o.producedQuantity > 0 && o.fulfillmentPercentage < 100) || o.status === 'Processing').length;
+    const pendingDelivery = fulfillmentAnalysis.filter(o => o.remainingDeliveryQuantity > 0 && o.status !== 'Cancelled').length;
+
+    // Sync database status to 'Delivered' for 100% completed orders so DB and UI stay permanently in sync
+    for (const f of fulfillmentAnalysis) {
+      if (f.fulfillmentPercentage >= 100 && f.status === 'Delivered') {
+        await this.orderRepo.update({ id: f.orderId }, { status: 'Delivered' }).catch(() => {});
+      }
+    }
 
     // 2. Invoices query — invoices have no division of their own; they inherit
     // the billing order's, so the scope is applied through a join to that order.
@@ -255,12 +264,13 @@ export class SalesAnalyticsService {
     const totalDeliveriesCount = deliveries.length;
     const totalDeliveriesAmount = deliveries.reduce((sum, d) => sum + (Number(d.totalAmount) || 0), 0);
 
-    // 6. Production Orders
-    const prodQb = this.productionOrderRepo.createQueryBuilder('po')
-      .where('po.companyId = :companyId', { companyId });
-    const productionOrders = await prodQb.getMany();
-    const totalProdOrdersCount = productionOrders.length;
-    const totalProdPlannedQty = productionOrders.reduce((sum, p) => sum + (Number(p.plannedQuantity) || 0), 0);
+    // 6. Production Entries (shopfloor packing production from public.production_entries)
+    const peCountRes = await this.orderRepo.manager.query(
+      `SELECT count(*) as count, COALESCE(SUM(actual_quantity), 0) as total_qty
+       FROM public.production_entries`
+    );
+    const totalProdEntriesCount = Number(peCountRes[0]?.count) || 0;
+    const totalProdQtyGRS = Math.round(((Number(peCountRes[0]?.total_qty) || 0) / 144) * 100) / 100;
 
     // 7. Returns & Credit Notes — inherits the source order's division.
     const retQb = this.returnRepo.createQueryBuilder('sr')
@@ -285,8 +295,8 @@ export class SalesAnalyticsService {
     const salesPipeline = [
       { stage: 'QUOTATION', title: 'Quotations', count: totalQuotationsCount, value: totalQuotationsAmount, unit: 'PKR', color: '#1890ff' },
       { stage: 'SALES_ORDER', title: 'Sales Orders', count: totalSalesOrders, value: orders.reduce((sum, o) => sum + (Number(o.totalAmount) || 0), 0), unit: 'PKR', color: '#722ed1' },
-      { stage: 'PRODUCTION', title: 'Production Orders', count: totalProdOrdersCount, value: totalProdPlannedQty, unit: 'PCS', color: '#fa8c16' },
-      { stage: 'FINISHED_GOODS', title: 'FG Available', count: fgItems.length, value: finishedGoodsReady, unit: 'GRS', color: '#13c2c2' },
+      { stage: 'PRODUCTION', title: 'Packing & Production', count: totalProdEntriesCount, value: totalProdQtyGRS, unit: 'GRS', color: '#fa8c16' },
+      { stage: 'FINISHED_GOODS', title: 'FG Available Stock', count: finishedGoodsReady, value: finishedGoodsReady, unit: 'GRS', color: '#13c2c2' },
       { stage: 'DELIVERY', title: 'Deliveries / Dispatches', count: totalDeliveriesCount, value: totalDeliveriesAmount, unit: 'PKR', color: '#faad14' },
       { stage: 'INVOICE', title: 'Gross Invoices', count: activeInvoices.length, value: invoicedAmount, unit: 'PKR', color: '#2f54eb' },
       { stage: 'SALES_RETURN', title: 'Sales Returns', count: returnCount, value: returnAmount, unit: 'PKR', color: '#f5222d' },
@@ -1124,7 +1134,60 @@ export class SalesAnalyticsService {
       order: { orderDate: 'DESC' },
     });
 
-    // Production orders linked
+    // Shipped quantities from confirmed deliveries (line-level and header-level SOC)
+    const shippedRows = await this.orderRepo.manager.query(
+      `SELECT sd.delivery_number, so.order_number as header_soc,
+              sdl.item_id, sdl.description, sdl.quantity
+       FROM erp_sales.sales_delivery_lines sdl
+       JOIN erp_sales.sales_deliveries sd ON sd.id = sdl.delivery_id
+       LEFT JOIN erp_sales.sales_orders so ON so.id = sd.sales_order_id
+       WHERE sd.status IN ('CONFIRMED', 'DELIVERED', 'SHIPPED')`
+    );
+    const shippedBySocItem = new Map<string, number>();
+    const shippedBySoc = new Map<string, number>();
+    for (const r of shippedRows) {
+      const socMatch = r.description?.match(/SOC[:\s]+(SOC-[A-Za-z0-9-]+|[0-9A-Za-z-]+)/i);
+      const soc = socMatch ? socMatch[1].trim() : r.header_soc;
+      if (!soc) continue;
+      const qty = Number(r.quantity) || 0;
+      shippedBySoc.set(soc, (shippedBySoc.get(soc) || 0) + qty);
+      if (r.item_id) {
+        const key = `${soc}__${r.item_id}`;
+        shippedBySocItem.set(key, (shippedBySocItem.get(key) || 0) + qty);
+      }
+    }
+
+    // Production entries linked by SOC in remarks (deduplicating duplicate batch records)
+    const peRows = await this.orderRepo.manager.query(
+      `SELECT entry_number, remarks, actual_quantity, item_id
+       FROM public.production_entries
+       WHERE remarks ILIKE '%SOC%'
+       ORDER BY entry_number DESC`
+    );
+    const prodBySocItem = new Map<string, number>();
+    const prodBySoc = new Map<string, number>();
+    const seenBatches = new Set<string>();
+
+    for (const r of peRows) {
+      const socMatch = r.remarks?.match(/SOC[:\s]+(SOC-[A-Za-z0-9-]+|[0-9A-Za-z-]+)/i);
+      if (!socMatch) continue;
+      const soc = socMatch[1].trim();
+
+      const batchMatch = r.remarks?.match(/Batch[:\s]+(PKG-[A-Za-z0-9-]+)/i);
+      const batchKey = batchMatch ? `${soc}__${batchMatch[1].trim()}` : `${soc}__${r.entry_number}`;
+      if (seenBatches.has(batchKey)) continue;
+      seenBatches.add(batchKey);
+
+      // In production entries, actual_quantity is in PCS. 1 Gross = 144 PCS.
+      const qtyGrs = Math.round(((Number(r.actual_quantity) || 0) / 144) * 100) / 100;
+      prodBySoc.set(soc, (prodBySoc.get(soc) || 0) + qtyGrs);
+      if (r.item_id) {
+        const key = `${soc}__${r.item_id}`;
+        prodBySocItem.set(key, (prodBySocItem.get(key) || 0) + qtyGrs);
+      }
+    }
+
+    // Production orders linked (fallback)
     const prodOrders = await this.productionOrderRepo.find({
       where: { companyId },
     });
@@ -1135,13 +1198,6 @@ export class SalesAnalyticsService {
       }
     });
 
-    // Balances
-    const balances = await this.balanceRepo.find({ where: { companyId } });
-    const balanceByItem = new Map<string, number>();
-    balances.forEach(b => {
-      balanceByItem.set(b.itemId, (balanceByItem.get(b.itemId) || 0) + (Number(b.available) || 0));
-    });
-
     return orders.map(order => {
       let orderedQuantity = 0;
       let deliveredQuantity = 0;
@@ -1150,13 +1206,14 @@ export class SalesAnalyticsService {
 
       const itemBreakdowns = (order.items || []).map(item => {
         const itemOrdered = Number(item.quantity) || 0;
-        const itemDelivered = Number(item.shippedQuantity) || 0;
-        const itemProduced = prodBySoItem.get(item.id) || 0;
-        const rawAvailable = item.itemId ? (balanceByItem.get(item.itemId) || 0) : 0;
-        const baseUom = item.item?.baseUom?.code || 'PCS';
-        const salesUom = item.item?.salesUom?.code || baseUom || 'GRS';
-        const itemAvailable = Math.round(this.convertQty(rawAvailable, baseUom, salesUom) * 100) / 100;
+        const itemDelivered = shippedBySocItem.get(`${order.orderNumber}__${item.itemId}`) ?? Number(item.shippedQuantity || 0);
+        const rawItemProduced = prodBySocItem.get(`${order.orderNumber}__${item.itemId}`) ?? (prodBySoItem.get(item.id) || 0);
+        
+        // Fulfillment production allocated to this order: at least what was shipped, capped at ordered requirement
+        const itemProduced = Math.min(itemOrdered, Math.max(itemDelivered, rawItemProduced));
         const itemRemaining = Math.max(0, itemOrdered - itemDelivered);
+        // FG available ready for this order: produced minus already delivered, capped by remaining needed
+        const itemAvailable = Math.max(0, Math.min(itemRemaining, itemProduced - itemDelivered));
 
         orderedQuantity += itemOrdered;
         deliveredQuantity += itemDelivered;
@@ -1167,17 +1224,33 @@ export class SalesAnalyticsService {
           itemId: item.itemId,
           itemCode: item.item?.itemCode || 'N/A',
           itemName: item.item?.name || item.description || 'N/A',
-          orderedQuantity: itemOrdered,
-          producedQuantity: itemProduced,
-          finishedGoodsAvailable: itemAvailable,
-          deliveredQuantity: itemDelivered,
-          remainingDeliveryQuantity: itemRemaining,
-          fulfillmentPercentage: itemOrdered > 0 ? Math.round((itemDelivered / itemOrdered) * 100) : 0,
+          orderedQuantity: Math.round(itemOrdered * 100) / 100,
+          producedQuantity: Math.round(itemProduced * 100) / 100,
+          finishedGoodsAvailable: Math.round(itemAvailable * 100) / 100,
+          deliveredQuantity: Math.round(itemDelivered * 100) / 100,
+          remainingDeliveryQuantity: Math.round(itemRemaining * 100) / 100,
+          fulfillmentPercentage: itemOrdered > 0 ? Math.min(100, Math.round((itemDelivered / itemOrdered) * 100)) : 0,
         };
       });
 
+      // Order-level fallbacks if item lines didn't capture all
+      if (shippedBySoc.has(order.orderNumber)) {
+        const rawShip = shippedBySoc.get(order.orderNumber) || 0;
+        if (rawShip > deliveredQuantity) {
+          deliveredQuantity = Math.min(orderedQuantity, rawShip);
+        }
+      }
+      if (prodBySoc.has(order.orderNumber)) {
+        const rawProd = prodBySoc.get(order.orderNumber) || 0;
+        if (rawProd > producedQuantity) {
+          producedQuantity = Math.min(orderedQuantity, Math.max(deliveredQuantity, rawProd));
+          fgAvailable = Math.max(0, Math.min(orderedQuantity - deliveredQuantity, producedQuantity - deliveredQuantity));
+        }
+      }
+
       const remainingDeliveryQuantity = Math.max(0, orderedQuantity - deliveredQuantity);
-      const fulfillmentPercentage = orderedQuantity > 0 ? Math.round((deliveredQuantity / orderedQuantity) * 100) : 0;
+      const fulfillmentPercentage = orderedQuantity > 0 ? Math.min(100, Math.round((deliveredQuantity / orderedQuantity) * 100)) : 0;
+      const effectiveStatus = fulfillmentPercentage >= 100 ? 'Delivered' : fulfillmentPercentage > 0 ? 'Processing' : order.status;
 
       return {
         orderId: order.id,
@@ -1185,12 +1258,12 @@ export class SalesAnalyticsService {
         customerId: order.customerId,
         customerName: order.customer?.companyName || 'N/A',
         orderDate: order.orderDate,
-        status: order.status,
-        orderedQuantity,
-        producedQuantity,
-        finishedGoodsAvailable: fgAvailable,
-        deliveredQuantity,
-        remainingDeliveryQuantity,
+        status: effectiveStatus,
+        orderedQuantity: Math.round(orderedQuantity * 100) / 100,
+        producedQuantity: Math.round(producedQuantity * 100) / 100,
+        finishedGoodsAvailable: Math.round(fgAvailable * 100) / 100,
+        deliveredQuantity: Math.round(deliveredQuantity * 100) / 100,
+        remainingDeliveryQuantity: Math.round(remainingDeliveryQuantity * 100) / 100,
         fulfillmentPercentage,
         items: itemBreakdowns,
       };

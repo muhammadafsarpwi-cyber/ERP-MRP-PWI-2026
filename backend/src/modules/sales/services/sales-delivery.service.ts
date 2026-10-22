@@ -140,95 +140,183 @@ export class SalesDeliveryService {
     qb.orderBy(`sd.${field}`, order);
     qb.skip((page - 1) * limit).take(limit);
     const [rawDeliveries, total] = await qb.getManyAndCount();
-    const data = rawDeliveries.map((sd: any) => {
-      const lines = (sd.lines || []).map((l: any) => ({
-        ...l,
-        itemCode: l.item?.itemCode || l.itemCode,
-        itemName: l.item?.name || l.itemName || l.description,
-        packagingSize: Number(l.item?.packagingSize || 10) || 10,
-        packagingUnit: l.item?.packagingUnit || 'CTN',
-        uomCode: l.uom?.code || 'GRS',
-      }));
+    const data = await this.enrichDeliveriesWithSocData(rawDeliveries);
+    return { data, total };
+  }
 
-      const orderItems = (sd.salesOrder?.items || []).map((oi: any) => ({
-        ...oi,
-        itemCode: oi.item?.itemCode || oi.itemCode,
-        itemName: oi.item?.name || oi.itemName || oi.description,
-        packagingSize: Number(oi.item?.packagingSize || 10) || 10,
-        packagingUnit: oi.item?.packagingUnit || 'CTN',
-        uomCode: oi.uom?.code || 'GRS',
-      }));
+  private async enrichDeliveriesWithSocData(rawDeliveries: any[]): Promise<any[]> {
+    if (!rawDeliveries || rawDeliveries.length === 0) return [];
 
-      // Calculate totals
-      const totalDispatchQuantity = lines.reduce((sum: number, l: any) => sum + (Number(l.quantity) || 0), 0);
-      const totalOrderQuantity = orderItems.reduce((sum: number, oi: any) => sum + (Number(oi.quantity) || 0), 0);
-      const totalDeliveredQuantity = orderItems.reduce((sum: number, oi: any) => sum + (Number(oi.shippedQuantity ?? oi.shipped_quantity) || 0), 0);
-      const totalBalanceQuantity = Math.max(0, totalOrderQuantity - totalDeliveredQuantity);
-      const isCompleted = totalOrderQuantity > 0 && totalBalanceQuantity <= 0;
+    // 1. Collect all distinct SOC numbers referenced across the deliveries
+    const allSocNumbers = new Set<string>();
+    for (const sd of rawDeliveries) {
+      if (sd.salesOrder?.orderNumber) {
+        allSocNumbers.add(sd.salesOrder.orderNumber.trim());
+      }
+      for (const l of sd.lines || []) {
+        const socMatch = l.description?.match(/SOC[:\s]+(SOC-[A-Za-z0-9-]+|[0-9A-Za-z-]+)/i);
+        if (socMatch) {
+          allSocNumbers.add(socMatch[1].trim());
+        }
+      }
+    }
 
-      // Calculate cartons
-      const totalDispatchCartons = lines.reduce((sum: number, l: any) => {
-        const pSize = Number(l.packagingSize || 10) || 10;
-        return sum + Math.round(((Number(l.quantity) || 0) / pSize) * 100) / 100;
-      }, 0);
+    const socList = Array.from(allSocNumbers);
+    const soItemsMap = new Map<string, any[]>();
+    const soMetaMap = new Map<string, { id: string; customerPo: string | null }>();
+    const shippedPerSocMap = new Map<string, { qty: number; ctn: number }>();
 
-      const totalOrderCartons = orderItems.reduce((sum: number, oi: any) => {
-        const pSize = Number(oi.packagingSize || 10) || 10;
-        return sum + Math.round(((Number(oi.quantity) || 0) / pSize) * 100) / 100;
-      }, 0);
+    if (socList.length > 0) {
+      try {
+        const soRows = await this.repo.manager.query(
+          `SELECT so.id, so.order_number, so.customer_po,
+                  soi.item_id, soi.quantity as order_qty,
+                  i.packaging_size, i.item_code, i.name as item_name
+           FROM erp_sales.sales_orders so
+           JOIN erp_sales.sales_order_items soi ON soi.sales_order_id = so.id
+           LEFT JOIN public.items i ON i.id = soi.item_id
+           WHERE so.order_number = ANY($1)`,
+          [socList],
+        );
+        for (const r of soRows) {
+          if (!soMetaMap.has(r.order_number)) {
+            soMetaMap.set(r.order_number, { id: r.id, customerPo: r.customer_po || null });
+          }
+          const list = soItemsMap.get(r.order_number) || [];
+          list.push(r);
+          soItemsMap.set(r.order_number, list);
+        }
 
-      const totalBalanceCartons = orderItems.reduce((sum: number, oi: any) => {
-        const pSize = Number(oi.packagingSize || 10) || 10;
-        const bal = Math.max(0, (Number(oi.quantity) || 0) - (Number(oi.shippedQuantity ?? oi.shipped_quantity) || 0));
-        return sum + Math.round((bal / pSize) * 100) / 100;
-      }, 0);
+        // Fetch all confirmed shipped quantities across all deliveries for these SOCs
+        const shippedRows = await this.repo.manager.query(
+          `SELECT sdl.item_id, sdl.description, sdl.quantity as shipped_qty, so.order_number as header_soc,
+                  i.packaging_size
+           FROM erp_sales.sales_delivery_lines sdl
+           JOIN erp_sales.sales_deliveries sd ON sd.id = sdl.delivery_id
+           LEFT JOIN erp_sales.sales_orders so ON so.id = sd.sales_order_id
+           LEFT JOIN public.items i ON i.id = sdl.item_id
+           WHERE sd.status IN ('CONFIRMED', 'DELIVERED', 'SHIPPED')`,
+        );
+        for (const r of shippedRows) {
+          const socMatch = r.description?.match(/SOC[:\s]+(SOC-[A-Za-z0-9-]+|[0-9A-Za-z-]+)/i);
+          const soc = socMatch ? socMatch[1].trim() : r.header_soc;
+          if (!soc || !allSocNumbers.has(soc)) continue;
+          const pSize = Number(r.packaging_size || 10) || 10;
+          const q = Number(r.shipped_qty || 0);
+          const c = Math.round((q / pSize) * 100) / 100;
+          const curr = shippedPerSocMap.get(soc) || { qty: 0, ctn: 0 };
+          shippedPerSocMap.set(soc, { qty: curr.qty + q, ctn: curr.ctn + c });
+        }
+      } catch (err: any) {
+        this.logger.warn(`Failed to enrich deliveries with SOC data: ${err.message}`);
+      }
+    }
 
-      // Item-level quantities summary
-      const itemsSummary = orderItems.map((oi: any) => {
-        const pSize = Number(oi.packagingSize || 10) || 10;
-        const pUnit = oi.packagingUnit || 'CTN';
-        const ordered = Number(oi.quantity) || 0;
-        const shipped = Number(oi.shippedQuantity ?? oi.shipped_quantity) || 0;
-        const bal = Math.max(0, ordered - shipped);
-        const thisLine = lines.find((l: any) => l.itemId === oi.itemId || (l.itemCode && l.itemCode === oi.itemCode));
-        const thisDispatched = thisLine ? (Number(thisLine.quantity) || 0) : 0;
+    return rawDeliveries.map((sd: any) => {
+      const lines = (sd.lines || []).map((l: any) => {
+        const socMatch = l.description?.match(/SOC[:\s]+(SOC-[A-Za-z0-9-]+|[0-9A-Za-z-]+)/i);
+        const lineSoc = socMatch ? socMatch[1].trim() : (sd.salesOrder?.orderNumber || null);
+        const pSize = Number(l.item?.packagingSize || l.packagingSize || 10) || 10;
+        const qty = Number(l.quantity) || 0;
+        const ctn = Math.round((qty / pSize) * 100) / 100;
 
         return {
-          itemId: oi.itemId,
-          itemCode: oi.itemCode || '-',
-          itemName: oi.itemName || 'Product',
-          orderedQuantity: ordered,
-          orderedCartons: Math.round((ordered / pSize) * 100) / 100,
-          dispatchedQuantity: thisDispatched,
-          dispatchedCartons: Math.round((thisDispatched / pSize) * 100) / 100,
-          totalShippedQuantity: shipped,
-          totalShippedCartons: Math.round((shipped / pSize) * 100) / 100,
-          balanceQuantity: bal,
-          balanceCartons: Math.round((bal / pSize) * 100) / 100,
-          isCompleted: ordered > 0 && bal <= 0,
-          uom: oi.uomCode || 'GRS',
-          packagingUnit: pUnit,
+          ...l,
+          socNumber: lineSoc,
+          packagingSize: pSize,
+          packagingUnit: l.item?.packagingUnit || 'CTN',
+          cartons: ctn,
+          itemCode: l.item?.itemCode || l.itemCode,
+          itemName: l.item?.name || l.itemName || l.description,
+          uomCode: l.uom?.code || 'GRS',
         };
       });
+
+      // Find all distinct SOCs for this specific delivery
+      const delSocs = Array.from(
+        new Set([sd.salesOrder?.orderNumber, ...lines.map((l: any) => l.socNumber)].filter(Boolean) as string[]),
+      );
+
+      const salesOrdersSummary = delSocs.map((soc: string) => {
+        const thisLines = lines.filter((l: any) => l.socNumber === soc);
+        const thisDispQty = thisLines.reduce((sum: number, l: any) => sum + (Number(l.quantity) || 0), 0);
+        const thisDispCtn = thisLines.reduce((sum: number, l: any) => sum + (Number(l.cartons) || 0), 0);
+
+        const soItems = soItemsMap.get(soc) || [];
+        let orderQty = 0;
+        let orderCtn = 0;
+        for (const soi of soItems) {
+          const pSize = Number(soi.packaging_size || 10) || 10;
+          const oQty = Number(soi.order_qty) || 0;
+          orderQty += oQty;
+          orderCtn += Math.round((oQty / pSize) * 100) / 100;
+        }
+
+        const shipped = shippedPerSocMap.get(soc) || { qty: thisDispQty, ctn: thisDispCtn };
+        const balQty = Math.max(0, orderQty - shipped.qty);
+        const balCtn = Math.max(0, orderCtn - shipped.ctn);
+        const pct = orderQty > 0 ? Math.min(100, Math.round(((orderQty - balQty) / orderQty) * 100)) : 100;
+
+        return {
+          socNumber: soc,
+          salesOrderId: soMetaMap.get(soc)?.id || null,
+          customerPo: soMetaMap.get(soc)?.customerPo || null,
+          thisDeliveryQuantity: Math.round(thisDispQty * 100) / 100,
+          thisDeliveryCartons: Math.round(thisDispCtn * 100) / 100,
+          totalOrderQuantity: Math.round(orderQty * 100) / 100,
+          totalOrderCartons: Math.round(orderCtn * 100) / 100,
+          totalShippedQuantity: Math.round(shipped.qty * 100) / 100,
+          totalShippedCartons: Math.round(shipped.ctn * 100) / 100,
+          balanceQuantity: Math.round(balQty * 100) / 100,
+          balanceCartons: Math.round(balCtn * 100) / 100,
+          isCompleted: orderQty > 0 && balQty <= 0,
+          completionPercent: pct,
+        };
+      });
+
+      const totalDispatchQuantity = lines.reduce((sum: number, l: any) => sum + (Number(l.quantity) || 0), 0);
+      const totalDispatchCartons = lines.reduce((sum: number, l: any) => sum + (Number(l.cartons) || 0), 0);
+
+      const totalOrderQuantity = salesOrdersSummary.reduce((sum: number, s: any) => sum + s.totalOrderQuantity, 0);
+      const totalOrderCartons = salesOrdersSummary.reduce((sum: number, s: any) => sum + s.totalOrderCartons, 0);
+
+      const totalDeliveredQuantity = salesOrdersSummary.reduce((sum: number, s: any) => sum + s.totalShippedQuantity, 0);
+      const totalBalanceQuantity = salesOrdersSummary.reduce((sum: number, s: any) => sum + s.balanceQuantity, 0);
+      const totalBalanceCartons = salesOrdersSummary.reduce((sum: number, s: any) => sum + s.balanceCartons, 0);
+
+      const isCompleted = totalOrderQuantity > 0 && totalBalanceQuantity <= 0;
+
+      // Item summary breakdown
+      const itemsSummary = lines.map((l: any) => ({
+        itemId: l.itemId,
+        itemCode: l.itemCode || '-',
+        itemName: l.itemName || 'Product',
+        socNumber: l.socNumber,
+        dispatchedQuantity: Number(l.quantity) || 0,
+        dispatchedCartons: l.cartons,
+        packagingUnit: l.packagingUnit || 'CTN',
+        uom: l.uomCode || 'GRS',
+      }));
 
       return {
         ...sd,
         lines,
-        salesOrderNumber: sd.salesOrder?.orderNumber || null,
+        salesOrderNumber: sd.salesOrder?.orderNumber || (delSocs.length > 0 ? delSocs.join(', ') : null),
+        salesOrderNumbers: delSocs,
+        salesOrdersSummary,
         divisionName: sd.salesOrder?.division?.name || null,
         sectionName: sd.salesOrder?.section?.name || null,
-        totalDispatchQuantity,
-        totalDispatchCartons,
-        totalOrderQuantity,
-        totalOrderCartons,
-        totalDeliveredQuantity,
-        totalBalanceQuantity,
-        totalBalanceCartons,
+        totalDispatchQuantity: Math.round(totalDispatchQuantity * 100) / 100,
+        totalDispatchCartons: Math.round(totalDispatchCartons * 100) / 100,
+        totalOrderQuantity: Math.round(totalOrderQuantity * 100) / 100,
+        totalOrderCartons: Math.round(totalOrderCartons * 100) / 100,
+        totalDeliveredQuantity: Math.round(totalDeliveredQuantity * 100) / 100,
+        totalBalanceQuantity: Math.round(totalBalanceQuantity * 100) / 100,
+        totalBalanceCartons: Math.round(totalBalanceCartons * 100) / 100,
         isCompleted,
         itemsSummary,
       };
     });
-    return { data, total };
   }
 
   async findOne(id: string, companyId?: string, allowedDivisionIds?: DivisionAccess): Promise<any> {
@@ -270,7 +358,9 @@ export class SalesDeliveryService {
       relatedInvoices = [];
     }
 
-    return Object.assign(delivery, {
+    const [enriched] = await this.enrichDeliveriesWithSocData([delivery]);
+
+    return Object.assign(delivery, enriched, {
       relatedInvoices,
       salesOrderNumber: delivery.salesOrder?.orderNumber || null,
       divisionName: delivery.salesOrder?.division?.name || null,
@@ -359,18 +449,23 @@ export class SalesDeliveryService {
 
   async deliver(id: string, userId?: string, companyId?: string, allowedDivisionIds?: DivisionAccess): Promise<SalesDelivery> {
     const delivery = await this.findOne(id, companyId, allowedDivisionIds);
-    if (delivery.status !== 'SHIPPED') {
-      throw new BadRequestException('Can only mark deliveries as delivered when in SHIPPED status');
+    if (delivery.status !== 'SHIPPED' && delivery.status !== 'DRAFT') {
+      throw new BadRequestException('Can only mark deliveries as delivered when in SHIPPED or DRAFT status');
     }
     delivery.status = 'DELIVERED';
     delivery.updatedBy = userId || null;
-    return this.repo.save(delivery);
+    await this.repo.save(delivery);
+    // Auto-confirm so stock ledger entries and stock balances are deducted immediately
+    return this.confirm(id, userId, companyId, allowedDivisionIds);
   }
 
   async confirm(id: string, userId?: string, companyId?: string, allowedDivisionIds?: DivisionAccess): Promise<SalesDelivery> {
     const delivery = await this.findOne(id, companyId, allowedDivisionIds);
-    if (delivery.status !== 'DELIVERED') {
-      throw new BadRequestException('Can only confirm deliveries in DELIVERED status');
+    if (delivery.status === 'CONFIRMED') {
+      return delivery;
+    }
+    if (delivery.status !== 'DELIVERED' && delivery.status !== 'SHIPPED') {
+      throw new BadRequestException('Can only confirm deliveries in DELIVERED or SHIPPED status');
     }
 
     const lines = await this.lineRepo.find({ where: { deliveryId: id } });
@@ -383,91 +478,113 @@ export class SalesDeliveryService {
       throw new BadRequestException('Delivery must have a warehouse assigned before confirmation');
     }
 
-    for (const line of lines) {
-      if (!line.itemId) {
-        throw new BadRequestException(`Delivery line ${line.lineNumber} has no item assigned`);
-      }
-      if (!line.uomId) {
-        throw new BadRequestException(`Delivery line ${line.lineNumber} has no UOM assigned`);
-      }
-      const lineWarehouse = line.warehouseId || warehouseId;
-      const rawQty = Number(line.quantity || 0);
+    // Check if ledger entries already created for this delivery (to prevent duplicate stock deduction)
+    const existingLedgers = await this.ledgerService.findAll({
+      companyId: delivery.companyId,
+      referenceType: 'SALES_DELIVERY',
+      referenceId: delivery.id,
+    });
 
-      // Resolve item and base UOM to ensure accurate physical stock deduction
-      const item = await this.itemRepo.findOne({
-        where: { id: line.itemId },
-        relations: ['baseUom'],
-      });
+    if (!existingLedgers || existingLedgers.total === 0) {
+      for (const line of lines) {
+        if (!line.itemId) {
+          throw new BadRequestException(`Delivery line ${line.lineNumber} has no item assigned`);
+        }
+        if (!line.uomId) {
+          throw new BadRequestException(`Delivery line ${line.lineNumber} has no UOM assigned`);
+        }
+        const lineWarehouse = line.warehouseId || warehouseId;
+        const rawQty = Number(line.quantity || 0);
 
-      const lineUom = await this.uomRepo.findOne({ where: { id: line.uomId } });
-      const lineUomCode = (lineUom?.code || '').toUpperCase();
-      const baseUomId = item?.baseUomId || line.uomId;
-      const baseUomCode = (item?.baseUom?.code || lineUomCode || 'PCS').toUpperCase();
+        // Resolve item and base UOM to ensure accurate physical stock deduction
+        const item = await this.itemRepo.findOne({
+          where: { id: line.itemId },
+          relations: ['baseUom'],
+        });
 
-      // Convert quantity to base UOM if line UOM differs (e.g. GRS -> 144 PCS, CTN -> cartons * grossPerCarton * 144)
-      let baseQty = rawQty;
-      if (line.uomId !== baseUomId && lineUomCode !== baseUomCode) {
-        if (lineUomCode === 'GRS' && baseUomCode === 'PCS') {
-          baseQty = rawQty * 144;
-        } else if (lineUomCode === 'CTN' && baseUomCode === 'PCS') {
-          const itemPkgSize = Number(item?.packagingSize) || 0;
-          const isCS =
-            (item?.itemCode || '').toUpperCase().includes('011') ||
-            (item?.itemCode || '').toUpperCase().includes('012') ||
-            (item?.name || '').toUpperCase().includes('CS');
-          const grossPerCarton = itemPkgSize > 0 ? itemPkgSize : (isCS ? 10.555556 : 10);
-          baseQty = Math.round(rawQty * grossPerCarton * 144);
-        } else if (lineUomCode === 'PCS' && baseUomCode === 'GRS') {
-          baseQty = rawQty / 144;
-        } else {
-          // Check global UOM conversions table
-          const conv = await this.uomConversionRepo.findOne({
-            where: { fromUomId: line.uomId, toUomId: baseUomId },
-          });
-          if (conv && Number(conv.conversionFactor) > 0) {
-            baseQty = rawQty * Number(conv.conversionFactor);
+        const lineUom = await this.uomRepo.findOne({ where: { id: line.uomId } });
+        const lineUomCode = (lineUom?.code || '').toUpperCase();
+        const baseUomId = item?.baseUomId || line.uomId;
+        const baseUomCode = (item?.baseUom?.code || lineUomCode || 'PCS').toUpperCase();
+
+        // Convert quantity to base UOM if line UOM differs (e.g. GRS -> 144 PCS, CTN -> cartons * grossPerCarton * 144)
+        let baseQty = rawQty;
+        if (line.uomId !== baseUomId && lineUomCode !== baseUomCode) {
+          if (lineUomCode === 'GRS' && baseUomCode === 'PCS') {
+            baseQty = rawQty * 144;
+          } else if (lineUomCode === 'CTN' && baseUomCode === 'PCS') {
+            const itemPkgSize = Number(item?.packagingSize) || 0;
+            const isCS =
+              (item?.itemCode || '').toUpperCase().includes('011') ||
+              (item?.itemCode || '').toUpperCase().includes('012') ||
+              (item?.name || '').toUpperCase().includes('CS');
+            const grossPerCarton = itemPkgSize > 0 ? itemPkgSize : (isCS ? 10.555556 : 10);
+            baseQty = Math.round(rawQty * grossPerCarton * 144);
+          } else if (lineUomCode === 'PCS' && baseUomCode === 'GRS') {
+            baseQty = rawQty / 144;
           } else {
-            const invConv = await this.uomConversionRepo.findOne({
-              where: { fromUomId: baseUomId, toUomId: line.uomId },
+            // Check global UOM conversions table
+            const conv = await this.uomConversionRepo.findOne({
+              where: { fromUomId: line.uomId, toUomId: baseUomId },
             });
-            if (invConv && Number(invConv.conversionFactor) > 0) {
-              baseQty = rawQty / Number(invConv.conversionFactor);
+            if (conv && Number(conv.conversionFactor) > 0) {
+              baseQty = rawQty * Number(conv.conversionFactor);
+            } else {
+              const invConv = await this.uomConversionRepo.findOne({
+                where: { fromUomId: baseUomId, toUomId: line.uomId },
+              });
+              if (invConv && Number(invConv.conversionFactor) > 0) {
+                baseQty = rawQty / Number(invConv.conversionFactor);
+              }
             }
           }
         }
+
+        const safeUserIdForLedger = isUuid(userId) ? userId : undefined;
+        const txDate = delivery.deliveryDate ? new Date(delivery.deliveryDate) : new Date();
+        const customerName = delivery.customer?.companyName || (delivery.customer as any)?.name || '';
+        const notesStr = customerName
+          ? `Sales delivery to ${customerName} (${delivery.deliveryNumber}) confirmed (${rawQty} ${lineUomCode || 'GRS'} = ${baseQty} ${baseUomCode})`
+          : `Sales delivery ${delivery.deliveryNumber} confirmed (${rawQty} ${lineUomCode || 'GRS'} = ${baseQty} ${baseUomCode})`;
+
+        await this.ledgerService.create({
+          companyId: delivery.companyId,
+          transactionType: 'SALES_DELIVERY',
+          transactionDate: txDate,
+          itemId: line.itemId,
+          warehouseId: lineWarehouse,
+          quantity: baseQty,
+          uomId: baseUomId,
+          direction: 'OUT',
+          referenceType: 'SALES_DELIVERY',
+          referenceId: delivery.id,
+          referenceNumber: delivery.deliveryNumber,
+          notes: notesStr,
+          createdBy: safeUserIdForLedger,
+        });
+
+        await this.balanceService.updateBalance(
+          delivery.companyId,
+          line.itemId,
+          lineWarehouse,
+          null,
+          null,
+          baseUomId,
+          baseQty,
+          'OUT',
+        );
       }
-
-      await this.ledgerService.create({
-        companyId: delivery.companyId,
-        transactionType: 'SALES_DELIVERY',
-        transactionDate: new Date(),
-        itemId: line.itemId,
-        warehouseId: lineWarehouse,
-        quantity: baseQty,
-        uomId: baseUomId,
-        direction: 'OUT',
-        referenceType: 'SALES_DELIVERY',
-        referenceId: delivery.id,
-        referenceNumber: delivery.deliveryNumber,
-        notes: `Sales delivery ${delivery.deliveryNumber} confirmed (${rawQty} ${lineUomCode || 'GRS'} = ${baseQty} ${baseUomCode})`,
-        createdBy: userId,
-      });
-
-      await this.balanceService.updateBalance(
-        delivery.companyId,
-        line.itemId,
-        lineWarehouse,
-        null,
-        null,
-        baseUomId,
-        baseQty,
-        'OUT',
-      );
+    } else {
+      this.logger.warn(`Ledger entries already exist for delivery ${delivery.deliveryNumber}. Skipping balance re-deduction.`);
     }
 
+    const safeUserId = isUuid(userId) ? userId : null;
+    await this.repo.update(delivery.id, {
+      status: 'CONFIRMED',
+      updatedBy: safeUserId,
+    });
     delivery.status = 'CONFIRMED';
-    delivery.updatedBy = userId || null;
-    const saved = await this.repo.save(delivery);
+    delivery.updatedBy = safeUserId;
 
     // Update parent Sales Order line items shipped quantities
     if (delivery.salesOrderId) {
@@ -491,7 +608,7 @@ export class SalesDeliveryService {
       }
     }
 
-    return saved;
+    return delivery;
   }
 
   async convertToInvoice(id: string, userId?: string, companyId?: string, allowedDivisionIds?: DivisionAccess): Promise<SalesInvoice> {

@@ -1063,6 +1063,26 @@ export const SalesAnalyticsDashboard: React.FC = () => {
     },
   ];
 
+  // Order Fulfillment Summary
+  const fulfillmentSummary = useMemo(() => {
+    const totalOrdersCount = fulfillmentData.length;
+    const totalOrderedQty = fulfillmentData.reduce((sum, d) => sum + (Number(d.orderedQuantity) || 0), 0);
+    const totalProducedQty = fulfillmentData.reduce((sum, d) => sum + (Number(d.producedQuantity) || 0), 0);
+    const totalFgAvailableQty = fulfillmentData.reduce((sum, d) => sum + (Number(d.finishedGoodsAvailable) || 0), 0);
+    const totalDeliveredQty = fulfillmentData.reduce((sum, d) => sum + (Number(d.deliveredQuantity) || 0), 0);
+    const totalRemainingQty = fulfillmentData.reduce((sum, d) => sum + (Number(d.remainingDeliveryQuantity) || 0), 0);
+    const overallFulfillmentPct = totalOrderedQty > 0 ? Math.round((totalDeliveredQty / totalOrderedQty) * 100) : 0;
+    return {
+      totalOrdersCount,
+      totalOrderedQty,
+      totalProducedQty,
+      totalFgAvailableQty,
+      totalDeliveredQty,
+      totalRemainingQty,
+      overallFulfillmentPct,
+    };
+  }, [fulfillmentData]);
+
   // Order Fulfillment Columns
   const fulfillmentColumns: ColumnsType<OrderFulfillment> = [
     {
@@ -1621,7 +1641,15 @@ export const SalesAnalyticsDashboard: React.FC = () => {
                               borderRadius: 4,
                               border: '1px solid rgba(255, 255, 255, 0.08)'
                             }}>
-                              {p.unit}
+                              {p.stage === 'QUOTATION' ? 'QUOTES' :
+                               p.stage === 'SALES_ORDER' ? 'ORDERS' :
+                               p.stage === 'PRODUCTION' ? 'ENTRIES' :
+                               p.stage === 'FINISHED_GOODS' ? 'GRS' :
+                               p.stage === 'DELIVERY' ? 'DISPATCHES' :
+                               p.stage === 'INVOICE' ? 'INVOICES' :
+                               p.stage === 'SALES_RETURN' ? 'RETURNS' :
+                               p.stage === 'CREDIT_NOTE' ? 'NOTES' :
+                               p.stage === 'PAYMENT' ? 'PAYMENTS' : p.unit}
                             </span>
                           </div>
                           <div style={{
@@ -1653,7 +1681,13 @@ export const SalesAnalyticsDashboard: React.FC = () => {
                             fontWeight: 800,
                             fontVariantNumeric: 'tabular-nums'
                           }}>
-                            {p.unit === 'PKR' ? `PKR ${formatDecimal(p.value, 0)}` : `${formatDecimal(p.value, 0)} ${p.unit}`}
+                            {p.stage === 'PRODUCTION'
+                              ? `${formatDecimal(p.value, 0)} GRS Produced`
+                              : p.stage === 'FINISHED_GOODS'
+                              ? `Ready Warehouse Stock`
+                              : p.unit === 'PKR'
+                              ? `PKR ${formatDecimal(p.value, 0)}`
+                              : `${formatDecimal(p.value, 0)} ${p.unit}`}
                           </div>
                           <div style={{
                             fontSize: 10,
@@ -2331,6 +2365,74 @@ export const SalesAnalyticsDashboard: React.FC = () => {
             ),
             children: (
               <div>
+                {/* Fulfillment KPI Summary Cards */}
+                <div style={{ marginBottom: 12 }}>
+                  <Text strong style={{ fontSize: 13, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--inv-text-secondary, #64748b)' }}>
+                    Sales Order Execution & Fulfillment Summary
+                  </Text>
+                </div>
+                <Row gutter={[14, 14]} style={{ marginBottom: 20 }}>
+                  <Col xs={24} sm={12} md={8} lg={4}>
+                    <ActionKpiCard
+                      value={formatDecimal(fulfillmentSummary.totalOrderedQty, 0)}
+                      suffix="GRS"
+                      label="Total Order Demand"
+                      icon={<ShoppingCartOutlined />}
+                      gradient="linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%)"
+                      actionText={`${fulfillmentSummary.totalOrdersCount} Total Sales Orders`}
+                    />
+                  </Col>
+                  <Col xs={24} sm={12} md={8} lg={4}>
+                    <ActionKpiCard
+                      value={formatDecimal(fulfillmentSummary.totalProducedQty, 0)}
+                      suffix="GRS"
+                      label="Total Packed / Produced"
+                      icon={<BuildOutlined />}
+                      gradient="linear-gradient(135deg, #0284c7 0%, #0369a1 100%)"
+                      actionText={`${fulfillmentSummary.totalOrderedQty > 0 ? Math.round((fulfillmentSummary.totalProducedQty / fulfillmentSummary.totalOrderedQty) * 100) : 0}% Packed for Orders`}
+                    />
+                  </Col>
+                  <Col xs={24} sm={12} md={8} lg={4}>
+                    <ActionKpiCard
+                      value={formatDecimal(fulfillmentSummary.totalFgAvailableQty, 0)}
+                      suffix="GRS"
+                      label="Ready FG Available"
+                      icon={<InboxOutlined />}
+                      gradient="linear-gradient(135deg, #0d9488 0%, #0f766e 100%)"
+                      actionText="Ready for immediate dispatch"
+                    />
+                  </Col>
+                  <Col xs={24} sm={12} md={8} lg={4}>
+                    <ActionKpiCard
+                      value={formatDecimal(fulfillmentSummary.totalDeliveredQty, 0)}
+                      suffix="GRS"
+                      label="Delivered to Customers"
+                      icon={<CheckCircleOutlined />}
+                      gradient="linear-gradient(135deg, #16a34a 0%, #15803d 100%)"
+                      actionText="Dispatched & confirmed"
+                    />
+                  </Col>
+                  <Col xs={24} sm={12} md={8} lg={4}>
+                    <ActionKpiCard
+                      value={formatDecimal(fulfillmentSummary.totalRemainingQty, 0)}
+                      suffix="GRS"
+                      label="Pending Delivery Balance"
+                      icon={<ClockCircleOutlined />}
+                      gradient="linear-gradient(135deg, #ea580c 0%, #c2410c 100%)"
+                      actionText="Unfulfilled order balance"
+                    />
+                  </Col>
+                  <Col xs={24} sm={12} md={8} lg={4}>
+                    <ActionKpiCard
+                      value={`${fulfillmentSummary.overallFulfillmentPct}%`}
+                      label="Overall Fulfillment Rate"
+                      icon={<SafetyCertificateOutlined />}
+                      gradient={fulfillmentSummary.overallFulfillmentPct >= 80 ? 'linear-gradient(135deg, #059669 0%, #047857 100%)' : 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)'}
+                      actionText={`${formatDecimal(fulfillmentSummary.totalDeliveredQty, 0)} of ${formatDecimal(fulfillmentSummary.totalOrderedQty, 0)} GRS`}
+                    />
+                  </Col>
+                </Row>
+
                 <Row gutter={[16, 16]}>
                   {/* Fulfillment Table */}
                   <Col span={24}>
@@ -2359,6 +2461,83 @@ export const SalesAnalyticsDashboard: React.FC = () => {
                         loading={loading}
                         scroll={{ x: 'max-content' }}
                         pagination={{ pageSize: 10 }}
+                        expandable={{
+                          expandedRowRender: (record: any) => {
+                            if (!record.items || record.items.length === 0) {
+                              return <div style={{ padding: '8px 16px', color: '#8c8c8c' }}>No item line details available</div>;
+                            }
+                            return (
+                              <div style={{ margin: '8px 0', background: 'rgba(0,0,0,0.02)', padding: '12px', borderRadius: 6 }}>
+                                <div style={{ fontWeight: 600, marginBottom: 8, fontSize: 12, color: 'var(--inv-text-secondary, #64748b)' }}>
+                                  ORDER ITEM BREAKDOWN ({record.orderNumber})
+                                </div>
+                                <Table
+                                  dataSource={record.items}
+                                  rowKey="itemId"
+                                  pagination={false}
+                                  size="small"
+                                  columns={[
+                                    {
+                                      title: 'Item Name',
+                                      dataIndex: 'itemName',
+                                      key: 'itemName',
+                                      render: (name: string, it: any) => renderItemNameWithParts(name, it.itemCode),
+                                    },
+                                    {
+                                      title: 'Ordered',
+                                      dataIndex: 'orderedQuantity',
+                                      key: 'orderedQuantity',
+                                      align: 'right',
+                                      render: (qty: number) => `${formatDecimal(qty, 0)} GRS`,
+                                    },
+                                    {
+                                      title: 'Produced',
+                                      dataIndex: 'producedQuantity',
+                                      key: 'producedQuantity',
+                                      align: 'right',
+                                      render: (qty: number) => <span style={{ color: '#fa8c16' }}>{formatDecimal(qty, 0)} GRS</span>,
+                                    },
+                                    {
+                                      title: 'FG Available',
+                                      dataIndex: 'finishedGoodsAvailable',
+                                      key: 'finishedGoodsAvailable',
+                                      align: 'right',
+                                      render: (qty: number) => <span style={{ color: '#13c2c2', fontWeight: 600 }}>{formatDecimal(qty, 0)} GRS</span>,
+                                    },
+                                    {
+                                      title: 'Delivered',
+                                      dataIndex: 'deliveredQuantity',
+                                      key: 'deliveredQuantity',
+                                      align: 'right',
+                                      render: (qty: number) => <span style={{ color: '#52c41a' }}>{formatDecimal(qty, 0)} GRS</span>,
+                                    },
+                                    {
+                                      title: 'Remaining',
+                                      dataIndex: 'remainingDeliveryQuantity',
+                                      key: 'remainingDeliveryQuantity',
+                                      align: 'right',
+                                      render: (qty: number) => <span style={{ color: qty > 0 ? '#ff4d4f' : '#52c41a' }}>{formatDecimal(qty, 0)} GRS</span>,
+                                    },
+                                    {
+                                      title: 'Fulfillment %',
+                                      dataIndex: 'fulfillmentPercentage',
+                                      key: 'fulfillmentPercentage',
+                                      width: 140,
+                                      render: (pct: number) => (
+                                        <Progress
+                                          percent={pct}
+                                          size="small"
+                                          status={pct >= 100 ? 'success' : pct > 0 ? 'active' : 'normal'}
+                                        />
+                                      ),
+                                    },
+                                  ]}
+                                />
+                              </div>
+                            );
+                          },
+                          rowExpandable: (record: any) => Boolean(record.items && record.items.length > 0),
+                        }}
                       />
                     </Card>
                   </Col>

@@ -154,7 +154,7 @@ export const ProductionUnitLabelCard: React.FC<ProductionUnitLabelCardProps> = (
       >
         <div>
           <div style={{ fontSize: 12, fontWeight: 900, letterSpacing: '0.04em', color: '#09090b', lineHeight: 1.2 }}>
-            PAKISTAN WIRE INDUSTRIES (PVT) LTD
+            Pakistan Wire Industries (Pvt.) LTD
           </div>
           <div style={{ fontSize: 8.5, color: '#475569', fontWeight: 600, textTransform: 'uppercase' }}>
             Quality Wire & Cable Division · ISO 9001:2015
@@ -405,7 +405,7 @@ export function printProductionUnitLabels(options: PrintLabelsOptions): void {
         <!-- Header -->
         <div class="label-header">
           <div>
-            <div class="company-title">PAKISTAN WIRE INDUSTRIES (PVT) LTD</div>
+            <div class="company-title">Pakistan Wire Industries (Pvt.) LTD</div>
             <div class="company-sub">Quality Wire & Cable Division · ISO 9001:2015</div>
           </div>
           <div class="badge-group">

@@ -1444,7 +1444,7 @@ describe('Daily Production Report — WhatsApp message export', () => {
     const waText = buildDailyProductionWhatsApp(m);
 
     // Header check
-    expect(waText).toContain('PAKISTAN WIRE INDUSTRIES (PVT) LTD');
+    expect(waText).toContain('Pakistan Wire Industries (Pvt.) LTD');
     expect(waText).toContain('DAILY PRODUCTION REPORT — SPOKE DIVISION');
 
     // Executive summary check

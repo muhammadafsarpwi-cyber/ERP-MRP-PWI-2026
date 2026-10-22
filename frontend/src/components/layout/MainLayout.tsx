@@ -569,7 +569,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
                     marginTop: 2,
                   }}
                 >
-                  Pakistan Wire Industries (Pvt) Ltd
+                  Pakistan Wire Industries (Pvt.) LTD
                 </span>
               </div>
             )}
@@ -753,7 +753,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
                   PWI ERP System
                 </span>
                 <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--theme-text-secondary, #64748b)', lineHeight: 1.2, marginTop: 2 }}>
-                  Pakistan Wire Industries
+                  Pakistan Wire Industries (Pvt.) LTD
                 </span>
               </div>
             </div>
@@ -839,19 +839,19 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
             <div className="pwi-marquee-track">
               <span className="pwi-marquee-item">
                 <img src={`${process.env.PUBLIC_URL}/logo-mark.png`} alt="PWI Logo" className="pwi-marquee-logo" style={{ height: 16, width: 16, borderRadius: 3, objectFit: 'contain', verticalAlign: 'middle', marginRight: 6 }} />
-                <strong>PAKISTAN WIRE INDUSTRIES (PVT) LTD</strong> &nbsp;•&nbsp; Enterprise ERP & MRP System
+                <strong>Pakistan Wire Industries (Pvt.) LTD</strong> &nbsp;•&nbsp; Enterprise ERP & MRP System
               </span>
               <span className="pwi-marquee-item">
                 <img src={`${process.env.PUBLIC_URL}/logo-mark.png`} alt="PWI Logo" className="pwi-marquee-logo" style={{ height: 16, width: 16, borderRadius: 3, objectFit: 'contain', verticalAlign: 'middle', marginRight: 6 }} />
-                <strong>PAKISTAN WIRE INDUSTRIES (PVT) LTD</strong> &nbsp;•&nbsp; Enterprise ERP & MRP System
+                <strong>Pakistan Wire Industries (Pvt.) LTD</strong> &nbsp;•&nbsp; Enterprise ERP & MRP System
               </span>
               <span className="pwi-marquee-item">
                 <img src={`${process.env.PUBLIC_URL}/logo-mark.png`} alt="PWI Logo" className="pwi-marquee-logo" style={{ height: 16, width: 16, borderRadius: 3, objectFit: 'contain', verticalAlign: 'middle', marginRight: 6 }} />
-                <strong>PAKISTAN WIRE INDUSTRIES (PVT) LTD</strong> &nbsp;•&nbsp; Enterprise ERP & MRP System
+                <strong>Pakistan Wire Industries (Pvt.) LTD</strong> &nbsp;•&nbsp; Enterprise ERP & MRP System
               </span>
               <span className="pwi-marquee-item">
                 <img src={`${process.env.PUBLIC_URL}/logo-mark.png`} alt="PWI Logo" className="pwi-marquee-logo" style={{ height: 16, width: 16, borderRadius: 3, objectFit: 'contain', verticalAlign: 'middle', marginRight: 6 }} />
-                <strong>PAKISTAN WIRE INDUSTRIES (PVT) LTD</strong> &nbsp;•&nbsp; Enterprise ERP & MRP System
+                <strong>Pakistan Wire Industries (Pvt.) LTD</strong> &nbsp;•&nbsp; Enterprise ERP & MRP System
               </span>
             </div>
           </div>
