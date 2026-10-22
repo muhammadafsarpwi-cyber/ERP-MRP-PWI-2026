@@ -71,9 +71,9 @@ export class ProductionRouting extends BaseEntity {
   @Column({ name: 'effective_to', type: 'timestamp with time zone', nullable: true })
   effectiveTo: Date | null;
 
-  @OneToMany(() => RoutingOperation, (op) => op.routing, { cascade: true })
+  @OneToMany(() => RoutingOperation, (op) => op.routing)
   operations: RoutingOperation[];
 
-  @OneToMany(() => RoutingOperationConnection, (conn) => conn.routing, { cascade: true })
+  @OneToMany(() => RoutingOperationConnection, (conn) => conn.routing)
   connections: RoutingOperationConnection[];
 }

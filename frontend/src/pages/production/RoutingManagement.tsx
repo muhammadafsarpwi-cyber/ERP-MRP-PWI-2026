@@ -84,6 +84,7 @@ const RoutingManagement: React.FC = () => {
   const [routingResultError, setRoutingResultError] = useState<string>('');
   const [routingResultErrorTitle, setRoutingResultErrorTitle] = useState<string | undefined>(undefined);
   const [routingResultErrorLead, setRoutingResultErrorLead] = useState<string | undefined>(undefined);
+  const [routingResultRetry, setRoutingResultRetry] = useState<(() => void) | undefined>(undefined);
   const [search, setSearch] = useState<string>(() => cachedTab?.search ?? '');
   const [filterStatus, setFilterStatus] = useState<string | undefined>(() => cachedTab?.filterStatus ?? undefined);
   const [viewMode, setViewMode] = useState<'table' | 'flow'>('table');
@@ -295,6 +296,7 @@ const RoutingManagement: React.FC = () => {
     setRoutingResultErrorTitle(undefined);
     setRoutingResultErrorLead(undefined);
     setRoutingSaving(true);
+    setRoutingResultRetry(() => handleSave);
     setRoutingResultPhase('loading');
     setRoutingResultOpen(true);
     try {
@@ -378,6 +380,34 @@ const RoutingManagement: React.FC = () => {
     fetchRoutings();
   };
 
+  const executeDeleteOp = async (op: RoutingOperation) => {
+    setRoutingResultPhase('loading');
+    setRoutingResult({
+      title: 'Removing Operation...',
+      recordType: 'Operation Code',
+      recordCode: op.operationCode,
+      recordName: op.operationName,
+    });
+    setRoutingResultError('');
+    setRoutingResultRetry(() => () => executeDeleteOp(op));
+    setRoutingResultOpen(true);
+    try {
+      await apiService.delete(`/production/routings/operations/${op.id}`);
+      setRoutingResult({
+        title: 'Operation Removed Successfully',
+        recordType: 'Operation Code',
+        recordCode: op.operationCode,
+        recordName: op.operationName,
+      });
+      setRoutingResultPhase('success');
+      await refreshDetail(selectedRouting!.id);
+      fetchRoutings();
+    } catch (err: any) {
+      setRoutingResultError(describeRequestError(err) || 'Failed to remove operation');
+      setRoutingResultPhase('error');
+    }
+  };
+
   const confirmDeleteOp = (op: RoutingOperation) => {
     modal.confirm({
       centered: true,
@@ -395,32 +425,7 @@ const RoutingManagement: React.FC = () => {
       okText: 'Remove Operation',
       okType: 'danger',
       cancelText: 'Cancel',
-      onOk: async () => {
-        setRoutingResultPhase('loading');
-        setRoutingResult({
-          title: 'Removing Operation...',
-          recordType: 'Operation Code',
-          recordCode: op.operationCode,
-          recordName: op.operationName,
-        });
-        setRoutingResultError('');
-        setRoutingResultOpen(true);
-        try {
-          await apiService.delete(`/production/routings/operations/${op.id}`);
-          setRoutingResult({
-            title: 'Operation Removed Successfully',
-            recordType: 'Operation Code',
-            recordCode: op.operationCode,
-            recordName: op.operationName,
-          });
-          setRoutingResultPhase('success');
-          await refreshDetail(selectedRouting!.id);
-          fetchRoutings();
-        } catch (err: any) {
-          setRoutingResultError(describeRequestError(err) || 'Failed to remove operation');
-          setRoutingResultPhase('error');
-        }
-      },
+      onOk: () => executeDeleteOp(op),
     });
   };
 
@@ -509,10 +514,36 @@ const RoutingManagement: React.FC = () => {
     { title: 'Status', dataIndex: 'status', key: 'status', width: 100, render: (s: string) => <Tag color={STATUS_COLORS[s]}>{s}</Tag> },
     { title: 'Ops', key: 'ops', width: 60, align: 'center', render: (_, r) => r.operations?.length || 0 },
     { title: 'Default', dataIndex: 'isDefault', key: 'isDefault', width: 80, align: 'center', render: (v: boolean) => v ? <Tag color="blue">Yes</Tag> : 'No' },
-    { title: 'Created By', key: 'createdBy', width: 140, render: (_, r) => r.createdByName || (r.createdBy ? 'Admin' : '-') },
-    { title: 'Created Date', key: 'createdAt', width: 150, render: (_, r) => formatDateTime(r.createdAt) },
-    { title: 'Updated By', key: 'updatedBy', width: 140, render: (_, r) => r.updatedByName || (r.updatedBy ? 'Admin' : '-') },
-    { title: 'Updated Date', key: 'updatedAt', width: 150, render: (_, r) => formatDateTime(r.updatedAt) },
+    {
+      title: 'Created By / Date',
+      key: 'created',
+      width: 160,
+      render: (_, r) => (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <span style={{ fontWeight: 600, color: '#f1f5f9' }}>
+            {r.createdByName || (r.createdBy ? 'Muhammad Afsar' : '-')}
+          </span>
+          <span style={{ fontSize: 11, color: '#94a3b8' }}>
+            {formatDateTime(r.createdAt)}
+          </span>
+        </div>
+      ),
+    },
+    {
+      title: 'Updated By / Date',
+      key: 'updated',
+      width: 160,
+      render: (_, r) => (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <span style={{ fontWeight: 600, color: '#f1f5f9' }}>
+            {r.updatedByName || (r.updatedBy ? 'Muhammad Afsar' : '-')}
+          </span>
+          <span style={{ fontSize: 11, color: '#94a3b8' }}>
+            {formatDateTime(r.updatedAt)}
+          </span>
+        </div>
+      ),
+    },
     {
       title: 'Actions', key: 'actions', width: 160, fixed: 'right', render: (_, r) => (
         <Space size="small">
@@ -651,7 +682,7 @@ const RoutingManagement: React.FC = () => {
           phase={routingResultPhase}
           result={routingResult}
           errorMessage={routingResultError}
-          onRetry={handleSave}
+          onRetry={routingResultRetry}
           onClose={() => setRoutingResultOpen(false)}
         />
       </div>
@@ -799,7 +830,7 @@ const RoutingManagement: React.FC = () => {
         errorTitle={routingResultErrorTitle}
         errorLead={routingResultErrorLead}
         errorMessage={routingResultError}
-        onRetry={handleSave}
+        onRetry={routingResultRetry}
         onClose={() => setRoutingResultOpen(false)}
       />
     </div>

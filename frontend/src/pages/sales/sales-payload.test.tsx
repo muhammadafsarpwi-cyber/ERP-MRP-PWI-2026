@@ -1,7 +1,7 @@
 import { buildSalesQuotationPayload } from './SalesQuotationManagement';
 import { buildSalesOrderPayload } from './SalesOrderManagement';
 import { computeMaximumReturnableQuantity, clampReturnQuantity } from './SalesReturnManagement';
-import type { ERPLine } from '../../components/shared';
+import { ERPLine } from '../../components/shared';
 
 jest.mock('../../services/api');
 

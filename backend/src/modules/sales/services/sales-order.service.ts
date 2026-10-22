@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException, Logger, Inject, forwardRef } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ConflictException, Logger, Inject, forwardRef } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import {
@@ -65,10 +65,12 @@ export class SalesOrderService {
     }
     if (!customer) {
       // Check public.customers and auto-replicate if present
-      const pubCust = await this.repo.manager.query(
-        'SELECT * FROM public.customers WHERE id = $1',
-        [dto.customerId],
-      );
+      const pubCust = this.repo.manager?.query
+        ? await this.repo.manager.query(
+            'SELECT * FROM public.customers WHERE id = $1',
+            [dto.customerId],
+          )
+        : null;
       if (pubCust && pubCust.length > 0) {
         const pc = pubCust[0];
         customer = this.customerRepo.create({
@@ -99,38 +101,62 @@ export class SalesOrderService {
       if (!orderNumber.toUpperCase().startsWith('SOC-') && !orderNumber.toUpperCase().startsWith('SO-')) {
         orderNumber = `SOC-${orderNumber}`;
       }
-      const existing = await this.repo.findOne({ where: { companyId: dto.companyId, orderNumber } });
+      const existing = await this.repo.findOne({ where: { orderNumber }, withDeleted: true });
       if (existing) {
-        throw new BadRequestException(`Order / SOC Number '${orderNumber}' already exists.`);
+        throw new ConflictException(`Order / SOC Number '${orderNumber}' is already in use by another order.`);
       }
     } else {
       orderNumber = await this.generateOrderNumber(dto.companyId, 'SOC-');
     }
 
+    const sanitizeDate = (val: any) => {
+      if (!val) return null;
+      const str = String(val).trim();
+      return str !== '' ? str : null;
+    };
+    const sanitizeUuid = (val: any) => {
+      if (!val) return null;
+      const str = String(val).trim();
+      return /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(str) ? str : null;
+    };
+    const sanitizeText = (val: any) => {
+      if (!val) return null;
+      const str = String(val).trim();
+      return str !== '' ? str : null;
+    };
+
     const order = this.repo.create({
       companyId: dto.companyId,
       customerId: dto.customerId,
-      customerPo: dto.customerPo || null,
-      quotationId: dto.quotationId || null,
+      customerPo: sanitizeText(dto.customerPo),
+      quotationId: sanitizeUuid(dto.quotationId),
       orderNumber,
-      orderDate: dto.orderDate || new Date().toISOString().split('T')[0],
-      deliveryDate: dto.deliveryDate || null,
-      shipToAddress: dto.shipToAddress || null,
-      billToAddress: dto.billToAddress || null,
-      divisionId: dto.divisionId && String(dto.divisionId).trim() !== '' ? dto.divisionId : null,
-      sectionId: dto.sectionId && String(dto.sectionId).trim() !== '' ? dto.sectionId : null,
+      orderDate: sanitizeDate(dto.orderDate) || new Date().toISOString().split('T')[0],
+      deliveryDate: sanitizeDate(dto.deliveryDate),
+      shipToAddress: sanitizeText(dto.shipToAddress),
+      billToAddress: sanitizeText(dto.billToAddress),
+      divisionId: sanitizeUuid(dto.divisionId),
+      sectionId: sanitizeUuid(dto.sectionId),
       currency: dto.currency || 'USD',
-      subtotal: dto.subtotal || 0,
-      discountAmount: dto.discountAmount || 0,
-      taxAmount: dto.taxAmount || 0,
-      freightAmount: dto.freightAmount || 0,
-      totalAmount: dto.totalAmount || 0,
-      notes: dto.notes || null,
+      subtotal: dto.subtotal !== undefined ? Number(dto.subtotal) : 0,
+      discountAmount: dto.discountAmount !== undefined ? Number(dto.discountAmount) : 0,
+      taxAmount: dto.taxAmount !== undefined ? Number(dto.taxAmount) : 0,
+      freightAmount: dto.freightAmount !== undefined ? Number(dto.freightAmount) : 0,
+      totalAmount: dto.totalAmount !== undefined ? Number(dto.totalAmount) : 0,
+      notes: sanitizeText(dto.notes),
       status: 'Draft',
       createdBy: userId || null,
       updatedBy: userId || null,
     });
-    const saved = await this.repo.save(order);
+    let saved: SalesOrder;
+    try {
+      saved = await this.repo.save(order);
+    } catch (err: any) {
+      if (err.code === '23505' || err.message?.includes('duplicate key') || err.message?.includes('sales_orders_order_number_key')) {
+        throw new ConflictException(`Order / SOC Number '${order.orderNumber}' already exists. Please choose a different number.`);
+      }
+      throw err;
+    }
 
     const validItems = (dto.items || []).filter(
       (it: any) => it && it.itemId && String(it.itemId).trim() !== '',
@@ -200,7 +226,7 @@ export class SalesOrderService {
     let hasWhere = false;
     if (companyId) { qb.where('so.companyId = :companyId', { companyId }); hasWhere = true; }
     if (customerId) { qb[hasWhere ? 'andWhere' : 'where']('so.customerId = :customerId', { customerId }); hasWhere = true; }
-    if (status) { qb[hasWhere ? 'andWhere' : 'where']('so.status = :status', { status }); hasWhere = true; }
+    if (status && status.toLowerCase() !== 'all') { qb[hasWhere ? 'andWhere' : 'where']('so.status = :status', { status }); hasWhere = true; }
     if (divisionId) { qb[hasWhere ? 'andWhere' : 'where']('so.divisionId = :divisionId', { divisionId }); hasWhere = true; }
     if (search) { qb[hasWhere ? 'andWhere' : 'where']('(so.orderNumber ILIKE :search OR customer.companyName ILIKE :search OR so.customerPo ILIKE :search)', { search: `%${search}%` }); hasWhere = true; }
     // PROMPT #27 — server-authoritative division scope.
@@ -386,25 +412,52 @@ export class SalesOrderService {
     const newOrderNumber = dto.orderNumber || dto.socNumber;
     if (newOrderNumber && typeof newOrderNumber === 'string' && newOrderNumber.trim()) {
       const trimmed = newOrderNumber.trim();
-      order.orderNumber = trimmed.toUpperCase().startsWith('SOC-') ? trimmed : `SOC-${trimmed}`;
+      const formatted = trimmed.toUpperCase().startsWith('SOC-') ? trimmed : `SOC-${trimmed}`;
+      if (formatted !== order.orderNumber) {
+        const existing = await this.repo.findOne({ where: { orderNumber: formatted }, withDeleted: true });
+        if (existing && existing.id !== order.id) {
+          throw new ConflictException(`Order / SOC Number '${formatted}' is already in use by another order.`);
+        }
+        order.orderNumber = formatted;
+      }
     }
 
+    const sanitizeDate = (val: any) => {
+      if (val === undefined) return undefined;
+      if (val === null) return null;
+      const str = String(val).trim();
+      return str !== '' ? str : null;
+    };
+    const sanitizeUuid = (val: any) => {
+      if (val === undefined) return undefined;
+      if (val === null) return null;
+      const str = String(val).trim();
+      return /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(str) ? str : null;
+    };
+    const sanitizeText = (val: any) => {
+      if (val === undefined) return undefined;
+      if (val === null) return null;
+      const str = String(val).trim();
+      return str !== '' ? str : null;
+    };
+
     Object.assign(order, {
-      customerId: dto.customerId ?? order.customerId,
-      quotationId: dto.quotationId ?? order.quotationId,
-      orderDate: dto.orderDate ?? order.orderDate,
-      deliveryDate: dto.deliveryDate ?? order.deliveryDate,
-      shipToAddress: dto.shipToAddress ?? order.shipToAddress,
-      billToAddress: dto.billToAddress ?? order.billToAddress,
-      divisionId: dto.divisionId !== undefined ? (dto.divisionId || null) : order.divisionId,
-      sectionId: dto.sectionId !== undefined ? (dto.sectionId || null) : order.sectionId,
+      customerId: dto.customerId !== undefined ? sanitizeUuid(dto.customerId) : order.customerId,
+      quotationId: dto.quotationId !== undefined ? sanitizeUuid(dto.quotationId) : order.quotationId,
+      customerPo: dto.customerPo !== undefined ? sanitizeText(dto.customerPo) : order.customerPo,
+      orderDate: dto.orderDate !== undefined ? (sanitizeDate(dto.orderDate) ?? order.orderDate) : order.orderDate,
+      deliveryDate: dto.deliveryDate !== undefined ? sanitizeDate(dto.deliveryDate) : order.deliveryDate,
+      shipToAddress: dto.shipToAddress !== undefined ? sanitizeText(dto.shipToAddress) : order.shipToAddress,
+      billToAddress: dto.billToAddress !== undefined ? sanitizeText(dto.billToAddress) : order.billToAddress,
+      divisionId: dto.divisionId !== undefined ? sanitizeUuid(dto.divisionId) : order.divisionId,
+      sectionId: dto.sectionId !== undefined ? sanitizeUuid(dto.sectionId) : order.sectionId,
       currency: dto.currency ?? order.currency,
       subtotal: dto.subtotal !== undefined ? Number(dto.subtotal) : order.subtotal,
-      discountAmount: dto.discountAmount ?? order.discountAmount,
-      taxAmount: dto.taxAmount ?? order.taxAmount,
-      freightAmount: dto.freightAmount ?? order.freightAmount,
+      discountAmount: dto.discountAmount !== undefined ? Number(dto.discountAmount) : order.discountAmount,
+      taxAmount: dto.taxAmount !== undefined ? Number(dto.taxAmount) : order.taxAmount,
+      freightAmount: dto.freightAmount !== undefined ? Number(dto.freightAmount) : order.freightAmount,
       totalAmount: dto.totalAmount !== undefined ? Number(dto.totalAmount) : order.totalAmount,
-      notes: dto.notes ?? order.notes,
+      notes: dto.notes !== undefined ? sanitizeText(dto.notes) : order.notes,
       updatedBy: userId || null,
     });
 
@@ -438,7 +491,7 @@ export class SalesOrderService {
             discountPercent: itemDto.discountPercent || 0,
             taxAmount: itemDto.taxAmount || 0,
             lineTotal,
-            deliveryDate: itemDto.deliveryDate || null,
+            deliveryDate: sanitizeDate(itemDto.deliveryDate) || null,
           });
           await this.itemRepo.save(item);
           subtotal += lineTotal;
@@ -448,7 +501,7 @@ export class SalesOrderService {
       }
     }
 
-    // Detach relations so TypeORM does not attempt cascade updates on child rows
+    // Detach relations and computed helper fields so TypeORM does not attempt cascade updates on child rows
     delete (order as any).items;
     delete (order as any).customer;
     delete (order as any).division;
@@ -456,8 +509,20 @@ export class SalesOrderService {
     delete (order as any).quotation;
     delete (order as any).creator;
     delete (order as any).updater;
+    delete (order as any).relatedQuotation;
+    delete (order as any).linkedProductionOrders;
+    delete (order as any).linkedDeliveries;
+    delete (order as any).linkedInvoices;
+    delete (order as any).itemFulfillment;
 
-    await this.repo.save(order);
+    try {
+      await this.repo.save(order);
+    } catch (err: any) {
+      if (err.code === '23505' || err.message?.includes('duplicate key') || err.message?.includes('sales_orders_order_number_key')) {
+        throw new ConflictException(`Order / SOC Number '${order.orderNumber}' already exists. Please choose a different number.`);
+      }
+      throw err;
+    }
     return this.findOne(order.id, companyId, allowedDivisionIds);
   }
 
@@ -812,9 +877,14 @@ export class SalesOrderService {
         p2: `SO-${year}-%`,
       })
       .getRawOne();
-    const maxNum = Number(result?.maxNum) || 0;
-    const nextNum = maxNum + 1;
-    return `${fullPrefix}${String(nextNum).padStart(5, '0')}`;
+    let maxNum = Number(result?.maxNum) || 0;
+    let nextNum = maxNum + 1;
+    let candidate = `${fullPrefix}${String(nextNum).padStart(5, '0')}`;
+    while (await this.repo.findOne({ where: { orderNumber: candidate }, withDeleted: true })) {
+      nextNum++;
+      candidate = `${fullPrefix}${String(nextNum).padStart(5, '0')}`;
+    }
+    return candidate;
   }
 
   private async generateDeliveryNumber(companyId: string): Promise<string> {

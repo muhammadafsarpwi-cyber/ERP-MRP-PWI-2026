@@ -7,6 +7,7 @@ import {
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import WelcomeBackground from '../../components/auth/WelcomeBackground';
+import WelcomeCableScene from '../../components/auth/WelcomeCableScene';
 import WelcomeAnimation from '../../components/auth/WelcomeAnimation';
 import WelcomeCelebration from '../../components/auth/WelcomeCelebration';
 import WelcomeTopRibbon from '../../components/auth/WelcomeTopRibbon';
@@ -14,8 +15,17 @@ import { classicalAmbientMusic } from '../../utils/classicalAmbientMusic';
 import { WELCOME_SLIDE_ITEMS } from '../../config/welcomeImages';
 import './welcome.css';
 
+/**
+ * 3D cinematic background layer (WebGL). Renders the 16 division tracks as
+ * volumetric floating panels in a circular gallery; the camera glides to the
+ * active panel on the shared 6-second cadence (see webglCableScene.ts).
+ * When off — or when WebGL/reduced-motion prevent init — the cinematic image
+ * slideshow remains the visible background (automatic fallback).
+ */
+const ENABLE_3D_CABLE_LAYER = true;
+
 /** Floating particles count */
-const PARTICLE_COUNT = 18;
+const PARTICLE_COUNT = 22;
 
 const Welcome: React.FC = () => {
   const navigate = useNavigate();
@@ -128,8 +138,18 @@ const Welcome: React.FC = () => {
         onIndexChange={setActiveSlide}
       />
 
-      {/* Overlay Vignette */}
+      {/* Optional WebGL layer: 16-panel 3D cinematic gallery (see ENABLE_3D_CABLE_LAYER) */}
+      {ENABLE_3D_CABLE_LAYER ? (
+        <WelcomeCableScene reducedMotion={reducedMotion} activeIndex={activeSlide} />
+      ) : null}
+
+      {/* Premium light wash + golden ambient flares */}
       <div className="erp-welcome-overlay" aria-hidden="true" />
+      <div className="erp-welcome-flares" aria-hidden="true">
+        <span className="erp-welcome-flare erp-welcome-flare-1" />
+        <span className="erp-welcome-flare erp-welcome-flare-2" />
+        <span className="erp-welcome-flare erp-welcome-flare-3" />
+      </div>
 
       {/* Festive Fireworks, Flash, Fairy Lights & Confetti Celebration Overlays */}
       <WelcomeCelebration reducedMotion={reducedMotion} />
@@ -170,7 +190,7 @@ const Welcome: React.FC = () => {
           onAnimationComplete={() => {}}
         />
 
-        {/* 6-Photo Industrial Showcase Card (100% English) */}
+        {/* 16-Photo Industrial Showcase Card (100% English) */}
         <div className="erp-welcome-showcase-card">
           <div className="erp-welcome-showcase-nav">
             <button
@@ -185,8 +205,12 @@ const Welcome: React.FC = () => {
 
             <div className="erp-welcome-showcase-content">
               <div className="erp-welcome-slide-badge">
-                <span className="erp-welcome-slide-num">{`0${activeSlide + 1}`}</span>
-                <span className="erp-welcome-slide-total">/ 0{slides.length}</span>
+                <span className="erp-welcome-slide-num">
+                  {String(activeSlide + 1).padStart(2, '0')}
+                </span>
+                <span className="erp-welcome-slide-total">
+                  / {String(slides.length).padStart(2, '0')}
+                </span>
                 <span className="erp-welcome-slide-divider">•</span>
                 <span className="erp-welcome-slide-caption-en">{currentSlide.title}</span>
               </div>

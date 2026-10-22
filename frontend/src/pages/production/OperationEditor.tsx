@@ -517,7 +517,7 @@ const OperationEditor: React.FC<OperationEditorProps> = ({
     return () => { cancelled = true; };
   }, [open, mtQuery.required, mtQuery.machineId]);
 
-  const [materialRoleFilter, setMaterialRoleFilter] = useState<'PRIMARY' | 'COMPONENT' | 'ALL'>('PRIMARY');
+  const [materialRoleFilter, setMaterialRoleFilter] = useState<'PRIMARY' | 'COMPONENT' | 'DEPT' | 'ALL'>('PRIMARY');
   const [targetItemId, setTargetItemId] = useState<string | undefined>(undefined);
   const [machineFilterScope, setMachineFilterScope] = useState<'MATCHING' | 'DEPARTMENT' | 'ALL'>('DEPARTMENT');
   const [allDepartmentTargets, setAllDepartmentTargets] = useState<MachineTargetSummary[]>([]);
@@ -556,14 +556,28 @@ const OperationEditor: React.FC<OperationEditorProps> = ({
   }, [deptItems]);
 
   const displayedMaterials = React.useMemo(() => {
+    let pool: Item[] = [];
     if (materialRoleFilter === 'PRIMARY') {
-      return primaryDeptMaterials.length > 0 ? primaryDeptMaterials : deptItems;
+      pool = primaryDeptMaterials.length > 0 ? primaryDeptMaterials : (deptItems.length > 0 ? deptItems : allItems);
+    } else if (materialRoleFilter === 'COMPONENT') {
+      pool = componentDeptMaterials.length > 0 ? componentDeptMaterials : (deptItems.length > 0 ? deptItems : allItems);
+    } else if (materialRoleFilter === 'DEPT') {
+      pool = deptItems.length > 0 ? deptItems : allItems;
+    } else {
+      pool = allItems;
     }
-    if (materialRoleFilter === 'COMPONENT') {
-      return componentDeptMaterials.length > 0 ? componentDeptMaterials : deptItems;
-    }
-    return deptItems;
-  }, [deptItems, materialRoleFilter, primaryDeptMaterials, componentDeptMaterials]);
+
+    // Always ensure currently selected input items in form are included so they don't vanish
+    const existingInputIds = (watchedInputs || []).map((i: any) => i?.itemId).filter(Boolean);
+    existingInputIds.forEach((id: string) => {
+      if (!pool.some(i => i.id === id)) {
+        const found = allItems.find(i => i.id === id) || deptItems.find(i => i.id === id);
+        if (found) pool = [found, ...pool];
+      }
+    });
+
+    return pool;
+  }, [materialRoleFilter, primaryDeptMaterials, componentDeptMaterials, deptItems, allItems, watchedInputs]);
 
   // Scoped departments for division (for Output Product selection)
   const divisionDepartments = React.useMemo(() => {
@@ -793,8 +807,10 @@ const OperationEditor: React.FC<OperationEditorProps> = ({
       setResultOpen(true);
       return;
     }
-    const inputs = values.inputs || [];
-    const outputs = values.outputs || [];
+    const rawInputs = values.inputs || [];
+    const rawOutputs = values.outputs || [];
+    const inputs = (rawInputs as Record<string, unknown>[]).filter(r => r && r.itemId);
+    const outputs = (rawOutputs as Record<string, unknown>[]).filter(r => r && r.itemId);
     const primaryIn = inputs[0];
     const primaryOut = outputs[0];
 
@@ -809,8 +825,8 @@ const OperationEditor: React.FC<OperationEditorProps> = ({
     payload.outputQuantity = primaryOut?.quantity ?? values.outputQuantity ?? 1;
     payload.uomId = primaryIn?.uomId ?? values.uomId ?? null;
 
-    payload.inputs = (inputs as Record<string, unknown>[]).map(r => pickFields(r, INPUT_MATERIAL_FIELDS));
-    payload.outputs = (outputs as Record<string, unknown>[]).map(r => pickFields(r, OUTPUT_PRODUCT_FIELDS));
+    payload.inputs = inputs.map(r => pickFields(r, INPUT_MATERIAL_FIELDS));
+    payload.outputs = outputs.map(r => pickFields(r, OUTPUT_PRODUCT_FIELDS));
 
     setSaving(true);
     setResultPhase('loading');
@@ -1103,6 +1119,19 @@ const OperationEditor: React.FC<OperationEditorProps> = ({
                     </Button>
                     <Button
                       size="small"
+                      type={materialRoleFilter === 'DEPT' ? 'primary' : 'text'}
+                      onClick={() => setMaterialRoleFilter('DEPT')}
+                      style={{
+                        height: 24,
+                        padding: '0 8px',
+                        fontSize: 11,
+                        fontWeight: materialRoleFilter === 'DEPT' ? 700 : 500,
+                      }}
+                    >
+                      Dept Items ({deptItems.length})
+                    </Button>
+                    <Button
+                      size="small"
                       type={materialRoleFilter === 'ALL' ? 'primary' : 'text'}
                       onClick={() => setMaterialRoleFilter('ALL')}
                       style={{
@@ -1112,7 +1141,7 @@ const OperationEditor: React.FC<OperationEditorProps> = ({
                         fontWeight: materialRoleFilter === 'ALL' ? 700 : 500,
                       }}
                     >
-                      All Dept Items ({deptItems.length})
+                      All Factory Items ({allItems.length})
                     </Button>
                   </div>
                   {selectedDepartment ? (
@@ -1173,14 +1202,8 @@ const OperationEditor: React.FC<OperationEditorProps> = ({
                         >
                           <Select
                             showSearch
-                            disabled={!watchedDepartmentId}
-                            placeholder={
-                              !watchedDepartmentId
-                                ? "Select department first to view materials..."
-                                : displayedMaterials.length === 0
-                                ? (deptItemsLoading ? "Loading department materials..." : "No materials match the selected role filter")
-                                : "Select material item..."
-                            }
+                            placeholder="Type code or name to search material item..."
+                            onSearch={searchItemsRemote}
                             filterOption={(input, option: any) => {
                               const query = (input || '').toLowerCase();
                               const searchtext = String(option?.searchtext || option?.label || option?.value || '').toLowerCase();

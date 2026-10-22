@@ -32,6 +32,9 @@ const VALID_TRANSITIONS: Record<string, string[]> = {
   [RoutingStatus.OBSOLETE]: [RoutingStatus.DRAFT, RoutingStatus.ACTIVE],
 };
 
+const sanitizeUserId = (uid?: string): string | null =>
+  uid && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(uid) ? uid : null;
+
 const RELATIONS = [
   'routeType',
   'product',
@@ -296,9 +299,8 @@ export class ProductionRoutingService {
     const operations = dto.operations
       ? await this.createOperations(savedRouting.id, savedRouting.companyId, dto.operations, userId)
       : [];
-    savedRouting.operations = operations;
-    savedRouting.estimatedTotalTime = this.calculateTotalTime(operations);
-    await this.routingRepo.save(savedRouting);
+    const totalTime = this.calculateTotalTime(operations);
+    await this.routingRepo.update(savedRouting.id, { estimatedTotalTime: totalTime });
 
     return this.findOne(savedRouting.id, companyId);
   }
@@ -394,9 +396,13 @@ export class ProductionRoutingService {
       this.validateOperationDependencies(withDeps);
     }
 
-    routing.status = dto.status;
-    routing.updatedBy = userId || null;
-    await this.routingRepo.save(routing);
+    await this.routingRepo.update(
+      { id, companyId },
+      {
+        status: dto.status,
+        updatedBy: sanitizeUserId(userId),
+      },
+    );
     return this.findOne(id, companyId);
   }
 
@@ -512,10 +518,10 @@ export class ProductionRoutingService {
   }
 
   async remove(id: string, companyId: string, userId?: string): Promise<void> {
-    const routing = await this.findOne(id, companyId);
-    routing.isActive = false;
-    routing.updatedBy = userId || null;
-    await this.routingRepo.save(routing);
+    await this.routingRepo.update(
+      { id, companyId },
+      { isActive: false, updatedBy: sanitizeUserId(userId) },
+    );
 
     // Also soft-delete active operations
     await this.operationRepo.update(
@@ -658,13 +664,16 @@ export class ProductionRoutingService {
 
   async removeOperation(operationId: string, companyId: string, userId?: string): Promise<ProductionRouting> {
     const operation = await this.operationRepo.findOne({
-      where: { id: operationId, isActive: true },
+      where: { id: operationId },
     });
     if (!operation) {
       throw new NotFoundException(`Routing Operation not found with id ${operationId}`);
     }
 
     const routing = await this.findOne(operation.routingId, companyId);
+    if (!operation.isActive) {
+      return routing;
+    }
 
     operation.isActive = false;
     operation.updatedBy = userId || null;
@@ -834,8 +843,7 @@ export class ProductionRoutingService {
       where: { routingId, isActive: true },
     });
     const totalTime = this.calculateTotalTime(operations);
-    routing.estimatedTotalTime = totalTime;
-    await this.routingRepo.save(routing);
+    await this.routingRepo.update({ id: routingId, companyId }, { estimatedTotalTime: totalTime });
     return totalTime;
   }
 
@@ -1372,7 +1380,16 @@ export class ProductionRoutingService {
 
   private sortOperations(routing: ProductionRouting): void {
     if (routing.operations) {
+      routing.operations = routing.operations.filter((o) => o.isActive !== false);
       routing.operations.sort((a, b) => a.sequenceNo - b.sequenceNo);
+      for (const op of routing.operations) {
+        if (op.inputs) {
+          op.inputs = op.inputs.filter((i) => i.isActive !== false);
+        }
+        if (op.outputs) {
+          op.outputs = op.outputs.filter((o) => o.isActive !== false);
+        }
+      }
     }
   }
 

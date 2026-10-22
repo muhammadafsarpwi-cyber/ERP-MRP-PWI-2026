@@ -102,9 +102,14 @@ interface SalesOrder {
 
 const STATUS_OPTIONS = ['All statuses', 'Draft', 'Confirmed', 'Processing', 'Shipped', 'Delivered', 'Closed', 'Cancelled'];
 
-export function buildSalesOrderPayload(values: any, lineItems: ERPLine[]): any {
-  const socNum = values.socNumber ? String(values.socNumber).trim() : '';
-  const orderNumber = socNum ? (socNum.toUpperCase().startsWith('SOC-') ? socNum : `SOC-${socNum}`) : undefined;
+export function buildSalesOrderPayload(values: any, lineItems: ERPLine[], editingOrderNumber?: string): any {
+  let orderNumber: string | undefined;
+  if (editingOrderNumber && String(editingOrderNumber).trim()) {
+    orderNumber = String(editingOrderNumber).trim();
+  } else if (values.socNumber) {
+    const socNum = String(values.socNumber).trim();
+    orderNumber = socNum ? (socNum.toUpperCase().startsWith('SOC-') ? socNum : `SOC-${socNum}`) : undefined;
+  }
 
   // Filter out empty rows where itemId is blank or unselected
   const validLines = lineItems.filter(
@@ -131,13 +136,35 @@ export function buildSalesOrderPayload(values: any, lineItems: ERPLine[]): any {
     delete payload.orderNumber;
   }
 
-  // Validate UUID format for divisionId and sectionId, or delete them if invalid/empty
+  // Validate UUID format for divisionId, sectionId, and quotationId or delete if invalid/empty
   const uuidRegex = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
   if (!payload.divisionId || !uuidRegex.test(String(payload.divisionId).trim())) {
     delete payload.divisionId;
   }
   if (!payload.sectionId || !uuidRegex.test(String(payload.sectionId).trim())) {
     delete payload.sectionId;
+  }
+  if (!payload.quotationId || !uuidRegex.test(String(payload.quotationId).trim())) {
+    delete payload.quotationId;
+  }
+
+  // Sanitize empty strings for date and text fields
+  if (payload.deliveryDate !== undefined) {
+    const d = String(payload.deliveryDate || '').trim();
+    payload.deliveryDate = d ? d : null;
+  }
+  if (payload.orderDate !== undefined) {
+    const d = String(payload.orderDate || '').trim();
+    if (!d) delete payload.orderDate;
+  }
+  if (payload.shipToAddress !== undefined && typeof payload.shipToAddress === 'string') {
+    payload.shipToAddress = payload.shipToAddress.trim() || null;
+  }
+  if (payload.billToAddress !== undefined && typeof payload.billToAddress === 'string') {
+    payload.billToAddress = payload.billToAddress.trim() || null;
+  }
+  if (payload.notes !== undefined && typeof payload.notes === 'string') {
+    payload.notes = payload.notes.trim() || null;
   }
 
   return payload;
@@ -829,7 +856,7 @@ const SalesOrderManagement: React.FC = () => {
     const diffs = isEdit ? computeOrderChanges(editingItem, values, lineItems, customers, divisions) : [];
 
     try {
-      const payload = buildSalesOrderPayload(values, lineItems);
+      const payload = buildSalesOrderPayload(values, lineItems, editingItem?.orderNumber);
       let res: any;
       if (isEdit && editingItem) {
         res = await apiService.patch(`/sales/orders/${editingItem.id}`, payload);
@@ -1320,31 +1347,30 @@ const SalesOrderManagement: React.FC = () => {
         const uomLabel = uoms.length === 1 ? uoms[0] : (uoms.length > 1 ? uoms.join('/') : 'GRS');
 
         const tooltipContent = items.length > 0 ? (
-          <div style={{ maxHeight: 320, overflowY: 'auto', padding: '2px 4px', minWidth: 320, maxWidth: 440 }}>
+          <div style={{ maxHeight: 340, overflowY: 'auto', padding: '2px', width: 380, maxWidth: '100%', boxSizing: 'border-box' }}>
             <div style={{
               display: 'flex',
               justifyContent: 'space-between',
               alignItems: 'center',
-              paddingBottom: 6,
+              paddingBottom: 8,
               marginBottom: 8,
-              borderBottom: '1px solid rgba(250, 204, 21, 0.3)',
-              fontWeight: 800,
+              borderBottom: '1px solid var(--inv-card-border, #e2e8f0)',
+              fontWeight: 700,
               fontSize: 12,
-              color: '#fde047',
-              letterSpacing: 0.3
+              color: 'var(--inv-text-primary, #0f172a)',
             }}>
               <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <AppstoreOutlined style={{ color: '#fde047', fontSize: 13 }} />
+                <AppstoreOutlined style={{ color: '#2563eb', fontSize: 13 }} />
                 <span>Order Items Breakdown</span>
               </span>
               <span style={{
-                background: 'rgba(253, 224, 71, 0.15)',
-                color: '#fde047',
+                background: 'var(--inv-badge-customer-bg, #eff6ff)',
+                color: 'var(--inv-badge-customer-text, #1d4ed8)',
                 padding: '1px 8px',
                 borderRadius: 12,
                 fontSize: 10.5,
-                fontWeight: 800,
-                border: '1px solid rgba(253, 224, 71, 0.35)'
+                fontWeight: 700,
+                border: '1px solid var(--inv-badge-customer-border, #bfdbfe)'
               }}>
                 {items.length} {items.length === 1 ? 'Item' : 'Items'}
               </span>
@@ -1360,69 +1386,74 @@ const SalesOrderManagement: React.FC = () => {
                 <div
                   key={idx}
                   style={{
-                    padding: '6px 8px',
-                    marginBottom: 5,
-                    background: 'rgba(255, 255, 255, 0.05)',
-                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    padding: '8px 10px',
+                    marginBottom: 6,
+                    background: 'var(--inv-table-row-even, #f8fafc)',
+                    border: '1px solid var(--inv-table-border, #e2e8f0)',
                     borderRadius: 6,
                     display: 'flex',
                     flexDirection: 'column',
-                    gap: 3,
+                    gap: 4,
+                    boxSizing: 'border-box',
+                    overflow: 'hidden',
                   }}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flex: 1 }}>
-                      <span style={{ color: '#fde047', fontWeight: 800, fontSize: 11 }}>#{idx + 1}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flex: 1, overflow: 'hidden' }}>
+                      <span style={{ color: '#2563eb', fontWeight: 800, fontSize: 11, flexShrink: 0 }}>#{idx + 1}</span>
                       <span style={{
-                        fontWeight: 700,
-                        color: '#f8fafc',
+                        fontWeight: 600,
+                        color: 'var(--inv-text-primary, #1e293b)',
                         fontSize: 12,
                         overflow: 'hidden',
                         textOverflow: 'ellipsis',
                         whiteSpace: 'nowrap'
-                      }}>
+                      }} title={name}>
                         {name}
                       </span>
                     </div>
                     {code && (
                       <span style={{
                         fontSize: 10,
-                        background: 'rgba(56, 189, 248, 0.18)',
-                        color: '#38bdf8',
-                        border: '1px solid rgba(56, 189, 248, 0.35)',
+                        background: 'var(--inv-badge-type-bg, #f3e8ff)',
+                        color: 'var(--inv-badge-type-text, #7c3aed)',
+                        border: '1px solid var(--inv-badge-type-border, #ddd6fe)',
                         borderRadius: 4,
                         padding: '0 5px',
                         fontWeight: 700,
-                        whiteSpace: 'nowrap'
+                        whiteSpace: 'nowrap',
+                        flexShrink: 0,
                       }}>
                         {code}
                       </span>
                     )}
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 2 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 2, gap: 6 }}>
                     <span style={{
                       fontSize: 11,
-                      fontWeight: 800,
-                      color: '#fef08a',
-                      background: 'rgba(234, 179, 8, 0.2)',
-                      border: '1px solid rgba(234, 179, 8, 0.4)',
+                      fontWeight: 700,
+                      color: 'var(--inv-badge-customer-text, #1e40af)',
+                      background: 'var(--inv-badge-customer-bg, #eff6ff)',
+                      border: '1px solid var(--inv-badge-customer-border, #bfdbfe)',
                       padding: '1px 7px',
                       borderRadius: 4,
+                      whiteSpace: 'nowrap',
+                      flexShrink: 0,
                     }}>
                       Qty: {formatNumber(q, 0)} {u}
                     </span>
                     {del > 0 ? (
-                      <div style={{ display: 'flex', gap: 5, fontSize: 10.5 }}>
-                        <span style={{ color: '#4ade80', fontWeight: 700 }}>
+                      <div style={{ display: 'flex', gap: 5, fontSize: 10.5, whiteSpace: 'nowrap' }}>
+                        <span style={{ color: '#16a34a', fontWeight: 700 }}>
                           Del: {formatNumber(del, 0)}
                         </span>
-                        <span style={{ color: '#94a3b8' }}>·</span>
-                        <span style={{ color: bal > 0 ? '#fb923c' : '#4ade80', fontWeight: 700 }}>
+                        <span style={{ color: 'var(--inv-text-muted, #94a3b8)' }}>·</span>
+                        <span style={{ color: bal > 0 ? '#ea580c' : '#16a34a', fontWeight: 700 }}>
                           Bal: {formatNumber(bal, 0)}
                         </span>
                       </div>
                     ) : (
-                      <span style={{ fontSize: 10, color: '#94a3b8', fontStyle: 'italic' }}>Pending Dispatch</span>
+                      <span style={{ fontSize: 10.5, color: 'var(--inv-text-muted, #64748b)', fontStyle: 'italic', whiteSpace: 'nowrap' }}>Pending Dispatch</span>
                     )}
                   </div>
                 </div>
@@ -1435,13 +1466,15 @@ const SalesOrderManagement: React.FC = () => {
           <Tooltip
             title={tooltipContent}
             placement="top"
+            overlayStyle={{ maxWidth: 420 }}
             overlayInnerStyle={{
-              backgroundColor: '#0f172a',
-              border: '1px solid rgba(250, 204, 21, 0.45)',
-              borderRadius: 8,
+              backgroundColor: 'var(--inv-card-bg, #ffffff)',
+              color: 'var(--inv-text-primary, #0f172a)',
+              border: '1px solid var(--inv-card-border, #cbd5e1)',
+              borderRadius: 10,
               padding: '10px 12px',
-              boxShadow: '0 12px 28px -4px rgba(0, 0, 0, 0.8), 0 0 12px rgba(250, 204, 21, 0.15)',
-              maxWidth: 460,
+              boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.08)',
+              maxWidth: 420,
             }}
           >
             <div style={{ display: 'flex', flexDirection: 'column', gap: 2, cursor: items.length > 0 ? 'pointer' : 'default', whiteSpace: 'nowrap' }}>
@@ -2154,6 +2187,7 @@ const SalesOrderManagement: React.FC = () => {
                   addonBefore={<span style={{ fontWeight: 700, color: '#2563eb' }}>SOC-</span>}
                   placeholder="e.g. 2026-00011"
                   style={{ fontWeight: 600 }}
+                  disabled={Boolean(editingItem)}
                 />
               </Form.Item>
             </Col>

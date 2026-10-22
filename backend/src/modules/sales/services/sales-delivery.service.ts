@@ -128,7 +128,7 @@ export class SalesDeliveryService {
       .leftJoinAndSelect('orderItems.uom', 'orderItemUom');
     let hasWhere = false;
     if (companyId) { qb.where('sd.companyId = :companyId', { companyId }); hasWhere = true; }
-    if (status) { qb[hasWhere ? 'andWhere' : 'where']('sd.status ILIKE :status', { status }); hasWhere = true; }
+    if (status && status.toLowerCase() !== 'all') { qb[hasWhere ? 'andWhere' : 'where']('sd.status ILIKE :status', { status }); hasWhere = true; }
     if (search) { qb[hasWhere ? 'andWhere' : 'where']('(sd.deliveryNumber ILIKE :search OR customer.companyName ILIKE :search OR salesOrder.orderNumber ILIKE :search)', { search: `%${search}%` }); hasWhere = true; }
     // PROMPT #27 — `sales_deliveries` has no `division_id`; it inherits the
     // source order's. The `salesOrder` join already existed here for display

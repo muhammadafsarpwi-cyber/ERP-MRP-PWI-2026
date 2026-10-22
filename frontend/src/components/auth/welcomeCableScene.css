@@ -1,0 +1,49 @@
+/* =====================================================================
+   WELCOME WEBGL BACKGROUND (16-panel cinematic 3D gallery)
+   ------------------------------------------------------------------------
+   Slots into the welcome stacking order at z-index: 1 — above the photo
+   slideshow (.erp-welcome-bg, z0) and below the vignette overlay
+   (.erp-welcome-overlay, z2), particles (z3), glass panel (z4) and the
+   fixed top ribbon (z12). Nothing else in welcome.css claims this band.
+
+   Hard requirements honoured here:
+   - edge-to-edge: absolute inset 0 with no border, margin or padding, so it
+     covers the root's padding box exactly (root has border: 0);
+   - zero screen overflow: the parent (.erp-welcome-root) already clips with
+       overflow: hidden and max-width: 100vw, and html/body/#root carry
+     overflow-x: clip !important — this layer never widens the page;
+   - non-interactive: pointer-events none so the slideshow controls and the
+     glass panel keep receiving input;
+   - no layout footprint: position absolute keeps it out of the root's flex
+     centreing, so the panel never shifts when the canvas mounts;
+   - automatic fallback: the container itself is transparent. The WebGL
+     canvas clears to the light theme colour (opaque), so when it exists it
+     covers the 2D slideshow; when it does NOT exist (reduced motion, WebGL
+     unavailable) nothing of this layer remains visible and the slideshow
+     shows through untouched.
+   ===================================================================== */
+
+.erp-welcome-webgl {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: block;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  pointer-events: none;
+  background: transparent;
+}
+
+.erp-welcome-webgl-canvas {
+  display: block; /* kills the inline-baseline gap that would add a scrollbar */
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  outline: none;
+}

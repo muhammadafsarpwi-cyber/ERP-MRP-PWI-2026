@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
 import {
-  Table, Button, Form, Input, Select, App, Modal, Popconfirm,
-  Row, Col, Descriptions, Divider, Tooltip, Tag, Badge, Popover, Progress,
+  Table, Button, Form, Input, Select, App, Modal,
+  Row, Col, Tooltip, Tag, Badge, Popover, Progress, Spin,
 } from 'antd';
 import {
   PlusOutlined, EditOutlined, SearchOutlined, EyeOutlined, CheckOutlined,
@@ -10,7 +10,8 @@ import {
   PrinterOutlined, FilterOutlined, CloseCircleOutlined, UserOutlined,
   CalendarOutlined, NumberOutlined, ShopOutlined, FileTextOutlined,
   BranchesOutlined, SafetyCertificateOutlined, ApartmentOutlined, WarningFilled,
-  CloseOutlined, ClearOutlined, DeleteOutlined, CheckCircleOutlined, ClockCircleOutlined,
+  CloseOutlined, ClearOutlined, DeleteOutlined, CheckCircleOutlined,
+  LoadingOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
@@ -93,6 +94,54 @@ interface SalesDelivery {
   }>;
 }
 
+interface DeliveryActionConfirmState {
+  visible: boolean;
+  actionKey: 'view' | 'print_challan' | 'gate_pass' | 'edit' | 'ship' | 'deliver' | 'confirm' | 'invoice' | 'cancel' | 'delete' | string;
+  title: string;
+  actionBadge: string;
+  badgeBg: string;
+  badgeColor: string;
+  icon: React.ReactNode;
+  iconBg: string;
+  iconColor: string;
+  record: SalesDelivery | null;
+  question: string;
+  description: string;
+  impactDetails: string[];
+  confirmBtnText: string;
+  confirmBtnColor: string;
+  isDanger?: boolean;
+  loading: boolean;
+  loadingStep?: string;
+  completed?: boolean;
+  successMessage?: string;
+  errorMessage?: string | null;
+}
+
+const initialConfirmModalState: DeliveryActionConfirmState = {
+  visible: false,
+  actionKey: 'view',
+  title: '',
+  actionBadge: '',
+  badgeBg: '',
+  badgeColor: '',
+  icon: null,
+  iconBg: '',
+  iconColor: '',
+  record: null,
+  question: '',
+  description: '',
+  impactDetails: [],
+  confirmBtnText: 'Confirm',
+  confirmBtnColor: '#2563eb',
+  isDanger: false,
+  loading: false,
+  loadingStep: '',
+  completed: false,
+  successMessage: '',
+  errorMessage: null,
+};
+
 const STATUS_OPTIONS = ['All statuses', 'DRAFT', 'SHIPPED', 'DELIVERED', 'CONFIRMED', 'CANCELLED'];
 
 const SalesDeliveryManagement: React.FC = () => {
@@ -147,6 +196,7 @@ const SalesDeliveryManagement: React.FC = () => {
   const [pendingExcessWarnings, setPendingExcessWarnings] = useState<any[]>([]);
   const [pendingSavePayload, setPendingSavePayload] = useState<any>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [confirmModal, setConfirmModal] = useState<DeliveryActionConfirmState>(initialConfirmModalState);
   const [form] = Form.useForm();
   const [lineItems, setLineItems] = useState<ERPLine[]>([]);
   const [companyId, setCompanyId] = useState('');
@@ -264,22 +314,23 @@ const SalesDeliveryManagement: React.FC = () => {
     return record.customerId || 'Customer';
   }, [customers]);
 
-  const fetchData = useCallback(async (pageNum: number = 1, currentLimit: number = pageSize) => {
+  const fetchData = useCallback(async (_pageNum?: number, _currentLimit?: number) => {
     setLoading(true);
     try {
-      const params: any = { page: pageNum, limit: currentLimit };
+      const params: any = { page: 1, limit: 300 };
       if (search) params.search = search;
       if (filterCustomer) params.customerId = filterCustomer;
       if (filterStatus && filterStatus !== 'All statuses') params.status = filterStatus;
       const response = await apiService.get<{ data: SalesDelivery[]; total: number }>('/sales/deliveries', params);
-      setData(response.data || []);
-      setTotal(response.total || 0);
+      const items = response.data || [];
+      setData(items);
+      setTotal(response.total || items.length);
     } catch {
       message.error('Failed to fetch deliveries');
     } finally {
       setLoading(false);
     }
-  }, [search, filterCustomer, filterStatus, pageSize, message]);
+  }, [search, filterCustomer, filterStatus, message]);
 
   useEffect(() => {
     fetchData(page, pageSize);
@@ -300,13 +351,13 @@ const SalesDeliveryManagement: React.FC = () => {
   // Chevron status counts
   const chevronCounts = useMemo(() => {
     return {
-      all: total || data.length,
+      all: data.length,
       draft: data.filter(d => (d.status || '').toUpperCase() === 'DRAFT').length,
       shipped: data.filter(d => (d.status || '').toUpperCase() === 'SHIPPED').length,
       delivered: data.filter(d => ['DELIVERED', 'CONFIRMED'].includes((d.status || '').toUpperCase())).length,
       cancelled: data.filter(d => (d.status || '').toUpperCase() === 'CANCELLED').length,
     };
-  }, [data, total]);
+  }, [data]);
 
   // Available carriers from data
   const availableCarriers = useMemo(() => {
@@ -1021,10 +1072,437 @@ const SalesDeliveryManagement: React.FC = () => {
     }
   };
 
+  const requestActionConfirmation = (
+    record: SalesDelivery,
+    actionKey: 'view' | 'print_challan' | 'gate_pass' | 'edit' | 'ship' | 'deliver' | 'confirm' | 'invoice' | 'cancel' | 'delete'
+  ) => {
+    const custName = getCustomerDisplayName(record) || record.companyName || 'Valued Customer';
+    const dnNo = record.deliveryNumber || 'DN-XXXX';
+    const soNo = record.salesOrderNumber || record.salesOrder?.orderNumber || (record.salesOrderId ? `SO-${record.salesOrderId.slice(0, 8).toUpperCase()}` : 'Direct Dispatch');
+    const carrierInfo = `${record.carrier || 'Standard Transport'}${record.trackingNumber ? ` (${record.trackingNumber})` : ''}`;
+
+    switch (actionKey) {
+      case 'view':
+        setConfirmModal({
+          visible: true,
+          actionKey: 'view',
+          title: 'Review & Inspect Delivery Note',
+          actionBadge: 'INSPECTION & DETAILS',
+          badgeBg: 'rgba(59, 130, 246, 0.15)',
+          badgeColor: '#3b82f6',
+          icon: <EyeOutlined />,
+          iconBg: 'rgba(59, 130, 246, 0.15)',
+          iconColor: '#3b82f6',
+          record,
+          question: `Do you want to open and review Delivery Note ${dnNo}?`,
+          description: `This will fetch all dispatch items, customer specifications, carrier notes, and linked sales order allocations in the inspection viewer.`,
+          impactDetails: [
+            `Delivery Note: ${dnNo}`,
+            `Customer: ${custName}`,
+            `Linked Order: ${soNo}`,
+            `Current Status: ${(record.status || 'DRAFT').toUpperCase()}`,
+          ],
+          confirmBtnText: 'Open Delivery Details',
+          confirmBtnColor: '#2563eb',
+          isDanger: false,
+          loading: false,
+          loadingStep: '',
+          completed: false,
+          successMessage: '',
+          errorMessage: null,
+        });
+        break;
+
+      case 'print_challan':
+        setConfirmModal({
+          visible: true,
+          actionKey: 'print_challan',
+          title: 'Print Delivery Challan Document',
+          actionBadge: 'DOCUMENT PRINTING',
+          badgeBg: 'rgba(14, 165, 233, 0.15)',
+          badgeColor: '#0284c7',
+          icon: <PrinterOutlined />,
+          iconBg: 'rgba(14, 165, 233, 0.15)',
+          iconColor: '#0284c7',
+          record,
+          question: `Do you want to compile and print the Delivery Challan for ${dnNo}?`,
+          description: `This will compile the official Delivery Challan document with corporate branding, item list, driver details, and signature authorization boxes for physical transport.`,
+          impactDetails: [
+            `Document: Official Delivery Challan`,
+            `Delivery Note: ${dnNo}`,
+            `Customer: ${custName}`,
+            `Carrier: ${carrierInfo}`,
+          ],
+          confirmBtnText: 'Compile & Print Challan',
+          confirmBtnColor: '#0284c7',
+          isDanger: false,
+          loading: false,
+          loadingStep: '',
+          completed: false,
+          successMessage: '',
+          errorMessage: null,
+        });
+        break;
+
+      case 'gate_pass':
+        setConfirmModal({
+          visible: true,
+          actionKey: 'gate_pass',
+          title: 'Generate Outward Gate Pass',
+          actionBadge: 'SECURITY CLEARANCE',
+          badgeBg: 'rgba(217, 119, 6, 0.15)',
+          badgeColor: '#d97706',
+          icon: <SafetyCertificateOutlined />,
+          iconBg: 'rgba(217, 119, 6, 0.15)',
+          iconColor: '#b45309',
+          record,
+          question: `Do you want to generate the Outward Gate Pass for ${dnNo}?`,
+          description: `This will generate the official Outward Gate Pass document required for factory exit checkpoint clearance, vehicle inspection, and transport verification.`,
+          impactDetails: [
+            `Gate Pass For: ${dnNo}`,
+            `Customer: ${custName}`,
+            `Carrier / Driver: ${record.carrier || 'N/A'}`,
+            `Vehicle / Tracking: ${record.trackingNumber || 'N/A'}`,
+          ],
+          confirmBtnText: 'Generate Outward Gate Pass',
+          confirmBtnColor: '#b45309',
+          isDanger: false,
+          loading: false,
+          loadingStep: '',
+          completed: false,
+          successMessage: '',
+          errorMessage: null,
+        });
+        break;
+
+      case 'edit':
+        setConfirmModal({
+          visible: true,
+          actionKey: 'edit',
+          title: 'Edit Delivery Note Draft',
+          actionBadge: 'MODIFY DRAFT',
+          badgeBg: 'rgba(245, 158, 11, 0.15)',
+          badgeColor: '#f59e0b',
+          icon: <EditOutlined />,
+          iconBg: 'rgba(245, 158, 11, 0.15)',
+          iconColor: '#d97706',
+          record,
+          question: `Do you want to open Delivery Note ${dnNo} for editing?`,
+          description: `This will open the delivery draft editor allowing you to modify dispatched quantities, transport carrier details, vehicle numbers, and notes.`,
+          impactDetails: [
+            `Delivery Note: ${dnNo}`,
+            `Customer: ${custName}`,
+            `Current Status: DRAFT`,
+            `Only draft delivery notes can be edited.`,
+          ],
+          confirmBtnText: 'Open Delivery Editor',
+          confirmBtnColor: '#d97706',
+          isDanger: false,
+          loading: false,
+          loadingStep: '',
+          completed: false,
+          successMessage: '',
+          errorMessage: null,
+        });
+        break;
+
+      case 'ship':
+        setConfirmModal({
+          visible: true,
+          actionKey: 'ship',
+          title: 'Confirm Shipment Dispatch',
+          actionBadge: 'STATUS UPDATE: SHIPPED',
+          badgeBg: 'rgba(37, 99, 235, 0.15)',
+          badgeColor: '#2563eb',
+          icon: <CarOutlined />,
+          iconBg: 'rgba(37, 99, 235, 0.15)',
+          iconColor: '#2563eb',
+          record,
+          question: `Are you sure you want to mark ${dnNo} as SHIPPED?`,
+          description: `This action will advance the delivery status to SHIPPED. It officially verifies that the carrier has collected the goods and the dispatch is currently in transit.`,
+          impactDetails: [
+            `Delivery Note: ${dnNo}`,
+            `Carrier / Transport: ${record.carrier || 'N/A'}`,
+            `Vehicle / Tracking: ${record.trackingNumber || 'N/A'}`,
+            `Status will advance from DRAFT to SHIPPED.`,
+          ],
+          confirmBtnText: 'Confirm & Mark as Shipped',
+          confirmBtnColor: '#2563eb',
+          isDanger: false,
+          loading: false,
+          loadingStep: '',
+          completed: false,
+          successMessage: '',
+          errorMessage: null,
+        });
+        break;
+
+      case 'deliver':
+        setConfirmModal({
+          visible: true,
+          actionKey: 'deliver',
+          title: 'Confirm Destination Delivery',
+          actionBadge: 'STATUS UPDATE: DELIVERED',
+          badgeBg: 'rgba(16, 185, 129, 0.15)',
+          badgeColor: '#10b981',
+          icon: <InboxOutlined />,
+          iconBg: 'rgba(16, 185, 129, 0.15)',
+          iconColor: '#059669',
+          record,
+          question: `Are you sure you want to mark ${dnNo} as DELIVERED?`,
+          description: `This action updates the delivery status to DELIVERED, confirming that goods have been physically received and accepted at the customer destination.`,
+          impactDetails: [
+            `Delivery Note: ${dnNo}`,
+            `Customer Destination: ${custName}`,
+            `Destination Address: ${record.shipToAddress || 'Customer Warehouse'}`,
+            `Status will advance from SHIPPED to DELIVERED.`,
+          ],
+          confirmBtnText: 'Confirm Delivery Arrival',
+          confirmBtnColor: '#10b981',
+          isDanger: false,
+          loading: false,
+          loadingStep: '',
+          completed: false,
+          successMessage: '',
+          errorMessage: null,
+        });
+        break;
+
+      case 'confirm':
+        setConfirmModal({
+          visible: true,
+          actionKey: 'confirm',
+          title: 'Post Delivery & Deduct Inventory Stock',
+          actionBadge: 'INVENTORY STOCK-OUT',
+          badgeBg: 'rgba(22, 163, 74, 0.15)',
+          badgeColor: '#16a34a',
+          icon: <CheckOutlined />,
+          iconBg: 'rgba(22, 163, 74, 0.15)',
+          iconColor: '#16a34a',
+          record,
+          question: `Are you sure you want to officially post ${dnNo} and deduct inventory stock?`,
+          description: `This action will finalize the delivery note and execute official stock-out transactions in the inventory ledger, reducing warehouse inventory quantities.`,
+          impactDetails: [
+            `Delivery Note: ${dnNo}`,
+            `Inventory Warehouse: SPI FG Dispatch Warehouse`,
+            `Ledger Effect: Deducts finished goods inventory balance`,
+            `Status will become CONFIRMED.`,
+          ],
+          confirmBtnText: 'Post Delivery & Deduct Stock',
+          confirmBtnColor: '#16a34a',
+          isDanger: false,
+          loading: false,
+          loadingStep: '',
+          completed: false,
+          successMessage: '',
+          errorMessage: null,
+        });
+        break;
+
+      case 'invoice':
+        setConfirmModal({
+          visible: true,
+          actionKey: 'invoice',
+          title: 'Generate Official Sales Invoice',
+          actionBadge: 'ACCOUNTS BILLING',
+          badgeBg: 'rgba(234, 88, 12, 0.15)',
+          badgeColor: '#ea580c',
+          icon: <FileTextOutlined />,
+          iconBg: 'rgba(234, 88, 12, 0.15)',
+          iconColor: '#ea580c',
+          record,
+          question: `Do you want to convert Delivery Note ${dnNo} into a Sales Invoice?`,
+          description: `This will create an official Sales Invoice in the Accounts module with all dispatched items, unit prices, tax calculations, and receivable terms.`,
+          impactDetails: [
+            `Delivery Note: ${dnNo}`,
+            `Customer: ${custName}`,
+            `Subtotal Amount: Rs ${formatDecimal(record.subtotal || 0)}`,
+            `Total Billing Amount: Rs ${formatDecimal(record.totalAmount || 0)}`,
+          ],
+          confirmBtnText: 'Convert to Sales Invoice',
+          confirmBtnColor: '#ea580c',
+          isDanger: false,
+          loading: false,
+          loadingStep: '',
+          completed: false,
+          successMessage: '',
+          errorMessage: null,
+        });
+        break;
+
+      case 'cancel':
+        setConfirmModal({
+          visible: true,
+          actionKey: 'cancel',
+          title: 'Cancel Delivery Note',
+          actionBadge: 'STATUS: CANCELLED',
+          badgeBg: 'rgba(220, 38, 38, 0.15)',
+          badgeColor: '#dc2626',
+          icon: <StopOutlined />,
+          iconBg: 'rgba(220, 38, 38, 0.15)',
+          iconColor: '#dc2626',
+          record,
+          question: `Are you sure you want to CANCEL Delivery Note ${dnNo}?`,
+          description: `This will mark the delivery order as CANCELLED and void any pending dispatch operations. Please confirm if you wish to proceed.`,
+          impactDetails: [
+            `Delivery Note: ${dnNo}`,
+            `Customer: ${custName}`,
+            `Status will change to CANCELLED.`,
+            `Dispatch operations for this note will be voided.`,
+          ],
+          confirmBtnText: 'Yes, Cancel Delivery Note',
+          confirmBtnColor: '#dc2626',
+          isDanger: true,
+          loading: false,
+          loadingStep: '',
+          completed: false,
+          successMessage: '',
+          errorMessage: null,
+        });
+        break;
+
+      case 'delete':
+        setConfirmModal({
+          visible: true,
+          actionKey: 'delete',
+          title: 'Permanently Delete Delivery Note',
+          actionBadge: 'PERMANENT DELETION',
+          badgeBg: 'rgba(239, 68, 68, 0.15)',
+          badgeColor: '#ef4444',
+          icon: <DeleteOutlined />,
+          iconBg: 'rgba(239, 68, 68, 0.15)',
+          iconColor: '#ef4444',
+          record,
+          question: `Are you sure you want to permanently DELETE Delivery Note ${dnNo}?`,
+          description: `This will permanently remove this delivery note and its associated item records from the database. This action CANNOT be undone.`,
+          impactDetails: [
+            `Delivery Note: ${dnNo}`,
+            `Customer: ${custName}`,
+            `Warning: Record will be permanently removed from system.`,
+            `Linked sales order allocations will be freed.`,
+          ],
+          confirmBtnText: 'Yes, Permanently Delete',
+          confirmBtnColor: '#ef4444',
+          isDanger: true,
+          loading: false,
+          loadingStep: '',
+          completed: false,
+          successMessage: '',
+          errorMessage: null,
+        });
+        break;
+
+      default:
+        break;
+    }
+  };
+
+  const executeConfirmedAction = async () => {
+    if (!confirmModal.record || !confirmModal.actionKey) return;
+    const { actionKey, record } = confirmModal;
+
+    setConfirmModal(prev => ({
+      ...prev,
+      loading: true,
+      loadingStep: 'Executing action on server... Please wait.',
+      errorMessage: null,
+    }));
+
+    try {
+      if (actionKey === 'view') {
+        await handleViewDetail(record);
+        setConfirmModal(prev => ({ ...prev, visible: false, loading: false }));
+      } else if (actionKey === 'edit') {
+        await handleEdit(record);
+        setConfirmModal(prev => ({ ...prev, visible: false, loading: false }));
+      } else if (actionKey === 'print_challan') {
+        printDeliveryNoteDocument(record);
+        setConfirmModal(prev => ({ ...prev, visible: false, loading: false }));
+      } else if (actionKey === 'gate_pass') {
+        handlePrintOutwardGatePass(record);
+        setConfirmModal(prev => ({ ...prev, visible: false, loading: false }));
+      } else if (['ship', 'deliver', 'confirm', 'cancel'].includes(actionKey)) {
+        setConfirmModal(prev => ({
+          ...prev,
+          loadingStep: `Updating delivery note status to ${actionKey.toUpperCase()}...`,
+        }));
+        await apiService.patch(`/sales/deliveries/${record.id}/${actionKey}`);
+        await fetchData(page, pageSize);
+        if (detailVisible && detailItem?.id === record.id) {
+          handleViewDetail(record);
+        }
+        setConfirmModal(prev => ({
+          ...prev,
+          loading: false,
+          completed: true,
+          successMessage: `Delivery Note ${record.deliveryNumber} successfully updated to ${actionKey.toUpperCase()}!`,
+        }));
+        setTimeout(() => {
+          setConfirmModal(prev => ({ ...prev, visible: false, completed: false }));
+        }, 1200);
+      } else if (actionKey === 'invoice') {
+        setConfirmModal(prev => ({
+          ...prev,
+          loadingStep: 'Generating Sales Invoice in accounts ledger...',
+        }));
+        const res = await apiService.post<any>(`/sales/deliveries/${record.id}/convert-to-invoice`, {
+          invoiceDate: dayjs().format('YYYY-MM-DD'),
+          notes: `Generated from Delivery Note ${record.deliveryNumber}`,
+        });
+        await fetchData(page, pageSize);
+        if (detailVisible && detailItem?.id === record.id) {
+          handleViewDetail(record);
+        }
+        setConfirmModal(prev => ({
+          ...prev,
+          loading: false,
+          completed: true,
+          successMessage: `Sales Invoice ${res?.invoiceNo || 'created'} generated successfully from ${record.deliveryNumber}!`,
+        }));
+        setTimeout(() => {
+          setConfirmModal(prev => ({ ...prev, visible: false, completed: false }));
+        }, 1400);
+      } else if (actionKey === 'delete') {
+        setConfirmModal(prev => ({
+          ...prev,
+          loadingStep: `Deleting Delivery Note ${record.deliveryNumber}...`,
+        }));
+        await apiService.delete(`/sales/deliveries/${record.id}`);
+        await fetchData(page, pageSize);
+        if (detailVisible && detailItem?.id === record.id) {
+          setDetailVisible(false);
+        }
+        setConfirmModal(prev => ({
+          ...prev,
+          loading: false,
+          completed: true,
+          successMessage: `Delivery Note ${record.deliveryNumber} has been permanently deleted.`,
+        }));
+        setTimeout(() => {
+          setConfirmModal(prev => ({ ...prev, visible: false, completed: false }));
+        }, 1200);
+      }
+    } catch (error: any) {
+      const resp = error?.response?.data;
+      const msg = resp?.message || error?.message || 'Failed to complete action.';
+      const displayMsg = Array.isArray(msg) ? msg[0] : (typeof msg === 'string' ? msg : 'Operation failed');
+      setConfirmModal(prev => ({
+        ...prev,
+        loading: false,
+        completed: false,
+        errorMessage: displayMsg,
+      }));
+    }
+  };
+
   const handleAction = async (id: string, action: string) => {
+    const targetRec = data.find(d => d.id === id) || (detailItem?.id === id ? detailItem : null);
+    if (targetRec) {
+      requestActionConfirmation(targetRec, action as any);
+      return;
+    }
     try {
       await apiService.patch(`/sales/deliveries/${id}/${action}`);
-      message.success(`Delivery ${action} successfully`);
       fetchData(page, pageSize);
     } catch (error: any) {
       const resp = error?.response?.data;
@@ -1034,20 +1512,7 @@ const SalesDeliveryManagement: React.FC = () => {
   };
 
   const handleConvertToInvoice = async (record: SalesDelivery) => {
-    try {
-      const res = await apiService.post<any>(`/sales/deliveries/${record.id}/convert-to-invoice`, {
-        invoiceDate: dayjs().format('YYYY-MM-DD'),
-        notes: `Generated from Delivery Note ${record.deliveryNumber}`,
-      });
-      message.success(`Sales Invoice ${res.invoiceNo || 'created'} successfully!`);
-      fetchData(page, pageSize);
-      if (detailVisible) {
-        handleViewDetail(record);
-      }
-    } catch (err: any) {
-      const msg = err?.response?.data?.message;
-      message.error(Array.isArray(msg) ? msg[0] : (msg || 'Failed to create invoice from delivery'));
-    }
+    requestActionConfirmation(record, 'invoice');
   };
 
   // Pixel-Perfect Multi-line Columns mirroring Invoices Design
@@ -1311,12 +1776,18 @@ const SalesDeliveryManagement: React.FC = () => {
         return (
           <div className="inv-actions-wrapper">
             <Tooltip title="View Details">
-              <button className="inv-action-btn inv-btn-view" onClick={() => handleViewDetail(record)}>
+              <button
+                className="inv-action-btn inv-btn-view"
+                onClick={() => requestActionConfirmation(record, 'view')}
+              >
                 <EyeOutlined />
               </button>
             </Tooltip>
             <Tooltip title="Print Delivery Challan">
-              <button className="inv-action-btn inv-btn-print" onClick={() => printDeliveryNoteDocument(record)}>
+              <button
+                className="inv-action-btn inv-btn-print"
+                onClick={() => requestActionConfirmation(record, 'print_challan')}
+              >
                 <PrinterOutlined />
               </button>
             </Tooltip>
@@ -1324,7 +1795,7 @@ const SalesDeliveryManagement: React.FC = () => {
               <button
                 className="inv-action-btn"
                 style={{ backgroundColor: '#b45309', color: '#fff' }}
-                onClick={() => handlePrintOutwardGatePass(record)}
+                onClick={() => requestActionConfirmation(record, 'gate_pass')}
               >
                 <SafetyCertificateOutlined />
               </button>
@@ -1332,7 +1803,7 @@ const SalesDeliveryManagement: React.FC = () => {
             <Tooltip title="Edit Delivery">
               <button
                 className="inv-action-btn inv-btn-edit"
-                onClick={() => handleEdit(record)}
+                onClick={() => requestActionConfirmation(record, 'edit')}
                 disabled={s !== 'DRAFT'}
               >
                 <EditOutlined />
@@ -1343,7 +1814,7 @@ const SalesDeliveryManagement: React.FC = () => {
                 <button
                   className="inv-action-btn inv-btn-pay"
                   style={{ backgroundColor: '#3b82f6', color: '#fff' }}
-                  onClick={() => handleAction(record.id, 'ship')}
+                  onClick={() => requestActionConfirmation(record, 'ship')}
                 >
                   <CarOutlined />
                 </button>
@@ -1354,7 +1825,7 @@ const SalesDeliveryManagement: React.FC = () => {
                 <button
                   className="inv-action-btn inv-btn-pay"
                   style={{ backgroundColor: '#10b981', color: '#fff' }}
-                  onClick={() => handleAction(record.id, 'deliver')}
+                  onClick={() => requestActionConfirmation(record, 'deliver')}
                 >
                   <InboxOutlined />
                 </button>
@@ -1365,7 +1836,7 @@ const SalesDeliveryManagement: React.FC = () => {
                 <button
                   className="inv-action-btn inv-btn-pay"
                   style={{ backgroundColor: '#16a34a', color: '#fff' }}
-                  onClick={() => handleAction(record.id, 'confirm')}
+                  onClick={() => requestActionConfirmation(record, 'confirm')}
                 >
                   <CheckOutlined />
                 </button>
@@ -1376,7 +1847,7 @@ const SalesDeliveryManagement: React.FC = () => {
                 <button
                   className="inv-action-btn"
                   style={{ backgroundColor: '#ea580c', color: '#fff' }}
-                  onClick={() => handleConvertToInvoice(record)}
+                  onClick={() => requestActionConfirmation(record, 'invoice')}
                 >
                   <FileTextOutlined />
                 </button>
@@ -1386,35 +1857,22 @@ const SalesDeliveryManagement: React.FC = () => {
               <Tooltip title="Cancel Delivery">
                 <button
                   className="inv-action-btn inv-btn-cancel"
-                  onClick={() => handleAction(record.id, 'cancel')}
+                  onClick={() => requestActionConfirmation(record, 'cancel')}
                 >
                   <StopOutlined />
                 </button>
               </Tooltip>
             )}
             {(s === 'DRAFT' || s === 'CANCELLED') && (
-              <Popconfirm
-                title="Delete Delivery Note"
-                description={`Are you sure you want to delete ${record.deliveryNumber}?`}
-                okText="Yes, Delete"
-                cancelText="No"
-                okButtonProps={{ danger: true }}
-                onConfirm={async () => {
-                  try {
-                    await apiService.delete(`/sales/deliveries/${record.id}`);
-                    message.success(`Delivery ${record.deliveryNumber} deleted successfully`);
-                    fetchData(page, pageSize);
-                  } catch (err: any) {
-                    message.error(err?.response?.data?.message || 'Failed to delete delivery');
-                  }
-                }}
-              >
-                <Tooltip title="Delete Delivery">
-                  <button className="inv-action-btn inv-btn-cancel" style={{ color: '#ef4444' }}>
-                    <DeleteOutlined />
-                  </button>
-                </Tooltip>
-              </Popconfirm>
+              <Tooltip title="Delete Delivery">
+                <button
+                  className="inv-action-btn inv-btn-cancel"
+                  style={{ color: '#ef4444' }}
+                  onClick={() => requestActionConfirmation(record, 'delete')}
+                >
+                  <DeleteOutlined />
+                </button>
+              </Tooltip>
             )}
           </div>
         );
@@ -1423,10 +1881,292 @@ const SalesDeliveryManagement: React.FC = () => {
   ];
 
   // Pagination calculation
-  const totalEntries = total > 0 ? total : displayedDeliveries.length;
+  const totalEntries = displayedDeliveries.length;
   const startEntry = totalEntries === 0 ? 0 : (page - 1) * pageSize + 1;
   const endEntry = Math.min(page * pageSize, totalEntries);
   const totalPages = Math.ceil(totalEntries / pageSize) || 1;
+
+  const paginatedDeliveries = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return displayedDeliveries.slice(start, start + pageSize);
+  }, [displayedDeliveries, page, pageSize]);
+
+  // Active Sheet KPI Summary Metrics
+  const activeSheetMetrics = useMemo(() => {
+    let totalGross = 0;
+    let totalCartons = 0;
+    let totalValue = 0;
+    let totalOrderGross = 0;
+    const itemSet = new Set<string>();
+    const carrierSet = new Set<string>();
+    const customerSet = new Set<string>();
+
+    displayedDeliveries.forEach(del => {
+      const dispCtn = del.totalDispatchCartons ?? (del.totalDispatchQuantity ? Number((del.totalDispatchQuantity / 10).toFixed(1)) : 0);
+      const dispQty = del.totalDispatchQuantity ?? (dispCtn * 10);
+      const ordQty = del.totalOrderQuantity ?? (dispQty);
+
+      totalGross += Number(dispQty) || 0;
+      totalCartons += Number(dispCtn) || 0;
+      totalValue += Number(del.totalAmount) || 0;
+      totalOrderGross += Number(ordQty) || 0;
+
+      if (del.carrier) carrierSet.add(del.carrier);
+      if (del.customerId) customerSet.add(del.customerId);
+
+      if (del.itemsSummary && del.itemsSummary.length > 0) {
+        del.itemsSummary.forEach(i => {
+          const key = i.itemId || i.itemCode || i.itemName;
+          if (key) itemSet.add(key);
+        });
+      } else if (del.lines && del.lines.length > 0) {
+        del.lines.forEach(l => {
+          const key = l.itemId || l.itemCode || l.itemName;
+          if (key) itemSet.add(key);
+        });
+      }
+    });
+
+    const totalNotes = displayedDeliveries.length;
+    const distinctItemsCount = itemSet.size > 0 ? itemSet.size : totalNotes;
+    const distinctCarriersCount = carrierSet.size;
+    const distinctCustomersCount = customerSet.size;
+
+    return {
+      totalNotes,
+      totalGross,
+      totalCartons,
+      totalValue,
+      totalOrderGross,
+      distinctItemsCount,
+      distinctCarriersCount,
+      distinctCustomersCount,
+    };
+  }, [displayedDeliveries]);
+
+  const currentSheetConfig = useMemo(() => {
+    switch (activeChevron) {
+      case 'DRAFT':
+        return {
+          title: 'Draft Deliveries Sheet',
+          stageBadge: 'STAGE 1: DRAFT & PREPARATION',
+          badgeBg: '#e89a24',
+          description: 'Deliveries prepared in warehouse, awaiting vehicle dispatch clearance and gate pass generation.',
+          card1: {
+            title: 'Draft Deliveries',
+            value: `${activeSheetMetrics.totalNotes}`,
+            unit: 'Notes',
+            sub: `${activeSheetMetrics.distinctCustomersCount} Customers assigned`,
+            bg: 'linear-gradient(135deg, rgba(232, 154, 36, 0.22) 0%, rgba(180, 83, 9, 0.32) 100%)',
+            glow: '#e89a24',
+            icon: <EditOutlined />,
+          },
+          card2: {
+            title: 'Draft Dispatched Gross',
+            value: `${activeSheetMetrics.totalGross.toLocaleString()}`,
+            unit: 'GRS',
+            sub: 'Packaged quantity ready in store',
+            bg: 'linear-gradient(135deg, rgba(16, 185, 129, 0.2) 0%, rgba(6, 95, 70, 0.32) 100%)',
+            glow: '#10b981',
+            icon: <InboxOutlined />,
+          },
+          card3: {
+            title: 'Draft Cartons & SKUs',
+            value: `${activeSheetMetrics.totalCartons.toLocaleString()}`,
+            unit: 'CTN',
+            sub: `${activeSheetMetrics.distinctItemsCount} Product lines queued`,
+            bg: 'linear-gradient(135deg, rgba(59, 130, 246, 0.2) 0%, rgba(30, 58, 138, 0.32) 100%)',
+            glow: '#3b82f6',
+            icon: <ShopOutlined />,
+          },
+          card4: {
+            title: 'Draft Financial Value',
+            value: `Rs ${formatDecimal(activeSheetMetrics.totalValue)}`,
+            unit: 'PKR',
+            sub: 'Pending dispatch balance',
+            bg: 'linear-gradient(135deg, rgba(139, 92, 246, 0.2) 0%, rgba(91, 33, 182, 0.32) 100%)',
+            glow: '#8b5cf6',
+            icon: <SafetyCertificateOutlined />,
+          },
+        };
+
+      case 'SHIPPED':
+        return {
+          title: 'In-Transit Shipments Sheet',
+          stageBadge: 'STAGE 2: DISPATCHED & IN-TRANSIT',
+          badgeBg: '#3b8fd9',
+          description: 'Shipments that departed factory with assigned transport carriers and are en route to destination.',
+          card1: {
+            title: 'In-Transit Shipments',
+            value: `${activeSheetMetrics.totalNotes}`,
+            unit: 'Active Consignments',
+            sub: `${activeSheetMetrics.distinctCarriersCount} Logistics carriers moving`,
+            bg: 'linear-gradient(135deg, rgba(59, 143, 217, 0.22) 0%, rgba(29, 78, 216, 0.32) 100%)',
+            glow: '#3b8fd9',
+            icon: <CarOutlined />,
+          },
+          card2: {
+            title: 'Dispatched Gross en Route',
+            value: `${activeSheetMetrics.totalGross.toLocaleString()}`,
+            unit: 'GRS',
+            sub: 'Consignments currently in transit',
+            bg: 'linear-gradient(135deg, rgba(16, 185, 129, 0.2) 0%, rgba(6, 95, 70, 0.32) 100%)',
+            glow: '#10b981',
+            icon: <InboxOutlined />,
+          },
+          card3: {
+            title: 'En-Route Cartons & SKUs',
+            value: `${activeSheetMetrics.totalCartons.toLocaleString()}`,
+            unit: 'CTN',
+            sub: `${activeSheetMetrics.distinctItemsCount} Product lines in vehicle`,
+            bg: 'linear-gradient(135deg, rgba(232, 154, 36, 0.2) 0%, rgba(180, 83, 9, 0.32) 100%)',
+            glow: '#e89a24',
+            icon: <ShopOutlined />,
+          },
+          card4: {
+            title: 'In-Transit Valuation',
+            value: `Rs ${formatDecimal(activeSheetMetrics.totalValue)}`,
+            unit: 'PKR',
+            sub: 'Active cargo goods valuation',
+            bg: 'linear-gradient(135deg, rgba(139, 92, 246, 0.2) 0%, rgba(91, 33, 182, 0.32) 100%)',
+            glow: '#8b5cf6',
+            icon: <SafetyCertificateOutlined />,
+          },
+        };
+
+      case 'DELIVERED':
+        return {
+          title: 'Delivered Consignments Sheet',
+          stageBadge: 'STAGE 3: DELIVERED & RECEIVED',
+          badgeBg: '#2ecc71',
+          description: 'Shipments successfully received and acknowledged at customer destination warehouses.',
+          card1: {
+            title: 'Delivered Consignments',
+            value: `${activeSheetMetrics.totalNotes}`,
+            unit: 'Confirmed Notes',
+            sub: `${activeSheetMetrics.distinctCustomersCount} Satisfied customer accounts`,
+            bg: 'linear-gradient(135deg, rgba(46, 204, 113, 0.22) 0%, rgba(4, 120, 87, 0.32) 100%)',
+            glow: '#2ecc71',
+            icon: <CheckCircleOutlined />,
+          },
+          card2: {
+            title: 'Delivered Gross Volume',
+            value: `${activeSheetMetrics.totalGross.toLocaleString()}`,
+            unit: 'GRS',
+            sub: 'Physical volume delivered to clients',
+            bg: 'linear-gradient(135deg, rgba(14, 165, 233, 0.2) 0%, rgba(3, 105, 161, 0.32) 100%)',
+            glow: '#0ea5e9',
+            icon: <InboxOutlined />,
+          },
+          card3: {
+            title: 'Delivered Cartons & SKUs',
+            value: `${activeSheetMetrics.totalCartons.toLocaleString()}`,
+            unit: 'CTN',
+            sub: `${activeSheetMetrics.distinctItemsCount} Product SKUs delivered`,
+            bg: 'linear-gradient(135deg, rgba(232, 154, 36, 0.2) 0%, rgba(180, 83, 9, 0.32) 100%)',
+            glow: '#e89a24',
+            icon: <ShopOutlined />,
+          },
+          card4: {
+            title: 'Delivered Net Value',
+            value: `Rs ${formatDecimal(activeSheetMetrics.totalValue)}`,
+            unit: 'PKR',
+            sub: 'Ready for official sales billing',
+            bg: 'linear-gradient(135deg, rgba(139, 92, 246, 0.2) 0%, rgba(91, 33, 182, 0.32) 100%)',
+            glow: '#8b5cf6',
+            icon: <SafetyCertificateOutlined />,
+          },
+        };
+
+      case 'CANCELLED':
+        return {
+          title: 'Cancelled Dispatches Sheet',
+          stageBadge: 'STAGE: CANCELLED & VOIDED',
+          badgeBg: '#d96b6b',
+          description: 'Voided delivery orders; inventory allocations restored to available finished goods stock.',
+          card1: {
+            title: 'Cancelled Deliveries',
+            value: `${activeSheetMetrics.totalNotes}`,
+            unit: 'Voided Notes',
+            sub: 'Removed from active shipping pipeline',
+            bg: 'linear-gradient(135deg, rgba(217, 107, 107, 0.22) 0%, rgba(153, 27, 27, 0.32) 100%)',
+            glow: '#d96b6b',
+            icon: <StopOutlined />,
+          },
+          card2: {
+            title: 'Cancelled Gross Volume',
+            value: `${activeSheetMetrics.totalGross.toLocaleString()}`,
+            unit: 'GRS',
+            sub: 'Restored back to finished stock',
+            bg: 'linear-gradient(135deg, rgba(232, 154, 36, 0.2) 0%, rgba(180, 83, 9, 0.32) 100%)',
+            glow: '#e89a24',
+            icon: <InboxOutlined />,
+          },
+          card3: {
+            title: 'Cancelled Cartons',
+            value: `${activeSheetMetrics.totalCartons.toLocaleString()}`,
+            unit: 'CTN',
+            sub: `${activeSheetMetrics.distinctItemsCount} Product lines unassigned`,
+            bg: 'linear-gradient(135deg, rgba(59, 130, 246, 0.2) 0%, rgba(30, 58, 138, 0.32) 100%)',
+            glow: '#3b82f6',
+            icon: <ShopOutlined />,
+          },
+          card4: {
+            title: 'Cancelled Value Amount',
+            value: `Rs ${formatDecimal(activeSheetMetrics.totalValue)}`,
+            unit: 'PKR',
+            sub: 'Voided transaction amount',
+            bg: 'linear-gradient(135deg, rgba(139, 92, 246, 0.2) 0%, rgba(91, 33, 182, 0.32) 100%)',
+            glow: '#8b5cf6',
+            icon: <SafetyCertificateOutlined />,
+          },
+        };
+
+      default: // 'ALL'
+        return {
+          title: 'All Sales Deliveries Sheet',
+          stageBadge: 'GLOBAL PIPELINE REPOSITORY',
+          badgeBg: '#344558',
+          description: 'Master sheet displaying total sales deliveries across all logistics dispatch stages.',
+          card1: {
+            title: 'Total Deliveries',
+            value: `${activeSheetMetrics.totalNotes}`,
+            unit: 'Total Notes',
+            sub: `${activeSheetMetrics.distinctCustomersCount} Customers across pipeline`,
+            bg: 'linear-gradient(135deg, rgba(37, 99, 235, 0.22) 0%, rgba(30, 58, 138, 0.32) 100%)',
+            glow: '#3b82f6',
+            icon: <CarOutlined />,
+          },
+          card2: {
+            title: 'Dispatched Gross Quantity',
+            value: `${activeSheetMetrics.totalGross.toLocaleString()}`,
+            unit: 'GRS',
+            sub: 'Total quantity dispatched in pipeline',
+            bg: 'linear-gradient(135deg, rgba(16, 185, 129, 0.2) 0%, rgba(6, 95, 70, 0.32) 100%)',
+            glow: '#10b981',
+            icon: <InboxOutlined />,
+          },
+          card3: {
+            title: 'Total Cartons & SKUs',
+            value: `${activeSheetMetrics.totalCartons.toLocaleString()}`,
+            unit: 'CTN',
+            sub: `${activeSheetMetrics.distinctItemsCount} Items | ${activeSheetMetrics.distinctCarriersCount} Carriers`,
+            bg: 'linear-gradient(135deg, rgba(232, 154, 36, 0.2) 0%, rgba(180, 83, 9, 0.32) 100%)',
+            glow: '#e89a24',
+            icon: <ShopOutlined />,
+          },
+          card4: {
+            title: 'Stage Financial Value',
+            value: `Rs ${formatDecimal(activeSheetMetrics.totalValue)}`,
+            unit: 'PKR',
+            sub: 'Total pipeline dispatch value',
+            bg: 'linear-gradient(135deg, rgba(139, 92, 246, 0.2) 0%, rgba(91, 33, 182, 0.32) 100%)',
+            glow: '#8b5cf6',
+            icon: <SafetyCertificateOutlined />,
+          },
+        };
+    }
+  }, [activeChevron, activeSheetMetrics]);
 
   return (
     <div className="inv-page-container">
@@ -1442,88 +2182,205 @@ const SalesDeliveryManagement: React.FC = () => {
         <div className="inv-chevron-ribbon">
           <div
             className={`inv-chevron-item chev-all ${activeChevron === 'ALL' ? 'active' : ''}`}
-            onClick={() => setActiveChevron('ALL')}
+            onClick={() => { setActiveChevron('ALL'); setPage(1); }}
           >
             ALL ({chevronCounts.all})
           </div>
           <div
             className={`inv-chevron-item chev-pending ${activeChevron === 'DRAFT' ? 'active' : ''}`}
-            onClick={() => setActiveChevron('DRAFT')}
+            onClick={() => { setActiveChevron('DRAFT'); setPage(1); }}
           >
             DRAFT ({chevronCounts.draft})
           </div>
           <div
             className={`inv-chevron-item chev-partial ${activeChevron === 'SHIPPED' ? 'active' : ''}`}
-            onClick={() => setActiveChevron('SHIPPED')}
+            onClick={() => { setActiveChevron('SHIPPED'); setPage(1); }}
           >
             SHIPPED ({chevronCounts.shipped})
           </div>
           <div
             className={`inv-chevron-item chev-paid ${activeChevron === 'DELIVERED' ? 'active' : ''}`}
-            onClick={() => setActiveChevron('DELIVERED')}
+            onClick={() => { setActiveChevron('DELIVERED'); setPage(1); }}
           >
             DELIVERED ({chevronCounts.delivered})
           </div>
           <div
             className={`inv-chevron-item chev-cancelled ${activeChevron === 'CANCELLED' ? 'active' : ''}`}
-            onClick={() => setActiveChevron('CANCELLED')}
+            onClick={() => { setActiveChevron('CANCELLED'); setPage(1); }}
           >
             CANCELLED ({chevronCounts.cancelled})
           </div>
         </div>
 
         {/* Distinctive Mint Green Accent Line */}
-        <div className="inv-mint-accent-line" />
+        <div className="inv-mint-accent-line" style={{ marginBottom: 16 }} />
 
-        {/* Controls Row: Search Bar, Filters Toggle & Show Entries */}
-        <div className="inv-controls-row">
-          <div className="inv-search-control">
-            <span className="inv-search-label">Search:</span>
-            <Input
-              className="inv-search-input"
-              placeholder="Search deliveries, tracking..."
-              prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              onPressEnter={() => fetchData(1, pageSize)}
-              allowClear
-            />
+        {/* Active Sheet Banner */}
+        <div className="delivery-sheet-header-banner">
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+              <span className="delivery-sheet-badge" style={{ backgroundColor: currentSheetConfig.badgeBg }}>
+                {currentSheetConfig.stageBadge}
+              </span>
+              <h3 className="delivery-sheet-title">{currentSheetConfig.title}</h3>
+              <Tag color="blue" style={{ fontWeight: 700, borderRadius: 10, margin: 0 }}>
+                {displayedDeliveries.length} Records
+              </Tag>
+            </div>
+            <div className="delivery-sheet-subtitle">{currentSheetConfig.description}</div>
+          </div>
+        </div>
+
+        {/* 4 Interactive KPI Cards for the Active Sheet */}
+        <div className="delivery-kpi-grid">
+          {/* Card 1 */}
+          <div className="delivery-kpi-card" style={{ background: currentSheetConfig.card1.bg, borderLeft: `3px solid ${currentSheetConfig.card1.glow}` }}>
+            <div className="delivery-kpi-watermark-icon" style={{ color: currentSheetConfig.card1.glow }}>
+              {currentSheetConfig.card1.icon}
+            </div>
+            <div className="delivery-kpi-header">
+              <div className="delivery-kpi-pill" style={{ background: currentSheetConfig.card1.glow }} />
+              <div className="delivery-kpi-title">{currentSheetConfig.card1.title}</div>
+            </div>
+            <div className="delivery-kpi-value-row">
+              <span className="delivery-kpi-value">{currentSheetConfig.card1.value}</span>
+              <span className="delivery-kpi-unit">{currentSheetConfig.card1.unit}</span>
+            </div>
+            <div className="delivery-kpi-sub">{currentSheetConfig.card1.sub}</div>
           </div>
 
-          <Button
-            icon={<FilterOutlined />}
-            onClick={() => setFiltersCollapsed((prev) => !prev)}
-            type={!filtersCollapsed ? 'primary' : 'default'}
-            style={{ fontWeight: 600 }}
-          >
-            Filters
-            {activeFilterCount > 0 && (
-              <Badge
-                count={activeFilterCount}
-                style={{
-                  marginLeft: 6,
-                  backgroundColor: !filtersCollapsed ? '#ffffff' : 'var(--theme-primary, #3b82f6)',
-                  color: !filtersCollapsed ? 'var(--theme-primary, #3b82f6)' : '#ffffff',
-                }}
+          {/* Card 2 */}
+          <div className="delivery-kpi-card" style={{ background: currentSheetConfig.card2.bg, borderLeft: `3px solid ${currentSheetConfig.card2.glow}` }}>
+            <div className="delivery-kpi-watermark-icon" style={{ color: currentSheetConfig.card2.glow }}>
+              {currentSheetConfig.card2.icon}
+            </div>
+            <div className="delivery-kpi-header">
+              <div className="delivery-kpi-pill" style={{ background: currentSheetConfig.card2.glow }} />
+              <div className="delivery-kpi-title">{currentSheetConfig.card2.title}</div>
+            </div>
+            <div className="delivery-kpi-value-row">
+              <span className="delivery-kpi-value">{currentSheetConfig.card2.value}</span>
+              <span className="delivery-kpi-unit">{currentSheetConfig.card2.unit}</span>
+            </div>
+            <div className="delivery-kpi-sub">{currentSheetConfig.card2.sub}</div>
+          </div>
+
+          {/* Card 3 */}
+          <div className="delivery-kpi-card" style={{ background: currentSheetConfig.card3.bg, borderLeft: `3px solid ${currentSheetConfig.card3.glow}` }}>
+            <div className="delivery-kpi-watermark-icon" style={{ color: currentSheetConfig.card3.glow }}>
+              {currentSheetConfig.card3.icon}
+            </div>
+            <div className="delivery-kpi-header">
+              <div className="delivery-kpi-pill" style={{ background: currentSheetConfig.card3.glow }} />
+              <div className="delivery-kpi-title">{currentSheetConfig.card3.title}</div>
+            </div>
+            <div className="delivery-kpi-value-row">
+              <span className="delivery-kpi-value">{currentSheetConfig.card3.value}</span>
+              <span className="delivery-kpi-unit">{currentSheetConfig.card3.unit}</span>
+            </div>
+            <div className="delivery-kpi-sub">{currentSheetConfig.card3.sub}</div>
+          </div>
+
+          {/* Card 4 */}
+          <div className="delivery-kpi-card" style={{ background: currentSheetConfig.card4.bg, borderLeft: `3px solid ${currentSheetConfig.card4.glow}` }}>
+            <div className="delivery-kpi-watermark-icon" style={{ color: currentSheetConfig.card4.glow }}>
+              {currentSheetConfig.card4.icon}
+            </div>
+            <div className="delivery-kpi-header">
+              <div className="delivery-kpi-pill" style={{ background: currentSheetConfig.card4.glow }} />
+              <div className="delivery-kpi-title">{currentSheetConfig.card4.title}</div>
+            </div>
+            <div className="delivery-kpi-value-row">
+              <span className="delivery-kpi-value">{currentSheetConfig.card4.value}</span>
+              <span className="delivery-kpi-unit">{currentSheetConfig.card4.unit}</span>
+            </div>
+            <div className="delivery-kpi-sub">{currentSheetConfig.card4.sub}</div>
+          </div>
+        </div>
+
+        {/* Enterprise Professional Toolbar */}
+        <div className="delivery-enterprise-toolbar">
+          {/* Left: Modern Search Bar & Filters */}
+          <div className="delivery-toolbar-left">
+            <div className="delivery-search-wrapper">
+              <Input
+                className="delivery-search-input"
+                placeholder="Search by DN#, SO#, Customer, Carrier or Tracking..."
+                prefix={<SearchOutlined className="delivery-search-icon" />}
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                onPressEnter={() => fetchData(1, pageSize)}
+                allowClear
               />
-            )}
-          </Button>
+            </div>
 
-          <div style={{ flex: 1 }} />
-
-          <div className="inv-entries-control">
-            <span>Show</span>
-            <Select
-              className="inv-entries-select"
-              value={pageSize}
-              onChange={(val) => { setPageSize(val); setPage(1); }}
+            <Button
+              className={`delivery-filter-btn ${!filtersCollapsed ? 'active' : ''}`}
+              icon={<FilterOutlined />}
+              onClick={() => setFiltersCollapsed((prev) => !prev)}
             >
-              <Select.Option value={10}>10</Select.Option>
-              <Select.Option value={25}>25</Select.Option>
-              <Select.Option value={50}>50</Select.Option>
-              <Select.Option value={100}>100</Select.Option>
-            </Select>
-            <span>entries</span>
+              Filters
+              {activeFilterCount > 0 && (
+                <span className="delivery-filter-pill">{activeFilterCount}</span>
+              )}
+            </Button>
+
+            {(activeFilterCount > 0 || search) && (
+              <Button
+                type="text"
+                size="small"
+                icon={<ClearOutlined />}
+                onClick={handleClearAll}
+                className="delivery-reset-btn"
+              >
+                Reset
+              </Button>
+            )}
+          </div>
+
+          {/* Right: Page Size Selector & Quick Actions */}
+          <div className="delivery-toolbar-right">
+            <div className="delivery-entries-pill">
+              <span className="delivery-entries-label">Show:</span>
+              <Select
+                className="delivery-pagesize-select"
+                value={pageSize}
+                onChange={(val) => { setPageSize(val); setPage(1); }}
+                size="small"
+                popupMatchSelectWidth={false}
+              >
+                <Select.Option value={10}>10</Select.Option>
+                <Select.Option value={25}>25</Select.Option>
+                <Select.Option value={50}>50</Select.Option>
+                <Select.Option value={100}>100</Select.Option>
+              </Select>
+              <span className="delivery-entries-label">entries</span>
+            </div>
+
+            <div className="delivery-toolbar-divider" />
+
+            <Button
+              icon={<FileExcelOutlined />}
+              onClick={handleExportCsv}
+              className="delivery-tool-action-btn"
+              title="Export to CSV"
+            >
+              CSV
+            </Button>
+            <Button
+              icon={<PrinterOutlined />}
+              onClick={handlePrint}
+              className="delivery-tool-action-btn"
+              title="Print Table View"
+            >
+              Print
+            </Button>
+            <Button
+              icon={<ReloadOutlined spin={loading} />}
+              onClick={() => fetchData(page, pageSize)}
+              className="delivery-tool-action-btn"
+              title="Refresh Data"
+            />
           </div>
         </div>
 
@@ -1715,7 +2572,7 @@ const SalesDeliveryManagement: React.FC = () => {
         {/* Custom ERP Table */}
         <Table
           columns={columns}
-          dataSource={displayedDeliveries}
+          dataSource={paginatedDeliveries}
           rowKey="id"
           loading={loading}
           pagination={false}
@@ -2100,26 +2957,25 @@ const SalesDeliveryManagement: React.FC = () => {
         open={detailVisible}
         onCancel={() => setDetailVisible(false)}
         footer={[
-          <Button key="print" icon={<PrinterOutlined />} onClick={() => detailItem && printDeliveryNoteDocument(detailItem)}>
+          <Button key="print" icon={<PrinterOutlined />} onClick={() => detailItem && requestActionConfirmation(detailItem, 'print_challan')}>
             Print Delivery Challan
           </Button>,
           <Button
             key="gatepass"
             style={{ backgroundColor: '#b45309', borderColor: '#b45309', color: '#fff' }}
             icon={<SafetyCertificateOutlined />}
-            onClick={() => detailItem && handlePrintOutwardGatePass(detailItem)}
+            onClick={() => detailItem && requestActionConfirmation(detailItem, 'gate_pass')}
           >
             Print Outward Gate Pass
           </Button>,
-          detailItem && ['DRAFT', 'SHIPPED'].includes((detailItem.status || '').toUpperCase()) && (
+          detailItem && ['DRAFT', 'SHIPPED', 'DELIVERED'].includes((detailItem.status || '').toUpperCase()) && (
             <Button
               key="confirm"
               type="primary"
               icon={<CheckOutlined />}
               style={{ backgroundColor: '#16a34a', borderColor: '#16a34a' }}
               onClick={() => {
-                handleAction(detailItem.id, 'confirm');
-                setDetailVisible(false);
+                requestActionConfirmation(detailItem, 'confirm');
               }}
             >
               Post & Deduct Inventory
@@ -2132,7 +2988,7 @@ const SalesDeliveryManagement: React.FC = () => {
               icon={<FileTextOutlined />}
               style={{ backgroundColor: '#ea580c', borderColor: '#ea580c' }}
               onClick={() => {
-                handleConvertToInvoice(detailItem);
+                requestActionConfirmation(detailItem, 'invoice');
               }}
             >
               Generate Sales Invoice
@@ -2178,7 +3034,7 @@ const SalesDeliveryManagement: React.FC = () => {
                     type="primary"
                     icon={<PrinterOutlined />}
                     block
-                    onClick={() => printDeliveryNoteDocument(detailItem)}
+                    onClick={() => requestActionConfirmation(detailItem, 'print_challan')}
                   >
                     Print Delivery Challan
                   </Button>
@@ -2186,7 +3042,7 @@ const SalesDeliveryManagement: React.FC = () => {
                     icon={<SafetyCertificateOutlined />}
                     block
                     style={{ backgroundColor: '#b45309', borderColor: '#b45309', color: '#fff' }}
-                    onClick={() => handlePrintOutwardGatePass(detailItem)}
+                    onClick={() => requestActionConfirmation(detailItem, 'gate_pass')}
                   >
                     Print Outward Gate Pass
                   </Button>
@@ -2196,7 +3052,7 @@ const SalesDeliveryManagement: React.FC = () => {
                       icon={<FileTextOutlined />}
                       block
                       style={{ backgroundColor: '#ea580c', borderColor: '#ea580c' }}
-                      onClick={() => handleConvertToInvoice(detailItem)}
+                      onClick={() => requestActionConfirmation(detailItem, 'invoice')}
                     >
                       Generate Sales Invoice
                     </Button>
@@ -2354,6 +3210,264 @@ const SalesDeliveryManagement: React.FC = () => {
           );
         })()}
       </DraggableResizableModal>
+
+      {/* 2-Step Action Confirmation Modal */}
+      <Modal
+        open={confirmModal.visible}
+        onCancel={() => {
+          if (!confirmModal.loading) {
+            setConfirmModal(prev => ({ ...prev, visible: false, errorMessage: null }));
+          }
+        }}
+        footer={null}
+        closable={!confirmModal.loading}
+        centered
+        width={580}
+        maskClosable={!confirmModal.loading}
+        className="delivery-action-confirm-modal"
+      >
+        <div style={{ padding: '8px 4px' }}>
+          {confirmModal.completed ? (
+            /* Completed Success State */
+            <div style={{ textAlign: 'center', padding: '36px 16px' }}>
+              <div
+                style={{
+                  width: 72,
+                  height: 72,
+                  borderRadius: '50%',
+                  background: 'rgba(16, 185, 129, 0.15)',
+                  color: '#10b981',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: 38,
+                  margin: '0 auto 20px',
+                  border: '2px solid rgba(16, 185, 129, 0.3)',
+                }}
+              >
+                <CheckCircleOutlined />
+              </div>
+              <h3 style={{ fontSize: 20, fontWeight: 700, margin: '0 0 10px', color: 'var(--inv-text-primary, #0f172a)' }}>
+                Action Completed Successfully
+              </h3>
+              <p style={{ fontSize: 14, color: 'var(--inv-text-secondary, #475569)', margin: 0 }}>
+                {confirmModal.successMessage}
+              </p>
+            </div>
+          ) : confirmModal.loading ? (
+            /* Loading Spinner State */
+            <div style={{ textAlign: 'center', padding: '40px 16px' }}>
+              <Spin
+                indicator={
+                  <LoadingOutlined
+                    style={{ fontSize: 48, color: confirmModal.confirmBtnColor || '#2563eb' }}
+                    spin
+                  />
+                }
+              />
+              <h3 style={{ fontSize: 18, fontWeight: 700, marginTop: 24, marginBottom: 8, color: 'var(--inv-text-primary, #0f172a)' }}>
+                Processing Request
+              </h3>
+              <p style={{ fontSize: 14, color: 'var(--inv-text-secondary, #475569)', margin: '0 0 4px' }}>
+                {confirmModal.loadingStep || 'Executing action on server... Please wait.'}
+              </p>
+              <span style={{ fontSize: 12, color: 'var(--inv-text-muted, #94a3b8)' }}>
+                Please do not close this window or navigate away.
+              </span>
+            </div>
+          ) : (
+            /* Confirmation Inquiry State */
+            <div>
+              {/* Header Hero */}
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16, marginBottom: 20 }}>
+                <div
+                  style={{
+                    width: 52,
+                    height: 52,
+                    borderRadius: 12,
+                    background: confirmModal.iconBg,
+                    color: confirmModal.iconColor,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: 26,
+                    flexShrink: 0,
+                    border: `1px solid ${confirmModal.badgeColor}33`,
+                  }}
+                >
+                  {confirmModal.icon}
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                    <span
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 700,
+                        textTransform: 'uppercase',
+                        padding: '2px 8px',
+                        borderRadius: 4,
+                        background: confirmModal.badgeBg,
+                        color: confirmModal.badgeColor,
+                        letterSpacing: 0.5,
+                      }}
+                    >
+                      {confirmModal.actionBadge}
+                    </span>
+                  </div>
+                  <h2 style={{ fontSize: 18, fontWeight: 700, margin: 0, color: 'var(--inv-text-primary, #0f172a)' }}>
+                    {confirmModal.title}
+                  </h2>
+                </div>
+              </div>
+
+              {/* Delivery Details Card */}
+              {confirmModal.record && (
+                <div
+                  style={{
+                    background: 'var(--inv-table-row-even, rgba(255, 255, 255, 0.04))',
+                    border: '1px solid var(--inv-card-border, #e2e8f0)',
+                    borderRadius: 10,
+                    padding: '14px 16px',
+                    marginBottom: 18,
+                  }}
+                >
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 16px', fontSize: 13 }}>
+                    <div>
+                      <span style={{ color: 'var(--inv-text-muted, #94a3b8)', display: 'block', fontSize: 11, fontWeight: 600, textTransform: 'uppercase' }}>
+                        Delivery Note #
+                      </span>
+                      <strong style={{ color: 'var(--inv-text-primary, #0f172a)', fontSize: 14 }}>
+                        {confirmModal.record.deliveryNumber}
+                      </strong>
+                    </div>
+                    <div>
+                      <span style={{ color: 'var(--inv-text-muted, #94a3b8)', display: 'block', fontSize: 11, fontWeight: 600, textTransform: 'uppercase' }}>
+                        Current Status
+                      </span>
+                      <Tag color={
+                        confirmModal.record.status === 'DELIVERED' ? 'green' :
+                        confirmModal.record.status === 'SHIPPED' ? 'blue' :
+                        confirmModal.record.status === 'CANCELLED' ? 'red' : 'orange'
+                      }>
+                        {confirmModal.record.status}
+                      </Tag>
+                    </div>
+                    <div>
+                      <span style={{ color: 'var(--inv-text-muted, #94a3b8)', display: 'block', fontSize: 11, fontWeight: 600, textTransform: 'uppercase' }}>
+                        Customer
+                      </span>
+                      <span style={{ color: 'var(--inv-text-secondary, #334155)', fontWeight: 600 }}>
+                        {getCustomerDisplayName(confirmModal.record) || confirmModal.record.companyName || 'N/A'}
+                      </span>
+                    </div>
+                    <div>
+                      <span style={{ color: 'var(--inv-text-muted, #94a3b8)', display: 'block', fontSize: 11, fontWeight: 600, textTransform: 'uppercase' }}>
+                        Carrier / Transport
+                      </span>
+                      <span style={{ color: 'var(--inv-text-secondary, #334155)' }}>
+                        {confirmModal.record.carrier || 'Standard Transport'} {confirmModal.record.trackingNumber ? `(${confirmModal.record.trackingNumber})` : ''}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Action Prompt & Impact Notice */}
+              <div
+                style={{
+                  background: confirmModal.isDanger ? 'rgba(239, 68, 68, 0.08)' : 'rgba(59, 130, 246, 0.08)',
+                  border: `1px solid ${confirmModal.isDanger ? 'rgba(239, 68, 68, 0.25)' : 'rgba(59, 130, 246, 0.25)'}`,
+                  borderRadius: 10,
+                  padding: '14px 16px',
+                  marginBottom: 18,
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                  <WarningFilled
+                    style={{
+                      color: confirmModal.isDanger ? '#ef4444' : '#3b82f6',
+                      fontSize: 18,
+                      marginTop: 2,
+                      flexShrink: 0,
+                    }}
+                  />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--inv-text-primary, #0f172a)', marginBottom: 4 }}>
+                      {confirmModal.question}
+                    </div>
+                    <div style={{ fontSize: 13, color: 'var(--inv-text-secondary, #475569)', lineHeight: 1.5, marginBottom: 8 }}>
+                      {confirmModal.description}
+                    </div>
+
+                    {/* Impact Details List */}
+                    {confirmModal.impactDetails && confirmModal.impactDetails.length > 0 && (
+                      <div style={{ background: 'rgba(0, 0, 0, 0.05)', borderRadius: 6, padding: '8px 12px', marginTop: 8 }}>
+                        {confirmModal.impactDetails.map((detail, idx) => (
+                          <div key={idx} style={{ fontSize: 12, color: 'var(--inv-text-secondary, #475569)', display: 'flex', alignItems: 'center', gap: 6, margin: '2px 0' }}>
+                            <span style={{ width: 4, height: 4, borderRadius: '50%', background: confirmModal.badgeColor, display: 'inline-block' }} />
+                            <span>{detail}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    <div style={{ fontSize: 12, color: 'var(--inv-text-muted, #94a3b8)', marginTop: 8, fontStyle: 'italic' }}>
+                      In case this action was triggered by mistake or accidental click, simply click Cancel to exit without making changes.
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Error banner if previous attempt failed */}
+              {confirmModal.errorMessage && (
+                <div
+                  style={{
+                    background: 'rgba(239, 68, 68, 0.1)',
+                    border: '1px solid rgba(239, 68, 68, 0.3)',
+                    borderRadius: 8,
+                    padding: '10px 14px',
+                    marginBottom: 16,
+                    color: '#ef4444',
+                    fontSize: 13,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                  }}
+                >
+                  <CloseCircleOutlined style={{ fontSize: 16 }} />
+                  <span>{confirmModal.errorMessage}</span>
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 20 }}>
+                <Button
+                  size="large"
+                  onClick={() => setConfirmModal(prev => ({ ...prev, visible: false, errorMessage: null }))}
+                  style={{ minWidth: 100, fontWeight: 600 }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  size="large"
+                  type="primary"
+                  danger={confirmModal.isDanger}
+                  style={{
+                    backgroundColor: confirmModal.isDanger ? undefined : confirmModal.confirmBtnColor,
+                    borderColor: confirmModal.isDanger ? undefined : confirmModal.confirmBtnColor,
+                    minWidth: 160,
+                    fontWeight: 700,
+                  }}
+                  icon={confirmModal.icon}
+                  onClick={executeConfirmedAction}
+                >
+                  {confirmModal.confirmBtnText}
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      </Modal>
     </div>
   );
 };

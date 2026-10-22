@@ -756,15 +756,20 @@ export const PackingDepartmentHub: React.FC = () => {
       const codeStr = String(entry.item?.itemCode || entry.itemCode || '');
       const wt = codeStr.includes('006') ? 1156.0 : 1007.3;
 
+      const isShifted =
+        remarks.includes('Allocated from Safety Stock') ||
+        remarks.includes('SHIFTED FROM SAFETY STOCK') ||
+        remarks.includes('Allocated from Safety');
+
       batchCount++;
-      text += `\n*Batch ${batchCount}: ${batchNo}*\n`;
+      text += `\n*Batch ${batchCount}: ${batchNo}*${isShifted ? ' _(⚡ Shifted from Safety Stock)_' : ''}\n`;
       text += `• Customer: *${custName}* (SOC: ${socNo})\n`;
       text += `• Item: *${codeStr}* — ${entry.item?.name || 'Finished Good'}\n`;
       text += `• Style: ${style}\n`;
       text += `• Output: *${formatNumber(pcs, 0)} PCS* | *${gross} GRS* | *${cartons} CTN*\n`;
       text += `• Net Batch Weight: *${formatNumber(wt, 1)} KG*\n`;
       text += `• Store (IN): *SPI FG Dispatch Warehouse (SPI-FGDW-001)*\n`;
-      text += `• Status: ✅ PACKED & READY FOR DISPATCH\n`;
+      text += `• Status: ${isShifted ? '✅ ALLOCATED & SHIFTED FROM SAFETY STOCK' : '✅ PACKED & READY FOR DISPATCH'}\n`;
     });
 
     text += `\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;

@@ -298,7 +298,11 @@ const parseHandPackingEntry = (e: any): RecentPackingLog | null => {
     createdAtMs: created.isValid() ? created.valueOf() : 0,
     components: [],
     rawEntry: e,
-    allocatedFromSafetyStock: remarks.includes('Allocated from Safety Stock'),
+    allocatedFromSafetyStock:
+      remarks.includes('Allocated from Safety Stock') ||
+      remarks.includes('SHIFTED FROM SAFETY STOCK') ||
+      remarks.includes('Allocated from Safety') ||
+      remarks.includes('[SHIFTED FROM SAFETY STOCK'),
     withoutNipple: withoutNippleMatch,
     pendingNippleCode,
     pendingNippleGross,
@@ -844,11 +848,16 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
   const [socPackedStats, setSocPackedStats] = useState<Record<string, { packedCartons: number; packedGross: number; packedPcs: number }>>({});
   const [socPackedStatsLoading, setSocPackedStatsLoading] = useState<boolean>(false);
 
-  // Allocate Safety Stock to SOC Modal state
+  // Allocate Safety Stock to SOC Modal state (Bulk Multi-Select)
   const [allocateModalVisible, setAllocateModalVisible] = useState<boolean>(false);
   const [allocateSourceBatch, setAllocateSourceBatch] = useState<RecentPackingLog | null>(null);
+  const [allocateSelectedBatchIds, setAllocateSelectedBatchIds] = useState<string[]>([]);
+  const [allocateBatchCartonOverrides, setAllocateBatchCartonOverrides] = useState<Record<string, number>>({});
   const [allocateTargetCustomer, setAllocateTargetCustomer] = useState<string>('');
   const [allocateTargetSoc, setAllocateTargetSoc] = useState<string>('');
+  const [allocateDate, setAllocateDate] = useState<string>(dayjs().format('YYYY-MM-DD'));
+  const [allocateFilterItemCode, setAllocateFilterItemCode] = useState<string>('ALL');
+  const [allocateSearchText, setAllocateSearchText] = useState<string>('');
   const [allocateCartons, setAllocateCartons] = useState<number>(1);
   const [allocating, setAllocating] = useState<boolean>(false);
 
@@ -2697,6 +2706,58 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
     async (entryId: string) => {
       try {
         const target = recentSavedEntries.find((r) => r.id === entryId);
+
+        // If this entry was allocated from Safety Stock, deleting it reverts it back to Safety Stock
+        if (target?.allocatedFromSafetyStock) {
+          const rawRemarks = String(target.rawEntry?.remarks || '');
+          const origDateMatch = rawRemarks.match(/Orig\.\s*Packed:\s*([^)]+)/i);
+          const origDateStr = origDateMatch ? origDateMatch[1].trim() : target.entryDate;
+
+          let revertedEntryDate = target.entryDate;
+          if (origDateStr && origDateStr.includes('/')) {
+            const p = origDateStr.split('/');
+            if (p.length === 3) revertedEntryDate = `${p[2]}-${p[1].padStart(2, '0')}-${p[0].padStart(2, '0')}`;
+          }
+
+          if (target.isOpeningStock) {
+            let newNotes = String(target.rawEntry?.notes || '');
+            newNotes = newNotes
+              .replace(/Customer:\s*[^|\]]+/i, 'Customer: SAFETY STOCK')
+              .replace(/SOC:\s*[^|\]]+/i, 'SOC: SAFETY_STOCK')
+              .replace(/\[Customer:[^\]]+\]/i, '[Customer: SAFETY STOCK]')
+              .replace(/\[SOC:[^\]]+\]/i, '[SOC: SAFETY_STOCK]')
+              .replace(/\[SHIFTED FROM SAFETY STOCK[^\]]*\]/gi, '');
+            await apiService.patch(`/production/open-stock/history/${entryId}`, {
+              notes: newNotes,
+            }).catch(async () => {
+              await apiService.put(`/production/open-stock/history/${entryId}`, {
+                notes: newNotes,
+              });
+            });
+          } else {
+            const revertedRemarks = `[HAND PACKING] Batch: ${target.batchNo} | Division: ${target.divisionName || 'Spoke Division'} | DivCode: ${target.divisionCode || 'DIV-SPD'} | SOC: SAFETY_STOCK | Customer: SAFETY STOCK | Style: ${target.packagingStyle || 'Plain White Poly Bag (Without Sticker)'} | Line: ${target.line || 'Spoke Boxing & Nipple Station A'} | OT: 0h | Cartons: ${target.cartons} (${target.gross} Gross / ${target.pcs} PCS) | Weight: ${target.weightKg} KG`;
+
+            await apiService.put(`/production/entries/${entryId}`, {
+              entryDate: revertedEntryDate,
+              productionDate: revertedEntryDate,
+              remarks: revertedRemarks,
+            }).catch(async () => {
+              await apiService.patch(`/production/entries/${entryId}`, {
+                entryDate: revertedEntryDate,
+                productionDate: revertedEntryDate,
+                remarks: revertedRemarks,
+              });
+            });
+          }
+
+          message.success(`Batch ${target.batchNo} (${target.cartons} Cartons) successfully reverted back to Safety Stock.`);
+          loadRecentEntries();
+          if (editingEntryId === entryId) {
+            handleCancelEdit();
+          }
+          return;
+        }
+
         if (target?.isOpeningStock) {
           await apiService.delete(`/production/open-stock/history/${entryId}`);
         } else {
@@ -4577,7 +4638,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
     </Modal>
   );
 
-  // Move / Allocate Safety Stock to Customer SOC Modal
+  // Move / Allocate Safety Stock to Customer SOC Modal (Bulk Multi-Select)
   const renderAllocateModal = () => {
     // Find all entries recorded as SAFETY STOCK (live packing batches + opening stock safety batches)
     const safetyStockLogs = recentSavedEntries.filter(
@@ -4588,6 +4649,39 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         (r.socNo || '').toLowerCase().includes('safety_stock') ||
         (r.socNo || '').toLowerCase().includes('safety-stock')
     );
+
+    // Unique list of Finished Good Items currently present in safety stock
+    const safetyStockItems = Array.from(
+      new Map(
+        safetyStockLogs
+          .filter((s) => s.fgItemCode)
+          .map((s) => [s.fgItemCode, { code: s.fgItemCode, name: s.fgItemName }])
+      ).values()
+    );
+
+    // Filtered batches according to active search text and selected item filter
+    const filteredSafetyStockLogs = safetyStockLogs.filter((s) => {
+      if (allocateFilterItemCode !== 'ALL' && s.fgItemCode !== allocateFilterItemCode) {
+        return false;
+      }
+      if (allocateSearchText.trim()) {
+        const q = allocateSearchText.trim().toLowerCase();
+        const bNo = (s.batchNo || '').toLowerCase();
+        const code = (s.fgItemCode || '').toLowerCase();
+        const name = (s.fgItemName || '').toLowerCase();
+        const dt = (s.entryDate || '').toLowerCase();
+        return bNo.includes(q) || code.includes(q) || name.includes(q) || dt.includes(q);
+      }
+      return true;
+    });
+
+    const selectedBatches = safetyStockLogs.filter((s) => allocateSelectedBatchIds.includes(s.id));
+    const totalSelectedCartons = selectedBatches.reduce(
+      (acc, s) => acc + (allocateBatchCartonOverrides[s.id] ?? s.cartons ?? 0),
+      0
+    );
+    const totalSelectedGross = Math.round(totalSelectedCartons * 10 * 100) / 100;
+    const totalSelectedPcs = Math.round(totalSelectedCartons * 1440);
 
     const targetCustomerMatches = salesOrders.filter((so) => {
       if (!allocateTargetCustomer) return false;
@@ -4601,9 +4695,20 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
       (so) => (so.orderNumber || so.order_number) === allocateTargetSoc
     );
 
+    const handleSelectAllFiltered = () => {
+      const filteredIds = filteredSafetyStockLogs.map((s) => s.id);
+      const combined = Array.from(new Set([...allocateSelectedBatchIds, ...filteredIds]));
+      setAllocateSelectedBatchIds(combined);
+    };
+
+    const handleClearSelection = () => {
+      setAllocateSelectedBatchIds([]);
+      setAllocateBatchCartonOverrides({});
+    };
+
     const handleExecuteAllocate = async () => {
-      if (!allocateSourceBatch) {
-        message.error('Please select a source Safety Stock batch to allocate.');
+      if (selectedBatches.length === 0) {
+        message.error('Please select at least one Safety Stock batch to allocate.');
         return;
       }
       if (!allocateTargetCustomer) {
@@ -4614,69 +4719,92 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         message.error('Please select the Target SOC #.');
         return;
       }
-      if (!allocateCartons || allocateCartons <= 0) {
+      if (totalSelectedCartons <= 0) {
         message.warning('Please enter valid Cartons to allocate.');
         return;
       }
 
       setAllocating(true);
       try {
-        const entryId = allocateSourceBatch.id;
+        const shiftDateFormatted = dayjs(allocateDate).isValid()
+          ? dayjs(allocateDate).format('YYYY-MM-DD')
+          : dayjs().format('YYYY-MM-DD');
 
-        if (allocateSourceBatch.isOpeningStock) {
-          const oldNotes = String(allocateSourceBatch.rawEntry?.notes || '');
-          let newNotes = oldNotes;
-          if (newNotes.includes('Customer:')) {
-            newNotes = newNotes
-              .replace(/Customer:\s*[^|\]]+/i, `Customer: ${allocateTargetCustomer}`)
-              .replace(/SOC:\s*[^|\]]+/i, `SOC: ${allocateTargetSoc}`)
-              .replace(/\[Customer:[^\]]+\]/i, `[Customer: ${allocateTargetCustomer}]`)
-              .replace(/\[SOC:[^\]]+\]/i, `[SOC: ${allocateTargetSoc}]`);
-          } else {
-            newNotes = `Customer: ${allocateTargetCustomer} | SOC: ${allocateTargetSoc} | ${newNotes}`;
-          }
-          newNotes += ` | Allocated from Safety Stock to ${allocateTargetCustomer} (${allocateTargetSoc}) on ${dayjs().format('YYYY-MM-DD HH:mm')}`;
+        for (const batch of selectedBatches) {
+          const entryId = batch.id;
+          const shiftCartons = allocateBatchCartonOverrides[batch.id] ?? batch.cartons ?? 1;
+          const shiftGross = Math.round((shiftCartons * 10) * 100) / 100;
+          const shiftPcs = Math.round(shiftCartons * (batch.pcs / (batch.cartons || 1) || 1440));
+          const shiftWeightKg = Math.round(
+            (batch.weightKg ? (shiftCartons / (batch.cartons || 1)) * batch.weightKg : shiftCartons * 18.936) * 10
+          ) / 10;
 
-          await apiService.patch(`/production/open-stock/history/${entryId}`, {
-            notes: newNotes,
-          }).catch(async () => {
-            await apiService.put(`/production/open-stock/history/${entryId}`, {
+          if (batch.isOpeningStock) {
+            const oldNotes = String(batch.rawEntry?.notes || '');
+            let newNotes = oldNotes;
+            if (newNotes.includes('Customer:')) {
+              newNotes = newNotes
+                .replace(/Customer:\s*[^|\]]+/i, `Customer: ${allocateTargetCustomer}`)
+                .replace(/SOC:\s*[^|\]]+/i, `SOC: ${allocateTargetSoc}`)
+                .replace(/\[Customer:[^\]]+\]/i, `[Customer: ${allocateTargetCustomer}]`)
+                .replace(/\[SOC:[^\]]+\]/i, `[SOC: ${allocateTargetSoc}]`);
+            } else {
+              newNotes = `Customer: ${allocateTargetCustomer} | SOC: ${allocateTargetSoc} | ${newNotes}`;
+            }
+            newNotes += ` | [SHIFTED FROM SAFETY STOCK on ${shiftDateFormatted}] to ${allocateTargetCustomer} (${allocateTargetSoc}) (${shiftCartons} CTN / ${shiftGross} GRS)`;
+
+            await apiService.patch(`/production/open-stock/history/${entryId}`, {
               notes: newNotes,
-            });
-          });
-        } else {
-          const newRemarks = `[HAND PACKING] Batch: ${allocateSourceBatch.batchNo} | Customer: ${allocateTargetCustomer} | SOC: ${allocateTargetSoc} | Style: ${allocateSourceBatch.packagingStyle || 'OEM Packing'} | Cartons: ${allocateCartons} (${allocateSourceBatch.gross} Gross / ${allocateSourceBatch.pcs} PCS) | Allocated from Safety Stock on ${dayjs().format('YYYY-MM-DD HH:mm')}`;
-
-          if (entryId && entryId.length === 36) {
-            await apiService.put(`/production/entries/${entryId}`, {
-              remarks: newRemarks,
+              transactionDate: shiftDateFormatted,
             }).catch(async () => {
-              await apiService.patch(`/production/entries/${entryId}`, {
-                remarks: newRemarks,
+              await apiService.put(`/production/open-stock/history/${entryId}`, {
+                notes: newNotes,
+                transactionDate: shiftDateFormatted,
               });
             });
+          } else {
+            const newRemarks = `[HAND PACKING] Batch: ${batch.batchNo} | Customer: ${allocateTargetCustomer} | SOC: ${allocateTargetSoc} | Style: ${batch.packagingStyle || 'OEM Packing'} | Cartons: ${shiftCartons} (${shiftGross} Gross / ${shiftPcs} PCS) | Weight: ${shiftWeightKg} KG | [SHIFTED FROM SAFETY STOCK on ${shiftDateFormatted}] | Allocated from Safety Stock (Orig. Packed: ${batch.entryDate})`;
+
+            if (entryId && entryId.length === 36) {
+              await apiService.put(`/production/entries/${entryId}`, {
+                entryDate: shiftDateFormatted,
+                productionDate: shiftDateFormatted,
+                remarks: newRemarks,
+              }).catch(async () => {
+                await apiService.patch(`/production/entries/${entryId}`, {
+                  entryDate: shiftDateFormatted,
+                  productionDate: shiftDateFormatted,
+                  remarks: newRemarks,
+                });
+              });
+            }
           }
         }
 
-        // Update local register state
+        // Update local register state immediately
+        const shiftDisplayDate = dayjs(shiftDateFormatted).format('DD/MM/YYYY');
         setRecentSavedEntries((prev) =>
-          prev.map((r) =>
-            r.id === allocateSourceBatch.id || r.batchNo === allocateSourceBatch.batchNo
-              ? {
-                  ...r,
-                  customerName: allocateTargetCustomer,
-                  socNo: allocateTargetSoc,
-                  allocatedFromSafetyStock: true,
-                }
-              : r
-          )
+          prev.map((r) => {
+            const isMatch = selectedBatches.some((sb) => sb.id === r.id || sb.batchNo === r.batchNo);
+            if (!isMatch) return r;
+            const shiftCartons = allocateBatchCartonOverrides[r.id] ?? r.cartons;
+            return {
+              ...r,
+              entryDate: shiftDisplayDate,
+              customerName: allocateTargetCustomer,
+              socNo: allocateTargetSoc,
+              cartons: shiftCartons,
+              allocatedFromSafetyStock: true,
+            };
+          })
         );
 
         message.success(
-          `Successfully allocated ${allocateCartons} Cartons (${allocateSourceBatch.fgItemCode}) to ${allocateTargetCustomer} (SOC: ${allocateTargetSoc})!`
+          `Successfully allocated ${totalSelectedCartons} Cartons (${selectedBatches.length} batches) to ${allocateTargetCustomer} (SOC: ${allocateTargetSoc}) recorded on ${dayjs(shiftDateFormatted).format('DD-MMM-YYYY')}!`
         );
         setAllocateModalVisible(false);
-        setAllocateSourceBatch(null);
+        setAllocateSelectedBatchIds([]);
+        setAllocateBatchCartonOverrides({});
         setAllocateTargetCustomer('');
         setAllocateTargetSoc('');
         loadRecentEntries();
@@ -4688,172 +4816,349 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
       }
     };
 
+    const safetyBatchColumns = [
+      {
+        title: <span style={{ fontWeight: 800 }}>Batch #</span>,
+        dataIndex: 'batchNo',
+        key: 'batchNo',
+        width: 150,
+        render: (bNo: string, r: RecentPackingLog) => (
+          <div>
+            <Tag color={r.isOpeningStock ? 'gold' : 'purple'} style={{ fontWeight: 800, fontFamily: 'monospace' }}>
+              {bNo}
+            </Tag>
+            <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', marginTop: 2 }}>
+              Packed: {r.entryDate || '—'}
+            </div>
+          </div>
+        ),
+      },
+      {
+        title: <span style={{ fontWeight: 800 }}>Finished Good Item</span>,
+        key: 'fgItem',
+        render: (_: any, r: RecentPackingLog) => (
+          <div>
+            <strong style={{ color: '#0284c7', fontSize: 12.5 }}>{r.fgItemCode || 'FG-ITEM'}</strong>
+            <div style={{ fontSize: 11.5, color: 'var(--theme-text, #334155)', fontWeight: 600 }}>
+              {r.fgItemName || 'Spoke Assembly'}
+            </div>
+          </div>
+        ),
+      },
+      {
+        title: <span style={{ fontWeight: 800 }}>Available Stock</span>,
+        key: 'available',
+        width: 160,
+        render: (_: any, r: RecentPackingLog) => (
+          <div>
+            <Tag color="cyan" style={{ fontWeight: 800, fontSize: 12 }}>
+              {r.cartons} CTN
+            </Tag>
+            <span style={{ fontSize: 11, color: 'var(--theme-text-muted, #64748b)' }}>
+              ({formatNumber(r.pcs, 0)} PCS / {r.gross} GRS)
+            </span>
+          </div>
+        ),
+      },
+      {
+        title: <span style={{ fontWeight: 800 }}>Cartons to Shift</span>,
+        key: 'shiftCartons',
+        width: 130,
+        render: (_: any, r: RecentPackingLog) => {
+          const isSelected = allocateSelectedBatchIds.includes(r.id);
+          const currentVal = allocateBatchCartonOverrides[r.id] ?? r.cartons;
+          return (
+            <InputNumber
+              min={1}
+              max={r.cartons || 9999}
+              disabled={!isSelected}
+              value={currentVal}
+              onChange={(val) => {
+                setAllocateBatchCartonOverrides((prev) => ({
+                  ...prev,
+                  [r.id]: Number(val) || 1,
+                }));
+              }}
+              style={{
+                width: '100%',
+                fontWeight: 800,
+                borderColor: isSelected ? '#8b5cf6' : undefined,
+              }}
+            />
+          );
+        },
+      },
+    ];
+
     return (
       <Modal
         open={allocateModalVisible}
         zIndex={1500}
         onCancel={() => !allocating && setAllocateModalVisible(false)}
         footer={null}
-        width={620}
+        width={840}
         title={
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <SwapOutlined style={{ color: '#8b5cf6', fontSize: 20 }} />
-            <span style={{ fontSize: 16, fontWeight: 800 }}>
-              Move / Allocate Safety Stock to Customer SOC Order
-            </span>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingRight: 24 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <SwapOutlined style={{ color: '#8b5cf6', fontSize: 22 }} />
+              <div>
+                <span style={{ fontSize: 16, fontWeight: 800 }}>
+                  Move / Allocate Safety Stock to Customer SOC Order
+                </span>
+                <Tag color="purple" style={{ marginLeft: 8, fontWeight: 700 }}>
+                  Bulk Multi-Batch Allocation
+                </Tag>
+              </div>
+            </div>
+            {safetyStockLogs.length > 0 && (
+              <Tag color="gold" style={{ fontWeight: 700 }}>
+                {safetyStockLogs.length} Total Safety Batches Available
+              </Tag>
+            )}
           </div>
         }
       >
-        <div style={{ padding: '8px 0' }}>
+        <div style={{ padding: '4px 0' }}>
           <Alert
-            message="Safety Stock Transfer & Order Allocation"
-            description="Assign previously packed buffer/safety stock directly to a customer's confirmed SOC order without having to re-pack."
+            message="Safety Stock Transfer & Packing Report Allocation"
+            description="Select multiple safety stock batches packed on different dates to shift them together directly to a customer's confirmed SOC order. This transfer will be recorded on the Packing Register and Daily Report under the chosen shift date."
             type="info"
             showIcon
-            style={{ marginBottom: 16 }}
+            style={{ marginBottom: 14 }}
           />
 
-          <Row gutter={[16, 14]}>
-            {/* Step 1: Select Safety Stock Source */}
-            <Col span={24}>
-              <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--theme-text-muted, #94a3b8)', marginBottom: 4, display: 'block' }}>
-                1. Select Available Safety Stock Batch:
-              </span>
-              <Select
-                placeholder={safetyStockLogs.length === 0 ? "No Safety Stock batches found in recent register" : "Select Safety Stock Batch..."}
-                style={{ width: '100%', fontWeight: 700 }}
-                value={allocateSourceBatch?.id || undefined}
-                onChange={(val) => {
-                  const b = safetyStockLogs.find((s) => s.id === val);
-                  setAllocateSourceBatch(b || null);
-                  if (b) setAllocateCartons(b.cartons || 1);
-                }}
-                options={safetyStockLogs.map((s) => ({
-                  value: s.id,
-                  label: `[${s.batchNo}] ${s.fgItemCode} (${s.fgItemName}) — ${s.cartons} Cartons (${s.entryDate})`,
-                }))}
-              />
-            </Col>
+          {/* STEP 1: SAFETY STOCK BATCHES SELECTION TABLE */}
+          <div style={{ background: 'var(--theme-card-bg, #ffffff)', border: '1px solid var(--theme-border, #e2e8f0)', borderRadius: 8, padding: 12, marginBottom: 14 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
+              <div>
+                <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--theme-heading, #0f172a)' }}>
+                  1. Select Safety Stock Batches (Multi-Batch Selection):
+                </span>
+              </div>
+              <Space size={6}>
+                <Button size="small" type="primary" ghost onClick={handleSelectAllFiltered} style={{ fontWeight: 700 }}>
+                  Select All Filtered
+                </Button>
+                {allocateSelectedBatchIds.length > 0 && (
+                  <Button size="small" onClick={handleClearSelection} style={{ fontWeight: 600 }}>
+                    Clear Selection ({allocateSelectedBatchIds.length})
+                  </Button>
+                )}
+              </Space>
+            </div>
 
-            {allocateSourceBatch && (
-              <Col span={24}>
-                <div style={{ background: 'rgba(234, 179, 8, 0.08)', border: '1px solid rgba(234, 179, 8, 0.25)', borderRadius: 6, padding: '8px 12px', fontSize: 12 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', color: '#eab308', fontWeight: 700 }}>
-                    <span>Source Batch: {allocateSourceBatch.batchNo}</span>
-                    <span>Available: {allocateSourceBatch.cartons} Cartons ({formatNumber(allocateSourceBatch.pcs, 0)} PCS)</span>
-                  </div>
-                  <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 2 }}>
-                    Item: {allocateSourceBatch.fgItemCode} — {allocateSourceBatch.fgItemName}
-                  </div>
-                </div>
+            {/* Quick Filters for Batches */}
+            <Row gutter={[10, 8]} style={{ marginBottom: 10 }}>
+              <Col xs={24} sm={14}>
+                <Input
+                  prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
+                  placeholder="Filter by Batch #, FG Item code, or description (e.g. S9)..."
+                  value={allocateSearchText}
+                  onChange={(e) => setAllocateSearchText(e.target.value)}
+                  allowClear
+                  style={{ borderRadius: 6 }}
+                />
               </Col>
-            )}
-
-            {/* Step 2: Target Customer */}
-            <Col xs={24} sm={12}>
-              <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--theme-text-muted, #94a3b8)', marginBottom: 4, display: 'block' }}>
-                2. Target Customer:
-              </span>
-              <Select
-                showSearch
-                optionFilterProp="label"
-                placeholder="Select Target Customer..."
-                style={{ width: '100%', fontWeight: 700 }}
-                value={allocateTargetCustomer || undefined}
-                onChange={(cust) => {
-                  setAllocateTargetCustomer(cust);
-                  const matches = salesOrders.filter((so) => {
-                    const custClean = String(cust).toLowerCase().trim();
-                    const cName = String(so.customer?.companyName || so.customer?.name || '').toLowerCase().trim();
-                    const cCode = String(so.customer?.customerCode || '').toLowerCase().trim();
-                    return cName.includes(custClean) || custClean.includes(cName) || (cCode && custClean.includes(cCode));
-                  });
-                  if (matches.length === 1) {
-                    setAllocateTargetSoc(matches[0].orderNumber || matches[0].order_number);
-                  } else {
-                    setAllocateTargetSoc('');
-                  }
-                }}
-                options={customers.map((c) => ({
-                  value: String(c.name || c.companyName),
-                  label: `${c.name || c.companyName}${c.customerCode ? ` (${c.customerCode})` : ''}`,
-                }))}
-              />
-            </Col>
-
-            {/* Step 3: Target SOC # */}
-            <Col xs={24} sm={12}>
-              <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--theme-text-muted, #94a3b8)', marginBottom: 4, display: 'block' }}>
-                3. Target SOC #:
-              </span>
-              {targetCustomerMatches.length > 0 ? (
+              <Col xs={24} sm={10}>
                 <Select
-                  placeholder="Select SOC #"
                   style={{ width: '100%', fontWeight: 700 }}
-                  value={allocateTargetSoc || undefined}
-                  onChange={(val) => setAllocateTargetSoc(val)}
-                  options={targetCustomerMatches.map((so) => ({
-                    value: so.orderNumber || so.order_number,
-                    label: `${so.orderNumber || so.order_number} (${so.status || 'Active'})`,
+                  value={allocateFilterItemCode}
+                  onChange={(val) => setAllocateFilterItemCode(val)}
+                  options={[
+                    { value: 'ALL', label: `All Items (${safetyStockLogs.length} Batches)` },
+                    ...safetyStockItems.map((it) => ({
+                      value: it.code,
+                      label: `${it.code} (${it.name.split('__')[0].slice(0, 32)})`,
+                    })),
+                  ]}
+                />
+              </Col>
+            </Row>
+
+            {/* Batches Table with Checkboxes */}
+            <Table
+              dataSource={filteredSafetyStockLogs}
+              rowKey="id"
+              size="small"
+              bordered
+              pagination={filteredSafetyStockLogs.length > 5 ? { pageSize: 5, size: 'small' } : false}
+              columns={safetyBatchColumns}
+              locale={{ emptyText: 'No matching safety stock batches found.' }}
+              rowSelection={{
+                type: 'checkbox',
+                selectedRowKeys: allocateSelectedBatchIds,
+                onChange: (keys) => setAllocateSelectedBatchIds(keys as string[]),
+              }}
+              rowClassName={(record) =>
+                allocateSelectedBatchIds.includes(record.id) ? 'ant-table-row-selected' : ''
+              }
+            />
+
+            {/* Selection Summary Pill */}
+            {selectedBatches.length > 0 && (
+              <div
+                style={{
+                  marginTop: 10,
+                  background: 'rgba(124, 58, 237, 0.08)',
+                  border: '1px solid rgba(124, 58, 237, 0.25)',
+                  borderRadius: 6,
+                  padding: '8px 14px',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                }}
+              >
+                <div style={{ color: '#7c3aed', fontWeight: 800, fontSize: 13 }}>
+                  <span>✓ {selectedBatches.length} Batch(es) Selected</span>
+                  <span style={{ margin: '0 8px', color: '#cbd5e1' }}>|</span>
+                  <span>Total to Shift: {totalSelectedCartons} Cartons ({totalSelectedGross} Gross / {formatNumber(totalSelectedPcs, 0)} PCS)</span>
+                </div>
+                <Tag color="purple" style={{ fontWeight: 800 }}>
+                  Ready to Transfer
+                </Tag>
+              </div>
+            )}
+          </div>
+
+          {/* STEP 2: TARGET CUSTOMER, TARGET SOC & PACKING REPORT DATE */}
+          <div style={{ background: 'var(--theme-card-bg, #ffffff)', border: '1px solid var(--theme-border, #e2e8f0)', borderRadius: 8, padding: 12, marginBottom: 14 }}>
+            <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--theme-heading, #0f172a)', display: 'block', marginBottom: 10 }}>
+              2. Target Customer, SOC Order & Packing Report Date:
+            </span>
+
+            <Row gutter={[14, 12]}>
+              {/* Target Customer */}
+              <Col xs={24} sm={12}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--theme-text-muted, #94a3b8)', marginBottom: 4, display: 'block' }}>
+                  Target Customer:
+                </span>
+                <Select
+                  showSearch
+                  optionFilterProp="label"
+                  placeholder="Select Target Customer..."
+                  style={{ width: '100%', fontWeight: 700 }}
+                  value={allocateTargetCustomer || undefined}
+                  onChange={(cust) => {
+                    setAllocateTargetCustomer(cust);
+                    const matches = salesOrders.filter((so) => {
+                      const custClean = String(cust).toLowerCase().trim();
+                      const cName = String(so.customer?.companyName || so.customer?.name || '').toLowerCase().trim();
+                      const cCode = String(so.customer?.customerCode || '').toLowerCase().trim();
+                      return cName.includes(custClean) || custClean.includes(cName) || (cCode && custClean.includes(cCode));
+                    });
+                    if (matches.length === 1) {
+                      setAllocateTargetSoc(matches[0].orderNumber || matches[0].order_number);
+                    } else {
+                      setAllocateTargetSoc('');
+                    }
+                  }}
+                  options={customers.map((c) => ({
+                    value: String(c.companyName || c.name),
+                    label: `${c.companyName || c.name}${c.customerCode ? ` (${c.customerCode})` : ''}`,
                   }))}
                 />
-              ) : (
-                <Input
-                  placeholder="Type SOC # (e.g. 5818)"
-                  value={allocateTargetSoc}
-                  onChange={(e) => setAllocateTargetSoc(e.target.value)}
-                  style={{ fontWeight: 700, borderRadius: 6 }}
-                />
-              )}
-            </Col>
+              </Col>
 
-            {/* Active Order Item Requirements Info */}
-            {activeTargetOrder && activeTargetOrder.items && (
-              <Col span={24}>
-                <div style={{ background: 'rgba(56, 189, 248, 0.08)', border: '1px solid rgba(56, 189, 248, 0.25)', borderRadius: 6, padding: '8px 12px', fontSize: 12 }}>
-                  <div style={{ fontWeight: 700, color: '#38bdf8', marginBottom: 4 }}>
-                    Order {activeTargetOrder.orderNumber} Requirements:
-                  </div>
-                  {activeTargetOrder.items.map((it: any, i: number) => (
-                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', color: '#cbd5e1', fontSize: 11.5 }}>
-                      <span>• {it.item?.itemCode || 'FG'} ({it.item?.name || it.description})</span>
-                      <strong style={{ color: '#38bdf8' }}>{it.quantity} Cartons Ordered</strong>
+              {/* Target SOC # */}
+              <Col xs={24} sm={12}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--theme-text-muted, #94a3b8)', marginBottom: 4, display: 'block' }}>
+                  Target SOC #:
+                </span>
+                {targetCustomerMatches.length > 0 ? (
+                  <Select
+                    placeholder="Select SOC #"
+                    style={{ width: '100%', fontWeight: 700 }}
+                    value={allocateTargetSoc || undefined}
+                    onChange={(val) => setAllocateTargetSoc(val)}
+                    options={targetCustomerMatches.map((so) => ({
+                      value: so.orderNumber || so.order_number,
+                      label: `${so.orderNumber || so.order_number} (${so.status || 'Active'})`,
+                    }))}
+                  />
+                ) : (
+                  <Input
+                    placeholder="Type SOC # (e.g. 5818)"
+                    value={allocateTargetSoc}
+                    onChange={(e) => setAllocateTargetSoc(e.target.value)}
+                    style={{ fontWeight: 700, borderRadius: 6 }}
+                  />
+                )}
+              </Col>
+
+              {/* Shift Date for Packing Register & Daily Report */}
+              <Col xs={24} sm={24}>
+                <div style={{ background: 'rgba(16, 185, 129, 0.06)', border: '1px solid rgba(16, 185, 129, 0.25)', borderRadius: 6, padding: '8px 12px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                    <div>
+                      <span style={{ fontSize: 12, fontWeight: 800, color: '#059669', display: 'block' }}>
+                        📅 Shift Date (Packing Register & Daily Report Date):
+                      </span>
+                      <span style={{ fontSize: 11, color: '#64748b' }}>
+                        Shifted batches will be recorded under this date in the Packing Register and Daily Report.
+                      </span>
                     </div>
-                  ))}
+                    <DatePicker
+                      value={dayjs(allocateDate)}
+                      onChange={(d) => setAllocateDate(d ? d.format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD'))}
+                      style={{ fontWeight: 700, width: 160 }}
+                      allowClear={false}
+                    />
+                  </div>
                 </div>
               </Col>
-            )}
 
-            {/* Step 4: Cartons to Allocate */}
-            <Col span={24}>
-              <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--theme-text-muted, #94a3b8)', marginBottom: 4, display: 'block' }}>
-                4. Cartons to Allocate:
-              </span>
-              <InputNumber
-                min={1}
-                max={allocateSourceBatch?.cartons || 9999}
-                value={allocateCartons}
-                onChange={(val) => setAllocateCartons(Number(val) || 1)}
-                style={{ width: '100%', fontWeight: 800, fontSize: 14 }}
-              />
-            </Col>
-          </Row>
+              {/* Active Order Item Requirements Info */}
+              {activeTargetOrder && activeTargetOrder.items && (
+                <Col span={24}>
+                  <div style={{ background: 'rgba(56, 189, 248, 0.08)', border: '1px solid rgba(56, 189, 248, 0.25)', borderRadius: 6, padding: '8px 12px', fontSize: 12 }}>
+                    <div style={{ fontWeight: 700, color: '#38bdf8', marginBottom: 4 }}>
+                      Order {activeTargetOrder.orderNumber} Requirements:
+                    </div>
+                    {activeTargetOrder.items.map((it: any, i: number) => (
+                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', color: '#cbd5e1', fontSize: 11.5 }}>
+                        <span>• {it.item?.itemCode || 'FG'} ({it.item?.name || it.description})</span>
+                        <strong style={{ color: '#38bdf8' }}>{it.quantity} Cartons Ordered</strong>
+                      </div>
+                    ))}
+                  </div>
+                </Col>
+              )}
+            </Row>
+          </div>
 
-          <Divider style={{ margin: '16px 0', borderColor: 'var(--theme-border, #334155)' }} />
-
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
-            <Button onClick={() => setAllocateModalVisible(false)} disabled={allocating}>
-              Cancel
-            </Button>
-            <Button
-              type="primary"
-              loading={allocating}
-              onClick={handleExecuteAllocate}
-              icon={<SwapOutlined />}
-              style={{ background: '#7c3aed', borderColor: '#7c3aed', fontWeight: 700 }}
-            >
-              Confirm Allocation to Customer SOC
-            </Button>
+          {/* Action Footer Buttons */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16 }}>
+            <div style={{ fontSize: 12, color: 'var(--theme-text-muted, #94a3b8)' }}>
+              {selectedBatches.length > 0 ? (
+                <span>
+                  Shifting <strong style={{ color: '#7c3aed' }}>{totalSelectedCartons} Cartons</strong> ({selectedBatches.length} batches) to <strong>{allocateTargetCustomer || '—'}</strong>
+                </span>
+              ) : (
+                <span>Select at least one batch from the table above.</span>
+              )}
+            </div>
+            <Space size={10}>
+              <Button onClick={() => setAllocateModalVisible(false)} disabled={allocating}>
+                Cancel
+              </Button>
+              <Button
+                type="primary"
+                loading={allocating}
+                disabled={selectedBatches.length === 0 || !allocateTargetCustomer || !allocateTargetSoc}
+                onClick={handleExecuteAllocate}
+                icon={<SwapOutlined />}
+                style={{
+                  background: '#7c3aed',
+                  borderColor: '#7c3aed',
+                  fontWeight: 800,
+                  height: 38,
+                  padding: '0 20px',
+                  boxShadow: '0 2px 8px rgba(124, 58, 237, 0.3)',
+                }}
+              >
+                Confirm Allocation to Customer SOC ({totalSelectedCartons} Cartons)
+              </Button>
+            </Space>
           </div>
         </div>
       </Modal>
@@ -5498,8 +5803,8 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
               </Tag>
             )}
             {r.allocatedFromSafetyStock && (
-              <Tag color="purple" style={{ fontWeight: 700, fontSize: 10, padding: '0 4px', marginTop: 2 }}>
-                Allocated from Safety Stock
+              <Tag color="purple" style={{ fontWeight: 800, fontSize: 10.5, padding: '1px 6px', marginTop: 2, border: '1px solid #a855f7' }}>
+                ⚡ Shifted from Safety Stock
               </Tag>
             )}
             {r.packagingStyle && (

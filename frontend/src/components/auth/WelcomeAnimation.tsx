@@ -5,22 +5,76 @@ interface Props {
   onAnimationComplete: () => void;
 }
 
+/** A single brush stroke: reveals the phrase from `from` to `to` (0..1 of its width). */
+interface Stroke {
+  from: number;
+  to: number;
+  duration: number;
+}
+
 interface Line {
   text: string;
   cls: string;
-  duration: number;
   tag: 'h1' | 'h2' | 'span';
+  strokes: Stroke[];
 }
 
+/**
+ * Sequential handwriting script:
+ *   Stage 1 — "P"     Stage 2 — "PW"     Stage 3 — "PWI"
+ *   Stage 4 — "Welcome to Pakistan Wire & Industry" then "(Private) Limited"
+ * Strokes are real sub-phrases, so the pen pauses at natural letter/word breaks.
+ */
 const LINES: Line[] = [
-  { text: 'PWI', cls: 'pwi-line--primary', duration: 800, tag: 'h1' },
-  { text: 'Pakistan Wire & Industry', cls: 'pwi-line--company', duration: 1500, tag: 'h2' },
-  { text: '(Private) Limited', cls: 'pwi-line--sub', duration: 1000, tag: 'span' },
+  {
+    text: 'PWI',
+    cls: 'pwi-line--primary',
+    tag: 'h1',
+    strokes: [
+      { from: 0.0, to: 0.34, duration: 620 }, // P
+      { from: 0.34, to: 0.72, duration: 560 }, // PW
+      { from: 0.72, to: 1.0, duration: 460 }, // PWI
+    ],
+  },
+  {
+    text: 'Welcome to Pakistan Wire & Industry',
+    cls: 'pwi-line--company',
+    tag: 'h2',
+    strokes: [
+      { from: 0.0, to: 0.3, duration: 620 }, // "Welcome to "
+      { from: 0.3, to: 0.58, duration: 640 }, // "Pakistan "
+      { from: 0.58, to: 0.82, duration: 560 }, // "Wire & "
+      { from: 0.82, to: 1.0, duration: 480 }, // "Industry"
+    ],
+  },
+  {
+    text: '(Private) Limited',
+    cls: 'pwi-line--sub',
+    tag: 'span',
+    strokes: [
+      { from: 0.0, to: 0.62, duration: 520 },
+      { from: 0.62, to: 1.0, duration: 420 },
+    ],
+  },
 ];
 
-const LINE_PAUSE = 350; // brief lift after each phrase
+interface Seg extends Stroke {
+  line: number;
+}
+
+const SEGMENTS: Seg[] = LINES.reduce<Seg[]>((acc, l, li) => {
+  l.strokes.forEach((s) => acc.push({ line: li, ...s }));
+  return acc;
+}, []);
+
+const STROKE_PAUSE = 120; // micro lift between strokes of one phrase
+const LINE_PAUSE = 380; // pen lift between phrases
+const START_LEAD_MS = 220; // pen settles before the first stroke
 const MS_END = 400; // time before subtitle settles
 const START_FALLBACK_MS = 300;
+
+/** Smoothstep so the brush accelerates into and eases out of every stroke. */
+const ease = (t: number) => t * t * (3 - 2 * t);
 
 const WelcomeAnimation: React.FC<Props> = ({ reducedMotion, onAnimationComplete }) => {
   const rootRef = useRef<HTMLDivElement>(null);
@@ -58,7 +112,7 @@ const WelcomeAnimation: React.FC<Props> = ({ reducedMotion, onAnimationComplete 
       return;
     }
 
-    let current = -1;
+    let idx = 0;
     let start = 0;
     let raf = 0;
     let started = false;
@@ -77,7 +131,7 @@ const WelcomeAnimation: React.FC<Props> = ({ reducedMotion, onAnimationComplete 
       }
       if (start === 0) start = ts;
       const elapsed = ts - start;
-      if (current >= LINES.length) {
+      if (idx >= SEGMENTS.length) {
         cancelAnimationFrame(raf);
         setPen((p) => ({ ...p, visible: false }));
         setStage('subtitle');
@@ -85,22 +139,26 @@ const WelcomeAnimation: React.FC<Props> = ({ reducedMotion, onAnimationComplete 
         onAnimationComplete();
         return;
       }
-      if (current < 0) {
-        if (elapsed > 200) {
-          current = 0;
-          start = ts;
-        }
+      if (elapsed < START_LEAD_MS) {
         raf = requestAnimationFrame(step);
         return;
       }
-      const dur = LINES[current].duration;
-      const t = Math.min(1, elapsed / dur);
-      setProgress({ line: current, t });
-      positionPen(current, t);
-      if (elapsed >= dur + LINE_PAUSE) {
-        current++;
+      const seg = SEGMENTS[idx];
+      const raw = Math.min(1, (elapsed - START_LEAD_MS) / seg.duration);
+      const t = seg.from + (seg.to - seg.from) * ease(raw);
+      setProgress({ line: seg.line, t });
+      positionPen(seg.line, t);
+
+      const next = SEGMENTS[idx + 1];
+      const pause = next && next.line === seg.line ? STROKE_PAUSE : LINE_PAUSE;
+      if (elapsed - START_LEAD_MS >= seg.duration + pause) {
+        idx++;
         start = ts;
-        setProgress({ line: current, t: 0 });
+        if (idx < SEGMENTS.length) {
+          const n = SEGMENTS[idx];
+          if (n.line !== seg.line) setPen((p) => ({ ...p, visible: false }));
+          setProgress({ line: n.line, t: n.from });
+        }
       }
       raf = requestAnimationFrame(step);
     };
@@ -122,56 +180,44 @@ const WelcomeAnimation: React.FC<Props> = ({ reducedMotion, onAnimationComplete 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reducedMotion]);
 
+  // Hard reveal (clip-path) + soft brush edge (mask feather) in sync.
+  const revealStyle = (d: number): React.CSSProperties => {
+    const pct = d * 100;
+    const feather = d >= 1 ? 0 : 3;
+    const mask = `linear-gradient(90deg, #000 ${Math.max(0, pct - feather).toFixed(2)}%, transparent ${pct.toFixed(2)}%)`;
+    return {
+      clipPath: `inset(0 ${(100 - pct).toFixed(2)}% 0 0)`,
+      maskImage: mask,
+      WebkitMaskImage: mask,
+      maskRepeat: 'no-repeat',
+      WebkitMaskRepeat: 'no-repeat',
+    };
+  };
+
   return (
     <div className="erp-welcome-write" ref={rootRef}>
       <div className="pwi-phrases">
         {LINES.map((l, i) => {
-          const d = drawFor(i);
-          const style = { clipPath: `inset(0 ${(1 - d) * 100}% 0 0)` };
-
-          if (l.tag === 'h1') {
-            return (
-              <div className="pwi-phrase" key={l.text}>
-                <h1
-                  ref={(el) => {
-                    lineRefs.current[i] = el;
-                  }}
-                  className={`pwi-line ${l.cls}`}
-                  style={style}
-                >
-                  {l.text}
-                </h1>
-              </div>
-            );
-          }
-
-          if (l.tag === 'h2') {
-            return (
-              <div className="pwi-phrase" key={l.text}>
-                <h2
-                  ref={(el) => {
-                    lineRefs.current[i] = el;
-                  }}
-                  className={`pwi-line ${l.cls}`}
-                  style={style}
-                >
-                  {l.text}
-                </h2>
-              </div>
-            );
-          }
+          const style = revealStyle(drawFor(i));
+          const refCb = (el: HTMLElement | null) => {
+            lineRefs.current[i] = el;
+          };
 
           return (
             <div className="pwi-phrase" key={l.text}>
-              <span
-                ref={(el) => {
-                  lineRefs.current[i] = el;
-                }}
-                className={`pwi-line ${l.cls}`}
-                style={style}
-              >
-                {l.text}
-              </span>
+              {l.tag === 'h1' ? (
+                <h1 ref={refCb} className={`pwi-line ${l.cls}`} style={style}>
+                  {l.text}
+                </h1>
+              ) : l.tag === 'h2' ? (
+                <h2 ref={refCb} className={`pwi-line ${l.cls}`} style={style}>
+                  {l.text}
+                </h2>
+              ) : (
+                <span ref={refCb} className={`pwi-line ${l.cls}`} style={style}>
+                  {l.text}
+                </span>
+              )}
             </div>
           );
         })}
