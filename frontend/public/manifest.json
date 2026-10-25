@@ -1,46 +1,51 @@
 {
+  "id": "/",
   "short_name": "PWI ERP",
   "name": "Pakistan Wire Industries (Pvt.) LTD - ERP & MRP",
+  "description": "Enterprise ERP & MRP System for Pakistan Wire Industries (Pvt.) LTD — Manufacturing, Inventory, Sales, Maintenance & Financial Command Center.",
+  "categories": ["business", "productivity", "utilities"],
   "icons": [
     {
-      "src": "logo-mark.png",
+      "src": "/logo-mark.png",
       "sizes": "64x64 32x32 24x24 16x16",
       "type": "image/png"
     },
     {
-      "src": "logo192.png",
+      "src": "/logo192.png",
       "type": "image/png",
       "sizes": "192x192",
       "purpose": "any"
     },
     {
-      "src": "logo192.png",
+      "src": "/logo192.png",
       "type": "image/png",
       "sizes": "192x192",
       "purpose": "maskable"
     },
     {
-      "src": "logo512.png",
+      "src": "/logo512.png",
       "type": "image/png",
       "sizes": "512x512",
       "purpose": "any"
     },
     {
-      "src": "logo512.png",
+      "src": "/logo512.png",
       "type": "image/png",
       "sizes": "512x512",
       "purpose": "maskable"
     },
     {
-      "src": "logo.png",
+      "src": "/logo.png",
       "type": "image/png",
       "sizes": "512x512",
       "purpose": "any maskable"
     }
   ],
-  "start_url": ".",
+  "start_url": "/",
+  "scope": "/",
   "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
   "theme_color": "#0d1022",
   "background_color": "#0a0c1a",
-  "orientation": "portrait"
+  "orientation": "any"
 }

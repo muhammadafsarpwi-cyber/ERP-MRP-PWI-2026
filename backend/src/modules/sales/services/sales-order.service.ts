@@ -337,24 +337,29 @@ export class SalesOrderService {
       linkedProductionOrders = [];
     }
 
+    const isOrderDelivered = String(order.status).trim().toLowerCase() === 'delivered' || String(order.status).trim().toLowerCase() === 'closed';
+
     // Compute item fulfillment breakdown
     const itemFulfillment = await Promise.all(
       (order.items || []).map(async (item) => {
         const ordered = Number(item.quantity) || 0;
+        const isItemDelivered = isOrderDelivered || String(item.status).trim().toLowerCase() === 'delivered';
 
         // Produced from matching production orders
         const matchingPOs = linkedProductionOrders.filter(
           (po) => po.salesOrderItemId === item.id || (po.productId === item.itemId && !po.salesOrderItemId),
         );
-        const produced = matchingPOs.reduce((acc, po) => acc + Number(po.completedQuantity || 0), 0);
+        let produced = matchingPOs.reduce((acc, po) => acc + Number(po.completedQuantity || 0), 0);
 
-        // Delivered from confirmed deliveries
-        const delivered = linkedDeliveries
+        // Delivered from confirmed deliveries or item shippedQuantity
+        let delivered = linkedDeliveries
           .filter((d) => d.status === 'DELIVERED' || d.status === 'CONFIRMED' || d.status === 'SHIPPED')
           .reduce((acc, d) => {
             const line = (d.lines || []).find((l: any) => l.itemId === item.itemId);
             return acc + (line ? Number(line.quantity) : 0);
           }, 0);
+
+        delivered = Math.max(delivered, Number(item.shippedQuantity) || 0);
 
         // Real FG stock available
         let availableStock = 0;
@@ -366,7 +371,23 @@ export class SalesOrderService {
           }
         }
 
-        const remainingDelivery = Math.max(0, ordered - delivered);
+        let remainingDelivery = Math.max(0, ordered - delivered);
+
+        // THE ULTIMATE RULE:
+        // If Order Status = Delivered (or item is marked Delivered), DELIVERED must equal ORDERED,
+        // PRODUCED must at least equal ORDERED, and REMAINING must automatically reduce to 0.
+        if (isItemDelivered) {
+          delivered = ordered;
+          produced = Math.max(produced, ordered);
+          availableStock = 0;
+          remainingDelivery = 0;
+        }
+
+        // Attach fulfillment values directly to the item row so parent and children detail rows match with zero discrepancy
+        (item as any).producedQuantity = produced;
+        (item as any).deliveredQuantity = delivered;
+        (item as any).availableStock = Math.max(0, availableStock);
+        (item as any).remainingDeliveryQuantity = remainingDelivery;
 
         return {
           orderItemId: item.id,
@@ -561,7 +582,18 @@ export class SalesOrderService {
     if (order.status !== 'Shipped') throw new BadRequestException('Can only deliver orders in Shipped status');
     order.status = 'Delivered';
     order.updatedBy = userId || null;
-    return this.repo.save(order);
+    const saved = await this.repo.save(order);
+
+    // Cascade delivered status and fulfilled quantities to all child item rows
+    if (order.items && order.items.length > 0) {
+      for (const it of order.items) {
+        it.status = 'Delivered';
+        it.shippedQuantity = it.quantity;
+        await this.itemRepo.save(it);
+      }
+    }
+
+    return saved;
   }
 
   async close(id: string, userId?: string, companyId?: string, allowedDivisionIds?: DivisionAccess): Promise<SalesOrder> {

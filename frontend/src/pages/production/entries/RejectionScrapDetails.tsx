@@ -2,14 +2,17 @@
  * RejectionScrapDetails.tsx — TAB B · "Rejection & Scrap Details"
  *
  * Rich Analytical Dashboard featuring:
- *   1. Executive KPI Summary Tiles (Produced KG, Scrap KG, Wastage %, Top Defect)
+ *   1. Executive KPI Summary Tiles (Produced KG, Part Reject KG, Process Scrap KG,
+ *      Total Scrap KG, Wastage %, Top Defect Reason)
  *   2. 4 Modern Visual Recharts:
- *      - Area Chart: Day-wise Scrap Trend (Timeline)
- *      - Donut Chart: Defect Reason Distribution
- *      - Horizontal Bar Chart: Department-wise Rejection (KG)
+ *      - Area Chart: Day-wise Scrap Trend (Produced vs Part Reject vs Process Scrap)
+ *      - Donut Chart: Clean Defect Reason Distribution
+ *      - Horizontal Stacked Bar Chart: Department-wise Rejection (KG)
+ *        (Part Reject [Rose] + Process Scrap [Sky Blue] = Total Rejection)
  *      - Bar Chart: Top Item-wise Rejection
- *   3. Wastage Data Matrix (Machine/Product | Actual KG | Scrap KG | Defect Reason)
- *   4. Department Breakdown Summary Table
+ *   3. Wastage Data Matrix (Machine/Product | Dept | Produced KG | Part Reject KG |
+ *      Process Scrap KG | Total Scrap KG | Defect Reason)
+ *   4. Department Breakdown Summary Table with Part Reject and Process Scrap columns
  * ──────────────────────────────────────────────────────────────────────────── */
 
 import React, { useMemo } from 'react';
@@ -32,10 +35,8 @@ import {
   WarningOutlined,
   LineChartOutlined,
   PieChartOutlined,
-  BarChartOutlined,
   ApartmentOutlined,
   AppstoreOutlined,
-  TrophyOutlined,
 } from '@ant-design/icons';
 import { formatNumber } from '../../../utils/numberFormat';
 import type { ProductionEntryRow } from './EntryList';
@@ -52,7 +53,6 @@ import {
   unweightedEntryCount,
 } from './analyticsModel';
 import {
-  CHART_COLORS,
   ChartFrame,
   MetricTile,
   Panel,
@@ -72,7 +72,7 @@ export interface RejectionScrapDetailsProps {
 }
 
 /** Defect Donut Color Palette */
-const DEFECT_COLORS = ['#f97316', '#06b6d4', '#a855f7', '#10b981', '#ec4899', '#eab308', '#6366f1'];
+const DEFECT_COLORS = ['#f97316', '#06b6d4', '#a855f7', '#10b981', '#ec4899', '#eab308', '#6366f1', '#38bdf8', '#f43f5e'];
 
 /** Compact wrapping header cell. */
 const thHead: React.CSSProperties = {
@@ -138,7 +138,7 @@ const RejectionScrapDetails: React.FC<RejectionScrapDetailsProps> = ({ seed, bui
       />
       <SheetStatus text={status} />
 
-      {/* ── 4 Top Executive KPI Metrics ────────────────────────────────────── */}
+      {/* ── 5 Top Executive KPI Metrics ────────────────────────────────────── */}
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
         <MetricTile
           testId="scrap-produced"
@@ -147,25 +147,32 @@ const RejectionScrapDetails: React.FC<RejectionScrapDetailsProps> = ({ seed, bui
           hint={`${formatNumber(totals.entries, 0)} entries`}
         />
         <MetricTile
-          testId="scrap-rejected"
-          label="Scrap Weight (KG)"
-          value={`${kgFixed(totals.scrapKg)} KG`}
-          tone={totals.scrapKg > 0 ? 'var(--theme-danger, #ef4444)' : undefined}
-          hint={`${formatNumber(matrix.length, 0)} machine / product pairs`}
+          testId="part-reject"
+          label="Part Reject (پارٹ ریجیکٹ)"
+          value={`${kgFixed(totals.partRejectKg)} KG`}
+          tone={totals.partRejectKg > 0 ? '#f43f5e' : undefined}
+          hint="Product Rejection Pieces"
         />
         <MetricTile
-          testId="scrap-wastage"
-          label="Rejection Rate"
-          value={`${formatNumber(totals.wastagePct, 2)}%`}
-          tone={totals.wastagePct > 0 ? 'var(--theme-warning, #f59e0b)' : undefined}
-          hint="Rejected KG ÷ Actual KG"
+          testId="process-scrap"
+          label="Process Scrap (اسکریپ)"
+          value={`${kgFixed(totals.processScrapKg)} KG`}
+          tone={totals.processScrapKg > 0 ? '#0ea5e9' : undefined}
+          hint="Cutting, Wire & Packing Waste"
+        />
+        <MetricTile
+          testId="scrap-rejected"
+          label="Total Rejection (KG)"
+          value={`${kgFixed(totals.scrapKg)} KG`}
+          tone={totals.scrapKg > 0 ? 'var(--theme-danger, #ef4444)' : undefined}
+          hint={`${formatNumber(totals.wastagePct, 2)}% Overall Wastage`}
         />
         <MetricTile
           testId="scrap-top-defect"
-          label="Top Defect Type"
+          label="Top Defect Reason"
           value={topDefect ? topDefect.reason : 'None'}
           tone="#a855f7"
-          hint={topDefect ? `${topDefect.pct}% of scrap (${kgFixed(topDefect.scrapKg)} KG)` : (unweighted > 0 ? `${unweighted} rows excluded` : 'Zero defect recorded')}
+          hint={topDefect ? `${topDefect.pct}% of total scrap (${kgFixed(topDefect.scrapKg)} KG)` : (unweighted > 0 ? `${unweighted} rows excluded` : 'Zero defect recorded')}
         />
       </div>
 
@@ -197,13 +204,17 @@ const RejectionScrapDetails: React.FC<RejectionScrapDetailsProps> = ({ seed, bui
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={series} margin={{ top: 10, right: 12, left: -10, bottom: 0 }}>
                     <defs>
-                      <linearGradient id="scrapGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#f97316" stopOpacity={0.4} />
-                        <stop offset="95%" stopColor="#f97316" stopOpacity={0.0} />
-                      </linearGradient>
                       <linearGradient id="producedGradient" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.25} />
                         <stop offset="95%" stopColor="#06b6d4" stopOpacity={0.0} />
+                      </linearGradient>
+                      <linearGradient id="partGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#f43f5e" stopOpacity={0.35} />
+                        <stop offset="95%" stopColor="#f43f5e" stopOpacity={0.0} />
+                      </linearGradient>
+                      <linearGradient id="processGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#0ea5e9" stopOpacity={0.35} />
+                        <stop offset="95%" stopColor="#0ea5e9" stopOpacity={0.0} />
                       </linearGradient>
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--theme-border, rgba(255,255,255,0.08))" vertical={false} />
@@ -218,6 +229,7 @@ const RejectionScrapDetails: React.FC<RejectionScrapDetailsProps> = ({ seed, bui
                       stroke="var(--theme-border, #cbd5e1)"
                     />
                     <ChartTooltip
+                      formatter={(val: unknown, name: unknown) => [`${kgFixed(Number(val))} KG`, String(name)]}
                       contentStyle={{
                         background: 'var(--theme-surface, #1e293b)',
                         borderColor: 'var(--theme-border, #334155)',
@@ -235,11 +247,19 @@ const RejectionScrapDetails: React.FC<RejectionScrapDetailsProps> = ({ seed, bui
                     />
                     <Area
                       type="monotone"
-                      dataKey="scrapKg"
-                      name="Rejected Scrap (KG)"
-                      stroke="#f97316"
-                      strokeWidth={2.5}
-                      fill="url(#scrapGradient)"
+                      dataKey="partRejectKg"
+                      name="Part Reject (KG)"
+                      stroke="#f43f5e"
+                      strokeWidth={2}
+                      fill="url(#partGradient)"
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="processScrapKg"
+                      name="Process Scrap (KG)"
+                      stroke="#0ea5e9"
+                      strokeWidth={2}
+                      fill="url(#processGradient)"
                     />
                   </AreaChart>
                 </ResponsiveContainer>
@@ -247,11 +267,15 @@ const RejectionScrapDetails: React.FC<RejectionScrapDetailsProps> = ({ seed, bui
               <div style={{ display: 'flex', gap: 14, fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', marginTop: 6, flexWrap: 'wrap' }}>
                 <span>
                   <span style={{ display: 'inline-block', width: 9, height: 9, borderRadius: 2, background: '#06b6d4', marginRight: 5 }} />
-                  Actual Produced (KG)
+                  Actual Produced
                 </span>
                 <span>
-                  <span style={{ display: 'inline-block', width: 9, height: 9, borderRadius: 2, background: '#f97316', marginRight: 5 }} />
-                  Rejected Scrap (KG)
+                  <span style={{ display: 'inline-block', width: 9, height: 9, borderRadius: 2, background: '#f43f5e', marginRight: 5 }} />
+                  Part Reject (پارٹ ریجیکٹ)
+                </span>
+                <span>
+                  <span style={{ display: 'inline-block', width: 9, height: 9, borderRadius: 2, background: '#0ea5e9', marginRight: 5 }} />
+                  Process Scrap (اسکریپ)
                 </span>
               </div>
             </>
@@ -299,7 +323,7 @@ const RejectionScrapDetails: React.FC<RejectionScrapDetailsProps> = ({ seed, bui
                 </ResponsiveContainer>
               </ChartFrame>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
-                {defectDist.slice(0, 5).map((d, i) => (
+                {defectDist.slice(0, 6).map((d, i) => (
                   <Tag
                     key={d.reason}
                     style={{
@@ -323,12 +347,24 @@ const RejectionScrapDetails: React.FC<RejectionScrapDetailsProps> = ({ seed, bui
           )}
         </Panel>
 
-        {/* CHART 3: Department-wise Rejection (KG) (Horizontal Bar Chart) */}
+        {/* CHART 3: Department-wise Rejection (KG) (Stacked Horizontal Bar Chart) */}
         <Panel
           title={
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700 }}>
-              <ApartmentOutlined style={{ color: '#38bdf8' }} /> Department-wise Rejection (KG)
-            </span>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700 }}>
+                <ApartmentOutlined style={{ color: '#38bdf8' }} /> Department-wise Rejection (KG)
+              </span>
+              <div style={{ display: 'flex', gap: 10, fontSize: 11, fontWeight: 500 }}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: 2, background: '#f43f5e' }} />
+                  Part Reject
+                </span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: 2, background: '#0ea5e9' }} />
+                  Process Scrap
+                </span>
+              </div>
+            </div>
           }
           testId="scrap-dept-chart"
         >
@@ -354,7 +390,11 @@ const RejectionScrapDetails: React.FC<RejectionScrapDetailsProps> = ({ seed, bui
                     tick={{ fontSize: 11, fill: 'var(--theme-text, #f1f5f9)', fontWeight: 500 }}
                   />
                   <ChartTooltip
-                    formatter={(val: unknown) => [`${kgFixed(Number(val))} KG`, 'Scrap Weight']}
+                    formatter={(val: unknown, name: unknown, item: any) => {
+                      const payload = item?.payload || {};
+                      const label = name === 'partRejectKg' ? 'Part Reject' : (name === 'processScrapKg' ? 'Process Scrap' : String(name));
+                      return [`${kgFixed(Number(val))} KG (Total: ${kgFixed(payload.scrapKg || 0)} KG | ${formatNumber(payload.wastagePct || 0, 2)}%)`, label];
+                    }}
                     contentStyle={{
                       background: 'var(--theme-surface, #1e293b)',
                       borderColor: 'var(--theme-border, #334155)',
@@ -362,7 +402,8 @@ const RejectionScrapDetails: React.FC<RejectionScrapDetailsProps> = ({ seed, bui
                       fontSize: 12,
                     }}
                   />
-                  <Bar dataKey="scrapKg" name="Scrap (KG)" fill="#38bdf8" radius={[0, 6, 6, 0]} isAnimationActive={false} />
+                  <Bar dataKey="partRejectKg" name="Part Reject (KG)" stackId="scrap" fill="#f43f5e" isAnimationActive={false} />
+                  <Bar dataKey="processScrapKg" name="Process Scrap (KG)" stackId="scrap" fill="#0ea5e9" radius={[0, 6, 6, 0]} isAnimationActive={false} />
                 </BarChart>
               </ResponsiveContainer>
             </ChartFrame>
@@ -400,7 +441,11 @@ const RejectionScrapDetails: React.FC<RejectionScrapDetailsProps> = ({ seed, bui
                   />
                   <YAxis tick={{ fontSize: 10, fill: 'var(--theme-text-muted, #94a3b8)' }} />
                   <ChartTooltip
-                    formatter={(val: unknown) => [`${kgFixed(Number(val))} KG`, 'Scrap Weight']}
+                    formatter={(val: unknown, name: unknown, item: any) => {
+                      const payload = item?.payload || {};
+                      const label = name === 'partRejectKg' ? 'Part Reject' : (name === 'processScrapKg' ? 'Process Scrap' : 'Total Scrap');
+                      return [`${kgFixed(Number(val))} KG (Total: ${kgFixed(payload.scrapKg || 0)} KG)`, label];
+                    }}
                     contentStyle={{
                       background: 'var(--theme-surface, #1e293b)',
                       borderColor: 'var(--theme-border, #334155)',
@@ -408,7 +453,8 @@ const RejectionScrapDetails: React.FC<RejectionScrapDetailsProps> = ({ seed, bui
                       fontSize: 12,
                     }}
                   />
-                  <Bar dataKey="scrapKg" name="Scrap (KG)" fill="#ec4899" radius={[6, 6, 0, 0]} isAnimationActive={false} />
+                  <Bar dataKey="partRejectKg" name="Part Reject (KG)" stackId="itemScrap" fill="#f43f5e" isAnimationActive={false} />
+                  <Bar dataKey="processScrapKg" name="Process Scrap (KG)" stackId="itemScrap" fill="#0ea5e9" radius={[6, 6, 0, 0]} isAnimationActive={false} />
                 </BarChart>
               </ResponsiveContainer>
             </ChartFrame>
@@ -420,7 +466,7 @@ const RejectionScrapDetails: React.FC<RejectionScrapDetailsProps> = ({ seed, bui
       <Panel
         title={
           <span style={{ fontWeight: 700, fontSize: 13 }}>
-            Wastage Data Matrix
+            Wastage Data Matrix — Machine &amp; Product Breakdown
           </span>
         }
         testId="scrap-matrix"
@@ -429,16 +475,19 @@ const RejectionScrapDetails: React.FC<RejectionScrapDetailsProps> = ({ seed, bui
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, tableLayout: 'fixed' }}>
             <thead>
               <tr>
-                <th style={{ ...thHead, textAlign: 'left', width: '28%' }}>Machine / Product</th>
-                <th style={{ ...thHead, textAlign: 'right', width: '24%' }}>Total Actual Quantity Produced (KG)</th>
-                <th style={{ ...thHead, textAlign: 'right', width: '22%' }}>Total Rejected Scrap (KG)</th>
-                <th style={{ ...thHead, textAlign: 'left', width: '26%' }}>Wastage Defect Reason Code</th>
+                <th style={{ ...thHead, textAlign: 'left', width: '22%' }}>Machine / Product</th>
+                <th style={{ ...thHead, textAlign: 'left', width: '13%' }}>Department</th>
+                <th style={{ ...thHead, textAlign: 'right', width: '13%' }}>Output (KG)</th>
+                <th style={{ ...thHead, textAlign: 'right', width: '13%', color: '#f43f5e' }}>Part Reject (KG)</th>
+                <th style={{ ...thHead, textAlign: 'right', width: '13%', color: '#0ea5e9' }}>Process Scrap (KG)</th>
+                <th style={{ ...thHead, textAlign: 'right', width: '13%' }}>Total Scrap (KG)</th>
+                <th style={{ ...thHead, textAlign: 'left', width: '13%' }}>Defect Reason</th>
               </tr>
             </thead>
             <tbody>
               {matrix.length === 0 ? (
                 <tr>
-                  <td colSpan={4} style={{ ...labelCellStyle, color: 'var(--theme-text-muted, #94a3b8)', padding: '16px 8px', textAlign: 'center' }}>
+                  <td colSpan={7} style={{ ...labelCellStyle, color: 'var(--theme-text-muted, #94a3b8)', padding: '16px 8px', textAlign: 'center' }}>
                     No production records found for the selected filter.
                   </td>
                 </tr>
@@ -449,12 +498,22 @@ const RejectionScrapDetails: React.FC<RejectionScrapDetailsProps> = ({ seed, bui
                       <b style={{ color: 'var(--theme-text, #f1f5f9)' }}>{m.machine}</b>
                       <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)' }}>{m.product}</div>
                     </td>
+                    <td style={labelCellStyle}>
+                      <Tag color="cyan" style={{ fontSize: 10.5, margin: 0 }}>{m.department}</Tag>
+                    </td>
                     <td style={{ ...numCellStyle, textAlign: 'right' }}>{kgFixed(m.actualKg)}</td>
+                    <td style={{ ...numCellStyle, textAlign: 'right', color: m.partRejectKg > 0 ? '#f43f5e' : 'var(--theme-text-muted, #94a3b8)', fontWeight: m.partRejectKg > 0 ? 600 : 400 }}>
+                      {kgFixed(m.partRejectKg)}
+                    </td>
+                    <td style={{ ...numCellStyle, textAlign: 'right', color: m.processScrapKg > 0 ? '#0ea5e9' : 'var(--theme-text-muted, #94a3b8)', fontWeight: m.processScrapKg > 0 ? 600 : 400 }}>
+                      {kgFixed(m.processScrapKg)}
+                    </td>
                     <td
                       style={{
                         ...numCellStyle,
                         textAlign: 'right',
                         color: m.scrapKg > 0 ? 'var(--theme-danger, #ef4444)' : 'var(--theme-text-muted, #94a3b8)',
+                        fontWeight: 700,
                       }}
                     >
                       {kgFixed(m.scrapKg)}
@@ -496,13 +555,13 @@ const RejectionScrapDetails: React.FC<RejectionScrapDetailsProps> = ({ seed, bui
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
             <thead>
               <tr>
-                {['Department', 'Entries', 'Produced KG', 'Scrap KG', 'Wastage Rate', 'Downtime'].map((h, i) => (
+                {['Department', 'Entries', 'Produced KG', 'Part Reject (KG)', 'Process Scrap (KG)', 'Total Scrap (KG)', 'Wastage Rate', 'Downtime'].map((h, i) => (
                   <th
                     key={h}
                     style={{
                       ...(i >= 1 ? numCellStyle : labelCellStyle),
                       textAlign: i >= 1 ? 'right' : 'left',
-                      color: 'var(--theme-text-muted, #94a3b8)',
+                      color: i === 3 ? '#f43f5e' : (i === 4 ? '#0ea5e9' : 'var(--theme-text-muted, #94a3b8)'),
                       fontSize: 10.5,
                       textTransform: 'uppercase',
                       letterSpacing: '0.05em',
@@ -517,7 +576,7 @@ const RejectionScrapDetails: React.FC<RejectionScrapDetailsProps> = ({ seed, bui
             <tbody>
               {byDepartment.length === 0 ? (
                 <tr>
-                  <td colSpan={6} style={{ ...labelCellStyle, color: 'var(--theme-text-muted, #94a3b8)', padding: '16px 8px', textAlign: 'center' }}>
+                  <td colSpan={8} style={{ ...labelCellStyle, color: 'var(--theme-text-muted, #94a3b8)', padding: '16px 8px', textAlign: 'center' }}>
                     No department produced anything in this period.
                   </td>
                 </tr>
@@ -539,10 +598,17 @@ const RejectionScrapDetails: React.FC<RejectionScrapDetailsProps> = ({ seed, bui
                     </td>
                     <td style={{ ...numCellStyle, textAlign: 'right' }}>{formatNumber(d.entries, 0)}</td>
                     <td style={{ ...numCellStyle, textAlign: 'right' }}>{kgFixed(d.actualKg)}</td>
+                    <td style={{ ...numCellStyle, textAlign: 'right', color: d.partRejectKg > 0 ? '#f43f5e' : 'var(--theme-text-muted, #94a3b8)', fontWeight: d.partRejectKg > 0 ? 600 : 400 }}>
+                      {kgFixed(d.partRejectKg)}
+                    </td>
+                    <td style={{ ...numCellStyle, textAlign: 'right', color: d.processScrapKg > 0 ? '#0ea5e9' : 'var(--theme-text-muted, #94a3b8)', fontWeight: d.processScrapKg > 0 ? 600 : 400 }}>
+                      {kgFixed(d.processScrapKg)}
+                    </td>
                     <td
                       style={{
                         ...numCellStyle,
                         textAlign: 'right',
+                        fontWeight: 700,
                         color: d.scrapKg > 0 ? 'var(--theme-danger, #ef4444)' : 'var(--theme-text-muted, #94a3b8)',
                       }}
                     >

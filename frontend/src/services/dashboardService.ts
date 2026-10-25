@@ -68,6 +68,7 @@ export interface MachinePerformanceItem {
   id: string;
   machineCode: string;
   machineName: string;
+  machineNumber?: string;
   departmentName: string | null;
   status: string;
   criticality: string;
@@ -75,6 +76,7 @@ export interface MachinePerformanceItem {
   targetQuantity: number;
   actualQuantity: number;
   scrapQuantity: number;
+  processScrapKg?: number;
   runningHours: number;
   downtimeHours: number;
   avgAchievement: number;

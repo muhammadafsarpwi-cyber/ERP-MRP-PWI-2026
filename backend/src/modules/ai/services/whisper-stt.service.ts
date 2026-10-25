@@ -38,7 +38,6 @@ const MIME_EXTENSION: Record<string, string> = {
 @Injectable()
 export class WhisperSttService {
   private readonly logger = new Logger(WhisperSttService.name);
-  private readonly cfg = aiConfig(this.config).openai;
 
   /** Domain vocabulary fed to Whisper to bias decoding toward ERP terms. */
   private static readonly DOMAIN_PROMPT =
@@ -49,25 +48,41 @@ export class WhisperSttService {
 
   constructor(private readonly config: ConfigService) {}
 
+  private get cfg() {
+    return aiConfig(this.config).openai;
+  }
+
+  private isRealOpenAiKey(key?: string): boolean {
+    if (!key) return false;
+    const trimmed = key.trim();
+    if (!trimmed) return false;
+    if (/replace-with-your|your-openai-api-key|placeholder/i.test(trimmed)) return false;
+    return true;
+  }
+
   get enabled(): boolean {
-    return Boolean(this.cfg.apiKey);
+    return this.isRealOpenAiKey(this.cfg.apiKey) || Boolean(process.env.GEMINI_API_KEY);
   }
 
   /**
-   * Transcribe an audio buffer. Throws 503 when OPENAI_API_KEY is missing and
-   * 400 for oversized/empty payloads.
+   * Transcribe an audio buffer. Uses OpenAI Whisper (`whisper-1`) when
+   * `OPENAI_API_KEY` is configured, and falls back to Gemini multimodal STT if
+   * `GEMINI_API_KEY` is available.
    */
   async transcribe(
     audio: Buffer,
     options: { mimeType?: string; language?: string } = {},
   ): Promise<TranscribeResult> {
-    if (!this.cfg.apiKey) {
+    const openAiKey = (this.cfg.apiKey || process.env.OPENAI_API_KEY || '').trim();
+    const geminiKey = (this.config.get<string>('GEMINI_API_KEY') || process.env.GEMINI_API_KEY || '').trim();
+
+    if (!this.isRealOpenAiKey(openAiKey) && !geminiKey) {
       throw new ServiceUnavailableException({
         success: false,
         error: {
           code: 'AI_STT_NOT_CONFIGURED',
           message: 'OPENAI_API_KEY is not configured — voice queries are disabled.',
-          details: 'Add OPENAI_API_KEY to backend/.env to enable Whisper speech-to-text.',
+          details: 'Set a valid OPENAI_API_KEY in backend/.env to enable OpenAI Whisper speech-to-text.',
         },
       });
     }
@@ -92,7 +107,13 @@ export class WhisperSttService {
       });
     }
 
-    const mimeType = (options.mimeType || 'application/octet-stream').split(';')[0].trim();
+    const mimeType = (options.mimeType || 'audio/webm').split(';')[0].trim();
+
+    // If OpenAI key is not set or is a placeholder, fall back to Gemini multimodal audio transcription
+    if (!this.isRealOpenAiKey(openAiKey) && geminiKey) {
+      return this.transcribeViaGemini(audio, mimeType, geminiKey);
+    }
+
     const extension = MIME_EXTENSION[mimeType] ?? 'webm';
 
     const form = new FormData();
@@ -179,5 +200,54 @@ export class WhisperSttService {
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  private async transcribeViaGemini(audio: Buffer, mimeType: string, geminiKey: string): Promise<TranscribeResult> {
+    const model = this.config.get<string>('GEMINI_MODEL', 'gemini-2.0-flash');
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(geminiKey)}`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [
+              {
+                text:
+                  'Transcribe this manufacturing ERP voice query verbatim into English or Roman Urdu text. ' +
+                  'Return ONLY the transcribed text without quotes or commentary. ' +
+                  WhisperSttService.DOMAIN_PROMPT,
+              },
+              {
+                inlineData: {
+                  mimeType: mimeType || 'audio/webm',
+                  data: audio.toString('base64'),
+                },
+              },
+            ],
+          },
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      throw new ServiceUnavailableException({
+        success: false,
+        error: {
+          code: 'AI_STT_FAILED',
+          message: `Gemini fallback Speech-to-Text failed (HTTP ${response.status}).`,
+        },
+      });
+    }
+
+    const data: any = await response.json();
+    const text = (data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '').trim();
+    if (!text) {
+      throw new BadRequestException({
+        success: false,
+        error: { code: 'AI_STT_NO_SPEECH', message: 'No speech could be detected in the audio.' },
+      });
+    }
+    return { text };
   }
 }

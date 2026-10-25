@@ -12,6 +12,9 @@ import './index.css';
 // equal-specificity tie, so the new table chrome actually wins the cascade.
 import './styles/erp-font.css';
 import './styles/erp-redesign.css';
+import { registerServiceWorker } from './serviceWorkerRegistration';
+import { PwaInstallProvider } from './context/PwaInstallContext';
+import InstallAppPrompt from './components/pwa/InstallAppPrompt';
 
 const root = ReactDOM.createRoot(
   document.getElementById('root') as HTMLElement
@@ -22,9 +25,15 @@ root.render(
     <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <ThemeProvider>
         <ErrorBoundary>
-          <App />
+          <PwaInstallProvider>
+            <App />
+            <InstallAppPrompt />
+          </PwaInstallProvider>
         </ErrorBoundary>
       </ThemeProvider>
     </BrowserRouter>
   </React.StrictMode>
 );
+
+// Register Progressive Web App service worker for installability and caching
+registerServiceWorker();

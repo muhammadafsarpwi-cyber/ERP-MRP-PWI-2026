@@ -498,8 +498,13 @@ export class DashboardService {
       combinedRows.map((r) => {
         const targetQuantity = num(r.targetQuantity);
         const actualQuantity = num(r.actualQuantity);
-        const scrapQuantity = num(r.scrapQuantity);
-        const processScrapKg = num(r.processScrapKg);
+        const rawScrap = num(r.scrapQuantity);
+        const rawProcScrap = num(r.processScrapKg);
+        const deptLower = (r.departmentName ?? '').toLowerCase();
+        const isNoCuttingDept = deptLower.includes('pack') || deptLower.includes('plat');
+        // Packing and Plating departments have NO process cutting scrap — all scrap is Product Rejection (Part Reject)
+        const scrapQuantity = isNoCuttingDept ? rawScrap + rawProcScrap : rawScrap;
+        const processScrapKg = isNoCuttingDept ? 0 : rawProcScrap;
         return {
           departmentId: r.departmentId,
           departmentName: r.departmentName ?? 'Unknown',
@@ -629,11 +634,15 @@ export class DashboardService {
 
     const entryQb = this.entryRepo
       .createQueryBuilder('pe')
-      .select('pe.machine_no', 'machineNo')
+      .leftJoin(Machine, 'm', 'm.id = pe.machine_id')
+      .select('COALESCE(pe.machine_id::text, m.id::text)', 'machineId')
+      .addSelect('COALESCE(m.machine_code, pe.machine_no)', 'machineCode')
+      .addSelect('pe.machine_no', 'machineNo')
       .addSelect('COUNT(*)', 'entryCount')
       .addSelect('SUM(pe.target_quantity)', 'target')
       .addSelect('SUM(pe.actual_quantity)', 'actual')
       .addSelect('SUM(pe.scrap_quantity)', 'scrap')
+      .addSelect('COALESCE(SUM(pe.process_scrap_kg), 0)', 'processScrap')
       .addSelect('SUM(pe.running_hours)', 'runningHours')
       .addSelect('SUM(pe.downtime_hours)', 'downtimeHours')
       .addSelect('AVG(pe.achievement_percentage)', 'avgAchievement')
@@ -646,34 +655,63 @@ export class DashboardService {
     if (filters?.shiftId) entryQb.andWhere('pe.shift_id = :shiftId', { shiftId: filters.shiftId });
     applyDivisionScopeFilter(entryQb, 'pe.divisionId', filters?.allowedDivisionIds);
 
-    entryQb.groupBy('pe.machine_no').orderBy('pe.machine_no', 'ASC');
+    entryQb.groupBy('COALESCE(pe.machine_id::text, m.id::text)')
+      .addGroupBy('COALESCE(m.machine_code, pe.machine_no)')
+      .addGroupBy('pe.machine_no')
+      .orderBy('COALESCE(m.machine_code, pe.machine_no)', 'ASC');
     const performance = await entryQb.getRawMany();
+
+    const normalizeKey = (k?: string | null) => (k || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
     const perfMap = new Map<string, any>();
     for (const p of performance) {
-      perfMap.set(p.machineNo.toLowerCase(), {
-        machineNo: p.machineNo,
+      const perfObj = {
+        machineNo: p.machineCode || p.machineNo,
         entryCount: parseInt(p.entryCount, 10),
         targetQuantity: Math.round(Number(p.target) * 100) / 100,
         actualQuantity: Math.round(Number(p.actual) * 100) / 100,
         scrapQuantity: Math.round(Number(p.scrap) * 100) / 100,
+        processScrapKg: Math.round(Number(p.processScrap) * 100) / 100,
         runningHours: Math.round(Number(p.runningHours) * 100) / 100,
         downtimeHours: Math.round(Number(p.downtimeHours) * 100) / 100,
         avgAchievement: p.avgAchievement != null ? Math.round(Number(p.avgAchievement) * 100) / 100 : 0,
-      });
+      };
+
+      if (p.machineId) perfMap.set(p.machineId.toLowerCase(), perfObj);
+      if (p.machineCode) {
+        perfMap.set(p.machineCode.toLowerCase().trim(), perfObj);
+        perfMap.set(normalizeKey(p.machineCode), perfObj);
+      }
+      if (p.machineNo) {
+        perfMap.set(p.machineNo.toLowerCase().trim(), perfObj);
+        perfMap.set(normalizeKey(p.machineNo), perfObj);
+      }
     }
 
     return machines.map(m => {
-      const perf = perfMap.get(m.machineCode.toLowerCase()) ?? {
-        machineNo: m.machineCode,
-        entryCount: 0,
-        targetQuantity: 0,
-        actualQuantity: 0,
-        scrapQuantity: 0,
-        runningHours: 0,
-        downtimeHours: 0,
-        avgAchievement: 0,
-      };
+      const deptLower = (m.department?.name || '').toLowerCase();
+      const isNoCuttingDept = deptLower.includes('pack') || deptLower.includes('plat');
+      const perf =
+        (m.id && perfMap.get(m.id.toLowerCase())) ||
+        (m.machineCode && perfMap.get(m.machineCode.toLowerCase().trim())) ||
+        (m.machineCode && perfMap.get(normalizeKey(m.machineCode))) ||
+        (m.machineNumber && perfMap.get(m.machineNumber.toLowerCase().trim())) ||
+        (m.name && perfMap.get(m.name.toLowerCase().trim())) || {
+          machineNo: m.machineCode,
+          entryCount: 0,
+          targetQuantity: 0,
+          actualQuantity: 0,
+          scrapQuantity: 0,
+          processScrapKg: 0,
+          runningHours: 0,
+          downtimeHours: 0,
+          avgAchievement: 0,
+        };
+
+      // In packing and plating departments, all scrap is Part Reject with zero cutting scrap
+      const scrapQuantity = isNoCuttingDept ? Math.round((perf.scrapQuantity + perf.processScrapKg) * 100) / 100 : perf.scrapQuantity;
+      const processScrapKg = isNoCuttingDept ? 0 : perf.processScrapKg;
+
       return {
         id: m.id,
         machineCode: m.machineCode,
@@ -682,6 +720,8 @@ export class DashboardService {
         status: m.status,
         criticality: m.criticality,
         ...perf,
+        scrapQuantity,
+        processScrapKg,
       };
     });
   }

@@ -488,6 +488,7 @@ export interface ProductionEntryRow {
   downtimeHours: number | string;
   downtimeReasonText: string | null;
   scrapQuantity: number | string;
+  processScrapKg?: number | string | null;
   remarks: string | null;
   status?: string;
   isActive?: boolean;

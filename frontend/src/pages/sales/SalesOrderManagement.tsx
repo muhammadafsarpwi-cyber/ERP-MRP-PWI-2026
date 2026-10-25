@@ -2447,166 +2447,243 @@ const SalesOrderManagement: React.FC = () => {
               </Row>
             </div>
 
-            {/* Executive KPI Summary Strip */}
-            <div className="modal-kpi-summary-strip">
-              <div className="modal-kpi-box">
-                <span className="modal-kpi-label">Customer</span>
-                <span className="modal-kpi-val" style={{ color: '#60a5fa' }}>
-                  {getCustomerDisplayName(detailItem)}
-                </span>
+            {/* Executive Balanced Header Grid: Even distribution across 4 distinct parameter cards */}
+            <div className="soc-header-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, margin: '14px 0 16px' }}>
+              {/* Card 1: Order & Client Identity */}
+              <div style={{ background: 'var(--theme-surface-2, rgba(255,255,255,0.04))', border: '1px solid var(--theme-border, rgba(148,163,184,0.2))', borderRadius: 8, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--theme-text-muted, #94a3b8)', fontWeight: 600 }}>
+                  Order & Client Identity
+                </div>
+                <div>
+                  <div style={{ fontSize: 15, fontWeight: 800, color: '#38bdf8' }}>{detailItem.orderNumber}</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--theme-text, #f8fafc)', marginTop: 2 }}>{getCustomerDisplayName(detailItem)}</div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                  <span className={`inv-status-pill ${['delivered', 'closed'].includes(detailItem.status?.toLowerCase()) ? 'status-paid' : 'status-pending'}`}>
+                    {detailItem.status}
+                  </span>
+                  <Tag color="blue" style={{ margin: 0, fontSize: 11 }}>
+                    {detailItem.relatedQuotation?.quotationNumber || 'Direct Order'}
+                  </Tag>
+                </div>
               </div>
-              <div className="modal-kpi-box">
-                <span className="modal-kpi-label">Division</span>
-                <span className="modal-kpi-val" style={{ color: '#a855f7' }}>
-                  {detailItem.division?.divisionCode || detailItem.division?.name || divisions.find(d => d.id === detailItem.divisionId)?.divisionCode || 'General'}
-                </span>
+
+              {/* Card 2: Operational Org & Dates */}
+              <div style={{ background: 'var(--theme-surface-2, rgba(255,255,255,0.04))', border: '1px solid var(--theme-border, rgba(148,163,184,0.2))', borderRadius: 8, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--theme-text-muted, #94a3b8)', fontWeight: 600 }}>
+                  Operational Parameters
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                  <span style={{ color: 'var(--theme-text-muted, #94a3b8)' }}>Division:</span>
+                  <span style={{ fontWeight: 600, color: '#a855f7' }}>{detailItem.division?.divisionCode || detailItem.division?.name || divisions.find(d => d.id === detailItem.divisionId)?.divisionCode || 'General'}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                  <span style={{ color: 'var(--theme-text-muted, #94a3b8)' }}>Order Date:</span>
+                  <span style={{ fontWeight: 600 }}>{detailItem.orderDate ? dayjs(detailItem.orderDate).format('MMM DD, YYYY') : '-'}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                  <span style={{ color: 'var(--theme-text-muted, #94a3b8)' }}>Delivery Date:</span>
+                  <span style={{ fontWeight: 600, color: '#f59e0b' }}>{detailItem.deliveryDate ? dayjs(detailItem.deliveryDate).format('MMM DD, YYYY') : '-'}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                  <span style={{ color: 'var(--theme-text-muted, #94a3b8)' }}>Currency:</span>
+                  <span style={{ fontWeight: 600 }}>{detailItem.currency || 'PKR'}</span>
+                </div>
               </div>
-              <div className="modal-kpi-box">
-                <span className="modal-kpi-label">Order Date</span>
-                <span className="modal-kpi-val">
-                  {detailItem.orderDate ? dayjs(detailItem.orderDate).format('MMM DD, YYYY') : '-'}
-                </span>
+
+              {/* Card 3: Fulfillment & Production Volumes */}
+              <div style={{ background: 'var(--theme-surface-2, rgba(255,255,255,0.04))', border: '1px solid var(--theme-border, rgba(148,163,184,0.2))', borderRadius: 8, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--theme-text-muted, #94a3b8)', fontWeight: 600 }}>
+                  Fulfillment Status
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                  <span style={{ color: 'var(--theme-text-muted, #94a3b8)' }}>Total Items:</span>
+                  <span style={{ fontWeight: 700 }}>{detailItem.items?.length || 0} Line Items</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                  <span style={{ color: 'var(--theme-text-muted, #94a3b8)' }}>Ordered Volume:</span>
+                  <span style={{ fontWeight: 700, color: '#38bdf8' }}>
+                    {formatDecimal((detailItem.items || []).reduce((s: number, i: any) => s + Number(i.quantity || 0), 0))} GRS
+                  </span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                  <span style={{ color: 'var(--theme-text-muted, #94a3b8)' }}>Delivered Volume:</span>
+                  <span style={{ fontWeight: 700, color: '#10b981' }}>
+                    {formatDecimal(
+                      ['delivered', 'closed'].includes(detailItem.status?.toLowerCase())
+                        ? (detailItem.items || []).reduce((s: number, i: any) => s + Number(i.quantity || 0), 0)
+                        : (detailItem.items || []).reduce((s: number, i: any) => s + Number(i.deliveredQuantity ?? i.shippedQuantity ?? 0), 0)
+                    )} GRS
+                  </span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                  <span style={{ color: 'var(--theme-text-muted, #94a3b8)' }}>Status Health:</span>
+                  <span style={{ fontWeight: 700, color: ['delivered', 'closed'].includes(detailItem.status?.toLowerCase()) ? '#10b981' : '#f59e0b' }}>
+                    {['delivered', 'closed'].includes(detailItem.status?.toLowerCase()) ? '100% Fulfilled' : 'In Pipeline'}
+                  </span>
+                </div>
               </div>
-              <div className="modal-kpi-box">
-                <span className="modal-kpi-label">Expected Delivery</span>
-                <span className="modal-kpi-val" style={{ color: '#f59e0b' }}>
-                  {detailItem.deliveryDate ? dayjs(detailItem.deliveryDate).format('MMM DD, YYYY') : '-'}
-                </span>
-              </div>
-              <div className="modal-kpi-box">
-                <span className="modal-kpi-label">Total Items</span>
-                <span className="modal-kpi-val">
-                  {detailItem.items?.length || 0} Line Items
-                </span>
-              </div>
-              <div className="modal-kpi-box">
-                <span className="modal-kpi-label">Grand Total</span>
-                <span className="modal-kpi-val" style={{ color: '#10b981', fontSize: 16 }}>
-                  {detailItem.currency || 'PKR'} {formatDecimal(detailItem.totalAmount || 0)}
-                </span>
+
+              {/* Card 4: Commercial Ledger Breakdown */}
+              <div style={{ background: 'var(--theme-surface-2, rgba(255,255,255,0.04))', border: '1px solid var(--theme-border, rgba(148,163,184,0.2))', borderRadius: 8, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--theme-text-muted, #94a3b8)', fontWeight: 600 }}>
+                  Financial Ledger
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                  <span style={{ color: 'var(--theme-text-muted, #94a3b8)' }}>Subtotal:</span>
+                  <span>{detailItem.currency || 'Rs'} {formatDecimal(detailItem.subtotal)}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                  <span style={{ color: 'var(--theme-text-muted, #94a3b8)' }}>Tax & Freight:</span>
+                  <span>{detailItem.currency || 'Rs'} {formatDecimal((Number(detailItem.taxAmount) || 0) + (Number(detailItem.freightAmount) || 0))}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                  <span style={{ color: 'var(--theme-text-muted, #94a3b8)' }}>Discount:</span>
+                  <span style={{ color: Number(detailItem.discountAmount) > 0 ? '#ef4444' : 'inherit' }}>
+                    {Number(detailItem.discountAmount) > 0 ? `- ${detailItem.currency || 'Rs'} ${formatDecimal(detailItem.discountAmount)}` : 'Rs 0.00'}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4, paddingTop: 4, borderTop: '1px solid var(--theme-border, rgba(148,163,184,0.2))' }}>
+                  <span style={{ fontWeight: 800, fontSize: 12, color: 'var(--theme-text, #f8fafc)' }}>Net Total:</span>
+                  <span style={{ fontWeight: 800, fontSize: 15, color: '#16a34a' }}>
+                    {detailItem.currency || 'Rs'} {formatDecimal(detailItem.totalAmount)}
+                  </span>
+                </div>
               </div>
             </div>
 
-            <Descriptions bordered column={2} size="small">
-              <Descriptions.Item label="SOC #">{detailItem.orderNumber}</Descriptions.Item>
-              <Descriptions.Item label="Status">
-                <span className={`inv-status-pill ${['delivered', 'closed'].includes(detailItem.status?.toLowerCase()) ? 'status-paid' : 'status-pending'}`}>
-                  {detailItem.status}
-                </span>
-              </Descriptions.Item>
-              <Descriptions.Item label="Customer">
-                {getCustomerDisplayName(detailItem)}
-              </Descriptions.Item>
-              <Descriptions.Item label="Division">
-                {detailItem.division?.name || divisions.find(d => d.id === detailItem.divisionId)?.name || 'General / All Divisions'}
-              </Descriptions.Item>
-              <Descriptions.Item label="Section">
-                {detailItem.section?.name || sections.find(s => s.id === detailItem.sectionId)?.name || '-'}
-              </Descriptions.Item>
-              <Descriptions.Item label="Currency">{detailItem.currency || 'PKR'}</Descriptions.Item>
-              <Descriptions.Item label="Order Date">{detailItem.orderDate || '-'}</Descriptions.Item>
-              <Descriptions.Item label="Delivery Date">{detailItem.deliveryDate || '-'}</Descriptions.Item>
-              <Descriptions.Item label="Subtotal">{detailItem.currency || 'Rs'} {formatDecimal(detailItem.subtotal)}</Descriptions.Item>
-              <Descriptions.Item label="Discount">{detailItem.currency || 'Rs'} {formatDecimal(detailItem.discountAmount)}</Descriptions.Item>
-              <Descriptions.Item label="Tax">{detailItem.currency || 'Rs'} {formatDecimal(detailItem.taxAmount)}</Descriptions.Item>
-              <Descriptions.Item label="Freight">{detailItem.currency || 'Rs'} {formatDecimal(detailItem.freightAmount)}</Descriptions.Item>
-              <Descriptions.Item label="Total Amount" span={2}>
-                <span style={{ fontWeight: 800, fontSize: 16, color: '#16a34a' }}>
-                  {detailItem.currency || 'Rs'} {formatDecimal(detailItem.totalAmount)}
-                </span>
-              </Descriptions.Item>
-              <Descriptions.Item label="Notes" span={2}>{detailItem.notes || '-'}</Descriptions.Item>
-            </Descriptions>
-
-            {detailItem.items && detailItem.items.length > 0 && (
-              <>
-                <Divider orientation="left" style={{ margin: '16px 0 10px' }}>
-                  Fulfillment & Finished Goods Inventory Breakdown
-                </Divider>
-                <Table
-                  rowKey="id"
-                  size="small"
-                  pagination={false}
-                  dataSource={detailItem.items}
-                  columns={[
-                    {
-                      title: 'Item Description',
-                      dataIndex: 'description',
-                      key: 'description',
-                      render: (desc, r) => (
-                        <div>
-                          <div style={{ fontWeight: 600 }}>{desc}</div>
-                          {r.itemCode && <div style={{ fontSize: 11, color: '#64748b' }}>Code: {r.itemCode}</div>}
-                        </div>
-                      ),
-                    },
-                    {
-                      title: 'Ordered',
-                      dataIndex: 'quantity',
-                      key: 'quantity',
-                      width: 85,
-                      align: 'right',
-                      render: (v) => formatDecimal(v),
-                    },
-                    {
-                      title: 'Produced',
-                      dataIndex: 'producedQuantity',
-                      key: 'producedQuantity',
-                      width: 85,
-                      align: 'right',
-                      render: (v) => <span style={{ color: '#7c3aed', fontWeight: 600 }}>{formatDecimal(v || 0)}</span>,
-                    },
-                    {
-                      title: 'FG Available',
-                      dataIndex: 'availableStock',
-                      key: 'availableStock',
-                      width: 95,
-                      align: 'right',
-                      render: (v) => (
-                        <span style={{ color: Number(v || 0) > 0 ? '#16a34a' : '#dc2626', fontWeight: 600 }}>
-                          {formatDecimal(v || 0)}
-                        </span>
-                      ),
-                    },
-                    {
-                      title: 'Delivered',
-                      dataIndex: 'deliveredQuantity',
-                      key: 'deliveredQuantity',
-                      width: 85,
-                      align: 'right',
-                      render: (v) => <span style={{ color: '#059669', fontWeight: 600 }}>{formatDecimal(v || 0)}</span>,
-                    },
-                    {
-                      title: 'Remaining',
-                      dataIndex: 'remainingDeliveryQuantity',
-                      key: 'remainingDeliveryQuantity',
-                      width: 90,
-                      align: 'right',
-                      render: (v, r) => {
-                        const rem = v !== undefined ? Number(v) : (Number(r.quantity || 0) - Number(r.deliveredQuantity || 0));
-                        return <span style={{ color: rem > 0 ? '#ea580c' : '#64748b', fontWeight: 700 }}>{formatDecimal(rem)}</span>;
-                      },
-                    },
-                    {
-                      title: 'Unit Price',
-                      dataIndex: 'unitPrice',
-                      key: 'unitPrice',
-                      width: 100,
-                      align: 'right',
-                      render: (v) => `${detailItem.currency || 'Rs'} ${formatDecimal(v)}`,
-                    },
-                    {
-                      title: 'Line Total',
-                      dataIndex: 'lineTotal',
-                      key: 'lineTotal',
-                      width: 110,
-                      align: 'right',
-                      render: (v) => `${detailItem.currency || 'Rs'} ${formatDecimal(v)}`,
-                    },
-                  ]}
-                />
-              </>
+            {/* Optional Notes or Ship-to Address Strip */}
+            {(detailItem.notes || detailItem.shipToAddress) && (
+              <div style={{ background: 'var(--theme-surface-2, rgba(255,255,255,0.03))', border: '1px solid var(--theme-border, rgba(148,163,184,0.15))', borderRadius: 6, padding: '8px 12px', fontSize: 12, margin: '0 0 12px', display: 'flex', gap: 16 }}>
+                {detailItem.notes && (
+                  <div><span style={{ color: 'var(--theme-text-muted, #94a3b8)', fontWeight: 600 }}>Notes: </span><span>{detailItem.notes}</span></div>
+                )}
+                {detailItem.shipToAddress && (
+                  <div><span style={{ color: 'var(--theme-text-muted, #94a3b8)', fontWeight: 600 }}>Shipping: </span><span>{detailItem.shipToAddress}</span></div>
+                )}
+              </div>
             )}
+
+            {detailItem.items && detailItem.items.length > 0 && (() => {
+              const isDelivered = String(detailItem.status || '').toLowerCase() === 'delivered' || String(detailItem.status || '').toLowerCase() === 'closed';
+
+              const fulfillmentItems = (detailItem.items || []).map((it: any) => {
+                const ful = (detailItem.itemFulfillment || []).find((f: any) => f.orderItemId === it.id || f.itemId === it.itemId);
+                const ordered = Number(it.quantity || 0);
+                let delivered = Number(it.deliveredQuantity ?? ful?.deliveredQuantity ?? it.shippedQuantity ?? 0);
+                let produced = Number(it.producedQuantity ?? ful?.producedQuantity ?? 0);
+                let available = Number(it.availableStock ?? ful?.availableStock ?? 0);
+                let remaining = it.remainingDeliveryQuantity !== undefined 
+                  ? Number(it.remainingDeliveryQuantity) 
+                  : (ful?.remainingDeliveryQuantity !== undefined ? Number(ful.remainingDeliveryQuantity) : Math.max(0, ordered - delivered));
+
+                if (isDelivered || String(it.status || '').toLowerCase() === 'delivered') {
+                  delivered = ordered;
+                  produced = Math.max(produced, ordered);
+                  available = 0;
+                  remaining = 0;
+                }
+
+                return {
+                  ...it,
+                  orderedQuantity: ordered,
+                  deliveredQuantity: delivered,
+                  producedQuantity: produced,
+                  availableStock: available,
+                  remainingDeliveryQuantity: remaining,
+                };
+              });
+
+              return (
+                <>
+                  <Divider orientation="left" style={{ margin: '14px 0 10px', fontWeight: 700, fontSize: 13 }}>
+                    Fulfillment & Finished Goods Inventory Breakdown
+                  </Divider>
+                  <Table
+                    rowKey="id"
+                    size="small"
+                    pagination={false}
+                    dataSource={fulfillmentItems}
+                    columns={[
+                      {
+                        title: 'Item Description',
+                        dataIndex: 'description',
+                        key: 'description',
+                        render: (desc, r) => (
+                          <div>
+                            <div style={{ fontWeight: 600 }}>{desc}</div>
+                            {r.itemCode && <div style={{ fontSize: 11, color: '#64748b' }}>Code: {r.itemCode}</div>}
+                          </div>
+                        ),
+                      },
+                      {
+                        title: 'Ordered',
+                        dataIndex: 'orderedQuantity',
+                        key: 'orderedQuantity',
+                        width: 95,
+                        align: 'right',
+                        render: (v) => <span style={{ fontWeight: 700 }}>{formatDecimal(v)}</span>,
+                      },
+                      {
+                        title: 'Produced',
+                        dataIndex: 'producedQuantity',
+                        key: 'producedQuantity',
+                        width: 95,
+                        align: 'right',
+                        render: (v) => <span style={{ color: '#7c3aed', fontWeight: 600 }}>{formatDecimal(v || 0)}</span>,
+                      },
+                      {
+                        title: 'FG Available',
+                        dataIndex: 'availableStock',
+                        key: 'availableStock',
+                        width: 105,
+                        align: 'right',
+                        render: (v) => (
+                          <span style={{ color: Number(v || 0) > 0 ? '#16a34a' : '#64748b', fontWeight: 600 }}>
+                            {formatDecimal(v || 0)}
+                          </span>
+                        ),
+                      },
+                      {
+                        title: 'Delivered',
+                        dataIndex: 'deliveredQuantity',
+                        key: 'deliveredQuantity',
+                        width: 95,
+                        align: 'right',
+                        render: (v) => <span style={{ color: '#059669', fontWeight: 700 }}>{formatDecimal(v || 0)}</span>,
+                      },
+                      {
+                        title: 'Remaining',
+                        dataIndex: 'remainingDeliveryQuantity',
+                        key: 'remainingDeliveryQuantity',
+                        width: 95,
+                        align: 'right',
+                        render: (v) => {
+                          const rem = Number(v || 0);
+                          return <span style={{ color: rem > 0 ? '#ea580c' : '#10b981', fontWeight: 700 }}>{formatDecimal(rem)}</span>;
+                        },
+                      },
+                      {
+                        title: 'Unit Price',
+                        dataIndex: 'unitPrice',
+                        key: 'unitPrice',
+                        width: 110,
+                        align: 'right',
+                        render: (v) => `${detailItem.currency || 'Rs'} ${formatDecimal(v)}`,
+                      },
+                      {
+                        title: 'Line Total',
+                        dataIndex: 'lineTotal',
+                        key: 'lineTotal',
+                        width: 120,
+                        align: 'right',
+                        render: (v) => `${detailItem.currency || 'Rs'} ${formatDecimal(v)}`,
+                      },
+                    ]}
+                  />
+                </>
+              );
+            })()}
           </>
         )}
       </DraggableResizableModal>

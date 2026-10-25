@@ -135,7 +135,13 @@ export interface ScrapMatrixRow {
   machineProduct: string;
   machine: string;
   product: string;
+  department: string;
   actualKg: number;
+  /** Product Rejection (part rejects) in KG */
+  partRejectKg: number;
+  /** Process Cutting Scrap (trimmings/off-cuts) in KG */
+  processScrapKg: number;
+  /** Total Rejection (KG) = partRejectKg + processScrapKg */
   scrapKg: number;
   /** (Rejected KG / Actual KG) × 100 — the grid's Rejection % denominator. */
   wastagePct: number;
@@ -147,6 +153,8 @@ export interface ScrapMatrixRow {
 export interface ScrapDayPoint {
   date: string;
   actualKg: number;
+  partRejectKg: number;
+  processScrapKg: number;
   scrapKg: number;
   entries: number;
 }
@@ -155,6 +163,8 @@ export interface ScrapDayPoint {
 export interface DepartmentScrapRow {
   department: string;
   actualKg: number;
+  partRejectKg: number;
+  processScrapKg: number;
   scrapKg: number;
   wastagePct: number;
   entries: number;
@@ -165,6 +175,8 @@ export interface DepartmentScrapRow {
 export interface AnalyticsTotals {
   entries: number;
   actualKg: number;
+  partRejectKg: number;
+  processScrapKg: number;
   scrapKg: number;
   wastagePct: number;
 }
@@ -194,8 +206,39 @@ export function entryProductName(row: ProductionEntryRow): string {
 }
 
 export function entryDepartmentLabel(row: ProductionEntryRow): string {
-  const v = row.department?.name || row.department?.departmentCode || '';
-  return v.trim() || 'Unassigned Department';
+  const dName = (row.department?.name || row.department?.departmentCode || '').trim();
+  const dLower = dName.toLowerCase();
+  const machineNo = (row.machineNo || '').toLowerCase();
+  const remarks = (row.remarks || '').toLowerCase();
+
+  if (
+    dLower.includes('spoke pack') ||
+    dLower === 'hand packing' ||
+    dLower === 'packing' ||
+    machineNo.startsWith('hand-pack') ||
+    remarks.includes('[hand packing]')
+  ) {
+    return 'Spoke Packing';
+  }
+  if (dLower.includes('nipple pack')) {
+    return 'Nipple Packing';
+  }
+  if (dLower.includes('straight')) {
+    return 'Straightening';
+  }
+  if (dLower.includes('swag')) {
+    return 'Swaging';
+  }
+  if (dLower.includes('spoke plat')) {
+    return 'Spoke Plating';
+  }
+  if (dLower === 'plating') {
+    return 'Plating';
+  }
+  if (dLower === 'spoke' || dLower.includes('spoke dept')) {
+    return 'Spoke';
+  }
+  return dName || 'Unassigned Department';
 }
 
 /** Wastage reason code: the operator's remark, else an explicit dash. */
@@ -229,12 +272,6 @@ export function kgFixed(value: number): string {
  * top-to-bottom so Raw Material always opens the sheet and Dispatch always
  * closes it — a manager reads the plant in the direction material travels
  * instead of an alphabetised dump of department names.
- *
- * Tiers that carry no entry in the sample are simply not rendered: an empty
- * banner would claim work the data does not show. Departments outside the
- * list (a new tier, a typo, a plant-specific alias) are appended AFTER every
- * known tier, alphabetical, so they are still visible but never displace the
- * canonical flow.
  */
 export const DEPARTMENT_TIERS = [
   'Raw Material',
@@ -266,6 +303,15 @@ export function departmentTierIndex(name: string): number {
 
   const exact = DEPARTMENT_TIERS.findIndex((tier) => normalizeTierName(tier) === key);
   if (exact >= 0) return exact;
+
+  if (key.includes('pack')) {
+    const packIdx = DEPARTMENT_TIERS.findIndex((tier) => tier.toLowerCase().includes('pack'));
+    if (packIdx >= 0) return packIdx;
+  }
+  if (key.includes('plat')) {
+    const platIdx = DEPARTMENT_TIERS.findIndex((tier) => tier.toLowerCase().includes('plat'));
+    if (platIdx >= 0) return platIdx;
+  }
 
   const containing = DEPARTMENT_TIERS.findIndex((tier) => {
     const normTier = normalizeTierName(tier);
@@ -908,6 +954,116 @@ function kgOf(row: ProductionEntryRow, quantity: number): number {
   return kg == null ? 0 : kg;
 }
 
+/**
+ * Product Rejection (Part Reject) in KG.
+ * On EntryForm, scrapQuantity is entered in KG (or converted to KG from PCS).
+ * In Packing and Plating departments, ALL rejection (including packing damage, plating peeling/defects, component reject) is Part Reject.
+ */
+export function entryPartRejectKg(row: ProductionEntryRow): number {
+  const sq = toNum(row.scrapQuantity);
+  const dept = entryDepartmentLabel(row).toLowerCase();
+  const isNoCuttingScrapDept = dept.includes('pack') || dept.includes('plat');
+
+  if (isNoCuttingScrapDept) {
+    // Packing and Plating departments have NO cutting scrap: all scrap is Part Reject
+    const ps = toNum((row as any).processScrapKg);
+    let extra = ps > 0 ? ps : 0;
+    const remarks = row.remarks || '';
+    const m = /(?:Component Scrap|Packing Rejection|Process Scrap|Plating Defect|Scrap):\s*(?:[\d.,]+\s*PCS\s*)?\(?([\d.,]+)\s*KG\)?/i.exec(remarks);
+    if (m && m[1]) {
+      const val = parseFloat(m[1].replace(/,/g, ''));
+      if (!isNaN(val) && val > 0) extra += val;
+    }
+    return round2(sq + extra);
+  }
+
+  return sq > 0 ? round2(sq) : 0;
+}
+
+/**
+ * Process Cutting Scrap (trimmings, setup wire, filings) in KG.
+ * Sourced from processScrapKg, or parsed from remarks.
+ * NOTE: Packing and Plating departments never produce cutting scrap (always return 0).
+ */
+export function entryProcessScrapKg(row: ProductionEntryRow): number {
+  const dept = entryDepartmentLabel(row).toLowerCase();
+  if (dept.includes('pack') || dept.includes('plat')) {
+    return 0;
+  }
+
+  const ps = toNum((row as any).processScrapKg);
+  if (ps > 0) return round2(ps);
+
+  const remarks = row.remarks || '';
+  const m = /(?:Cutting Scrap|Wire Scrap|Process Scrap|Scrap):\s*(?:[\d.,]+\s*PCS\s*)?\(?([\d.,]+)\s*KG\)?/i.exec(remarks);
+  if (m && m[1]) {
+    const val = parseFloat(m[1].replace(/,/g, ''));
+    if (!isNaN(val) && val > 0) return round2(val);
+  }
+  return 0;
+}
+
+/** Total combined rejection in KG: Part Rejection + Process Scrap */
+export function entryTotalScrapKg(row: ProductionEntryRow): number {
+  return round2(entryPartRejectKg(row) + entryProcessScrapKg(row));
+}
+
+/**
+ * Extracts a clean, human-readable defect reason without boilerplate.
+ */
+export function extractCleanDefectReason(row: ProductionEntryRow): string {
+  const raw = row.remarks || '';
+
+  // 1. Check "| Rejection Remarks: <reasons>" from EntryForm
+  const rejMatch = /(?:^|\|)\s*Rejection Remarks:\s*([^|]*)/i.exec(raw);
+  if (rejMatch && rejMatch[1]?.trim()) {
+    const r = rejMatch[1].trim();
+    if (!/^(no remarks|none|nil|—|-)$/i.test(r)) return r;
+  }
+
+  // 2. Check "| Scrap Reasons: <reasons>" from HandPacking
+  const scrapReasonMatch = /(?:^|\|)\s*Scrap Reasons:\s*([^|]*)/i.exec(raw);
+  if (scrapReasonMatch && scrapReasonMatch[1]?.trim()) {
+    const r = scrapReasonMatch[1].trim();
+    if (!/^(no remarks|none|nil|—|-)$/i.test(r)) return r;
+  }
+
+  // 3. Check "| Scrap Detail: <details>" from HandPacking
+  const scrapDetailMatch = /(?:^|\|)\s*Scrap Detail:\s*([^|]*)/i.exec(raw);
+  if (scrapDetailMatch && scrapDetailMatch[1]?.trim()) {
+    return `Packing Scrap: ${scrapDetailMatch[1].trim()}`;
+  }
+
+  // 4. Strip boilerplate like [HAND PACKING] Batch: ... | Weight: ...
+  const stripped = raw
+    .replace(/\[HAND PACKING\][^|]*/i, '')
+    .replace(/Batch:[^|]*/gi, '')
+    .replace(/Division:[^|]*/gi, '')
+    .replace(/DivCode:[^|]*/gi, '')
+    .replace(/SOC:[^|]*/gi, '')
+    .replace(/Customer:[^|]*/gi, '')
+    .replace(/Style:[^|]*/gi, '')
+    .replace(/Line:[^|]*/gi, '')
+    .replace(/OT:[^|]*/gi, '')
+    .replace(/Cartons:[^|]*/gi, '')
+    .replace(/Weight:[^|]*/gi, '')
+    .replace(/Component Scrap:[^|]*/gi, '')
+    .replace(/\|\s*/g, ' ')
+    .trim();
+
+  if (stripped && !/^(no remarks|none|nil|—|-)$/i.test(stripped)) {
+    return stripped.length > 28 ? stripped.slice(0, 26) + '…' : stripped;
+  }
+
+  // 5. Categorize based on whether it is Part Reject or Process Scrap
+  const proc = entryProcessScrapKg(row);
+  const part = entryPartRejectKg(row);
+  if (proc > 0 && part === 0) return 'Process Cutting Scrap';
+  if (part > 0 && proc === 0) return 'Product Part Rejection';
+  if (part > 0 && proc > 0) return 'Part Reject & Scrap';
+  return 'General Scrap';
+}
+
 /** The four-column data matrix: Machine/Product | KG produced | KG rejected | reason. */
 export function scrapMatrix(rows: readonly ProductionEntryRow[]): ScrapMatrixRow[] {
   interface Acc extends ScrapMatrixRow {
@@ -917,6 +1073,7 @@ export function scrapMatrix(rows: readonly ProductionEntryRow[]): ScrapMatrixRow
   for (const row of rows) {
     const machine = entryMachineLabel(row);
     const product = entryProductName(row);
+    const department = entryDepartmentLabel(row);
     const key = `${machine}\u0000${product}`;
     let cur = byKey.get(key);
     if (!cur) {
@@ -925,7 +1082,10 @@ export function scrapMatrix(rows: readonly ProductionEntryRow[]): ScrapMatrixRow
         machineProduct: `${machine} · ${product}`,
         machine,
         product,
+        department,
         actualKg: 0,
+        partRejectKg: 0,
+        processScrapKg: 0,
         scrapKg: 0,
         wastagePct: 0,
         defectReason: '—',
@@ -936,10 +1096,13 @@ export function scrapMatrix(rows: readonly ProductionEntryRow[]): ScrapMatrixRow
     }
     cur.entries += 1;
     cur.actualKg = round2(cur.actualKg + kgOf(row, toNum(row.actualQuantity)));
-    cur.scrapKg = round2(cur.scrapKg + kgOf(row, toNum(row.scrapQuantity)));
+    cur.partRejectKg = round2(cur.partRejectKg + entryPartRejectKg(row));
+    cur.processScrapKg = round2(cur.processScrapKg + entryProcessScrapKg(row));
+    cur.scrapKg = round2(cur.partRejectKg + cur.processScrapKg);
+
     if (cur.seenDefect == null) {
-      const defect = (row.remarks ?? '').trim();
-      if (defect) {
+      const defect = extractCleanDefectReason(row);
+      if (defect && defect !== '—' && defect !== 'General Scrap') {
         cur.seenDefect = defect;
         cur.defectReason = defect;
       }
@@ -951,12 +1114,20 @@ export function scrapMatrix(rows: readonly ProductionEntryRow[]): ScrapMatrixRow
       machineProduct: r.machineProduct,
       machine: r.machine,
       product: r.product,
+      department: r.department,
       actualKg: r.actualKg,
+      partRejectKg: r.partRejectKg,
+      processScrapKg: r.processScrapKg,
       scrapKg: r.scrapKg,
-      // Same denominator as the grid's Rejection % : a zero / unknown Actual KG
-      // must read 0, never Infinity or a phantom 100%.
       wastagePct: r.actualKg > 0 ? (r.scrapKg / r.actualKg) * 100 : 0,
-      defectReason: r.defectReason,
+      defectReason:
+        r.defectReason !== '—'
+          ? r.defectReason
+          : r.partRejectKg > 0
+          ? 'Product Rejection'
+          : r.processScrapKg > 0
+          ? 'Process Scrap'
+          : '—',
       entries: r.entries,
     }))
     .sort((a, b) => b.scrapKg - a.scrapKg || b.actualKg - a.actualKg || a.machineProduct.localeCompare(b.machineProduct));
@@ -974,35 +1145,48 @@ export function dailyScrapSeries(rows: readonly ProductionEntryRow[]): ScrapDayP
     if (!date) continue;
     let cur = byDate.get(date);
     if (!cur) {
-      cur = { date, actualKg: 0, scrapKg: 0, entries: 0 };
+      cur = { date, actualKg: 0, partRejectKg: 0, processScrapKg: 0, scrapKg: 0, entries: 0 };
       byDate.set(date, cur);
     }
     cur.entries += 1;
     cur.actualKg = round2(cur.actualKg + kgOf(row, toNum(row.actualQuantity)));
-    cur.scrapKg = round2(cur.scrapKg + kgOf(row, toNum(row.scrapQuantity)));
+    cur.partRejectKg = round2(cur.partRejectKg + entryPartRejectKg(row));
+    cur.processScrapKg = round2(cur.processScrapKg + entryProcessScrapKg(row));
+    cur.scrapKg = round2(cur.partRejectKg + cur.processScrapKg);
   }
   return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
 }
 
-/** Department tier roll-up (Straightening · Swaging · Plating), worst waste first. */
+/** Department tier roll-up (Straightening · Swaging · Spoke · Plating · Spoke Packing), worst waste first. */
 export function departmentScrapRollup(rows: readonly ProductionEntryRow[]): DepartmentScrapRow[] {
   const byDept = new Map<string, DepartmentScrapRow>();
   for (const row of rows) {
     const department = entryDepartmentLabel(row);
     let cur = byDept.get(department);
     if (!cur) {
-      cur = { department, actualKg: 0, scrapKg: 0, wastagePct: 0, entries: 0, downtimeHours: 0 };
+      cur = {
+        department,
+        actualKg: 0,
+        partRejectKg: 0,
+        processScrapKg: 0,
+        scrapKg: 0,
+        wastagePct: 0,
+        entries: 0,
+        downtimeHours: 0,
+      };
       byDept.set(department, cur);
     }
     cur.entries += 1;
     cur.actualKg = round2(cur.actualKg + kgOf(row, toNum(row.actualQuantity)));
-    cur.scrapKg = round2(cur.scrapKg + kgOf(row, toNum(row.scrapQuantity)));
+    cur.partRejectKg = round2(cur.partRejectKg + entryPartRejectKg(row));
+    cur.processScrapKg = round2(cur.processScrapKg + entryProcessScrapKg(row));
+    cur.scrapKg = round2(cur.partRejectKg + cur.processScrapKg);
     cur.downtimeHours = round2(cur.downtimeHours + toNum(row.downtimeHours));
   }
   return [...byDept.values()]
     .map((d) => ({
       ...d,
-      wastagePct: d.actualKg > 0 ? (d.scrapKg / d.actualKg) * 100 : 0,
+      wastagePct: d.actualKg > 0 ? round2((d.scrapKg / d.actualKg) * 100) : 0,
     }))
     .sort((a, b) => b.scrapKg - a.scrapKg || b.actualKg - a.actualKg || a.department.localeCompare(b.department));
 }
@@ -1032,14 +1216,19 @@ export function sampleMonthLabel(rows: readonly ProductionEntryRow[]): string {
 /** Header tile numbers for Tab B. */
 export function scrapTotals(rows: readonly ProductionEntryRow[]): AnalyticsTotals {
   let actualKg = 0;
-  let scrapKg = 0;
+  let partRejectKg = 0;
+  let processScrapKg = 0;
   for (const row of rows) {
     actualKg = round2(actualKg + kgOf(row, toNum(row.actualQuantity)));
-    scrapKg = round2(scrapKg + kgOf(row, toNum(row.scrapQuantity)));
+    partRejectKg = round2(partRejectKg + entryPartRejectKg(row));
+    processScrapKg = round2(processScrapKg + entryProcessScrapKg(row));
   }
+  const scrapKg = round2(partRejectKg + processScrapKg);
   return {
     entries: rows.length,
     actualKg,
+    partRejectKg,
+    processScrapKg,
     scrapKg,
     wastagePct: actualKg > 0 ? (scrapKg / actualKg) * 100 : 0,
   };
@@ -1063,49 +1252,18 @@ export function defectReasonDistribution(rows: readonly ProductionEntryRow[]): D
   let totalScrap = 0;
 
   for (const row of rows) {
-    const scrapKg = kgOf(row, toNum(row.scrapQuantity));
+    const scrapKg = entryTotalScrapKg(row);
     if (scrapKg <= 0) continue;
     totalScrap += scrapKg;
 
-    let r = (row.remarks ?? '').trim();
-    if (!r || r === '—') {
-      r = 'General Scrap';
-    } else if (/crack/i.test(r)) {
-      r = 'Cracks';
-    } else if (/scratch/i.test(r)) {
-      r = 'Surface Scratches';
-    } else if (/dimens|size|toler/i.test(r)) {
-      r = 'Dimension Error';
-    } else if (/setup|start/i.test(r)) {
-      r = 'Setup Waste';
-    } else if (/material|wire|grade/i.test(r)) {
-      r = 'Material Flaw';
-    } else if (r.length > 22) {
-      r = r.slice(0, 20) + '…';
-    }
-
+    const r = extractCleanDefectReason(row);
     const cur = byReason.get(r) ?? { scrapKg: 0, entries: 0 };
     cur.scrapKg = round2(cur.scrapKg + scrapKg);
     cur.entries += 1;
     byReason.set(r, cur);
   }
 
-  // If no specific defect remarks exist across scrap entries, provide realistic defect categorization
-  if (byReason.size <= 1 && totalScrap > 0) {
-    const defaultReasons = [
-      { name: 'Surface Scratches', weight: 0.35 },
-      { name: 'Dimension Error', weight: 0.28 },
-      { name: 'Setup Waste', weight: 0.20 },
-      { name: 'Material Flaw', weight: 0.12 },
-      { name: 'Cracks', weight: 0.05 },
-    ];
-    return defaultReasons.map((d) => ({
-      reason: d.name,
-      scrapKg: round2(totalScrap * d.weight),
-      entries: Math.max(1, Math.round(rows.length * d.weight)),
-      pct: round2(d.weight * 100),
-    }));
-  }
+  if (totalScrap <= 0) return [];
 
   return [...byReason.entries()]
     .map(([reason, val]) => ({
@@ -1121,23 +1279,27 @@ export interface ItemScrapRow {
   item: string;
   itemCode: string;
   actualKg: number;
+  partRejectKg: number;
+  processScrapKg: number;
   scrapKg: number;
   wastagePct: number;
 }
 
 export function topItemsScrapRollup(rows: readonly ProductionEntryRow[], limit = 6): ItemScrapRow[] {
-  const byItem = new Map<string, { item: string; itemCode: string; actualKg: number; scrapKg: number }>();
+  const byItem = new Map<string, { item: string; itemCode: string; actualKg: number; partRejectKg: number; processScrapKg: number; scrapKg: number }>();
   for (const row of rows) {
     const item = entryProductName(row);
     const itemCode = row.item?.itemCode ?? row.itemId ?? '';
     const key = item || itemCode || 'Unknown';
     let cur = byItem.get(key);
     if (!cur) {
-      cur = { item: key, itemCode, actualKg: 0, scrapKg: 0 };
+      cur = { item: key, itemCode, actualKg: 0, partRejectKg: 0, processScrapKg: 0, scrapKg: 0 };
       byItem.set(key, cur);
     }
     cur.actualKg = round2(cur.actualKg + kgOf(row, toNum(row.actualQuantity)));
-    cur.scrapKg = round2(cur.scrapKg + kgOf(row, toNum(row.scrapQuantity)));
+    cur.partRejectKg = round2(cur.partRejectKg + entryPartRejectKg(row));
+    cur.processScrapKg = round2(cur.processScrapKg + entryProcessScrapKg(row));
+    cur.scrapKg = round2(cur.partRejectKg + cur.processScrapKg);
   }
 
   return [...byItem.values()]
@@ -1148,4 +1310,5 @@ export function topItemsScrapRollup(rows: readonly ProductionEntryRow[], limit =
     .sort((a, b) => b.scrapKg - a.scrapKg || b.actualKg - a.actualKg)
     .slice(0, limit);
 }
+
 

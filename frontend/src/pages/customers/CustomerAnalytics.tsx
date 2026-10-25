@@ -1,16 +1,18 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Table, Tag, Input, Select, Button, Spin, Empty, Tooltip,
-  Progress, Row, Col, Statistic, Card, Tabs, Badge,
+  Progress, Row, Col, Statistic, Card, Tabs, Badge, Modal,
 } from 'antd';
 import {
   SearchOutlined, ReloadOutlined, AppstoreOutlined, UnorderedListOutlined,
   TrophyOutlined, ShoppingCartOutlined, RocketOutlined, BarChartOutlined,
   UserOutlined, TagOutlined, DollarOutlined, InboxOutlined,
   LeftOutlined, RightOutlined, RightCircleOutlined, ClockCircleOutlined, CheckCircleOutlined,
+  FileTextOutlined, ArrowLeftOutlined, FolderOpenOutlined, ContainerOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import apiService from '../../services/api';
+import DraggableResizableModal from '../../components/shared/DraggableResizableModal';
 import './CustomerAnalytics.css';
 
 const { Option } = Select;
@@ -21,6 +23,32 @@ export interface SafetyItemDetail {
   cartons: number;
   gross: number;
   pcs: number;
+}
+
+export interface SocItemDetail {
+  key: string;
+  itemCode: string;
+  itemName: string;
+  orderedQty: number;
+  packedQty: number;
+  dispatchedQty: number;
+  remainingPendingQty: number;
+  fulfillmentPct: number;
+  isOrderItem?: boolean;
+}
+
+export interface SocContractSummary {
+  orderId: string;
+  socNumber: string;
+  orderDate?: string;
+  status: string;
+  totalOrderedQty: number;
+  totalPackedQty: number;
+  totalDispatchedQty: number;
+  totalPendingQty: number;
+  fulfillmentPct: number;
+  items: SocItemDetail[];
+  isOfficialOrder?: boolean;
 }
 
 interface CustomerStat {
@@ -44,6 +72,13 @@ interface CustomerStat {
   lastOrderDate?: string;
   isSafetyStock?: boolean;
   safetyItems?: SafetyItemDetail[];
+  socContracts?: SocContractSummary[];
+}
+
+export interface ItemCustomerRef {
+  customerId: string;
+  customerName: string;
+  customerCode?: string;
 }
 
 interface ItemStat {
@@ -51,10 +86,20 @@ interface ItemStat {
   itemName: string;
   totalGross: number;
   totalCartons: number;
+  totalOrderedKgs: number;
+  readyFgrGross: number;
+  readyFgrCartons: number;
+  readyFgrKgs: number;
+  balancePendingGross: number;
+  balancePendingCartons: number;
+  balancePendingKgs: number;
   totalDispatchedGross?: number;
   totalDispatchedCartons?: number;
+  weightPerPiece: number;
+  grossPerCarton: number;
   customerCount: number;
   customerNames: string[];
+  customers: ItemCustomerRef[];
 }
 
 interface ActionKpiCardProps {
@@ -244,27 +289,89 @@ const CustomerAnalytics: React.FC = () => {
   const [customerPage, setCustomerPage] = useState(1);
   const [customers, setCustomers] = useState<CustomerStat[]>([]);
   const [itemStats, setItemStats] = useState<ItemStat[]>([]);
-  const [activeTab, setActiveTab] = useState<'customers' | 'items'>('customers');
+  const [activeTab, setActiveTab] = useState<'pending' | 'done' | 'all' | 'items'>('all');
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
+  const [selectedSocNumber, setSelectedSocNumber] = useState<string | null>(null);
+
+  const openCustomerSocModal = useCallback((c: CustomerStat) => {
+    setSelectedCustomerId(c.id);
+    setSelectedSocNumber(null);
+  }, []);
+
+  const closeCustomerSocModal = useCallback(() => {
+    setSelectedCustomerId(null);
+    setSelectedSocNumber(null);
+  }, []);
+
+  const openCustomerByNameOrRef = useCallback(
+    (refOrName: ItemCustomerRef | string) => {
+      const targetId = typeof refOrName === 'object' ? refOrName.customerId : '';
+      const targetName = (typeof refOrName === 'object' ? refOrName.customerName : refOrName)
+        .trim()
+        .toLowerCase();
+
+      const found =
+        (targetId ? customers.find((c) => c.id === targetId && !c.isSafetyStock) : undefined) ||
+        customers.find(
+          (c) =>
+            !c.isSafetyStock &&
+            (c.name.trim().toLowerCase() === targetName ||
+              c.name.trim().toLowerCase().includes(targetName) ||
+              targetName.includes(c.name.trim().toLowerCase()))
+        );
+
+      if (found) {
+        openCustomerSocModal(found);
+      }
+    },
+    [customers, openCustomerSocModal]
+  );
 
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      // Load sales orders, deliveries, registered customers, and hand packing production entries in parallel
-      const [ordersRes, deliveriesRes, salesCustRes, masterCustRes, prodRes, openStockRes] = await Promise.allSettled([
+      // Load sales orders, deliveries, registered customers, hand packing entries, and FGR stock matrix in parallel
+      const [
+        ordersRes,
+        deliveriesRes,
+        salesCustRes,
+        masterCustRes,
+        prodRes,
+        openStockRes,
+        matrixRes,
+        prodItemsRes,
+      ] = await Promise.allSettled([
         apiService.get('/sales/orders?limit=500&status=all'),
         apiService.get('/sales/deliveries?limit=500&status=all'),
         apiService.get('/sales/orders/meta/customers'),
         apiService.get('/customer/customers?limit=500'),
         apiService.get('/production/entries?machineNo=HAND-PACK&limit=500'),
         apiService.get('/production/open-stock/history?limit=200'),
+        apiService.get('/production/open-stock/matrix'),
+        apiService.get('/production/open-stock/items'),
       ]);
 
-      const orders: any[] = ordersRes.status === 'fulfilled'
+      const rawOrders: any[] = ordersRes.status === 'fulfilled'
         ? ((ordersRes.value as any)?.data?.data || (ordersRes.value as any)?.data || [])
         : [];
-      const deliveries: any[] = deliveriesRes.status === 'fulfilled'
+      const rawDeliveries: any[] = deliveriesRes.status === 'fulfilled'
         ? ((deliveriesRes.value as any)?.data?.data || (deliveriesRes.value as any)?.data || [])
         : [];
+
+      // Exclude uncommitted orders (DRAFT, CANCELLED, VOID) — active demand must strictly derive from committed SOCs
+      const isCommittedOrder = (o: any) => {
+        if (!o) return false;
+        const s = String(o.status || '').toUpperCase().trim();
+        return s !== 'DRAFT' && s !== 'CANCELLED' && s !== 'VOID';
+      };
+      const orders: any[] = rawOrders.filter(isCommittedOrder);
+
+      // Exclude cancelled / draft deliveries
+      const deliveries: any[] = rawDeliveries.filter((d: any) => {
+        if (!d) return false;
+        const s = String(d.status || '').toUpperCase().trim();
+        return s !== 'CANCELLED' && s !== 'DRAFT' && s !== 'VOID';
+      });
       const salesCustList: any[] = salesCustRes.status === 'fulfilled'
         ? ((salesCustRes.value as any)?.data?.data || (salesCustRes.value as any)?.data || [])
         : [];
@@ -276,6 +383,12 @@ const CustomerAnalytics: React.FC = () => {
         : [];
       const openStockEntries: any[] = openStockRes.status === 'fulfilled'
         ? ((openStockRes.value as any)?.data?.data || (openStockRes.value as any)?.data || [])
+        : [];
+      const matrixRows: any[] = matrixRes.status === 'fulfilled'
+        ? ((matrixRes.value as any)?.data?.data || (matrixRes.value as any)?.data || [])
+        : [];
+      const prodItemsList: any[] = prodItemsRes.status === 'fulfilled'
+        ? ((prodItemsRes.value as any)?.data?.data || (prodItemsRes.value as any)?.data || [])
         : [];
 
       // Build customer directory mapping ID and code to real genuine names
@@ -311,8 +424,37 @@ const CustomerAnalytics: React.FC = () => {
       orders.forEach((o) => { if (o.customer) registerToDirectory(o.customer); });
       deliveries.forEach((d) => { if (d.customer) registerToDirectory(d.customer); });
 
-      // Build customer map from orders
+      // Build customer map from orders and track per-customer SOC contracts
       const custMap = new Map<string, CustomerStat>();
+      const custSocMap = new Map<string, SocContractSummary[]>();
+
+      const normKey = (s: string) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+      const findOrCreateSocItem = (soc: SocContractSummary, code: string, name: string): SocItemDetail => {
+        const nCode = normKey(code);
+        const nName = normKey(name);
+        let found = soc.items.find((it) => {
+          const itCode = normKey(it.itemCode);
+          const itName = normKey(it.itemName);
+          if (nCode && itCode && nCode === itCode) return true;
+          if (nName && itName && (nName === itName || itName.includes(nName) || nName.includes(itName))) return true;
+          return false;
+        });
+        if (!found) {
+          found = {
+            key: `${soc.socNumber}-${code || name || soc.items.length + 1}`,
+            itemCode: code || 'FG-ITEM',
+            itemName: name || code || 'Finished Goods Item',
+            orderedQty: 0,
+            packedQty: 0,
+            dispatchedQty: 0,
+            remainingPendingQty: 0,
+            fulfillmentPct: 0,
+          };
+          soc.items.push(found);
+        }
+        return found;
+      };
 
       for (const order of orders) {
         const custId = order.customerId || order.customer_id || order.customer?.id;
@@ -329,7 +471,7 @@ const CustomerAnalytics: React.FC = () => {
         const custCode = info?.code || getCustomerDisplayCode(order.customer) || '';
         const custName = info?.name || getCustomerDisplayName(order.customer) || (custCode ? `Customer (${custCode})` : 'Customer');
         const custType = info?.type || order.customer?.customerType || 'B2B';
-        const orderNo = order.orderNumber || order.order_number || order.id;
+        const orderNo = String(order.orderNumber || order.order_number || order.socNumber || order.id || '');
         const orderDate = order.orderDate || order.order_date || order.createdAt;
 
         if (!custMap.has(custId)) {
@@ -352,14 +494,40 @@ const CustomerAnalytics: React.FC = () => {
             topItem: '',
             orderNumbers: [],
             lastOrderDate: orderDate,
+            socContracts: [],
           });
         }
 
         const stat = custMap.get(custId)!;
         stat.totalOrders += 1;
-        if (orderNo) stat.orderNumbers?.push(orderNo);
+        if (orderNo && !stat.orderNumbers?.includes(orderNo)) stat.orderNumbers?.push(orderNo);
         if (orderDate && (!stat.lastOrderDate || orderDate > stat.lastOrderDate)) {
           stat.lastOrderDate = orderDate;
+        }
+
+        if (!custSocMap.has(custId)) {
+          custSocMap.set(custId, []);
+        }
+        const custSocs = custSocMap.get(custId)!;
+        const socNumberLabel = orderNo || `SOC-${custSocs.length + 1}`;
+        let socEntry = custSocs.find(
+          (s) => (order.id && s.orderId === String(order.id)) || normKey(s.socNumber) === normKey(socNumberLabel)
+        );
+        if (!socEntry) {
+          socEntry = {
+            orderId: String(order.id || socNumberLabel),
+            socNumber: socNumberLabel,
+            orderDate,
+            status: String(order.status || 'ACTIVE').toUpperCase(),
+            totalOrderedQty: 0,
+            totalPackedQty: 0,
+            totalDispatchedQty: 0,
+            totalPendingQty: 0,
+            fulfillmentPct: 0,
+            items: [],
+            isOfficialOrder: true,
+          };
+          custSocs.push(socEntry);
         }
 
         // Sum order items
@@ -377,6 +545,10 @@ const CustomerAnalytics: React.FC = () => {
           if (!stat.topItem && name) {
             stat.topItem = name;
           }
+
+          const socItem = findOrCreateSocItem(socEntry, code, name);
+          socItem.orderedQty += qty;
+          socItem.isOrderItem = true;
         }
       }
 
@@ -411,19 +583,128 @@ const CustomerAnalytics: React.FC = () => {
             topItem: '',
             orderNumbers: [],
             lastOrderDate: delivery.deliveryDate || delivery.created_at,
+            socContracts: [],
           });
         }
 
         const stat = custMap.get(custId)!;
+        if (!custSocMap.has(custId)) {
+          custSocMap.set(custId, []);
+        }
+        const custSocs = custSocMap.get(custId)!;
+
+        const delivOrderId = String(delivery.salesOrderId || delivery.sales_order_id || delivery.salesOrder?.id || '');
+        const delivSocNo = String(
+          delivery.salesOrderNumber ||
+          delivery.sales_order_number ||
+          delivery.salesOrder?.orderNumber ||
+          delivery.salesOrder?.order_number ||
+          delivery.socNumber ||
+          delivery.soc_no ||
+          ''
+        );
+
+        let targetSoc = custSocs.find(
+          (s) =>
+            (delivOrderId && s.orderId === delivOrderId) ||
+            (delivSocNo && (normKey(s.socNumber) === normKey(delivSocNo) || normKey(s.socNumber).endsWith(normKey(delivSocNo))))
+        );
+
         const lines = delivery.lines || delivery.items || [];
         for (const line of lines) {
           const lineItemObj = line.item || {};
+          const code = lineItemObj.itemCode || line.itemCode || line.item_code || '';
+          const name = lineItemObj.name || line.description || line.itemName || line.item_name || code || 'Item';
           const qty = Number(line.quantity || line.qty || 0);
           const pkgSize = Number(lineItemObj.packagingSize || line.packageQuantity || line.packagingSize || 10);
           stat.totalDispatchedGross += qty;
           stat.totalDispatchedCartons += qty > 0 && pkgSize > 0 ? Math.round(qty / pkgSize) : 0;
           if (!stat.topItem) {
-            stat.topItem = lineItemObj.name || line.description || line.itemName || '';
+            stat.topItem = name;
+          }
+
+          if (qty <= 0) continue;
+
+          // Check line-level SOC first: e.g. [SOC: SOC-2026-05645]
+          const lineSocMatch = (line.description || '').match(/\[SOC:\s*([^\]]+)\]/i);
+          const lineSocNo = line.salesOrderNumber || line.socNumber || (lineSocMatch ? lineSocMatch[1].trim() : '') || delivSocNo;
+          const lineOrderId = line.salesOrderId || line.orderId || delivOrderId;
+
+          const nLineSoc = normKey(lineSocNo);
+          let targetSoc = custSocs.find(
+            (s) =>
+              (lineOrderId && s.orderId === lineOrderId) ||
+              (nLineSoc && (normKey(s.socNumber) === nLineSoc || normKey(s.socNumber).endsWith(nLineSoc) || nLineSoc.endsWith(normKey(s.socNumber))))
+          );
+
+          if (targetSoc) {
+            // Strictly match against items already ordered in this SOC
+            const nCode = normKey(code);
+            const nName = normKey(name);
+            const socItem = targetSoc.items.find((it) => {
+              const itCode = normKey(it.itemCode);
+              const itName = normKey(it.itemName);
+              if (nCode && itCode && nCode === itCode) return true;
+              if (nName && itName && (nName === itName || itName.includes(nName) || nName.includes(itName))) return true;
+              return false;
+            }) || (targetSoc.items.length === 1 ? targetSoc.items[0] : null);
+
+            if (socItem) {
+              socItem.dispatchedQty += qty;
+            } else if (!targetSoc.isOfficialOrder) {
+              const created = findOrCreateSocItem(targetSoc, code, name);
+              created.dispatchedQty += qty;
+            }
+          } else if (custSocs.length > 0) {
+            // Allocate FIFO strictly across customer's SOCs that ALREADY have this ordered item
+            let remainingToAllocate = qty;
+            const nCode = normKey(code);
+            const nName = normKey(name);
+            const matchingItems: SocItemDetail[] = [];
+
+            for (const s of custSocs) {
+              for (const it of s.items) {
+                const itCode = normKey(it.itemCode);
+                const itName = normKey(it.itemName);
+                if ((nCode && itCode && nCode === itCode) || (nName && itName && (nName === itName || itName.includes(nName) || nName.includes(itName)))) {
+                  matchingItems.push(it);
+                }
+              }
+            }
+
+            if (matchingItems.length > 0) {
+              for (const it of matchingItems) {
+                const room = Math.max(0, it.orderedQty - it.dispatchedQty);
+                if (room > 0 && remainingToAllocate > 0) {
+                  const alloc = Math.min(room, remainingToAllocate);
+                  it.dispatchedQty += alloc;
+                  remainingToAllocate -= alloc;
+                }
+              }
+              if (remainingToAllocate > 0) {
+                matchingItems[matchingItems.length - 1].dispatchedQty += remainingToAllocate;
+              }
+            }
+            // If no matching item exists across existing orders, do NOT inject ghost items
+          } else {
+            // Customer has delivery without an order record in orders list
+            const synthSocNo = delivSocNo || `SOC-${stat.customerCode || 'DIRECT'}`;
+            const newSoc: SocContractSummary = {
+              orderId: delivOrderId || synthSocNo,
+              socNumber: synthSocNo,
+              orderDate: delivery.deliveryDate || delivery.created_at,
+              status: 'DISPATCHED',
+              totalOrderedQty: 0,
+              totalPackedQty: 0,
+              totalDispatchedQty: 0,
+              totalPendingQty: 0,
+              fulfillmentPct: 100,
+              items: [],
+            };
+            custSocs.push(newSoc);
+            targetSoc = newSoc;
+            const socItem = findOrCreateSocItem(newSoc, code, name);
+            socItem.dispatchedQty += qty;
           }
         }
       }
@@ -485,13 +766,96 @@ const CustomerAnalytics: React.FC = () => {
             cartons: prev.cartons + entry.cartons,
             topItem: prev.topItem || entry.fgItemName || '',
           });
+
+          if (!custSocMap.has(matchedCustId)) {
+            custSocMap.set(matchedCustId, []);
+          }
+          const custSocs = custSocMap.get(matchedCustId)!;
+          const rawSoc = String(entry.socNo || '').trim();
+          const nEntrySoc = normKey(rawSoc);
+
+          let matchedSoc = nEntrySoc && rawSoc !== '—'
+            ? custSocs.find((s) => {
+                const nSoc = normKey(s.socNumber);
+                return nSoc === nEntrySoc || nSoc.endsWith(nEntrySoc) || nEntrySoc.endsWith(nSoc);
+              })
+            : undefined;
+
+          const pCode = entry.fgItemCode || '';
+          const pName = entry.fgItemName || '';
+
+          if (matchedSoc) {
+            const nCode = normKey(pCode);
+            const nName = normKey(pName);
+            const socItem = matchedSoc.items.find((it) => {
+              const itCode = normKey(it.itemCode);
+              const itName = normKey(it.itemName);
+              if (nCode && itCode && nCode === itCode) return true;
+              if (nName && itName && (nName === itName || itName.includes(nName) || nName.includes(itName))) return true;
+              return false;
+            }) || (matchedSoc.items.length === 1 ? matchedSoc.items[0] : null);
+
+            if (socItem) {
+              socItem.packedQty += entry.gross;
+            } else if (!matchedSoc.isOfficialOrder) {
+              const created = findOrCreateSocItem(matchedSoc, pCode, pName);
+              created.packedQty += entry.gross;
+            }
+          } else if (custSocs.length > 0) {
+            // Match by item across customer's SOCs in FIFO order
+            let remPacked = entry.gross;
+            const nCode = normKey(pCode);
+            const nName = normKey(pName);
+            const candidateItems: SocItemDetail[] = [];
+
+            for (const s of custSocs) {
+              for (const it of s.items) {
+                const itCode = normKey(it.itemCode);
+                const itName = normKey(it.itemName);
+                if ((nCode && itCode && nCode === itCode) || (nName && itName && (nName === itName || itName.includes(nName) || nName.includes(itName)))) {
+                  candidateItems.push(it);
+                }
+              }
+            }
+
+            if (candidateItems.length > 0) {
+              for (const it of candidateItems) {
+                const room = Math.max(0, it.orderedQty - it.packedQty);
+                if (room > 0 && remPacked > 0) {
+                  const alloc = Math.min(room, remPacked);
+                  it.packedQty += alloc;
+                  remPacked -= alloc;
+                }
+              }
+              if (remPacked > 0) {
+                candidateItems[candidateItems.length - 1].packedQty += remPacked;
+              }
+            }
+            // If no matching item exists across existing orders, do NOT inject ghost items
+          } else {
+            const synthSocNo = (rawSoc && rawSoc !== '—') ? rawSoc : 'SOC-PACKED';
+            const newSoc: SocContractSummary = {
+              orderId: synthSocNo,
+              socNumber: synthSocNo,
+              orderDate: entry.date,
+              status: 'PACKED',
+              totalOrderedQty: 0,
+              totalPackedQty: 0,
+              totalDispatchedQty: 0,
+              totalPendingQty: 0,
+              fulfillmentPct: 0,
+              items: [],
+            };
+            custSocs.push(newSoc);
+            const socItem = findOrCreateSocItem(newSoc, pCode, pName);
+            socItem.packedQty += entry.gross;
+          }
         }
       }
 
-      // Calculate fulfillment %, totalPacked and readyToDispatch for regular customers: Ready to Dispatch = Total Packed - Dispatched (P - D)
+      // Calculate fulfillment %, totalPacked, readyToDispatch, and finalized SOC contracts for regular customers
       const result: CustomerStat[] = Array.from(custMap.values()).map((c) => {
         const packed = custPackedMap.get(c.id) || { gross: 0, cartons: 0, topItem: '' };
-        const pendingGross = Math.max(0, Math.round((c.totalOrderedGross - c.totalDispatchedGross) * 100) / 100);
 
         // Core business formula requested by user: Packed - Dispatched = Ready to Dispatch (P - D)
         const readyToDispatchGross = Math.max(0, Math.round((packed.gross - c.totalDispatchedGross) * 100) / 100);
@@ -500,21 +864,103 @@ const CustomerAnalytics: React.FC = () => {
             ? Math.round((readyToDispatchGross / packed.gross) * packed.cartons)
             : Math.round(readyToDispatchGross / 10);
 
-        const fulfillmentPct =
-          c.totalOrderedGross > 0
-            ? Math.min(100, Math.round((c.totalDispatchedGross / c.totalOrderedGross) * 100))
-            : (c.totalDispatchedGross > 0 ? 100 : 0);
+        const rawSocs = custSocMap.get(c.id) || [];
+        const finalizedSocs: SocContractSummary[] = rawSocs.map((soc) => {
+          const isDelivered = String(soc.status).toUpperCase() === 'DELIVERED' || String(soc.status).toUpperCase() === 'CLOSED';
+
+          // Strictly filter out ghost items: For official contracts, only include items that were actually ordered
+          const itemsToProcess = soc.isOfficialOrder
+            ? soc.items.filter((it) => it.isOrderItem || it.orderedQty > 0)
+            : soc.items.filter((it) => it.orderedQty > 0 || it.dispatchedQty > 0 || it.packedQty > 0);
+
+          const finalizedItems: SocItemDetail[] = itemsToProcess.map((it) => {
+            const orderedQty = Math.round(it.orderedQty * 100) / 100;
+            const packedQty = Math.round(it.packedQty * 100) / 100;
+            let dispatchedQty = Math.round(it.dispatchedQty * 100) / 100;
+            let remainingPendingQty = Math.max(0, Math.round((orderedQty - dispatchedQty) * 100) / 100);
+
+            // THE ULTIMATE RULE:
+            // If Order Status = Delivered, then DELIVERED quantity must equal ORDERED quantity,
+            // and REMAINING must automatically reduce to 0.
+            if (isDelivered) {
+              dispatchedQty = orderedQty;
+              remainingPendingQty = 0;
+            }
+
+            const itemPct =
+              orderedQty > 0
+                ? Math.min(100, Math.round((dispatchedQty / orderedQty) * 100))
+                : (dispatchedQty > 0 ? 100 : 0);
+            return {
+              ...it,
+              orderedQty,
+              packedQty,
+              dispatchedQty,
+              remainingPendingQty,
+              fulfillmentPct: isDelivered ? 100 : itemPct,
+            };
+          });
+
+          const totalOrderedQty = Math.round(finalizedItems.reduce((s, i) => s + i.orderedQty, 0) * 100) / 100;
+          const totalPackedQty = Math.round(finalizedItems.reduce((s, i) => s + i.packedQty, 0) * 100) / 100;
+          let totalDispatchedQty = Math.round(finalizedItems.reduce((s, i) => s + i.dispatchedQty, 0) * 100) / 100;
+          let totalPendingQty = Math.max(0, Math.round((totalOrderedQty - totalDispatchedQty) * 100) / 100);
+
+          if (isDelivered) {
+            totalDispatchedQty = totalOrderedQty;
+            totalPendingQty = 0;
+          }
+
+          const socPct =
+            isDelivered
+              ? 100
+              : (totalOrderedQty > 0
+                ? Math.min(100, Math.round((totalDispatchedQty / totalOrderedQty) * 100))
+                : (totalDispatchedQty > 0 ? 100 : 0));
+
+          return {
+            ...soc,
+            totalOrderedQty,
+            totalPackedQty,
+            totalDispatchedQty,
+            totalPendingQty,
+            fulfillmentPct: socPct,
+            items: finalizedItems,
+          };
+        });
+
+        // Sort SOCs so contracts with pending quantities appear first
+        finalizedSocs.sort((a, b) => b.totalPendingQty - a.totalPendingQty);
+
+        // System-wide strict sync: Customer Card figures MUST match the exact sum of verified SOC contracts
+        const totalOrderedGross = finalizedSocs.length > 0
+          ? Math.round(finalizedSocs.reduce((s, x) => s + x.totalOrderedQty, 0) * 100) / 100
+          : Math.round(c.totalOrderedGross * 100) / 100;
+        const totalDispatchedGross = finalizedSocs.length > 0
+          ? Math.round(finalizedSocs.reduce((s, x) => s + x.totalDispatchedQty, 0) * 100) / 100
+          : Math.round(c.totalDispatchedGross * 100) / 100;
+        const pendingGross = Math.max(0, Math.round((totalOrderedGross - totalDispatchedGross) * 100) / 100);
+        const totalOrders = finalizedSocs.length > 0 ? finalizedSocs.length : c.totalOrders;
+
+        const custFulfillmentPct =
+          totalOrderedGross > 0
+            ? Math.min(100, Math.round((totalDispatchedGross / totalOrderedGross) * 100))
+            : (totalDispatchedGross > 0 ? 100 : 0);
 
         return {
           ...c,
+          totalOrders,
+          totalOrderedGross,
+          totalDispatchedGross,
           totalPackedGross: packed.gross,
           totalPackedCartons: packed.cartons,
           pendingGross,
-          fulfillmentPct,
+          fulfillmentPct: custFulfillmentPct,
           readyToDispatchGross,
           readyToDispatchCartons,
           topItem: c.topItem || packed.topItem || '',
           isSafetyStock: false,
+          socContracts: finalizedSocs,
         };
       });
 
@@ -575,19 +1021,120 @@ const CustomerAnalytics: React.FC = () => {
 
       setCustomers(result);
 
+      // Build item metadata lookup (weightPerPiece, packagingSize, FGR warehouse ready stock)
+      const itemMetaMap = new Map<
+        string,
+        {
+          weightPerPiece: number;
+          packagingSize: number;
+          matrixFgrGross: number;
+          matrixFgrCartons: number;
+          matrixFgrKgs: number;
+        }
+      >();
+
+      const registerItemMeta = (
+        rawCode: string,
+        rawName: string,
+        wpp: number,
+        pkg: number,
+        fgrGross = 0,
+        fgrCartons = 0,
+        fgrKgs = 0
+      ) => {
+        const keys = [normKey(rawCode), normKey(rawName)].filter(Boolean);
+        for (const k of keys) {
+          const prev = itemMetaMap.get(k) || {
+            weightPerPiece: 0,
+            packagingSize: 0,
+            matrixFgrGross: 0,
+            matrixFgrCartons: 0,
+            matrixFgrKgs: 0,
+          };
+          itemMetaMap.set(k, {
+            weightPerPiece: wpp > 0 ? wpp : prev.weightPerPiece,
+            packagingSize: pkg > 0 ? pkg : prev.packagingSize,
+            matrixFgrGross: prev.matrixFgrGross + fgrGross,
+            matrixFgrCartons: prev.matrixFgrCartons + fgrCartons,
+            matrixFgrKgs: prev.matrixFgrKgs + fgrKgs,
+          });
+        }
+      };
+
+      for (const pIt of prodItemsList) {
+        const wpp =
+          Number(pIt.weightPerPiece) > 0
+            ? Number(pIt.weightPerPiece)
+            : Number(pIt.piecesPerKg) > 0
+            ? 1 / Number(pIt.piecesPerKg)
+            : 0;
+        const pkg = Number(pIt.packagingSize) || 0;
+        registerItemMeta(pIt.itemCode || '', pIt.name || pIt.itemName || '', wpp, pkg);
+      }
+
+      for (const whRow of matrixRows) {
+        const isFgrWh = Boolean(
+          whRow.isFgWarehouse ||
+          String(whRow.warehouseCode || '').toUpperCase().includes('FGDW') ||
+          String(whRow.warehouseName || '').toUpperCase().includes('DISPATCH') ||
+          String(whRow.warehouseName || '').toUpperCase().includes('FG')
+        );
+        const mItems: any[] = whRow.items || [];
+        for (const mIt of mItems) {
+          const wpp = Number(mIt.weightPerPiece) || 0;
+          const pkg = Number(mIt.packagingSize || mIt.grossPerCarton) || 0;
+          const isFgItem = isFgrWh || mIt.itemType === 'FINISHED_GOOD';
+          const fgrGrs = isFgItem
+            ? Number(mIt.convertedGross || (Number(mIt.convertedPieces) > 0 ? Number(mIt.convertedPieces) / 144 : 0))
+            : 0;
+          const fgrCtn = isFgItem ? Number(mIt.convertedCartons || 0) : 0;
+          const fgrKg = isFgItem ? Number(mIt.convertedWeightKg || 0) : 0;
+          registerItemMeta(mIt.itemCode || '', mIt.itemName || '', wpp, pkg, fgrGrs, fgrCtn, fgrKg);
+        }
+      }
+
+      const inferDefaultWeightPerPiece = (code: string, name: string): number => {
+        const combined = `${code} ${name}`.toUpperCase();
+        if (combined.includes('8G') || combined.includes('4.0MM')) return 0.0185;
+        if (combined.includes('9G') || combined.includes('3.6MM') || combined.includes('S9')) return 0.0165;
+        if (combined.includes('10G') || combined.includes('3.2MM') || combined.includes('S10')) return 0.015;
+        if (combined.includes('12G') || combined.includes('2.6MM')) return 0.0125;
+        return 0.0155; // Standard Finished Goods Spoke & Nipple set (~2.23 KG/Gross, ~22.3 KG/Carton)
+      };
+
+      const computeGrossPerCarton = (code: string, name: string, pkgSize: number): number => {
+        if (pkgSize > 0) return pkgSize;
+        const isCS =
+          code.toUpperCase().includes('011') ||
+          code.toUpperCase().includes('012') ||
+          name.toUpperCase().includes('(CS)') ||
+          name.toUpperCase().includes('CS');
+        return isCS ? 10.555556 : 10;
+      };
+
       // Build item stats from orders
       const itemMap = new Map<string, ItemStat>();
       for (const order of orders) {
-        const custId = order.customerId || order.customer_id;
+        const custId = String(order.customerId || order.customer_id || order.customer?.id || '');
         const custInfo = customerDirectory.get(custId);
         const custName = custInfo?.name || getCustomerDisplayName(order.customer) || 'Customer';
+        const custCode = custInfo?.code || getCustomerDisplayCode(order.customer) || '';
         const items = order.items || order.orderItems || order.lines || [];
         for (const item of items) {
           const itemObj = item.item || {};
           const code = itemObj.itemCode || item.itemCode || item.item_code || '';
           const name = itemObj.name || item.description || item.itemName || item.item_name || code || 'Item';
           const qty = Number(item.quantity || item.qty || 0);
-          const pkgSize = Number(itemObj.packagingSize || item.packageQuantity || item.packagingSize || 10);
+          const meta = itemMetaMap.get(normKey(code)) || itemMetaMap.get(normKey(name));
+          const rawPkgSize = Number(itemObj.packagingSize || item.packageQuantity || item.packagingSize || meta?.packagingSize || 0);
+          const grossPerCarton = computeGrossPerCarton(code, name, rawPkgSize);
+          const rawWpp =
+            Number(itemObj.weightPerPiece) > 0
+              ? Number(itemObj.weightPerPiece)
+              : Number(itemObj.piecesPerKg) > 0
+              ? 1 / Number(itemObj.piecesPerKg)
+              : meta?.weightPerPiece || 0;
+          const weightPerPiece = rawWpp > 0 ? rawWpp : inferDefaultWeightPerPiece(code, name);
 
           if (!code && !name) continue;
           const key = code || name;
@@ -597,18 +1144,35 @@ const CustomerAnalytics: React.FC = () => {
               itemName: name,
               totalGross: 0,
               totalCartons: 0,
+              totalOrderedKgs: 0,
+              readyFgrGross: 0,
+              readyFgrCartons: 0,
+              readyFgrKgs: 0,
+              balancePendingGross: 0,
+              balancePendingCartons: 0,
+              balancePendingKgs: 0,
               totalDispatchedGross: 0,
               totalDispatchedCartons: 0,
+              weightPerPiece,
+              grossPerCarton,
               customerCount: 0,
-              customerNames: []
+              customerNames: [],
+              customers: [],
             });
           }
           const s = itemMap.get(key)!;
+          if (rawWpp > 0) s.weightPerPiece = rawWpp;
+          if (rawPkgSize > 0) s.grossPerCarton = grossPerCarton;
           s.totalGross += qty;
-          s.totalCartons += qty > 0 && pkgSize > 0 ? Math.round(qty / pkgSize) : 0;
+          s.totalCartons += qty > 0 && s.grossPerCarton > 0 ? qty / s.grossPerCarton : 0;
           if (custName && !s.customerNames.includes(custName)) {
             s.customerNames.push(custName);
             s.customerCount += 1;
+            s.customers.push({
+              customerId: custId || custName,
+              customerName: custName,
+              customerCode: custCode,
+            });
           }
         }
       }
@@ -622,7 +1186,14 @@ const CustomerAnalytics: React.FC = () => {
           const code = lineItemObj.itemCode || line.itemCode || line.item_code || '';
           const name = lineItemObj.name || line.description || line.itemName || line.item_name || code || 'Item';
           const qty = Number(line.quantity || line.qty || 0);
-          const pkgSize = Number(lineItemObj.packagingSize || line.packageQuantity || line.packagingSize || 10);
+          const meta = itemMetaMap.get(normKey(code)) || itemMetaMap.get(normKey(name));
+          const rawPkgSize = Number(lineItemObj.packagingSize || line.packageQuantity || line.packagingSize || meta?.packagingSize || 0);
+          const grossPerCarton = computeGrossPerCarton(code, name, rawPkgSize);
+          const rawWpp =
+            Number(lineItemObj.weightPerPiece) > 0
+              ? Number(lineItemObj.weightPerPiece)
+              : meta?.weightPerPiece || 0;
+          const weightPerPiece = rawWpp > 0 ? rawWpp : inferDefaultWeightPerPiece(code, name);
 
           if (!code && !name) continue;
           const key = code || name;
@@ -632,18 +1203,104 @@ const CustomerAnalytics: React.FC = () => {
               itemName: name,
               totalGross: 0,
               totalCartons: 0,
+              totalOrderedKgs: 0,
+              readyFgrGross: 0,
+              readyFgrCartons: 0,
+              readyFgrKgs: 0,
+              balancePendingGross: 0,
+              balancePendingCartons: 0,
+              balancePendingKgs: 0,
               totalDispatchedGross: 0,
               totalDispatchedCartons: 0,
+              weightPerPiece,
+              grossPerCarton,
               customerCount: 0,
-              customerNames: []
+              customerNames: [],
+              customers: [],
             });
           }
           const s = itemMap.get(key)!;
           s.totalDispatchedGross = (s.totalDispatchedGross || 0) + qty;
-          s.totalDispatchedCartons = (s.totalDispatchedCartons || 0) + (qty > 0 && pkgSize > 0 ? Math.round(qty / pkgSize) : 0);
+          s.totalDispatchedCartons =
+            (s.totalDispatchedCartons || 0) + (qty > 0 && s.grossPerCarton > 0 ? qty / s.grossPerCarton : 0);
         }
       }
-      const itemResult = Array.from(itemMap.values()).sort((a, b) => b.totalGross - a.totalGross);
+
+      // Compute per-item Ready in FGR (from customer SOC packed-minus-dispatched + safety stock buffer + FGR warehouse matrix)
+      const itemPackedReadyMap = new Map<string, number>();
+      for (const cust of result) {
+        if (cust.isSafetyStock) {
+          for (const sItem of cust.safetyItems || []) {
+            const kCode = normKey(sItem.itemCode);
+            const kName = normKey(sItem.itemName);
+            if (kCode) itemPackedReadyMap.set(kCode, (itemPackedReadyMap.get(kCode) || 0) + sItem.gross);
+            if (kName && kName !== kCode) itemPackedReadyMap.set(kName, (itemPackedReadyMap.get(kName) || 0) + sItem.gross);
+          }
+          continue;
+        }
+        for (const soc of cust.socContracts || []) {
+          for (const socIt of soc.items) {
+            const netReadyGross = Math.max(0, socIt.packedQty - socIt.dispatchedQty);
+            if (netReadyGross > 0) {
+              const kCode = normKey(socIt.itemCode);
+              const kName = normKey(socIt.itemName);
+              if (kCode) itemPackedReadyMap.set(kCode, (itemPackedReadyMap.get(kCode) || 0) + netReadyGross);
+              if (kName && kName !== kCode) itemPackedReadyMap.set(kName, (itemPackedReadyMap.get(kName) || 0) + netReadyGross);
+            }
+          }
+        }
+      }
+
+      const itemResult: ItemStat[] = Array.from(itemMap.values())
+        .map((it) => {
+          const nCode = normKey(it.itemCode);
+          const nName = normKey(it.itemName);
+          const meta = itemMetaMap.get(nCode) || itemMetaMap.get(nName);
+          const packedReadyGross = itemPackedReadyMap.get(nCode) ?? itemPackedReadyMap.get(nName) ?? 0;
+          const matrixFgrGross = meta?.matrixFgrGross || 0;
+
+          const totalGross = Math.round(it.totalGross * 100) / 100;
+          const totalDispatchedGross = Math.round((it.totalDispatchedGross || 0) * 100) / 100;
+          const readyFgrGross = Math.round(Math.max(packedReadyGross, matrixFgrGross) * 100) / 100;
+          const grossPerCarton = it.grossPerCarton > 0 ? it.grossPerCarton : 10;
+          const weightPerPiece = it.weightPerPiece > 0 ? it.weightPerPiece : inferDefaultWeightPerPiece(it.itemCode, it.itemName);
+
+          const totalCartons = Math.round((totalGross / grossPerCarton) * 10) / 10;
+          const totalOrderedKgs = Math.round(totalGross * 144 * weightPerPiece * 10) / 10;
+
+          const readyFgrCartons =
+            meta?.matrixFgrCartons && matrixFgrGross > packedReadyGross
+              ? Math.round(meta.matrixFgrCartons * 10) / 10
+              : Math.round((readyFgrGross / grossPerCarton) * 10) / 10;
+
+          const readyFgrKgs =
+            meta?.matrixFgrKgs && matrixFgrGross > packedReadyGross
+              ? Math.round(meta.matrixFgrKgs * 10) / 10
+              : Math.round(readyFgrGross * 144 * weightPerPiece * 10) / 10;
+
+          const balancePendingGross = Math.max(0, Math.round((totalGross - readyFgrGross) * 100) / 100);
+          const balancePendingCartons = Math.max(0, Math.round((totalCartons - readyFgrCartons) * 10) / 10);
+          const balancePendingKgs = Math.max(0, Math.round((totalOrderedKgs - readyFgrKgs) * 10) / 10);
+
+          return {
+            ...it,
+            totalGross,
+            totalDispatchedGross,
+            totalCartons,
+            totalOrderedKgs,
+            readyFgrGross,
+            readyFgrCartons,
+            readyFgrKgs,
+            balancePendingGross,
+            balancePendingCartons,
+            balancePendingKgs,
+            totalDispatchedCartons: Math.round((totalDispatchedGross / grossPerCarton) * 10) / 10,
+            weightPerPiece,
+            grossPerCarton,
+          };
+        })
+        .sort((a, b) => b.totalGross - a.totalGross);
+
       setItemStats(itemResult);
     } catch (err) {
       console.error('CustomerAnalytics load error:', err);
@@ -677,10 +1334,68 @@ const CustomerAnalytics: React.FC = () => {
     return list;
   }, [customers, searchText, sortBy]);
 
+  const filteredItemStats = useMemo(() => {
+    let list = [...itemStats];
+    if (searchText) {
+      const q = searchText.toLowerCase();
+      list = list.filter(
+        (it) =>
+          it.itemCode.toLowerCase().includes(q) ||
+          it.itemName.toLowerCase().includes(q) ||
+          it.customerNames.some((cn) => cn.toLowerCase().includes(q))
+      );
+    }
+    return list;
+  }, [itemStats, searchText]);
+
   const CARDS_PER_ROW = 5;
-  const onlyCustomers = useMemo(() => filteredCustomers.filter(c => !c.isSafetyStock), [filteredCustomers]);
-  const safetyStockStat = useMemo(() => customers.find(c => c.isSafetyStock), [customers]);
+  const nonSafetyCustomers = useMemo(
+    () => filteredCustomers.filter((c) => !c.isSafetyStock),
+    [filteredCustomers]
+  );
+
+  // Dynamic routing based on fulfillment percentage & remaining pending qty:
+  // - Pending: active, unfulfilled, or partially fulfilled (< 100% fulfillment or pendingGross > 0)
+  // - Done: 100% fulfilled (fulfillmentPct >= 100 and pendingGross <= 0)
+  const pendingCustomers = useMemo(
+    () => nonSafetyCustomers.filter((c) => c.fulfillmentPct < 100 || c.pendingGross > 0),
+    [nonSafetyCustomers]
+  );
+  const doneCustomers = useMemo(
+    () => nonSafetyCustomers.filter((c) => c.fulfillmentPct >= 100 && c.pendingGross <= 0),
+    [nonSafetyCustomers]
+  );
+
+  const onlyCustomers = useMemo(() => {
+    if (activeTab === 'pending') return pendingCustomers;
+    if (activeTab === 'done') return doneCustomers;
+    return nonSafetyCustomers;
+  }, [activeTab, pendingCustomers, doneCustomers, nonSafetyCustomers]);
+
+  const tableCustomers = useMemo(() => {
+    if (activeTab === 'pending') return pendingCustomers;
+    if (activeTab === 'done') return doneCustomers;
+    return filteredCustomers;
+  }, [activeTab, pendingCustomers, doneCustomers, filteredCustomers]);
+
+  const safetyStockStat = useMemo(() => customers.find((c) => c.isSafetyStock), [customers]);
   const totalCustomerPages = Math.max(1, Math.ceil(onlyCustomers.length / CARDS_PER_ROW));
+
+  const selectedCustomerModal = useMemo(
+    () => (selectedCustomerId ? customers.find((c) => c.id === selectedCustomerId) || null : null),
+    [customers, selectedCustomerId]
+  );
+
+  const selectedSocContract = useMemo(() => {
+    if (!selectedCustomerModal || !selectedSocNumber) return null;
+    return (
+      selectedCustomerModal.socContracts?.find((s) => s.socNumber === selectedSocNumber) || null
+    );
+  }, [selectedCustomerModal, selectedSocNumber]);
+
+  useEffect(() => {
+    setCustomerPage(1);
+  }, [activeTab]);
 
   useEffect(() => {
     if (customerPage > totalCustomerPages) {
@@ -835,47 +1550,103 @@ const CustomerAnalytics: React.FC = () => {
       ),
     },
     {
-      title: 'ITEM',
+      title: 'ITEM CODE & NAME',
       key: 'item',
       render: (_: any, it: ItemStat) => (
         <div>
-          <div style={{ fontWeight: 700, color: 'var(--theme-accent, #6366f1)', fontSize: 12 }}>{it.itemCode}</div>
-          <div style={{ fontSize: 11, color: 'var(--theme-text, #1e293b)', fontWeight: 600 }}>{it.itemName}</div>
+          <div style={{ fontWeight: 800, color: 'var(--theme-accent, #6366f1)', fontSize: 13, fontFamily: 'monospace' }}>
+            {it.itemCode}
+          </div>
+          <div style={{ fontSize: 11.5, color: 'var(--theme-text, #1e293b)', fontWeight: 600 }}>{it.itemName}</div>
         </div>
       ),
     },
     {
-      title: 'TOTAL GRS ORDERED',
-      key: 'gross',
+      title: 'TOTAL ORDERED (KGS / CTN)',
+      key: 'ordered',
       align: 'right' as const,
       render: (_: any, it: ItemStat) => (
-        <span style={{ fontWeight: 700, color: 'var(--theme-heading, #1e293b)' }}>{fmtNum(it.totalGross, 0)} GRS</span>
+        <div>
+          <div style={{ fontWeight: 800, color: 'var(--theme-heading, #1e293b)', fontSize: 13 }}>
+            {fmtNum(it.totalOrderedKgs, 1)} KGS
+          </div>
+          <div style={{ fontSize: 11, color: '#6366f1', fontWeight: 700 }}>
+            {fmtNum(it.totalCartons, 1)} Cartons ({fmtNum(it.totalGross, 0)} GRS)
+          </div>
+        </div>
       ),
     },
     {
-      title: 'DISPATCHED GRS',
-      key: 'dispatched',
+      title: 'READY IN FGR (KGS / CTN)',
+      key: 'readyFgr',
       align: 'right' as const,
       render: (_: any, it: ItemStat) => (
-        <span style={{ fontWeight: 700, color: '#10b981' }}>{fmtNum(it.totalDispatchedGross || 0, 0)} GRS</span>
+        <div>
+          <div style={{ fontWeight: 800, color: '#10b981', fontSize: 13 }}>
+            {fmtNum(it.readyFgrKgs, 1)} KGS
+          </div>
+          <div style={{ fontSize: 11, color: '#0d9488', fontWeight: 700 }}>
+            {fmtNum(it.readyFgrCartons, 1)} Cartons
+          </div>
+        </div>
       ),
     },
     {
-      title: 'CARTONS',
-      key: 'cartons',
+      title: 'BALANCE PENDING (KGS / CTN)',
+      key: 'balancePending',
       align: 'right' as const,
       render: (_: any, it: ItemStat) => (
-        <span style={{ fontWeight: 700, color: 'var(--theme-accent, #6366f1)' }}>{fmtNum(it.totalCartons, 0)} CTN</span>
+        <div>
+          <div
+            style={{
+              fontWeight: 800,
+              color: it.balancePendingKgs > 0 ? '#f59e0b' : '#10b981',
+              fontSize: 13,
+            }}
+          >
+            {fmtNum(it.balancePendingKgs, 1)} KGS
+          </div>
+          <div
+            style={{
+              fontSize: 11,
+              color: it.balancePendingCartons > 0 ? '#d97706' : '#10b981',
+              fontWeight: 700,
+            }}
+          >
+            {fmtNum(it.balancePendingCartons, 1)} Cartons
+          </div>
+        </div>
       ),
     },
     {
-      title: 'CUSTOMERS',
+      title: 'ASSOCIATED CUSTOMERS',
       key: 'customers',
       render: (_: any, it: ItemStat) => (
         <div>
-          <Tag color="purple">{it.customerCount} Customers</Tag>
-          <div style={{ fontSize: 10, color: 'var(--theme-text-muted, #64748b)', marginTop: 2 }}>
-            {it.customerNames.slice(0, 2).join(', ')}{it.customerCount > 2 ? ` +${it.customerCount - 2}` : ''}
+          <Tag
+            color="purple"
+            style={{ cursor: 'pointer', fontWeight: 700, marginBottom: 4 }}
+            onClick={() => {
+              const firstCust = it.customers?.[0] || it.customerNames[0];
+              if (firstCust) openCustomerByNameOrRef(firstCust);
+            }}
+          >
+            <UserOutlined /> {it.customerCount} {it.customerCount === 1 ? 'Customer' : 'Customers'}
+          </Tag>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+            {(it.customers && it.customers.length > 0
+              ? it.customers
+              : it.customerNames.map((n) => ({ customerId: n, customerName: n }))
+            ).map((cust) => (
+              <button
+                key={cust.customerId + cust.customerName}
+                type="button"
+                className="ca-item-cust-link"
+                onClick={() => openCustomerByNameOrRef(cust)}
+              >
+                {cust.customerName}
+              </button>
+            ))}
           </div>
         </div>
       ),
@@ -1183,47 +1954,66 @@ const CustomerAnalytics: React.FC = () => {
         )}
       </div>
 
-      {/* ── Tabs: Customers | Items ── */}
+      {/* ── Tabs: Pending | Done | All | Items ── */}
       <div className="ca-section">
         <div className="ca-section-toolbar">
           <div className="ca-tabs">
             <button
-              className={`ca-tab ${activeTab === 'customers' ? 'active' : ''}`}
-              onClick={() => setActiveTab('customers')}
+              type="button"
+              className={`ca-tab ca-tab-pending ${activeTab === 'pending' ? 'active' : ''}`}
+              onClick={() => setActiveTab('pending')}
             >
-              <UserOutlined /> Customers ({filteredCustomers.length})
+              <ClockCircleOutlined /> Pending ({pendingCustomers.length})
             </button>
             <button
+              type="button"
+              className={`ca-tab ca-tab-done ${activeTab === 'done' ? 'active' : ''}`}
+              onClick={() => setActiveTab('done')}
+            >
+              <CheckCircleOutlined /> Done ({doneCustomers.length})
+            </button>
+            <button
+              type="button"
+              className={`ca-tab ${activeTab === 'all' ? 'active' : ''}`}
+              onClick={() => setActiveTab('all')}
+            >
+              <UserOutlined /> All ({nonSafetyCustomers.length})
+            </button>
+            <button
+              type="button"
               className={`ca-tab ${activeTab === 'items' ? 'active' : ''}`}
               onClick={() => setActiveTab('items')}
             >
-              <TagOutlined /> Items ({itemStats.length})
+              <TagOutlined /> Items ({filteredItemStats.length})
             </button>
           </div>
 
           <div className="ca-toolbar-right">
-            {activeTab === 'customers' && (
-              <>
-                <Input
-                  prefix={<SearchOutlined />}
-                  placeholder="Search customer, item or buffer..."
-                  value={searchText}
-                  onChange={(e) => setSearchText(e.target.value)}
-                  allowClear
-                  className="ca-search"
-                />
-                <Select value={sortBy} onChange={setSortBy} className="ca-sort-select">
-                  <Option value="dispatched">Sort: Dispatched ↓</Option>
-                  <Option value="packed">Sort: Total Packed ↓</Option>
-                  <Option value="ready">Sort: Ready to Dispatch ↓</Option>
-                  <Option value="pending">Sort: Pending ↓</Option>
-                  <Option value="orders">Sort: Orders ↓</Option>
-                  <Option value="value">Sort: Value ↓</Option>
-                </Select>
-              </>
+            <Input
+              prefix={<SearchOutlined />}
+              placeholder={
+                activeTab === 'items'
+                  ? 'Search item code, product name or customer...'
+                  : 'Search customer, item or buffer...'
+              }
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+              allowClear
+              className="ca-search"
+            />
+            {activeTab !== 'items' && (
+              <Select value={sortBy} onChange={setSortBy} className="ca-sort-select">
+                <Option value="dispatched">Sort: Dispatched ↓</Option>
+                <Option value="packed">Sort: Total Packed ↓</Option>
+                <Option value="ready">Sort: Ready to Dispatch ↓</Option>
+                <Option value="pending">Sort: Pending ↓</Option>
+                <Option value="orders">Sort: Orders ↓</Option>
+                <Option value="value">Sort: Value ↓</Option>
+              </Select>
             )}
             <div className="ca-view-toggle">
               <button
+                type="button"
                 className={`ca-toggle-btn ${viewMode === 'card' ? 'active' : ''}`}
                 onClick={() => setViewMode('card')}
                 title="Card View"
@@ -1231,6 +2021,7 @@ const CustomerAnalytics: React.FC = () => {
                 <AppstoreOutlined />
               </button>
               <button
+                type="button"
                 className={`ca-toggle-btn ${viewMode === 'table' ? 'active' : ''}`}
                 onClick={() => setViewMode('table')}
                 title="Table View"
@@ -1242,180 +2033,208 @@ const CustomerAnalytics: React.FC = () => {
         </div>
 
         <Spin spinning={loading}>
-          {activeTab === 'customers' ? (
+          {activeTab !== 'items' ? (
             viewMode === 'card' ? (
               <div className="ca-cards-carousel-container">
                 {/* ── Single-Row Customer Cards Carousel with Side Edge Arrows ── */}
-                <div className="ca-cards-carousel-viewport">
-                  {totalCustomerPages > 1 && (
-                    <button
-                      className={`ca-carousel-edge-btn ca-edge-prev ${customerPage <= 1 ? 'disabled' : ''}`}
-                      onClick={() => setCustomerPage((p) => Math.max(1, p - 1))}
-                      disabled={customerPage <= 1}
-                      title="Previous Customers"
-                      type="button"
-                    >
-                      <LeftOutlined />
-                    </button>
-                  )}
+                {pagedCustomers.length > 0 ? (
+                  <div className="ca-cards-carousel-viewport">
+                    {totalCustomerPages > 1 && (
+                      <button
+                        className={`ca-carousel-edge-btn ca-edge-prev ${customerPage <= 1 ? 'disabled' : ''}`}
+                        onClick={() => setCustomerPage((p) => Math.max(1, p - 1))}
+                        disabled={customerPage <= 1}
+                        title="Previous Customers"
+                        type="button"
+                      >
+                        <LeftOutlined />
+                      </button>
+                    )}
 
-                  <div className="ca-card-grid ca-card-grid-row">
-                    {pagedCustomers.map((c, i) => {
-                      const globalIdx = (customerPage - 1) * CARDS_PER_ROW + i;
-                      const accentColor = getFulfillmentColor(c.fulfillmentPct);
-                      return (
-                        <div
-                          key={c.id}
-                          className="ca-customer-card"
-                          style={{ '--accent': accentColor } as any}
-                        >
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                            <div
-                              className="ca-card-rank"
-                              style={{
-                                color: COLORS[globalIdx % COLORS.length],
-                                margin: 0,
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 4,
-                              }}
-                            >
-                              {globalIdx === 0 ? '🥇' : globalIdx === 1 ? '🥈' : globalIdx === 2 ? '🥉' : `#${globalIdx + 1}`}
-                            </div>
-                            <Tag
-                              color="blue"
-                              style={{ fontSize: 10.5, fontWeight: 700, borderRadius: 6, margin: 0 }}
-                            >
-                              {c.totalOrders} {c.totalOrders === 1 ? 'Order' : 'Orders'}
-                            </Tag>
-                          </div>
-
-                          <div className="ca-card-header">
-                            <div
-                              className="ca-card-avatar"
-                              style={{
-                                background: `${accentColor}18`,
-                                color: accentColor,
-                              }}
-                            >
-                              {c.name.charAt(0).toUpperCase()}
-                            </div>
-                            <div className="ca-card-info">
-                              <div className="ca-card-name" title={c.name}>{c.name}</div>
-                              <div className="ca-card-code">{c.customerCode || 'B2B'}</div>
-                            </div>
-                          </div>
-
-                          <div className="ca-card-progress-row">
-                            <span className="ca-card-pct-label">Fulfillment</span>
-                            <span
-                              className="ca-card-pct"
-                              style={{ color: accentColor, fontWeight: 800 }}
-                            >
-                              {c.fulfillmentPct}%
-                            </span>
-                          </div>
-                          <Progress
-                            percent={c.fulfillmentPct}
-                            showInfo={false}
-                            size="small"
-                            strokeColor={accentColor}
-                            style={{ marginBottom: 10 }}
-                          />
-
-                          <div className="ca-card-stats">
-                            <div className="ca-stat">
-                              <div className="ca-stat-label">Ordered</div>
-                              <div className="ca-stat-val">
-                                {fmtNum(c.totalOrderedGross, 0)} GRS
-                              </div>
-                            </div>
-                            <div className="ca-stat">
-                              <div className="ca-stat-label" style={{ color: '#0d9488' }}>Total Packed</div>
-                              <div className="ca-stat-val" style={{ color: '#0d9488' }}>
-                                {fmtNum(c.totalPackedGross, 0)} GRS
-                              </div>
-                              {c.totalPackedCartons > 0 && (
-                                <div style={{ fontSize: 10, color: 'var(--theme-text-muted, #64748b)', fontWeight: 600, marginTop: 1 }}>
-                                  ({fmtNum(c.totalPackedCartons, 0)} CTN)
-                                </div>
-                              )}
-                            </div>
-                            <div className="ca-stat">
-                              <div className="ca-stat-label">Dispatched</div>
-                              <div className="ca-stat-val" style={{ color: '#10b981' }}>
-                                {fmtNum(c.totalDispatchedGross, 0)} GRS
-                              </div>
-                              {c.totalDispatchedCartons > 0 && (
-                                <div style={{ fontSize: 10, color: '#10b981', fontWeight: 600, marginTop: 1 }}>
-                                  ({fmtNum(c.totalDispatchedCartons, 0)} CTN)
-                                </div>
-                              )}
-                            </div>
-                            <div className="ca-stat ca-stat-ready">
-                              <div className="ca-stat-label ca-stat-label-ready">
-                                READY TO DISPATCH
-                              </div>
-                              <div className="ca-stat-val ca-stat-val-ready">
-                                {c.readyToDispatchGross > 0
-                                  ? `${fmtNum(c.readyToDispatchGross, 0)} GRS`
-                                  : '0 GRS'}
-                              </div>
-                              {c.readyToDispatchCartons > 0 && (
-                                <div className="ca-stat-sub-ready">
-                                  ({fmtNum(c.readyToDispatchCartons, 0)} CTN)
-                                </div>
-                              )}
-                            </div>
-                            <div className="ca-stat">
-                              <div className="ca-stat-label">Pending</div>
+                    <div className="ca-card-grid ca-card-grid-row">
+                      {pagedCustomers.map((c, i) => {
+                        const globalIdx = (customerPage - 1) * CARDS_PER_ROW + i;
+                        const accentColor = getFulfillmentColor(c.fulfillmentPct);
+                        const socCount = c.socContracts?.length || c.totalOrders || 0;
+                        return (
+                          <div
+                            key={c.id}
+                            className="ca-customer-card ca-customer-card-clickable"
+                            style={{ '--accent': accentColor } as any}
+                            onClick={() => openCustomerSocModal(c)}
+                            role="button"
+                            tabIndex={0}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                openCustomerSocModal(c);
+                              }
+                            }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                               <div
-                                className="ca-stat-val"
+                                className="ca-card-rank"
                                 style={{
-                                  color: c.pendingGross > 0 ? '#f59e0b' : '#10b981',
-                                  fontWeight: 700,
+                                  color: COLORS[globalIdx % COLORS.length],
+                                  margin: 0,
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 4,
                                 }}
                               >
-                                {c.pendingGross > 0 ? `${fmtNum(c.pendingGross, 0)} GRS` : '✅ Done'}
+                                {globalIdx === 0 ? '🥇' : globalIdx === 1 ? '🥈' : globalIdx === 2 ? '🥉' : `#${globalIdx + 1}`}
+                              </div>
+                              <Tag
+                                color="blue"
+                                style={{ fontSize: 10.5, fontWeight: 700, borderRadius: 6, margin: 0 }}
+                              >
+                                {socCount} {socCount === 1 ? 'SOC' : 'SOCs'}
+                              </Tag>
+                            </div>
+
+                            <div className="ca-card-header">
+                              <div
+                                className="ca-card-avatar"
+                                style={{
+                                  background: `${accentColor}18`,
+                                  color: accentColor,
+                                }}
+                              >
+                                {c.name.charAt(0).toUpperCase()}
+                              </div>
+                              <div className="ca-card-info">
+                                <div className="ca-card-name" title={c.name}>{c.name}</div>
+                                <div className="ca-card-code">{c.customerCode || 'B2B'}</div>
                               </div>
                             </div>
-                            <div className="ca-stat">
-                              <div className="ca-stat-label">Orders</div>
-                              <div className="ca-stat-val" style={{ color: COLORS[globalIdx % COLORS.length] }}>
-                                {c.totalOrders}
+
+                            <div className="ca-card-progress-row">
+                              <span className="ca-card-pct-label">Fulfillment</span>
+                              <span
+                                className="ca-card-pct"
+                                style={{ color: accentColor, fontWeight: 800 }}
+                              >
+                                {c.fulfillmentPct}%
+                              </span>
+                            </div>
+                            <Progress
+                              percent={c.fulfillmentPct}
+                              showInfo={false}
+                              size="small"
+                              strokeColor={accentColor}
+                              style={{ marginBottom: 10 }}
+                            />
+
+                            <div className="ca-card-stats">
+                              <div className="ca-stat">
+                                <div className="ca-stat-label">Ordered</div>
+                                <div className="ca-stat-val">
+                                  {fmtNum(c.totalOrderedGross, 0)} GRS
+                                </div>
                               </div>
+                              <div className="ca-stat">
+                                <div className="ca-stat-label" style={{ color: '#0d9488' }}>Total Packed</div>
+                                <div className="ca-stat-val" style={{ color: '#0d9488' }}>
+                                  {fmtNum(c.totalPackedGross, 0)} GRS
+                                </div>
+                                {c.totalPackedCartons > 0 && (
+                                  <div style={{ fontSize: 10, color: 'var(--theme-text-muted, #64748b)', fontWeight: 600, marginTop: 1 }}>
+                                    ({fmtNum(c.totalPackedCartons, 0)} CTN)
+                                  </div>
+                                )}
+                              </div>
+                              <div className="ca-stat">
+                                <div className="ca-stat-label">Dispatched</div>
+                                <div className="ca-stat-val" style={{ color: '#10b981' }}>
+                                  {fmtNum(c.totalDispatchedGross, 0)} GRS
+                                </div>
+                                {c.totalDispatchedCartons > 0 && (
+                                  <div style={{ fontSize: 10, color: '#10b981', fontWeight: 600, marginTop: 1 }}>
+                                    ({fmtNum(c.totalDispatchedCartons, 0)} CTN)
+                                  </div>
+                                )}
+                              </div>
+                              <div className="ca-stat ca-stat-ready">
+                                <div className="ca-stat-label ca-stat-label-ready">
+                                  READY TO DISPATCH
+                                </div>
+                                <div className="ca-stat-val ca-stat-val-ready">
+                                  {c.readyToDispatchGross > 0
+                                    ? `${fmtNum(c.readyToDispatchGross, 0)} GRS`
+                                    : '0 GRS'}
+                                </div>
+                                {c.readyToDispatchCartons > 0 && (
+                                  <div className="ca-stat-sub-ready">
+                                    ({fmtNum(c.readyToDispatchCartons, 0)} CTN)
+                                  </div>
+                                )}
+                              </div>
+                              <div className="ca-stat">
+                                <div className="ca-stat-label">Pending</div>
+                                <div
+                                  className="ca-stat-val"
+                                  style={{
+                                    color: c.pendingGross > 0 ? '#f59e0b' : '#10b981',
+                                    fontWeight: 700,
+                                  }}
+                                >
+                                  {c.pendingGross > 0 ? `${fmtNum(c.pendingGross, 0)} GRS` : '✅ Done'}
+                                </div>
+                              </div>
+                              <div className="ca-stat">
+                                <div className="ca-stat-label">Orders</div>
+                                <div className="ca-stat-val" style={{ color: COLORS[globalIdx % COLORS.length] }}>
+                                  {c.totalOrders}
+                                </div>
+                              </div>
+                            </div>
+
+                            {c.topItem && (
+                              <div className="ca-card-item" title={c.topItem}>
+                                <TagOutlined style={{ marginRight: 5, flexShrink: 0 }} />
+                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.topItem}</span>
+                              </div>
+                            )}
+
+                            <div className="ca-card-footer-row">
+                              {c.lastOrderDate ? (
+                                <span className="ca-card-date">
+                                  Last order: {c.lastOrderDate?.slice(0, 10) || ''}
+                                </span>
+                              ) : <span />}
+                              <span className="ca-card-soc-hint">
+                                <FolderOpenOutlined /> View SOCs →
+                              </span>
                             </div>
                           </div>
+                        );
+                      })}
+                    </div>
 
-                          {c.topItem && (
-                            <div className="ca-card-item" title={c.topItem}>
-                              <TagOutlined style={{ marginRight: 5, flexShrink: 0 }} />
-                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.topItem}</span>
-                            </div>
-                          )}
-
-                          {c.lastOrderDate && (
-                            <div className="ca-card-date">
-                              Last order: {c.lastOrderDate?.slice(0, 10) || ''}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
+                    {totalCustomerPages > 1 && (
+                      <button
+                        className={`ca-carousel-edge-btn ca-edge-next ${customerPage >= totalCustomerPages ? 'disabled' : ''}`}
+                        onClick={() => setCustomerPage((p) => Math.min(totalCustomerPages, p + 1))}
+                        disabled={customerPage >= totalCustomerPages}
+                        title="Next Customers"
+                        type="button"
+                      >
+                        <RightOutlined />
+                      </button>
+                    )}
                   </div>
-
-                  {totalCustomerPages > 1 && (
-                    <button
-                      className={`ca-carousel-edge-btn ca-edge-next ${customerPage >= totalCustomerPages ? 'disabled' : ''}`}
-                      onClick={() => setCustomerPage((p) => Math.min(totalCustomerPages, p + 1))}
-                      disabled={customerPage >= totalCustomerPages}
-                      title="Next Customers"
-                      type="button"
-                    >
-                      <RightOutlined />
-                    </button>
-                  )}
-                </div>
+                ) : (
+                  <Empty
+                    description={
+                      activeTab === 'pending'
+                        ? 'No customers with pending orders — all orders are 100% fulfilled!'
+                        : activeTab === 'done'
+                        ? 'No customers have reached 100% order fulfillment yet.'
+                        : 'No matching customers found.'
+                    }
+                    style={{ padding: 48 }}
+                  />
+                )}
 
                 {/* ── Bottom Pagination Bar: P 1 2 N ── */}
                 {totalCustomerPages > 1 && (
@@ -1451,8 +2270,8 @@ const CustomerAnalytics: React.FC = () => {
                   </div>
                 )}
 
-                {/* ── Permanent Dedicated Safety Stock Buffer Dock Below ── */}
-                {safetyStockStat && (
+                {/* ── Permanent Dedicated Safety Stock Buffer Dock Below (shown in All view) ── */}
+                {activeTab === 'all' && safetyStockStat && (
                   <div className="ca-safety-dock">
                     <div className="ca-safety-dock-header">
                       <div className="ca-safety-dock-title-box">
@@ -1509,57 +2328,225 @@ const CustomerAnalytics: React.FC = () => {
             ) : (
               <Table
                 size="small"
-                dataSource={filteredCustomers}
+                dataSource={tableCustomers}
                 rowKey="id"
                 columns={tableColumns}
                 pagination={{ pageSize: 20, showSizeChanger: true }}
                 className="ca-table"
+                onRow={(record) => ({
+                  onClick: () => {
+                    if (!record.isSafetyStock) {
+                      openCustomerSocModal(record);
+                    }
+                  },
+                  style: { cursor: record.isSafetyStock ? 'default' : 'pointer' },
+                })}
               />
             )
           ) : (
             viewMode === 'card' ? (
-              <div className="ca-card-grid">
-                {itemStats.map((it, i) => (
-                  <div key={it.itemCode} className="ca-customer-card" style={{ '--accent': COLORS[i % COLORS.length] } as any}>
-                    <div className="ca-card-rank" style={{ color: COLORS[i % COLORS.length] }}>
-                      {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `#${i + 1}`}
-                    </div>
-                    <div className="ca-card-header">
-                      <div className="ca-card-avatar" style={{ background: `${COLORS[i % COLORS.length]}22`, color: COLORS[i % COLORS.length] }}>
-                        <InboxOutlined />
+              filteredItemStats.length > 0 ? (
+                <div className="ca-item-pro-grid">
+                  {filteredItemStats.map((it, i) => {
+                    const accentClr = COLORS[i % COLORS.length];
+                    const fgrCoveragePct =
+                      it.totalOrderedKgs > 0
+                        ? Math.min(100, Math.round((it.readyFgrKgs / it.totalOrderedKgs) * 100))
+                        : it.readyFgrKgs > 0
+                        ? 100
+                        : 0;
+                    const fgrStatusColor = getFulfillmentColor(fgrCoveragePct);
+                    const associatedCusts =
+                      it.customers && it.customers.length > 0
+                        ? it.customers
+                        : it.customerNames.map((n) => ({ customerId: n, customerName: n }));
+
+                    return (
+                      <div
+                        key={it.itemCode}
+                        className="ca-item-pro-card"
+                        style={{ '--item-accent': accentClr } as React.CSSProperties}
+                      >
+                        {/* ── Top Identity & Customer Badge Bar ── */}
+                        <div className="ca-item-pro-top">
+                          <div className="ca-item-pro-rank-wrap">
+                            <span
+                              className="ca-item-pro-rank"
+                              style={{ color: accentClr, borderColor: `${accentClr}44`, background: `${accentClr}14` }}
+                            >
+                              {i === 0 ? '🥇 #1' : i === 1 ? '🥈 #2' : i === 2 ? '🥉 #3' : `#${i + 1}`}
+                            </span>
+                            <span className="ca-item-pro-grs-pill">
+                              {fmtNum(it.totalGross, 0)} GRS Demand
+                            </span>
+                          </div>
+
+                          <button
+                            type="button"
+                            className="ca-item-cust-badge"
+                            title="Click to inspect customer Sales Order Contracts (SOC)"
+                            onClick={() => {
+                              const firstCust = associatedCusts[0];
+                              if (firstCust) openCustomerByNameOrRef(firstCust);
+                            }}
+                          >
+                            <UserOutlined />
+                            <span>
+                              {it.customerCount} {it.customerCount === 1 ? 'Customer' : 'Customers'}
+                            </span>
+                          </button>
+                        </div>
+
+                        {/* ── Primary Identifier: Bold Prominent Item Code & Product Name ── */}
+                        <div className="ca-item-pro-identity">
+                          <div
+                            className="ca-item-pro-avatar"
+                            style={{ background: `${accentClr}1f`, color: accentClr }}
+                          >
+                            <InboxOutlined />
+                          </div>
+                          <div className="ca-item-pro-titles">
+                            <div className="ca-item-pro-code" title={it.itemCode}>
+                              {it.itemCode}
+                            </div>
+                            <div className="ca-item-pro-name" title={it.itemName}>
+                              {it.itemName}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* ── FGR Readiness Progress Strip ── */}
+                        <div className="ca-item-pro-progress">
+                          <div className="ca-item-pro-progress-hdr">
+                            <span className="ca-item-pro-progress-lbl">FGR Stock Coverage</span>
+                            <span
+                              className="ca-item-pro-progress-val"
+                              style={{ color: fgrStatusColor }}
+                            >
+                              {fgrCoveragePct}% Ready in FGR
+                            </span>
+                          </div>
+                          <Progress
+                            percent={fgrCoveragePct}
+                            showInfo={false}
+                            size="small"
+                            strokeColor={fgrStatusColor}
+                            style={{ margin: 0 }}
+                          />
+                        </div>
+
+                        {/* ── 3-Segment Structured Inventory Matrix (KGS & CARTONS) ── */}
+                        <div className="ca-item-matrix">
+                          {/* Segment A: Total Order Requirements */}
+                          <div className="ca-matrix-segment ca-matrix-seg-ordered">
+                            <div className="ca-matrix-seg-header">
+                              <span className="ca-matrix-seg-dot" style={{ background: '#6366f1' }} />
+                              <span className="ca-matrix-seg-title">A. Total Order Requirements</span>
+                            </div>
+                            <div className="ca-matrix-cells">
+                              <div className="ca-matrix-cell">
+                                <span className="ca-matrix-cell-label">Total Ordered (KGS)</span>
+                                <span className="ca-matrix-cell-val ca-val-primary">
+                                  {fmtNum(it.totalOrderedKgs, 1)} <small>KGS</small>
+                                </span>
+                              </div>
+                              <div className="ca-matrix-cell">
+                                <span className="ca-matrix-cell-label">Total Ordered (Cartons)</span>
+                                <span className="ca-matrix-cell-val ca-val-indigo">
+                                  {fmtNum(it.totalCartons, 1)} <small>CTN</small>
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Segment B: Current Inventory & Ready Stock (FGR) */}
+                          <div className="ca-matrix-segment ca-matrix-seg-fgr">
+                            <div className="ca-matrix-seg-header">
+                              <span className="ca-matrix-seg-dot" style={{ background: '#10b981' }} />
+                              <span className="ca-matrix-seg-title">B. Current Inventory &amp; Ready Stock (FGR)</span>
+                            </div>
+                            <div className="ca-matrix-cells">
+                              <div className="ca-matrix-cell">
+                                <span className="ca-matrix-cell-label">Ready in FGR (KGS)</span>
+                                <span className="ca-matrix-cell-val ca-val-emerald">
+                                  {fmtNum(it.readyFgrKgs, 1)} <small>KGS</small>
+                                </span>
+                              </div>
+                              <div className="ca-matrix-cell">
+                                <span className="ca-matrix-cell-label">Ready in FGR (Cartons)</span>
+                                <span className="ca-matrix-cell-val ca-val-teal">
+                                  {fmtNum(it.readyFgrCartons, 1)} <small>CTN</small>
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Segment C: Remaining Balance Tracking */}
+                          <div className="ca-matrix-segment ca-matrix-seg-balance">
+                            <div className="ca-matrix-seg-header">
+                              <span
+                                className="ca-matrix-seg-dot"
+                                style={{ background: it.balancePendingKgs > 0 ? '#f59e0b' : '#10b981' }}
+                              />
+                              <span className="ca-matrix-seg-title">C. Remaining Balance Tracking</span>
+                            </div>
+                            <div className="ca-matrix-cells">
+                              <div className="ca-matrix-cell">
+                                <span className="ca-matrix-cell-label">Balance Pending (KGS)</span>
+                                <span
+                                  className={`ca-matrix-cell-val ${
+                                    it.balancePendingKgs > 0 ? 'ca-val-amber' : 'ca-val-emerald'
+                                  }`}
+                                >
+                                  {fmtNum(it.balancePendingKgs, 1)} <small>KGS</small>
+                                </span>
+                              </div>
+                              <div className="ca-matrix-cell">
+                                <span className="ca-matrix-cell-label">Balance Pending (Cartons)</span>
+                                <span
+                                  className={`ca-matrix-cell-val ${
+                                    it.balancePendingCartons > 0 ? 'ca-val-amber' : 'ca-val-emerald'
+                                  }`}
+                                >
+                                  {fmtNum(it.balancePendingCartons, 1)} <small>CTN</small>
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* ── Associated Customers Quick View (Interactive Hyperlinks/Tags) ── */}
+                        <div className="ca-item-pro-customers">
+                          <div className="ca-item-pro-cust-hdr">
+                            <UserOutlined style={{ color: accentClr }} />
+                            <span>Associated Customers (Click to drill down into SOCs):</span>
+                          </div>
+                          <div className="ca-item-pro-cust-tags">
+                            {associatedCusts.map((cust) => (
+                              <button
+                                key={cust.customerId + cust.customerName}
+                                type="button"
+                                className="ca-item-cust-chip"
+                                onClick={() => openCustomerByNameOrRef(cust)}
+                                title={`Open SOC Contracts for ${cust.customerName}`}
+                              >
+                                <span>{cust.customerName}</span>
+                                <RightOutlined className="ca-item-cust-chip-arrow" />
+                              </button>
+                            ))}
+                          </div>
+                        </div>
                       </div>
-                      <div className="ca-card-info">
-                        <div className="ca-card-name" style={{ fontSize: 12 }}>{it.itemCode}</div>
-                        <div className="ca-card-code">{it.itemName}</div>
-                      </div>
-                    </div>
-                    <div className="ca-card-stats">
-                      <div className="ca-stat">
-                        <div className="ca-stat-label">Total GRS</div>
-                        <div className="ca-stat-val" style={{ color: COLORS[i % COLORS.length] }}>{fmtNum(it.totalGross, 0)}</div>
-                      </div>
-                      <div className="ca-stat">
-                        <div className="ca-stat-label">Cartons</div>
-                        <div className="ca-stat-val">{fmtNum(it.totalCartons, 0)}</div>
-                      </div>
-                      <div className="ca-stat">
-                        <div className="ca-stat-label">Customers</div>
-                        <div className="ca-stat-val" style={{ color: '#6366f1' }}>{it.customerCount}</div>
-                      </div>
-                    </div>
-                    <div className="ca-card-item" style={{ marginTop: 8 }}>
-                      <UserOutlined style={{ marginRight: 4, color: COLORS[i % COLORS.length] }} />
-                      <span style={{ fontSize: 11, color: 'var(--theme-text-muted, #64748b)' }}>
-                        {it.customerNames.slice(0, 2).join(', ')}{it.customerCount > 2 ? ` +${it.customerCount - 2} more` : ''}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <Empty description="No matching items found." style={{ padding: 48 }} />
+              )
             ) : (
               <Table
                 size="small"
-                dataSource={itemStats}
+                dataSource={filteredItemStats}
                 rowKey="itemCode"
                 columns={itemColumns}
                 pagination={{ pageSize: 20 }}
@@ -1569,6 +2556,414 @@ const CustomerAnalytics: React.FC = () => {
           )}
         </Spin>
       </div>
+
+      {/* ── Layer 2 & Layer 3 Drill-Down Modal: SOC Summary -> Item-Wise Order Details ── */}
+      <DraggableResizableModal
+        open={Boolean(selectedCustomerModal)}
+        onCancel={closeCustomerSocModal}
+        footer={null}
+        width={1040}
+        height={680}
+        centered
+        destroyOnClose
+        className="ca-soc-modal"
+        title={
+          selectedCustomerModal ? (
+            <div className="ca-soc-modal-header">
+              <div
+                className="ca-soc-modal-avatar"
+                style={{
+                  background: `${getFulfillmentColor(selectedCustomerModal.fulfillmentPct)}22`,
+                  color: getFulfillmentColor(selectedCustomerModal.fulfillmentPct),
+                }}
+              >
+                {selectedCustomerModal.name.charAt(0).toUpperCase()}
+              </div>
+              <div className="ca-soc-modal-title-wrap">
+                <div className="ca-soc-modal-title-row">
+                  <span className="ca-soc-modal-cust-name">{selectedCustomerModal.name}</span>
+                  <Tag color="geekblue" style={{ margin: 0, fontWeight: 700 }}>
+                    {selectedCustomerModal.customerCode || 'B2B'}
+                  </Tag>
+                  <Tag
+                    color={
+                      selectedCustomerModal.fulfillmentPct >= 100 && selectedCustomerModal.pendingGross <= 0
+                        ? 'success'
+                        : 'warning'
+                    }
+                    style={{ margin: 0, fontWeight: 700 }}
+                  >
+                    {selectedCustomerModal.fulfillmentPct >= 100 && selectedCustomerModal.pendingGross <= 0
+                      ? '100% Fulfilled (Done)'
+                      : `${selectedCustomerModal.fulfillmentPct}% Fulfilled • Pending`}
+                  </Tag>
+                </div>
+                <div className="ca-soc-modal-subtitle">
+                  {selectedSocContract
+                    ? `Layer 3 Drill-Down • Item-Wise Order Details for ${selectedSocContract.socNumber}`
+                    : 'Layer 2 Drill-Down • Click any Sales Order Contract (SOC) Number below to inspect item-wise order details'}
+                </div>
+              </div>
+            </div>
+          ) : null
+        }
+      >
+        {selectedCustomerModal && (
+          <div className="ca-soc-modal-body">
+            {/* Customer Summary Strip */}
+            <div className="ca-soc-kpi-strip">
+              <div className="ca-soc-kpi-box">
+                <span className="ca-soc-kpi-label">Total SOC Contracts</span>
+                <span className="ca-soc-kpi-val" style={{ color: '#6366f1' }}>
+                  {selectedCustomerModal.socContracts?.length || selectedCustomerModal.totalOrders || 0}
+                </span>
+              </div>
+              <div className="ca-soc-kpi-box">
+                <span className="ca-soc-kpi-label">Ordered Qty</span>
+                <span className="ca-soc-kpi-val">
+                  {fmtNum(selectedCustomerModal.totalOrderedGross, 0)} GRS
+                </span>
+              </div>
+              <div className="ca-soc-kpi-box">
+                <span className="ca-soc-kpi-label">Packed Qty</span>
+                <span className="ca-soc-kpi-val" style={{ color: '#0d9488' }}>
+                  {fmtNum(selectedCustomerModal.totalPackedGross, 0)} GRS
+                </span>
+              </div>
+              <div className="ca-soc-kpi-box">
+                <span className="ca-soc-kpi-label">Dispatched Qty</span>
+                <span className="ca-soc-kpi-val" style={{ color: '#10b981' }}>
+                  {fmtNum(selectedCustomerModal.totalDispatchedGross, 0)} GRS
+                </span>
+              </div>
+              <div className="ca-soc-kpi-box">
+                <span className="ca-soc-kpi-label">Remaining Pending</span>
+                <span
+                  className="ca-soc-kpi-val"
+                  style={{
+                    color: selectedCustomerModal.pendingGross > 0 ? '#f59e0b' : '#10b981',
+                  }}
+                >
+                  {fmtNum(selectedCustomerModal.pendingGross, 0)} GRS
+                </span>
+              </div>
+            </div>
+
+            {!selectedSocContract ? (
+              /* ── LAYER 2: SOC Summary List ── */
+              <div className="ca-soc-list-section">
+                <div className="ca-soc-section-heading">
+                  <span>
+                    <FileTextOutlined style={{ marginRight: 6, color: '#6366f1' }} />
+                    Sales Order Contracts (SOC) — Select an SOC Number to view item-wise breakdown
+                  </span>
+                  <span className="ca-soc-count-badge">
+                    {selectedCustomerModal.socContracts?.length || 0} Contracts
+                  </span>
+                </div>
+
+                {selectedCustomerModal.socContracts && selectedCustomerModal.socContracts.length > 0 ? (
+                  <div className="ca-soc-grid">
+                    {selectedCustomerModal.socContracts.map((soc) => {
+                      const socColor = getFulfillmentColor(soc.fulfillmentPct);
+                      const isDone = soc.fulfillmentPct >= 100 && soc.totalPendingQty <= 0;
+                      return (
+                        <div
+                          key={soc.orderId + soc.socNumber}
+                          className="ca-soc-card"
+                          onClick={() => setSelectedSocNumber(soc.socNumber)}
+                          role="button"
+                          tabIndex={0}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              setSelectedSocNumber(soc.socNumber);
+                            }
+                          }}
+                        >
+                          <div className="ca-soc-card-top">
+                            <button
+                              type="button"
+                              className="ca-soc-number-btn"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedSocNumber(soc.socNumber);
+                              }}
+                            >
+                              <FileTextOutlined />
+                              <span>{soc.socNumber}</span>
+                            </button>
+                            <div className="ca-soc-card-badges">
+                              {soc.orderDate && (
+                                <span className="ca-soc-date">
+                                  {String(soc.orderDate).slice(0, 10)}
+                                </span>
+                              )}
+                              <Tag
+                                color={isDone ? 'success' : soc.totalDispatchedQty > 0 ? 'processing' : 'warning'}
+                                style={{ margin: 0, fontWeight: 700, fontSize: 11 }}
+                              >
+                                {isDone ? 'Done (100%)' : soc.totalDispatchedQty > 0 ? 'Partial' : 'Pending'}
+                              </Tag>
+                            </div>
+                          </div>
+
+                          <div className="ca-soc-card-metrics">
+                            <div className="ca-soc-metric">
+                              <span className="ca-soc-metric-lbl">Items</span>
+                              <span className="ca-soc-metric-val">{soc.items.length}</span>
+                            </div>
+                            <div className="ca-soc-metric">
+                              <span className="ca-soc-metric-lbl">Ordered Qty</span>
+                              <span className="ca-soc-metric-val">{fmtNum(soc.totalOrderedQty, 0)} GRS</span>
+                            </div>
+                            <div className="ca-soc-metric">
+                              <span className="ca-soc-metric-lbl" style={{ color: '#0d9488' }}>Packed Qty</span>
+                              <span className="ca-soc-metric-val" style={{ color: '#0d9488' }}>
+                                {fmtNum(soc.totalPackedQty, 0)} GRS
+                              </span>
+                            </div>
+                            <div className="ca-soc-metric">
+                              <span className="ca-soc-metric-lbl" style={{ color: '#10b981' }}>Dispatched Qty</span>
+                              <span className="ca-soc-metric-val" style={{ color: '#10b981' }}>
+                                {fmtNum(soc.totalDispatchedQty, 0)} GRS
+                              </span>
+                            </div>
+                            <div className="ca-soc-metric">
+                              <span className="ca-soc-metric-lbl">Pending Qty</span>
+                              <span
+                                className="ca-soc-metric-val"
+                                style={{ color: soc.totalPendingQty > 0 ? '#f59e0b' : '#10b981' }}
+                              >
+                                {soc.totalPendingQty > 0 ? `${fmtNum(soc.totalPendingQty, 0)} GRS` : '0 GRS'}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="ca-soc-card-bottom">
+                            <div className="ca-soc-progress-wrap">
+                              <Progress
+                                percent={soc.fulfillmentPct}
+                                size="small"
+                                strokeColor={socColor}
+                                format={(p) => (
+                                  <span style={{ color: socColor, fontWeight: 800, fontSize: 11 }}>{p}%</span>
+                                )}
+                              />
+                            </div>
+                            <span className="ca-soc-drill-link">
+                              View Item Details <RightOutlined style={{ fontSize: 10 }} />
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <Empty description="No SOC contracts found for this customer." style={{ padding: 32 }} />
+                )}
+              </div>
+            ) : (
+              /* ── LAYER 3: Item-Wise Order Details for Selected SOC ── */
+              <div className="ca-soc-detail-section">
+                <div className="ca-soc-detail-nav">
+                  <button
+                    type="button"
+                    className="ca-soc-back-btn"
+                    onClick={() => setSelectedSocNumber(null)}
+                  >
+                    <ArrowLeftOutlined /> Back to All SOC Contracts
+                  </button>
+
+                  {selectedCustomerModal.socContracts && selectedCustomerModal.socContracts.length > 1 && (
+                    <div className="ca-soc-Quick-pills">
+                      {selectedCustomerModal.socContracts.map((s) => (
+                        <button
+                          key={s.socNumber}
+                          type="button"
+                          className={`ca-soc-pill ${s.socNumber === selectedSocContract.socNumber ? 'active' : ''}`}
+                          onClick={() => setSelectedSocNumber(s.socNumber)}
+                        >
+                          {s.socNumber}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="ca-soc-active-banner">
+                  <div className="ca-soc-active-left">
+                    <span className="ca-soc-active-tag">
+                      <FileTextOutlined /> {selectedSocContract.socNumber}
+                    </span>
+                    {selectedSocContract.orderDate && (
+                      <span className="ca-soc-active-date">
+                        Contract Date: {String(selectedSocContract.orderDate).slice(0, 10)}
+                      </span>
+                    )}
+                  </div>
+                  <div className="ca-soc-active-right">
+                    <span>
+                      Ordered: <strong>{fmtNum(selectedSocContract.totalOrderedQty, 0)} GRS</strong>
+                    </span>
+                    <span>•</span>
+                    <span style={{ color: '#0d9488' }}>
+                      Packed: <strong>{fmtNum(selectedSocContract.totalPackedQty, 0)} GRS</strong>
+                    </span>
+                    <span>•</span>
+                    <span style={{ color: '#10b981' }}>
+                      Dispatched: <strong>{fmtNum(selectedSocContract.totalDispatchedQty, 0)} GRS</strong>
+                    </span>
+                    <span>•</span>
+                    <span style={{ color: selectedSocContract.totalPendingQty > 0 ? '#f59e0b' : '#10b981' }}>
+                      Remaining Pending: <strong>{fmtNum(selectedSocContract.totalPendingQty, 0)} GRS</strong>
+                    </span>
+                  </div>
+                </div>
+
+                <Table
+                  size="small"
+                  rowKey="key"
+                  pagination={false}
+                  dataSource={selectedSocContract.items}
+                  className="ca-table ca-soc-item-table"
+                  columns={[
+                    {
+                      title: '#',
+                      key: 'idx',
+                      width: 46,
+                      render: (_: any, __: SocItemDetail, idx: number) => (
+                        <span style={{ fontWeight: 700, color: 'var(--theme-text-muted, #64748b)' }}>
+                          {idx + 1}
+                        </span>
+                      ),
+                    },
+                    {
+                      title: 'ITEM NAME',
+                      key: 'itemName',
+                      render: (_: any, item: SocItemDetail) => (
+                        <div>
+                          <div style={{ fontWeight: 700, color: 'var(--theme-heading, #f8fafc)', fontSize: 13 }}>
+                            {item.itemName}
+                          </div>
+                          {item.itemCode && (
+                            <div style={{ fontSize: 11, color: 'var(--theme-accent, #6366f1)', fontWeight: 600 }}>
+                              {item.itemCode}
+                            </div>
+                          )}
+                        </div>
+                      ),
+                    },
+                    {
+                      title: 'ORDERED QTY',
+                      key: 'orderedQty',
+                      align: 'right' as const,
+                      width: 135,
+                      render: (_: any, item: SocItemDetail) => (
+                        <div>
+                          <div style={{ fontWeight: 700, color: 'var(--theme-text, #e2e8f0)', fontSize: 13 }}>
+                            {fmtNum(item.orderedQty, 0)} GRS
+                          </div>
+                          <div style={{ fontSize: 10.5, color: 'var(--theme-text-muted, #64748b)' }}>
+                            {fmtNum(Math.round(item.orderedQty * 144), 0)} PCS
+                          </div>
+                        </div>
+                      ),
+                    },
+                    {
+                      title: 'PACKED QTY',
+                      key: 'packedQty',
+                      align: 'right' as const,
+                      width: 135,
+                      render: (_: any, item: SocItemDetail) => (
+                        <div>
+                          <div style={{ fontWeight: 700, color: '#0d9488', fontSize: 13 }}>
+                            {fmtNum(item.packedQty, 0)} GRS
+                          </div>
+                          <div style={{ fontSize: 10.5, color: 'var(--theme-text-muted, #64748b)' }}>
+                            {fmtNum(Math.round(item.packedQty * 144), 0)} PCS
+                          </div>
+                        </div>
+                      ),
+                    },
+                    {
+                      title: 'DISPATCHED QTY',
+                      key: 'dispatchedQty',
+                      align: 'right' as const,
+                      width: 145,
+                      render: (_: any, item: SocItemDetail) => (
+                        <div>
+                          <div style={{ fontWeight: 700, color: '#10b981', fontSize: 13 }}>
+                            {fmtNum(item.dispatchedQty, 0)} GRS
+                          </div>
+                          <div style={{ fontSize: 10.5, color: 'var(--theme-text-muted, #64748b)' }}>
+                            {fmtNum(Math.round(item.dispatchedQty * 144), 0)} PCS
+                          </div>
+                        </div>
+                      ),
+                    },
+                    {
+                      title: 'REMAINING PENDING QTY',
+                      key: 'remainingPendingQty',
+                      align: 'right' as const,
+                      width: 175,
+                      render: (_: any, item: SocItemDetail) => (
+                        <div>
+                          <div
+                            style={{
+                              fontWeight: 800,
+                              color: item.remainingPendingQty > 0 ? '#f59e0b' : '#10b981',
+                              fontSize: 13,
+                            }}
+                          >
+                            {item.remainingPendingQty > 0
+                              ? `${fmtNum(item.remainingPendingQty, 0)} GRS`
+                              : '0 GRS (Done)'}
+                          </div>
+                          <div style={{ fontSize: 10.5, color: 'var(--theme-text-muted, #64748b)' }}>
+                            {fmtNum(Math.round(item.remainingPendingQty * 144), 0)} PCS • {item.fulfillmentPct}%
+                          </div>
+                        </div>
+                      ),
+                    },
+                  ]}
+                  summary={() => (
+                    <Table.Summary fixed>
+                      <Table.Summary.Row className="ca-soc-summary-row">
+                        <Table.Summary.Cell index={0} colSpan={2}>
+                          <strong>Contract Total ({selectedSocContract.items.length} Items)</strong>
+                        </Table.Summary.Cell>
+                        <Table.Summary.Cell index={2} align="right">
+                          <strong>{fmtNum(selectedSocContract.totalOrderedQty, 0)} GRS</strong>
+                        </Table.Summary.Cell>
+                        <Table.Summary.Cell index={3} align="right">
+                          <strong style={{ color: '#0d9488' }}>
+                            {fmtNum(selectedSocContract.totalPackedQty, 0)} GRS
+                          </strong>
+                        </Table.Summary.Cell>
+                        <Table.Summary.Cell index={4} align="right">
+                          <strong style={{ color: '#10b981' }}>
+                            {fmtNum(selectedSocContract.totalDispatchedQty, 0)} GRS
+                          </strong>
+                        </Table.Summary.Cell>
+                        <Table.Summary.Cell index={5} align="right">
+                          <strong
+                            style={{
+                              color: selectedSocContract.totalPendingQty > 0 ? '#f59e0b' : '#10b981',
+                            }}
+                          >
+                            {fmtNum(selectedSocContract.totalPendingQty, 0)} GRS
+                          </strong>
+                        </Table.Summary.Cell>
+                      </Table.Summary.Row>
+                    </Table.Summary>
+                  )}
+                />
+              </div>
+            )}
+          </div>
+        )}
+      </DraggableResizableModal>
     </div>
   );
 };

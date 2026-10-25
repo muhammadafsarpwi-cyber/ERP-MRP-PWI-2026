@@ -105,9 +105,36 @@ describe('TextToSqlService — machine-wise shape enforcement & chart payload', 
     expect(chart.series).toEqual([]); // no aggregate columns present → no phantom series
   });
 
-  it('falls back to a plain table for raw record listings', () => {
-    const chart = service.buildChartMetadata('list last 20 production entries', ['id', 'entry_number'], undefined);
-    expect(chart.chartType).toBe('table');
-    expect(chart.dimension).toBe('none');
+  it('REJECTS a supplier query when the user asks for top customers by sales volume', () => {
+    const supplierSql = `SELECT s.id, s.supplier_name, SUM(po.total_amount) AS total_amount
+                           FROM purchase_orders po JOIN suppliers s ON s.id = po.supplier_id GROUP BY s.id, s.supplier_name`;
+    const issue = service.assertKeyphraseShape('Top Customers by sales volume', supplierSql);
+    expect(issue).toMatch(/Customers and Suppliers/i);
+  });
+
+  it('accepts a sales_orders query for top customers', () => {
+    const customerSql = `SELECT c.id, c.name AS customer_name, SUM(so.total_amount) AS total_sales
+                           FROM sales_orders so JOIN customers c ON c.id = so.customer_id GROUP BY c.id, c.name`;
+    expect(service.assertKeyphraseShape('Top Customers by sales volume', customerSql)).toBeNull();
+  });
+
+  it('REJECTS a production_entries query when the user asks for top customers by sales volume', () => {
+    const prodSql = `SELECT c.name AS customer_name, SUM(pe.actual_quantity) AS total_sales
+                       FROM production_entries pe JOIN customers c ON c.id = pe.customer_id GROUP BY c.name`;
+    const issue = service.assertKeyphraseShape('Top Customers by sales volume', prodSql);
+    expect(issue).toMatch(/NEVER query production_entries/);
+  });
+
+  it('REJECTS a static items master query when user asks for department production', () => {
+    const itemMasterSql = `SELECT i.id, i.item_name FROM items i`;
+    const issue = service.assertKeyphraseShape('Spoke Department production this week', itemMasterSql);
+    expect(issue).toMatch(/operational production logs/);
+  });
+
+  it('maps customer questions to a BAR chart on customer names', () => {
+    const chart = service.buildChartMetadata('Top customers by sales volume', ['customer_name', 'total_sales', 'order_count'], undefined);
+    expect(chart.chartType).toBe('bar');
+    expect(chart.x).toEqual({ column: 'customer_name', label: 'Customers' });
+    expect(chart.series.map((s: any) => s.column)).toEqual(['total_sales', 'order_count']);
   });
 });

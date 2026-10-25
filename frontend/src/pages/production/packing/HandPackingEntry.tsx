@@ -3571,6 +3571,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         // Full packed quantity: component-wise scrap never reduces the FG output.
         actualQuantity: primaryItem.quantityPcs,
         scrapQuantity: 0,
+        processScrapKg: componentScrap.kg > 0 ? componentScrap.kg : 0,
         runningHours: 8 + Number(overtimeHours || 0),
         overtimeHours: Number(overtimeHours || 0),
         downtimeHours: 0,
@@ -3600,6 +3601,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
             targetQuantity: (targetCartons || it.targetCartons || 100) * conversionFactors.pcsPerCarton,
             actualQuantity: it.quantityPcs,
             scrapQuantity: 0,
+            processScrapKg: itemScrapKg > 0 ? itemScrapKg : 0,
             runningHours: 8 + Number(overtimeHours || 0),
             remarks: `${it.cartons} Cartons (${it.gross} Gross) — Customer: ${activeCust} (SOC: ${activeSocNo}) | OT: ${overtimeHours}h${itemScrap > 0 ? ` | Component Scrap: ${itemScrap} PCS (${itemScrapKg} KG)` : ''}`,
           };

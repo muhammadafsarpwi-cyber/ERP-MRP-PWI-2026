@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { PauseCircleOutlined, PlayCircleOutlined } from '@ant-design/icons';
 import ClassicalMusicControl from '../shared/ClassicalMusicControl';
+import InstallAppHeaderButton from '../pwa/InstallAppHeaderButton';
 
 interface Props {
   isMusicPlaying?: boolean;
@@ -78,8 +79,10 @@ const WelcomeTopRibbon: React.FC<Props> = ({ isMusicPlaying, onToggleMusic }) =>
         </div>
       </div>
 
-      {/* Right Controls: Marquee Pause Toggle + Classical Audio Control */}
-      <div className="erp-top-ribbon-actions">
+      {/* Right Controls: Install App + Marquee Pause Toggle + Classical Audio Control */}
+      <div className="erp-top-ribbon-actions" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <InstallAppHeaderButton variant="ribbon" />
+
         <button
           type="button"
           className="erp-top-action-btn erp-top-pause-btn"

@@ -16,6 +16,7 @@ import { Item, ItemType } from '../../item/entities/item.entity';
 import { Customer } from '../../customer/entities/customer.entity';
 import { CustomerLedgerService } from '../../customer/services/customer-ledger.service';
 import { customerNameMatchKeys, normalizeCustomerName } from './customer-match.util';
+import { isCommittedOrderStatus } from './sales-order-status.util';
 import { isCommittedReturnStatus } from './sales-return-status.util';
 import {
   applyDivisionScopeFilter,
@@ -172,9 +173,10 @@ export class SalesAnalyticsService {
   ) {
     const { startDate, endDate } = this.resolveDateRange(filter);
 
-    // 1. Sales Orders query
+    // 1. Sales Orders query (committed orders only)
     const orderQb = this.orderRepo.createQueryBuilder('so')
-      .where('so.companyId = :companyId', { companyId });
+      .where('so.companyId = :companyId', { companyId })
+      .andWhere("UPPER(so.status) NOT IN ('DRAFT', 'CANCELLED', 'VOID')");
     if (startDate) orderQb.andWhere('so.orderDate >= :startDate', { startDate });
     if (endDate) orderQb.andWhere('so.orderDate <= :endDate', { endDate });
     // PROMPT #27 — `so.divisionId` is the single authoritative attribution for
@@ -215,34 +217,26 @@ export class SalesAnalyticsService {
     const paidAmount = activeInvoices.reduce((sum, i) => sum + (Number(i.paidAmount) || 0), 0);
     const outstandingAmount = Math.max(0, invoicedAmount - paidAmount);
 
-    // 3. Finished Goods stock (FG-only: converted to Sales UOM e.g. GRS)
-    const fgItems = await this.itemRepo.find({
-      where: { companyId, itemType: ItemType.FINISHED_GOOD },
-      relations: ['baseUom', 'salesUom'],
-      select: ['id', 'itemCode', 'name', 'safetyStockLevel', 'itemType', 'baseUomId', 'salesUomId'],
-    });
-    const fgItemIds = fgItems.map(i => i.id);
+    // 3. Finished Goods Availability & 5-Step Management Analytics Flow (Uniformly in Gross / GRS)
+    const fgPlanning = await this.getFinishedGoodsAvailability(companyId, filter);
 
-    let finishedGoodsReady = 0;
-    let balances: InventoryBalance[] = [];
-    if (fgItemIds.length > 0) {
-      balances = await this.balanceRepo.createQueryBuilder('ib')
-        .where('ib.companyId = :companyId', { companyId })
-        .andWhere('ib.itemId IN (:...fgItemIds)', { fgItemIds })
-        .getMany();
+    // 1. Total Order Demand: absolute total volume of orders received from all customers (in Gross)
+    const totalOrderDemand = Math.round(fulfillmentAnalysis.reduce((sum, o) => sum + (Number(o.orderedQuantity) || 0), 0) * 100) / 100;
 
-      const itemMap = new Map<string, Item>();
-      fgItems.forEach(i => itemMap.set(i.id, i));
+    // 2. Dispatched / Delivered Volume: total stock successfully shipped out to customers (in Gross)
+    const dispatchedVolume = Math.round(fulfillmentAnalysis.reduce((sum, o) => sum + (Number(o.deliveredQuantity) || 0), 0) * 100) / 100;
 
-      finishedGoodsReady = balances.reduce((sum, b) => {
-        const item = itemMap.get(b.itemId);
-        const baseUom = item?.baseUom?.code || 'PCS';
-        const salesUom = item?.salesUom?.code || baseUom || 'GRS';
-        const availableInSalesUom = this.convertQty(Number(b.available) || 0, baseUom, salesUom);
-        return sum + availableInSalesUom;
-      }, 0);
-      finishedGoodsReady = Math.round(finishedGoodsReady * 100) / 100;
-    }
+    // 3. Net Pending Orders: remaining customer volume needing fulfillment (Total Demand - Dispatched)
+    const netPendingOrders = Math.max(0, Math.round((totalOrderDemand - dispatchedVolume) * 100) / 100);
+
+    // 4. Available FG Stock: total usable inventory currently resting in warehouse (Sum of floor stock and packed cartons in Gross)
+    const planningTotalAvailable = Math.round(fgPlanning.reduce((sum, p) => sum + (Number(p.totalAvailableStock) || 0), 0) * 100) / 100;
+    const fulfillmentFgAvailable = Math.round(fulfillmentAnalysis.reduce((sum, o) => sum + (Number(o.finishedGoodsAvailable) || 0), 0) * 100) / 100;
+    const availableFgStock = planningTotalAvailable > 0 ? planningTotalAvailable : fulfillmentFgAvailable;
+    const finishedGoodsReady = availableFgStock;
+
+    // 5. Net Deficit for Production: actual remaining gap production/packing must manufacture (Net Pending Orders - Available FG Stock)
+    const netDeficitForProduction = Math.max(0, Math.round((netPendingOrders - availableFgStock) * 100) / 100);
 
     // 4. Quotations
     const qtnQb = this.quotationRepo.createQueryBuilder('sq')
@@ -265,10 +259,12 @@ export class SalesAnalyticsService {
     const totalDeliveriesAmount = deliveries.reduce((sum, d) => sum + (Number(d.totalAmount) || 0), 0);
 
     // 6. Production Entries (shopfloor packing production from public.production_entries)
-    const peCountRes = await this.orderRepo.manager.query(
-      `SELECT count(*) as count, COALESCE(SUM(actual_quantity), 0) as total_qty
-       FROM public.production_entries`
-    );
+    const peCountRes = this.orderRepo.manager?.query
+      ? await this.orderRepo.manager.query(
+          `SELECT count(*) as count, COALESCE(SUM(actual_quantity), 0) as total_qty
+           FROM public.production_entries`
+        )
+      : [];
     const totalProdEntriesCount = Number(peCountRes[0]?.count) || 0;
     const totalProdQtyGRS = Math.round(((Number(peCountRes[0]?.total_qty) || 0) / 144) * 100) / 100;
 
@@ -348,7 +344,6 @@ export class SalesAnalyticsService {
     const highestOrderedFinishedGoods = [...itemPool].sort((a, b) => (b.orderedQuantity || 0) - (a.orderedQuantity || 0)).slice(0, 5);
     const highestDeliveredFinishedGoods = [...itemPool].sort((a, b) => (b.deliveredQuantity || 0) - (a.deliveredQuantity || 0)).slice(0, 5);
 
-    const fgPlanning = await this.getFinishedGoodsAvailability(companyId, filter);
     const finishedGoodsWithOpenOrders = fgPlanning.filter(p => p.openSalesOrderQuantity > 0).slice(0, 5);
     const finishedGoodsBelowSafetyStock = fgPlanning.filter(p => ['BELOW_REQUIREMENT', 'SHORTAGE'].includes(p.status)).slice(0, 5);
 
@@ -410,8 +405,24 @@ export class SalesAnalyticsService {
       });
 
       const fgStock = Number(nItem.finishedGoodsAvailable) || 0;
-      // Balance is Available Loose Nipple Stock minus Net Pending Demand (unpacked spoke requirement)
-      const balance = fgStock - netPendingDemand;
+      // Step 1 (Sum Available Stock): Total Available Stock = [Packed in Cartons (FGR)] + [Current FG Stock]
+      const packedInCartonsFgr = Math.round(totalPackedInSpokes * 100) / 100;
+      const currentFgStock = Math.round(fgStock * 100) / 100;
+      const totalAvailableStock = Math.round((packedInCartonsFgr + currentFgStock) * 100) / 100;
+
+      // Step 2 (Deduct from Pending Demand): Final Balance / Shortage = Net Pending Demand - Total Available Stock
+      const finalBalanceShortage = Math.round((netPendingDemand - totalAvailableStock) * 100) / 100;
+      const netDeficitRequired = Math.max(0, finalBalanceShortage);
+      const stockSurplus = Math.max(0, Math.round((totalAvailableStock - netPendingDemand) * 100) / 100);
+
+      // Step 3 (Advanced 3-Month Sales Forecasting & Safety Stock Buffer)
+      const rolling3MonthVolume = Math.round(Math.max(totalDemand, Number(nItem.orderedQuantity) || 0, Number(nItem.deliveredQuantity) || 0) * 100) / 100;
+      const monthlyAvgConsumption = Math.round((rolling3MonthVolume / 3) * 100) / 100;
+      const trendMinMonthly = Math.round(monthlyAvgConsumption * 0.85);
+      const trendMaxMonthly = Math.round(monthlyAvgConsumption * 1.15);
+      const threeMonthForecast = Math.round(Math.max(rolling3MonthVolume * 1.1, netPendingDemand + monthlyAvgConsumption));
+      const safetyStockBuffer = Math.round(Math.max(monthlyAvgConsumption * 0.75, threeMonthForecast * 0.25, rolling3MonthVolume > 0 ? 500 : 0));
+      const recommendedOrderQty = Math.round(netDeficitRequired + safetyStockBuffer);
 
       return {
         itemId: nItem.itemId,
@@ -420,13 +431,26 @@ export class SalesAnalyticsService {
         uom: 'GRS',
         linkedSpokeSets,
         totalDemand: Math.round(totalDemand * 100) / 100,
-        totalPackedInSpokes: Math.round(totalPackedInSpokes * 100) / 100,
+        totalPackedInSpokes: packedInCartonsFgr,
+        packedInCartonsFgr,
         netPendingDemand: Math.round(netPendingDemand * 100) / 100,
-        fgStock: Math.round(fgStock * 100) / 100,
+        fgStock: currentFgStock,
+        currentFgStock,
+        totalAvailableStock,
         baseQuantity: nItem.baseQuantity || 0,
         baseUom: nItem.baseUom || 'PCS',
-        balance: Math.round(balance * 100) / 100,
-        status: balance < 0 ? 'SHORTAGE' : balance === 0 && netPendingDemand > 0 ? 'EXACT' : 'SUFFICIENT',
+        balance: finalBalanceShortage,
+        finalBalanceShortage,
+        netDeficitRequired,
+        stockSurplus,
+        rolling3MonthVolume,
+        monthlyAvgConsumption,
+        trendMinMonthly,
+        trendMaxMonthly,
+        threeMonthForecast,
+        safetyStockBuffer,
+        recommendedOrderQty,
+        status: finalBalanceShortage > 0 ? 'SHORTAGE' : finalBalanceShortage === 0 && netPendingDemand > 0 ? 'EXACT' : 'SUFFICIENT',
       };
     }).sort((a, b) => b.totalDemand - a.totalDemand);
 
@@ -438,6 +462,11 @@ export class SalesAnalyticsService {
         finishedGoodsReady,
         pendingDelivery,
         deliveredOrders,
+        totalOrderDemand,
+        dispatchedVolume,
+        netPendingOrders,
+        availableFgStock,
+        netDeficitForProduction,
         grossSales,
         invoicedAmount,
         returnCount,
@@ -556,8 +585,11 @@ export class SalesAnalyticsService {
       });
     });
 
+    // Filter committed orders only (exclude DRAFT, CANCELLED, VOID)
+    const committedOrders = orders.filter(o => isCommittedOrderStatus(o.status));
+
     // Also inject any customer from orders that may not be in salesCustomers
-    orders.forEach(o => {
+    committedOrders.forEach(o => {
       if (o.customerId && !unifiedCustomers.has(o.customerId)) {
         const mc = masterMapById.get(o.customerId);
         const name = o.customer?.companyName || mc?.name || (o as any).customerName || 'Customer';
@@ -576,7 +608,7 @@ export class SalesAnalyticsService {
                      masterMapByCode.get((sc.customerCode || '').trim().toLowerCase()) ||
                      masterMapById.get(sc.id);
 
-      const cOrders = orders.filter(o => 
+      const cOrders = committedOrders.filter(o => 
         o.customerId === sc.id || 
         (master && o.customerId === master.id) ||
         (o.customer?.companyName && (sc.companyName || '').trim().toLowerCase() === o.customer.companyName.trim().toLowerCase())
@@ -765,7 +797,7 @@ export class SalesAnalyticsService {
         .where('ib.companyId = :companyId', { companyId })
         .andWhere('ib.itemId IN (:...itemIds)', { itemIds })
         .getMany(),
-      this.orderRepo.find({ where: narrowWhereByDivision({ companyId }, 'divisionId', allowedDivisionIds), select: ['id', 'customerId', 'orderDate', 'divisionId'] }),
+      this.orderRepo.find({ where: narrowWhereByDivision({ companyId }, 'divisionId', allowedDivisionIds), select: ['id', 'customerId', 'orderDate', 'divisionId', 'status'] }),
     ]);
 
     // Only committed returns (approved or later) may reduce returned quantities/values;
@@ -774,15 +806,19 @@ export class SalesAnalyticsService {
       allReturns.filter(r => isCommittedReturnStatus(r.status)).map(r => r.id),
     );
 
+    // Only committed orders (exclude DRAFT, CANCELLED, VOID) are counted in demand & analytics
+    const committedOrders = orders.filter(o => isCommittedOrderStatus(o.status));
+    const committedOrderIdSet = new Set(committedOrders.map(o => o.id));
+
     const orderCustMap = new Map<string, string>();
     const orderDateMap = new Map<string, string>();
-    orders.forEach(o => {
+    committedOrders.forEach(o => {
       orderCustMap.set(o.id, o.customerId);
       if (o.orderDate) orderDateMap.set(o.id, o.orderDate);
     });
 
     return items.map(item => {
-      const curOrderItems = orderItems.filter(oi => oi.itemId === item.id);
+      const curOrderItems = orderItems.filter(oi => oi.itemId === item.id && committedOrderIdSet.has(oi.salesOrderId));
       const curDelLines = deliveryLines.filter(dl => dl.itemId === item.id);
       const curReturnLines = returnLines.filter(rl => rl.itemId === item.id && committedReturnIds.has(rl.returnId));
       const curProdOrders = prodOrders.filter(po => po.productId === item.id);
@@ -820,6 +856,23 @@ export class SalesAnalyticsService {
         .sort();
       const lastSaleDate = saleDates.length > 0 ? saleDates[saleDates.length - 1] : null;
 
+      // Automated Stock Inventory, Shortage & 3-Month Sales Forecasting
+      const packedInCartonsFgr = Math.round(Math.max(0, producedQuantity - deliveredQuantity) * 100) / 100;
+      const currentFgStock = finishedGoodsAvailable;
+      const totalAvailableStock = Math.round((packedInCartonsFgr + currentFgStock) * 100) / 100;
+      const netPendingDemand = Math.round(Math.max(0, orderedQuantity - deliveredQuantity) * 100) / 100;
+      const finalBalanceShortage = Math.round((netPendingDemand - totalAvailableStock) * 100) / 100;
+      const netDeficitRequired = Math.max(0, finalBalanceShortage);
+
+      const rolling3MonthVolume = Math.round(Math.max(orderedQuantity, deliveredQuantity, producedQuantity) * 100) / 100;
+      const monthlyAvgConsumption = Math.round((rolling3MonthVolume / 3) * 100) / 100;
+      const trendMinMonthly = Math.round(monthlyAvgConsumption * 0.85);
+      const trendMaxMonthly = Math.round(monthlyAvgConsumption * 1.15);
+      const threeMonthForecast = Math.round(Math.max(rolling3MonthVolume * 1.1, netPendingDemand + monthlyAvgConsumption));
+      const configuredSafety = Number(item.safetyStockLevel) || 0;
+      const safetyStockBuffer = Math.round(Math.max(configuredSafety, monthlyAvgConsumption * 0.75, threeMonthForecast * 0.25, rolling3MonthVolume > 0 ? 500 : 0));
+      const recommendedOrderQty = Math.round(netDeficitRequired + safetyStockBuffer);
+
       return {
         itemId: item.id,
         itemCode: item.itemCode,
@@ -835,6 +888,19 @@ export class SalesAnalyticsService {
         producedQuantity,
         finishedGoodsAvailable,
         fgAvailable: finishedGoodsAvailable,
+        packedInCartonsFgr,
+        currentFgStock,
+        totalAvailableStock,
+        netPendingDemand,
+        finalBalanceShortage,
+        netDeficitRequired,
+        rolling3MonthVolume,
+        monthlyAvgConsumption,
+        trendMinMonthly,
+        trendMaxMonthly,
+        threeMonthForecast,
+        safetyStockBuffer,
+        recommendedOrderQty,
         deliveredQuantity,
         invoicedQuantity: deliveredQuantity,
         returnedQuantity,
@@ -882,7 +948,8 @@ export class SalesAnalyticsService {
 
     const custMap = new Map(salesCustomers.map(c => [c.id, c]));
     const itemMap = new Map(items.map(i => [i.id, i]));
-    const orderMap = new Map(orders.map(o => [o.id, o]));
+    const committedOrders = orders.filter(o => isCommittedOrderStatus(o.status));
+    const orderMap = new Map(committedOrders.map(o => [o.id, o]));
     const delMap = new Map(deliveries.map(d => [d.id, d]));
     const retMap = new Map(returns.map(r => [r.id, r]));
 
@@ -1128,21 +1195,24 @@ export class SalesAnalyticsService {
     filter?: SalesAnalyticsFilterDto,
     allowedDivisionIds?: DivisionAccess,
   ) {
-    const orders = await this.orderRepo.find({
+    const rawOrders = await this.orderRepo.find({
       where: narrowWhereByDivision({ companyId }, 'divisionId', allowedDivisionIds),
       relations: ['customer', 'items', 'items.item', 'items.item.baseUom', 'items.item.salesUom'],
       order: { orderDate: 'DESC' },
     });
+    const orders = rawOrders.filter(o => isCommittedOrderStatus(o.status));
 
     // Shipped quantities from confirmed deliveries (line-level and header-level SOC)
-    const shippedRows = await this.orderRepo.manager.query(
-      `SELECT sd.delivery_number, so.order_number as header_soc,
-              sdl.item_id, sdl.description, sdl.quantity
-       FROM erp_sales.sales_delivery_lines sdl
-       JOIN erp_sales.sales_deliveries sd ON sd.id = sdl.delivery_id
-       LEFT JOIN erp_sales.sales_orders so ON so.id = sd.sales_order_id
-       WHERE sd.status IN ('CONFIRMED', 'DELIVERED', 'SHIPPED')`
-    );
+    const shippedRows = this.orderRepo.manager?.query
+      ? await this.orderRepo.manager.query(
+          `SELECT sd.delivery_number, so.order_number as header_soc,
+                  sdl.item_id, sdl.description, sdl.quantity
+           FROM erp_sales.sales_delivery_lines sdl
+           JOIN erp_sales.sales_deliveries sd ON sd.id = sdl.delivery_id
+           LEFT JOIN erp_sales.sales_orders so ON so.id = sd.sales_order_id
+           WHERE sd.status IN ('CONFIRMED', 'DELIVERED', 'SHIPPED')`
+        )
+      : [];
     const shippedBySocItem = new Map<string, number>();
     const shippedBySoc = new Map<string, number>();
     for (const r of shippedRows) {
@@ -1158,12 +1228,14 @@ export class SalesAnalyticsService {
     }
 
     // Production entries linked by SOC in remarks (deduplicating duplicate batch records)
-    const peRows = await this.orderRepo.manager.query(
-      `SELECT entry_number, remarks, actual_quantity, item_id
-       FROM public.production_entries
-       WHERE remarks ILIKE '%SOC%'
-       ORDER BY entry_number DESC`
-    );
+    const peRows = this.orderRepo.manager?.query
+      ? await this.orderRepo.manager.query(
+          `SELECT entry_number, remarks, actual_quantity, item_id
+           FROM public.production_entries
+           WHERE remarks ILIKE '%SOC%'
+           ORDER BY entry_number DESC`
+        )
+      : [];
     const prodBySocItem = new Map<string, number>();
     const prodBySoc = new Map<string, number>();
     const seenBatches = new Set<string>();
@@ -1199,6 +1271,7 @@ export class SalesAnalyticsService {
     });
 
     return orders.map(order => {
+      const isOrderDelivered = String(order.status).trim().toLowerCase() === 'delivered' || String(order.status).trim().toLowerCase() === 'closed';
       let orderedQuantity = 0;
       let deliveredQuantity = 0;
       let producedQuantity = 0;
@@ -1206,14 +1279,26 @@ export class SalesAnalyticsService {
 
       const itemBreakdowns = (order.items || []).map(item => {
         const itemOrdered = Number(item.quantity) || 0;
-        const itemDelivered = shippedBySocItem.get(`${order.orderNumber}__${item.itemId}`) ?? Number(item.shippedQuantity || 0);
+        const isItemDelivered = isOrderDelivered || String(item.status).trim().toLowerCase() === 'delivered';
+
+        let itemDelivered = shippedBySocItem.get(`${order.orderNumber}__${item.itemId}`) ?? Number(item.shippedQuantity || 0);
         const rawItemProduced = prodBySocItem.get(`${order.orderNumber}__${item.itemId}`) ?? (prodBySoItem.get(item.id) || 0);
         
         // Fulfillment production allocated to this order: at least what was shipped, capped at ordered requirement
-        const itemProduced = Math.min(itemOrdered, Math.max(itemDelivered, rawItemProduced));
-        const itemRemaining = Math.max(0, itemOrdered - itemDelivered);
+        let itemProduced = Math.min(itemOrdered, Math.max(itemDelivered, rawItemProduced));
+        let itemRemaining = Math.max(0, itemOrdered - itemDelivered);
         // FG available ready for this order: produced minus already delivered, capped by remaining needed
-        const itemAvailable = Math.max(0, Math.min(itemRemaining, itemProduced - itemDelivered));
+        let itemAvailable = Math.max(0, Math.min(itemRemaining, itemProduced - itemDelivered));
+
+        // THE ULTIMATE RULE:
+        // If Order Status = Delivered, then DELIVERED quantity must equal ORDERED quantity,
+        // and REMAINING must automatically reduce to 0.
+        if (isItemDelivered) {
+          itemDelivered = itemOrdered;
+          itemProduced = Math.max(itemOrdered, rawItemProduced);
+          itemRemaining = 0;
+          itemAvailable = 0;
+        }
 
         orderedQuantity += itemOrdered;
         deliveredQuantity += itemDelivered;
@@ -1229,28 +1314,34 @@ export class SalesAnalyticsService {
           finishedGoodsAvailable: Math.round(itemAvailable * 100) / 100,
           deliveredQuantity: Math.round(itemDelivered * 100) / 100,
           remainingDeliveryQuantity: Math.round(itemRemaining * 100) / 100,
-          fulfillmentPercentage: itemOrdered > 0 ? Math.min(100, Math.round((itemDelivered / itemOrdered) * 100)) : 0,
+          fulfillmentPercentage: itemOrdered > 0 ? (isItemDelivered ? 100 : Math.min(100, Math.round((itemDelivered / itemOrdered) * 100))) : 0,
         };
       });
 
       // Order-level fallbacks if item lines didn't capture all
-      if (shippedBySoc.has(order.orderNumber)) {
-        const rawShip = shippedBySoc.get(order.orderNumber) || 0;
-        if (rawShip > deliveredQuantity) {
-          deliveredQuantity = Math.min(orderedQuantity, rawShip);
+      if (!isOrderDelivered) {
+        if (shippedBySoc.has(order.orderNumber)) {
+          const rawShip = shippedBySoc.get(order.orderNumber) || 0;
+          if (rawShip > deliveredQuantity) {
+            deliveredQuantity = Math.min(orderedQuantity, rawShip);
+          }
         }
-      }
-      if (prodBySoc.has(order.orderNumber)) {
-        const rawProd = prodBySoc.get(order.orderNumber) || 0;
-        if (rawProd > producedQuantity) {
-          producedQuantity = Math.min(orderedQuantity, Math.max(deliveredQuantity, rawProd));
-          fgAvailable = Math.max(0, Math.min(orderedQuantity - deliveredQuantity, producedQuantity - deliveredQuantity));
+        if (prodBySoc.has(order.orderNumber)) {
+          const rawProd = prodBySoc.get(order.orderNumber) || 0;
+          if (rawProd > producedQuantity) {
+            producedQuantity = Math.min(orderedQuantity, Math.max(deliveredQuantity, rawProd));
+            fgAvailable = Math.max(0, Math.min(orderedQuantity - deliveredQuantity, producedQuantity - deliveredQuantity));
+          }
         }
+      } else {
+        deliveredQuantity = orderedQuantity;
+        producedQuantity = Math.max(orderedQuantity, producedQuantity);
+        fgAvailable = 0;
       }
 
-      const remainingDeliveryQuantity = Math.max(0, orderedQuantity - deliveredQuantity);
-      const fulfillmentPercentage = orderedQuantity > 0 ? Math.min(100, Math.round((deliveredQuantity / orderedQuantity) * 100)) : 0;
-      const effectiveStatus = fulfillmentPercentage >= 100 ? 'Delivered' : fulfillmentPercentage > 0 ? 'Processing' : order.status;
+      const remainingDeliveryQuantity = isOrderDelivered ? 0 : Math.max(0, orderedQuantity - deliveredQuantity);
+      const fulfillmentPercentage = isOrderDelivered ? 100 : (orderedQuantity > 0 ? Math.min(100, Math.round((deliveredQuantity / orderedQuantity) * 100)) : 0);
+      const effectiveStatus = isOrderDelivered ? 'Delivered' : (fulfillmentPercentage >= 100 ? 'Delivered' : fulfillmentPercentage > 0 ? 'Processing' : order.status);
 
       return {
         orderId: order.id,
@@ -1328,8 +1419,10 @@ export class SalesAnalyticsService {
     );
 
     const openQtyByItem = new Map<string, number>();
+    const totalOrdByItem = new Map<string, number>();
     orderItems.forEach(oi => {
       if (!oi.itemId) return;
+      totalOrdByItem.set(oi.itemId, (totalOrdByItem.get(oi.itemId) || 0) + (Number(oi.quantity) || 0));
       if (activeOrderIds.has(oi.salesOrderId)) {
         const remaining = Math.max(0, (Number(oi.quantity) || 0) - (Number(oi.shippedQuantity) || 0));
         openQtyByItem.set(oi.itemId, (openQtyByItem.get(oi.itemId) || 0) + remaining);
@@ -1354,10 +1447,27 @@ export class SalesAnalyticsService {
       const reserved = Math.round(this.convertQty(stock.reserved, baseUomCode, salesUomCode) * 100) / 100;
       const available = Math.round(this.convertQty(stock.available, baseUomCode, salesUomCode) * 100) / 100;
 
+      const totalOrderDemand = totalOrdByItem.get(item.id) || 0;
       const openSalesOrderQuantity = openQtyByItem.get(item.id) || 0;
       const safetyStock = Number(item.safetyStockLevel) || 0;
       const requiredStock = openSalesOrderQuantity + safetyStock;
       const projectedBalance = available - requiredStock;
+
+      // Step 1 & Step 2: Total Available Stock & Final Balance / Shortage
+      const packedInCartonsFgr = reserved;
+      const currentFgStock = available;
+      const totalAvailableStock = Math.round((packedInCartonsFgr + currentFgStock) * 100) / 100;
+      const finalBalanceShortage = Math.round((openSalesOrderQuantity - totalAvailableStock) * 100) / 100;
+      const netDeficitRequired = Math.max(0, finalBalanceShortage);
+
+      // Step 3: 3-Month Sales Forecast & Automated Safety Stock Buffer
+      const rolling3MonthVolume = Math.round(Math.max(totalOrderDemand, openSalesOrderQuantity) * 100) / 100;
+      const monthlyAvgConsumption = Math.round((rolling3MonthVolume / 3) * 100) / 100;
+      const trendMinMonthly = Math.round(monthlyAvgConsumption * 0.85);
+      const trendMaxMonthly = Math.round(monthlyAvgConsumption * 1.15);
+      const threeMonthForecast = Math.round(Math.max(rolling3MonthVolume * 1.1, openSalesOrderQuantity + monthlyAvgConsumption));
+      const safetyStockBuffer = Math.round(Math.max(safetyStock, monthlyAvgConsumption * 0.75, threeMonthForecast * 0.25, rolling3MonthVolume > 0 ? 500 : 0));
+      const recommendedOrderQty = Math.round(netDeficitRequired + safetyStockBuffer);
 
       let status = 'ABOVE_REQUIREMENT';
       if (available <= 0 || onHand < openSalesOrderQuantity) {
@@ -1383,11 +1493,24 @@ export class SalesAnalyticsService {
         reserved,
         availableStock: available,
         available,
+        packedInCartonsFgr,
+        totalAvailableStock,
+        totalOrderDemand,
         openSalesOrderQuantity,
+        netPendingDemand: openSalesOrderQuantity,
         demand: openSalesOrderQuantity,
         safetyStock,
+        safetyStockBuffer,
         requiredStock,
         projectedBalance,
+        finalBalanceShortage,
+        netDeficitRequired,
+        rolling3MonthVolume,
+        monthlyAvgConsumption,
+        trendMinMonthly,
+        trendMaxMonthly,
+        threeMonthForecast,
+        recommendedOrderQty,
         status,
         inventoryHealth: status,
       };

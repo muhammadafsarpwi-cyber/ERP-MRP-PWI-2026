@@ -4,10 +4,21 @@ import {
   ReportingDimension,
   DateRangePeriod,
   ConversationContext,
+  ReportingUnit,
 } from './types';
 
 // Dynamic current date reference
 const CURRENT_DATE = dayjs();
+
+function resolveRequestedUnit(query: string): ReportingUnit | undefined {
+  const q = query.toLowerCase();
+  if (/\b(gross|grosses|gross[\s-]?wise)\b/i.test(q) || q.includes('گراس')) return 'Gross';
+  if (/\b(in\s+pcs|in\s+pieces?|pcs[\s-]?wise|piece[\s-]?wise)\b/i.test(q) || q.includes('پیس')) return 'PCS';
+  if (/\b(in\s+kg|in\s+kilos?|in\s+kilograms?|kg[\s-]?wise)\b/i.test(q) || q.includes('کلو')) return 'KG';
+  if (/\b(in\s+mtrs?|in\s+meters?|in\s+metres?|meter[\s-]?wise)\b/i.test(q) || q.includes('میٹر')) return 'MTR';
+  if (/\b(in\s+bags?|bag[\s-]?wise)\b/i.test(q) || q.includes('بیگ')) return 'Bags';
+  return undefined;
+}
 
 export function parseNaturalLanguageQuery(
   rawQuery: string,
@@ -64,6 +75,10 @@ export function parseNaturalLanguageQuery(
   }
 
   // 2. Check for Contextual Follow-Up Questions
+  const detectedUnit = resolveRequestedUnit(q);
+  const isUnitFollowUp =
+    Boolean(detectedUnit) &&
+    /^(?:now\s+)?(?:show\s+(?:it\s+)?)?(?:convert\s+(?:it\s+)?(?:to|into)\s+)?(?:in\s+)?(gross|grosses|pcs|pieces?|kg|kilos?|mtrs?|meters?|bags?)(?:-wise)?$/i.test(q);
   const isOnlyDeptFollowUp = /^only\s+([\w\s-]+)$/i.test(q) || /^just\s+([\w\s-]+)$/i.test(q);
   const isSwitchDimensionFollowUp =
     /^(?:now\s+)?(?:show\s+it\s+)?(?:now\s+)?(machine|operator|item|shift|department)(?:-wise)?$/i.test(q) ||
@@ -71,8 +86,14 @@ export function parseNaturalLanguageQuery(
   const isCompareFollowUp =
     /^(?:compare\s+(?:it\s+)?with\s+)(august|september|october|last\s+month|previous\s+month)/i.test(q);
 
-  if (context?.lastIntent && (isOnlyDeptFollowUp || isSwitchDimensionFollowUp || isCompareFollowUp)) {
+  if (context?.lastIntent && (isUnitFollowUp || isOnlyDeptFollowUp || isSwitchDimensionFollowUp || isCompareFollowUp)) {
     const inherited = { ...context.lastIntent };
+
+    if (isUnitFollowUp && detectedUnit) {
+      inherited.requestedUnit = detectedUnit;
+      inherited.isFollowUp = true;
+      return inherited;
+    }
 
     if (isOnlyDeptFollowUp) {
       const deptPart = q.replace(/^(?:only|just)\s+/i, '').trim();
@@ -177,9 +198,63 @@ export function parseNaturalLanguageQuery(
 
   // 7. Resolve Time Period
   const period = resolveDatePeriod(q, Boolean(limit));
+  const isSpecificSingleDate =
+    period.type === 'specific_date' ||
+    period.type === 'today' ||
+    period.type === 'yesterday' ||
+    (period.type === 'custom' && Boolean(period.startDate) && period.startDate === period.endDate);
+
+  // When a specific date is requested (e.g. "23rd production report", "22nd data") without an explicit
+  // division lock, include all divisions/departments so the granular ledger groups under Spoke Division,
+  // Outer Casing, Control Cable, etc.
+  if (isSpecificSingleDate && !explicitDivision) {
+    divisionCode = 'ALL';
+  }
 
   // 8. Resolve Reporting Dimension
-  let dimension: ReportingDimension = 'machine';
+  let dimension: ReportingDimension = isSpecificSingleDate ? 'daily_granular_ledger' : 'machine';
+
+  const isTargetOrAverageQuery =
+    /\b(target|targets|average|averages|avg)\b/i.test(q) ||
+    q.includes('ٹارگٹ') ||
+    q.includes('اوسط') ||
+    q.includes('target/average') ||
+    q.includes('target & average');
+
+  const isExplicitItemBreakdown =
+    /\b(item-wise|item wise|product-wise|product wise|sku-wise|by item|by product|top\s+\d*\s*(?:items|products|skus))\b/i.test(q) ||
+    q.includes('پانچ ایٹم') ||
+    q.includes('ٹاپ ایٹم');
+
+  const isMachineQuery =
+    q.includes('machine') ||
+    q.includes('مشین') ||
+    q.includes('per machine') ||
+    q.includes('machine-wise') ||
+    q.includes('machine wise') ||
+    q.includes('machine target') ||
+    q.includes('machine average') ||
+    (isTargetOrAverageQuery && !q.includes('operator') && !q.includes('اپریٹر') && !q.includes('department-wise') && !q.includes('department wise')) ||
+    Boolean(specificMachine);
+
+  const isCustomerOrSalesVolumeQuery =
+    q.includes('customer') ||
+    q.includes('customers') ||
+    q.includes('sales volume') ||
+    q.includes('sales order') ||
+    q.includes('sales invoice') ||
+    q.includes('client sales') ||
+    q.includes('top client') ||
+    q.includes('top buyer') ||
+    q.includes('کسٹمر') ||
+    q.includes('گاہک') ||
+    q.includes('خریدار') ||
+    q.includes('کلائنٹ') ||
+    q.includes('سیلز والیوم') ||
+    q.includes('سیلز') ||
+    q.includes('dispatch') ||
+    q.includes('dispatches') ||
+    q.includes('ڈسپیچ');
 
   if (
     q.includes('job card') ||
@@ -198,29 +273,12 @@ export function parseNaturalLanguageQuery(
     period.type === 'comparison'
   ) {
     dimension = 'period_comparison';
-  } else if (
-    q.includes('customer') ||
-    q.includes('کسٹمر') ||
-    q.includes('گاہک') ||
-    q.includes('خریدار') ||
-    q.includes('کلائنٹ') ||
-    q.includes('dispatch') ||
-    q.includes('dispatches') ||
-    q.includes('ڈسپیچ')
-  ) {
+  } else if (isCustomerOrSalesVolumeQuery) {
     dimension = 'customer';
-  } else if (
-    q.includes('item') ||
-    q.includes('product') ||
-    q.includes('sku') ||
-    q.includes('material') ||
-    q.includes('ایٹم') ||
-    q.includes('آئٹم') ||
-    q.includes('پروڈکٹ') ||
-    q.includes('سامان') ||
-    q.includes('مال')
-  ) {
-    dimension = 'item';
+  } else if (isSpecificSingleDate && !q.includes('operator') && !q.includes('اپریٹر')) {
+    // Granular Breakdown vs Grand Totals: any production/data query for a specific date
+    // generates the detailed item-wise, machine-wise, and department-wise ledger for that exact date.
+    dimension = 'daily_granular_ledger';
   } else if (
     (q.includes('operator') && q.includes('machine')) ||
     q.includes('operators worked on each machine') ||
@@ -235,10 +293,11 @@ export function parseNaturalLanguageQuery(
     dimension = 'operator_date';
   } else if (q.includes('operator') && q.includes('month')) {
     dimension = 'operator_month';
-  } else if ((q.includes('machine') && (q.includes('item') || q.includes('product')))) {
+  } else if (isMachineQuery && isExplicitItemBreakdown) {
     dimension = 'machine_item';
-  } else if ((q.includes('department') || q.includes('dept')) && q.includes('machine')) {
-    dimension = 'department_machine';
+  } else if (isMachineQuery) {
+    // Machine Analytics Routing: any machine-wise or target/average query aggregates directly by Machine ID
+    dimension = 'machine';
   } else if (
     q.includes('operator') ||
     q.includes('worker') ||
@@ -249,6 +308,16 @@ export function parseNaturalLanguageQuery(
     q.includes('بندہ')
   ) {
     dimension = 'operator';
+  } else if (
+    isExplicitItemBreakdown ||
+    /\b(item|items|sku|skus|product|products|material|materials|part|parts)\b/i.test(q) ||
+    q.includes('ایٹم') ||
+    q.includes('آئٹم') ||
+    q.includes('پروڈکٹ') ||
+    q.includes('سامان') ||
+    q.includes('مال')
+  ) {
+    dimension = 'item';
   } else if (q.includes('shift') || q.includes('shifts') || q.includes('شفٹ')) {
     dimension = 'shift';
   } else if (
@@ -281,7 +350,7 @@ export function parseNaturalLanguageQuery(
   const metrics: QueryIntent['metrics'] = ['production'];
   if (q.includes('target') || q.includes('planned') || q.includes('ٹارگٹ')) metrics.push('target');
   if (q.includes('achievement') || q.includes('حصول')) metrics.push('achievement');
-  if (q.includes('efficiency') || q.includes('performance') || q.includes('کارکردگی')) metrics.push('efficiency');
+  if (q.includes('efficiency') || q.includes('performance') || q.includes('کارکردگی') || q.includes('average') || q.includes('avg') || q.includes('اوسط')) metrics.push('efficiency');
   if (q.includes('downtime') || q.includes('down time') || q.includes('breakdown') || q.includes('رکاوٹ')) metrics.push('downtime');
   if (q.includes('scrap') || q.includes('reject') || q.includes('wastage') || q.includes('سکریپ')) metrics.push('scrap');
   if (q.includes('running hours') || q.includes('operating hours') || q.includes('run time')) metrics.push('running_hours');
@@ -308,6 +377,7 @@ export function parseNaturalLanguageQuery(
     divisionCode,
     departmentCode,
     specificMachine,
+    requestedUnit: detectedUnit,
     sortBy,
     limit,
   };
@@ -372,6 +442,7 @@ function resolveDatePeriod(query: string, isTopQuery = false): DateRangePeriod {
       label: now.format('DD-MMM-YYYY'),
       startDate: now.format('YYYY-MM-DD'),
       endDate: now.format('YYYY-MM-DD'),
+      dayOfMonth: now.date(),
     };
   }
 
@@ -382,7 +453,106 @@ function resolveDatePeriod(query: string, isTopQuery = false): DateRangePeriod {
       label: y.format('DD-MMM-YYYY'),
       startDate: y.format('YYYY-MM-DD'),
       endDate: y.format('YYYY-MM-DD'),
+      dayOfMonth: y.date(),
     };
+  }
+
+  // Explicit single ISO date (e.g. "2026-10-23") or DD-MM-YYYY / DD/MM/YYYY / DD-MMM-YYYY
+  const isoSingleMatch = q.match(/\b(20\d{2})[-/](0?[1-9]|1[0-2])[-/](0?[1-9]|[12]\d|3[01])\b/);
+  if (isoSingleMatch) {
+    const d = dayjs(`${isoSingleMatch[1]}-${String(isoSingleMatch[2]).padStart(2, '0')}-${String(isoSingleMatch[3]).padStart(2, '0')}`);
+    if (d.isValid()) {
+      return {
+        type: 'specific_date',
+        label: d.format('DD-MMM-YYYY'),
+        startDate: d.format('YYYY-MM-DD'),
+        endDate: d.format('YYYY-MM-DD'),
+        dayOfMonth: d.date(),
+      };
+    }
+  }
+
+  const dmySingleMatch = q.match(/\b(0?[1-9]|[12]\d|3[01])[-/](0?[1-9]|1[0-2])[-/](20\d{2})\b/);
+  if (dmySingleMatch) {
+    const d = dayjs(`${dmySingleMatch[3]}-${String(dmySingleMatch[2]).padStart(2, '0')}-${String(dmySingleMatch[1]).padStart(2, '0')}`);
+    if (d.isValid()) {
+      return {
+        type: 'specific_date',
+        label: d.format('DD-MMM-YYYY'),
+        startDate: d.format('YYYY-MM-DD'),
+        endDate: d.format('YYYY-MM-DD'),
+        dayOfMonth: d.date(),
+      };
+    }
+  }
+
+  // Day + Month or Month + Day (e.g. "23rd october", "23 oct", "october 23rd", "22 sep")
+  const monthNamesMap: Record<string, number> = {
+    jan: 0, january: 0, جنوری: 0,
+    feb: 1, february: 1, فروری: 1,
+    mar: 2, march: 2, مارچ: 2,
+    apr: 3, april: 3, اپریل: 3,
+    may: 4, مئی: 4,
+    jun: 5, june: 5, جون: 5,
+    jul: 6, july: 6, جولائی: 6,
+    aug: 7, august: 7, اگست: 7,
+    sep: 8, sept: 8, september: 8, ستمبر: 8,
+    oct: 9, october: 9, اکتوبر: 9,
+    nov: 10, november: 10, نومبر: 10,
+    dec: 11, december: 11, دسمبر: 11,
+  };
+
+  const dayMonthRegex = /\b([12]?\d|3[01])(?:st|nd|rd|th)?\s*(?:of\s+)?(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|جنوری|فروری|مارچ|اپریل|مئی|جون|جولائی|اگست|ستمبر|اکتوبر|نومبر|دسمبر)(?:\s*(20\d{2}))?\b/i;
+  const monthDayRegex = /\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+([12]?\d|3[01])(?:st|nd|rd|th)?(?:,?\s*(20\d{2}))?\b/i;
+
+  const dmMatch = q.match(dayMonthRegex);
+  const mdMatch = !dmMatch ? q.match(monthDayRegex) : null;
+  if (dmMatch || mdMatch) {
+    const dayNum = parseInt(dmMatch ? dmMatch[1] : mdMatch![2], 10);
+    const mKey = (dmMatch ? dmMatch[2] : mdMatch![1]).toLowerCase();
+    const yearNum = parseInt((dmMatch ? dmMatch[3] : mdMatch![3]) || String(now.year()), 10);
+    const monthIdx = monthNamesMap[mKey];
+    if (monthIdx !== undefined && dayNum >= 1 && dayNum <= 31) {
+      const target = dayjs().year(yearNum).month(monthIdx).date(dayNum);
+      if (target.isValid()) {
+        return {
+          type: 'specific_date',
+          label: target.format('DD-MMM-YYYY'),
+          startDate: target.format('YYYY-MM-DD'),
+          endDate: target.format('YYYY-MM-DD'),
+          dayOfMonth: dayNum,
+        };
+      }
+    }
+  }
+
+  // Ordinal Day-of-Month (e.g. "23rd production report", "22nd data", "15th report", "23 tarikh", "23 تاریخ")
+  const ordinalDayMatch =
+    q.match(/\b([12]?\d|3[01])(?:st|nd|rd|th)\b/i) ||
+    q.match(/\b(?:date|tarikh|tareekh|تاریخ)\s*([12]?\d|3[01])\b/i) ||
+    q.match(/\b([12]?\d|3[01])\s*(?:tarikh|tareekh|تاریخ)\b/i) ||
+    (!/\btop\s+\d+/i.test(q) ? q.match(/\b([12]?\d|3[01])\s+(?:production\s+report|production\s+data|production|report|data)\b/i) : null);
+
+  if (ordinalDayMatch) {
+    const dayNum = parseInt(ordinalDayMatch[1], 10);
+    if (dayNum >= 1 && dayNum <= 31) {
+      // Resolve month: if a month was named anywhere in the query, use it; otherwise use current month
+      let resolvedMonth = now.month();
+      for (const [k, idx] of Object.entries(monthNamesMap)) {
+        if (q.includes(k)) {
+          resolvedMonth = idx;
+          break;
+        }
+      }
+      const target = now.month(resolvedMonth).date(dayNum);
+      return {
+        type: 'specific_date',
+        label: target.format('DD-MMM-YYYY'),
+        startDate: target.format('YYYY-MM-DD'),
+        endDate: target.format('YYYY-MM-DD'),
+        dayOfMonth: dayNum,
+      };
+    }
   }
 
   if (q.includes('this week') || q.includes('current week') || q.includes('اس ہفتے')) {

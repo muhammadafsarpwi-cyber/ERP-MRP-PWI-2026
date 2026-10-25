@@ -5,9 +5,14 @@ import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 import * as path from 'path';
+import { json, urlencoded } from 'express';
 
 async function bootstrap() {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { bodyParser: false });
+
+  // Increase payload limit for base64 audio/voice queries and bulk uploads to prevent 413 Payload Too Large
+  app.use(json({ limit: '50mb' }));
+  app.use(urlencoded({ extended: true, limit: '50mb' }));
 
   // Global prefix
   app.setGlobalPrefix('api/v1');

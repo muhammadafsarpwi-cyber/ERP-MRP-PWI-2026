@@ -25,6 +25,7 @@ import { usePermission } from '../../hooks/usePermission';
 import { useHeaderActions } from './headerActionsStore';
 import Breadcrumbs from '../shared/Breadcrumbs';
 import ClassicalMusicControl from '../shared/ClassicalMusicControl';
+import InstallAppHeaderButton from '../pwa/InstallAppHeaderButton';
 import { useNavBadgeStore } from './navBadgeStore';
 import { syncMaintenanceQueueBadges } from './maintenanceQueueBadges';
 import apiService from '../../services/api';
@@ -903,6 +904,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
               <NotificationBell />
               <EmailCommunicationIcon />
               <WhatsAppCommunicationIcon />
+              <InstallAppHeaderButton />
               <ClassicalMusicControl />
               <ThemeSettingsButton />
               <ProfileMenu />

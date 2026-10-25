@@ -336,4 +336,17 @@ export class SchemaCatalogService {
     if (divisions.length === 0) return '(no divisions visible to this user)';
     return divisions.map((d) => `- ${d.code} | ${d.name} | id=${d.id}`).join('\n');
   }
+
+  /** Department dictionary for the prompt, already narrowed to the caller's scope. */
+  renderDepartmentsPrompt(catalog: SchemaCatalog, allowedDivisionIds?: string[]): string {
+    const allowed = allowedDivisionIds ? new Set(allowedDivisionIds) : null;
+    const depts = allowed
+      ? catalog.departments.filter((d) => !d.divisionId || allowed.has(d.divisionId))
+      : catalog.departments;
+    if (depts.length === 0) return '(no departments configured)';
+    return depts
+      .slice(0, 100)
+      .map((d) => `- ${d.name} | id=${d.id}${d.divisionId ? ` | division_id=${d.divisionId}` : ''}`)
+      .join('\n');
+  }
 }

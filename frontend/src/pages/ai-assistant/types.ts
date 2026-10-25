@@ -1,6 +1,7 @@
 import React from 'react';
 
 export type ReportingDimension =
+  | 'daily_granular_ledger'
   | 'operator'
   | 'machine'
   | 'department'
@@ -39,14 +40,17 @@ export type ReportingMetric =
   | 'dispatch';
 
 export interface DateRangePeriod {
-  type: 'today' | 'yesterday' | 'this_week' | 'last_week' | 'this_month' | 'last_month' | 'last_30_days' | 'last_3_months' | 'last_6_months' | 'last_12_months' | 'specific_month' | 'quarter' | 'year' | 'custom' | 'comparison' | 'all';
+  type: 'today' | 'yesterday' | 'specific_date' | 'this_week' | 'last_week' | 'this_month' | 'last_month' | 'last_30_days' | 'last_3_months' | 'last_6_months' | 'last_12_months' | 'specific_month' | 'quarter' | 'year' | 'custom' | 'comparison' | 'all';
   label: string;
   startDate?: string; // YYYY-MM-DD
   endDate?: string;   // YYYY-MM-DD
+  dayOfMonth?: number;
   compareStartDate?: string;
   compareEndDate?: string;
   compareLabel?: string;
 }
+
+export type ReportingUnit = 'AUTO' | 'PCS' | 'Gross' | 'KG' | 'MTR' | 'Bags';
 
 export interface QueryIntent {
   dimension: ReportingDimension;
@@ -59,6 +63,7 @@ export interface QueryIntent {
   specificOperator?: string;
   specificItem?: string;
   specificCustomer?: string;
+  requestedUnit?: ReportingUnit;
   sortBy?: 'natural' | 'highest' | 'lowest' | 'alphabetical' | 'chronological';
   limit?: number;
   isFollowUp?: boolean;

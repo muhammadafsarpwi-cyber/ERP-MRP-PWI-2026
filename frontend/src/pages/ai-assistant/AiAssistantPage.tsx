@@ -9,6 +9,7 @@ import {
   Tooltip,
   Select,
   Badge,
+  Popover,
 } from 'antd';
 import {
   RobotOutlined,
@@ -23,6 +24,16 @@ import {
   SafetyCertificateOutlined,
   AudioOutlined,
   AudioMutedOutlined,
+  SettingOutlined,
+  PlusOutlined,
+  HistoryOutlined,
+  SearchOutlined,
+  MenuFoldOutlined,
+  MenuUnfoldOutlined,
+  ThunderboltOutlined,
+  MessageOutlined,
+  CloseOutlined,
+  ClockCircleOutlined,
 } from '@ant-design/icons';
 import {
   BarChart,
@@ -60,6 +71,8 @@ import {
   AiColumn,
   ConversationContext,
   NormalizedReportResult,
+  QueryIntent,
+  ReportingUnit,
 } from './types';
 import { parseNaturalLanguageQuery } from './nlQueryParser';
 import { generateReportData, formatQty } from './reportGenerator';
@@ -76,6 +89,7 @@ interface ChatMessage {
   departmentScope?: string;
   periodLabel?: string;
   reportTitle?: string;
+  rawIntent?: QueryIntent;
   kpiCards?: KpiCardData[];
   chartData?: ReportChartData;
   tableData?: {
@@ -174,12 +188,42 @@ const DEFAULT_DIVISIONS: DivisionMeta[] = [
   },
 ];
 
+interface ChatSession {
+  id: string;
+  title: string;
+  timestamp: string;
+  messages: ChatMessage[];
+  divisionCode: string;
+  departmentCode: string;
+}
+
 const AiAssistantPage: React.FC = () => {
   const isDark = useThemeStore((state) => state.draft.mode === 'dark');
 
   const [divisionsList, setDivisionsList] = useState<DivisionMeta[]>(DEFAULT_DIVISIONS);
   const [selectedDivisionCode, setSelectedDivisionCode] = useState<string>('DIV-CCD');
   const [selectedDepartment, setSelectedDepartment] = useState<string>('ALL');
+  const [uomOverride, setUomOverride] = useState<string>('AUTO');
+
+  // Sidebar & Multi-Session Chat History
+  const [sessions, setSessions] = useState<ChatSession[]>(() => {
+    try {
+      const saved = localStorage.getItem('pwi_ai_chat_sessions');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [currentSessionId, setCurrentSessionId] = useState<string>(() => {
+    try {
+      const active = localStorage.getItem('pwi_ai_active_session_id');
+      if (active) return active;
+    } catch {}
+    return `session-${Date.now()}`;
+  });
+  const [sidebarOpen, setSidebarOpen] = useState<boolean>(true);
+  const [historySearch, setHistorySearch] = useState<string>('');
+  const [settingsOpen, setSettingsOpen] = useState<boolean>(false);
 
   const [messages, setMessages] = useState<ChatMessage[]>(() => {
     try {
@@ -197,11 +241,12 @@ const AiAssistantPage: React.FC = () => {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
 
-  // MediaRecorder voice capture → base64 JSON → POST /ai/assistant/voice
-  // (Whisper transcription server-side — no browser SpeechRecognition needed).
+  // MediaRecorder voice capture → compressed base64 JSON → POST /ai/assistant/voice
+  // (OpenAI Whisper server-side with parallel browser SpeechRecognition fallback).
   const {
     isRecording,
     elapsedSeconds,
+    liveTranscript,
     error: recorderError,
     start: startRecording,
     stop: stopRecording,
@@ -259,11 +304,48 @@ const AiAssistantPage: React.FC = () => {
       sessionStorage.setItem('pwi_erp_ai_chat', JSON.stringify(messages));
     } catch {}
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, loading]);
 
-  const activeDivisionMeta = useMemo(() => {
+    // Sync active session into sessions list
+    if (messages.length > 0) {
+      setSessions((prev) => {
+        const firstUserMsg = messages.find((m) => m.sender === 'user');
+        const sessionTitle = firstUserMsg
+          ? (firstUserMsg.text.replace(/^[🎤\s]+/, '').slice(0, 32) + (firstUserMsg.text.length > 32 ? '…' : ''))
+          : 'Analytics Query';
+
+        const existingIdx = prev.findIndex((s) => s.id === currentSessionId);
+        const updatedSession: ChatSession = {
+          id: currentSessionId,
+          title: existingIdx >= 0 ? prev[existingIdx].title : sessionTitle,
+          timestamp: dayjs().format('MMM D, hh:mm A'),
+          messages,
+          divisionCode: selectedDivisionCode,
+          departmentCode: selectedDepartment,
+        };
+
+        let updated: ChatSession[];
+        if (existingIdx >= 0) {
+          updated = [...prev];
+          updated[existingIdx] = updatedSession;
+        } else {
+          updated = [updatedSession, ...prev].slice(0, 40);
+        }
+        try {
+          localStorage.setItem('pwi_ai_chat_sessions', JSON.stringify(updated));
+        } catch {}
+        return updated;
+      });
+    }
+  }, [messages, loading, currentSessionId, selectedDivisionCode, selectedDepartment]);
+
+  const baseDivisionMeta = useMemo(() => {
     return divisionsList.find((d) => d.code === selectedDivisionCode) || DEFAULT_DIVISIONS[1];
   }, [divisionsList, selectedDivisionCode]);
+
+  const activeDivisionMeta = useMemo<DivisionMeta>(() => {
+    if (uomOverride === 'AUTO') return baseDivisionMeta;
+    return { ...baseDivisionMeta, uom: uomOverride };
+  }, [baseDivisionMeta, uomOverride]);
 
   const activeDepartments = useMemo(() => {
     return DIVISION_DEPARTMENTS[selectedDivisionCode] || [];
@@ -370,10 +452,481 @@ const AiAssistantPage: React.FC = () => {
     ];
   }, [activeDivisionMeta, selectedDepartment]);
 
+  const handleNewChat = () => {
+    const newId = `session-${Date.now()}`;
+    setCurrentSessionId(newId);
+    setMessages([]);
+    setInputText('');
+    try {
+      localStorage.setItem('pwi_ai_active_session_id', newId);
+      sessionStorage.removeItem('pwi_erp_ai_chat');
+    } catch {}
+    message.success('Started a new chat session');
+  };
+
+  const handleSelectSession = (session: ChatSession) => {
+    setCurrentSessionId(session.id);
+    setMessages(session.messages || []);
+    if (session.divisionCode) setSelectedDivisionCode(session.divisionCode);
+    if (session.departmentCode) setSelectedDepartment(session.departmentCode);
+    try {
+      localStorage.setItem('pwi_ai_active_session_id', session.id);
+    } catch {}
+  };
+
+  const handleDeleteSession = (sessionId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSessions((prev) => {
+      const updated = prev.filter((s) => s.id !== sessionId);
+      try {
+        localStorage.setItem('pwi_ai_chat_sessions', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+    if (currentSessionId === sessionId) {
+      handleNewChat();
+    }
+  };
+
   const handleClearChat = () => {
     setMessages([]);
+    setSessions((prev) => {
+      const updated = prev.filter((s) => s.id !== currentSessionId);
+      try {
+        localStorage.setItem('pwi_ai_chat_sessions', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
     try { sessionStorage.removeItem('pwi_erp_ai_chat'); } catch {}
+    setSettingsOpen(false);
     message.info('Chat history cleared');
+  };
+
+  const filteredSessions = useMemo(() => {
+    if (!historySearch.trim()) return sessions;
+    const q = historySearch.toLowerCase();
+    return sessions.filter(
+      (s) =>
+        s.title.toLowerCase().includes(q) ||
+        s.messages.some((m) => m.text.toLowerCase().includes(q)),
+    );
+  }, [sessions, historySearch]);
+
+  const quickActionChips = useMemo(() => [
+    { label: 'Top 5 Customers', icon: '👑', query: 'Show top 5 customers by sales volume' },
+    { label: 'Top 5 Items', icon: '📦', query: 'Show top 5 items produced' },
+    { label: 'Top 5 Operators', icon: '👷', query: 'Show top 5 operators by efficiency' },
+    { label: 'Machine-wise Output', icon: '⚙️', query: `Show ${activeDivisionMeta.name} machine-wise production, target and average report` },
+    { label: 'Department-wise', icon: '🏢', query: 'Show department-wise target vs actual production' },
+    { label: 'Machine Downtime', icon: '⚠️', query: 'Show machine-wise downtime' },
+    { label: 'Customer Dispatch', icon: '🚚', query: 'Show customer-wise dispatch this month' },
+    { label: 'MoM Comparison', icon: '⚖️', query: 'Compare August and September production' },
+    { label: '6-Month Trend', icon: '📈', query: 'Show production trend for the last 6 months' },
+    { label: 'Shift-wise Output', icon: '⏰', query: 'Show operator-wise production by shift' },
+  ], [activeDivisionMeta]);
+
+  const handleUnitChange = async (newUnit: ReportingUnit) => {
+    setUomOverride(newUnit);
+    const label =
+      newUnit === 'AUTO'
+        ? `Auto (${baseDivisionMeta.uom})`
+        : newUnit === 'Gross'
+        ? 'Gross (1 Gross = 144 PCS)'
+        : newUnit;
+    message.success(`Reporting unit set to: ${label}`);
+
+    // Dynamically re-render all summary KPI cards, detailed tables, and graphical charts in the active chat
+    const hasAssistantReports = messages.some(
+      (m) => m.sender === 'assistant' && (m.rawIntent || m.tableData || m.kpiCards || m.chartData),
+    );
+
+    if (hasAssistantReports) {
+      try {
+        const updatedMessages = await Promise.all(
+          messages.map(async (m) => {
+            if (m.sender !== 'assistant') return m;
+            const baseIntent =
+              m.rawIntent ||
+              conversationContextRef.current.lastIntent ||
+              parseNaturalLanguageQuery(
+                lastQuestionRef.current || `Show ${baseDivisionMeta.name} machine-wise production report`,
+                m.divisionScope || selectedDivisionCode,
+                m.departmentScope || selectedDepartment,
+              );
+            const updatedIntent: QueryIntent = {
+              ...baseIntent,
+              requestedUnit: newUnit === 'AUTO' ? undefined : newUnit,
+            };
+            const report = await generateReportData(
+              updatedIntent,
+              divisionsList,
+              isDark,
+              newUnit,
+            );
+            return {
+              ...m,
+              rawIntent: updatedIntent,
+              text: report.summaryText,
+              reportTitle: report.title,
+              kpiCards: report.kpiCards,
+              chartData: report.chartData,
+              tableData: report.tableData,
+              auditTrail: report.auditTrail,
+            };
+          }),
+        );
+        setMessages(updatedMessages);
+      } catch {}
+    } else if (messages.some((m) => m.sender === 'assistant' && m.backendAnswer)) {
+      // If only backend SQL cards are present, also regenerate full KPI + Chart + Table report if Gross is selected
+      const fallbackQ =
+        lastQuestionRef.current ||
+        [...messages].reverse().find((m) => m.sender === 'user')?.text ||
+        `Show ${baseDivisionMeta.name} machine-wise production report`;
+      try {
+        const intent = parseNaturalLanguageQuery(
+          fallbackQ,
+          selectedDivisionCode,
+          selectedDepartment,
+          conversationContextRef.current,
+        );
+        intent.requestedUnit = newUnit === 'AUTO' ? undefined : newUnit;
+        const report = await generateReportData(intent, divisionsList, isDark, newUnit);
+        setMessages((prev) =>
+          prev.map((m, idx) =>
+            idx === prev.length - 1 && m.sender === 'assistant'
+              ? {
+                  ...m,
+                  rawIntent: intent,
+                  reportTitle: report.title,
+                  kpiCards: report.kpiCards,
+                  chartData: report.chartData,
+                  tableData: report.tableData,
+                  auditTrail: report.auditTrail,
+                }
+              : m,
+          ),
+        );
+      } catch {}
+    }
+  };
+
+  const renderSettingsPopoverContent = () => {
+    const unitOptions: Array<{ value: ReportingUnit; label: string; sub?: string }> = [
+      { value: 'AUTO', label: `Auto (${baseDivisionMeta.uom.split(' ')[0]})` },
+      { value: 'PCS', label: 'PCS' },
+      { value: 'Gross', label: 'Gross', sub: '144 PCS' },
+      { value: 'KG', label: 'KG' },
+      { value: 'MTR', label: 'MTR' },
+      { value: 'Bags', label: 'Bags' },
+    ];
+
+    return (
+      <div
+        style={{
+          width: 356,
+          maxWidth: 'calc(100vw - 36px)',
+          maxHeight: 'min(390px, calc(100vh - 155px))',
+          overflowY: 'auto',
+          padding: '2px 2px',
+        }}
+      >
+        {/* Compact Header */}
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            marginBottom: 10,
+            paddingBottom: 6,
+            borderBottom: isDark ? '1px solid #334155' : '1px solid #e2e8f0',
+          }}
+        >
+          <span
+            style={{
+              fontWeight: 700,
+              fontSize: 12.5,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              color: isDark ? '#f8fafc' : '#0f172a',
+            }}
+          >
+            <SettingOutlined style={{ color: '#3b82f6' }} /> Filters, Units & Quick Controls
+          </span>
+          <Button
+            type="text"
+            size="small"
+            icon={<DeleteOutlined />}
+            danger
+            onClick={handleClearChat}
+            style={{ fontSize: 11, fontWeight: 600, height: 24, padding: '0 6px' }}
+          >
+            Clear Chat
+          </Button>
+        </div>
+
+        {/* 1. Dynamic Unit Toggle Expansion (Responsive 3-Column Grid with Gross = 144 PCS) */}
+        <div style={{ marginBottom: 12 }}>
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginBottom: 6,
+            }}
+          >
+            <span
+              style={{
+                fontSize: 10.5,
+                fontWeight: 700,
+                color: isDark ? '#38bdf8' : '#0284c7',
+                textTransform: 'uppercase',
+                letterSpacing: '0.4px',
+              }}
+            >
+              Reporting Unit Toggle (PCS / UOM)
+            </span>
+            <span
+              style={{
+                fontSize: 10,
+                fontWeight: 600,
+                padding: '1px 6px',
+                borderRadius: 8,
+                background: isDark ? 'rgba(16, 185, 129, 0.15)' : '#ecfdf5',
+                color: isDark ? '#6ee7b7' : '#047857',
+                border: isDark ? '1px solid rgba(16, 185, 129, 0.35)' : '1px solid #a7f3d0',
+              }}
+            >
+              1 Gross = 144 PCS
+            </span>
+          </div>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+              gap: 6,
+            }}
+          >
+            {unitOptions.map((u) => {
+              const isSelected = uomOverride === u.value;
+              return (
+                <button
+                  key={u.value}
+                  onClick={() => handleUnitChange(u.value)}
+                  style={{
+                    padding: '5px 8px',
+                    borderRadius: 10,
+                    fontSize: 11,
+                    fontWeight: isSelected ? 700 : 500,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 4,
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    border: isSelected
+                      ? '1.5px solid #10b981'
+                      : isDark
+                      ? '1px solid #334155'
+                      : '1px solid #cbd5e1',
+                    background: isSelected
+                      ? isDark
+                        ? '#064e3b'
+                        : '#d1fae5'
+                      : isDark
+                      ? '#1e293b'
+                      : '#f8fafc',
+                    color: isSelected
+                      ? isDark
+                        ? '#6ee7b7'
+                        : '#047857'
+                      : isDark
+                      ? '#94a3b8'
+                      : '#475569',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  <span>{u.label}</span>
+                  {u.sub && (
+                    <span
+                      style={{
+                        fontSize: 9.5,
+                        opacity: 0.85,
+                        fontWeight: 600,
+                      }}
+                    >
+                      ({u.sub})
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* 2. Section Tabs (Responsive Grid) */}
+        {selectedDivisionCode !== 'ALL' && activeDepartments.length > 0 && (
+          <div style={{ marginBottom: 12 }}>
+            <div
+              style={{
+                fontSize: 10.5,
+                fontWeight: 700,
+                color: isDark ? '#38bdf8' : '#0284c7',
+                textTransform: 'uppercase',
+                letterSpacing: '0.4px',
+                marginBottom: 6,
+              }}
+            >
+              Section Tabs ({activeDivisionMeta.name})
+            </div>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+                gap: 5,
+              }}
+            >
+              {activeDepartments.map((dept) => {
+                const isSelected = selectedDepartment === dept.code;
+                return (
+                  <button
+                    key={dept.code}
+                    onClick={() => {
+                      handleDepartmentSwitch(dept.code);
+                      setSettingsOpen(false);
+                    }}
+                    style={{
+                      padding: '4px 8px',
+                      borderRadius: 10,
+                      fontSize: 11,
+                      fontWeight: isSelected ? 700 : 500,
+                      cursor: 'pointer',
+                      textAlign: 'center',
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      border: isSelected
+                        ? '1.5px solid #0284c7'
+                        : isDark
+                        ? '1px solid #334155'
+                        : '1px solid #cbd5e1',
+                      background: isSelected
+                        ? isDark
+                          ? '#075985'
+                          : '#e0f2fe'
+                        : isDark
+                        ? '#1e293b'
+                        : '#f8fafc',
+                      color: isSelected
+                        ? isDark
+                          ? '#bae6fd'
+                          : '#0369a1'
+                        : isDark
+                        ? '#94a3b8'
+                        : '#475569',
+                      transition: 'all 0.15s ease',
+                    }}
+                  >
+                    {dept.shortName || dept.name}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* 3. Quick Division Select (Responsive Grid) */}
+        <div style={{ marginBottom: 8 }}>
+          <div
+            style={{
+              fontSize: 10.5,
+              fontWeight: 700,
+              color: isDark ? '#94a3b8' : '#64748b',
+              textTransform: 'uppercase',
+              letterSpacing: '0.4px',
+              marginBottom: 6,
+            }}
+          >
+            Quick Division Select
+          </div>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+              gap: 5,
+            }}
+          >
+            {divisionsList.map((div) => {
+              const isSelected = selectedDivisionCode === div.code;
+              return (
+                <button
+                  key={div.code}
+                  onClick={() => {
+                    handleDivisionSwitch(div.code);
+                    setSettingsOpen(false);
+                  }}
+                  style={{
+                    padding: '4px 8px',
+                    borderRadius: 10,
+                    fontSize: 11,
+                    fontWeight: isSelected ? 700 : 500,
+                    cursor: 'pointer',
+                    textAlign: 'center',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    border: isSelected
+                      ? '1.5px solid #3b82f6'
+                      : isDark
+                      ? '1px solid #334155'
+                      : '1px solid #cbd5e1',
+                    background: isSelected
+                      ? isDark
+                        ? '#1e3a8a'
+                        : '#eff6ff'
+                      : isDark
+                      ? '#1e293b'
+                      : '#f8fafc',
+                    color: isSelected
+                      ? isDark
+                        ? '#93c5fd'
+                        : '#1d4ed8'
+                      : isDark
+                      ? '#94a3b8'
+                      : '#475569',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  {div.name.replace(' Division', '')}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div
+          style={{
+            fontSize: 10.5,
+            color: isDark ? '#64748b' : '#94a3b8',
+            paddingTop: 6,
+            borderTop: isDark ? '1px solid #334155' : '1px solid #e2e8f0',
+            display: 'flex',
+            justifyContent: 'space-between',
+          }}
+        >
+          <span>Engine: Supabase Live</span>
+          <span>
+            Active UOM:{' '}
+            <strong style={{ color: isDark ? '#e2e8f0' : '#334155' }}>
+              {activeDivisionMeta.uom === 'Gross' ? 'Gross (144 PCS)' : activeDivisionMeta.uom}
+            </strong>
+          </span>
+        </div>
+      </div>
+    );
   };
 
   const handleCopy = (msg: ChatMessage) => {
@@ -468,6 +1021,15 @@ const AiAssistantPage: React.FC = () => {
         return;
       }
 
+      // Sync unit toggle if the user explicitly requested a unit via text/voice (e.g., "in Gross")
+      const effectiveUnit: string =
+        intent.requestedUnit && intent.requestedUnit !== 'AUTO'
+          ? intent.requestedUnit
+          : uomOverride;
+      if (intent.requestedUnit && intent.requestedUnit !== uomOverride) {
+        setUomOverride(intent.requestedUnit);
+      }
+
       // Update conversation context for next follow-up turns (both pipelines)
       conversationContextRef.current = {
         lastIntent: intent,
@@ -477,36 +1039,49 @@ const AiAssistantPage: React.FC = () => {
         lastDimension: intent.dimension,
       };
 
-      // 2. PRIMARY: backend Text-to-SQL (Gemini + read-only DB role, division-
-      //    scoped server-side — the response carries the validated `chart`
-      //    payload that AiAnswerCard renders dynamically).
-      try {
-        const answer = await aiAssistantService.askQuestion(query);
-        setMessages((prev) => [...prev, buildAssistantMessage(answer, effectiveCode)]);
-        return;
-      } catch (aiErr) {
-        if (!isAiBackendUnavailable(aiErr)) {
-          // Genuine AI failure (guard rejection, untranslatable question, 403…)
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: `err-${Date.now()}`,
-              sender: 'assistant',
-              text: `⚠️ ${extractAiErrorMessage(aiErr)}`,
-              timestamp: dayjs().format('hh:mm A'),
-            },
-          ]);
-          return;
+      // 2. SPECIFIC-DATE GRANULAR LEDGER & GROSS UNIT CONVERSION PRIORITY:
+      //    When a user requests a specific date OR when the "Gross" unit (1 Gross = 144 PCS) is active,
+      //    generate the full report (Summary KPI Cards + Detailed Table + Graphical Chart) with dynamic
+      //    ÷ 144 piece conversion directly from the hydrated production entries endpoint.
+      const isGrossActive = effectiveUnit.toLowerCase() === 'gross';
+      if (intent.dimension !== 'daily_granular_ledger' && !isGrossActive) {
+        try {
+          const answer = await aiAssistantService.askQuestion(query);
+          // Guard against collapsed 1-row "Grand Total" responses when a breakdown was requested
+          const isCollapsedGrandTotalOnly =
+            answer.rows.length <= 1 &&
+            answer.columns.length <= 3 &&
+            !/\b(count|how many|total only)\b/i.test(query);
+          if (!isCollapsedGrandTotalOnly) {
+            const msgWithIntent = {
+              ...buildAssistantMessage(answer, effectiveCode),
+              rawIntent: intent,
+            };
+            setMessages((prev) => [...prev, msgWithIntent]);
+            return;
+          }
+        } catch (aiErr) {
+          if (!isAiBackendUnavailable(aiErr)) {
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: `err-${Date.now()}`,
+                sender: 'assistant',
+                text: `⚠️ ${extractAiErrorMessage(aiErr)}`,
+                timestamp: dayjs().format('hh:mm A'),
+              },
+            ]);
+            return;
+          }
         }
-        // AI routes unavailable (older backend / infra not configured) →
-        // fall through to the legacy client-side report engine below.
       }
 
-      // 3. FALLBACK: legacy in-browser report generator (no AI backend needed)
+      // 3. GRANULAR LEDGER & DIMENSIONAL REPORT GENERATOR (Supports Gross = PCS / 144)
       const report: NormalizedReportResult = await generateReportData(
         intent,
         divisionsList,
         isDark,
+        effectiveUnit,
       );
 
       const botMsg: ChatMessage = {
@@ -518,6 +1093,7 @@ const AiAssistantPage: React.FC = () => {
         departmentScope: report.departmentScope,
         periodLabel: report.periodLabel,
         reportTitle: report.title,
+        rawIntent: intent,
         kpiCards: report.kpiCards,
         chartData: report.chartData,
         tableData: report.tableData,
@@ -542,15 +1118,16 @@ const AiAssistantPage: React.FC = () => {
   };
 
   // ══════════════════════════════════════════════════════════════════════════
-  // VOICE PIPELINE — MediaRecorder → base64 JSON → Whisper → Text-to-SQL
+  // VOICE PIPELINE — Client Audio Compression → Whisper → Text-to-SQL + Fallback
   // ══════════════════════════════════════════════════════════════════════════
 
-  const submitVoiceBlob = async (blob: Blob, mimeType: string) => {
+  const submitVoiceBlob = async (blob: Blob, mimeType: string, fallbackTranscript?: string) => {
     if (loading) return;
     lastQuestionRef.current = '';
     setLoadingKind('voice');
     setLoading(true);
     try {
+      // Compress and encode audio payload client-side to prevent 413 Request Entity Too Large
       const audioBase64 = await blobToBase64(blob);
       const answer = await aiAssistantService.voiceQuery(
         audioBase64,
@@ -570,6 +1147,14 @@ const AiAssistantPage: React.FC = () => {
         buildAssistantMessage(answer, selectedDivisionCode),
       ]);
     } catch (err) {
+      // If backend STT is unconfigured/offline and browser SpeechRecognition captured the voice query,
+      // route the transcript seamlessly through our ERP analytics pipeline.
+      if (fallbackTranscript && fallbackTranscript.trim()) {
+        setLoading(false);
+        await handleSend(`🎤 ${fallbackTranscript.trim()}`);
+        return;
+      }
+
       setMessages((prev) => [
         ...prev,
         {
@@ -584,7 +1169,7 @@ const AiAssistantPage: React.FC = () => {
     }
   };
 
-  /** Mic button: click to record, click again to stop & send. */
+  /** Mic button: click to record, click again to stop, compress & send. */
   const handleMicToggle = async () => {
     if (loading) return;
     if (isRecording) {
@@ -593,7 +1178,7 @@ const AiAssistantPage: React.FC = () => {
         message.warning('No audio was captured. Please try again.');
         return;
       }
-      await submitVoiceBlob(captured.blob, captured.mimeType);
+      await submitVoiceBlob(captured.blob, captured.mimeType, captured.liveTranscript);
     } else {
       const started = await startRecording();
       if (started) {
@@ -762,221 +1347,295 @@ const AiAssistantPage: React.FC = () => {
         overflow: 'hidden',
       }}
     >
-      {/* ── Top Header Banner & Division Selector ──────────────────────── */}
+      {/* ── Top Header (Slim & Modern) ─────────────────────────────────── */}
       <div
         style={{
           background: isDark
             ? 'linear-gradient(90deg, #1e3a8a 0%, #0f172a 100%)'
             : 'linear-gradient(90deg, #1d4ed8 0%, #1e40af 100%)',
           color: '#ffffff',
-          padding: '10px 20px',
+          padding: '8px 16px',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          flexWrap: 'wrap',
           gap: 12,
-          boxShadow: '0 2px 10px rgba(0, 0, 0, 0.25)',
+          boxShadow: '0 2px 8px rgba(0, 0, 0, 0.2)',
           zIndex: 10,
           borderBottom: isDark ? '1px solid #1e293b' : 'none',
+          minHeight: 50,
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div
-            style={{
-              width: 38,
-              height: 38,
-              borderRadius: 10,
-              background: 'rgba(255, 255, 255, 0.2)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: 20,
-              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.2)',
-            }}
-          >
-            <RobotOutlined style={{ color: '#ffffff' }} />
-          </div>
-          <div>
-            <div style={{ fontWeight: 800, fontSize: 16, letterSpacing: '0.3px', lineHeight: 1.2 }}>
-              PWI AI Assistant & Analytics
-            </div>
-            <div style={{ fontSize: 11, color: 'rgba(255, 255, 255, 0.85)' }}>
-              Executive Manufacturing, Machine Performance & Customer Intelligence
-            </div>
-          </div>
-        </div>
-
-        {/* Division & Department Selector Toolbar */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(255, 255, 255, 0.12)', padding: '4px 10px', borderRadius: 8 }}>
-            <FilterOutlined style={{ fontSize: 13, color: '#93c5fd' }} />
-            <span style={{ fontSize: 12, fontWeight: 600 }}>Division:</span>
-            <Select
-              size="small"
-              value={selectedDivisionCode}
-              onChange={(val) => handleDivisionSwitch(val)}
-              style={{ width: 220 }}
-              options={divisionsList.map((d) => ({
-                value: d.code,
-                label: `${d.name} (${d.uom})`,
-              }))}
-            />
-          </div>
-
-          {selectedDivisionCode !== 'ALL' && activeDepartments.length > 0 && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(255, 255, 255, 0.12)', padding: '4px 10px', borderRadius: 8 }}>
-              <ApartmentOutlined style={{ fontSize: 13, color: '#93c5fd' }} />
-              <span style={{ fontSize: 12, fontWeight: 600 }}>Department:</span>
-              <Select
-                size="small"
-                value={selectedDepartment}
-                onChange={(val) => handleDepartmentSwitch(val)}
-                style={{ width: 190 }}
-                options={activeDepartments.map((d) => ({
-                  value: d.code,
-                  label: d.name,
-                }))}
-              />
-            </div>
-          )}
-
-          {messages.length > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Tooltip title={sidebarOpen ? 'Hide History & Prompts' : 'Show History & Prompts'}>
             <Button
               type="text"
-              size="small"
-              icon={<DeleteOutlined />}
-              onClick={handleClearChat}
+              icon={sidebarOpen ? <MenuFoldOutlined /> : <MenuUnfoldOutlined />}
+              onClick={() => setSidebarOpen((prev) => !prev)}
               style={{
                 color: '#ffffff',
                 background: 'rgba(255, 255, 255, 0.15)',
                 border: '1px solid rgba(255, 255, 255, 0.25)',
                 borderRadius: 6,
-                fontSize: 12,
-                fontWeight: 600,
+                fontSize: 14,
               }}
-            >
-              Clear Chat
-            </Button>
-          )}
+            />
+          </Tooltip>
+
+          <div
+            style={{
+              width: 32,
+              height: 32,
+              borderRadius: 8,
+              background: 'rgba(255, 255, 255, 0.2)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: 17,
+            }}
+          >
+            <RobotOutlined style={{ color: '#ffffff' }} />
+          </div>
+
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 15, letterSpacing: '0.2px', lineHeight: 1.2 }}>
+              PWI AI Assistant & Analytics
+            </div>
+            <div style={{ fontSize: 10, color: 'rgba(255, 255, 255, 0.85)', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span>Live Manufacturing Intelligence</span>
+              <span>•</span>
+              <Badge status="processing" color="#10b981" text={<span style={{ color: '#a7f3d0', fontSize: 10 }}>Supabase Live</span>} />
+            </div>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Button
+            type="primary"
+            size="small"
+            icon={<PlusOutlined />}
+            onClick={handleNewChat}
+            style={{
+              background: '#ffffff',
+              color: '#1d4ed8',
+              borderColor: '#ffffff',
+              fontWeight: 700,
+              fontSize: 12,
+              borderRadius: 6,
+              boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
+            }}
+          >
+            New Chat
+          </Button>
         </div>
       </div>
 
-      {/* ── Division Quick Chips Bar ────────────────────────────────────────── */}
-      <div
-        style={{
-          background: isDark ? '#111827' : '#ffffff',
-          borderBottom: isDark ? '1px solid #1f2937' : '1px solid #e2e8f0',
-          padding: '8px 20px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          overflowX: 'auto',
-          fontSize: 12,
-        }}
-      >
-        <span style={{ fontWeight: 700, color: isDark ? '#94a3b8' : '#64748b', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 4 }}>
-          <ApartmentOutlined /> Divisions:
-        </span>
-        {divisionsList.map((div) => {
-          const isSelected = selectedDivisionCode === div.code;
-          return (
-            <button
-              key={div.code}
-              onClick={() => handleDivisionSwitch(div.code)}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 6,
-                padding: '4px 12px',
-                borderRadius: 16,
-                fontSize: 12,
-                fontWeight: isSelected ? 700 : 500,
-                cursor: 'pointer',
-                transition: 'all 0.15s ease',
-                whiteSpace: 'nowrap',
-                border: isSelected
-                  ? '1.5px solid #3b82f6'
-                  : isDark ? '1px solid #374151' : '1px solid #cbd5e1',
-                background: isSelected
-                  ? (isDark ? '#1e3a8a' : '#eff6ff')
-                  : (isDark ? '#1f2937' : '#f8fafc'),
-                color: isSelected
-                  ? (isDark ? '#93c5fd' : '#1d4ed8')
-                  : (isDark ? '#d1d5db' : '#475569'),
-              }}
-            >
-              <span>{div.name}</span>
-              <span
-                style={{
-                  fontSize: 10,
-                  padding: '1px 6px',
-                  borderRadius: 8,
-                  background: isSelected
-                    ? (isDark ? '#2563eb' : '#bfdbfe')
-                    : (isDark ? '#374151' : '#e2e8f0'),
-                  color: isSelected
-                    ? '#ffffff'
-                    : (isDark ? '#9ca3af' : '#64748b'),
-                }}
-              >
-                {div.uom}
-              </span>
-            </button>
-          );
-        })}
-      </div>
-
-      {/* ── Department Quick Chips Bar ────────────────────────────────────────── */}
-      {selectedDivisionCode !== 'ALL' && activeDepartments.length > 0 && (
+      {/* ── Main Body: Left Sidebar + Central Chat Area ───────────────── */}
+      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+        {/* ── Left Sidebar (Chat History & Quick Prompts) ─────────────── */}
         <div
           style={{
-            background: isDark ? '#0f172a' : '#f8fafc',
-            borderBottom: isDark ? '1px solid #1e293b' : '1px solid #e2e8f0',
-            padding: '6px 20px',
+            width: sidebarOpen ? 260 : 0,
+            minWidth: sidebarOpen ? 260 : 0,
+            transition: 'width 0.22s cubic-bezier(0.4, 0, 0.2, 1)',
+            background: isDark ? '#0f172a' : '#ffffff',
+            borderRight: isDark ? '1px solid #1e293b' : '1px solid #e2e8f0',
             display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            overflowX: 'auto',
-            fontSize: 12,
+            flexDirection: 'column',
+            overflow: 'hidden',
+            visibility: sidebarOpen ? 'visible' : 'hidden',
+            zIndex: 5,
           }}
         >
-          <span style={{ fontWeight: 700, color: isDark ? '#38bdf8' : '#0284c7', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 4 }}>
-            <FilterOutlined /> Section / Dept:
-          </span>
-          {activeDepartments.map((dept) => {
-            const isSelected = selectedDepartment === dept.code;
-            return (
-              <button
-                key={dept.code}
-                onClick={() => handleDepartmentSwitch(dept.code)}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  padding: '3px 12px',
-                  borderRadius: 14,
-                  fontSize: 11.5,
-                  fontWeight: isSelected ? 700 : 500,
-                  cursor: 'pointer',
-                  transition: 'all 0.15s ease',
-                  whiteSpace: 'nowrap',
-                  border: isSelected
-                    ? '1.5px solid #0284c7'
-                    : isDark ? '1px solid #334155' : '1px solid #cbd5e1',
-                  background: isSelected
-                    ? (isDark ? '#075985' : '#e0f2fe')
-                    : (isDark ? '#1e293b' : '#ffffff'),
-                  color: isSelected
-                    ? (isDark ? '#bae6fd' : '#0369a1')
-                    : (isDark ? '#94a3b8' : '#475569'),
-                }}
-              >
-                <span>{dept.name}</span>
-              </button>
-            );
-          })}
+          {/* Sidebar Top: New Chat & Search */}
+          <div style={{ padding: '12px 12px 8px', borderBottom: isDark ? '1px solid #1e293b' : '1px solid #f1f5f9' }}>
+            <Button
+              type="dashed"
+              block
+              icon={<PlusOutlined />}
+              onClick={handleNewChat}
+              style={{
+                marginBottom: 10,
+                borderColor: '#3b82f6',
+                color: '#3b82f6',
+                fontWeight: 600,
+                fontSize: 12,
+                borderRadius: 8,
+              }}
+            >
+              Start New Chat
+            </Button>
+            <Input
+              size="small"
+              placeholder="Search chat history..."
+              prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
+              value={historySearch}
+              onChange={(e) => setHistorySearch(e.target.value)}
+              allowClear
+              style={{ borderRadius: 6, fontSize: 11 }}
+            />
+          </div>
+
+          {/* Sidebar Middle: Chat Sessions List */}
+          <div style={{ flex: 1, overflowY: 'auto', padding: '8px 10px' }}>
+            <div
+              style={{
+                fontSize: 10,
+                fontWeight: 700,
+                color: isDark ? '#64748b' : '#94a3b8',
+                textTransform: 'uppercase',
+                letterSpacing: '0.6px',
+                marginBottom: 6,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 5,
+              }}
+            >
+              <HistoryOutlined /> Past Sessions ({filteredSessions.length})
+            </div>
+
+            {filteredSessions.length === 0 ? (
+              <div style={{ padding: '16px 8px', textAlign: 'center', fontSize: 11, color: isDark ? '#64748b' : '#94a3b8' }}>
+                {historySearch ? 'No matching sessions found' : 'No previous chat sessions yet'}
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                {filteredSessions.map((s) => {
+                  const isActive = s.id === currentSessionId;
+                  return (
+                    <div
+                      key={s.id}
+                      onClick={() => handleSelectSession(s)}
+                      style={{
+                        padding: '7px 10px',
+                        borderRadius: 8,
+                        cursor: 'pointer',
+                        background: isActive
+                          ? (isDark ? '#1e3a8a' : '#eff6ff')
+                          : 'transparent',
+                        border: isActive
+                          ? '1px solid #3b82f6'
+                          : '1px solid transparent',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: 6,
+                        transition: 'all 0.15s ease',
+                      }}
+                      onMouseEnter={(e) => {
+                        if (!isActive) e.currentTarget.style.background = isDark ? '#1e293b' : '#f8fafc';
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!isActive) e.currentTarget.style.background = 'transparent';
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, overflow: 'hidden' }}>
+                        <MessageOutlined style={{ color: isActive ? '#3b82f6' : (isDark ? '#64748b' : '#94a3b8'), fontSize: 12 }} />
+                        <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          <div
+                            style={{
+                              fontSize: 12,
+                              fontWeight: isActive ? 700 : 500,
+                              color: isActive
+                                ? (isDark ? '#93c5fd' : '#1d4ed8')
+                                : (isDark ? '#e2e8f0' : '#334155'),
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {s.title}
+                          </div>
+                          <div style={{ fontSize: 10, color: isDark ? '#64748b' : '#94a3b8' }}>
+                            {s.timestamp}
+                          </div>
+                        </div>
+                      </div>
+
+                      <Tooltip title="Delete session">
+                        <Button
+                          type="text"
+                          size="small"
+                          icon={<DeleteOutlined style={{ fontSize: 11 }} />}
+                          onClick={(e) => handleDeleteSession(s.id, e)}
+                          style={{
+                            color: isDark ? '#64748b' : '#94a3b8',
+                            padding: 0,
+                            width: 20,
+                            height: 20,
+                            minWidth: 20,
+                          }}
+                        />
+                      </Tooltip>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Sidebar Bottom: Quick Action Prompts */}
+          <div
+            style={{
+              padding: '10px 10px',
+              borderTop: isDark ? '1px solid #1e293b' : '1px solid #e2e8f0',
+              background: isDark ? '#0b1120' : '#f8fafc',
+            }}
+          >
+            <div
+              style={{
+                fontSize: 10,
+                fontWeight: 700,
+                color: isDark ? '#94a3b8' : '#64748b',
+                textTransform: 'uppercase',
+                letterSpacing: '0.5px',
+                marginBottom: 6,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 5,
+              }}
+            >
+              <ThunderboltOutlined style={{ color: '#f59e0b' }} /> Quick Analytics
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 3, maxHeight: 180, overflowY: 'auto' }}>
+              {quickActionChips.map((chip) => (
+                <button
+                  key={chip.label}
+                  onClick={() => handleSend(chip.query)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '5px 8px',
+                    borderRadius: 6,
+                    fontSize: 11,
+                    textAlign: 'left',
+                    cursor: 'pointer',
+                    background: isDark ? '#1e293b' : '#ffffff',
+                    color: isDark ? '#cbd5e1' : '#334155',
+                    border: isDark ? '1px solid #334155' : '1px solid #e2e8f0',
+                    transition: 'all 0.15s ease',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.borderColor = '#3b82f6';
+                    e.currentTarget.style.color = '#3b82f6';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.borderColor = isDark ? '#334155' : '#e2e8f0';
+                    e.currentTarget.style.color = isDark ? '#cbd5e1' : '#334155';
+                  }}
+                >
+                  <span style={{ fontSize: 12 }}>{chip.icon}</span>
+                  <span style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {chip.label}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
-      )}
+
+        {/* ── Main Workspace: Messages & Bottom Dock ──────────────────── */}
+        <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
 
       {/* ── Chat Messages Body ───────────────────────────────────────────── */}
       <div
@@ -1208,45 +1867,9 @@ const AiAssistantPage: React.FC = () => {
                         <AiAnswerCard
                           answer={msg.backendAnswer}
                           isDark={isDark}
+                          uomOverride={uomOverride}
                           onSuggest={handleEmptySuggest}
                         />
-                      )}
-
-                      {/* Executive KPI Cards */}
-                      {msg.kpiCards && msg.kpiCards.length > 0 && (
-                        <div
-                          style={{
-                            display: 'grid',
-                            gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
-                            gap: 10,
-                            margin: '14px 0 16px',
-                          }}
-                        >
-                          {msg.kpiCards.map((kpi, idx) => (
-                            <div
-                              key={idx}
-                              style={{
-                                background: isDark ? 'rgba(255, 255, 255, 0.04)' : '#f8fafc',
-                                border: isDark ? '1px solid #334155' : '1px solid #e2e8f0',
-                                borderRadius: 10,
-                                padding: '10px 12px',
-                                borderLeft: `3px solid ${kpi.color || '#3b82f6'}`,
-                              }}
-                            >
-                              <div style={{ fontSize: 11, color: isDark ? '#94a3b8' : '#64748b', fontWeight: 600 }}>
-                                {kpi.title}
-                              </div>
-                              <div style={{ fontSize: 17, fontWeight: 800, color: kpi.color || (isDark ? '#f8fafc' : '#0f172a'), marginTop: 2 }}>
-                                {kpi.value} <span style={{ fontSize: 11, fontWeight: 500, color: isDark ? '#94a3b8' : '#64748b' }}>{kpi.unit || ''}</span>
-                              </div>
-                              {kpi.subtitle && (
-                                <div style={{ fontSize: 10.5, color: isDark ? '#64748b' : '#94a3b8', marginTop: 2 }}>
-                                  {kpi.subtitle}
-                                </div>
-                              )}
-                            </div>
-                          ))}
-                        </div>
                       )}
 
                       {/* Safe Action Card (Write Operations) */}
@@ -1289,10 +1912,7 @@ const AiAssistantPage: React.FC = () => {
                         </div>
                       )}
 
-                      {/* Chart */}
-                      {msg.chartData && renderChart(msg.chartData)}
-
-                      {/* Audited Detailed Table */}
+                      {/* Primary Focus: Audited Granular Detailed Ledger Table */}
                       {msg.tableData && (
                         <div
                           style={{
@@ -1311,6 +1931,16 @@ const AiAssistantPage: React.FC = () => {
                             columns={msg.tableData.columns}
                             scroll={{ x: 'max-content' }}
                             onRow={(record: any) => {
+                              if (record?.isSectionHeader) {
+                                return {
+                                  style: {
+                                    background: isDark ? 'rgba(99, 102, 241, 0.22)' : '#eef2ff',
+                                    borderTop: isDark ? '2px solid #6366f1' : '2px solid #4f46e5',
+                                    borderBottom: isDark ? '1px solid #4f46e5' : '1px solid #c7d2fe',
+                                    fontWeight: 700,
+                                  },
+                                };
+                              }
                               if (record?.isGrandTotal) {
                                 return {
                                   style: {
@@ -1334,6 +1964,60 @@ const AiAssistantPage: React.FC = () => {
                               return {};
                             }}
                           />
+                        </div>
+                      )}
+
+                      {/* Chart */}
+                      {msg.chartData && renderChart(msg.chartData)}
+
+                      {/* Bottom-Anchored Executive Summary KPI Cards (Quick Reference at End of Document) */}
+                      {msg.kpiCards && msg.kpiCards.length > 0 && (
+                        <div style={{ marginTop: 18 }}>
+                          <div
+                            style={{
+                              fontSize: 11,
+                              fontWeight: 700,
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.05em',
+                              color: isDark ? '#94a3b8' : '#64748b',
+                              marginBottom: 8,
+                            }}
+                          >
+                            Executive Summary KPI Reference
+                          </div>
+                          <div
+                            style={{
+                              display: 'grid',
+                              gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+                              gap: 10,
+                              marginBottom: 14,
+                            }}
+                          >
+                            {msg.kpiCards.map((kpi, idx) => (
+                              <div
+                                key={idx}
+                                style={{
+                                  background: isDark ? 'rgba(255, 255, 255, 0.04)' : '#f8fafc',
+                                  border: isDark ? '1px solid #334155' : '1px solid #e2e8f0',
+                                  borderRadius: 10,
+                                  padding: '10px 12px',
+                                  borderLeft: `3px solid ${kpi.color || '#3b82f6'}`,
+                                }}
+                              >
+                                <div style={{ fontSize: 11, color: isDark ? '#94a3b8' : '#64748b', fontWeight: 600 }}>
+                                  {kpi.title}
+                                </div>
+                                <div style={{ fontSize: 17, fontWeight: 800, color: kpi.color || (isDark ? '#f8fafc' : '#0f172a'), marginTop: 2 }}>
+                                  {kpi.value} <span style={{ fontSize: 11, fontWeight: 500, color: isDark ? '#94a3b8' : '#64748b' }}>{kpi.unit || ''}</span>
+                                </div>
+                                {kpi.subtitle && (
+                                  <div style={{ fontSize: 10.5, color: isDark ? '#64748b' : '#94a3b8', marginTop: 2 }}>
+                                    {kpi.subtitle}
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
                         </div>
                       )}
 
@@ -1439,98 +2123,94 @@ const AiAssistantPage: React.FC = () => {
         </div>
       </div>
 
-      {/* ── Bottom Input & Smart Contextual Chips ────────────────────────── */}
+      {/* ── Bottom Input Dock: Division & Dept Selectors + Ask Anything Input + Sticky Settings Gear + Voice Mic ── */}
       <div
         style={{
           background: isDark ? '#0f172a' : '#ffffff',
           borderTop: isDark ? '1px solid #1e293b' : '1px solid #e2e8f0',
-          padding: '10px 20px 10px',
+          padding: '10px 16px',
           boxShadow: isDark
-            ? '0 -4px 14px rgba(0,0,0,0.4)'
-            : '0 -2px 10px rgba(0,0,0,0.03)',
+            ? '0 -4px 18px rgba(0,0,0,0.5)'
+            : '0 -2px 14px rgba(0,0,0,0.04)',
+          zIndex: 10,
         }}
       >
-        <div style={{ maxWidth: 980, margin: '0 auto' }}>
-          {/* Smart Filter Chips Bar */}
-          <div
-            style={{
-              display: 'flex',
-              gap: 6,
-              overflowX: 'auto',
-              paddingBottom: 8,
-              scrollbarWidth: 'none',
-            }}
-          >
-            {[
-              { label: '👑 Top 5 Customers', query: 'Show top 5 customers by sales volume' },
-              { label: '📦 Top 5 Items', query: 'Show top 5 items produced' },
-              { label: '👷 Top 5 Operators', query: 'Show top 5 operators by efficiency' },
-              { label: '🎫 Swag 5 Job Cards', query: 'Show job cards for swag machine 5 this month' },
-              { label: '📅 3 Months Job Cards', query: 'Show job card summary for last 3 months' },
-              { label: '👤 Operator-wise', query: 'Show operator-wise production for September' },
-              { label: '⚙️ Machine-wise', query: `Show ${activeDivisionMeta.name} machine-wise production, target and average report` },
-              { label: '🏢 Department-wise', query: 'Show department-wise target vs actual production' },
-              { label: '👥 Operator + Machine', query: 'Show operator + machine-wise production' },
-              { label: '⏰ Shift-wise', query: 'Show operator-wise production by shift' },
-              { label: '🚚 Customer Dispatch', query: 'Show customer-wise dispatch this month' },
-              { label: '⚖️ MoM Comparison', query: 'Compare August and September production' },
-              { label: '📈 6-Month Trend', query: 'Show production trend for the last 6 months' },
-              { label: '⚠️ Downtime', query: 'Show machine-wise downtime' },
-            ].map((chip) => (
-              <button
-                key={chip.label}
-                onClick={() => handleSend(chip.query)}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 4,
-                  padding: '3px 10px',
-                  borderRadius: 12,
-                  fontSize: 11,
-                  fontWeight: 500,
-                  cursor: 'pointer',
-                  border: isDark ? '1px solid #334155' : '1px solid #cbd5e1',
-                  background: isDark ? '#1e293b' : '#f8fafc',
-                  color: isDark ? '#94a3b8' : '#475569',
-                  whiteSpace: 'nowrap',
-                  transition: 'all 0.15s ease',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.borderColor = '#3b82f6';
-                  e.currentTarget.style.color = '#3b82f6';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.borderColor = isDark ? '#334155' : '#cbd5e1';
-                  e.currentTarget.style.color = isDark ? '#94a3b8' : '#475569';
-                }}
-              >
-                {chip.label}
-              </button>
-            ))}
-          </div>
-
-          {/* Main Query Input with Voice Mic */}
+        <div style={{ maxWidth: 1120, margin: '0 auto' }}>
+          {/* Unified Zero-Scroll Bottom Dock: Division Dropdown + Dept/Section Dropdown + Chat Input + Sticky Settings Gear + Mic + Send */}
           <div
             style={{
               display: 'flex',
               alignItems: 'center',
               gap: 8,
+              flexWrap: 'wrap',
               background: isDark ? '#1e293b' : '#f8fafc',
-              border: isListening ? '1.5px solid #ef4444' : (isDark ? '1.5px solid #3b82f6' : '1.5px solid #bfdbfe'),
-              borderRadius: 24,
-              padding: '4px 8px 4px 16px',
+              border: isListening
+                ? '1.5px solid #ef4444'
+                : isDark
+                ? '1.5px solid #3b82f6'
+                : '1.5px solid #bfdbfe',
+              borderRadius: 28,
+              padding: '6px 8px 6px 12px',
               transition: 'all 0.2s ease',
               boxShadow: isListening
                 ? '0 0 14px rgba(239, 68, 68, 0.45)'
-                : (isDark ? '0 2px 8px rgba(0,0,0,0.3)' : 'none'),
+                : isDark
+                ? '0 2px 10px rgba(0,0,0,0.35)'
+                : '0 2px 8px rgba(37, 99, 235, 0.06)',
             }}
           >
+            {/* Bottom-Anchored Division Selector (inline next to chat input) */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+              <ApartmentOutlined style={{ color: '#3b82f6', fontSize: 13 }} />
+              <Select
+                size="small"
+                value={selectedDivisionCode}
+                onChange={handleDivisionSwitch}
+                style={{ width: 155, fontSize: 12 }}
+                popupMatchSelectWidth={200}
+                options={divisionsList.map((div) => ({
+                  value: div.code,
+                  label: div.name,
+                }))}
+              />
+            </div>
+
+            {/* Bottom-Anchored Dept / Section Selector (inline next to chat input) */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+                flexShrink: 0,
+                paddingRight: 6,
+                borderRight: isDark ? '1px solid #334155' : '1px solid #cbd5e1',
+              }}
+            >
+              <FilterOutlined style={{ color: '#0284c7', fontSize: 12 }} />
+              <Select
+                size="small"
+                value={selectedDepartment}
+                onChange={handleDepartmentSwitch}
+                style={{ width: 145, fontSize: 12 }}
+                popupMatchSelectWidth={210}
+                disabled={selectedDivisionCode === 'ALL'}
+                options={[
+                  { value: 'ALL', label: 'All Dept / Sections' },
+                  ...activeDepartments.map((dept) => ({
+                    value: dept.code,
+                    label: dept.name,
+                  })),
+                ]}
+              />
+            </div>
+
+            {/* Ask Anything Chat Input Field */}
             <Input
               variant="borderless"
               placeholder={
                 isListening
-                  ? `Recording ${elapsedSeconds}s… click the mic to stop and send`
-                  : 'Ask about production, machines, operators, dispatch (e.g. Top 5 customers, Swag 5 jobs, etc.)...'
+                  ? `Recording ${elapsedSeconds}s${liveTranscript ? ` — "${liveTranscript}"` : '… click mic to stop & send'}`
+                  : `Ask anything about ${activeDivisionMeta.name} (machines, target, average, customers, sales volume)...`
               }
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
@@ -1541,32 +2221,85 @@ const AiAssistantPage: React.FC = () => {
                 }
               }}
               style={{
-                fontSize: 14,
+                flex: 1,
+                minWidth: 200,
+                fontSize: 13.5,
                 color: isDark ? '#f8fafc' : '#0f172a',
               }}
               disabled={loading}
             />
 
-            {/* Voice Input Microphone Button — MediaRecorder → Whisper pipeline */}
+            {/* Sticky Settings Gear Icon (Packs PCS/Gross/Unit toggles, Section pills, & Clear Chat inside the bottom dock) */}
+            <Popover
+              content={renderSettingsPopoverContent()}
+              trigger="click"
+              placement="topRight"
+              arrow={false}
+              overlayStyle={{ paddingBottom: 8 }}
+              open={settingsOpen}
+              onOpenChange={setSettingsOpen}
+            >
+              <Tooltip title="Settings: Unit Toggles (PCS / Gross = 144 PCS), Sections & Clear Chat">
+                <Button
+                  type="text"
+                  shape="circle"
+                  icon={
+                    <SettingOutlined
+                      style={{
+                        color: settingsOpen
+                          ? '#3b82f6'
+                          : uomOverride === 'Gross'
+                          ? '#10b981'
+                          : isDark
+                          ? '#cbd5e1'
+                          : '#475569',
+                        fontSize: 16,
+                      }}
+                    />
+                  }
+                  style={{
+                    background: settingsOpen
+                      ? isDark
+                        ? '#1e3a8a'
+                        : '#dbeafe'
+                      : uomOverride === 'Gross'
+                      ? isDark
+                        ? '#064e3b'
+                        : '#d1fae5'
+                      : isDark
+                      ? '#334155'
+                      : '#e2e8f0',
+                    width: 36,
+                    height: 36,
+                    flexShrink: 0,
+                    transition: 'all 0.2s ease',
+                  }}
+                />
+              </Tooltip>
+            </Popover>
+
+            {/* Voice Input Microphone Button — Compressed MediaRecorder → OpenAI Whisper pipeline */}
             <Tooltip
               title={
                 isListening
                   ? `Stop & send (${elapsedSeconds}s)`
-                  : 'Record a voice question'
+                  : 'Record a voice question (Whisper STT)'
               }
             >
               <Button
                 type="text"
                 shape="circle"
                 icon={
-                  isListening
-                    ? <AudioMutedOutlined style={{ color: '#ffffff', fontSize: 16 }} />
-                    : <AudioOutlined style={{ color: isDark ? '#93c5fd' : '#2563eb', fontSize: 16 }} />
+                  isListening ? (
+                    <AudioMutedOutlined style={{ color: '#ffffff', fontSize: 16 }} />
+                  ) : (
+                    <AudioOutlined style={{ color: isDark ? '#93c5fd' : '#2563eb', fontSize: 16 }} />
+                  )
                 }
                 onClick={handleMicToggle}
                 disabled={loading}
                 style={{
-                  background: isListening ? '#ef4444' : (isDark ? '#334155' : '#e2e8f0'),
+                  background: isListening ? '#ef4444' : isDark ? '#334155' : '#e2e8f0',
                   width: 36,
                   height: 36,
                   flexShrink: 0,
@@ -1585,8 +2318,8 @@ const AiAssistantPage: React.FC = () => {
               loading={loading}
               disabled={!inputText.trim()}
               style={{
-                background: inputText.trim() ? '#2563eb' : (isDark ? '#334155' : '#cbd5e1'),
-                borderColor: inputText.trim() ? '#2563eb' : (isDark ? '#334155' : '#cbd5e1'),
+                background: inputText.trim() ? '#2563eb' : isDark ? '#334155' : '#cbd5e1',
+                borderColor: inputText.trim() ? '#2563eb' : isDark ? '#334155' : '#cbd5e1',
                 width: 36,
                 height: 36,
                 flexShrink: 0,
@@ -1600,13 +2333,14 @@ const AiAssistantPage: React.FC = () => {
               display: 'flex',
               justifyContent: 'space-between',
               alignItems: 'center',
-              marginTop: 6,
+              marginTop: 5,
+              padding: '0 8px',
               fontSize: 11,
               color: isDark ? '#94a3b8' : '#64748b',
             }}
           >
             <div>
-              💡 <span>Active Scope: <strong>{activeDivisionMeta.name}</strong> • Unit: <strong>{activeDivisionMeta.uom}</strong> • Natural Language Engine</span>
+              💡 <span>Active Scope: <strong>{activeDivisionMeta.name}</strong> • Section: <strong>{selectedDepartment === 'ALL' ? 'All Sections' : selectedDepartment}</strong> • Unit: <strong>{activeDivisionMeta.uom}</strong> • Supabase PostgreSQL Live</span>
             </div>
             <div style={{ display: 'flex', gap: 6 }}>
               <Tooltip title="Helpful">
@@ -1620,6 +2354,8 @@ const AiAssistantPage: React.FC = () => {
         </div>
       </div>
     </div>
+  </div>
+</div>
   );
 };
 

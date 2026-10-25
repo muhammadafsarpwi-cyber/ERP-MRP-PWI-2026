@@ -83,18 +83,21 @@
   flex: 0 0 auto;
   cursor: move;
   user-select: none;
-  padding-inline: 16px 64px;
-  padding-block: 12px;
+  padding-inline: 16px 14px !important;
+  padding-block: 10px !important;
   border-bottom: 1px solid var(--theme-border, rgba(128, 128, 128, 0.2)) !important;
   margin-bottom: 0;
   background: var(--theme-surface, #ffffff) !important;
   color: var(--theme-text) !important;
 }
 
+.erp-draggable-modal .ant-modal-header .ant-modal-title,
 .erp-draggable-modal .ant-modal-title,
 .erp-draggable-modal-title-text,
 .erp-draggable-modal .ant-modal-title-text {
   color: var(--theme-text) !important;
+  width: 100% !important;
+  margin: 0 !important;
 }
 
 .erp-draggable-modal-subtitle {
@@ -162,27 +165,44 @@
   background: radial-gradient(circle at 100% 100%, transparent 60%, var(--theme-accent, #1677ff) 100%);
 }
 
-.erp-modal-action-btn {
-  background: transparent !important;
-  border: none !important;
-  color: #94a3b8 !important;
-  cursor: pointer;
-  padding: 4px 6px !important;
-  border-radius: 4px !important;
+.erp-window-controls {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  flex-shrink: 0 !important;
+  margin-left: auto !important;
+}
+
+.erp-modal-action-btn,
+.erp-window-control-btn {
+  width: 28px !important;
+  height: 28px !important;
+  min-width: 28px !important;
+  border-radius: 6px !important;
+  border: 1px solid var(--theme-border, rgba(148, 163, 184, 0.25)) !important;
+  background: var(--theme-surface-2, rgba(255, 255, 255, 0.05)) !important;
+  color: var(--theme-text-muted, #94a3b8) !important;
+  cursor: pointer !important;
+  padding: 0 !important;
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
-  transition: all 0.2s ease !important;
+  transition: all 0.15s ease-in-out !important;
+  user-select: none !important;
 }
 
-.erp-modal-action-btn:hover {
-  background-color: rgba(255, 255, 255, 0.12) !important;
-  color: #ffffff !important;
+.erp-modal-action-btn:hover,
+.erp-window-control-btn:hover {
+  background-color: var(--theme-surface-hover, rgba(255, 255, 255, 0.15)) !important;
+  color: var(--theme-text, #ffffff) !important;
+  border-color: var(--theme-border-hover, rgba(148, 163, 184, 0.45)) !important;
 }
 
-.erp-modal-close-btn:hover {
-  background-color: rgba(239, 68, 68, 0.2) !important;
+.erp-modal-close-btn:hover,
+.erp-window-control-btn.erp-modal-close-btn:hover {
+  background-color: rgba(239, 68, 68, 0.25) !important;
   color: #ef4444 !important;
+  border-color: rgba(239, 68, 68, 0.5) !important;
 }
 
 /* Dark navy reference header styling for draggable modals */

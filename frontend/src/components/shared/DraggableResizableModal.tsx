@@ -352,38 +352,38 @@ const DraggableResizableModal: React.FC<DraggableResizableModalProps> = ({
           </div>
         )}
       </div>
-      <div className="erp-draggable-modal-title-actions" style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+      <div className="erp-draggable-modal-title-actions erp-window-controls" style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
         {infoTooltip && (
           <Tooltip title={infoTooltip}>
-            <button type="button" className="erp-modal-action-btn" aria-label="Information">
-              <InfoCircleOutlined style={{ fontSize: 15, color: '#94a3b8' }} />
+            <button type="button" className="erp-modal-action-btn erp-window-control-btn" aria-label="Information">
+              <InfoCircleOutlined style={{ fontSize: 13, color: '#94a3b8' }} />
             </button>
           </Tooltip>
         )}
         {extra && (
-          <div className="erp-draggable-modal-title-extra" style={{ flex: '0 0 auto' }}>{extra}</div>
+          <div className="erp-draggable-modal-title-extra" style={{ flex: '0 0 auto', marginRight: 4 }}>{extra}</div>
         )}
-        {!isMobile && allowMinimize && (
-          <Tooltip title="Minimize">
+        {allowMinimize && (
+          <Tooltip title="Minimize (-)">
             <button
               type="button"
-              className="erp-modal-action-btn"
-              title="Minimize"
+              className="erp-modal-action-btn erp-window-control-btn erp-btn-minimize"
+              title="Minimize (-)"
               aria-label="Minimize"
               onClick={(e) => {
                 e.stopPropagation();
                 handleMinimizeClick();
               }}
             >
-              <MinusOutlined style={{ fontSize: 14 }} />
+              <MinusOutlined style={{ fontSize: 13 }} />
             </button>
           </Tooltip>
         )}
-        {!isMobile && allowMaximize && (
-          <Tooltip title={isMaximized ? 'Restore' : 'Maximize'}>
+        {allowMaximize && (
+          <Tooltip title={isMaximized ? 'Restore Window (⤢)' : 'Maximize Window (⤢)'}>
             <button
               type="button"
-              className="erp-modal-action-btn"
+              className="erp-modal-action-btn erp-window-control-btn erp-btn-maximize"
               aria-label={isMaximized ? 'Restore' : 'Maximize'}
               onClick={(e) => {
                 e.stopPropagation();
@@ -391,25 +391,25 @@ const DraggableResizableModal: React.FC<DraggableResizableModalProps> = ({
               }}
             >
               {isMaximized ? (
-                <FullscreenExitOutlined style={{ fontSize: 14 }} />
+                <FullscreenExitOutlined style={{ fontSize: 13 }} />
               ) : (
-                <FullscreenOutlined style={{ fontSize: 14 }} />
+                <FullscreenOutlined style={{ fontSize: 13 }} />
               )}
             </button>
           </Tooltip>
         )}
         {onCancel && (
-          <Tooltip title="Close (Esc)">
+          <Tooltip title="Close Window (✕)">
             <button
               type="button"
-              className="erp-modal-action-btn erp-modal-close-btn"
+              className="erp-modal-action-btn erp-window-control-btn erp-modal-close-btn"
               aria-label="Close"
               onClick={(e) => {
                 e.stopPropagation();
                 onCancel(e as any);
               }}
             >
-              <CloseOutlined style={{ fontSize: 15 }} />
+              <CloseOutlined style={{ fontSize: 13 }} />
             </button>
           </Tooltip>
         )}

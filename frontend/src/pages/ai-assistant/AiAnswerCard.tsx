@@ -19,7 +19,7 @@ import {
   AiChartMetadata,
   AiEmptyStateSuggestion,
 } from '../../services/aiAssistantService';
-import { formatQty } from './reportGenerator';
+import { formatQty, PCS_PER_GROSS } from './reportGenerator';
 import './aiAnswerCard.css';
 
 /**
@@ -78,16 +78,40 @@ function formatCell(value: unknown): string {
   return String(value);
 }
 
+const GROSS_CONVERTIBLE_COL_REGEX =
+  /\b(total_production|actual_production|actual_quantity|produced_qty|avg_production|target_quantity|total_target|runtime_dynamic_target|calculated_target|target_per_hour|product_scrap_pcs|process_scrap_pcs|scrap_quantity|total_quantity)\b/i;
+
 interface AiAnswerCardProps {
   answer: AiAnswer;
   isDark: boolean;
+  uomOverride?: string;
   /** Clicked an empty-state suggestion — parent decides how to re-ask. */
   onSuggest?: (suggestion: AiEmptyStateSuggestion) => void;
 }
 
-const AiAnswerCard: React.FC<AiAnswerCardProps> = ({ answer, isDark, onSuggest }) => {
-  const { chart, rows, columns, emptyState, status } = answer;
+const AiAnswerCard: React.FC<AiAnswerCardProps> = ({ answer, isDark, uomOverride, onSuggest }) => {
+  const { chart, rows, columns, emptyState, status, sql } = answer;
   const hasRows = rows.length > 0;
+  const isGrossActive = uomOverride?.toLowerCase() === 'gross';
+  const sqlAlreadyDividedBy144 = Boolean(sql && /\/\s*144(\.0+)?\b/.test(sql));
+
+  /** Dynamically convert piece quantities to Gross (1 Gross = 144 PCS) if not already divided in SQL */
+  const displayRows = useMemo(() => {
+    if (!hasRows) return [];
+    if (!isGrossActive || sqlAlreadyDividedBy144) return rows;
+    return rows.map((row) => {
+      const converted: Record<string, unknown> = { ...row };
+      columns.forEach((col) => {
+        if (GROSS_CONVERTIBLE_COL_REGEX.test(col) && !col.toLowerCase().endsWith('_kg')) {
+          const n = toNumber(row[col]);
+          if (n !== null) {
+            converted[col] = Math.round((n / PCS_PER_GROSS) * 100) / 100;
+          }
+        }
+      });
+      return converted;
+    });
+  }, [rows, columns, hasRows, isGrossActive, sqlAlreadyDividedBy144]);
 
   // Design tokens for SVG surfaces (Recharts paints via attributes, so the
   // computed variable values are read once per theme flip, with fallbacks).
@@ -112,7 +136,7 @@ const AiAnswerCard: React.FC<AiAnswerCardProps> = ({ answer, isDark, onSuggest }
   const chartRows = useMemo(() => {
     if (!chart || !hasRows) return [];
     const seriesCols = new Set(chart.series.map((s) => s.column));
-    return rows.map((row) => {
+    return displayRows.map((row) => {
       const copy: Record<string, unknown> = { ...row };
       seriesCols.forEach((col) => {
         const n = toNumber(row[col]);
@@ -120,15 +144,15 @@ const AiAnswerCard: React.FC<AiAnswerCardProps> = ({ answer, isDark, onSuggest }
       });
       return copy;
     });
-  }, [chart, rows, hasRows]);
+  }, [chart, displayRows, hasRows]);
 
   const numericColumns = useMemo(() => {
     const set = new Set<string>();
     columns.forEach((col) => {
-      if (isNumericColumn(rows, col)) set.add(col);
+      if (isNumericColumn(displayRows, col)) set.add(col);
     });
     return set;
-  }, [columns, rows]);
+  }, [columns, displayRows]);
 
   // ── Chart (bar/line/pie) — fully driven by the server-validated payload ────
 
@@ -242,7 +266,7 @@ const AiAnswerCard: React.FC<AiAnswerCardProps> = ({ answer, isDark, onSuggest }
               <Bar
                 key={s.column}
                 dataKey={s.column}
-                name={s.label}
+                name={isGrossActive && !s.label.includes('Gross') ? `${s.label} (Gross)` : s.label}
                 fill={CHART_COLORS[index % CHART_COLORS.length]}
                 radius={[4, 4, 0, 0]}
                 maxBarSize={56}
@@ -263,15 +287,21 @@ const AiAnswerCard: React.FC<AiAnswerCardProps> = ({ answer, isDark, onSuggest }
         <table className="ai-ans-table" aria-label="AI query result rows">
           <thead>
             <tr>
-              {columns.map((col) => (
-                <th key={col} className={numericColumns.has(col) ? 'ai-ans-num' : undefined} scope="col">
-                  {col.replace(/_/g, ' ')}
-                </th>
-              ))}
+              {columns.map((col) => {
+                const isConvertedCol =
+                  isGrossActive &&
+                  GROSS_CONVERTIBLE_COL_REGEX.test(col) &&
+                  !col.toLowerCase().endsWith('_kg');
+                return (
+                  <th key={col} className={numericColumns.has(col) ? 'ai-ans-num' : undefined} scope="col">
+                    {col.replace(/_/g, ' ')}{isConvertedCol ? ' (Gross)' : ''}
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>
-            {rows.map((row, rowIndex) => (
+            {displayRows.map((row, rowIndex) => (
               <tr key={rowIndex}>
                 {columns.map((col) => (
                   <td key={col} className={numericColumns.has(col) ? 'ai-ans-num' : undefined}>
@@ -357,8 +387,8 @@ const AiAnswerCard: React.FC<AiAnswerCardProps> = ({ answer, isDark, onSuggest }
           {chartMeta.dimension.charAt(0).toUpperCase() + chartMeta.dimension.slice(1)} — {chartMeta.x.label || chartMeta.x.column}
         </div>
       )}
-      {renderChart()}
       {renderTable()}
+      {renderChart()}
       {renderFooter()}
     </div>
   );

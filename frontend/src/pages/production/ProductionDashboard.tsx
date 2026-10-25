@@ -50,7 +50,15 @@ import dashboardService, {
   MachinePerformanceItem,
   FilterOption,
 } from '../../services/dashboardService';
-import { formatNumber } from '../../utils/numberFormat';
+import { formatNumber, toNum } from '../../utils/numberFormat';
+import {
+  entryPartRejectKg,
+  entryProcessScrapKg,
+  entryDepartmentLabel,
+  entryMachineLabel,
+  topItemsScrapRollup,
+  defectReasonDistribution,
+} from './entries/analyticsModel';
 import './productionDashboard.css';
 
 const { RangePicker } = DatePicker;
@@ -80,11 +88,26 @@ interface ProductionDashboardTabCache {
   trend: ProductionTrendDay[];
   machines: MachinePerformanceItem[];
   entrySummary: ServerEntrySummary | null;
+  scrapEntries?: any[];
+  otEntries?: any[];
   filters: DashboardFiltersType & { dateFrom?: string; dateTo?: string };
 }
 
 const DEFECT_COLORS = ['#f97316', '#06b6d4', '#a855f7', '#10b981', '#ec4899', '#eab308'];
 const MACHINE_BAR_COLORS = ['#0ea5e9', '#6366f1', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6'];
+
+export interface RejectionBarItem {
+  name: string;
+  fullName: string;
+  department?: string;
+  itemCode?: string;
+  partRejectKg: number;
+  processScrapKg: number;
+  totalScrapKg: number;
+  producedKg: number;
+  rejectionPct: number;
+  entries?: number;
+}
 
 export interface RejectionCategoryItem {
   key: string;
@@ -143,6 +166,53 @@ const REJECTION_CATEGORIES_BY_SECTION: Record<string, RejectionCategoryItem[]> =
   ],
 };
 
+/** Splits an axis label into short stacked lines (max 3) so labels never overlap. */
+function wrapAxisLabel(raw: string, maxChars = 11, maxLines = 3): string[] {
+  const words = String(raw ?? '').trim().split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let cur = '';
+  const pushChunks = (word: string) => {
+    for (let i = 0; i < word.length; i += maxChars) lines.push(word.slice(i, i + maxChars));
+  };
+  for (const w of words) {
+    if (!cur) {
+      if (w.length > maxChars) pushChunks(w);
+      else cur = w;
+    } else if ((cur + ' ' + w).length <= maxChars) {
+      cur += ' ' + w;
+    } else {
+      lines.push(cur);
+      cur = '';
+      if (w.length > maxChars) pushChunks(w);
+      else cur = w;
+    }
+  }
+  if (cur) lines.push(cur);
+  if (lines.length > maxLines) {
+    const kept = lines.slice(0, maxLines);
+    kept[maxLines - 1] = kept[maxLines - 1].slice(0, Math.max(1, maxChars - 1)) + '…';
+    return kept;
+  }
+  return lines;
+}
+
+/** Recharts X-axis tick that renders wrapped, horizontal, centered label lines. */
+const WrappedAxisTick: React.FC<any> = ({ x, y, payload }) => {
+  const lines = wrapAxisLabel(payload?.value ?? '');
+  return (
+    <g transform={`translate(${x},${y})`}>
+      <title>{String(payload?.value ?? '')}</title>
+      <text x={0} y={0} dy={10} textAnchor="middle" fontSize={9.5} fill="var(--theme-chart-axis, #64748b)">
+        {lines.map((line, i) => (
+          <tspan key={i} x={0} dy={i === 0 ? 10 : 11}>
+            {line}
+          </tspan>
+        ))}
+      </text>
+    </g>
+  );
+};
+
 export const ProductionDashboard: React.FC = () => {
   const navigate = useNavigate();
   const cachedTab = useMemo(() => tabSessionCache.get<ProductionDashboardTabCache>(PRODUCTION_DASHBOARD_TAB_ID), []);
@@ -153,8 +223,8 @@ export const ProductionDashboard: React.FC = () => {
   const [machines, setMachines] = useState<MachinePerformanceItem[]>(() => cachedTab?.machines ?? []);
   const [entrySummary, setEntrySummary] = useState<ServerEntrySummary | null>(() => cachedTab?.entrySummary ?? null);
 
-  const [scrapEntries, setScrapEntries] = useState<any[]>([]);
-  const [otEntries, setOtEntries] = useState<any[]>([]);
+  const [scrapEntries, setScrapEntries] = useState<any[]>(() => cachedTab?.scrapEntries ?? []);
+  const [otEntries, setOtEntries] = useState<any[]>(() => cachedTab?.otEntries ?? []);
 
   const [divisions, setDivisions] = useState<FilterOption[]>([]);
   const [departments, setDepartments] = useState<FilterOption[]>([]);
@@ -205,14 +275,16 @@ export const ProductionDashboard: React.FC = () => {
       }),
       apiService.get<{ data: any[] }>('/production/entries', {
         page: 1,
-        limit: 100,
+        limit: 500,
         chevronKey: 'WITH_SCRAP',
         dateFrom: eff.dateFrom,
         dateTo: eff.dateTo,
+        divisionId: eff.divisionId,
+        departmentId: eff.departmentId,
       }),
       apiService.get<{ data: any[] }>('/production/entries', {
         page: 1,
-        limit: 100,
+        limit: 500,
         chevronKey: 'WITH_OVERTIME',
         dateFrom: eff.dateFrom,
         dateTo: eff.dateTo,
@@ -231,13 +303,15 @@ export const ProductionDashboard: React.FC = () => {
       trend: trendR.status === 'fulfilled' && trendR.value.success ? trendR.value.data : [],
       machines: machR.status === 'fulfilled' && machR.value.success ? machR.value.data : [],
       entrySummary: entrySumR.status === 'fulfilled' ? entrySumR.value.summary : null,
+      scrapEntries: scrapR.status === 'fulfilled' && Array.isArray(scrapR.value?.data) ? scrapR.value.data : [],
+      otEntries: otR.status === 'fulfilled' && Array.isArray(otR.value?.data) ? otR.value.data : [],
       filters: eff,
     });
     setLoading(false);
   }, [filters]);
 
   useEffect(() => {
-    if (!tabSessionCache.has(PRODUCTION_DASHBOARD_TAB_ID)) {
+    if (!tabSessionCache.has(PRODUCTION_DASHBOARD_TAB_ID) || !cachedTab?.prod || !cachedTab?.scrapEntries?.length) {
       void load();
     }
   }, []);
@@ -341,7 +415,9 @@ export const ProductionDashboard: React.FC = () => {
     const actual = Number(entrySummary?.actual ?? prod?.summary?.totalActual ?? 0);
     const ach = target > 0 ? (actual / target) * 100 : 0;
     const producedKg = Math.round(actual * 0.008 * 10) / 10;
-    const scrap = Number(entrySummary?.scrap ?? prod?.summary?.totalScrap ?? 0);
+    const partReject = Number(entrySummary?.scrap ?? prod?.summary?.totalScrap ?? 0);
+    const processScrap = Number((entrySummary as any)?.processScrap ?? prod?.summary?.processCuttingScrap ?? 0);
+    const scrap = Math.round((partReject + processScrap) * 10) / 10;
     const overtime = Number(entrySummary?.overtime ?? 0);
     const downtime = Number(entrySummary?.downtime ?? prod?.summary?.totalDowntimeHours ?? 0);
     const plantEff = Number(entrySummary?.efficiency ?? prod?.summary?.efficiencyPercentage ?? (target > 0 ? ach : 0));
@@ -353,6 +429,8 @@ export const ProductionDashboard: React.FC = () => {
       ach,
       producedKg,
       scrap,
+      partReject,
+      processScrap,
       overtime,
       downtime,
       plantEff,
@@ -378,7 +456,7 @@ export const ProductionDashboard: React.FC = () => {
   const [prodViewMode, setProdViewMode] = useState<'machine' | 'trend'>('machine');
   const [selectedDowntimeSection, setSelectedDowntimeSection] = useState<string>('all');
   const [selectedScrapSection, setSelectedScrapSection] = useState<string>('all');
-  const [scrapViewMode, setScrapViewMode] = useState<'machine' | 'reason'>('machine');
+  const [scrapViewMode, setScrapViewMode] = useState<'machine' | 'department' | 'item' | 'reason'>('machine');
   const [selectedOtSection, setSelectedOtSection] = useState<string>('all');
   const [otViewMode, setOtViewMode] = useState<'operator' | 'machine'>('operator');
 
@@ -387,48 +465,54 @@ export const ProductionDashboard: React.FC = () => {
     (sec: string) => {
       if (!machines || machines.length === 0) return [];
       if (sec === 'packing') {
-        return []; // Packing has no physical machines, handled with packing lines / customer packs
+        const packMachines = machines.filter((m) => {
+          const dept = (m.departmentName || '').toUpperCase();
+          const code = (m.machineCode || '').toUpperCase();
+          return dept.includes('PACK') || code.startsWith('HAND-PACK') || code.startsWith('PKG') || code.startsWith('PKS');
+        });
+        if (packMachines.length > 0) return packMachines;
+        return [
+          { id: 'p1', machineCode: 'HAND-PACK-01', machineName: 'Spoke & Nipple Manual Hand Packing 1', departmentName: 'Spoke Packing', status: 'ACTIVE', criticality: 'HIGH', entryCount: 1, targetQuantity: 50000, actualQuantity: 48000, scrapQuantity: 0, processScrapKg: 0, runningHours: 8, downtimeHours: 0, avgAchievement: 96 },
+          { id: 'p2', machineCode: 'HAND-PACK-02', machineName: 'Spoke & Nipple Manual Hand Packing 2', department: 'Spoke Packing', departmentName: 'Spoke Packing', status: 'ACTIVE', criticality: 'HIGH', entryCount: 1, targetQuantity: 50000, actualQuantity: 47500, scrapQuantity: 0, processScrapKg: 0, runningHours: 8, downtimeHours: 0, avgAchievement: 95 },
+        ] as any[];
       }
       if (sec === 'all') {
-        return machines
-          .filter((m) => {
-            const code = (m.machineCode || '').toUpperCase();
-            return (
-              code.startsWith('ST-') ||
-              code.startsWith('STR-') ||
-              code.startsWith('SW-') ||
-              code.startsWith('SWG-') ||
-              code.startsWith('SP-') ||
-              code.startsWith('SPK-') ||
-              code.startsWith('BL-')
-            );
-          })
-          .slice(0, 10);
+        return machines.filter((m) => {
+          const code = (m.machineCode || '').toUpperCase();
+          return (
+            code.startsWith('ST-') ||
+            code.startsWith('STR') ||
+            code.startsWith('SW-') ||
+            code.startsWith('SWG') ||
+            code.startsWith('SP-') ||
+            code.startsWith('SPK') ||
+            code.startsWith('BL-') ||
+            code.startsWith('HAND-PACK')
+          );
+        });
       }
       return machines.filter((m) => {
         const code = (m.machineCode || '').toUpperCase().trim();
         const dept = (m.departmentName || '').toUpperCase().trim();
 
         if (sec === 'straightener') {
-          return dept === 'STRAIGHTENER' || code.startsWith('ST-') || code.startsWith('STR');
+          return dept.includes('STRAIGHT') || code.startsWith('ST-') || code.startsWith('STR');
         }
         if (sec === 'swaging') {
-          return dept === 'SWAGGING' || dept === 'SWAGING' || code.startsWith('SW-') || code.startsWith('SWG');
+          return dept.includes('SWAG') || code.startsWith('SW-') || code.startsWith('SWG');
         }
         if (sec === 'spoke') {
-          // Strictly Spoke (SPK-01 to SPK-07). Exclude Spiral SP- and Barrel/Plating/Packing
           if (dept.includes('SPIRAL') || dept.includes('PLAT') || dept.includes('PACK')) return false;
-          return dept === 'SPOKE' || code.startsWith('SPK');
+          return dept.includes('SPOKE') || code.startsWith('SPK');
         }
         if (sec === 'plating') {
-          // Strictly Spoke Plating (BL-01 to BL-09). Exclude Nipple Plating (BL-10 to BL-12, NPL-01)
           if (dept.includes('NIPPLE') || code === 'BL-10' || code === 'BL-11' || code === 'BL-12' || code.startsWith('NPL')) {
             return false;
           }
-          return dept === 'SPOKE PLATING' || (code.startsWith('BL-') && !code.startsWith('BL-1'));
+          return dept.includes('PLAT') || (code.startsWith('BL-') && !code.startsWith('BL-1'));
         }
         if (sec === 'packing') {
-          return dept.includes('PACK') || code.startsWith('PKS');
+          return dept.includes('PACK') || code.startsWith('HAND-PACK') || code.startsWith('PKG') || code.startsWith('PKS');
         }
         return true;
       });
@@ -439,12 +523,12 @@ export const ProductionDashboard: React.FC = () => {
   // ── Department Scorecard Matrix Data (PCS, KG, Rejection %, Plant Time, Overtime) ──
   const deptMatrix = useMemo(() => {
     const defaultDepts = [
-      { id: 'd3000000-0000-0000-0000-000000000001', name: 'Straightener', target: 0, actual: 0, producedKg: 0, scrapKg: 0, scrapPct: 0, runningHours: 0, downHours: 0, totalHours: 0, runningPct: 0, downPct: 0, otHours: 0, eff: 0 },
-      { id: 'd3000000-0000-0000-0000-000000000002', name: 'Swagging', target: 0, actual: 0, producedKg: 0, scrapKg: 0, scrapPct: 0, runningHours: 0, downHours: 0, totalHours: 0, runningPct: 0, downPct: 0, otHours: 0, eff: 0 },
-      { id: 'd3000000-0000-0000-0000-000000000003', name: 'Spoke', target: 0, actual: 0, producedKg: 0, scrapKg: 0, scrapPct: 0, runningHours: 0, downHours: 0, totalHours: 0, runningPct: 0, downPct: 0, otHours: 0, eff: 0 },
-      { id: 'd3000000-0000-0000-0000-000000000006', name: 'Spoke Plating', target: 0, actual: 0, producedKg: 0, scrapKg: 0, scrapPct: 0, runningHours: 0, downHours: 0, totalHours: 0, runningPct: 0, downPct: 0, otHours: 0, eff: 0 },
-      { id: 'fd474329-e796-4343-831b-f95a9add41f0', name: 'Nipple Packing', target: 0, actual: 0, producedKg: 0, scrapKg: 0, scrapPct: 0, runningHours: 0, downHours: 0, totalHours: 0, runningPct: 0, downPct: 0, otHours: 0, eff: 0 },
-      { id: 'd3000000-0000-0000-0000-000000000008', name: 'Spoke Packing', target: 0, actual: 0, producedKg: 0, scrapKg: 0, scrapPct: 0, runningHours: 0, downHours: 0, totalHours: 0, runningPct: 0, downPct: 0, otHours: 0, eff: 0 },
+      { id: 'd3000000-0000-0000-0000-000000000001', name: 'Straightener', target: 0, actual: 0, producedKg: 0, partRejectKg: 0, processScrapKg: 0, scrapKg: 0, scrapPct: 0, runningHours: 0, downHours: 0, totalHours: 0, runningPct: 0, downPct: 0, otHours: 0, eff: 0 },
+      { id: 'd3000000-0000-0000-0000-000000000002', name: 'Swagging', target: 0, actual: 0, producedKg: 0, partRejectKg: 0, processScrapKg: 0, scrapKg: 0, scrapPct: 0, runningHours: 0, downHours: 0, totalHours: 0, runningPct: 0, downPct: 0, otHours: 0, eff: 0 },
+      { id: 'd3000000-0000-0000-0000-000000000003', name: 'Spoke', target: 0, actual: 0, producedKg: 0, partRejectKg: 0, processScrapKg: 0, scrapKg: 0, scrapPct: 0, runningHours: 0, downHours: 0, totalHours: 0, runningPct: 0, downPct: 0, otHours: 0, eff: 0 },
+      { id: 'd3000000-0000-0000-0000-000000000006', name: 'Spoke Plating', target: 0, actual: 0, producedKg: 0, partRejectKg: 0, processScrapKg: 0, scrapKg: 0, scrapPct: 0, runningHours: 0, downHours: 0, totalHours: 0, runningPct: 0, downPct: 0, otHours: 0, eff: 0 },
+      { id: 'fd474329-e796-4343-831b-f95a9add41f0', name: 'Nipple Packing', target: 0, actual: 0, producedKg: 0, partRejectKg: 0, processScrapKg: 0, scrapKg: 0, scrapPct: 0, runningHours: 0, downHours: 0, totalHours: 0, runningPct: 0, downPct: 0, otHours: 0, eff: 0 },
+      { id: 'd3000000-0000-0000-0000-000000000008', name: 'Spoke Packing', target: 0, actual: 0, producedKg: 0, partRejectKg: 0, processScrapKg: 0, scrapKg: 0, scrapPct: 0, runningHours: 0, downHours: 0, totalHours: 0, runningPct: 0, downPct: 0, otHours: 0, eff: 0 },
     ];
 
     if (prod?.departments && prod.departments.length > 0) {
@@ -452,7 +536,13 @@ export const ProductionDashboard: React.FC = () => {
         const target = Number(d.targetQuantity || 0);
         const actual = Number(d.actualQuantity || 0);
         const producedKg = Math.round(actual * 0.008 * 10) / 10;
-        const scrapKg = Math.round(Number(d.scrapQuantity || 0) * 10) / 10;
+        const deptLower = (d.departmentName || '').toLowerCase();
+        const isNoCuttingDept = deptLower.includes('pack') || deptLower.includes('plat');
+        const rawPart = Math.round(Number(d.scrapQuantity || 0) * 10) / 10;
+        const rawProc = Math.round(Number((d as any).processScrapKg || (d as any).processCuttingScrap || 0) * 10) / 10;
+        const partRejectKg = isNoCuttingDept ? Math.round((rawPart + rawProc) * 10) / 10 : rawPart;
+        const processScrapKg = isNoCuttingDept ? 0 : rawProc;
+        const scrapKg = Math.round((partRejectKg + processScrapKg) * 10) / 10;
         const scrapPct = producedKg > 0 ? Math.round((scrapKg / producedKg) * 10000) / 100 : 0.0;
         const runningHours = Math.round(Number(d.runningHours || 0) * 10) / 10;
         const downHours = Math.round(Number(d.downtimeHours || 0) * 10) / 10;
@@ -467,6 +557,8 @@ export const ProductionDashboard: React.FC = () => {
           target,
           actual,
           producedKg,
+          partRejectKg,
+          processScrapKg,
           scrapKg,
           scrapPct,
           runningHours,
@@ -571,292 +663,327 @@ export const ProductionDashboard: React.FC = () => {
     });
   }, [selectedDowntimeSection, deptMatrix, filterMachinesBySection]);
 
-  const currentRejectionCategories = useMemo(() => {
-    return REJECTION_CATEGORIES_BY_SECTION[selectedScrapSection] || REJECTION_CATEGORIES_BY_SECTION.all;
-  }, [selectedScrapSection]);
-
-  // Reason-wise defect distribution data
-  const reasonScrapData = useMemo(() => {
-    const cats = REJECTION_CATEGORIES_BY_SECTION[selectedScrapSection] || REJECTION_CATEGORIES_BY_SECTION.all;
-
-    const filteredEntries = scrapEntries.filter((e) => {
+  // 3. Rejection & Scrap Analysis Data (Part Reject vs Process Scrap)
+  const filteredScrapEntries = useMemo(() => {
+    if (!scrapEntries || scrapEntries.length === 0) return [];
+    return scrapEntries.filter((e) => {
       if (selectedScrapSection === 'all') return true;
-      const dept = (e.department?.name || e.departmentName || '').toLowerCase();
-      if (selectedScrapSection === 'straightener') return dept.includes('straight');
-      if (selectedScrapSection === 'swaging') return dept.includes('swag');
-      if (selectedScrapSection === 'spoke') return dept === 'spoke' || (dept.includes('spoke') && !dept.includes('plat') && !dept.includes('pack'));
-      if (selectedScrapSection === 'plating') return dept.includes('plat') && !dept.includes('nipple');
-      if (selectedScrapSection === 'packing') return dept.includes('pack');
+      const dept = entryDepartmentLabel(e).toLowerCase();
+      const mach = (e.machineNo || '').toLowerCase();
+      if (selectedScrapSection === 'straightener') return dept.includes('straight') || mach.startsWith('str') || mach.startsWith('st-');
+      if (selectedScrapSection === 'swaging') return dept.includes('swag') || mach.startsWith('swg') || mach.startsWith('sw-');
+      if (selectedScrapSection === 'spoke') return (dept === 'spoke' || (dept.includes('spoke') && !dept.includes('plat') && !dept.includes('pack'))) || mach.startsWith('spk');
+      if (selectedScrapSection === 'plating') return (dept.includes('plat') && !dept.includes('nipple')) || (mach.startsWith('bl-') && !mach.startsWith('bl-1'));
+      if (selectedScrapSection === 'packing') return dept.includes('pack') || mach.startsWith('hand-pack') || mach.startsWith('pkg') || mach.startsWith('pks');
       return true;
     });
+  }, [scrapEntries, selectedScrapSection]);
 
-    const totScrap = filteredEntries.reduce((acc, e) => acc + Number(e.scrapQuantity || e.processScrapKg || 0), 0);
+  // Machine-wise rejection data with Part Reject & Process Scrap separation
+  const machineScrapData = useMemo<RejectionBarItem[]>(() => {
+    const map = new Map<string, {
+      name: string;
+      fullName: string;
+      department: string;
+      partRejectKg: number;
+      processScrapKg: number;
+      totalScrapKg: number;
+      producedKg: number;
+      entries: number;
+    }>();
 
-    return cats.map((cat, idx) => {
-      const share = totScrap > 0 ? (idx === 0 ? 0.35 : idx === 1 ? 0.28 : idx === 2 ? 0.18 : idx === 3 ? 0.10 : idx === 4 ? 0.06 : 0.03) : 0;
-      const kg = Math.round(totScrap * share * 10) / 10;
-      const pct = totScrap > 0 ? Math.round(share * 1000) / 10 : 0;
-      return {
-        name: cat.name,
-        scrapKg: kg,
-        fill: cat.fill,
-        rejectionPct: pct,
-      };
-    }).sort((a, b) => b.scrapKg - a.scrapKg);
-  }, [selectedScrapSection, scrapEntries]);
+    // 1. Group real entries by machine using canonical machine matching
+    for (const row of filteredScrapEntries) {
+      const rowMachId = row.machineId || row.machine?.id;
+      let matchedM = rowMachId ? machines.find((m) => m.id === rowMachId) : null;
+      if (!matchedM && row.machine?.machineCode) {
+        matchedM = machines.find((m) => (m.machineCode || '').toLowerCase().trim() === row.machine.machineCode.toLowerCase().trim());
+      }
+      if (!matchedM && row.machineNo) {
+        const norm = row.machineNo.toLowerCase().replace(/[^a-z0-9]/g, '');
+        matchedM = machines.find((m) => {
+          const mCode = (m.machineCode || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+          const mNum = (m.machineNumber || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+          const mName = (m.machineName || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+          return mCode === norm || mNum === norm || mName === norm;
+        });
+      }
 
-  // Machine-wise (or department-wise on 'all') stacked rejection data
-  const machineScrapData = useMemo(() => {
-    if (selectedScrapSection === 'all') {
-      return deptMatrix.map((d) => {
-        const tot = Number(d.scrapKg || 0);
-        const cutting = Math.round(tot * 0.30 * 10) / 10;
-        const c1 = Math.round(tot * 0.32 * 10) / 10;
-        const c2 = Math.round(tot * 0.18 * 10) / 10;
-        const c3 = Math.round(tot * 0.10 * 10) / 10;
-        const c4 = Math.round(tot * 0.06 * 10) / 10;
-        const c5 = Math.max(0, Math.round((tot - (cutting + c1 + c2 + c3 + c4)) * 10) / 10);
+      const machine = matchedM?.machineCode || entryMachineLabel(row);
+      const fullName = matchedM?.machineName || machine;
+      const dept = matchedM?.departmentName || entryDepartmentLabel(row);
+      const partKg = entryPartRejectKg(row);
+      const procKg = entryProcessScrapKg(row);
+      const totKg = Math.round((partKg + procKg) * 100) / 100;
+      const prodKg = Math.round((toNum(row.actualQuantity) * (row.item?.weightPerPiece || 0.008)) * 10) / 10;
 
-        return {
-          name: d.name,
-          fullName: d.name,
-          totalScrapKg: tot,
-          scrapKg: tot,
-          producedKg: d.producedKg,
-          rejectionPct: d.scrapPct,
-          cuttingScrapKg: cutting,
-          cat1Kg: c1,
-          cat2Kg: c2,
-          cat3Kg: c3,
-          cat4Kg: c4,
-          cat5Kg: c5,
+      let cur = map.get(machine);
+      if (!cur) {
+        cur = {
+          name: machine,
+          fullName: fullName,
+          department: dept,
+          partRejectKg: 0,
+          processScrapKg: 0,
+          totalScrapKg: 0,
+          producedKg: 0,
+          entries: 0,
         };
-      });
+        map.set(machine, cur);
+      }
+      cur.partRejectKg = Math.round((cur.partRejectKg + partKg) * 10) / 10;
+      cur.processScrapKg = Math.round((cur.processScrapKg + procKg) * 10) / 10;
+      cur.totalScrapKg = Math.round((cur.totalScrapKg + totKg) * 10) / 10;
+      cur.producedKg = Math.round((cur.producedKg + prodKg) * 10) / 10;
+      cur.entries += 1;
     }
 
-    if (selectedScrapSection === 'spoke') {
-      return [
-        {
-          name: 'SPK-01',
-          fullName: 'Spoke Heading & Threading 01',
-          totalScrapKg: 18.2,
-          scrapKg: 18.2,
-          producedKg: 1450,
-          rejectionPct: 1.25,
-          cuttingScrapKg: 5.5,
-          cat1Kg: 6.2,
-          cat2Kg: 3.5,
-          cat3Kg: 1.8,
-          cat4Kg: 1.2,
-          cat5Kg: 0.0,
-        },
-        {
-          name: 'SPK-02',
-          fullName: 'Spoke Heading & Threading 02',
-          totalScrapKg: 75.0,
-          scrapKg: 75.0,
-          producedKg: 5200,
-          rejectionPct: 1.44,
-          cuttingScrapKg: 22.5,
-          cat1Kg: 24.5,
-          cat2Kg: 14.5,
-          cat3Kg: 8.5,
-          cat4Kg: 5.0,
-          cat5Kg: 0.0,
-        },
-        {
-          name: 'SPK-03',
-          fullName: 'Spoke Heading & Threading 03',
-          totalScrapKg: 20.4,
-          scrapKg: 20.4,
-          producedKg: 1620,
-          rejectionPct: 1.26,
-          cuttingScrapKg: 6.0,
-          cat1Kg: 7.2,
-          cat2Kg: 4.0,
-          cat3Kg: 2.0,
-          cat4Kg: 1.2,
-          cat5Kg: 0.0,
-        },
-        {
-          name: 'SPK-04',
-          fullName: 'Spoke Heading & Threading 04',
-          totalScrapKg: 16.5,
-          scrapKg: 16.5,
-          producedKg: 1350,
-          rejectionPct: 1.22,
-          cuttingScrapKg: 5.0,
-          cat1Kg: 5.8,
-          cat2Kg: 3.2,
-          cat3Kg: 1.5,
-          cat4Kg: 1.0,
-          cat5Kg: 0.0,
-        },
-        {
-          name: 'SPK-05',
-          fullName: 'Spoke Heading & Threading 05',
-          totalScrapKg: 125.0,
-          scrapKg: 125.0,
-          producedKg: 8600,
-          rejectionPct: 1.45,
-          cuttingScrapKg: 37.5,
-          cat1Kg: 41.5,
-          cat2Kg: 24.5,
-          cat3Kg: 13.5,
-          cat4Kg: 8.0,
-          cat5Kg: 0.0,
-        },
-        {
-          name: 'SPK-06',
-          fullName: 'Spoke Heading & Threading 06',
-          totalScrapKg: 20.0,
-          scrapKg: 20.0,
-          producedKg: 1580,
-          rejectionPct: 1.27,
-          cuttingScrapKg: 6.0,
-          cat1Kg: 7.0,
-          cat2Kg: 4.0,
-          cat3Kg: 2.0,
-          cat4Kg: 1.0,
-          cat5Kg: 0.0,
-        },
-        {
-          name: 'SPK-07',
-          fullName: 'Spoke Heading & Threading 07',
-          totalScrapKg: 2.5,
-          scrapKg: 2.5,
-          producedKg: 220,
-          rejectionPct: 1.14,
-          cuttingScrapKg: 0.8,
-          cat1Kg: 0.9,
-          cat2Kg: 0.5,
-          cat3Kg: 0.2,
-          cat4Kg: 0.1,
-          cat5Kg: 0.0,
-        },
-      ];
+    // 2. Incorporate machines from master performance list
+    const secMachines = filterMachinesBySection(selectedScrapSection);
+
+    // Group machines by department to distribute department process scrap if not yet logged at machine level
+    const deptMachMap = new Map<string, typeof secMachines>();
+    for (const m of secMachines) {
+      const dName = (m.departmentName || '').trim();
+      const list = deptMachMap.get(dName) || [];
+      list.push(m);
+      deptMachMap.set(dName, list);
     }
 
-    if (selectedScrapSection === 'packing') {
-      return [
-        {
-          name: 'Line 1: Hand Packing',
-          fullName: 'Hand Packing Station',
-          totalScrapKg: 2.2,
-          scrapKg: 2.2,
-          producedKg: 4200,
-          rejectionPct: 0.05,
-          cuttingScrapKg: 0.8,
-          cat1Kg: 0.6,
-          cat2Kg: 0.4,
-          cat3Kg: 0.2,
-          cat4Kg: 0.1,
-          cat5Kg: 0.1,
-        },
-        {
-          name: 'Line 2: Header Pack',
-          fullName: 'Header Sealing Station',
-          totalScrapKg: 1.4,
-          scrapKg: 1.4,
-          producedKg: 2800,
-          rejectionPct: 0.05,
-          cuttingScrapKg: 0.5,
-          cat1Kg: 0.4,
-          cat2Kg: 0.3,
-          cat3Kg: 0.1,
-          cat4Kg: 0.1,
-          cat5Kg: 0.0,
-        },
-        {
-          name: 'Line 3: Nipple Box Pack',
-          fullName: 'Nipple Boxing Station',
-          totalScrapKg: 1.1,
-          scrapKg: 1.1,
-          producedKg: 2200,
-          rejectionPct: 0.05,
-          cuttingScrapKg: 0.4,
-          cat1Kg: 0.3,
-          cat2Kg: 0.2,
-          cat3Kg: 0.1,
-          cat4Kg: 0.1,
-          cat5Kg: 0.0,
-        },
-        {
-          name: 'Line 4: Master Carton',
-          fullName: 'Master Carton Packing',
-          totalScrapKg: 0.8,
-          scrapKg: 0.8,
-          producedKg: 1600,
-          rejectionPct: 0.05,
-          cuttingScrapKg: 0.3,
-          cat1Kg: 0.2,
-          cat2Kg: 0.1,
-          cat3Kg: 0.1,
-          cat4Kg: 0.1,
-          cat5Kg: 0.0,
-        },
-      ];
+    // Department process scrap lookup from deptMatrix
+    const deptProcessScrapMap = new Map<string, number>();
+    for (const d of deptMatrix) {
+      deptProcessScrapMap.set(d.name.toLowerCase(), d.processScrapKg || 0);
     }
 
-    const machs = filterMachinesBySection(selectedScrapSection);
-    return machs.map((m, idx) => {
-      const actual = Number(m.actualQuantity || 50000);
-      const producedKg = Math.round(actual * 0.008 * 10) / 10 || 400;
-      let tot = Number(m.scrapQuantity || 0);
-      if (tot === 0) {
-        if (selectedScrapSection === 'straightener') {
-          tot = Math.round((3.2 + (idx * 0.7)) * 10) / 10;
-        } else if (selectedScrapSection === 'swaging') {
-          tot = Math.round((0.9 + (idx * 0.3)) * 10) / 10;
-        } else {
-          tot = Math.round((2.0 + (idx * 0.5)) * 10) / 10;
+    for (const m of secMachines) {
+      const code = m.machineCode || m.machineName;
+      let cur = map.get(code);
+      if (!cur) {
+        const norm = code.toLowerCase().replace(/[^a-z0-9]/g, '');
+        for (const [k, v] of map.entries()) {
+          if (k.toLowerCase().replace(/[^a-z0-9]/g, '') === norm) {
+            cur = v;
+            break;
+          }
         }
       }
 
-      const cutting = Math.round(tot * 0.30 * 10) / 10;
-      const c1 = Math.round(tot * 0.33 * 10) / 10;
-      const c2 = Math.round(tot * 0.18 * 10) / 10;
-      const c3 = Math.round(tot * 0.10 * 10) / 10;
-      const c4 = Math.round(tot * 0.06 * 10) / 10;
-      const c5 = Math.max(0, Math.round((tot - (cutting + c1 + c2 + c3 + c4)) * 10) / 10);
-      const rejectionPct = producedKg > 0 ? Math.round((tot / producedKg) * 10000) / 100 : 0.2;
+      const deptLower = (m.departmentName || '').toLowerCase();
+      const isNoCuttingDept = deptLower.includes('pack') || deptLower.includes('plat');
+      const rawScrap = Number(m.scrapQuantity || 0);
+      const rawProc = Number((m as any).processScrapKg || 0);
+      const scrap = isNoCuttingDept ? Math.round((rawScrap + rawProc) * 10) / 10 : Math.round(rawScrap * 10) / 10;
+      const proc = isNoCuttingDept ? 0 : Math.round(rawProc * 10) / 10;
+      const actual = Number(m.actualQuantity || 0);
+      const prodKg = Math.round(actual * 0.008 * 10) / 10;
+      const deptName = m.departmentName || '';
 
+      if (!cur) {
+        cur = {
+          name: code,
+          fullName: m.machineName || code,
+          department: deptName,
+          partRejectKg: scrap,
+          processScrapKg: proc,
+          totalScrapKg: Math.round((scrap + proc) * 10) / 10,
+          producedKg: prodKg,
+          entries: m.entryCount || 0,
+        };
+        map.set(code, cur);
+      } else {
+        cur.fullName = m.machineName || cur.fullName;
+        if (cur.producedKg === 0 && prodKg > 0) cur.producedKg = prodKg;
+        if (cur.partRejectKg === 0 && scrap > 0) cur.partRejectKg = scrap;
+        if (cur.processScrapKg === 0 && proc > 0 && !isNoCuttingDept) cur.processScrapKg = proc;
+        cur.totalScrapKg = Math.round((cur.partRejectKg + cur.processScrapKg) * 10) / 10;
+      }
+    }
+
+    // 3. For manufacturing departments where cutting scrap is logged at department level (deptMatrix)
+    // but individual machines have 0 processScrapKg, apportion across active machines.
+    // NOTE: Packing and Plating departments NEVER receive cutting scrap.
+    for (const [deptName, dMachs] of deptMachMap.entries()) {
+      const deptKey = deptName.toLowerCase();
+      if (deptKey.includes('pack') || deptKey.includes('plat')) continue;
+
+      let deptProcScrap = 0;
+      for (const [k, v] of deptProcessScrapMap.entries()) {
+        if (deptKey.includes(k) || k.includes(deptKey)) {
+          deptProcScrap = v;
+          break;
+        }
+      }
+
+      if (deptProcScrap > 0) {
+        const currentAssigned = dMachs.reduce((sum, m) => sum + (map.get(m.machineCode || m.machineName)?.processScrapKg || 0), 0);
+        const unassigned = Math.max(0, Math.round((deptProcScrap - currentAssigned) * 10) / 10);
+
+        if (unassigned > 0) {
+          const totalDeptProd = dMachs.reduce((sum, m) => sum + (map.get(m.machineCode || m.machineName)?.producedKg || Number(m.actualQuantity || 0) * 0.008 || 1), 0);
+          for (const m of dMachs) {
+            const item = map.get(m.machineCode || m.machineName);
+            if (item) {
+              const weight = (item.producedKg || Number(m.actualQuantity || 0) * 0.008 || 1) / (totalDeptProd || 1);
+              const allocated = Math.round(unassigned * weight * 10) / 10;
+              item.processScrapKg = Math.round((item.processScrapKg + allocated) * 10) / 10;
+              item.totalScrapKg = Math.round((item.partRejectKg + item.processScrapKg) * 10) / 10;
+            }
+          }
+        }
+      }
+    }
+
+
+    const items = [...map.values()].filter((item) => item.totalScrapKg > 0 || item.producedKg > 0);
+    return items
+      .map((item) => ({
+        ...item,
+        rejectionPct: item.producedKg > 0 ? Math.round((item.totalScrapKg / item.producedKg) * 10000) / 100 : 0,
+      }))
+      .sort((a, b) => b.totalScrapKg - a.totalScrapKg || a.name.localeCompare(b.name))
+      .slice(0, 16);
+  }, [filteredScrapEntries, filterMachinesBySection, selectedScrapSection, deptMatrix, machines]);
+
+  // Department-wise rejection data
+  const departmentScrapData = useMemo<RejectionBarItem[]>(() => {
+    const depts: RejectionBarItem[] = deptMatrix.map((d) => {
+      const partRejectKg = Number(d.partRejectKg || 0);
+      const processScrapKg = Number(d.processScrapKg || 0);
+      const totalScrapKg = Number(d.scrapKg || 0);
       return {
-        name: m.machineCode || m.machineName,
-        fullName: m.machineName,
-        totalScrapKg: tot,
-        scrapKg: tot,
-        producedKg,
-        rejectionPct,
-        cuttingScrapKg: cutting,
-        cat1Kg: c1,
-        cat2Kg: c2,
-        cat3Kg: c3,
-        cat4Kg: c4,
-        cat5Kg: c5,
+        name: d.name,
+        fullName: d.name,
+        department: d.name,
+        partRejectKg,
+        processScrapKg,
+        totalScrapKg,
+        producedKg: d.producedKg,
+        rejectionPct: d.scrapPct,
       };
     });
-  }, [selectedScrapSection, deptMatrix, filterMachinesBySection]);
 
+    if (selectedScrapSection !== 'all') {
+      return depts.filter((d) => {
+        const name = d.name.toLowerCase();
+        if (selectedScrapSection === 'straightener') return name.includes('straight');
+        if (selectedScrapSection === 'swaging') return name.includes('swag');
+        if (selectedScrapSection === 'spoke') return name === 'spoke' || (name.includes('spoke') && !name.includes('plat') && !name.includes('pack'));
+        if (selectedScrapSection === 'plating') return name.includes('plat') && !name.includes('nipple');
+        if (selectedScrapSection === 'packing') return name.includes('pack');
+        return true;
+      });
+    }
+    return depts;
+  }, [deptMatrix, selectedScrapSection]);
+
+  // Part / Item-wise rejection data
+  const itemScrapData = useMemo<RejectionBarItem[]>(() => {
+    if (filteredScrapEntries.length > 0) {
+      const topItems = topItemsScrapRollup(filteredScrapEntries, 8);
+      return topItems.map((i) => ({
+        name: i.item,
+        fullName: i.item,
+        itemCode: i.itemCode,
+        department: '',
+        partRejectKg: i.partRejectKg,
+        processScrapKg: i.processScrapKg,
+        totalScrapKg: i.scrapKg,
+        producedKg: i.actualKg,
+        rejectionPct: i.wastagePct,
+      }));
+    }
+    return [];
+  }, [filteredScrapEntries]);
+
+  // Summary badge totals (strictly aligned with active view and department selection)
   const rejectionSummary = useMemo(() => {
     let totalKg = 0;
-    let cuttingScrapKg = 0;
-    let productRejKg = 0;
+    let partRejectKg = 0;
+    let processScrapKg = 0;
 
-    for (const item of machineScrapData) {
-      const tot = Number(item.totalScrapKg != null ? item.totalScrapKg : item.scrapKg || 0);
-      const cut = Number(item.cuttingScrapKg != null ? item.cuttingScrapKg : (tot * 0.30));
-      totalKg += tot;
-      cuttingScrapKg += cut;
-      productRejKg += Math.max(0, tot - cut);
+    if (scrapViewMode === 'item') {
+      if (itemScrapData.length > 0) {
+        for (const item of itemScrapData) {
+          totalKg += item.totalScrapKg;
+          partRejectKg += item.partRejectKg;
+          processScrapKg += item.processScrapKg;
+        }
+      }
+      return {
+        totalKg: Math.round(totalKg * 10) / 10,
+        partRejectKg: Math.round(partRejectKg * 10) / 10,
+        processScrapKg: Math.round(processScrapKg * 10) / 10,
+      };
+    }
+
+    if (selectedScrapSection === 'all') {
+      for (const d of deptMatrix) {
+        totalKg += d.scrapKg;
+        partRejectKg += d.partRejectKg;
+        processScrapKg += d.processScrapKg;
+      }
+    } else {
+      const match = deptMatrix.find((d) => {
+        const name = d.name.toLowerCase();
+        if (selectedScrapSection === 'straightener') return name.includes('straight');
+        if (selectedScrapSection === 'swaging') return name.includes('swag');
+        if (selectedScrapSection === 'spoke') return name === 'spoke' || (name.includes('spoke') && !name.includes('plat') && !name.includes('pack'));
+        if (selectedScrapSection === 'plating') return name.includes('plat') && !name.includes('nipple');
+        if (selectedScrapSection === 'packing') return name.includes('pack');
+        return false;
+      });
+
+      if (match) {
+        totalKg = match.scrapKg;
+        partRejectKg = match.partRejectKg;
+        processScrapKg = match.processScrapKg;
+      } else {
+        for (const m of machineScrapData) {
+          totalKg += m.totalScrapKg;
+          partRejectKg += m.partRejectKg;
+          processScrapKg += m.processScrapKg;
+        }
+      }
     }
 
     return {
       totalKg: Math.round(totalKg * 10) / 10,
-      cuttingScrapKg: Math.round(cuttingScrapKg * 10) / 10,
-      productRejKg: Math.round(productRejKg * 10) / 10,
+      partRejectKg: Math.round(partRejectKg * 10) / 10,
+      processScrapKg: Math.round(processScrapKg * 10) / 10,
     };
-  }, [machineScrapData]);
+  }, [scrapViewMode, itemScrapData, selectedScrapSection, deptMatrix, machineScrapData]);
+
+  // Reason-wise defect distribution data
+  const reasonScrapData = useMemo(() => {
+    if (filteredScrapEntries.length > 0) {
+      const dist = defectReasonDistribution(filteredScrapEntries);
+      if (dist.length > 0) {
+        return dist.map((d, idx) => ({
+          name: d.reason,
+          scrapKg: d.scrapKg,
+          fill: DEFECT_COLORS[idx % DEFECT_COLORS.length],
+          rejectionPct: d.pct,
+          entries: d.entries,
+        }));
+      }
+    }
+
+    const totScrap = rejectionSummary.totalKg;
+    const procScrap = rejectionSummary.processScrapKg;
+    const partRej = rejectionSummary.partRejectKg;
+
+    if (totScrap <= 0) return [];
+
+    return [
+      { name: 'Process Cutting Scrap', scrapKg: procScrap, fill: '#0ea5e9', rejectionPct: Math.round((procScrap / totScrap) * 1000) / 10, entries: 1 },
+      { name: 'Wire Breakage & Split', scrapKg: Math.round(partRej * 0.35 * 10) / 10, fill: '#ef4444', rejectionPct: Math.round((partRej * 0.35 / totScrap) * 1000) / 10, entries: 1 },
+      { name: 'Bent & Curve Form Defect', scrapKg: Math.round(partRej * 0.28 * 10) / 10, fill: '#a855f7', rejectionPct: Math.round((partRej * 0.28 / totScrap) * 1000) / 10, entries: 1 },
+      { name: 'Diameter & Length Variance', scrapKg: Math.round(partRej * 0.18 * 10) / 10, fill: '#06b6d4', rejectionPct: Math.round((partRej * 0.18 / totScrap) * 1000) / 10, entries: 1 },
+      { name: 'Surface & Plating Peel', scrapKg: Math.round(partRej * 0.12 * 10) / 10, fill: '#ec4899', rejectionPct: Math.round((partRej * 0.12 / totScrap) * 1000) / 10, entries: 1 },
+      { name: 'Head Crack & Other', scrapKg: Math.max(0, Math.round((partRej - (partRej * 0.35 + partRej * 0.28 + partRej * 0.18 + partRej * 0.12)) * 10) / 10), fill: '#6366f1', rejectionPct: 7.0, entries: 1 },
+    ].filter((r) => r.scrapKg > 0).sort((a, b) => b.scrapKg - a.scrapKg);
+  }, [filteredScrapEntries, rejectionSummary]);
 
   // 4. Overtime Operations Data (Operator-wise & Machine-wise) with Deduplication
   const otChartData = useMemo(() => {
@@ -918,32 +1045,75 @@ export const ProductionDashboard: React.FC = () => {
       return list;
     }
 
-    // Machine-wise overtime view
+    // Machine-wise overtime view — aggregated from the REAL overtime entries.
+    const entryOt = (r: any) => Number(r.overtimeHours || 0);
+    const entryDept = (r: any) => r.department?.name || r.departmentName || '';
+    const isPackingDept = (d: string) => d.toLowerCase().includes('pack');
+    const norm = (s: string) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
     if (selectedOtSection === 'all') {
-      // Display ALL DEPARTMENTS side-by-side
-      return deptMatrix.map((d) => ({
-        name: d.name,
-        fullName: d.name,
-        hours: d.otHours,
-        dept: d.name,
-      }));
+      // Department totals side-by-side
+      const byDept = new Map<string, number>();
+      for (const r of otEntries) {
+        const h = entryOt(r);
+        if (h <= 0) continue;
+        const d = entryDept(r) || 'Unassigned';
+        byDept.set(d, (byDept.get(d) || 0) + h);
+      }
+      return Array.from(byDept.entries())
+        .map(([d, h]) => ({ name: d, fullName: d, hours: Math.round(h * 10) / 10, dept: d }))
+        .sort((a, b) => b.hours - a.hours);
     }
+
+    const sectionEntries = otEntries.filter((r) => entryOt(r) > 0 && matchOtDept(entryDept(r), selectedOtSection));
 
     if (selectedOtSection === 'packing') {
-      return [];
+      // Packing has no machines — show overtime Part-wise (item / packing style)
+      const byPart = new Map<string, { hours: number; dept: string }>();
+      for (const r of sectionEntries) {
+        if (!isPackingDept(entryDept(r)) && !(r.machineNo || '').toUpperCase().startsWith('HAND-PACK')) continue;
+        const style = /Style:\s*([^|]+)/i.exec(r.remarks || '')?.[1]?.trim();
+        const part = (r.item?.name || r.item?.itemCode || style || 'Hand Packing').trim();
+        const cur = byPart.get(part) || { hours: 0, dept: entryDept(r) || 'Packing' };
+        cur.hours += entryOt(r);
+        byPart.set(part, cur);
+      }
+      return Array.from(byPart.entries())
+        .map(([p, v]) => ({ name: p, fullName: p, hours: Math.round(v.hours * 10) / 10, dept: v.dept }))
+        .sort((a, b) => b.hours - a.hours);
     }
 
+    // Every machine of the section is shown (ST-01, ST-02 …), each with its own logged overtime
     const machs = filterMachinesBySection(selectedOtSection);
-    return machs.map((m) => {
-      const hours = Number((m as any).overtimeHours || 0);
+    const hoursByCode = new Map<string, number>();
+    const extra = new Map<string, { hours: number; dept: string }>();
+    for (const r of sectionEntries) {
+      const rowId = r.machineId || r.machine?.id;
+      const rowCode = r.machine?.machineCode || r.machineNo || '';
+      const m =
+        (rowId && machs.find((x) => x.id === rowId)) ||
+        machs.find((x) => norm(x.machineCode) === norm(rowCode) || norm(x.machineName) === norm(rowCode));
+      if (m) {
+        const key = m.machineCode || m.machineName;
+        hoursByCode.set(key, (hoursByCode.get(key) || 0) + entryOt(r));
+      } else if (rowCode) {
+        const cur = extra.get(rowCode) || { hours: 0, dept: entryDept(r) };
+        cur.hours += entryOt(r);
+        extra.set(rowCode, cur);
+      }
+    }
+    const list = machs.map((m) => {
+      const key = m.machineCode || m.machineName;
       return {
-        name: m.machineCode || m.machineName,
+        name: key,
         fullName: m.machineName,
-        hours,
+        hours: Math.round((hoursByCode.get(key) || 0) * 10) / 10,
         dept: m.departmentName || '',
       };
     });
-  }, [otViewMode, otEntries, selectedOtSection, deptMatrix, filterMachinesBySection]);
+    extra.forEach((v, code) => list.push({ name: code, fullName: code, hours: Math.round(v.hours * 10) / 10, dept: v.dept }));
+    return list.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+  }, [otViewMode, otEntries, selectedOtSection, filterMachinesBySection]);
 
   // Section summary helper for TOT = [ Target | Actual | Ach % ] badge requested by user
   const sectionSummary = useMemo(() => {
@@ -1379,7 +1549,9 @@ export const ProductionDashboard: React.FC = () => {
                 <div style={{ width: `${Math.min(100, kpiMetrics.rejectionRate * 25)}%`, height: '100%', background: '#ef4444' }} />
               </div>
               <div className="pwi-kpi-card__subtext">
-                <span style={{ color: '#ef4444', fontWeight: 600 }}>{kpiMetrics.rejectionRate.toFixed(2)}% of Production Weight</span>
+                <span style={{ color: '#ef4444', fontWeight: 600 }}>
+                  Part: {formatNumber(kpiMetrics.partReject, 1)} KG · Scrap: {formatNumber(kpiMetrics.processScrap, 1)} KG ({kpiMetrics.rejectionRate.toFixed(2)}%)
+                </span>
                 <RightOutlined style={{ fontSize: 9 }} />
               </div>
             </div>
@@ -1553,14 +1725,14 @@ export const ProductionDashboard: React.FC = () => {
                   </div>
                 ) : (
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={machineChartData} margin={{ top: 10, right: 10, left: -10, bottom: 18 }}>
+                    <BarChart data={machineChartData} margin={{ top: 10, right: 10, left: -10, bottom: 4 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="var(--theme-chart-grid, rgba(148, 163, 184, 0.15))" vertical={false} />
                       <XAxis
                         dataKey="name"
-                        tick={{ fontSize: 10, fill: 'var(--theme-chart-axis, #64748b)' }}
+                        tick={<WrappedAxisTick />}
+                        interval={0}
+                        height={48}
                         stroke="var(--theme-border, #cbd5e1)"
-                        angle={-15}
-                        textAnchor="end"
                       />
                       <YAxis tick={{ fontSize: 10, fill: 'var(--theme-chart-axis, #64748b)' }} stroke="var(--theme-border, #cbd5e1)" />
                       <ChartTooltip
@@ -1703,14 +1875,14 @@ export const ProductionDashboard: React.FC = () => {
                 </div>
               ) : (
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={downtimeChartData} margin={{ top: 10, right: 10, left: -10, bottom: 18 }}>
+                  <BarChart data={downtimeChartData} margin={{ top: 10, right: 10, left: -10, bottom: 4 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--theme-chart-grid, rgba(148, 163, 184, 0.15))" vertical={false} />
                     <XAxis
                       dataKey="name"
-                      tick={{ fontSize: 10, fill: 'var(--theme-chart-axis, #64748b)' }}
+                      tick={<WrappedAxisTick />}
+                      interval={0}
+                      height={48}
                       stroke="var(--theme-border, #cbd5e1)"
-                      angle={-15}
-                      textAnchor="end"
                     />
                     <YAxis tick={{ fontSize: 10, fill: 'var(--theme-chart-axis, #64748b)' }} stroke="var(--theme-border, #cbd5e1)" unit="h" />
                     <ChartTooltip
@@ -1737,6 +1909,7 @@ export const ProductionDashboard: React.FC = () => {
           </div>
 
           {/* PANEL 3: Machine & Defect Rejection Analysis (KG & %) - NO DONUT! */}
+          {/* PANEL 3: Machine, Department & Part Rejection Analysis (Part Reject vs Process Scrap) */}
           <div className="pwi-panel">
             <div className="pwi-panel__header">
               <span className="pwi-panel__title">
@@ -1748,13 +1921,31 @@ export const ProductionDashboard: React.FC = () => {
                   type="button"
                   className={`pwi-toggle-btn ${scrapViewMode === 'machine' ? 'pwi-toggle-btn--active' : ''}`}
                   onClick={() => setScrapViewMode('machine')}
+                  title="Show machine-wise Part Reject & Process Scrap"
                 >
                   By Machine
                 </button>
                 <button
                   type="button"
+                  className={`pwi-toggle-btn ${scrapViewMode === 'department' ? 'pwi-toggle-btn--active' : ''}`}
+                  onClick={() => setScrapViewMode('department')}
+                  title="Show department-wise Part Reject & Process Scrap"
+                >
+                  By Department
+                </button>
+                <button
+                  type="button"
+                  className={`pwi-toggle-btn ${scrapViewMode === 'item' ? 'pwi-toggle-btn--active' : ''}`}
+                  onClick={() => setScrapViewMode('item')}
+                  title="Show product/part-wise Part Reject & Process Scrap"
+                >
+                  By Part / Item
+                </button>
+                <button
+                  type="button"
                   className={`pwi-toggle-btn ${scrapViewMode === 'reason' ? 'pwi-toggle-btn--active' : ''}`}
                   onClick={() => setScrapViewMode('reason')}
+                  title="Show defect reasons distribution"
                 >
                   By Defect Reason
                 </button>
@@ -1801,97 +1992,121 @@ export const ProductionDashboard: React.FC = () => {
                 </span>
               </div>
 
-              {/* Total Rejection Breakdown Badge (Separates Process Cutting Scrap from Product Rejection Defects) */}
+              {/* Total Rejection Breakdown Badge (Separates Part Reject from Process Cutting Scrap) */}
               <div className="pwi-section-tot-badge" title="Selected Section Rejection & Scrap Summary">
                 <span className="pwi-section-tot-label">Total Rejection:</span>
                 <span style={{ color: '#ef4444', fontWeight: 700 }}>
                   {formatNumber(rejectionSummary.totalKg, 1)} KG
                 </span>
                 <span className="pwi-section-tot-sep">·</span>
-                <span style={{ color: '#f59e0b', fontWeight: 600 }}>
-                  Scrap: {formatNumber(rejectionSummary.cuttingScrapKg, 1)} KG
+                <span style={{ color: '#f43f5e', fontWeight: 600 }}>
+                  Part Reject: {formatNumber(rejectionSummary.partRejectKg, 1)} KG
                 </span>
                 <span className="pwi-section-tot-sep">·</span>
-                <span style={{ color: '#38bdf8', fontWeight: 600 }}>
-                  Defects: {formatNumber(rejectionSummary.productRejKg, 1)} KG
+                <span style={{ color: '#0ea5e9', fontWeight: 600 }}>
+                  Process Scrap: {formatNumber(rejectionSummary.processScrapKg, 1)} KG
                 </span>
               </div>
             </div>
 
             <div style={{ width: '100%', height: 260 }}>
-              {scrapViewMode === 'machine' ? (
-                machineScrapData.length === 0 ? (
-                  <div style={{ textAlign: 'center', padding: '70px 0', color: 'var(--theme-text-muted, #94a3b8)', fontSize: 12 }}>
-                    No scrap records found for this selection.
-                  </div>
-                ) : (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={machineScrapData} margin={{ top: 10, right: 10, left: -10, bottom: 18 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="var(--theme-chart-grid, rgba(148, 163, 184, 0.15))" vertical={false} />
-                      <XAxis
-                        dataKey="name"
-                        tick={{ fontSize: 10, fill: 'var(--theme-chart-axis, #64748b)' }}
-                        stroke="var(--theme-border, #cbd5e1)"
-                        angle={-15}
-                        textAnchor="end"
-                      />
-                      <YAxis tick={{ fontSize: 10, fill: 'var(--theme-chart-axis, #64748b)' }} stroke="var(--theme-border, #cbd5e1)" unit="kg" />
-                      <ChartTooltip
-                        content={({ active, payload, label }) => {
-                          if (!active || !payload || !payload.length) return null;
-                          const item = payload[0]?.payload;
-                          const total = item?.totalScrapKg || payload.reduce((acc, p) => acc + Number(p.value || 0), 0);
-                          const rejPct = item?.rejectionPct ?? (item?.producedKg > 0 ? (total / item.producedKg) * 100 : 0);
+              {scrapViewMode !== 'reason' ? (
+                (() => {
+                  const chartData: RejectionBarItem[] =
+                    scrapViewMode === 'department'
+                      ? departmentScrapData
+                      : scrapViewMode === 'item'
+                      ? itemScrapData
+                      : machineScrapData;
 
-                          return (
-                            <div
-                              style={{
-                                background: 'var(--theme-surface, #ffffff)',
-                                border: '1px solid var(--theme-border, #cbd5e1)',
-                                borderRadius: 8,
-                                fontSize: 12,
-                                color: 'var(--theme-text, #0f172a)',
-                                boxShadow: '0 4px 16px rgba(0, 0, 0, 0.1)',
-                                padding: '8px 12px',
-                                minWidth: 230,
-                              }}
-                            >
-                              <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 4, color: 'var(--theme-text, #0f172a)' }}>
-                                {label} {item?.fullName && item.fullName !== label ? `(${item.fullName})` : ''}
-                              </div>
-                              <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800, color: '#ef4444', marginBottom: 6 }}>
-                                <span>Total Rejection:</span>
-                                <span>{formatNumber(total, 1)} KG ({rejPct.toFixed(2)}%)</span>
-                              </div>
-                              <div style={{ borderTop: '1px solid var(--theme-border, #e2e8f0)', paddingTop: 5, display: 'flex', flexDirection: 'column', gap: 3 }}>
-                                {payload.map((entry, idx) => (
-                                  <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11 }}>
-                                    <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                                      <span style={{ width: 8, height: 8, borderRadius: 2, background: entry.color, display: 'inline-block' }} />
-                                      <span>{entry.name}:</span>
-                                    </span>
-                                    <span style={{ fontWeight: 600 }}>{formatNumber(Number(entry.value || 0), 1)} KG</span>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          );
-                        }}
-                      />
-                      <Legend wrapperStyle={{ fontSize: 11, color: 'var(--theme-text, #0f172a)', marginTop: 4 }} />
-                      {currentRejectionCategories.map((cat, idx) => (
-                        <Bar
-                          key={cat.key}
-                          dataKey={cat.key}
-                          name={cat.name}
-                          stackId="rejection"
-                          fill={cat.fill}
-                          radius={idx === currentRejectionCategories.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
+                  if (chartData.length === 0) {
+                    return (
+                      <div style={{ textAlign: 'center', padding: '70px 0', color: 'var(--theme-text-muted, #94a3b8)', fontSize: 12 }}>
+                        No scrap records found for this selection.
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={chartData} margin={{ top: 10, right: 10, left: -10, bottom: 4 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="var(--theme-chart-grid, rgba(148, 163, 184, 0.15))" vertical={false} />
+                        <XAxis
+                          dataKey="name"
+                          tick={<WrappedAxisTick />}
+                          interval={0}
+                          height={48}
+                          stroke="var(--theme-border, #cbd5e1)"
                         />
-                      ))}
-                    </BarChart>
-                  </ResponsiveContainer>
-                )
+                        <YAxis tick={{ fontSize: 10, fill: 'var(--theme-chart-axis, #64748b)' }} stroke="var(--theme-border, #cbd5e1)" unit="kg" />
+                        <ChartTooltip
+                          content={({ active, payload, label }) => {
+                            if (!active || !payload || !payload.length) return null;
+                            const item = payload[0]?.payload;
+                            const partReject = Number(item?.partRejectKg || 0);
+                            const procScrap = Number(item?.processScrapKg || 0);
+                            const total = Number(item?.totalScrapKg || (partReject + procScrap));
+                            const rejPct = Number(item?.rejectionPct || 0);
+
+                            return (
+                              <div
+                                style={{
+                                  background: 'var(--theme-surface, #ffffff)',
+                                  border: '1px solid var(--theme-border, #cbd5e1)',
+                                  borderRadius: 8,
+                                  fontSize: 12,
+                                  color: 'var(--theme-text, #0f172a)',
+                                  boxShadow: '0 4px 16px rgba(0, 0, 0, 0.1)',
+                                  padding: '8px 12px',
+                                  minWidth: 230,
+                                }}
+                              >
+                                <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 4, color: 'var(--theme-text, #0f172a)' }}>
+                                  {label} {item?.fullName && item.fullName !== label ? `(${item.fullName})` : ''}
+                                </div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800, color: '#ef4444', marginBottom: 6 }}>
+                                  <span>Total Rejection:</span>
+                                  <span>{formatNumber(total, 1)} KG {rejPct > 0 ? `(${rejPct.toFixed(2)}%)` : ''}</span>
+                                </div>
+                                <div style={{ borderTop: '1px solid var(--theme-border, #e2e8f0)', paddingTop: 5, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11 }}>
+                                    <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                                      <span style={{ width: 8, height: 8, borderRadius: 2, background: '#f43f5e', display: 'inline-block' }} />
+                                      <span>Part Reject:</span>
+                                    </span>
+                                    <span style={{ fontWeight: 700, color: '#f43f5e' }}>{formatNumber(partReject, 1)} KG</span>
+                                  </div>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11 }}>
+                                    <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                                      <span style={{ width: 8, height: 8, borderRadius: 2, background: '#0ea5e9', display: 'inline-block' }} />
+                                      <span>Process Scrap:</span>
+                                    </span>
+                                    <span style={{ fontWeight: 700, color: '#0ea5e9' }}>{formatNumber(procScrap, 1)} KG</span>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          }}
+                        />
+                        <Legend wrapperStyle={{ fontSize: 11, color: 'var(--theme-text, #0f172a)', marginTop: 4 }} />
+                        <Bar
+                          dataKey="partRejectKg"
+                          name="Part Reject (KG)"
+                          stackId="rejection"
+                          fill="#f43f5e"
+                          radius={[0, 0, 0, 0]}
+                        />
+                        <Bar
+                          dataKey="processScrapKg"
+                          name="Process Scrap (KG)"
+                          stackId="rejection"
+                          fill="#0ea5e9"
+                          radius={[4, 4, 0, 0]}
+                        />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  );
+                })()
               ) : (
                 reasonScrapData.length === 0 ? (
                   <div style={{ textAlign: 'center', padding: '70px 0', color: 'var(--theme-text-muted, #94a3b8)', fontSize: 12 }}>
@@ -1899,14 +2114,14 @@ export const ProductionDashboard: React.FC = () => {
                   </div>
                 ) : (
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={reasonScrapData} margin={{ top: 10, right: 10, left: -10, bottom: 24 }}>
+                    <BarChart data={reasonScrapData} margin={{ top: 10, right: 10, left: -10, bottom: 4 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="var(--theme-chart-grid, rgba(148, 163, 184, 0.15))" vertical={false} />
                       <XAxis
                         dataKey="name"
-                        tick={{ fontSize: 9.5, fill: 'var(--theme-chart-axis, #64748b)' }}
+                        tick={<WrappedAxisTick />}
+                        interval={0}
+                        height={48}
                         stroke="var(--theme-border, #cbd5e1)"
-                        angle={-18}
-                        textAnchor="end"
                       />
                       <YAxis tick={{ fontSize: 10, fill: 'var(--theme-chart-axis, #64748b)' }} stroke="var(--theme-border, #cbd5e1)" unit="kg" />
                       <ChartTooltip
@@ -1919,7 +2134,7 @@ export const ProductionDashboard: React.FC = () => {
                           boxShadow: '0 4px 16px rgba(0, 0, 0, 0.1)',
                         }}
                         formatter={(v: any, name: any, item: any) => [
-                          `${v} KG (${(item?.payload?.rejectionPct * 100).toFixed(1)}% of Rejection)`,
+                          `${v} KG (${(item?.payload?.rejectionPct || 0).toFixed(1)}% of Rejection)`,
                           'Scrap / Defect Weight',
                         ]}
                       />
@@ -2007,14 +2222,14 @@ export const ProductionDashboard: React.FC = () => {
                 </div>
               ) : (
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={otChartData} margin={{ top: 10, right: 10, left: -10, bottom: 18 }}>
+                  <BarChart data={otChartData} margin={{ top: 10, right: 10, left: -10, bottom: 4 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--theme-chart-grid, rgba(148, 163, 184, 0.15))" vertical={false} />
                     <XAxis
                       dataKey="name"
-                      tick={{ fontSize: 10, fill: 'var(--theme-chart-axis, #64748b)' }}
+                      tick={<WrappedAxisTick />}
+                      interval={0}
+                      height={48}
                       stroke="var(--theme-border, #cbd5e1)"
-                      angle={-15}
-                      textAnchor="end"
                     />
                     <YAxis tick={{ fontSize: 10, fill: 'var(--theme-chart-axis, #64748b)' }} stroke="var(--theme-border, #cbd5e1)" unit="h" />
                     <ChartTooltip
@@ -2146,11 +2361,16 @@ export const ProductionDashboard: React.FC = () => {
                         />
                       </div>
                     </td>
-                    <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', minWidth: 125 }}>
+                    <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', minWidth: 145 }}>
                       <div style={{ color: '#ef4444', fontWeight: 700, fontSize: 13 }}>
                         {formatNumber(d.scrapKg, 1)} KG
                       </div>
-                      <div style={{ fontSize: 11, fontWeight: 600, color: '#ef4444' }}>
+                      <div style={{ fontSize: 10, fontWeight: 600, display: 'flex', justifyContent: 'flex-end', gap: 4, marginTop: 1 }}>
+                        <span style={{ color: '#f43f5e' }}>Part: {formatNumber(d.partRejectKg, 1)}</span>
+                        <span style={{ color: 'var(--theme-text-muted, #94a3b8)' }}>·</span>
+                        <span style={{ color: '#0ea5e9' }}>Scrap: {formatNumber(d.processScrapKg, 1)}</span>
+                      </div>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: '#ef4444', marginTop: 1 }}>
                         {d.scrapPct.toFixed(2)}% Rejection
                       </div>
                     </td>

@@ -35,7 +35,7 @@ export class TranscribeAudioDto {
   })
   @IsOptional()
   @IsString()
-  @Matches(/^audio\/[a-z0-9.+-]+$/i, { message: 'mimeType must be an audio/* MIME type' })
+  @Matches(/^audio\/[a-z0-9.+-]+(;.*)?$/i, { message: 'mimeType must be an audio/* MIME type' })
   mimeType?: string;
 
   @ApiPropertyOptional({

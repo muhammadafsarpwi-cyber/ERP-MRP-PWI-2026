@@ -458,7 +458,7 @@ export class ProductionEntryService {
         'COUNT(CASE WHEN (pe.inventory_reference_id IS NOT NULL OR pe.actual_quantity > 0) THEN 1 END)::int AS "completedCount"',
         '0::int AS "inProgressCount"',
         'COUNT(CASE WHEN (pe.inventory_reference_id IS NULL AND pe.actual_quantity = 0) THEN 1 END)::int AS "draftCount"',
-        'COUNT(CASE WHEN pe.scrap_quantity > 0 THEN 1 END)::int AS "withScrapCount"',
+        'COUNT(CASE WHEN (pe.scrap_quantity > 0 OR COALESCE(pe.process_scrap_kg, 0) > 0) THEN 1 END)::int AS "withScrapCount"',
         'COUNT(CASE WHEN pe.downtime_hours > 0 THEN 1 END)::int AS "withDowntimeCount"',
         `COUNT(CASE WHEN ${OVERTIME_SUM_SQL} > 0 THEN 1 END)::int AS "withOvertimeCount"`,
       ])
@@ -497,7 +497,7 @@ export class ProductionEntryService {
     } else if (chevronKey === 'DRAFT' || status === 'DRAFT') {
       qb.andWhere('(pe.inventoryReferenceId IS NULL AND pe.actualQuantity = 0)');
     } else if (chevronKey === 'WITH_SCRAP') {
-      qb.andWhere('pe.scrapQuantity > 0');
+      qb.andWhere('(pe.scrapQuantity > 0 OR COALESCE(pe.processScrapKg, 0) > 0)');
     } else if (chevronKey === 'WITH_DOWNTIME') {
       qb.andWhere('pe.downtimeHours > 0');
     } else if (chevronKey === 'WITH_OVERTIME') {

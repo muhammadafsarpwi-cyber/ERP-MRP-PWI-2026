@@ -103,9 +103,9 @@ export function extractSqlTableNames(maskedSql: string): string[] {
   }
 
   const tables = new Set<string>();
-  const refRe = /\b(?:FROM|JOIN)\s+([a-z_][a-z0-9_]*)/gi;
+  const refRe = /(?<!\bEXTRACT\s*\([^)]*)\b(?:FROM|JOIN)\s+(?:([a-z_][a-z0-9_]*)\s*\.\s*)?([a-z_][a-z0-9_]*)/gi;
   while ((match = refRe.exec(maskedSql)) !== null) {
-    const name = match[1].toLowerCase();
+    const name = (match[2] || match[1]).toLowerCase();
     if (['lateral', 'only', 'into'].includes(name)) continue;
     if (cteNames.has(name)) continue;
     tables.add(name);
@@ -199,11 +199,14 @@ export function validateReadOnlySql(
     }
   }
 
-  // Any explicit schema qualification must stay inside the configured schema.
-  const qualified = masked.match(/\b([a-z_][a-z0-9_]*)\s*\.\s*[a-z_][a-z0-9_]*/gi) ?? [];
-  for (const q of qualified) {
-    const schemaPart = q.split('.')[0].trim().toLowerCase();
-    if (options.allowedSchema && schemaPart !== options.allowedSchema.toLowerCase()) {
+  // Any explicit schema qualification on a table reference (FROM/JOIN <schema>.<table>)
+  // must stay inside the configured schema (or erp_sales), while allowing table aliases (pe.col, m.col).
+  const tableSchemaRe = /\b(?:FROM|JOIN)\s+([a-z_][a-z0-9_]*)\s*\.\s*([a-z_][a-z0-9_]*)/gi;
+  let schemaMatch: RegExpExecArray | null;
+  while ((schemaMatch = tableSchemaRe.exec(masked)) !== null) {
+    const schemaPart = schemaMatch[1].trim().toLowerCase();
+    const allowed = options.allowedSchema ? options.allowedSchema.toLowerCase() : 'public';
+    if (schemaPart !== allowed && schemaPart !== 'erp_sales') {
       return {
         ok: false,
         reason: `Blocked: schema qualification "${schemaPart}." is not allowed.`,

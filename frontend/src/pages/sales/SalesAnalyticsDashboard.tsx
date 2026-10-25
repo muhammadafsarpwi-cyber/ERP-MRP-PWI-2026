@@ -32,6 +32,8 @@ interface ActionKpiCardProps {
   onAction?: () => void;
   prefix?: string;
   suffix?: string;
+  stepBadge?: string;
+  subLabel?: string;
 }
 
 const ActionKpiCard: React.FC<ActionKpiCardProps> = ({
@@ -43,20 +45,57 @@ const ActionKpiCard: React.FC<ActionKpiCardProps> = ({
   onAction,
   prefix,
   suffix,
+  stepBadge,
+  subLabel,
 }) => {
   return (
     <div
       onClick={onAction}
       className="action-kpi-card"
-      style={{ background: gradient, cursor: onAction ? 'pointer' : 'default' }}
+      style={{
+        background: gradient,
+        cursor: onAction ? 'pointer' : 'default',
+        position: 'relative',
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'space-between',
+        minHeight: 125,
+      }}
     >
-      <div className="action-kpi-body">
-        <div className="action-kpi-val">
-          {prefix ? <span style={{ fontSize: 16, marginRight: 4, opacity: 0.9 }}>{prefix}</span> : null}
+      <div className="action-kpi-body" style={{ position: 'relative', zIndex: 1 }}>
+        {stepBadge && (
+          <div style={{ marginBottom: 6 }}>
+            <span
+              style={{
+                fontSize: 10,
+                fontWeight: 800,
+                letterSpacing: '0.6px',
+                background: 'rgba(255, 255, 255, 0.22)',
+                color: '#ffffff',
+                padding: '2px 7px',
+                borderRadius: 4,
+                textTransform: 'uppercase',
+                display: 'inline-block',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.15)',
+              }}
+            >
+              {stepBadge}
+            </span>
+          </div>
+        )}
+        <div className="action-kpi-val" style={{ fontSize: 24, fontWeight: 800, lineHeight: 1.15 }}>
+          {prefix ? <span style={{ fontSize: 15, marginRight: 4, opacity: 0.9 }}>{prefix}</span> : null}
           {typeof value === 'number' ? formatDecimal(value, 0) : value}
-          {suffix ? <span style={{ fontSize: 13, marginLeft: 4, opacity: 0.9 }}>{suffix}</span> : null}
+          {suffix ? <span style={{ fontSize: 13, marginLeft: 5, fontWeight: 700, opacity: 0.95 }}>{suffix}</span> : null}
         </div>
-        <div className="action-kpi-label">{label}</div>
+        <div className="action-kpi-label" style={{ fontWeight: 700, fontSize: 13, marginTop: 4 }}>
+          {label}
+        </div>
+        {subLabel && (
+          <div style={{ fontSize: 11, color: 'rgba(255, 255, 255, 0.78)', marginTop: 2, fontWeight: 500 }}>
+            {subLabel}
+          </div>
+        )}
         <div className="action-kpi-watermark">{icon}</div>
       </div>
       <div className="action-kpi-footer">
@@ -85,6 +124,12 @@ interface DashboardKPIs {
   creditNoteAmount?: number;
   netSales?: number;
   reconciledOutstanding?: number;
+  // 5-Step Management Analytics Flow (in Gross / GRS)
+  totalOrderDemand?: number;
+  dispatchedVolume?: number;
+  netPendingOrders?: number;
+  availableFgStock?: number;
+  netDeficitForProduction?: number;
 }
 
 interface PipelineStage {
@@ -545,7 +590,7 @@ export const SalesAnalyticsDashboard: React.FC = () => {
 
     return rawList.map((r: any) => {
       const grossDemand = Number(r.totalDemand ?? 0);
-      let packed = Number(r.totalPackedInSpokes ?? 0);
+      let packed = Number(r.packedInCartonsFgr ?? r.totalPackedInSpokes ?? 0);
 
       // If backend didn't supply totalPackedInSpokes, calculate from linkedSpokeSets or topItems
       if (packed === 0 && r.linkedSpokeSets && r.linkedSpokeSets.length > 0) {
@@ -560,21 +605,108 @@ export const SalesAnalyticsDashboard: React.FC = () => {
         ? Number(r.netPendingDemand)
         : Math.max(0, grossDemand - packed);
 
-      const fgStock = Number(r.fgStock ?? 0);
-      // Net balance is Available Stock minus Net Pending Demand (unpacked spoke sets needing nipples)
-      const bal = fgStock - netPending;
+      const fgStock = Number(r.currentFgStock ?? r.fgStock ?? 0);
+
+      // Step 1 (Sum Available Stock): Total Available Stock = [Packed in Cartons (FGR)] + [Current FG Stock]
+      const totalAvailableStock = Math.round((packed + fgStock) * 100) / 100;
+
+      // Step 2 (Deduct from Pending Demand): Final Balance / Shortage = Net Pending Demand - Total Available Stock
+      const finalBalanceShortage = Math.round((netPending - totalAvailableStock) * 100) / 100;
+      const netDeficitRequired = Math.max(0, finalBalanceShortage);
+      const stockSurplus = Math.max(0, Math.round((totalAvailableStock - netPending) * 100) / 100);
+
+      // Step 3 (Advanced 3-Month Sales Forecasting & Safety Stock Buffer)
+      const rolling3MonthVolume = Number(r.rolling3MonthVolume ?? Math.max(grossDemand, fgStock));
+      const monthlyAvgConsumption = Number(r.monthlyAvgConsumption ?? Math.round((rolling3MonthVolume / 3) * 100) / 100);
+      const trendMinMonthly = Number(r.trendMinMonthly ?? Math.round(monthlyAvgConsumption * 0.85));
+      const trendMaxMonthly = Number(r.trendMaxMonthly ?? Math.round(monthlyAvgConsumption * 1.15));
+      const threeMonthForecast = Number(r.threeMonthForecast ?? Math.round(Math.max(rolling3MonthVolume * 1.1, netPending + monthlyAvgConsumption)));
+      const safetyStockBuffer = Number(r.safetyStockBuffer ?? Math.round(Math.max(monthlyAvgConsumption * 0.75, threeMonthForecast * 0.25, rolling3MonthVolume > 0 ? 500 : 0)));
+      const recommendedOrderQty = Number(r.recommendedOrderQty ?? Math.round(netDeficitRequired + safetyStockBuffer));
 
       return {
         ...r,
         totalDemand: grossDemand,
         totalPackedInSpokes: packed,
+        packedInCartonsFgr: packed,
         netPendingDemand: netPending,
         fgStock,
-        balance: bal,
-        status: bal < 0 ? 'SHORTAGE' : bal === 0 && netPending > 0 ? 'EXACT' : 'SUFFICIENT',
+        currentFgStock: fgStock,
+        totalAvailableStock,
+        balance: finalBalanceShortage,
+        finalBalanceShortage,
+        netDeficitRequired,
+        stockSurplus,
+        rolling3MonthVolume,
+        monthlyAvgConsumption,
+        trendMinMonthly,
+        trendMaxMonthly,
+        threeMonthForecast,
+        safetyStockBuffer,
+        recommendedOrderQty,
+        status: finalBalanceShortage > 0 ? 'SHORTAGE' : finalBalanceShortage === 0 && netPending > 0 ? 'EXACT' : 'SUFFICIENT',
       };
     }).filter((r: any) => r.totalDemand > 0 || r.fgStock > 0);
   }, [nippleAnalytics, topItems]);
+
+  // ===================== 5-STEP MANAGEMENT ANALYTICS FLOW (GROSS · GRS) =====================
+  const executiveMetrics = useMemo(() => {
+    // 1. Total Order Demand (Gross): absolute total volume of orders received from all customers
+    const demand = Number(
+      kpis.totalOrderDemand !== undefined
+        ? kpis.totalOrderDemand
+        : topItems.length > 0
+        ? topItems.reduce((sum, i) => sum + (Number(i.orderedQuantity) || 0), 0)
+        : fulfillmentData.length > 0
+        ? fulfillmentData.reduce((sum, f) => sum + (Number(f.orderedQuantity) || 0), 0)
+        : 0
+    );
+
+    // 2. Dispatched / Delivered Volume: total stock that has already been successfully shipped out
+    const dispatched = Number(
+      kpis.dispatchedVolume !== undefined
+        ? kpis.dispatchedVolume
+        : topItems.length > 0
+        ? topItems.reduce((sum, i) => sum + (Number(i.deliveredQuantity) || 0), 0)
+        : fulfillmentData.length > 0
+        ? fulfillmentData.reduce((sum, f) => sum + (Number(f.deliveredQuantity) || 0), 0)
+        : 0
+    );
+
+    // 3. Net Pending Orders (Demand Breakdown): remaining customer volume needing fulfillment (Total Demand - Dispatched)
+    const pending = Number(
+      kpis.netPendingOrders !== undefined
+        ? kpis.netPendingOrders
+        : Math.max(0, demand - dispatched)
+    );
+
+    // 4. Available FG Stock (Ready + Packed): total usable inventory in warehouse (sum of floor stock and packed cartons)
+    // Synchronized strictly with the operational line items (in Gross / GRS, around 10k)
+    const fgStock = Number(
+      kpis.availableFgStock !== undefined
+        ? kpis.availableFgStock
+        : kpis.finishedGoodsReady !== undefined && kpis.finishedGoodsReady < 50000
+        ? kpis.finishedGoodsReady
+        : topItems.length > 0
+        ? topItems.reduce((sum, i) => sum + (Number(i.finishedGoodsAvailable) || 0), 0)
+        : 0
+    );
+
+    // 5. Net Deficit for Production: actual remaining gap production/packing must manufacture (Net Pending Orders - Available FG Stock)
+    const deficit = Number(
+      kpis.netDeficitForProduction !== undefined
+        ? kpis.netDeficitForProduction
+        : Math.max(0, pending - fgStock)
+    );
+
+    return {
+      totalOrderDemand: Math.round(demand),
+      dispatchedVolume: Math.round(dispatched),
+      netPendingOrders: Math.round(pending),
+      availableFgStock: Math.round(fgStock),
+      netDeficitForProduction: Math.round(deficit),
+    };
+  }, [kpis, topItems, fulfillmentData]);
 
   // ===================== COLUMNS =====================
 
@@ -1173,100 +1305,176 @@ export const SalesAnalyticsDashboard: React.FC = () => {
       title: 'Item Code',
       dataIndex: 'itemCode',
       key: 'itemCode',
-      width: 130,
+      width: 125,
       render: (code) => <Tag color="blue">{code}</Tag>,
     },
     {
       title: 'Item Name',
       dataIndex: 'itemName',
       key: 'itemName',
+      width: 240,
       render: (name, r: any) => renderItemNameWithParts(name, r.itemCode),
     },
     {
-      title: 'UOM',
-      dataIndex: 'uom',
-      key: 'uom',
-      width: 70,
-    },
-    {
-      title: 'Current Stock',
-      dataIndex: 'onHand',
-      key: 'onHand',
+      title: 'Order Demand (Total / Pending)',
+      key: 'orderDemandStacked',
       align: 'right',
-      width: 110,
-      render: (qty) => <span style={{ fontWeight: 600 }}>{formatDecimal(qty, 0)}</span>,
-    },
-    {
-      title: 'Reserved Stock',
-      dataIndex: 'reserved',
-      key: 'reserved',
-      align: 'right',
-      width: 110,
-      render: (qty) => <span style={{ color: '#8c8c8c' }}>{formatDecimal(qty || 0, 0)}</span>,
-    },
-    {
-      title: 'Available Stock',
-      dataIndex: 'available',
-      key: 'available',
-      align: 'right',
-      width: 130,
-      render: (qty, r: any) => {
-        const avail = qty !== undefined ? qty : Math.max(0, (r.onHand || 0) - (r.reserved || 0));
+      width: 195,
+      render: (_, r: any) => {
+        const netPending = Number(r.netPendingDemand ?? r.openSalesOrderQuantity ?? 0);
+        const totalOrd = Number(r.totalOrderDemand || netPending);
+        const uom = r.uom || 'GRS';
         return (
-          <div style={{ textAlign: 'right' }}>
-            <span style={{ color: '#0891b2', fontWeight: 700 }}>
-              {formatDecimal(avail, 0)} {r.uom || 'GRS'}
-            </span>
-            {r.baseQuantity > 0 && r.baseUom && r.baseUom !== r.uom && (
-              <div style={{ fontSize: 10, color: '#64748b' }}>
-                ({formatDecimal(r.baseQuantity, 0)} {r.baseUom})
-              </div>
-            )}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 3, textAlign: 'right', whiteSpace: 'nowrap' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 10.5, color: 'var(--inv-text-muted, #94a3b8)', fontWeight: 600 }}>
+                Total Order Demand:
+              </span>
+              <span style={{ fontWeight: 800, fontSize: 13, color: '#3b82f6' }}>
+                {formatDecimal(totalOrd, 0)} {uom}
+              </span>
+            </div>
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: 8,
+                borderTop: '1px dashed rgba(148, 163, 184, 0.2)',
+                paddingTop: 3,
+              }}
+            >
+              <span style={{ fontSize: 10.5, color: 'var(--inv-text-muted, #94a3b8)', fontWeight: 600 }}>
+                Net Pending Demand:
+              </span>
+              <span style={{ fontWeight: 800, fontSize: 13, color: '#ef4444' }}>
+                {formatDecimal(netPending, 0)} {uom}
+              </span>
+            </div>
           </div>
         );
       },
     },
     {
-      title: 'Open Orders',
-      dataIndex: 'openSalesOrderQuantity',
-      key: 'openSalesOrderQuantity',
+      title: 'Available Stock (FGR + FG)',
+      key: 'availableStockStacked',
       align: 'right',
-      width: 110,
-      render: (qty) => <span style={{ color: '#fa8c16' }}>{formatDecimal(qty, 0)}</span>,
+      width: 210,
+      render: (_, r: any) => {
+        const packedFgr = Number(r.packedInCartonsFgr ?? r.reserved ?? 0);
+        const currentFg = Number(r.available ?? Math.max(0, (r.onHand || 0) - (r.reserved || 0)));
+        const totalAvail = Number(r.totalAvailableStock ?? (packedFgr + currentFg));
+        const uom = r.uom || 'GRS';
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 3, textAlign: 'right', whiteSpace: 'nowrap' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 10.5, color: 'var(--inv-text-muted, #94a3b8)', fontWeight: 600 }}>
+                Packed in Cartons (FGR):
+              </span>
+              <span style={{ fontWeight: 700, fontSize: 12.5, color: '#38bdf8' }}>
+                {formatDecimal(packedFgr, 0)} {uom}
+              </span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 10.5, color: 'var(--inv-text-muted, #94a3b8)', fontWeight: 600 }}>
+                Current FG Stock:
+              </span>
+              <span style={{ fontWeight: 700, fontSize: 12.5, color: '#22c55e' }}>
+                {formatDecimal(currentFg, 0)} {uom}
+              </span>
+            </div>
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: 8,
+                borderTop: '1px solid rgba(56, 189, 248, 0.25)',
+                paddingTop: 3,
+              }}
+            >
+              <span style={{ fontSize: 10, color: '#94a3b8', fontWeight: 700 }}>
+                Total Available Stock:
+              </span>
+              <span style={{ fontWeight: 800, fontSize: 12.5, color: '#f1f5f9' }}>
+                {formatDecimal(totalAvail, 0)} {uom}
+              </span>
+            </div>
+          </div>
+        );
+      },
     },
     {
-      title: 'Safety Stock',
-      dataIndex: 'safetyStock',
-      key: 'safetyStock',
+      title: 'Balance / Shortage',
+      key: 'finalBalanceShortage',
       align: 'right',
-      width: 105,
-      render: (qty) => formatDecimal(qty, 0),
+      width: 190,
+      render: (_, r: any) => {
+        const packedFgr = Number(r.packedInCartonsFgr ?? r.reserved ?? 0);
+        const currentFg = Number(r.available ?? Math.max(0, (r.onHand || 0) - (r.reserved || 0)));
+        const totalAvail = Number(r.totalAvailableStock ?? (packedFgr + currentFg));
+        const netPending = Number(r.netPendingDemand ?? r.openSalesOrderQuantity ?? 0);
+        const finalShortage = Number(r.finalBalanceShortage ?? (netPending - totalAvail));
+        const isShortage = finalShortage > 0;
+        const uom = r.uom || 'GRS';
+        return (
+          <div style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+            <div style={{ fontWeight: 800, fontSize: 13.5, color: isShortage ? '#ef4444' : '#22c55e' }}>
+              {isShortage ? `${formatDecimal(finalShortage, 0)} ${uom} Deficit` : `0 ${uom} Shortage`}
+            </div>
+            <div style={{ fontSize: 10.5, fontWeight: 700, color: isShortage ? '#f87171' : '#4ade80', marginTop: 2 }}>
+              {isShortage
+                ? `Output Req: ${formatDecimal(finalShortage, 0)} ${uom}`
+                : `Surplus: +${formatDecimal(Math.abs(finalShortage), 0)} ${uom}`}
+            </div>
+          </div>
+        );
+      },
     },
     {
-      title: 'Required Stock',
-      dataIndex: 'requiredStock',
-      key: 'requiredStock',
+      title: '3-Month Forecast & Safety Stock',
+      key: 'forecastAndSafety',
       align: 'right',
-      width: 120,
-      render: (qty) => formatDecimal(qty, 0),
-    },
-    {
-      title: 'Projected Balance',
-      dataIndex: 'projectedBalance',
-      key: 'projectedBalance',
-      align: 'right',
-      width: 140,
-      render: (bal) => (
-        <span style={{ fontWeight: 700, color: bal < 0 ? '#ff4d4f' : '#52c41a' }}>
-          {formatDecimal(bal, 0)}
-        </span>
-      ),
+      width: 225,
+      render: (_, r: any) => {
+        const uom = r.uom || 'GRS';
+        const netPending = Number(r.netPendingDemand ?? r.openSalesOrderQuantity ?? 0);
+        const totalOrd = Number(r.totalOrderDemand || netPending);
+        const monthlyAvg = Number(r.monthlyAvgConsumption ?? Math.round((totalOrd / 3) * 100) / 100);
+        const forecast3M = Number(r.threeMonthForecast ?? Math.round(Math.max(totalOrd * 1.1, netPending + monthlyAvg)));
+        const safetyBuffer = Number(r.safetyStockBuffer ?? Math.max(Number(r.safetyStock || 0), Math.round(forecast3M * 0.25), totalOrd > 0 ? 500 : 0));
+        const trendMin = Number(r.trendMinMonthly ?? Math.round(monthlyAvg * 0.85));
+        const trendMax = Number(r.trendMaxMonthly ?? Math.round(monthlyAvg * 1.15));
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 3, textAlign: 'right', whiteSpace: 'nowrap' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 10.5, color: 'var(--inv-text-muted, #94a3b8)', fontWeight: 600 }}>
+                3M Sales Forecast:
+              </span>
+              <span style={{ fontWeight: 800, fontSize: 12.5, color: '#a855f7' }}>
+                {formatDecimal(forecast3M, 0)} {uom}
+              </span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 10.5, color: 'var(--inv-text-muted, #94a3b8)', fontWeight: 600 }}>
+                Safety Stock Buffer:
+              </span>
+              <span style={{ fontWeight: 700, fontSize: 12, color: '#f59e0b' }}>
+                {formatDecimal(safetyBuffer, 0)} {uom}
+              </span>
+            </div>
+            <div style={{ fontSize: 10, color: '#94a3b8', borderTop: '1px dashed rgba(148, 163, 184, 0.2)', paddingTop: 2 }}>
+              3M Trend: {formatDecimal(trendMin, 0)}–{formatDecimal(trendMax, 0)} {uom}/mo
+            </div>
+          </div>
+        );
+      },
     },
     {
       title: 'Status',
       dataIndex: 'status',
       key: 'status',
-      width: 160,
+      width: 155,
       render: (st) => {
         let color = 'green';
         let text = 'Above Requirement';
@@ -1280,7 +1488,7 @@ export const SalesAnalyticsDashboard: React.FC = () => {
           color = 'blue';
           text = 'At Requirement';
         }
-        return <Tag color={color}>{text}</Tag>;
+        return <Tag color={color} style={{ whiteSpace: 'nowrap' }}>{text}</Tag>;
       },
     },
   ];
@@ -1442,74 +1650,88 @@ export const SalesAnalyticsDashboard: React.FC = () => {
             ),
             children: (
               <div>
-                {/* Row 1: Operational Pipeline & Fulfillment */}
-                <div style={{ marginBottom: 12 }}>
+                {/* Row 1: Executive Sales Demand & Fulfillment Flow (5-Step Formula) */}
+                <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
                   <Text strong style={{ fontSize: 13, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--inv-text-secondary, #64748b)' }}>
-                    Operational Pipeline & Fulfillment
+                    Executive Sales Demand & Fulfillment Flow (Gross · GRS)
                   </Text>
+                  <Tag color="purple" style={{ margin: 0, fontSize: 11, fontWeight: 700, borderRadius: 10, padding: '1px 8px' }}>
+                    Uniform Gross Unit Standard (1 GRS = 144 PCS)
+                  </Tag>
                 </div>
-                <Row gutter={[14, 14]} style={{ marginBottom: 20 }}>
-                  <Col xs={24} sm={12} md={8} lg={4}>
-                    <ActionKpiCard
-                      value={kpis.totalSalesOrders}
-                      label="Sales Orders"
-                      icon={<ShoppingCartOutlined />}
-                      gradient="linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%)"
-                      actionText="View orders"
-                      onAction={() => navigate('/sales/orders')}
-                    />
-                  </Col>
-                  <Col xs={24} sm={12} md={8} lg={4}>
-                    <ActionKpiCard
-                      value={kpis.openOrders}
-                      label="Open Orders Demand"
-                      icon={<ClockCircleOutlined />}
-                      gradient="linear-gradient(135deg, #f59e0b 0%, #d97706 100%)"
-                      actionText="Track demand"
-                      onAction={() => setActiveTab('fulfillment')}
-                    />
-                  </Col>
-                  <Col xs={24} sm={12} md={8} lg={4}>
-                    <ActionKpiCard
-                      value={kpis.ordersInProduction}
-                      label="In Production"
-                      icon={<BuildOutlined />}
-                      gradient="linear-gradient(135deg, #0d9488 0%, #0f766e 100%)"
-                      actionText="Production orders"
-                      onAction={() => navigate('/sales/orders')}
-                    />
-                  </Col>
-                  <Col xs={24} sm={12} md={8} lg={4}>
-                    <ActionKpiCard
-                      value={kpis.finishedGoodsReady}
-                      label="FG Ready Inventory"
-                      icon={<AppstoreOutlined />}
-                      gradient="linear-gradient(135deg, #0284c7 0%, #0369a1 100%)"
-                      actionText="View FG inventory"
-                      onAction={() => setActiveTab('fulfillment')}
-                    />
-                  </Col>
-                  <Col xs={24} sm={12} md={8} lg={4}>
-                    <ActionKpiCard
-                      value={kpis.pendingDelivery}
-                      label="Pending Delivery"
-                      icon={<InboxOutlined />}
-                      gradient="linear-gradient(135deg, #ea580c 0%, #c2410c 100%)"
-                      actionText="View dispatches"
-                      onAction={() => navigate('/sales/deliveries')}
-                    />
-                  </Col>
-                  <Col xs={24} sm={12} md={8} lg={4}>
-                    <ActionKpiCard
-                      value={kpis.deliveredOrders}
-                      label="Delivered Orders"
-                      icon={<CheckCircleOutlined />}
-                      gradient="linear-gradient(135deg, #16a34a 0%, #15803d 100%)"
-                      actionText="Delivery history"
-                      onAction={() => navigate('/sales/deliveries')}
-                    />
-                  </Col>
-                </Row>
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
+                    gap: 14,
+                    marginBottom: 22,
+                  }}
+                >
+                  {/* Step 1: Total Order Demand (Gross) */}
+                  <ActionKpiCard
+                    stepBadge="Step 1"
+                    value={executiveMetrics.totalOrderDemand}
+                    suffix="GRS"
+                    label="Total Order Demand"
+                    subLabel="Total customer order volume"
+                    icon={<ShoppingCartOutlined />}
+                    gradient="linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%)"
+                    actionText="View order book"
+                    onAction={() => navigate('/sales/orders')}
+                  />
+
+                  {/* Step 2: Dispatched / Delivered Volume */}
+                  <ActionKpiCard
+                    stepBadge="Step 2"
+                    value={executiveMetrics.dispatchedVolume}
+                    suffix="GRS"
+                    label="Dispatched Volume"
+                    subLabel="Stock shipped to customers"
+                    icon={<CheckCircleOutlined />}
+                    gradient="linear-gradient(135deg, #10b981 0%, #059669 100%)"
+                    actionText="Delivery history"
+                    onAction={() => navigate('/sales/deliveries')}
+                  />
+
+                  {/* Step 3: Net Pending Orders (Demand Breakdown) */}
+                  <ActionKpiCard
+                    stepBadge="Step 3"
+                    value={executiveMetrics.netPendingOrders}
+                    suffix="GRS"
+                    label="Net Pending Orders"
+                    subLabel="Demand - Dispatched"
+                    icon={<ClockCircleOutlined />}
+                    gradient="linear-gradient(135deg, #f59e0b 0%, #d97706 100%)"
+                    actionText="Demand breakdown"
+                    onAction={() => setActiveTab('fulfillment')}
+                  />
+
+                  {/* Step 4: Available FG Stock (Ready + Packed) */}
+                  <ActionKpiCard
+                    stepBadge="Step 4"
+                    value={executiveMetrics.availableFgStock}
+                    suffix="GRS"
+                    label="Available FG Stock"
+                    subLabel="Floor stock + packed cartons"
+                    icon={<AppstoreOutlined />}
+                    gradient="linear-gradient(135deg, #0284c7 0%, #0369a1 100%)"
+                    actionText="View FG inventory"
+                    onAction={() => setActiveTab('fulfillment')}
+                  />
+
+                  {/* Step 5: Net Deficit for Production */}
+                  <ActionKpiCard
+                    stepBadge="Step 5"
+                    value={executiveMetrics.netDeficitForProduction}
+                    suffix="GRS"
+                    label="Net Deficit for Production"
+                    subLabel="Pending Demand - Available FG"
+                    icon={<BuildOutlined />}
+                    gradient="linear-gradient(135deg, #e11d48 0%, #be123c 100%)"
+                    actionText="Production backlog"
+                    onAction={() => setActiveTab('fulfillment')}
+                  />
+                </div>
 
                 {/* Row 2: Financial Reconciliation (Audited Ledger Totals) */}
                 <div style={{ marginBottom: 12 }}>
@@ -1672,7 +1894,7 @@ export const SalesAnalyticsDashboard: React.FC = () => {
                             fontVariantNumeric: 'tabular-nums',
                             letterSpacing: -0.5
                           }}>
-                            {formatDecimal(p.count, 0)}
+                            {formatDecimal(p.stage === 'FINISHED_GOODS' ? executiveMetrics.availableFgStock : p.count, 0)}
                           </div>
                           <div style={{
                             fontSize: 12.5,
@@ -2034,7 +2256,7 @@ export const SalesAnalyticsDashboard: React.FC = () => {
                     dataSource={computedNippleAnalytics}
                     rowKey="itemCode"
                     pagination={false}
-                    scroll={{ x: 1100 }}
+                    scroll={{ x: 1540 }}
                     columns={[
                       {
                         title: 'Item Name',
@@ -2083,77 +2305,102 @@ export const SalesAnalyticsDashboard: React.FC = () => {
                         ),
                       },
                       {
-                        title: 'Total Order Demand',
-                        dataIndex: 'totalDemand',
-                        key: 'totalDemand',
-                        align: 'right',
-                        width: 140,
-                        render: (val, r: any) => (
-                          <div style={{ textAlign: 'right' }}>
-                            <span style={{ fontWeight: 800, fontSize: 13.5, color: 'var(--inv-text-primary, #f1f5f9)' }}>
-                              {formatDecimal(val || 0, 0)} {r.uom || 'GRS'}
-                            </span>
-                            <div style={{ fontSize: 10.5, color: 'var(--inv-text-muted, #94a3b8)', marginTop: 2 }}>
-                              Gross Spoke Demand
-                            </div>
-                          </div>
-                        ),
-                      },
-                      {
-                        title: 'Packed in Cartons (FGR)',
-                        key: 'packedInCartons',
-                        align: 'right',
-                        width: 160,
+                        title: 'Order Demand (Total / Pending)',
+                        key: 'orderDemandStacked',
+                        width: 200,
                         render: (_, r: any) => {
-                          const p = Number(r.totalPackedInSpokes || 0);
-                          const pCtns = Math.round(p / 10);
+                          const totalOrd = Number(r.totalDemand || 0);
+                          const netPending = Number(
+                            r.netPendingDemand !== undefined
+                              ? r.netPendingDemand
+                              : Math.max(0, totalOrd - Number(r.totalPackedInSpokes || 0)),
+                          );
+                          const uom = r.uom || 'GRS';
                           return (
-                            <div style={{ textAlign: 'right' }}>
-                              <Tag color={p > 0 ? 'cyan' : 'default'} style={{ fontWeight: 800, fontSize: 12, padding: '1px 8px' }}>
-                                {formatDecimal(p, 0)} {r.uom || 'GRS'}
-                              </Tag>
-                              <div style={{ fontSize: 10.5, color: p > 0 ? '#38bdf8' : 'var(--inv-text-muted, #94a3b8)', marginTop: 2, fontWeight: 600 }}>
-                                {p > 0 ? `Inside FG Cartons (${pCtns} CTN)` : '0 Packed'}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '4px 0' }}>
+                              {/* Row 1 (Top): Total Order Demand */}
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                                <span style={{ fontSize: 11, color: 'var(--inv-text-muted, #94a3b8)', fontWeight: 600 }}>
+                                  Total Order Demand:
+                                </span>
+                                <span style={{ fontWeight: 800, fontSize: 13.5, color: '#3b82f6' }}>
+                                  {formatDecimal(totalOrd, 0)} {uom}
+                                </span>
+                              </div>
+                              {/* Row 2 (Bottom): Net Pending Demand */}
+                              <div
+                                style={{
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  gap: 1,
+                                  borderTop: '1px dashed rgba(148, 163, 184, 0.2)',
+                                  paddingTop: 5,
+                                }}
+                              >
+                                <span style={{ fontSize: 11, color: 'var(--inv-text-muted, #94a3b8)', fontWeight: 600 }}>
+                                  Net Pending Demand:
+                                </span>
+                                <span style={{ fontWeight: 800, fontSize: 13.5, color: '#ef4444' }}>
+                                  {formatDecimal(netPending, 0)} {uom}
+                                </span>
                               </div>
                             </div>
                           );
                         },
                       },
                       {
-                        title: 'Net Pending Demand',
-                        key: 'netPendingDemand',
-                        align: 'right',
-                        width: 165,
+                        title: 'Available Stock (FGR + FG)',
+                        key: 'availableStockStacked',
+                        width: 210,
                         render: (_, r: any) => {
-                          const net = Number(r.netPendingDemand !== undefined ? r.netPendingDemand : Math.max(0, (r.totalDemand || 0) - (r.totalPackedInSpokes || 0)));
+                          const packedFgr = Number(r.packedInCartonsFgr ?? r.totalPackedInSpokes ?? 0);
+                          const currentFg = Number(r.currentFgStock ?? r.fgStock ?? 0);
+                          const totalAvail = Number(r.totalAvailableStock ?? (packedFgr + currentFg));
+                          const uom = r.uom || 'GRS';
                           return (
-                            <div style={{ textAlign: 'right' }}>
-                              <span style={{ fontWeight: 800, fontSize: 14, color: '#38bdf8' }}>
-                                {formatDecimal(net, 0)} {r.uom || 'GRS'}
-                              </span>
-                              <div style={{ fontSize: 10.5, color: 'var(--inv-text-muted, #94a3b8)', marginTop: 2, fontWeight: 500 }}>
-                                (Order − Packed FGR)
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '4px 0' }}>
+                              {/* Row 1 (Top): Packed in Cartons (FGR) */}
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                                <span style={{ fontSize: 11, color: 'var(--inv-text-muted, #94a3b8)', fontWeight: 600 }}>
+                                  Packed in Cartons (FGR):
+                                </span>
+                                <span style={{ fontWeight: 700, fontSize: 13, color: '#06b6d4' }}>
+                                  {formatDecimal(packedFgr, 0)} {uom}
+                                </span>
                               </div>
-                            </div>
-                          );
-                        },
-                      },
-                      {
-                        title: 'Current FG Stock',
-                        dataIndex: 'fgStock',
-                        key: 'fgStock',
-                        align: 'right',
-                        width: 165,
-                        render: (val, r: any) => {
-                          const fgPcs = r.baseQuantity || (Number(val || 0) * 144);
-                          const fgCtns = Math.round(Number(val || 0) / 10);
-                          return (
-                            <div style={{ textAlign: 'right' }}>
-                              <Tag color={Number(val || 0) > 0 ? 'blue' : 'default'} style={{ fontWeight: 700, fontSize: 12.5, padding: '1px 8px' }}>
-                                {formatDecimal(val || 0, 0)} {r.uom || 'GRS'}
-                              </Tag>
-                              <div style={{ fontSize: 10.5, color: 'var(--inv-text-secondary, #cbd5e1)', marginTop: 2, fontWeight: 600 }}>
-                                {formatDecimal(fgPcs, 0)} PCS {fgCtns > 0 ? `· ${fgCtns} CTN` : ''}
+                              {/* Row 2 (Middle): Current FG Stock */}
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                                <span style={{ fontSize: 11, color: 'var(--inv-text-muted, #94a3b8)', fontWeight: 600 }}>
+                                  Current FG Stock:
+                                </span>
+                                <span style={{ fontWeight: 700, fontSize: 13, color: '#22c55e' }}>
+                                  {formatDecimal(currentFg, 0)} {uom}
+                                </span>
+                              </div>
+                              {/* Row 3 (Bottom): Total Available Stock */}
+                              <div
+                                style={{
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  gap: 1,
+                                  borderTop: '1px solid rgba(56, 189, 248, 0.25)',
+                                  paddingTop: 5,
+                                }}
+                              >
+                                <span style={{ fontSize: 10.5, color: 'var(--inv-text-muted, #94a3b8)', fontWeight: 700 }}>
+                                  Total Available Stock:
+                                </span>
+                                <span
+                                  style={{
+                                    fontWeight: 800,
+                                    fontSize: 13.5,
+                                    color: 'var(--inv-text-primary, #f1f5f9)',
+                                    textDecoration: 'underline',
+                                    textUnderlineOffset: 3,
+                                  }}
+                                >
+                                  {formatDecimal(totalAvail, 0)} {uom}
+                                </span>
                               </div>
                             </div>
                           );
@@ -2163,23 +2410,116 @@ export const SalesAnalyticsDashboard: React.FC = () => {
                         title: 'Balance / Shortage',
                         dataIndex: 'balance',
                         key: 'balance',
-                        align: 'right',
-                        width: 175,
-                        render: (val, r: any) => {
-                          const isShort = Number(val || 0) < 0;
+                        width: 240,
+                        render: (_, r: any) => {
+                          const packedFgr = Number(r.packedInCartonsFgr ?? r.totalPackedInSpokes ?? 0);
+                          const currentFg = Number(r.currentFgStock ?? r.fgStock ?? 0);
+                          const totalAvail = Number(r.totalAvailableStock ?? (packedFgr + currentFg));
+                          const netPending = Number(
+                            r.netPendingDemand !== undefined
+                              ? r.netPendingDemand
+                              : Math.max(0, Number(r.totalDemand || 0) - packedFgr),
+                          );
+                          // Final Balance / Shortage = Net Pending Demand - Total Available Stock
+                          const finalShortage = Number(
+                            r.finalBalanceShortage !== undefined ? r.finalBalanceShortage : netPending - totalAvail,
+                          );
+                          const isShortage = finalShortage > 0;
+                          const uom = r.uom || 'GRS';
                           return (
-                            <div style={{ textAlign: 'right' }}>
-                              <span
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '4px 0' }}>
+                              {/* Row 1 (Top): Deficit Status */}
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                                <span style={{ fontSize: 11, color: 'var(--inv-text-muted, #94a3b8)', fontWeight: 600 }}>
+                                  Deficit Status:
+                                </span>
+                                <span
+                                  style={{
+                                    fontWeight: 800,
+                                    fontSize: 14,
+                                    color: isShortage ? '#ef4444' : '#22c55e',
+                                  }}
+                                >
+                                  {isShortage
+                                    ? `${formatDecimal(finalShortage, 0)} ${uom} Deficit`
+                                    : `0 ${uom} Shortage (Sufficient)`}
+                                </span>
+                              </div>
+                              {/* Row 2 (Bottom): Output Req */}
+                              <div
                                 style={{
-                                  fontWeight: 800,
-                                  fontSize: 14,
-                                  color: isShort ? '#ef4444' : '#22c55e',
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  gap: 2,
+                                  borderTop: '1px dashed rgba(148, 163, 184, 0.2)',
+                                  paddingTop: 5,
                                 }}
                               >
-                                {isShort ? `- ${formatDecimal(Math.abs(val), 0)} GRS` : `+ ${formatDecimal(val, 0)} GRS`}
-                              </span>
-                              <div style={{ fontSize: 11, fontWeight: 700, color: isShort ? '#ef4444' : '#22c55e', marginTop: 2 }}>
-                                {isShort ? 'Shortage' : 'Surplus'}
+                                <span style={{ fontSize: 10.5, color: 'var(--inv-text-muted, #94a3b8)', fontWeight: 600 }}>
+                                  Output Req:
+                                </span>
+                                <span
+                                  style={{
+                                    fontSize: 11,
+                                    fontWeight: 600,
+                                    color: isShortage ? '#f87171' : '#4ade80',
+                                    lineHeight: 1.4,
+                                  }}
+                                >
+                                  {isShortage
+                                    ? `Output Req: ${formatDecimal(finalShortage, 0)} ${uom} | Pending (${formatDecimal(netPending, 0)}) - Avail (${formatDecimal(totalAvail, 0)})`
+                                    : `Surplus Stock: +${formatDecimal(Math.abs(finalShortage), 0)} ${uom} | Pending (${formatDecimal(netPending, 0)}) - Avail (${formatDecimal(totalAvail, 0)})`}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        },
+                      },
+                      {
+                        title: '3-Month Forecast & Safety Stock',
+                        key: 'forecastAndSafetyStock',
+                        width: 210,
+                        render: (_, r: any) => {
+                          const uom = r.uom || 'GRS';
+                          const forecast3M = Number(r.threeMonthForecast || 0);
+                          const safetyBuffer = Number(r.safetyStockBuffer || 0);
+                          const recOrder = Number(r.recommendedOrderQty || 0);
+                          return (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '4px 0' }}>
+                              {/* Row 1 (Top): 3M Sales Forecast */}
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                                <span style={{ fontSize: 11, color: 'var(--inv-text-muted, #94a3b8)', fontWeight: 600 }}>
+                                  3M Sales Forecast:
+                                </span>
+                                <span style={{ fontWeight: 800, fontSize: 13, color: '#a855f7' }}>
+                                  {formatDecimal(forecast3M, 0)} {uom}
+                                </span>
+                              </div>
+                              {/* Row 2 (Middle): Safety Stock Buffer */}
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                                <span style={{ fontSize: 11, color: 'var(--inv-text-muted, #94a3b8)', fontWeight: 600 }}>
+                                  Safety Stock Buffer:
+                                </span>
+                                <span style={{ fontWeight: 700, fontSize: 12.5, color: '#f59e0b' }}>
+                                  {formatDecimal(safetyBuffer, 0)} {uom}
+                                </span>
+                              </div>
+                              {/* Row 3 (Bottom): Order Target */}
+                              <div
+                                style={{
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  gap: 1,
+                                  borderTop: '1px dashed rgba(148, 163, 184, 0.2)',
+                                  paddingTop: 5,
+                                }}
+                              >
+                                <span style={{ fontSize: 10.5, color: 'var(--inv-text-muted, #94a3b8)', fontWeight: 600 }}>
+                                  Order Target:
+                                </span>
+                                <span style={{ fontWeight: 700, fontSize: 12.5, color: '#38bdf8' }}>
+                                  Order Target: {formatDecimal(recOrder, 0)} {uom}
+                                </span>
                               </div>
                             </div>
                           );
@@ -2191,10 +2531,10 @@ export const SalesAnalyticsDashboard: React.FC = () => {
                         align: 'center',
                         width: 140,
                         render: (_, r: any) => {
-                          const isShort = Number(r.balance || 0) < 0;
+                          const isShort = Number(r.finalBalanceShortage ?? r.balance ?? 0) > 0;
                           return (
-                            <Tag color={isShort ? 'error' : 'success'} style={{ fontWeight: 700, padding: '3px 8px' }}>
-                              {isShort ? 'Production Required' : 'In Stock'}
+                            <Tag color={isShort ? 'error' : 'success'} style={{ fontWeight: 700, padding: '3px 8px', whiteSpace: 'nowrap' }}>
+                              {isShort ? 'Production Required' : 'Stock Sufficient'}
                             </Tag>
                           );
                         },

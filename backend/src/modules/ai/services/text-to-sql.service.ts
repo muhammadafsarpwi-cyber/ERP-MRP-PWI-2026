@@ -188,6 +188,20 @@ export class TextToSqlService {
           meta,
         };
       } else {
+        const isCustomerOrSalesAsk =
+          /\b(top\s+customers?|customer(\s+sales|\s+volume)?|sales\s+volume|client\s+sales|customers?|clients?|گاہک)\b/i.test(
+            question,
+          );
+        const filteredRows = isCustomerOrSalesAsk
+          ? execution.rows.filter((row) => {
+              const nameCandidate = String(
+                row.customer_name ?? row.customer ?? row.company_name ?? row.name ?? '',
+              ).trim();
+              if (!nameCandidate) return true;
+              return !/pakistan\s*wire(\s*industries)?|\bpwi\b/i.test(nameCandidate);
+            })
+          : execution.rows;
+
         answer = {
           status: 'success',
           mode: input.mode,
@@ -202,8 +216,8 @@ export class TextToSqlService {
           },
           confidence: candidate.confidence,
           columns: execution.columns,
-          rows: execution.rows,
-          rowCount: execution.rowCount,
+          rows: filteredRows,
+          rowCount: filteredRows.length,
           truncated: execution.truncated,
           chart: this.buildChartMetadata(question, execution.columns, candidate.chart),
           meta,
@@ -256,6 +270,26 @@ Translate the user's question (English, Urdu, or mixed) into ONE PostgreSQL read
 10. Urdu/English mixed speech is normal ("SPT ka last month ka production"). Interpret faithfully; romanized 
     numbers ("bees"=20) and months should be resolved to real dates.
 11. If the question seems unrelated to the ERP data, still attempt the closest sensible SELECT.
+12. ENTITY DISTINCTION (Customers vs Suppliers vs Internal Company):
+    • "Customers" and "Suppliers" are distinct entities. NEVER return supplier data (suppliers, purchase_orders, goods_receipt_notes) or internal company records (e.g. Pakistan Wire Industries, companies table) when a user asks about "Customers" or "Sales".
+    • NEVER query the "production_entries" table for customer sales volume.
+    • "Pakistan Wire Industries" (or PWI) is our own company name (the manufacturer/supplier). It must NEVER appear as a customer in any sales report. ALWAYS filter it out:
+      WHERE c.name NOT ILIKE '%Pakistan Wire%' AND c.name NOT ILIKE '%PWI%'
+    • When asked for "Top Customers by sales volume" or customer rankings, strictly query sales_orders, sales_invoices, or client-facing tables. Do NOT fetch procurement or master record data.
+13. PRODUCTION VS ITEMS / MACHINES:
+    • When a user asks for "Machine Production", "Department Production", "Spoke Division production", or operational throughput, return actual operational production logs (production_entries).
+    • Do NOT substitute a production query with a general item list (items) or inventory master data.
+14. CONTEXT & SCOPE HANDLING (Time & Department):
+    • Listen carefully to specific divisions (e.g. Spoke Division / SPT) and departments (e.g. Spoke Department, Straightener, Packing) and timeframes (today, this week, this month, specific date ranges).
+    • Always dynamically filter the database queries based on the requested Department/Division and the specific Date/Time range specified by the user.
+15. GROSS UNIT CONVERSION (1 Gross = 144 Pieces / PCS):
+    • When the user requests production, target, average, or scrap in "Gross" (e.g. "Show Spoke Division production in Gross", "machine-wise production in Gross", "Gross-wise report", "گراس"), 1 Gross = 144 Pieces (PCS).
+    • You MUST dynamically divide all piece-based quantities fetched from production_entries by 144.0:
+      - ROUND(SUM(pe.actual_quantity) / 144.0, 2) AS total_production
+      - ROUND(AVG(pe.actual_quantity) / 144.0, 2) AS avg_production
+      - ROUND(SUM(pe.target_quantity) / 144.0, 2) AS target_quantity
+      - For granular row-level reports: ROUND(pe.actual_quantity / 144.0, 2) AS actual_production, ROUND(COALESCE(pe.calculated_target, pe.target_quantity) / 144.0, 2) AS runtime_dynamic_target, ROUND(pe.scrap_quantity / 144.0, 2) AS product_scrap_gross
+    • Label chart series with "(Gross)" so the unit conversion is clear.
 
 # MANDATORY KEY-PHRASE → QUERY SHAPES (the grouping dimension is dictated by the user's wording — 
 # NEVER substitute another dimension, especially NEVER group "machine-wise" questions by item/product)
@@ -289,6 +323,35 @@ C) "shift-wise", "per shift" → GROUP BY shift (shifts.shift_name via pe.shift_
 D) "division-wise", "per division", "compare divisions" → GROUP BY division (divisions.division_code/name).
 E) "day-wise"/"daily"/"by date" → GROUP BY pe.entry_date (date_trunc for wider ranges).
 F) "department-wise" → GROUP BY departments.name via pe.department_id.
+G) "top customers", "customers by sales volume", "customer sales", "client sales" → GROUP BY CUSTOMER:
+   • JOIN customers c ON c.id = so.customer_id (so = sales_orders or si = sales_invoices).
+   • ALWAYS filter out our company: WHERE c.name NOT ILIKE '%Pakistan Wire%' AND c.name NOT ILIKE '%PWI%'.
+   • Aggregate SUM(so.total_amount) AS total_sales, COUNT(so.id) AS order_count.
+   • NEVER query production_entries, suppliers, or company records.
+H) "department production", "spoke division production", "operational production" → PRODUCTION LOGS:
+   • Query production_entries pe, join departments d ON d.id = pe.department_id.
+   • Filter by the requested department/division and timeframe (e.g. pe.entry_date = CURRENT_DATE).
+I) SPECIFIC DATE PRODUCTION REPORT / GRANULAR LEDGER (e.g. "23rd production report", "22nd data", "production on 23 Oct", "today's production report", "yesterday's production"):
+   • NEVER return a single cumulative Grand Total row for the whole month or day!
+   • You MUST return a detailed item-wise, machine-wise, and department-wise ledger for that exact date (WHERE pe.entry_date = DATE '<YYYY-MM-DD>'), ordered by division_name ASC, department_name ASC, machine_no ASC.
+   • Every row MUST include:
+     - pe.division_id
+     - dv.name AS division_name
+     - d.name AS department_name
+     - COALESCE(m.machine_code, pe.machine_no) AS machine_no
+     - i.item_code, i.name AS item_name
+     - ROUND(pe.target_quantity / NULLIF(COALESCE(pe.standard_hours, 8), 0), 2) AS target_per_hour
+     - COALESCE(pe.calculated_target, pe.target_quantity) AS runtime_dynamic_target
+     - pe.running_hours
+     - pe.actual_quantity AS actual_production
+     - COALESCE(pe.achievement_percentage, ROUND((pe.actual_quantity / NULLIF(COALESCE(pe.calculated_target, pe.target_quantity), 0)) * 100, 2)) AS achievement_pct
+     - pe.scrap_quantity AS product_scrap_pcs
+     - ROUND(pe.scrap_quantity * COALESCE(i.weight_per_piece, i.weight_per_meter, 0.015), 3) AS product_scrap_kg
+     - CASE WHEN COALESCE(i.weight_per_piece, 0.015) > 0 THEN ROUND(pe.process_scrap_kg / COALESCE(NULLIF(i.weight_per_piece, 0), 0.015), 0) ELSE 0 END AS process_scrap_pcs
+     - pe.process_scrap_kg
+     - pe.downtime_hours
+     - COALESCE(dr.name, pe.downtime_reason, pe.remarks, 'No Downtime') AS downtime_details
+   • Set "chartType": "table" in the response JSON so the raw granular rows are the primary focus.
 
 # RESPONSE FORMAT (JSON only, no prose)
 {
@@ -317,7 +380,10 @@ the production/target aggregates — NEVER an item/product column. For record li
 ${this.catalogService.renderSchemaPrompt(catalog)}
 
 # DIVISIONS you may reference
-${this.catalogService.renderDivisionsPrompt(catalog, allowedDivisionIds)}`;
+${this.catalogService.renderDivisionsPrompt(catalog, allowedDivisionIds)}
+
+# DEPARTMENTS you may reference
+${this.catalogService.renderDepartmentsPrompt(catalog, allowedDivisionIds)}`;
   }
 
   private buildUserPrompt(question: string, previousSql: string, lastIssue: string): string {
@@ -350,23 +416,25 @@ ${this.catalogService.renderDivisionsPrompt(catalog, allowedDivisionIds)}`;
     repairHint: string;
   }> = [
     {
-      // "machine-wise production", "per machine", "machine ka production"
-      pattern: /\b(machine[\s-]?(wise|wise production)|per[\s-]?machine|each machine|machine production|by machine|machine ka (production|output)|machineon ka)\b|مشین/i,
+      // "machine-wise production", "machine target", "machine average", "target/average", "per machine", "machine ka production"
+      pattern: /\b(machine[\s-]?(wise|wise production|target|average|performance|report|efficiency)|target[\s/&-]+average|average[\s/&-]+target|per[\s-]?machine|each machine|all machines|machine production|by machine|machine ka (production|output|target|average)|machineon ka)\b|مشین/i,
       requireAll: [
         /\bJOIN\s+machines\b/i, // must join the machines dimension table
         /\bm\.id\s*=\s*pe\.machine_id\b|\bpe\.machine_id\s*=\s*m\.id\b/i, // correct FK
-        /\bmachine_(name|code)\b/i, // must expose the machine label
+        /\bmachine_(name|code|id)\b|\bm\.(name|code|id)\b/i, // must expose the machine label/id
         /\bFROM\s+production_entries\b/i,
       ],
       forbidAny: [
         // group by the item dimension = wrong report for a machine-wise ask
         /\bGROUP\s+BY\b[\s\S]*\b(item_id|production_in_item_id|item_name|item_code|sku)\b/i,
+        /\bFROM\s+items\b/i,
       ],
       repairHint:
-        'SHAPE REPAIR REQUIRED: the user asked for a MACHINE-wise report. The SQL must ' +
-        'JOIN machines m ON m.id = pe.machine_id, GROUP BY m.id, m.machine_name, m.machine_code and ' +
+        'SHAPE REPAIR REQUIRED: the user asked for a MACHINE-wise / Target-Average report. The SQL must ' +
+        'aggregate rows directly from operational machine execution logs (FROM production_entries pe ' +
+        'JOIN machines m ON m.id = pe.machine_id), GROUP BY pe.division_id, m.id, m.machine_name, m.machine_code and ' +
         'aggregate SUM(pe.actual_quantity) AS total_production / AVG(pe.actual_quantity) AS avg_production ' +
-        '/ SUM(pe.target_quantity) AS target_quantity. Do NOT group by any item/product column.',
+        '/ SUM(pe.target_quantity) AS target_quantity. Do NOT return master product/item catalog layouts.',
     },
     {
       // "item-wise", "product-wise", "per item/product"
@@ -401,6 +469,63 @@ ${this.catalogService.renderDivisionsPrompt(catalog, allowedDivisionIds)}`;
       requireAll: [/entry_date|created_at|date/i],
       forbidAny: [],
       repairHint: 'SHAPE REPAIR REQUIRED: the user asked for a DAY-wise report — group by the date column (pe.entry_date).',
+    },
+    {
+      // "customer", "top customers", "customers by sales volume", "sales volume", "client"
+      pattern: /\b(top\s+customers?|customer(\s+sales|\s+volume)?|sales\s+volume|client\s+sales|customers?|clients?|گاہک)\b/i,
+      requireAll: [
+        /\b(customers|sales_orders|sales_invoices|sales_order_items)\b/i,
+      ],
+      forbidAny: [
+        /\b(suppliers|purchase_orders|goods_receipt_notes|grn|production_entries|items)\b/i,
+      ],
+      repairHint:
+        'SHAPE REPAIR REQUIRED: Customers and Suppliers/Production are distinct entities. For Customer/Sales volume questions, ' +
+        'strictly query client-facing invoice/order tables (sales_orders, sales_invoices, customers). NEVER query production_entries, suppliers, or procurement records, ' +
+        'and ALWAYS omit our own manufacturing registry name "Pakistan Wire Industries" via WHERE c.name NOT ILIKE \'%Pakistan Wire Industries%\' AND c.name NOT ILIKE \'%Pakistan Wire%\'.',
+    },
+    {
+      // "department production", "spoke division production", "machine production"
+      pattern: /\b((machine|department|division|spoke(\s+division|\s+department)?)\s+production|production\s+(today|this\s+week|this\s+month))\b/i,
+      requireAll: [
+        /\bFROM\s+production_entries\b/i,
+      ],
+      forbidAny: [
+        /\bFROM\s+items\b(?!\s*JOIN\s+production_entries)/i,
+      ],
+      repairHint:
+        'SHAPE REPAIR REQUIRED: The user asked for operational production logs. ' +
+        'Query production_entries (joined with machines/departments as needed), NOT the static items master table.',
+    },
+    {
+      // Specific date production report / data (e.g. "23rd production report", "22nd data")
+      pattern: /\b(([12]?\d|3[01])(?:st|nd|rd|th)\s+(?:production|report|data)|(?:production\s+report|production\s+data)\s+(?:for|on)\s+([12]?\d|3[01])(?:st|nd|rd|th)?)\b/i,
+      requireAll: [
+        /\bFROM\s+production_entries\b/i,
+        /\b(machine_code|machine_no)\b/i,
+        /\b(item_code|item_name|i\.name)\b/i,
+        /\b(scrap_quantity|process_scrap_kg)\b/i,
+      ],
+      forbidAny: [],
+      repairHint:
+        'SHAPE REPAIR REQUIRED: The user asked for a specific-date production report. Do NOT return a single cumulative ' +
+        'Grand Total row. Return a granular item-wise, machine-wise, and department-wise ledger from production_entries pe ' +
+        'joined with divisions dv, departments d, machines m, items i, and LEFT JOIN downtime_reasons dr, ordered by ' +
+        'dv.name ASC, d.name ASC, COALESCE(m.machine_code, pe.machine_no) ASC, including target_per_hour, runtime_dynamic_target, ' +
+        'actual_production, achievement_pct, product_scrap_pcs, product_scrap_kg, process_scrap_pcs, process_scrap_kg, and downtime_details.',
+    },
+    {
+      // Gross unit conversion (1 Gross = 144 Pieces / PCS)
+      pattern: /\b(in\s+gross|gross[\s-]?wise|per\s+gross|into\s+gross|gross\s+production|production\s+in\s+gross|gross\s+unit)\b|گراس/i,
+      requireAll: [
+        /\bFROM\s+production_entries\b/i,
+        /\/\s*144(\.0+)?\b/i,
+      ],
+      forbidAny: [],
+      repairHint:
+        'SHAPE REPAIR REQUIRED: The user requested production values in "Gross" (1 Gross = 144 Pieces / PCS). ' +
+        'You MUST divide piece quantities from production_entries by 144.0 (e.g. ROUND(SUM(pe.actual_quantity) / 144.0, 2) AS total_production, ' +
+        'ROUND(AVG(pe.actual_quantity) / 144.0, 2) AS avg_production, ROUND(SUM(pe.target_quantity) / 144.0, 2) AS target_quantity).',
     },
   ];
 
@@ -439,7 +564,7 @@ ${this.catalogService.renderDivisionsPrompt(catalog, allowedDivisionIds)}`;
       candidates.filter(([column]) => has(column)).map(([column, label]) => ({ column, label }));
 
     // ── machine-wise → bar chart on machine names ──────────────────────────
-    if (/\bmachine[\s-]?wise\b|\bper[\s-]?machine\b|\beach machine\b|مشین/i.test(question)) {
+    if (/\bmachine[\s-]?(wise|target|average|performance|report)?\b|\bper[\s-]?machine\b|\beach machine\b|all machines|مشین/i.test(question)) {
       const xColumn = first('machine_name', 'machine_code', 'machine_id');
       if (xColumn) {
         return {
@@ -471,6 +596,23 @@ ${this.catalogService.renderDivisionsPrompt(catalog, allowedDivisionIds)}`;
           ['total_production', 'Total Production'],
           ['total_quantity', 'Total Quantity'],
           ['total', 'Total'],
+        ),
+      };
+    }
+
+    // ── customer / top customers by sales volume ───────────────────────────
+    const custX = first('customer_name', 'client_name', 'name', 'customer_code');
+    if (custX && /\b(customers?|clients?|گاہک)\b/i.test(question)) {
+      return {
+        chartType: 'bar',
+        dimension: 'none',
+        x: { column: custX, label: 'Customers' },
+        series: seriesOf(
+          ['total_sales', 'Total Sales'],
+          ['total_amount', 'Total Amount'],
+          ['sales_volume', 'Sales Volume'],
+          ['total_quantity', 'Total Quantity'],
+          ['order_count', 'Orders'],
         ),
       };
     }

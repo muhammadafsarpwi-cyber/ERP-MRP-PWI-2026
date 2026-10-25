@@ -774,7 +774,7 @@ const EntryForm: React.FC<EntryFormProps> = ({
   useEffect(() => {
     if (!lockedContext || lookups.machines.length === 0) return;
     const m = lookups.machines.find((x) => x.id === qMachineId);
-    if (m && form.getFieldValue('machineNo') !== m.machineCode) {
+    if (m && !form.getFieldValue('machineNo')) {
       form.setFieldValue('machineNo', m.machineCode);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2135,8 +2135,22 @@ const EntryForm: React.FC<EntryFormProps> = ({
         delete payload.targetQuantity;
         delete payload.uomId;
       }
-      if (ctxIds.machineId) {
-        // Pin the exact master machine so codes repeated across departments stay unambiguous.
+      let mMatch: any = null;
+      const targetMachineCode = String(payload.machineNo || '').toLowerCase().trim();
+      if (targetMachineCode) {
+        mMatch = lookups.machines.find((x) =>
+          (x.machineCode && x.machineCode.toLowerCase().trim() === targetMachineCode) ||
+          (x.name && x.name.toLowerCase().trim() === targetMachineCode) ||
+          (x.machineCode && x.machineCode.toLowerCase().replace(/[^a-z0-9]/g, '') === targetMachineCode.replace(/[^a-z0-9]/g, ''))
+        );
+      }
+      if (!mMatch && ctxIds.machineId) {
+        mMatch = lookups.machines.find((x) => x.id === ctxIds.machineId);
+      }
+      if (mMatch) {
+        payload.machineId = mMatch.id;
+        payload.machineNo = mMatch.machineCode;
+      } else if (ctxIds.machineId) {
         payload.machineId = ctxIds.machineId;
       } else {
         delete payload.machineId;
@@ -2427,15 +2441,14 @@ const EntryForm: React.FC<EntryFormProps> = ({
     // prefill effect (date/shift/org/machine + raw material store) reruns
     // cleanly — no fragile manual field resets.
     if (lockedContext) {
+      // Return to machine selection so the operator can select the next machine tile for this department
       const qs = new URLSearchParams();
-      qs.set('from', 'select');
-      if (qMachineId) qs.set('machineId', qMachineId);
       if (qDate) qs.set('entryDate', qDate);
       if (qShiftId) qs.set('shiftId', qShiftId);
       if (qDivisionId) qs.set('divisionId', qDivisionId);
       if (qSectionId) qs.set('sectionId', qSectionId);
       if (qDepartmentId) qs.set('departmentId', qDepartmentId);
-      navigate(`/production/entries/new?${qs.toString()}`);
+      navigate(`/production/entries/select?${qs.toString()}`);
       return;
     }
     navigate('/production/entries/new');

@@ -19,6 +19,8 @@ import { CustomerRankingMetric } from '../dto/sales-analytics.dto';
 
 describe('SalesAnalyticsService', () => {
   let service: SalesAnalyticsService;
+  let orderRepoMock: any;
+  let orderItemRepoMock: any;
   let returnRepoMock: any;
   let returnLineRepoMock: any;
   let itemRepoMock: any;
@@ -177,6 +179,8 @@ describe('SalesAnalyticsService', () => {
     }).compile();
 
     service = module.get<SalesAnalyticsService>(SalesAnalyticsService);
+    orderRepoMock = module.get(getRepositoryToken(SalesOrder));
+    orderItemRepoMock = module.get(getRepositoryToken(SalesOrderItem));
     returnRepoMock = module.get(getRepositoryToken(SalesReturn));
     returnLineRepoMock = module.get(getRepositoryToken(SalesReturnLine));
     itemRepoMock = module.get(getRepositoryToken(Item));
@@ -373,6 +377,39 @@ describe('SalesAnalyticsService', () => {
       const items = await service.getItemSalesAnalysis(COMPANY_ID);
       expect(items[0].returnedQuantity).toBe(0);
       expect(items[0].netSoldQuantity).toBe(40);
+    });
+  });
+
+  describe('order status filtering (committed orders only)', () => {
+    it('should not count DRAFT or CANCELLED orders in customer analytics', async () => {
+      orderRepoMock.find.mockResolvedValue([
+        { id: 'so-draft', customerId: CUST_ID, status: 'Draft', totalAmount: 1000, companyId: COMPANY_ID },
+        { id: 'so-cancelled', customerId: CUST_ID, status: 'Cancelled', totalAmount: 2000, companyId: COMPANY_ID },
+      ]);
+      orderItemRepoMock.find.mockResolvedValue([
+        { id: 'soi-draft', salesOrderId: 'so-draft', itemId: ITEM_ID, quantity: 10, lineTotal: 1000 },
+        { id: 'soi-cancelled', salesOrderId: 'so-cancelled', itemId: ITEM_ID, quantity: 20, lineTotal: 2000 },
+      ]);
+
+      const analytics = await service.getCustomerSalesAnalytics(COMPANY_ID);
+      expect(analytics[0].totalSalesOrders).toBe(0);
+      expect(analytics[0].salesOrderAmount).toBe(0);
+      expect(analytics[0].orderedQuantity).toBe(0);
+    });
+
+    it('should exclude DRAFT and CANCELLED order lines from item analytics', async () => {
+      orderRepoMock.find.mockResolvedValue([
+        { id: 'so-draft', customerId: CUST_ID, status: 'DRAFT', companyId: COMPANY_ID },
+      ]);
+      orderItemRepoMock.createQueryBuilder.mockReturnValue({
+        where: jest.fn().mockReturnThis(),
+        getMany: jest.fn().mockResolvedValue([
+          { id: 'soi-draft', salesOrderId: 'so-draft', itemId: ITEM_ID, quantity: 10 },
+        ]),
+      });
+
+      const items = await service.getItemSalesAnalysis(COMPANY_ID);
+      expect(items[0].orderedQuantity).toBe(0);
     });
   });
 

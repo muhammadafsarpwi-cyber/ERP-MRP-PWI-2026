@@ -22,6 +22,41 @@ export function formatQty(val: number | string | null | undefined): string {
   return Number(n.toFixed(2)).toLocaleString();
 }
 
+// Core Mathematical Conversion: 1 Gross = 144 Pieces (PCS)
+export const PCS_PER_GROSS = 144;
+
+// Dynamically converts production entry quantities when "Gross" (1 Gross = 144 PCS) is active
+export function convertEntriesForUnit(entries: any[], isGrossMode: boolean): any[] {
+  if (!isGrossMode) return entries;
+  return entries.map((e: any) => ({
+    ...e,
+    actualQuantity: Number(e.actualQuantity ?? e.producedQty ?? 0) / PCS_PER_GROSS,
+    producedQty: Number(e.producedQty ?? e.actualQuantity ?? 0) / PCS_PER_GROSS,
+    targetQuantity: Number(e.targetQuantity ?? e.target_quantity ?? 0) / PCS_PER_GROSS,
+    target_quantity: Number(e.target_quantity ?? e.targetQuantity ?? 0) / PCS_PER_GROSS,
+    calculatedTarget:
+      e.calculatedTarget !== undefined && e.calculatedTarget !== null
+        ? Number(e.calculatedTarget) / PCS_PER_GROSS
+        : undefined,
+    targetPerHour:
+      e.targetPerHour !== undefined && e.targetPerHour !== null
+        ? Number(e.targetPerHour) / PCS_PER_GROSS
+        : undefined,
+    nestedItems: Array.isArray(e.nestedItems)
+      ? e.nestedItems.map((line: any) => ({
+          ...line,
+          actualQuantity: Number(line.actualQuantity ?? 0) / PCS_PER_GROSS,
+          targetQuantity: Number(line.targetQuantity ?? 0) / PCS_PER_GROSS,
+          calculatedTarget:
+            line.calculatedTarget !== undefined && line.calculatedTarget !== null
+              ? Number(line.calculatedTarget) / PCS_PER_GROSS
+              : undefined,
+          uomCode: 'Gross',
+        }))
+      : undefined,
+  }));
+}
+
 // Helper to deduce expected UOM from division code or name
 export const getDivisionUom = (divCodeOrName?: string): string => {
   const s = (divCodeOrName || '').toLowerCase();
@@ -40,14 +75,29 @@ export async function generateReportData(
   intent: QueryIntent,
   divisionsList: DivisionMeta[],
   isDark = false,
+  uomOverride = 'AUTO',
 ): Promise<NormalizedReportResult> {
-  const targetDivision = divisionsList.find((d) => d.code === intent.divisionCode) || divisionsList[1] || {
+  const baseDivision = divisionsList.find((d) => d.code === intent.divisionCode) || divisionsList[1] || {
     id: 'd1000000-0000-0000-0000-000000000002',
     code: 'DIV-CCD',
     name: 'Control Cable Division',
     uom: 'MTR / KG',
     color: '#10b981',
   };
+
+  const effectiveUnit =
+    intent.requestedUnit && intent.requestedUnit !== 'AUTO'
+      ? intent.requestedUnit
+      : uomOverride && uomOverride !== 'AUTO'
+      ? uomOverride
+      : undefined;
+
+  const isGrossMode =
+    effectiveUnit?.toLowerCase() === 'gross' || baseDivision.uom.toLowerCase() === 'gross';
+
+  const targetDivision: DivisionMeta = effectiveUnit
+    ? { ...baseDivision, uom: isGrossMode ? 'Gross' : effectiveUnit }
+    : baseDivision;
 
   const isSpecificDivision = targetDivision.code !== 'ALL';
   const filterDept = intent.departmentCode || 'ALL';
@@ -62,14 +112,26 @@ export async function generateReportData(
     return handleMaintenanceToolingReport(intent, targetDivision, isDark);
   }
 
+  // ── SPECIAL ROUTE: SPECIFIC DATE GRANULAR LEDGER (ITEM, MACHINE & DEPT) ─────
+  const isSpecificSingleDate =
+    intent.dimension === 'daily_granular_ledger' ||
+    intent.period.type === 'specific_date' ||
+    intent.period.type === 'today' ||
+    intent.period.type === 'yesterday' ||
+    (Boolean(intent.period.startDate) && intent.period.startDate === intent.period.endDate);
+
+  if (isSpecificSingleDate) {
+    return handleGranularDailyLedgerReport(intent, divisionsList, targetDivision, filterDept, isDark, isGrossMode);
+  }
+
   // ── SPECIAL ROUTE: ALL DIVISIONS COMPARISON ─────────────────────────────────
   if (intent.dimension === 'division_comparison' || (!isSpecificDivision && intent.dimension === 'machine')) {
-    return handleAllDivisionsComparisonReport(intent, divisionsList, isDark);
+    return handleAllDivisionsComparisonReport(intent, divisionsList, isDark, isGrossMode);
   }
 
   // ── SPECIAL ROUTE: PERIOD COMPARISON (e.g. August vs September) ─────────────
   if (intent.dimension === 'period_comparison') {
-    return handlePeriodComparisonReport(intent, targetDivision, isDark);
+    return handlePeriodComparisonReport(intent, targetDivision, isDark, isGrossMode);
   }
 
   // ── CORE PRODUCTION ENTRIES DATA FETCHING ───────────────────────────────────
@@ -187,6 +249,9 @@ export async function generateReportData(
     };
   }
 
+  // Apply Gross unit mathematical conversion (1 Gross = 144 PCS) across all dimensional aggregators
+  entries = convertEntriesForUnit(entries, isGrossMode);
+
   // Route to the appropriate dimensional aggregator
   switch (intent.dimension) {
     case 'operator':
@@ -206,7 +271,6 @@ export async function generateReportData(
     case 'machine_item':
       return aggregateByMachineItem(entries, targetDivision, filterDept, intent, isDark);
     case 'department':
-    case 'department_machine':
       return aggregateByDepartment(entries, targetDivision, filterDept, intent, isDark);
     case 'item':
       return aggregateByItem(entries, targetDivision, filterDept, intent, isDark);
@@ -220,6 +284,7 @@ export async function generateReportData(
     case 'quarter':
     case 'year':
       return aggregateByMonth(entries, targetDivision, filterDept, intent, isDark);
+    case 'department_machine':
     case 'machine':
     default:
       return aggregateByMachine(entries, targetDivision, filterDept, intent, isDark);
@@ -1014,7 +1079,7 @@ function aggregateByOperatorMonth(
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// 5. MACHINE-WISE REPORTING (WITH NATURAL SORT & DEPARTMENT SUBTOTALS)
+// 5. MACHINE-WISE REPORTING (OPERATIONAL LOGS GROUPED STRICTLY BY MACHINE ID)
 // ═════════════════════════════════════════════════════════════════════════════
 function aggregateByMachine(
   entries: any[],
@@ -1024,9 +1089,9 @@ function aggregateByMachine(
   isDark: boolean,
 ): NormalizedReportResult {
   const machineMap: Record<string, {
+    machineId: string;
     machine: string;
     department: string;
-    items: Set<string>;
     totalProduction: number;
     totalTarget: number;
     totalDowntime: number;
@@ -1035,9 +1100,9 @@ function aggregateByMachine(
   }> = {};
 
   entries.forEach((e) => {
-    const mCode = (e.machine?.machineCode || e.machineNo || 'UNKNOWN').trim().toUpperCase();
+    const mCode = (e.machine?.machineCode || e.machineCode || e.machineNo || 'UNKNOWN').trim().toUpperCase();
     if (mCode === 'UNKNOWN') return;
-    const pName = e.item?.name || e.item?.itemCode || e.itemName || 'Standard Process';
+    const mId = String(e.machineId || e.machine_id || e.machine?.id || mCode);
     const dStr = dayjs(e.entryDate || e.createdAt).format('YYYY-MM-DD');
     const dept = resolveRecordDepartment(e, division.code, mCode);
 
@@ -1045,11 +1110,13 @@ function aggregateByMachine(
       return;
     }
 
-    if (!machineMap[mCode]) {
-      machineMap[mCode] = {
+    // Group strictly by Machine ID / Code from operational production logs (never master item catalog)
+    const groupKey = mCode;
+    if (!machineMap[groupKey]) {
+      machineMap[groupKey] = {
+        machineId: mId,
         machine: mCode,
         department: dept,
-        items: new Set(),
         totalProduction: 0,
         totalTarget: 0,
         totalDowntime: 0,
@@ -1057,12 +1124,11 @@ function aggregateByMachine(
         entriesCount: 0,
       };
     }
-    machineMap[mCode].items.add(pName);
-    machineMap[mCode].totalProduction += Number(e.actualQuantity ?? e.producedQty ?? 0);
-    machineMap[mCode].totalTarget += Number(e.targetQuantity ?? 0);
-    machineMap[mCode].totalDowntime += Number(e.downtimeHours ?? 0);
-    machineMap[mCode].dates.add(dStr);
-    machineMap[mCode].entriesCount += 1;
+    machineMap[groupKey].totalProduction += Number(e.actualQuantity ?? e.producedQty ?? 0);
+    machineMap[groupKey].totalTarget += Number(e.targetQuantity ?? 0);
+    machineMap[groupKey].totalDowntime += Number(e.downtimeHours ?? (Number(e.downtimeMinutes || 0) / 60));
+    machineMap[groupKey].dates.add(dStr);
+    machineMap[groupKey].entriesCount += 1;
   });
 
   const rawMachineRows = Object.values(machineMap).map((m) => {
@@ -1071,9 +1137,9 @@ function aggregateByMachine(
     const eff = m.totalTarget > 0 ? Math.round((m.totalProduction / m.totalTarget) * 100) : 0;
     return {
       id: `m-${m.machine}`,
+      machineId: m.machineId,
       machine: m.machine,
       department: m.department,
-      itemsList: Array.from(m.items).slice(0, 2).join(', ') || 'Standard Process',
       totalProduction: Math.round(m.totalProduction * 100) / 100,
       totalTarget: Math.round(m.totalTarget * 100) / 100,
       avgDaily: Math.round(avgDaily * 10) / 10,
@@ -1125,9 +1191,8 @@ function aggregateByMachine(
     finalRows.push({
       id: `subtotal-${dName}`,
       isSubtotal: true,
-      department: dName,
+      department: `${dName} (${deptMachines.length} Machines)`,
       machine: `${dName} Subtotal`,
-      itemsList: `${deptMachines.length} Machines Total`,
       totalTarget: Math.round(subTarget * 100) / 100,
       totalProduction: Math.round(subProd * 100) / 100,
       avgDaily: subAvg,
@@ -1149,7 +1214,7 @@ function aggregateByMachine(
     id: `grand-total-${division.code}`,
     isGrandTotal: true,
     machine: department !== 'ALL' ? `${department} Total` : `GRAND TOTAL`,
-    itemsList: department !== 'ALL'
+    department: department !== 'ALL'
       ? `${rawMachineRows.length} Machines in ${department}`
       : `All ${sortedDeptNames.length} Departments (${rawMachineRows.length} Machines)`,
     totalTarget: Math.round(grandTarget * 100) / 100,
@@ -1171,7 +1236,7 @@ function aggregateByMachine(
 
   const columns: AiColumn[] = [
     {
-      title: 'Machine Code',
+      title: 'Machine ID / Code',
       dataIndex: 'machine',
       key: 'machine',
       render: (v: string, r: any) => {
@@ -1181,13 +1246,13 @@ function aggregateByMachine(
         if (r?.isSubtotal) {
           return React.createElement('span', { style: { fontWeight: 700, color: isDark ? '#93c5fd' : '#1d4ed8', fontSize: 12.5 } }, '📊 ' + v);
         }
-        return React.createElement('strong', { style: { color: isDark ? '#93c5fd' : '#1d4ed8', fontSize: 13 } }, v);
+        return React.createElement('strong', { style: { color: isDark ? '#93c5fd' : '#1d4ed8', fontSize: 13 } }, '⚙️ ' + v);
       },
     },
     {
-      title: 'Products / Process',
-      dataIndex: 'itemsList',
-      key: 'itemsList',
+      title: 'Department / Section',
+      dataIndex: 'department',
+      key: 'department',
       render: (v: string, r: any) => (
         React.createElement('span', { style: { fontSize: 12, color: r?.isGrandTotal || r?.isSubtotal ? 'inherit' : (isDark ? '#cbd5e1' : '#475569') } }, v)
       ),
@@ -1798,6 +1863,7 @@ async function handlePeriodComparisonReport(
   intent: QueryIntent,
   division: DivisionMeta,
   isDark: boolean,
+  isGrossMode = false,
 ): Promise<NormalizedReportResult> {
   const periodA_s = intent.period.startDate || '2026-09-01';
   const periodA_e = intent.period.endDate || '2026-09-30';
@@ -1810,17 +1876,20 @@ async function handlePeriodComparisonReport(
     allEntries = Array.isArray(res) ? res : res?.data || res?.items || [];
   } catch {}
 
-  const divEntries = allEntries.filter((e) => {
-    const eCode = e.division?.divisionCode || e.divisionCode || '';
-    const m = (e.machine?.machineCode || e.machineNo || '').toUpperCase();
-    if (division.code === 'DIV-CCD') {
-      return eCode === 'DIV-CCD' || m.startsWith('FT-') || m.startsWith('FL-') || m.startsWith('SP-') || m.startsWith('PV-');
-    }
-    if (division.code === 'DIV-SPD') {
-      return eCode === 'DIV-SPD' || m.startsWith('ST-') || m.startsWith('SPK-');
-    }
-    return true;
-  });
+  const divEntries = convertEntriesForUnit(
+    allEntries.filter((e) => {
+      const eCode = e.division?.divisionCode || e.divisionCode || '';
+      const m = (e.machine?.machineCode || e.machineNo || '').toUpperCase();
+      if (division.code === 'DIV-CCD') {
+        return eCode === 'DIV-CCD' || m.startsWith('FT-') || m.startsWith('FL-') || m.startsWith('SP-') || m.startsWith('PV-');
+      }
+      if (division.code === 'DIV-SPD') {
+        return eCode === 'DIV-SPD' || m.startsWith('ST-') || m.startsWith('SPK-');
+      }
+      return true;
+    }),
+    isGrossMode,
+  );
 
   const machineComparisonMap: Record<string, { machine: string; dept: string; augProd: number; sepProd: number }> = {};
 
@@ -1928,23 +1997,30 @@ async function handlePeriodComparisonReport(
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// 12. CUSTOMER & DISPATCH REPORTING (WITH TOP-N SUPPORT)
+// 12. CUSTOMER & DISPATCH REPORTING (CLIENT SALES ROUTING + PWI OMISSION)
 // ═════════════════════════════════════════════════════════════════════════════
 async function handleCustomerDispatchReport(
   intent: QueryIntent,
   division: DivisionMeta,
   isDark: boolean,
 ): Promise<NormalizedReportResult> {
-  let packages: any[] = [];
+  // Strictly query client-facing invoice, sales order, customer, and dispatch tables
+  let salesInvoices: any[] = [];
   try {
-    const res: any = await apiService.get('/dispatch/packages', { limit: 500 });
-    packages = Array.isArray(res) ? res : res?.data || res?.items || [];
+    const res: any = await apiService.get('/sales/invoices', { limit: 500 });
+    salesInvoices = Array.isArray(res) ? res : res?.data || res?.items || [];
   } catch {}
 
   let salesOrders: any[] = [];
   try {
     const res: any = await apiService.get('/sales/orders', { limit: 500 });
     salesOrders = Array.isArray(res) ? res : res?.data || res?.items || [];
+  } catch {}
+
+  let packages: any[] = [];
+  try {
+    const res: any = await apiService.get('/dispatch/packages', { limit: 500 });
+    packages = Array.isArray(res) ? res : res?.data || res?.items || [];
   } catch {}
 
   let customersMaster: any[] = [];
@@ -1959,54 +2035,98 @@ async function handleCustomerDispatchReport(
     unitsCount: number;
     weightKg: number;
     ordersCount: number;
+    invoicesCount: number;
+    invoiceAmount: number;
     statuses: Set<string>;
   }> = {};
 
+  // Hard-coded filter to strictly omit our own manufacturing registry name "Pakistan Wire Industries"
+  const isInternalCompany = (name: string): boolean => {
+    if (!name) return true;
+    const n = name.trim().toLowerCase();
+    return (
+      n.includes('pakistan wire industries') ||
+      n.includes('pakistan wire') ||
+      /\bpwi\b/i.test(n) ||
+      n === 'internal' ||
+      n === 'self' ||
+      n.includes('wire industries')
+    );
+  };
+
+  const ensureCustomerSlot = (cName: string) => {
+    if (!custMap[cName]) {
+      custMap[cName] = {
+        customer: cName,
+        packagesCount: 0,
+        unitsCount: 0,
+        weightKg: 0,
+        ordersCount: 0,
+        invoicesCount: 0,
+        invoiceAmount: 0,
+        statuses: new Set(),
+      };
+    }
+  };
+
+  salesInvoices.forEach((inv) => {
+    const cName = inv.customer?.name || inv.customerName || inv.customer_name || 'Wholesale Client';
+    if (isInternalCompany(cName)) return;
+    ensureCustomerSlot(cName);
+    custMap[cName].invoicesCount += 1;
+    custMap[cName].invoiceAmount += Number(inv.totalAmount || inv.total_amount || inv.netAmount || 0);
+    custMap[cName].unitsCount += Number(inv.totalQuantity || inv.quantity || inv.totalAmount || inv.total_amount || 0);
+    if (inv.status) custMap[cName].statuses.add(inv.status);
+  });
+
+  salesOrders.forEach((so) => {
+    const cName = so.customer?.name || so.customerName || so.customer_name || 'Wholesale Client';
+    if (isInternalCompany(cName)) return;
+    ensureCustomerSlot(cName);
+    custMap[cName].ordersCount += 1;
+    custMap[cName].unitsCount += Number(so.totalQuantity || so.quantity || so.totalAmount || so.total_amount || 0);
+    if (so.status) custMap[cName].statuses.add(so.status);
+  });
+
   packages.forEach((p) => {
     const cName = p.customerName || p.customer_name || (p.customer?.name) || 'Direct Wholesale Client';
-    if (!custMap[cName]) {
-      custMap[cName] = { customer: cName, packagesCount: 0, unitsCount: 0, weightKg: 0, ordersCount: 0, statuses: new Set() };
-    }
+    if (isInternalCompany(cName)) return;
+    ensureCustomerSlot(cName);
     custMap[cName].packagesCount += 1;
     custMap[cName].unitsCount += Number(p.totalUnits || p.total_units || 0);
     custMap[cName].weightKg += Number(p.totalWeightKg || p.total_weight_kg || 0);
     if (p.status) custMap[cName].statuses.add(p.status);
   });
 
-  salesOrders.forEach((so) => {
-    const cName = so.customer?.name || so.customerName || so.customer_name || 'Wholesale Client';
-    if (!custMap[cName]) {
-      custMap[cName] = { customer: cName, packagesCount: 0, unitsCount: 0, weightKg: 0, ordersCount: 0, statuses: new Set() };
-    }
-    custMap[cName].ordersCount += 1;
-    custMap[cName].unitsCount += Number(so.totalQuantity || so.quantity || 0);
-    if (so.status) custMap[cName].statuses.add(so.status);
-  });
-
-  // If no transactions found, populate from customer master so the user gets top active customers
+  // If no transactions found, populate from customer master (excluding Pakistan Wire Industries)
   if (Object.keys(custMap).length === 0 && customersMaster.length > 0) {
     customersMaster.forEach((cm) => {
       const cName = cm.name || cm.companyName || cm.customerName || 'Client';
+      if (isInternalCompany(cName)) return;
       custMap[cName] = {
         customer: cName,
         packagesCount: cm.totalOrders || 1,
         unitsCount: cm.creditLimit || 5000,
         weightKg: 0,
         ordersCount: cm.totalOrders || 1,
+        invoicesCount: 0,
+        invoiceAmount: 0,
         statuses: new Set([cm.status || 'ACTIVE']),
       };
     });
   }
 
-  let rows = Object.values(custMap).map((c) => ({
-    id: `cust-${c.customer}`,
-    customer: c.customer,
-    packagesCount: c.packagesCount,
-    ordersCount: c.ordersCount,
-    unitsCount: c.unitsCount,
-    weightKg: Math.round(c.weightKg * 100) / 100,
-    status: Array.from(c.statuses).join(', ') || 'ACTIVE',
-  }));
+  let rows = Object.values(custMap)
+    .filter((c) => !isInternalCompany(c.customer))
+    .map((c) => ({
+      id: `cust-${c.customer}`,
+      customer: c.customer,
+      packagesCount: c.packagesCount,
+      ordersCount: c.ordersCount + c.invoicesCount,
+      unitsCount: c.unitsCount,
+      weightKg: Math.round(c.weightKg * 100) / 100,
+      status: Array.from(c.statuses).join(', ') || 'ACTIVE',
+    }));
 
   // Sort descending by activity (units or packages)
   rows.sort((a, b) => (b.unitsCount || b.packagesCount) - (a.unitsCount || a.packagesCount));
@@ -2292,12 +2412,15 @@ async function handleAllDivisionsComparisonReport(
   intent: QueryIntent,
   divisionsList: DivisionMeta[],
   isDark: boolean,
+  isGrossMode = false,
 ): Promise<NormalizedReportResult> {
   let entries: any[] = [];
   try {
     const res: any = await apiService.get('/production/entries', { limit: 1000 });
     entries = Array.isArray(res) ? res : res?.data || res?.items || [];
   } catch {}
+
+  entries = convertEntriesForUnit(entries, isGrossMode);
 
   const divMap: Record<string, {
     name: string;
@@ -2313,7 +2436,7 @@ async function handleAllDivisionsComparisonReport(
   entries.forEach((e) => {
     const divCode = e.division?.divisionCode || e.divisionCode || 'OTHER';
     const divName = e.division?.name || divCode;
-    const uom = getDivisionUom(divCode);
+    const uom = isGrossMode ? 'Gross (144 PCS)' : getDivisionUom(divCode);
 
     if (!divMap[divCode]) {
       divMap[divCode] = {
@@ -2432,6 +2555,750 @@ async function handleAllDivisionsComparisonReport(
       period: intent.period.label,
       timestamp: dayjs().format('YYYY-MM-DD HH:mm:ss'),
       recordsExamined: entries.length,
+    },
+  };
+}
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 15. SPECIFIC-DATE GRANULAR PRODUCTION LEDGER (ITEM, MACHINE & DEPARTMENT)
+// ═════════════════════════════════════════════════════════════════════════════
+function resolveEntryDivisionDisplay(row: any): { code: string; name: string; uom: string } {
+  const eCode = (row.division?.divisionCode || row.divisionCode || '').toUpperCase();
+  const eName = row.division?.name || '';
+  const mNo = (row.machine?.machineCode || row.machineCode || row.machineNo || '').toUpperCase();
+
+  if (
+    eCode === 'DIV-SPD' ||
+    eName.toLowerCase().includes('spoke') ||
+    mNo.startsWith('SPK-') ||
+    mNo.startsWith('ST-') ||
+    mNo.startsWith('SW-') ||
+    mNo.startsWith('BL-') ||
+    mNo.startsWith('SPL-')
+  ) {
+    return { code: 'DIV-SPD', name: 'Spoke Division', uom: 'PCS' };
+  }
+
+  if (
+    eCode === 'DIV-CCD' ||
+    eName.toLowerCase().includes('cable') ||
+    eName.toLowerCase().includes('casing') ||
+    mNo.startsWith('FT-') ||
+    mNo.startsWith('FL-') ||
+    mNo.startsWith('SP-') ||
+    mNo.startsWith('SR-') ||
+    mNo.startsWith('PV-') ||
+    mNo.startsWith('PVC') ||
+    mNo.startsWith('CPK-') ||
+    mNo.startsWith('PK-')
+  ) {
+    return { code: 'DIV-CCD', name: 'Control Cable Division', uom: 'MTR / KG' };
+  }
+
+  if (eCode === 'DIV-PWI' || eName.toLowerCase().includes('main')) {
+    return { code: 'DIV-PWI', name: 'Main Division E-51', uom: 'KG' };
+  }
+
+  if (eCode === 'DIV-NB' || eName.toLowerCase().includes('nb') || eName.toLowerCase().includes('baloch')) {
+    return { code: 'DIV-NB', name: 'NB Division', uom: 'PCS' };
+  }
+
+  return {
+    code: eCode || 'DIV-CCD',
+    name: eName || 'Control Cable Division',
+    uom: getDivisionUom(eCode || eName),
+  };
+}
+
+function resolveGranularCategoryDepartment(row: any, divCode: string, machineCode: string): string {
+  const explicitDept = row.department?.name || row.section?.name || row.department?.code || '';
+  const itemText = `${row.item?.name || row.itemName || ''} ${row.item?.itemCode || ''}`.toLowerCase();
+  const m = machineCode.toUpperCase();
+
+  if (divCode === 'DIV-CCD') {
+    if (explicitDept.toLowerCase().includes('casing') || explicitDept.toLowerCase().includes('pvc') || m.startsWith('PV-') || m.startsWith('PVC') || itemText.includes('casing')) {
+      return 'Outer Casing / PVC Coating';
+    }
+    if (explicitDept.toLowerCase().includes('spiral') || m.startsWith('SP-') || m.startsWith('SR-')) {
+      return 'Outer Casing / Spiral';
+    }
+    if (explicitDept.toLowerCase().includes('flattening') || m.startsWith('FT-') || m.startsWith('FL-')) {
+      return 'Flattening';
+    }
+    if (explicitDept.toLowerCase().includes('packing') || m.startsWith('CPK-') || m.startsWith('PK-')) {
+      return 'Control Cable Packing';
+    }
+    return explicitDept || 'Control Cable Production';
+  }
+
+  if (divCode === 'DIV-SPD') {
+    if (m.startsWith('ST-') || explicitDept.toLowerCase().includes('straight')) return 'Wire Straightener';
+    if (m.startsWith('SW-') || explicitDept.toLowerCase().includes('swag')) return 'Swagging';
+    if (m.startsWith('BL-') || m.startsWith('SPL-') || explicitDept.toLowerCase().includes('plat')) return 'Spoke Plating';
+    if (m.startsWith('PKS-') || explicitDept.toLowerCase().includes('pack')) return 'Spoke Packing';
+    return explicitDept || 'Spoke Heading & Threading';
+  }
+
+  return explicitDept || resolveRecordDepartment(row, divCode, machineCode);
+}
+
+async function handleGranularDailyLedgerReport(
+  intent: QueryIntent,
+  divisionsList: DivisionMeta[],
+  targetDivision: DivisionMeta,
+  filterDept: string,
+  isDark: boolean,
+  isGrossMode = false,
+): Promise<NormalizedReportResult> {
+  const requestedDateStr = intent.period.startDate || dayjs().format('YYYY-MM-DD');
+  const requestedDayNum = intent.period.dayOfMonth || dayjs(requestedDateStr).date();
+
+  let matchedEntries: any[] = [];
+  let resolvedDateStr = requestedDateStr;
+
+  try {
+    // 1. Query exact date first
+    const exactRes: any = await apiService.get('/production/entries', {
+      dateFrom: requestedDateStr,
+      dateTo: requestedDateStr,
+      limit: 1000,
+    });
+    const exactList = Array.isArray(exactRes) ? exactRes : exactRes?.data || exactRes?.items || [];
+    matchedEntries = exactList.filter(
+      (e: any) => dayjs(e.entryDate || e.entry_date || e.createdAt).format('YYYY-MM-DD') === requestedDateStr,
+    );
+
+    // 2. If user asked for an ordinal day like "23rd production report" or "22nd data" without specifying
+    //    the month, and current month's day has no records yet, find the most recent month with that exact day!
+    if (matchedEntries.length === 0) {
+      const allRes: any = await apiService.get('/production/entries', { limit: 1000 });
+      const allList = Array.isArray(allRes) ? allRes : allRes?.data || allRes?.items || [];
+
+      const exactIsoMatches = allList.filter(
+        (e: any) => dayjs(e.entryDate || e.entry_date || e.createdAt).format('YYYY-MM-DD') === requestedDateStr,
+      );
+
+      if (exactIsoMatches.length > 0) {
+        matchedEntries = exactIsoMatches;
+      } else if (requestedDayNum >= 1 && requestedDayNum <= 31) {
+        const sameDayOfMonthEntries = allList.filter((e: any) => {
+          const d = dayjs(e.entryDate || e.entry_date || e.createdAt);
+          return d.isValid() && d.date() === requestedDayNum;
+        });
+
+        if (sameDayOfMonthEntries.length > 0) {
+          // Pick the most recent YYYY-MM-DD that matches the requested day-of-month
+          const distinctDates: string[] = Array.from(
+            new Set<string>(
+              sameDayOfMonthEntries.map((e: any) =>
+                dayjs(e.entryDate || e.entry_date || e.createdAt).format('YYYY-MM-DD'),
+              ),
+            ),
+          ).sort((a, b) => b.localeCompare(a));
+
+          resolvedDateStr = distinctDates[0];
+          matchedEntries = sameDayOfMonthEntries.filter(
+            (e: any) => dayjs(e.entryDate || e.entry_date || e.createdAt).format('YYYY-MM-DD') === resolvedDateStr,
+          );
+        }
+      }
+    }
+  } catch {
+    matchedEntries = [];
+  }
+
+  // Apply Division filter if user explicitly scoped to a single division
+  if (intent.divisionCode && intent.divisionCode !== 'ALL') {
+    const divFiltered = matchedEntries.filter((e: any) => {
+      const divInfo = resolveEntryDivisionDisplay(e);
+      return divInfo.code === intent.divisionCode;
+    });
+    if (divFiltered.length > 0) {
+      matchedEntries = divFiltered;
+    }
+  }
+
+  // Apply Department filter if specified
+  if (filterDept && filterDept !== 'ALL') {
+    const deptFiltered = matchedEntries.filter((e: any) => {
+      const m = (e.machine?.machineCode || e.machineCode || e.machineNo || '').toUpperCase();
+      const divInfo = resolveEntryDivisionDisplay(e);
+      const cat = resolveGranularCategoryDepartment(e, divInfo.code, m);
+      return (
+        cat.toLowerCase().includes(filterDept.toLowerCase()) ||
+        resolveRecordDepartment(e, divInfo.code, m).toLowerCase() === filterDept.toLowerCase()
+      );
+    });
+    if (deptFiltered.length > 0) {
+      matchedEntries = deptFiltered;
+    }
+  }
+
+  // Filter by specific machine if requested
+  if (intent.specificMachine) {
+    const mTarget = intent.specificMachine.toUpperCase().replace(/\s+/g, '');
+    const machFiltered = matchedEntries.filter((e: any) => {
+      const m = (e.machine?.machineCode || e.machineCode || e.machineNo || '').toUpperCase().replace(/\s+/g, '');
+      return m.includes(mTarget);
+    });
+    if (machFiltered.length > 0) {
+      matchedEntries = machFiltered;
+    }
+  }
+
+  const formattedDateLabel = dayjs(resolvedDateStr).isValid()
+    ? dayjs(resolvedDateStr).format('DD-MMM-YYYY')
+    : intent.period.label;
+
+  if (matchedEntries.length === 0) {
+    return {
+      title: `Granular Daily Production Ledger — ${formattedDateLabel}`,
+      summaryText: `No production entries were found for exact date **${formattedDateLabel}**.\n\nTry querying another date (e.g. "22nd data", "23rd production report") or check the division/department scope.`,
+      divisionScope: intent.divisionCode || targetDivision.code,
+      departmentScope: filterDept,
+      periodLabel: formattedDateLabel,
+      recordsCount: 0,
+      auditTrail: {
+        dataSource: 'Production Entries (Granular Daily Ledger)',
+        filters: [`Exact Date: ${formattedDateLabel}`, `Division: ${intent.divisionCode || 'ALL'}`, `Department: ${filterDept}`],
+        period: formattedDateLabel,
+        timestamp: dayjs().format('YYYY-MM-DD HH:mm:ss'),
+        recordsExamined: 0,
+      },
+    };
+  }
+
+  // Build granular rows (expanding nestedItems if present so every produced item line on each machine is shown)
+  interface GranularLedgerRow {
+    id: string;
+    divisionCode: string;
+    divisionName: string;
+    departmentName: string;
+    categoryGroup: string;
+    machine: string;
+    itemCode: string;
+    itemName: string;
+    uom: string;
+    runningHours: number;
+    standardHours: number;
+    targetPerHour: number;
+    runtimeDynamicTarget: number;
+    actualProduction: number;
+    achievementPct: number;
+    productScrapPcs: number;
+    productScrapKg: number;
+    processScrapPcs: number;
+    processScrapKg: number;
+    downtimeHours: number;
+    downtimeReason: string;
+  }
+
+  const detailedRows: GranularLedgerRow[] = [];
+
+  matchedEntries.forEach((e: any, entryIdx: number) => {
+    const divInfo = resolveEntryDivisionDisplay(e);
+    const machineCode = (e.machine?.machineCode || e.machineCode || e.machineNo || `M-${entryIdx + 1}`).trim().toUpperCase();
+    const deptName = resolveGranularCategoryDepartment(e, divInfo.code, machineCode);
+    const categoryGroup = `${divInfo.name} — ${deptName}`;
+
+    const runningHours = Number(e.runningHours ?? e.running_hours ?? 8) || 0;
+    const standardHours = Number(e.standardHours ?? e.standard_hours ?? e.targetStandardHours ?? 8) || 8;
+    const downtimeHours = Number(e.downtimeHours ?? e.downtime_hours ?? (Number(e.downtimeMinutes || 0) / 60)) || 0;
+    const rawReason =
+      e.downtimeReason?.name ||
+      e.downtimeReason?.reason ||
+      e.downtimeReasonText ||
+      e.downtime_reason ||
+      e.remarks ||
+      '';
+    const downtimeReason =
+      downtimeHours > 0
+        ? (rawReason.trim() || 'Maintenance / Operational Stoppage')
+        : (rawReason.trim() ? `0 hrs (${rawReason.trim()})` : 'No Downtime');
+
+    const nestedLines: any[] =
+      Array.isArray(e.nestedItems) && e.nestedItems.length > 0
+        ? e.nestedItems
+        : [
+            {
+              lineNumber: 1,
+              itemCode: e.item?.itemCode || e.item_code || e.itemCode || 'SKU',
+              itemName: e.item?.name || e.item_name || e.itemName || 'Standard Manufactured Item',
+              uomCode: e.uom?.code || e.uom?.name || e.uomCode || divInfo.uom,
+              targetQuantity: e.targetQuantity ?? e.target_quantity ?? 0,
+              actualQuantity: e.actualQuantity ?? e.actual_quantity ?? e.producedQty ?? 0,
+              scrapQuantity: e.scrapQuantity ?? e.scrap_quantity ?? 0,
+              weightPerPiece: e.item?.weightPerPiece ?? e.item?.weight_per_piece ?? null,
+              weightPerMeter: e.item?.weightPerMeter ?? e.item?.weight_per_meter ?? null,
+            },
+          ];
+
+    const entryProcessScrapKg = Number(e.processScrapKg ?? e.process_scrap_kg ?? 0);
+
+    nestedLines.forEach((line: any, lineIdx: number) => {
+      const itemCode = String(line.itemCode || e.item?.itemCode || 'ITEM').trim();
+      const itemName = String(line.itemName || e.item?.name || e.itemName || 'Manufactured Product').trim();
+      const rawUom = String(line.uomCode || e.uom?.code || divInfo.uom).trim();
+      const uom = isGrossMode ? 'Gross' : rawUom;
+      const unitDivisor = isGrossMode ? PCS_PER_GROSS : 1;
+
+      const baseTarget = Number(line.targetQuantity ?? e.targetQuantity ?? e.target_quantity ?? 0) / unitDivisor;
+      const explicitPerHour = Number(e.targetPerHour ?? e.target_per_hour ?? 0) / unitDivisor;
+      const targetPerHour =
+        explicitPerHour > 0
+          ? Math.round(explicitPerHour * 100) / 100
+          : standardHours > 0
+          ? Math.round((baseTarget / standardHours) * 100) / 100
+          : 0;
+
+      const explicitDynamicTarget = Number(line.calculatedTarget ?? e.calculatedTarget ?? e.calculated_target ?? 0) / unitDivisor;
+      const runtimeDynamicTarget =
+        explicitDynamicTarget > 0
+          ? Math.round(explicitDynamicTarget * 100) / 100
+          : runningHours > 0 && targetPerHour > 0
+          ? Math.round(targetPerHour * runningHours * 100) / 100
+          : Math.round(baseTarget * 100) / 100;
+
+      const actualProduction = Math.round((Number(line.actualQuantity ?? e.actualQuantity ?? 0) / unitDivisor) * 100) / 100;
+      const targetBasis = runtimeDynamicTarget > 0 ? runtimeDynamicTarget : baseTarget;
+      const achievementPct =
+        targetBasis > 0
+          ? Math.round((actualProduction / targetBasis) * 10000) / 100
+          : Number(e.achievementPercentage ?? e.achievement_percentage ?? 0);
+
+      // Weight conversion factor (KG per piece/unit)
+      const unitWeightKg = Number(
+        line.weightPerPiece ??
+          e.item?.weightPerPiece ??
+          line.weightPerMeter ??
+          e.item?.weightPerMeter ??
+          0,
+      );
+
+      // Product Scrap in both PCS (or Gross) and KG
+      const rawProductScrapPcs = Number(line.scrapQuantity ?? e.scrapQuantity ?? 0);
+      const productScrapPcs = Math.round((rawProductScrapPcs / unitDivisor) * 100) / 100;
+      const productScrapKg =
+        unitWeightKg > 0
+          ? Math.round(rawProductScrapPcs * unitWeightKg * 1000) / 1000
+          : rawUom.toUpperCase() === 'KG'
+          ? rawProductScrapPcs
+          : Math.round(rawProductScrapPcs * 0.015 * 1000) / 1000;
+
+      // Process Scrap in both PCS (or Gross) and KG (distribute entry processScrapKg across child lines)
+      const lineShare = nestedLines.length > 1 ? 1 / nestedLines.length : 1;
+      const processScrapKg = Math.round(entryProcessScrapKg * lineShare * 1000) / 1000;
+      const rawProcessScrapPcs =
+        unitWeightKg > 0
+          ? Math.round(processScrapKg / unitWeightKg)
+          : processScrapKg > 0
+          ? Math.round(processScrapKg / 0.015)
+          : 0;
+      const processScrapPcs = isGrossMode
+        ? Math.round((rawProcessScrapPcs / PCS_PER_GROSS) * 100) / 100
+        : rawProcessScrapPcs;
+
+      detailedRows.push({
+        id: `${e.id || entryIdx}-L${line.lineNumber || lineIdx + 1}`,
+        divisionCode: divInfo.code,
+        divisionName: divInfo.name,
+        departmentName: deptName,
+        categoryGroup,
+        machine: machineCode,
+        itemCode,
+        itemName,
+        uom,
+        runningHours: parseFloat(runningHours.toFixed(2)),
+        standardHours: parseFloat(standardHours.toFixed(2)),
+        targetPerHour,
+        runtimeDynamicTarget,
+        actualProduction,
+        achievementPct,
+        productScrapPcs,
+        productScrapKg,
+        processScrapPcs,
+        processScrapKg,
+        downtimeHours: lineIdx === 0 ? parseFloat(downtimeHours.toFixed(2)) : 0,
+        downtimeReason: lineIdx === 0 ? downtimeReason : '—',
+      });
+    });
+  });
+
+  // Group logically by Division → Department / Category (Spoke Division, Outer Casing, Control Cable, etc.)
+  const categoryOrder = Array.from(new Set(detailedRows.map((r) => r.categoryGroup))).sort((a, b) =>
+    a.localeCompare(b),
+  );
+
+  const finalTableRows: any[] = [];
+  const chartData: any[] = [];
+
+  categoryOrder.forEach((catName) => {
+    const groupRows = detailedRows.filter((r) => r.categoryGroup === catName);
+    if (groupRows.length === 0) return;
+
+    // Sort strictly by Machine Number/ID in ascending order (FT-01, FT-02, SP-01, SPK-01...)
+    groupRows.sort((a, b) => {
+      const mCmp = naturalSortMachines(a.machine, b.machine);
+      if (mCmp !== 0) return mCmp;
+      return a.itemCode.localeCompare(b.itemCode);
+    });
+
+    // 1. Category / Division-Department Section Header Row
+    finalTableRows.push({
+      id: `section-hdr-${catName}`,
+      isSectionHeader: true,
+      machine: `🏭 ${catName}`,
+      itemDisplay: `${groupRows.length} Machine-Item Entries (${groupRows[0].uom})`,
+      targetPerHour: null,
+      runtimeDynamicTarget: null,
+      actualProduction: null,
+      achievementPct: null,
+      productScrapPcs: null,
+      productScrapKg: null,
+      processScrapPcs: null,
+      processScrapKg: null,
+      downtimeDetails: '',
+    });
+
+    // 2. Detailed Machine + Item Rows (Ascending Machine Order)
+    groupRows.forEach((r) => {
+      finalTableRows.push({
+        ...r,
+        itemDisplay: `${r.itemCode} — ${r.itemName}`,
+        downtimeDetails:
+          r.downtimeHours > 0
+            ? `${r.downtimeHours} hrs — ${r.downtimeReason}`
+            : r.downtimeReason,
+      });
+
+      chartData.push({
+        name: `${r.machine} (${r.itemCode})`,
+        Actual: r.actualProduction,
+        'Dynamic Target': r.runtimeDynamicTarget,
+      });
+    });
+
+    // 3. Category / Department Subtotal Row
+    const subPerHour = Math.round(groupRows.reduce((s, r) => s + r.targetPerHour, 0) * 100) / 100;
+    const subDynTarget = Math.round(groupRows.reduce((s, r) => s + r.runtimeDynamicTarget, 0) * 100) / 100;
+    const subActual = Math.round(groupRows.reduce((s, r) => s + r.actualProduction, 0) * 100) / 100;
+    const subAch = subDynTarget > 0 ? Math.round((subActual / subDynTarget) * 10000) / 100 : 0;
+    const subProdScrapPcs = Math.round(groupRows.reduce((s, r) => s + r.productScrapPcs, 0) * 100) / 100;
+    const subProdScrapKg = Math.round(groupRows.reduce((s, r) => s + r.productScrapKg, 0) * 1000) / 1000;
+    const subProcScrapPcs = Math.round(groupRows.reduce((s, r) => s + r.processScrapPcs, 0));
+    const subProcScrapKg = Math.round(groupRows.reduce((s, r) => s + r.processScrapKg, 0) * 1000) / 1000;
+    const subDowntime = parseFloat(groupRows.reduce((s, r) => s + r.downtimeHours, 0).toFixed(2));
+
+    finalTableRows.push({
+      id: `subtotal-${catName}`,
+      isSubtotal: true,
+      machine: `📊 ${catName} Subtotal`,
+      itemDisplay: `${new Set(groupRows.map((g) => g.machine)).size} Machines | ${groupRows.length} Items`,
+      uom: groupRows[0].uom,
+      targetPerHour: subPerHour,
+      runtimeDynamicTarget: subDynTarget,
+      actualProduction: subActual,
+      achievementPct: subAch,
+      productScrapPcs: subProdScrapPcs,
+      productScrapKg: subProdScrapKg,
+      processScrapPcs: subProcScrapPcs,
+      processScrapKg: subProcScrapKg,
+      downtimeHours: subDowntime,
+      downtimeDetails: `${subDowntime} hrs total downtime`,
+    });
+  });
+
+  // Grand Totals (placed at the very bottom of the table + bottom KPI reference cards)
+  const grandPerHour = Math.round(detailedRows.reduce((s, r) => s + r.targetPerHour, 0) * 100) / 100;
+  const grandDynTarget = Math.round(detailedRows.reduce((s, r) => s + r.runtimeDynamicTarget, 0) * 100) / 100;
+  const grandActual = Math.round(detailedRows.reduce((s, r) => s + r.actualProduction, 0) * 100) / 100;
+  const grandAch = grandDynTarget > 0 ? Math.round((grandActual / grandDynTarget) * 10000) / 100 : 0;
+  const grandProdScrapPcs = Math.round(detailedRows.reduce((s, r) => s + r.productScrapPcs, 0) * 100) / 100;
+  const grandProdScrapKg = Math.round(detailedRows.reduce((s, r) => s + r.productScrapKg, 0) * 1000) / 1000;
+  const grandProcScrapPcs = Math.round(detailedRows.reduce((s, r) => s + r.processScrapPcs, 0));
+  const grandProcScrapKg = Math.round(detailedRows.reduce((s, r) => s + r.processScrapKg, 0) * 1000) / 1000;
+  const grandDowntime = parseFloat(detailedRows.reduce((s, r) => s + r.downtimeHours, 0).toFixed(2));
+  const uniqueMachinesCount = new Set(detailedRows.map((r) => r.machine)).size;
+
+  finalTableRows.push({
+    id: `grand-total-${resolvedDateStr}`,
+    isGrandTotal: true,
+    machine: `🏛️ GRAND TOTAL (${formattedDateLabel})`,
+    itemDisplay: `${categoryOrder.length} Categories • ${uniqueMachinesCount} Machines • ${detailedRows.length} Item Lines`,
+    uom: targetDivision.uom,
+    targetPerHour: grandPerHour,
+    runtimeDynamicTarget: grandDynTarget,
+    actualProduction: grandActual,
+    achievementPct: grandAch,
+    productScrapPcs: grandProdScrapPcs,
+    productScrapKg: grandProdScrapKg,
+    processScrapPcs: grandProcScrapPcs,
+    processScrapKg: grandProcScrapKg,
+    downtimeHours: grandDowntime,
+    downtimeDetails: `${grandDowntime} hrs total plant stoppage`,
+  });
+
+  const columns: AiColumn[] = [
+    {
+      title: 'Machine No / ID (Asc)',
+      dataIndex: 'machine',
+      key: 'machine',
+      fixed: 'left',
+      width: 170,
+      render: (v: string, r: any) => {
+        if (r?.isSectionHeader) {
+          return React.createElement(
+            'strong',
+            { style: { color: isDark ? '#38bdf8' : '#0369a1', fontSize: 13, letterSpacing: '0.2px' } },
+            v,
+          );
+        }
+        if (r?.isGrandTotal) {
+          return React.createElement(
+            'span',
+            { style: { fontWeight: 800, color: isDark ? '#34d399' : '#059669', fontSize: 13 } },
+            v,
+          );
+        }
+        if (r?.isSubtotal) {
+          return React.createElement(
+            'span',
+            { style: { fontWeight: 700, color: isDark ? '#93c5fd' : '#1d4ed8', fontSize: 12.5 } },
+            v,
+          );
+        }
+        return React.createElement(Tag, { color: 'blue', style: { fontWeight: 700, fontSize: 12 } }, '⚙️ ' + v);
+      },
+    },
+    {
+      title: 'Item Name / Code',
+      dataIndex: 'itemDisplay',
+      key: 'itemDisplay',
+      width: 220,
+      render: (v: string, r: any) => {
+        if (r?.isSectionHeader) {
+          return React.createElement(
+            Tag,
+            { color: 'cyan', style: { fontWeight: 600 } },
+            v,
+          );
+        }
+        if (r?.isGrandTotal || r?.isSubtotal) {
+          return React.createElement('strong', { style: { fontSize: 12 } }, v);
+        }
+        return React.createElement(
+          'div',
+          null,
+          React.createElement('strong', { style: { color: isDark ? '#f8fafc' : '#0f172a', fontSize: 12.5 } }, r.itemCode),
+          React.createElement('div', { style: { fontSize: 11.5, color: isDark ? '#94a3b8' : '#475569' } }, r.itemName),
+        );
+      },
+    },
+    {
+      title: 'Planned Target (Per-Hr & Runtime Dynamic)',
+      dataIndex: 'runtimeDynamicTarget',
+      key: 'runtimeDynamicTarget',
+      width: 215,
+      render: (_: any, r: any) => {
+        if (r?.isSectionHeader) return '';
+        if (r?.isGrandTotal || r?.isSubtotal) {
+          return React.createElement(
+            'div',
+            null,
+            React.createElement('div', { style: { fontWeight: 700, color: '#10b981' } }, `Dynamic: ${formatQty(r.runtimeDynamicTarget)}`),
+            React.createElement('div', { style: { fontSize: 11, color: isDark ? '#94a3b8' : '#64748b' } }, `Rate Sum: ${formatQty(r.targetPerHour)} /hr`),
+          );
+        }
+        return React.createElement(
+          'div',
+          null,
+          React.createElement(
+            'div',
+            { style: { fontWeight: 700, color: '#10b981', fontSize: 12.5 } },
+            `${formatQty(r.runtimeDynamicTarget)} ${r.uom || ''}`,
+          ),
+          React.createElement(
+            'div',
+            { style: { fontSize: 11, color: isDark ? '#94a3b8' : '#64748b' } },
+            `Per-Hr: ${formatQty(r.targetPerHour)}/hr × ${r.runningHours}h run`,
+          ),
+        );
+      },
+    },
+    {
+      title: 'Actual Production',
+      dataIndex: 'actualProduction',
+      key: 'actualProduction',
+      width: 150,
+      render: (v: number, r: any) => {
+        if (r?.isSectionHeader) return '';
+        return React.createElement(
+          'span',
+          {
+            style: {
+              color: r?.isGrandTotal ? (isDark ? '#34d399' : '#059669') : '#3b82f6',
+              fontWeight: 800,
+              fontSize: 13,
+            },
+          },
+          `${formatQty(v)} ${r.uom || ''}`,
+        );
+      },
+    },
+    {
+      title: '% Achieved',
+      dataIndex: 'achievementPct',
+      key: 'achievementPct',
+      width: 115,
+      render: (v: number, r: any) => {
+        if (r?.isSectionHeader) return '';
+        const pct = Number(v || 0);
+        return React.createElement(
+          Tag,
+          {
+            color: pct >= 90 ? 'green' : pct >= 75 ? 'gold' : 'volcano',
+            style: { fontWeight: 700 },
+          },
+          `${pct}%`,
+        );
+      },
+    },
+    {
+      title: isGrossMode ? 'Product Scrap (Gross & KG)' : 'Product Scrap (PCS & KG)',
+      dataIndex: 'productScrapPcs',
+      key: 'productScrapPcs',
+      width: 175,
+      render: (_: any, r: any) => {
+        if (r?.isSectionHeader) return '';
+        const hasScrap = Number(r.productScrapPcs) > 0 || Number(r.productScrapKg) > 0;
+        return React.createElement(
+          'div',
+          { style: { fontSize: 12, color: hasScrap ? '#ef4444' : (isDark ? '#94a3b8' : '#64748b'), fontWeight: hasScrap ? 700 : 400 } },
+          React.createElement('div', null, `${formatQty(r.productScrapPcs)} ${isGrossMode ? 'Gross' : 'PCS'}`),
+          React.createElement('div', { style: { fontSize: 11 } }, `${formatQty(r.productScrapKg)} KG`),
+        );
+      },
+    },
+    {
+      title: isGrossMode ? 'Process Scrap (Gross & KG)' : 'Process Scrap (PCS & KG)',
+      dataIndex: 'processScrapKg',
+      key: 'processScrapKg',
+      width: 175,
+      render: (_: any, r: any) => {
+        if (r?.isSectionHeader) return '';
+        const hasProc = Number(r.processScrapKg) > 0 || Number(r.processScrapPcs) > 0;
+        return React.createElement(
+          'div',
+          { style: { fontSize: 12, color: hasProc ? '#f59e0b' : (isDark ? '#94a3b8' : '#64748b'), fontWeight: hasProc ? 700 : 400 } },
+          React.createElement('div', null, `${formatQty(r.processScrapPcs)} ${isGrossMode ? 'Gross' : 'PCS'}`),
+          React.createElement('div', { style: { fontSize: 11 } }, `${formatQty(r.processScrapKg)} KG`),
+        );
+      },
+    },
+    {
+      title: 'Downtime Details & Breakdown Reason',
+      dataIndex: 'downtimeDetails',
+      key: 'downtimeDetails',
+      width: 240,
+      render: (v: string, r: any) => {
+        if (r?.isSectionHeader) return '';
+        const dtHrs = Number(r?.downtimeHours || 0);
+        return React.createElement(
+          'span',
+          {
+            style: {
+              fontSize: 12,
+              color: dtHrs > 0 ? '#ef4444' : (isDark ? '#cbd5e1' : '#475569'),
+              fontWeight: dtHrs > 0 ? 600 : 400,
+            },
+          },
+          dtHrs > 0 ? `⚠️ ${v}` : v,
+        );
+      },
+    },
+  ];
+
+  const displayUom = isGrossMode ? 'Gross' : (targetDivision.code === 'ALL' ? 'Units' : targetDivision.uom);
+
+  // Overall Summary KPI Cards (rendered ONLY at the very bottom of the report as a quick reference)
+  const kpis: KpiCardData[] = [
+    {
+      title: 'Actual Production (Total)',
+      value: formatQty(grandActual),
+      unit: displayUom,
+      color: '#3b82f6',
+      subtitle: isGrossMode
+        ? `${detailedRows.length} item lines (1 Gross = 144 PCS)`
+        : `${detailedRows.length} item lines across ${uniqueMachinesCount} machines`,
+    },
+    {
+      title: 'Runtime Dynamic Target',
+      value: formatQty(grandDynTarget),
+      unit: displayUom,
+      color: '#10b981',
+      subtitle: `Per-Hour Rate Sum: ${formatQty(grandPerHour)} ${displayUom}/hr`,
+    },
+    {
+      title: 'Overall % Achieved',
+      value: `${grandAch}%`,
+      color: grandAch >= 90 ? '#10b981' : '#f59e0b',
+      subtitle: 'Actual vs Runtime Dynamic Target',
+    },
+    {
+      title: 'Product Scrap (Rejects)',
+      value: `${formatQty(grandProdScrapPcs)} ${isGrossMode ? 'Gross' : 'PCS'}`,
+      unit: `(${formatQty(grandProdScrapKg)} KG)`,
+      color: '#ef4444',
+      subtitle: 'Dimensional / QC product rejects',
+    },
+    {
+      title: 'Process Cutting Scrap',
+      value: `${formatQty(grandProcScrapKg)} KG`,
+      unit: `(${formatQty(grandProcScrapPcs)} ${isGrossMode ? 'Gross' : 'PCS'})`,
+      color: '#f59e0b',
+      subtitle: 'Setup filings & wire trimmings',
+    },
+    {
+      title: 'Total Downtime',
+      value: `${grandDowntime} hrs`,
+      color: grandDowntime > 0 ? '#ef4444' : '#10b981',
+      subtitle: `${categoryOrder.length} active division/department groups`,
+    },
+  ];
+
+  return {
+    title: `Granular Daily Production Ledger — ${formattedDateLabel}${isGrossMode ? ' [Gross: 144 PCS]' : ''}`,
+    summaryText:
+      `📋 **Detailed Category-Wise, Department-Wise, Machine-Wise & Item-Wise Production Ledger (${formattedDateLabel})${isGrossMode ? ' — Converted to Gross (1 Gross = 144 PCS)' : ''}**\n` +
+      `Grouped logically by **Division & Department** (${categoryOrder.join(' • ')}) with machines sorted in ascending order (` +
+      `${uniqueMachinesCount} active machines, ${detailedRows.length} item entries). Summary KPI cards are attached at the bottom for quick reference.`,
+    divisionScope: intent.divisionCode || targetDivision.code,
+    departmentScope: filterDept,
+    periodLabel: formattedDateLabel,
+    recordsCount: detailedRows.length,
+    tableData: { columns, rows: finalTableRows },
+    chartData: {
+      type: 'bar',
+      data: chartData.slice(0, 25),
+      xKey: 'name',
+      title: `${formattedDateLabel} — Machine & Item Actual Output vs Runtime Dynamic Target (${displayUom})`,
+      dataKeys: [
+        { key: 'Actual', color: '#3b82f6', name: `Actual Production (${displayUom})` },
+        { key: 'Dynamic Target', color: '#10b981', name: `Runtime Dynamic Target (${displayUom})` },
+      ],
+    },
+    kpiCards: kpis,
+    auditTrail: {
+      dataSource: 'Production Entries + Nested Items + Downtime Reasons (Granular Daily Ledger)',
+      filters: [
+        `Exact Date: ${formattedDateLabel}`,
+        `Categories: ${categoryOrder.join(', ')}`,
+        `Ordering: Division/Dept → Machine ID (Ascending)`,
+      ],
+      period: formattedDateLabel,
+      timestamp: dayjs().format('YYYY-MM-DD HH:mm:ss'),
+      recordsExamined: detailedRows.length,
     },
   };
 }

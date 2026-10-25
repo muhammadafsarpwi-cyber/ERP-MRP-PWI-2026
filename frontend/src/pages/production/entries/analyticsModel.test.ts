@@ -23,6 +23,10 @@ import {
   downtimeTreeOutline,
   entryDefectReason,
   entryOperationalRemarks,
+  entryPartRejectKg,
+  entryProcessScrapKg,
+  entryTotalScrapKg,
+  extractCleanDefectReason,
   hoursFixed,
   machineDowntimeRanking,
   normalizeReason,
@@ -319,7 +323,14 @@ describe('scrapTotals / unweightedEntryCount', () => {
       row({ id: 'a', actualQuantity: 40, scrapQuantity: 5 }),
       row({ id: 'b', actualQuantity: 60, scrapQuantity: 5 }),
     ]);
-    expect(totals).toEqual({ entries: 2, actualKg: 100, scrapKg: 10, wastagePct: 10 });
+    expect(totals).toEqual({
+      entries: 2,
+      actualKg: 100,
+      partRejectKg: 10,
+      processScrapKg: 0,
+      scrapKg: 10,
+      wastagePct: 10,
+    });
   });
 
   it('counts rows whose UOM cannot become KG', () => {
@@ -650,5 +661,79 @@ describe('downtimeTreeOutline — the print / PDF projection', () => {
 
   it('projects an empty sample as an empty outline', () => {
     expect(downtimeTreeOutline([])).toEqual([]);
+  });
+});
+
+describe('Two-Category Rejection & Packing Recognition', () => {
+  it('separates Part Reject (scrapQuantity) from Process Cutting Scrap (processScrapKg)', () => {
+    const r1 = row({ id: 'r1', scrapQuantity: 12.5, processScrapKg: 3.2 });
+    expect(entryPartRejectKg(r1)).toBe(12.5);
+    expect(entryProcessScrapKg(r1)).toBe(3.2);
+    expect(entryTotalScrapKg(r1)).toBe(15.7);
+  });
+
+  it('extracts Hand Packing component scrap from remarks as Part Reject when processScrapKg is 0', () => {
+    const packingRow = row({
+      id: 'p1',
+      department: { id: 'd-pack', name: 'Spoke Packing', departmentCode: 'SPD-DEPT008' },
+      machineNo: 'HAND-PACK-PKG-01',
+      scrapQuantity: 0,
+      remarks: '[HAND PACKING] Batch: PKG-2026-0001 | Weight: 450 KG | Component Scrap: 15 PCS (0.75 KG) | Scrap Detail: SPK-01=15 | Scrap Reasons: SPK-01: Head Crack',
+    });
+    expect(entryPartRejectKg(packingRow)).toBe(0.75);
+    expect(entryProcessScrapKg(packingRow)).toBe(0);
+    expect(entryTotalScrapKg(packingRow)).toBe(0.75);
+    expect(extractCleanDefectReason(packingRow)).toBe('SPK-01: Head Crack');
+  });
+
+  it('normalizes Spoke Packing department and calculates department totals correctly', () => {
+    const rStraight = row({
+      id: 's1',
+      department: { id: 'd1', name: 'Straightening', departmentCode: 'ST' },
+      actualQuantity: 500,
+      scrapQuantity: 0,
+      processScrapKg: 4.5,
+    });
+    const rSwag = row({
+      id: 'sw1',
+      department: { id: 'd2', name: 'Swaging', departmentCode: 'SW' },
+      actualQuantity: 400,
+      scrapQuantity: 0,
+      processScrapKg: 2.5,
+    });
+    const rSpoke = row({
+      id: 'sp1',
+      department: { id: 'd3', name: 'Spoke', departmentCode: 'SPK' },
+      actualQuantity: 300,
+      scrapQuantity: 5.0,
+      processScrapKg: 1.0,
+    });
+    const rPack = row({
+      id: 'pk1',
+      department: { id: 'd4', name: 'Spoke Packing', departmentCode: 'SPD-DEPT008' },
+      actualQuantity: 200,
+      scrapQuantity: 0,
+      processScrapKg: 1.5,
+    });
+
+    const rollup = departmentScrapRollup([rStraight, rSwag, rSpoke, rPack]);
+    expect(rollup.map((d) => d.department)).toContain('Spoke Packing');
+    expect(rollup.map((d) => d.department)).toContain('Straightening');
+    expect(rollup.map((d) => d.department)).toContain('Swaging');
+    expect(rollup.map((d) => d.department)).toContain('Spoke');
+
+    const spoke = rollup.find((d) => d.department === 'Spoke');
+    expect(spoke?.partRejectKg).toBe(5.0);
+    expect(spoke?.processScrapKg).toBe(1.0);
+    expect(spoke?.scrapKg).toBe(6.0);
+
+    const packing = rollup.find((d) => d.department === 'Spoke Packing');
+    expect(packing?.scrapKg).toBe(1.5);
+    expect(packing?.partRejectKg).toBe(1.5);
+    expect(packing?.processScrapKg).toBe(0);
+
+    const straight = rollup.find((d) => d.department === 'Straightening');
+    expect(straight?.scrapKg).toBe(4.5);
+    expect(straight?.processScrapKg).toBe(4.5);
   });
 });
