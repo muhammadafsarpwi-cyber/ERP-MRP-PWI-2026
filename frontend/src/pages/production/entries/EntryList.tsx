@@ -115,6 +115,7 @@ import {
 } from '../../../components/shared';
 import ProductionEntryEditModal from './ProductionEntryEditModal';
 import ProductionEntryDetailModal from './ProductionEntryDetailModal';
+import EntryMachineSelect from './EntryMachineSelect';
 import './entryList.css';
 
 interface KpiCardProps {
@@ -1035,6 +1036,9 @@ const EntryList: React.FC = () => {
   // ── In-Modal Production Entry Detail Dialog States ──
   const [detailModalOpen, setDetailModalOpen] = useState(false);
   const [detailTargetId, setDetailTargetId] = useState<string | null>(null);
+
+  // ── In-Modal Daily Production Entry Wizard Dialog State ──
+  const [wizardModalOpen, setWizardModalOpen] = useState(false);
 
   const buildFilters = useCallback((chevron = activeChevronKey) => ({
     search: fSearch.trim() || undefined,
@@ -2869,7 +2873,7 @@ const EntryList: React.FC = () => {
         type="primary"
         icon={<PlusOutlined />}
         onClick={() => {
-          navigate('/production/entries/select');
+          setWizardModalOpen(true);
         }}
         style={{ fontWeight: 600 }}
       >
@@ -3847,6 +3851,19 @@ const EntryList: React.FC = () => {
         onClose={() => setWhatsAppModalVisible(false)}
         reportModel={whatsAppModalVisible ? buildReportModel() : null}
       />
+
+      {/* ── Enterprise Daily Production Entry Wizard In-Modal (Opens right here without navigating to another file/tab) ── */}
+      {wizardModalOpen && (
+        <EntryMachineSelect
+          isEmbedded
+          open={wizardModalOpen}
+          onClose={() => setWizardModalOpen(false)}
+          onEntryCreated={() => {
+            void fetchRows();
+            void fetchReport();
+          }}
+        />
+      )}
     </div>
   );
 };

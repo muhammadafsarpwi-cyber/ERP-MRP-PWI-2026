@@ -1237,7 +1237,12 @@ addToDept(org, {
     return this.machineRepo.save(saved);
   }
 
-  async findShifts(companyId: string, departmentId?: string): Promise<Shift[]> {
+  async findShifts(
+    companyId: string,
+    departmentId?: string,
+    sectionId?: string,
+    divisionId?: string,
+  ): Promise<Shift[]> {
     if (departmentId) {
       const targetShifts = await this.shiftRepo
         .createQueryBuilder('s')
@@ -1254,6 +1259,56 @@ addToDept(org, {
           { departmentId },
         )
         .where('s.company_id = :companyId AND s.is_active = true', { companyId })
+        .orderBy('s.shift_code', 'ASC')
+        .getMany();
+
+      if (targetShifts.length > 0) {
+        return targetShifts;
+      }
+    } else if (sectionId) {
+      const targetShifts = await this.shiftRepo
+        .createQueryBuilder('s')
+        .innerJoin(
+          'machine_targets',
+          'mt',
+          'mt.shift_id = s.id AND mt.is_active = true AND mt.status = :status',
+          { status: 'ACTIVE' },
+        )
+        .innerJoin(
+          'machines',
+          'm',
+          'mt.machine_id = m.id AND m.is_active = true',
+        )
+        .leftJoin('departments', 'd', 'm.department_id = d.id')
+        .where(
+          's.company_id = :companyId AND s.is_active = true AND (m.section_id = :sectionId OR d.section_id = :sectionId)',
+          { companyId, sectionId },
+        )
+        .orderBy('s.shift_code', 'ASC')
+        .getMany();
+
+      if (targetShifts.length > 0) {
+        return targetShifts;
+      }
+    } else if (divisionId) {
+      const targetShifts = await this.shiftRepo
+        .createQueryBuilder('s')
+        .innerJoin(
+          'machine_targets',
+          'mt',
+          'mt.shift_id = s.id AND mt.is_active = true AND mt.status = :status',
+          { status: 'ACTIVE' },
+        )
+        .innerJoin(
+          'machines',
+          'm',
+          'mt.machine_id = m.id AND m.is_active = true',
+        )
+        .leftJoin('departments', 'd', 'm.department_id = d.id')
+        .where(
+          's.company_id = :companyId AND s.is_active = true AND (m.division_id = :divisionId OR d.division_id = :divisionId)',
+          { companyId, divisionId },
+        )
         .orderBy('s.shift_code', 'ASC')
         .getMany();
 

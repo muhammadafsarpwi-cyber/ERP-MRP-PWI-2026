@@ -13,6 +13,7 @@ import {
   Col,
   Alert,
   Checkbox,
+  theme,
 } from 'antd';
 import {
   ArrowLeftOutlined,
@@ -51,6 +52,8 @@ export const ShopfloorTouchscreenModal: React.FC<ShopfloorTouchscreenModalProps>
   onClose,
   onSuccess,
 }) => {
+  const { token } = theme.useToken();
+
   // Wizard Stages:
   // Step 1: Shift & Machine Identification Ledger
   // Step 2: Dynamic Department & Active SOC Selection
@@ -104,34 +107,35 @@ export const ShopfloorTouchscreenModal: React.FC<ShopfloorTouchscreenModalProps>
   const loadInitialData = useCallback(async () => {
     try {
       setLoading(true);
-      const [telemetryRes, deptsRes] = await Promise.all([
+      const [telemetryRes, deptsRes] = await Promise.allSettled([
         shopfloorTouchscreenService.getTelemetry(),
         shopfloorTouchscreenService.getDepartments(),
       ]);
 
-      if (telemetryRes && telemetryRes.data) {
-        setTelemetry(telemetryRes.data);
-        if (telemetryRes.data.operators.length > 0) {
-          setSelectedOperatorId(telemetryRes.data.operators[0].id);
-          setSelectedOperatorName(telemetryRes.data.operators[0].name);
+      if (telemetryRes.status === 'fulfilled' && telemetryRes.value?.data) {
+        const t = telemetryRes.value.data;
+        setTelemetry(t);
+        if (t.operators?.length > 0 && !selectedOperatorId) {
+          setSelectedOperatorId(t.operators[0].id);
+          setSelectedOperatorName(t.operators[0].name);
         }
-        if (telemetryRes.data.machines.length > 0) {
-          setSelectedMachineId(telemetryRes.data.machines[0].id);
+        if (t.machines?.length > 0 && !selectedMachineId) {
+          setSelectedMachineId(t.machines[0].id);
         }
-        if (telemetryRes.data.shifts.length > 0) {
-          setSelectedShiftId(telemetryRes.data.shifts[0].id);
+        if (t.shifts?.length > 0 && !selectedShiftId) {
+          setSelectedShiftId(t.shifts[0].id);
         }
       }
 
-      if (deptsRes && deptsRes.data) {
-        setDepartments(deptsRes.data);
+      if (deptsRes.status === 'fulfilled' && deptsRes.value?.data) {
+        setDepartments(deptsRes.value.data);
       }
     } catch (err: any) {
-      message.error('Notice: Initializing local shop floor cache: ' + (err?.message || 'Network delay'));
+      console.warn('Shopfloor touchscreen cache init:', err);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [selectedOperatorId, selectedMachineId, selectedShiftId]);
 
   useEffect(() => {
     if (visible) {
@@ -293,22 +297,22 @@ export const ShopfloorTouchscreenModal: React.FC<ShopfloorTouchscreenModalProps>
       style={{ top: 20, maxWidth: 1300 }}
       centered
       destroyOnClose
-      closeIcon={<CloseOutlined style={{ color: '#94a3b8', fontSize: 20 }} />}
+      closeIcon={<CloseOutlined style={{ color: token.colorTextSecondary, fontSize: 20 }} />}
       styles={{
         content: {
-          backgroundColor: '#0a0f1d',
-          border: '1px solid #1e293b',
+          backgroundColor: token.colorBgElevated || 'var(--theme-surface-elevated, #0f172a)',
+          border: `1px solid ${token.colorBorderSecondary}`,
           borderRadius: 20,
           padding: 24,
-          boxShadow: '0 25px 60px -15px rgba(0, 0, 0, 0.9)',
-          color: '#f8fafc',
+          boxShadow: token.boxShadowSecondary || '0 25px 60px -15px rgba(0, 0, 0, 0.5)',
+          color: token.colorText,
           maxHeight: '94vh',
           overflowY: 'auto',
         },
       }}
     >
       {/* ━━━ TOUCHSCREEN HUD HEADER ━━━ */}
-      <div style={{ borderBottom: '1px solid #1e293b', paddingBottom: 16, marginBottom: 20 }}>
+      <div style={{ borderBottom: `1px solid ${token.colorBorderSecondary}`, paddingBottom: 16, marginBottom: 20 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
             <div
@@ -329,7 +333,7 @@ export const ShopfloorTouchscreenModal: React.FC<ShopfloorTouchscreenModalProps>
               <div style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: '1.2px', color: '#ea580c', fontWeight: 800 }}>
                 Factory Floor Touch Terminal • Zero-Typing Interface
               </div>
-              <h2 style={{ margin: 0, fontSize: 24, fontWeight: 900, color: '#f8fafc' }}>
+              <h2 style={{ margin: 0, fontSize: 24, fontWeight: 900, color: token.colorText }}>
                 Daily Shift Entry Wizard
               </h2>
             </div>
@@ -344,8 +348,8 @@ export const ShopfloorTouchscreenModal: React.FC<ShopfloorTouchscreenModalProps>
                 borderRadius: 24,
                 fontSize: 13,
                 fontWeight: 800,
-                backgroundColor: step === 1 ? '#ea580c' : step > 1 ? '#065f46' : '#1e293b',
-                color: '#ffffff',
+                backgroundColor: step === 1 ? '#ea580c' : step > 1 ? '#065f46' : token.colorFillAlter,
+                color: step === 1 || step > 1 ? '#ffffff' : token.colorTextSecondary,
                 cursor: step > 1 ? 'pointer' : 'default',
                 display: 'flex',
                 alignItems: 'center',
@@ -355,7 +359,7 @@ export const ShopfloorTouchscreenModal: React.FC<ShopfloorTouchscreenModalProps>
             >
               {step > 1 ? <CheckCircleOutlined /> : '1'} Shift & Machine
             </div>
-            <div style={{ color: '#475569', fontSize: 16 }}>➔</div>
+            <div style={{ color: token.colorTextSecondary, fontSize: 16 }}>➔</div>
             <div
               onClick={() => step > 2 && setStep(2)}
               style={{
@@ -363,8 +367,8 @@ export const ShopfloorTouchscreenModal: React.FC<ShopfloorTouchscreenModalProps>
                 borderRadius: 24,
                 fontSize: 13,
                 fontWeight: 800,
-                backgroundColor: step === 2 ? '#ea580c' : step > 2 ? '#065f46' : '#1e293b',
-                color: step >= 2 ? '#ffffff' : '#64748b',
+                backgroundColor: step === 2 ? '#ea580c' : step > 2 ? '#065f46' : token.colorFillAlter,
+                color: step >= 2 ? '#ffffff' : token.colorTextSecondary,
                 cursor: step > 2 ? 'pointer' : 'default',
                 display: 'flex',
                 alignItems: 'center',
@@ -374,15 +378,15 @@ export const ShopfloorTouchscreenModal: React.FC<ShopfloorTouchscreenModalProps>
             >
               {step > 2 ? <CheckCircleOutlined /> : '2'} Sector & SOC Job
             </div>
-            <div style={{ color: '#475569', fontSize: 16 }}>➔</div>
+            <div style={{ color: token.colorTextSecondary, fontSize: 16 }}>➔</div>
             <div
               style={{
                 padding: '8px 16px',
                 borderRadius: 24,
                 fontSize: 13,
                 fontWeight: 800,
-                backgroundColor: step === 3 ? '#ea580c' : step === 4 ? '#065f46' : '#1e293b',
-                color: step >= 3 ? '#ffffff' : '#64748b',
+                backgroundColor: step === 3 ? '#ea580c' : step === 4 ? '#065f46' : token.colorFillAlter,
+                color: step >= 3 ? '#ffffff' : token.colorTextSecondary,
                 display: 'flex',
                 alignItems: 'center',
                 gap: 6,
@@ -398,7 +402,7 @@ export const ShopfloorTouchscreenModal: React.FC<ShopfloorTouchscreenModalProps>
       {loading ? (
         <div style={{ textAlign: 'center', padding: '80px 0' }}>
           <Spin size="large" />
-          <div style={{ marginTop: 20, color: '#94a3b8', fontSize: 16, fontWeight: 600 }}>
+          <div style={{ marginTop: 20, color: token.colorTextSecondary, fontSize: 16, fontWeight: 600 }}>
             Loading Factory Floor Telemetry & Department Matrices...
           </div>
         </div>
@@ -410,10 +414,10 @@ export const ShopfloorTouchscreenModal: React.FC<ShopfloorTouchscreenModalProps>
           {step === 1 && (
             <div>
               <div style={{ marginBottom: 20 }}>
-                <h3 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: '#e2e8f0' }}>
+                <h3 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: token.colorText }}>
                   Step 1: Shift & Station Identification
                 </h3>
-                <div style={{ color: '#94a3b8', fontSize: 14, marginTop: 4 }}>
+                <div style={{ color: token.colorTextSecondary, fontSize: 14, marginTop: 4 }}>
                   Select your operator profile, station machinery, and scheduled shift via rapid touch selectors (Zero Typing Required).
                 </div>
               </div>
@@ -423,10 +427,11 @@ export const ShopfloorTouchscreenModal: React.FC<ShopfloorTouchscreenModalProps>
                 <Col xs={24} md={8}>
                   <Card
                     style={{
-                      backgroundColor: '#131b2e',
-                      borderColor: '#1e293b',
+                      backgroundColor: token.colorBgContainer,
+                      borderColor: token.colorBorderSecondary,
                       borderRadius: 16,
                       height: '100%',
+                      boxShadow: token.boxShadowTertiary,
                     }}
                     bodyStyle={{ padding: 22 }}
                   >
@@ -435,32 +440,31 @@ export const ShopfloorTouchscreenModal: React.FC<ShopfloorTouchscreenModalProps>
                         <UserOutlined style={{ color: '#ffffff', fontSize: 20 }} />
                       </div>
                       <div>
-                        <div style={{ fontSize: 16, fontWeight: 800, color: '#f8fafc' }}>Active Operator</div>
-                        <div style={{ fontSize: 12, color: '#94a3b8' }}>System Registry Lookup</div>
+                        <div style={{ fontSize: 16, fontWeight: 800, color: token.colorText }}>Active Operator</div>
+                        <div style={{ fontSize: 12, color: token.colorTextSecondary }}>System Registry Lookup</div>
                       </div>
                     </div>
 
-                    <div style={{ fontSize: 13, color: '#cbd5e1', marginBottom: 8, fontWeight: 600 }}>
+                    <div style={{ fontSize: 13, color: token.colorTextSecondary, marginBottom: 8, fontWeight: 600 }}>
                       Select Registered Operator:
                     </div>
                     <Select
                       value={selectedOperatorId}
                       onChange={handleOperatorChange}
                       style={{ width: '100%', height: 52 }}
-                      dropdownStyle={{ backgroundColor: '#1e293b', color: '#ffffff' }}
                       size="large"
                     >
                       {telemetry.operators.map((op) => (
                         <Select.Option key={op.id} value={op.id}>
-                          <span style={{ fontWeight: 700, fontSize: 15 }}>{op.name}</span>
-                          {op.username && <span style={{ color: '#94a3b8', marginLeft: 8, fontSize: 12 }}>({op.username})</span>}
+                          <span style={{ fontWeight: 700, fontSize: 15, color: token.colorText }}>{op.name}</span>
+                          {op.username && <span style={{ color: token.colorTextSecondary, marginLeft: 8, fontSize: 12 }}>({op.username})</span>}
                         </Select.Option>
                       ))}
                     </Select>
 
-                    <div style={{ marginTop: 14, padding: '10px 14px', backgroundColor: '#0a0f1d', borderRadius: 10, border: '1px solid #1e293b' }}>
-                      <div style={{ fontSize: 12, color: '#94a3b8' }}>Verified Session Operator:</div>
-                      <div style={{ fontSize: 15, fontWeight: 800, color: '#38bdf8', marginTop: 2 }}>
+                    <div style={{ marginTop: 14, padding: '10px 14px', backgroundColor: token.colorFillAlter, borderRadius: 10, border: `1px solid ${token.colorBorderSecondary}` }}>
+                      <div style={{ fontSize: 12, color: token.colorTextSecondary }}>Verified Session Operator:</div>
+                      <div style={{ fontSize: 15, fontWeight: 800, color: token.colorPrimary, marginTop: 2 }}>
                         {selectedOperatorName || 'Unassigned'}
                       </div>
                     </div>
@@ -471,10 +475,11 @@ export const ShopfloorTouchscreenModal: React.FC<ShopfloorTouchscreenModalProps>
                 <Col xs={24} md={8}>
                   <Card
                     style={{
-                      backgroundColor: '#131b2e',
-                      borderColor: '#1e293b',
+                      backgroundColor: token.colorBgContainer,
+                      borderColor: token.colorBorderSecondary,
                       borderRadius: 16,
                       height: '100%',
+                      boxShadow: token.boxShadowTertiary,
                     }}
                     bodyStyle={{ padding: 22 }}
                   >
@@ -483,32 +488,31 @@ export const ShopfloorTouchscreenModal: React.FC<ShopfloorTouchscreenModalProps>
                         <ToolOutlined style={{ color: '#ffffff', fontSize: 20 }} />
                       </div>
                       <div>
-                        <div style={{ fontSize: 16, fontWeight: 800, color: '#f8fafc' }}>Machine Station</div>
-                        <div style={{ fontSize: 12, color: '#94a3b8' }}>Asset Machinery Fleet</div>
+                        <div style={{ fontSize: 16, fontWeight: 800, color: token.colorText }}>Machine Station</div>
+                        <div style={{ fontSize: 12, color: token.colorTextSecondary }}>Asset Machinery Fleet</div>
                       </div>
                     </div>
 
-                    <div style={{ fontSize: 13, color: '#cbd5e1', marginBottom: 8, fontWeight: 600 }}>
+                    <div style={{ fontSize: 13, color: token.colorTextSecondary, marginBottom: 8, fontWeight: 600 }}>
                       Select Assigned Station Asset:
                     </div>
                     <Select
                       value={selectedMachineId}
                       onChange={(val) => setSelectedMachineId(val)}
                       style={{ width: '100%', height: 52 }}
-                      dropdownStyle={{ backgroundColor: '#1e293b', color: '#ffffff' }}
                       size="large"
                     >
                       {telemetry.machines.map((m) => (
                         <Select.Option key={m.id} value={m.id}>
                           <span style={{ fontWeight: 800, color: '#ea580c' }}>{m.machineCode}</span>
-                          <span style={{ marginLeft: 8, color: '#e2e8f0' }}>- {m.name}</span>
+                          <span style={{ marginLeft: 8, color: token.colorText }}>- {m.name}</span>
                         </Select.Option>
                       ))}
                     </Select>
 
-                    <div style={{ marginTop: 14, padding: '10px 14px', backgroundColor: '#0a0f1d', borderRadius: 10, border: '1px solid #1e293b' }}>
-                      <div style={{ fontSize: 12, color: '#94a3b8' }}>Fleet Status:</div>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: '#34d399', marginTop: 2 }}>
+                    <div style={{ marginTop: 14, padding: '10px 14px', backgroundColor: token.colorFillAlter, borderRadius: 10, border: `1px solid ${token.colorBorderSecondary}` }}>
+                      <div style={{ fontSize: 12, color: token.colorTextSecondary }}>Fleet Status:</div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: '#10b981', marginTop: 2 }}>
                         ● Active Operational Asset
                       </div>
                     </div>
@@ -519,10 +523,11 @@ export const ShopfloorTouchscreenModal: React.FC<ShopfloorTouchscreenModalProps>
                 <Col xs={24} md={8}>
                   <Card
                     style={{
-                      backgroundColor: '#131b2e',
-                      borderColor: '#1e293b',
+                      backgroundColor: token.colorBgContainer,
+                      borderColor: token.colorBorderSecondary,
                       borderRadius: 16,
                       height: '100%',
+                      boxShadow: token.boxShadowTertiary,
                     }}
                     bodyStyle={{ padding: 22 }}
                   >
@@ -531,32 +536,31 @@ export const ShopfloorTouchscreenModal: React.FC<ShopfloorTouchscreenModalProps>
                         <ThunderboltOutlined style={{ color: '#ffffff', fontSize: 20 }} />
                       </div>
                       <div>
-                        <div style={{ fontSize: 16, fontWeight: 800, color: '#f8fafc' }}>Active Shift Roster</div>
-                        <div style={{ fontSize: 12, color: '#94a3b8' }}>8-Hour Standard Cycle</div>
+                        <div style={{ fontSize: 16, fontWeight: 800, color: token.colorText }}>Active Shift Roster</div>
+                        <div style={{ fontSize: 12, color: token.colorTextSecondary }}>Standard Shift Cycle</div>
                       </div>
                     </div>
 
-                    <div style={{ fontSize: 13, color: '#cbd5e1', marginBottom: 8, fontWeight: 600 }}>
+                    <div style={{ fontSize: 13, color: token.colorTextSecondary, marginBottom: 8, fontWeight: 600 }}>
                       Select Manufacturing Shift:
                     </div>
                     <Select
                       value={selectedShiftId}
                       onChange={(val) => setSelectedShiftId(val)}
                       style={{ width: '100%', height: 52 }}
-                      dropdownStyle={{ backgroundColor: '#1e293b', color: '#ffffff' }}
                       size="large"
                     >
                       {telemetry.shifts.map((s) => (
                         <Select.Option key={s.id} value={s.id}>
-                          <span style={{ fontWeight: 800, fontSize: 15 }}>{s.name}</span>
+                          <span style={{ fontWeight: 800, fontSize: 15, color: token.colorText }}>{s.name}</span>
                         </Select.Option>
                       ))}
                     </Select>
 
-                    <div style={{ marginTop: 14, padding: '10px 14px', backgroundColor: '#0a0f1d', borderRadius: 10, border: '1px solid #1e293b' }}>
-                      <div style={{ fontSize: 12, color: '#94a3b8' }}>Standard Shift Capacity:</div>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: '#fbbf24', marginTop: 2 }}>
-                        8.00 Net Hours Basis
+                    <div style={{ marginTop: 14, padding: '10px 14px', backgroundColor: token.colorFillAlter, borderRadius: 10, border: `1px solid ${token.colorBorderSecondary}` }}>
+                      <div style={{ fontSize: 12, color: token.colorTextSecondary }}>Standard Shift Capacity:</div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: '#f59e0b', marginTop: 2 }}>
+                        {telemetry.shifts.find(s => s.id === selectedShiftId)?.name?.includes('12') || telemetry.shifts.find(s => s.id === selectedShiftId)?.name?.includes('N+OT') ? '12.00 Gross (8h Duty + 4h OT)' : '8.00 Net Hours Basis'}
                       </div>
                     </div>
                   </Card>
@@ -599,9 +603,9 @@ export const ShopfloorTouchscreenModal: React.FC<ShopfloorTouchscreenModalProps>
                     onClick={() => setStep(1)}
                     style={{
                       height: 44,
-                      backgroundColor: '#1e293b',
-                      borderColor: '#334155',
-                      color: '#f8fafc',
+                      backgroundColor: token.colorFillAlter,
+                      borderColor: token.colorBorderSecondary,
+                      color: token.colorText,
                       fontWeight: 700,
                       borderRadius: 10,
                     }}
@@ -609,10 +613,10 @@ export const ShopfloorTouchscreenModal: React.FC<ShopfloorTouchscreenModalProps>
                     Back to Step 1
                   </Button>
                   <div>
-                    <h3 style={{ margin: 0, fontSize: 19, fontWeight: 800, color: '#e2e8f0' }}>
+                    <h3 style={{ margin: 0, fontSize: 19, fontWeight: 800, color: token.colorText }}>
                       Step 2: Department Validation & Pending Sales Order Contracts (SOC)
                     </h3>
-                    <div style={{ color: '#94a3b8', fontSize: 13, marginTop: 2 }}>
+                    <div style={{ color: token.colorTextSecondary, fontSize: 13, marginTop: 2 }}>
                       Operator: <strong style={{ color: '#38bdf8' }}>{selectedOperatorName}</strong> | Station: <strong style={{ color: '#ea580c' }}>{telemetry.machines.find(m => m.id === selectedMachineId)?.machineCode || 'Station'}</strong>
                     </div>
                   </div>
@@ -621,7 +625,7 @@ export const ShopfloorTouchscreenModal: React.FC<ShopfloorTouchscreenModalProps>
                 <Button
                   icon={<ReloadOutlined />}
                   onClick={loadInitialData}
-                  style={{ backgroundColor: '#1e293b', borderColor: '#334155', color: '#cbd5e1', height: 40 }}
+                  style={{ backgroundColor: token.colorFillAlter, borderColor: token.colorBorderSecondary, color: token.colorText, height: 40 }}
                 >
                   Refresh Routing Data
                 </Button>
@@ -629,7 +633,7 @@ export const ShopfloorTouchscreenModal: React.FC<ShopfloorTouchscreenModalProps>
 
               {/* 5 PRIMARY GRID BLOCKS FOR DEPARTMENT ROUTING VALIDATION */}
               <div style={{ marginBottom: 24 }}>
-                <div style={{ fontSize: 13, textTransform: 'uppercase', color: '#94a3b8', fontWeight: 700, marginBottom: 10 }}>
+                <div style={{ fontSize: 13, textTransform: 'uppercase', color: token.colorTextSecondary, fontWeight: 700, marginBottom: 10 }}>
                   Active Manufacturing Routing Segments:
                 </div>
                 <Row gutter={[14, 14]}>
@@ -640,10 +644,10 @@ export const ShopfloorTouchscreenModal: React.FC<ShopfloorTouchscreenModalProps>
                         <div
                           onClick={() => handleSelectDepartment(dept)}
                           style={{
-                            backgroundColor: isSelected ? '#1e293b' : '#131b2e',
+                            backgroundColor: isSelected ? token.colorFillSecondary : token.colorBgContainer,
                             borderRadius: 14,
                             padding: '18px 16px',
-                            border: `2px solid ${isSelected ? dept.color : '#334155'}`,
+                            border: `2px solid ${isSelected ? dept.color : token.colorBorderSecondary}`,
                             cursor: 'pointer',
                             transition: 'all 0.15s ease',
                             boxShadow: isSelected ? `0 0 20px ${dept.color}33` : 'none',
@@ -667,21 +671,21 @@ export const ShopfloorTouchscreenModal: React.FC<ShopfloorTouchscreenModalProps>
                             <Badge
                               count={`${dept.activeContractsCount} Open SOCs`}
                               style={{
-                                backgroundColor: dept.activeContractsCount > 0 ? '#065f46' : '#334155',
-                                color: dept.activeContractsCount > 0 ? '#34d399' : '#94a3b8',
+                                backgroundColor: dept.activeContractsCount > 0 ? '#065f46' : token.colorFillAlter,
+                                color: dept.activeContractsCount > 0 ? '#34d399' : token.colorTextSecondary,
                                 fontWeight: 700,
                               }}
                             />
                           </div>
 
-                          <div style={{ fontSize: 17, fontWeight: 800, color: '#f8fafc', marginTop: 12 }}>
+                          <div style={{ fontSize: 17, fontWeight: 800, color: token.colorText, marginTop: 12 }}>
                             {dept.title}
                           </div>
-                          <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4, height: 32, overflow: 'hidden' }}>
+                          <div style={{ fontSize: 12, color: token.colorTextSecondary, marginTop: 4, height: 32, overflow: 'hidden' }}>
                             {dept.description}
                           </div>
 
-                          <div style={{ marginTop: 12, textAlign: 'center', padding: '6px', borderRadius: 8, backgroundColor: '#0a0f1d', color: dept.color, fontWeight: 800, fontSize: 12 }}>
+                          <div style={{ marginTop: 12, textAlign: 'center', padding: '6px', borderRadius: 8, backgroundColor: token.colorFillAlter, color: dept.color, fontWeight: 800, fontSize: 12 }}>
                             {isSelected ? '✓ Selected Section' : 'Tap to View Jobs →'}
                           </div>
                         </div>
@@ -695,110 +699,116 @@ export const ShopfloorTouchscreenModal: React.FC<ShopfloorTouchscreenModalProps>
               {selectedSegment && (
                 <div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                    <div style={{ fontSize: 15, fontWeight: 800, color: '#f8fafc' }}>
+                    <div style={{ fontSize: 15, fontWeight: 800, color: token.colorText }}>
                       Active Unfulfilled Contracts in <span style={{ color: selectedSegment.color }}>{selectedSegment.title}</span> ({contracts.length} Pending)
                     </div>
                   </div>
 
                   {contracts.length === 0 ? (
-                    <div style={{ textAlign: 'center', padding: '40px 20px', backgroundColor: '#131b2e', borderRadius: 14, border: '1px dashed #334155' }}>
-                      <div style={{ fontSize: 16, fontWeight: 700, color: '#cbd5e1' }}>
+                    <div style={{ textAlign: 'center', padding: '40px 20px', backgroundColor: token.colorFillAlter, borderRadius: 14, border: `1px dashed ${token.colorBorderSecondary}` }}>
+                      <div style={{ fontSize: 16, fontWeight: 700, color: token.colorText }}>
                         No pending unfulfilled balances found for {selectedSegment.title}.
                       </div>
-                      <div style={{ fontSize: 13, color: '#94a3b8', marginTop: 4 }}>
+                      <div style={{ fontSize: 13, color: token.colorTextSecondary, marginTop: 4 }}>
                         All current sales order contracts in this phase are fully produced. Select another segment above.
                       </div>
                     </div>
                   ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxHeight: '42vh', overflowY: 'auto' }}>
-                      {contracts.map((job) => (
-                        <div
-                          key={job.salesOrderItemId}
-                          onClick={() => handleSelectJob(job)}
-                          style={{
-                            backgroundColor: '#131b2e',
-                            borderRadius: 14,
-                            padding: '16px 20px',
-                            border: '2px solid #1e293b',
-                            cursor: 'pointer',
-                            transition: 'all 0.15s ease',
-                          }}
-                          onMouseEnter={(e) => {
-                            e.currentTarget.style.borderColor = '#ea580c';
-                            e.currentTarget.style.boxShadow = '0 6px 18px rgba(234, 88, 12, 0.2)';
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.borderColor = '#1e293b';
-                            e.currentTarget.style.boxShadow = 'none';
-                          }}
-                        >
-                          <Row gutter={[16, 12]} align="middle">
-                            {/* Customer & Contract Number */}
-                            <Col xs={24} md={7}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                <span style={{ backgroundColor: '#ea580c', color: '#fff', padding: '2px 8px', borderRadius: 6, fontSize: 11, fontWeight: 800 }}>
-                                  {job.contractNumber}
-                                </span>
-                                <span style={{ color: '#94a3b8', fontSize: 11 }}>Sales Order Contract</span>
-                              </div>
-                              <div style={{ fontSize: 18, fontWeight: 800, color: '#f8fafc', marginTop: 4 }}>
-                                {job.customerName}
-                              </div>
-                            </Col>
+                      {contracts.map((job) => {
+                        const producedQty = job.producedQuantity ?? job.stageProduced ?? 0;
+                        const targetQty = job.targetQuantity ?? 0;
+                        const remainingQty = job.remainingQuantity ?? Math.max(0, targetQty - producedQty);
 
-                            {/* Active Target Item Code & Operation */}
-                            <Col xs={24} md={8}>
-                              <div style={{ fontSize: 13, color: '#38bdf8', fontWeight: 800 }}>
-                                {job.itemCode}
-                              </div>
-                              <div style={{ fontSize: 14, fontWeight: 700, color: '#e2e8f0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                {job.itemName}
-                              </div>
-                              <div style={{ fontSize: 12, color: '#34d399', marginTop: 2 }}>
-                                Active Phase: <strong>{job.operationName}</strong>
-                              </div>
-                            </Col>
+                        return (
+                          <div
+                            key={job.salesOrderItemId}
+                            onClick={() => handleSelectJob(job)}
+                            style={{
+                              backgroundColor: token.colorBgContainer,
+                              borderRadius: 14,
+                              padding: '16px 20px',
+                              border: `2px solid ${token.colorBorderSecondary}`,
+                              cursor: 'pointer',
+                              transition: 'all 0.15s ease',
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.borderColor = '#ea580c';
+                              e.currentTarget.style.boxShadow = '0 6px 18px rgba(234, 88, 12, 0.2)';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.borderColor = token.colorBorderSecondary;
+                              e.currentTarget.style.boxShadow = 'none';
+                            }}
+                          >
+                            <Row gutter={[16, 12]} align="middle">
+                              {/* Customer & Contract Number */}
+                              <Col xs={24} md={7}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                  <span style={{ backgroundColor: '#ea580c', color: '#fff', padding: '2px 8px', borderRadius: 6, fontSize: 11, fontWeight: 800 }}>
+                                    {job.contractNumber}
+                                  </span>
+                                  <span style={{ color: token.colorTextSecondary, fontSize: 11 }}>Sales Order Contract</span>
+                                </div>
+                                <div style={{ fontSize: 18, fontWeight: 800, color: token.colorText, marginTop: 4 }}>
+                                  {job.customerName}
+                                </div>
+                              </Col>
 
-                            {/* Visual Progress Bar (Dispatched vs Total Ordered Target) */}
-                            <Col xs={24} md={6}>
-                              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
-                                <span style={{ color: '#94a3b8' }}>Produced: <strong style={{ color: '#34d399' }}>{job.stageProduced.toLocaleString()}</strong></span>
-                                <span style={{ color: '#94a3b8' }}>Target: <strong style={{ color: '#f8fafc' }}>{job.targetQuantity.toLocaleString()}</strong></span>
-                              </div>
-                              <Progress
-                                percent={job.completionPercentage}
-                                status="active"
-                                strokeColor={{
-                                  '0%': '#ea580c',
-                                  '100%': '#10b981',
-                                }}
-                                trailColor="#0a0f1d"
-                                strokeWidth={10}
-                              />
-                              <div style={{ textAlign: 'right', fontSize: 11, color: '#fbbf24', marginTop: 4 }}>
-                                Remaining Balance: {job.remainingQuantity.toLocaleString()} units
-                              </div>
-                            </Col>
+                              {/* Active Target Item Code & Operation */}
+                              <Col xs={24} md={8}>
+                                <div style={{ fontSize: 13, color: '#38bdf8', fontWeight: 800 }}>
+                                  {job.itemCode}
+                                </div>
+                                <div style={{ fontSize: 14, fontWeight: 700, color: token.colorText, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                  {job.itemName}
+                                </div>
+                                <div style={{ fontSize: 12, color: '#10b981', marginTop: 2 }}>
+                                  Active Phase: <strong>{job.operationName}</strong>
+                                </div>
+                              </Col>
 
-                            {/* Action Button */}
-                            <Col xs={24} md={3} style={{ textAlign: 'right' }}>
-                              <Button
-                                type="primary"
-                                style={{
-                                  height: 48,
-                                  backgroundColor: '#ea580c',
-                                  borderColor: '#ea580c',
-                                  fontWeight: 800,
-                                  borderRadius: 10,
-                                  width: '100%',
-                                }}
-                              >
-                                SELECT ➔
-                              </Button>
-                            </Col>
-                          </Row>
-                        </div>
-                      ))}
+                              {/* Visual Progress Bar (Dispatched vs Total Ordered Target) */}
+                              <Col xs={24} md={6}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
+                                  <span style={{ color: token.colorTextSecondary }}>Produced: <strong style={{ color: '#10b981' }}>{producedQty.toLocaleString()}</strong></span>
+                                  <span style={{ color: token.colorTextSecondary }}>Target: <strong style={{ color: token.colorText }}>{targetQty.toLocaleString()}</strong></span>
+                                </div>
+                                <Progress
+                                  percent={job.completionPercentage || Math.min(100, Math.round((producedQty / (targetQty || 1)) * 100))}
+                                  status="active"
+                                  strokeColor={{
+                                    '0%': '#ea580c',
+                                    '100%': '#10b981',
+                                  }}
+                                  trailColor={token.colorFillAlter}
+                                  strokeWidth={10}
+                                />
+                                <div style={{ textAlign: 'right', fontSize: 11, color: '#fbbf24', marginTop: 4 }}>
+                                  Remaining Balance: {remainingQty.toLocaleString()} units
+                                </div>
+                              </Col>
+
+                              {/* Action Button */}
+                              <Col xs={24} md={3} style={{ textAlign: 'right' }}>
+                                <Button
+                                  type="primary"
+                                  style={{
+                                    height: 48,
+                                    backgroundColor: '#ea580c',
+                                    borderColor: '#ea580c',
+                                    fontWeight: 800,
+                                    borderRadius: 10,
+                                    width: '100%',
+                                  }}
+                                >
+                                  SELECT ➔
+                                </Button>
+                              </Col>
+                            </Row>
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -809,406 +819,411 @@ export const ShopfloorTouchscreenModal: React.FC<ShopfloorTouchscreenModalProps>
           {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
               STEP 3: THE 3-METRIC MATERIAL EXECUTION FORM (TACTILE TOUCH)
               ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-          {step === 3 && selectedJob && (
-            <div>
-              {/* Top Banner: Selected Contract Details */}
-              <div
-                style={{
-                  backgroundColor: '#131b2e',
-                  borderRadius: 14,
-                  padding: '14px 20px',
-                  border: '1px solid #1e293b',
-                  marginBottom: 18,
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  flexWrap: 'wrap',
-                  gap: 12,
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <Button
-                    icon={<ArrowLeftOutlined />}
-                    onClick={() => setStep(2)}
-                    style={{
-                      height: 42,
-                      backgroundColor: '#0a0f1d',
-                      borderColor: '#334155',
-                      color: '#f8fafc',
-                      fontWeight: 700,
-                    }}
-                  >
-                    Change Job
-                  </Button>
-                  <div>
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                      <span style={{ backgroundColor: '#ea580c', color: '#fff', padding: '1px 8px', borderRadius: 4, fontSize: 11, fontWeight: 800 }}>
-                        {selectedJob.contractNumber}
-                      </span>
-                      <span style={{ fontSize: 17, fontWeight: 800, color: '#f8fafc' }}>
-                        {selectedJob.customerName}
-                      </span>
-                    </div>
-                    <div style={{ fontSize: 13, color: '#94a3b8', marginTop: 2 }}>
-                      Item: <strong style={{ color: '#38bdf8' }}>{selectedJob.itemCode}</strong> - {selectedJob.itemName} | Station: <strong style={{ color: '#ea580c' }}>{telemetry.machines.find(m => m.id === selectedMachineId)?.machineCode}</strong>
-                    </div>
-                  </div>
-                </div>
+          {step === 3 && selectedJob && (() => {
+            const activeShiftObj = telemetry.shifts.find(s => s.id === selectedShiftId);
+            const shiftHours = (activeShiftObj?.name?.includes('12') || activeShiftObj?.name?.includes('N+OT')) ? 12 : 8;
+            const netRunningHours = Math.max(0, shiftHours - Math.round((machineDowntimeMinutes / 60) * 100) / 100);
 
-                <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontSize: 12, color: '#94a3b8' }}>Target Contract Remaining Balance:</div>
-                  <div style={{ fontSize: 20, fontWeight: 900, color: '#fbbf24' }}>
-                    {selectedJob.remainingQuantity.toLocaleString()} Units
-                  </div>
-                </div>
-              </div>
-
-              {/* ━━━ REAL-TIME 5% SCRAP THRESHOLD ALERT & SUPERVISOR OVERRIDE ━━━ */}
-              {isScrapExceeded && (
-                <div style={{ marginBottom: 18 }}>
-                  <Alert
-                    type="warning"
-                    showIcon
-                    icon={<ExclamationCircleOutlined style={{ fontSize: 22, color: '#f59e0b' }} />}
-                    message={
-                      <div style={{ fontSize: 15, fontWeight: 800, color: '#fef3c7' }}>
-                        EXCESSIVE SCRAP THRESHOLD WARNING: Material Scrap is {scrapRate}% (Exceeds 5.0% Target Limit)
-                      </div>
-                    }
-                    description={
-                      <div style={{ marginTop: 6, color: '#fde68a', fontSize: 13 }}>
-                        Quality policy enforces supervisor review when shift scrap exceeds 5.0% of gross pieces. Please enter your Supervisor Authorization PIN or check the override authorization flag.
-                        <div style={{ display: 'flex', gap: 16, alignItems: 'center', marginTop: 12, flexWrap: 'wrap' }}>
-                          <Input.Password
-                            prefix={<LockOutlined />}
-                            placeholder="Supervisor PIN (4 digits)"
-                            value={supervisorPin}
-                            onChange={(e) => setSupervisorPin(e.target.value)}
-                            maxLength={6}
-                            style={{ width: 220, height: 44, backgroundColor: '#0a0f1d', borderColor: '#d97706', color: '#f8fafc', fontWeight: 700 }}
-                          />
-                          <Input
-                            prefix={<SafetyCertificateOutlined />}
-                            placeholder="Supervisor Name"
-                            value={supervisorName}
-                            onChange={(e) => setSupervisorName(e.target.value)}
-                            style={{ width: 220, height: 44, backgroundColor: '#0a0f1d', borderColor: '#d97706', color: '#f8fafc', fontWeight: 700 }}
-                          />
-                          <Checkbox
-                            checked={supervisorOverride}
-                            onChange={(e) => setSupervisorOverride(e.target.checked)}
-                            style={{ color: '#fef3c7', fontWeight: 700, fontSize: 14 }}
-                          >
-                            Authorized by Floor Supervisor
-                          </Checkbox>
-                        </div>
-                      </div>
-                    }
-                    style={{
-                      backgroundColor: '#2e1c0c',
-                      borderColor: '#d97706',
-                      borderRadius: 14,
-                      padding: 16,
-                      boxShadow: '0 0 20px rgba(217, 119, 6, 0.3)',
-                    }}
-                  />
-                </div>
-              )}
-
-              {/* ━━━ THE 3 LOCKED NUMERIC ENTRY FIELDS ━━━ */}
-              <Row gutter={[20, 20]}>
-                {/* 1. OK QUANTITY (PIECES) */}
-                <Col xs={24} lg={8}>
-                  <Card
-                    style={{
-                      backgroundColor: '#131b2e',
-                      borderColor: '#10b981',
-                      borderRadius: 16,
-                      boxShadow: '0 8px 24px rgba(16, 185, 129, 0.15)',
-                    }}
-                    bodyStyle={{ padding: 20 }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                      <span style={{ color: '#10b981', fontWeight: 800, fontSize: 15, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                        1. OK Quantity
-                      </span>
-                      <span style={{ backgroundColor: '#065f46', color: '#a7f3d0', padding: '3px 10px', borderRadius: 8, fontSize: 11, fontWeight: 800 }}>
-                        Accepted Pieces
-                      </span>
-                    </div>
-
-                    {/* Prominent Number Display */}
-                    <div
-                      style={{
-                        backgroundColor: '#0a0f1d',
-                        borderRadius: 14,
-                        padding: '16px 12px',
-                        textAlign: 'center',
-                        border: '2px solid #059669',
-                        marginBottom: 16,
-                      }}
-                    >
-                      <span style={{ fontSize: 46, fontWeight: 900, color: '#10b981', letterSpacing: '1px' }}>
-                        {okQuantity.toLocaleString()}
-                      </span>
-                      <div style={{ color: '#6ee7b7', fontSize: 12, fontWeight: 600 }}>Usable Finished Pieces</div>
-                    </div>
-
-                    {/* Touch Counter Buttons: Fine Adjustment */}
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 6, marginBottom: 10 }}>
-                      <Button onClick={() => adjustOk(-100)} style={{ height: 48, backgroundColor: '#0a0f1d', borderColor: '#334155', color: '#f8fafc', fontWeight: 700, padding: 0 }}>
-                        -100
-                      </Button>
-                      <Button onClick={() => adjustOk(-10)} style={{ height: 48, backgroundColor: '#0a0f1d', borderColor: '#334155', color: '#f8fafc', fontWeight: 700, padding: 0 }}>
-                        -10
-                      </Button>
-                      <Button onClick={() => adjustOk(-1)} style={{ height: 48, backgroundColor: '#0a0f1d', borderColor: '#334155', color: '#f8fafc', fontWeight: 700, padding: 0 }}>
-                        -1
-                      </Button>
-                      <Button onClick={() => adjustOk(1)} style={{ height: 48, backgroundColor: '#0a0f1d', borderColor: '#334155', color: '#10b981', fontWeight: 800, padding: 0 }}>
-                        +1
-                      </Button>
-                      <Button onClick={() => adjustOk(10)} style={{ height: 48, backgroundColor: '#0a0f1d', borderColor: '#334155', color: '#10b981', fontWeight: 800, padding: 0 }}>
-                        +10
-                      </Button>
-                      <Button onClick={() => adjustOk(100)} style={{ height: 48, backgroundColor: '#0a0f1d', borderColor: '#334155', color: '#10b981', fontWeight: 800, padding: 0 }}>
-                        +100
-                      </Button>
-                    </div>
-
-                    {/* Quick Preset Pills */}
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
-                      <Button onClick={() => setOkQuantity(250)} style={{ height: 40, backgroundColor: '#0a0f1d', borderColor: '#334155', color: '#cbd5e1', fontSize: 13, fontWeight: 700 }}>
-                        250 pcs
-                      </Button>
-                      <Button onClick={() => setOkQuantity(500)} style={{ height: 40, backgroundColor: '#0a0f1d', borderColor: '#334155', color: '#cbd5e1', fontSize: 13, fontWeight: 700 }}>
-                        500 pcs
-                      </Button>
-                      <Button
-                        onClick={() => setOkQuantity(selectedJob.remainingQuantity > 0 ? selectedJob.remainingQuantity : 1000)}
-                        style={{ height: 40, backgroundColor: '#065f46', borderColor: '#059669', color: '#ffffff', fontSize: 13, fontWeight: 800 }}
-                      >
-                        Target Max
-                      </Button>
-                    </div>
-                  </Card>
-                </Col>
-
-                {/* 2. SCRAP/REJECTED QUANTITY (PIECES) */}
-                <Col xs={24} lg={8}>
-                  <Card
-                    style={{
-                      backgroundColor: '#131b2e',
-                      borderColor: isScrapExceeded ? '#f59e0b' : '#f43f5e',
-                      borderRadius: 16,
-                      boxShadow: isScrapExceeded ? '0 8px 24px rgba(245, 158, 11, 0.25)' : '0 8px 24px rgba(244, 63, 94, 0.15)',
-                    }}
-                    bodyStyle={{ padding: 20 }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                      <span style={{ color: isScrapExceeded ? '#f59e0b' : '#f43f5e', fontWeight: 800, fontSize: 15, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                        2. Scrap Quantity
-                      </span>
-                      <span
-                        style={{
-                          backgroundColor: isScrapExceeded ? '#78350f' : '#881337',
-                          color: isScrapExceeded ? '#fef3c7' : '#fecdd3',
-                          padding: '3px 10px',
-                          borderRadius: 8,
-                          fontSize: 11,
-                          fontWeight: 800,
-                        }}
-                      >
-                        {scrapRate}% Loss Rate
-                      </span>
-                    </div>
-
-                    {/* Prominent Number Display */}
-                    <div
-                      style={{
-                        backgroundColor: '#0a0f1d',
-                        borderRadius: 14,
-                        padding: '16px 12px',
-                        textAlign: 'center',
-                        border: `2px solid ${isScrapExceeded ? '#d97706' : '#e11d48'}`,
-                        marginBottom: 16,
-                      }}
-                    >
-                      <span style={{ fontSize: 46, fontWeight: 900, color: isScrapExceeded ? '#f59e0b' : '#f43f5e', letterSpacing: '1px' }}>
-                        {scrapQuantity.toLocaleString()}
-                      </span>
-                      <div style={{ color: isScrapExceeded ? '#fde68a' : '#fda4af', fontSize: 12, fontWeight: 600 }}>
-                        {isScrapExceeded ? '⚠️ Warning: Exceeds 5.0% Limit' : 'Within 5.0% Quality Standard'}
-                      </div>
-                    </div>
-
-                    {/* Touch Counter Buttons */}
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 6, marginBottom: 10 }}>
-                      <Button onClick={() => adjustScrap(-10)} style={{ height: 48, backgroundColor: '#0a0f1d', borderColor: '#334155', color: '#f8fafc', fontWeight: 700 }}>
-                        -10
-                      </Button>
-                      <Button onClick={() => adjustScrap(-1)} style={{ height: 48, backgroundColor: '#0a0f1d', borderColor: '#334155', color: '#f8fafc', fontWeight: 700 }}>
-                        -1
-                      </Button>
-                      <Button onClick={() => setScrapQuantity(0)} style={{ height: 48, backgroundColor: '#0a0f1d', borderColor: '#334155', color: '#94a3b8', fontWeight: 700 }}>
-                        Zero
-                      </Button>
-                      <Button onClick={() => adjustScrap(1)} style={{ height: 48, backgroundColor: '#0a0f1d', borderColor: '#334155', color: '#f43f5e', fontWeight: 800 }}>
-                        +1
-                      </Button>
-                      <Button onClick={() => adjustScrap(10)} style={{ height: 48, backgroundColor: '#0a0f1d', borderColor: '#334155', color: '#f43f5e', fontWeight: 800 }}>
-                        +10
-                      </Button>
-                    </div>
-
-                    {/* Quick Preset Pills */}
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
-                      <Button onClick={() => setScrapQuantity(5)} style={{ height: 40, backgroundColor: '#0a0f1d', borderColor: '#334155', color: '#cbd5e1', fontSize: 13, fontWeight: 700 }}>
-                        5 pcs
-                      </Button>
-                      <Button onClick={() => setScrapQuantity(15)} style={{ height: 40, backgroundColor: '#0a0f1d', borderColor: '#334155', color: '#cbd5e1', fontSize: 13, fontWeight: 700 }}>
-                        15 pcs
-                      </Button>
-                      <Button onClick={() => setScrapQuantity(25)} style={{ height: 40, backgroundColor: '#881337', borderColor: '#e11d48', color: '#ffffff', fontSize: 13, fontWeight: 800 }}>
-                        25 pcs
-                      </Button>
-                    </div>
-                  </Card>
-                </Col>
-
-                {/* 3. MACHINE DOWNTIME (MINUTES) */}
-                <Col xs={24} lg={8}>
-                  <Card
-                    style={{
-                      backgroundColor: '#131b2e',
-                      borderColor: '#f59e0b',
-                      borderRadius: 16,
-                      boxShadow: '0 8px 24px rgba(245, 158, 11, 0.15)',
-                    }}
-                    bodyStyle={{ padding: 20 }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                      <span style={{ color: '#f59e0b', fontWeight: 800, fontSize: 15, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                        3. Machine Downtime
-                      </span>
-                      <span style={{ backgroundColor: '#78350f', color: '#fef3c7', padding: '3px 10px', borderRadius: 8, fontSize: 11, fontWeight: 800 }}>
-                        Mechanical / Power
-                      </span>
-                    </div>
-
-                    {/* Prominent Number Display */}
-                    <div
-                      style={{
-                        backgroundColor: '#0a0f1d',
-                        borderRadius: 14,
-                        padding: '16px 12px',
-                        textAlign: 'center',
-                        border: '2px solid #d97706',
-                        marginBottom: 16,
-                      }}
-                    >
-                      <span style={{ fontSize: 46, fontWeight: 900, color: '#f59e0b', letterSpacing: '1px' }}>
-                        {machineDowntimeMinutes}
-                      </span>
-                      <span style={{ fontSize: 20, color: '#fbbf24', marginLeft: 8, fontWeight: 800 }}>min</span>
-                      <div style={{ color: '#fde68a', fontSize: 12, fontWeight: 600 }}>
-                        {(machineDowntimeMinutes / 60).toFixed(2)} Lost Production Hours
-                      </div>
-                    </div>
-
-                    {/* Touch Counter Buttons */}
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6, marginBottom: 10 }}>
-                      <Button onClick={() => adjustDowntime(-15)} style={{ height: 48, backgroundColor: '#0a0f1d', borderColor: '#334155', color: '#f8fafc', fontWeight: 700 }}>
-                        -15m
-                      </Button>
-                      <Button onClick={() => setMachineDowntimeMinutes(0)} style={{ height: 48, backgroundColor: '#0a0f1d', borderColor: '#334155', color: '#94a3b8', fontWeight: 700 }}>
-                        0m
-                      </Button>
-                      <Button onClick={() => adjustDowntime(15)} style={{ height: 48, backgroundColor: '#0a0f1d', borderColor: '#334155', color: '#f59e0b', fontWeight: 800 }}>
-                        +15m
-                      </Button>
-                      <Button onClick={() => adjustDowntime(30)} style={{ height: 48, backgroundColor: '#0a0f1d', borderColor: '#334155', color: '#f59e0b', fontWeight: 800 }}>
-                        +30m
-                      </Button>
-                    </div>
-
-                    {/* Quick Preset Pills */}
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
-                      <Button onClick={() => setMachineDowntimeMinutes(15)} style={{ height: 40, backgroundColor: '#0a0f1d', borderColor: '#334155', color: '#cbd5e1', fontSize: 13, fontWeight: 700 }}>
-                        15 Min
-                      </Button>
-                      <Button onClick={() => setMachineDowntimeMinutes(30)} style={{ height: 40, backgroundColor: '#0a0f1d', borderColor: '#334155', color: '#cbd5e1', fontSize: 13, fontWeight: 700 }}>
-                        30 Min
-                      </Button>
-                      <Button onClick={() => setMachineDowntimeMinutes(60)} style={{ height: 40, backgroundColor: '#78350f', borderColor: '#d97706', color: '#ffffff', fontSize: 13, fontWeight: 800 }}>
-                        60 Min
-                      </Button>
-                    </div>
-                  </Card>
-                </Col>
-              </Row>
-
-              {/* Net Running Hours HUD */}
-              <div
-                style={{
-                  marginTop: 20,
-                  padding: '14px 20px',
-                  backgroundColor: '#131b2e',
-                  borderRadius: 14,
-                  border: '1px solid #1e293b',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  flexWrap: 'wrap',
-                }}
-              >
-                <div>
-                  <span style={{ color: '#94a3b8', fontSize: 13 }}>Operator: </span>
-                  <strong style={{ color: '#38bdf8', fontSize: 14 }}>{selectedOperatorName}</strong>
-                  <span style={{ color: '#475569', margin: '0 10px' }}>|</span>
-                  <span style={{ color: '#94a3b8', fontSize: 13 }}>Station: </span>
-                  <strong style={{ color: '#ea580c', fontSize: 14 }}>{telemetry.machines.find(m => m.id === selectedMachineId)?.machineCode || 'Station'}</strong>
-                </div>
-
-                <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontSize: 11, color: '#94a3b8' }}>Net Machine Running Time:</div>
-                    <div style={{ fontSize: 16, fontWeight: 800, color: '#34d399' }}>
-                      {Math.max(0, 8 - Math.round((machineDowntimeMinutes / 60) * 100) / 100).toFixed(2)} hrs / 8.00 hrs
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* ━━━ HIGH-VISIBILITY GREEN SUBMIT ACTION BUTTON ━━━ */}
-              <div style={{ marginTop: 24, textAlign: 'center' }}>
-                <Button
-                  type="primary"
-                  loading={submitting}
-                  onClick={handleSubmitShiftReport}
+            return (
+              <div>
+                {/* Top Banner: Selected Contract Details */}
+                <div
                   style={{
-                    height: 64,
-                    width: '100%',
-                    maxWidth: 620,
-                    background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)',
-                    borderColor: '#10b981',
-                    borderRadius: 16,
-                    fontSize: 21,
-                    fontWeight: 900,
-                    letterSpacing: '0.8px',
-                    boxShadow: '0 10px 30px rgba(16, 185, 129, 0.45)',
-                    display: 'inline-flex',
+                    backgroundColor: token.colorBgContainer,
+                    borderRadius: 14,
+                    padding: '14px 20px',
+                    border: `1px solid ${token.colorBorderSecondary}`,
+                    marginBottom: 18,
+                    display: 'flex',
+                    justifyContent: 'space-between',
                     alignItems: 'center',
-                    justifyContent: 'center',
+                    flexWrap: 'wrap',
                     gap: 12,
                   }}
                 >
-                  <ThunderboltOutlined style={{ fontSize: 24 }} />
-                  SUBMIT SHIFT REPORT
-                </Button>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <Button
+                      icon={<ArrowLeftOutlined />}
+                      onClick={() => setStep(2)}
+                      style={{
+                        height: 42,
+                        backgroundColor: token.colorFillAlter,
+                        borderColor: token.colorBorderSecondary,
+                        color: token.colorText,
+                        fontWeight: 700,
+                      }}
+                    >
+                      Change Job
+                    </Button>
+                    <div>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        <span style={{ backgroundColor: '#ea580c', color: '#fff', padding: '1px 8px', borderRadius: 4, fontSize: 11, fontWeight: 800 }}>
+                          {selectedJob.contractNumber}
+                        </span>
+                        <span style={{ fontSize: 17, fontWeight: 800, color: token.colorText }}>
+                          {selectedJob.customerName}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 13, color: token.colorTextSecondary, marginTop: 2 }}>
+                        Item: <strong style={{ color: '#38bdf8' }}>{selectedJob.itemCode}</strong> - {selectedJob.itemName} | Station: <strong style={{ color: '#ea580c' }}>{telemetry.machines.find(m => m.id === selectedMachineId)?.machineCode || 'Station'}</strong>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: 12, color: token.colorTextSecondary }}>Target Contract Remaining Balance:</div>
+                    <div style={{ fontSize: 20, fontWeight: 900, color: '#fbbf24' }}>
+                      {(selectedJob.remainingQuantity ?? 0).toLocaleString()} Units
+                    </div>
+                  </div>
+                </div>
+
+                {/* ━━━ REAL-TIME 5% SCRAP THRESHOLD ALERT & SUPERVISOR OVERRIDE ━━━ */}
+                {isScrapExceeded && (
+                  <div style={{ marginBottom: 18 }}>
+                    <Alert
+                      type="warning"
+                      showIcon
+                      icon={<ExclamationCircleOutlined style={{ fontSize: 22, color: '#f59e0b' }} />}
+                      message={
+                        <div style={{ fontSize: 15, fontWeight: 800, color: '#d97706' }}>
+                          EXCESSIVE SCRAP THRESHOLD WARNING: Material Scrap is {scrapRate}% (Exceeds 5.0% Target Limit)
+                        </div>
+                      }
+                      description={
+                        <div style={{ marginTop: 6, color: token.colorTextSecondary, fontSize: 13 }}>
+                          Quality policy enforces supervisor review when shift scrap exceeds 5.0% of gross pieces. Please enter your Supervisor Authorization PIN or check the override authorization flag.
+                          <div style={{ display: 'flex', gap: 16, alignItems: 'center', marginTop: 12, flexWrap: 'wrap' }}>
+                            <Input.Password
+                              prefix={<LockOutlined />}
+                              placeholder="Supervisor PIN (4 digits)"
+                              value={supervisorPin}
+                              onChange={(e) => setSupervisorPin(e.target.value)}
+                              maxLength={6}
+                              style={{ width: 220, height: 44, backgroundColor: token.colorFillAlter, borderColor: '#d97706', color: token.colorText, fontWeight: 700 }}
+                            />
+                            <Input
+                              prefix={<SafetyCertificateOutlined />}
+                              placeholder="Supervisor Name"
+                              value={supervisorName}
+                              onChange={(e) => setSupervisorName(e.target.value)}
+                              style={{ width: 220, height: 44, backgroundColor: token.colorFillAlter, borderColor: '#d97706', color: token.colorText, fontWeight: 700 }}
+                            />
+                            <Checkbox
+                              checked={supervisorOverride}
+                              onChange={(e) => setSupervisorOverride(e.target.checked)}
+                              style={{ color: token.colorText, fontWeight: 700, fontSize: 14 }}
+                            >
+                              Authorized by Floor Supervisor
+                            </Checkbox>
+                          </div>
+                        </div>
+                      }
+                      style={{
+                        backgroundColor: token.colorFillAlter,
+                        borderColor: '#d97706',
+                        borderRadius: 14,
+                        padding: 16,
+                      }}
+                    />
+                  </div>
+                )}
+
+                {/* ━━━ THE 3 LOCKED NUMERIC ENTRY FIELDS ━━━ */}
+                <Row gutter={[20, 20]}>
+                  {/* 1. OK QUANTITY (PIECES) */}
+                  <Col xs={24} lg={8}>
+                    <Card
+                      style={{
+                        backgroundColor: token.colorBgContainer,
+                        borderColor: '#10b981',
+                        borderRadius: 16,
+                        boxShadow: '0 8px 24px rgba(16, 185, 129, 0.15)',
+                      }}
+                      bodyStyle={{ padding: 20 }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                        <span style={{ color: '#10b981', fontWeight: 800, fontSize: 15, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                          1. OK Quantity
+                        </span>
+                        <span style={{ backgroundColor: '#065f46', color: '#a7f3d0', padding: '3px 10px', borderRadius: 8, fontSize: 11, fontWeight: 800 }}>
+                          Accepted Pieces
+                        </span>
+                      </div>
+
+                      {/* Prominent Number Display */}
+                      <div
+                        style={{
+                          backgroundColor: token.colorFillAlter,
+                          borderRadius: 14,
+                          padding: '16px 12px',
+                          textAlign: 'center',
+                          border: '2px solid #059669',
+                          marginBottom: 16,
+                        }}
+                      >
+                        <span style={{ fontSize: 46, fontWeight: 900, color: '#10b981', letterSpacing: '1px' }}>
+                          {(okQuantity ?? 0).toLocaleString()}
+                        </span>
+                        <div style={{ color: '#059669', fontSize: 12, fontWeight: 600 }}>Usable Finished Pieces</div>
+                      </div>
+
+                      {/* Touch Counter Buttons: Fine Adjustment */}
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 6, marginBottom: 10 }}>
+                        <Button onClick={() => adjustOk(-100)} style={{ height: 48, backgroundColor: token.colorFillAlter, borderColor: token.colorBorderSecondary, color: token.colorText, fontWeight: 700, padding: 0 }}>
+                          -100
+                        </Button>
+                        <Button onClick={() => adjustOk(-10)} style={{ height: 48, backgroundColor: token.colorFillAlter, borderColor: token.colorBorderSecondary, color: token.colorText, fontWeight: 700, padding: 0 }}>
+                          -10
+                        </Button>
+                        <Button onClick={() => adjustOk(-1)} style={{ height: 48, backgroundColor: token.colorFillAlter, borderColor: token.colorBorderSecondary, color: token.colorText, fontWeight: 700, padding: 0 }}>
+                          -1
+                        </Button>
+                        <Button onClick={() => adjustOk(1)} style={{ height: 48, backgroundColor: token.colorFillAlter, borderColor: token.colorBorderSecondary, color: '#10b981', fontWeight: 800, padding: 0 }}>
+                          +1
+                        </Button>
+                        <Button onClick={() => adjustOk(10)} style={{ height: 48, backgroundColor: token.colorFillAlter, borderColor: token.colorBorderSecondary, color: '#10b981', fontWeight: 800, padding: 0 }}>
+                          +10
+                        </Button>
+                        <Button onClick={() => adjustOk(100)} style={{ height: 48, backgroundColor: token.colorFillAlter, borderColor: token.colorBorderSecondary, color: '#10b981', fontWeight: 800, padding: 0 }}>
+                          +100
+                        </Button>
+                      </div>
+
+                      {/* Quick Preset Pills */}
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
+                        <Button onClick={() => setOkQuantity(250)} style={{ height: 40, backgroundColor: token.colorFillAlter, borderColor: token.colorBorderSecondary, color: token.colorText, fontSize: 13, fontWeight: 700 }}>
+                          250 pcs
+                        </Button>
+                        <Button onClick={() => setOkQuantity(500)} style={{ height: 40, backgroundColor: token.colorFillAlter, borderColor: token.colorBorderSecondary, color: token.colorText, fontSize: 13, fontWeight: 700 }}>
+                          500 pcs
+                        </Button>
+                        <Button
+                          onClick={() => setOkQuantity((selectedJob.remainingQuantity ?? 0) > 0 ? selectedJob.remainingQuantity : 1000)}
+                          style={{ height: 40, backgroundColor: '#065f46', borderColor: '#059669', color: '#ffffff', fontSize: 13, fontWeight: 800 }}
+                        >
+                          Target Max
+                        </Button>
+                      </div>
+                    </Card>
+                  </Col>
+
+                  {/* 2. SCRAP/REJECTED QUANTITY (PIECES) */}
+                  <Col xs={24} lg={8}>
+                    <Card
+                      style={{
+                        backgroundColor: token.colorBgContainer,
+                        borderColor: isScrapExceeded ? '#f59e0b' : '#f43f5e',
+                        borderRadius: 16,
+                        boxShadow: isScrapExceeded ? '0 8px 24px rgba(245, 158, 11, 0.25)' : '0 8px 24px rgba(244, 63, 94, 0.15)',
+                      }}
+                      bodyStyle={{ padding: 20 }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                        <span style={{ color: isScrapExceeded ? '#f59e0b' : '#f43f5e', fontWeight: 800, fontSize: 15, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                          2. Scrap Quantity
+                        </span>
+                        <span
+                          style={{
+                            backgroundColor: isScrapExceeded ? '#78350f' : '#881337',
+                            color: isScrapExceeded ? '#fef3c7' : '#fecdd3',
+                            padding: '3px 10px',
+                            borderRadius: 8,
+                            fontSize: 11,
+                            fontWeight: 800,
+                          }}
+                        >
+                          {scrapRate}% Loss Rate
+                        </span>
+                      </div>
+
+                      {/* Prominent Number Display */}
+                      <div
+                        style={{
+                          backgroundColor: token.colorFillAlter,
+                          borderRadius: 14,
+                          padding: '16px 12px',
+                          textAlign: 'center',
+                          border: `2px solid ${isScrapExceeded ? '#d97706' : '#e11d48'}`,
+                          marginBottom: 16,
+                        }}
+                      >
+                        <span style={{ fontSize: 46, fontWeight: 900, color: isScrapExceeded ? '#f59e0b' : '#f43f5e', letterSpacing: '1px' }}>
+                          {(scrapQuantity ?? 0).toLocaleString()}
+                        </span>
+                        <div style={{ color: isScrapExceeded ? '#d97706' : '#e11d48', fontSize: 12, fontWeight: 600 }}>
+                          {isScrapExceeded ? '⚠️ Warning: Exceeds 5.0% Limit' : 'Within 5.0% Quality Standard'}
+                        </div>
+                      </div>
+
+                      {/* Touch Counter Buttons */}
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 6, marginBottom: 10 }}>
+                        <Button onClick={() => adjustScrap(-10)} style={{ height: 48, backgroundColor: token.colorFillAlter, borderColor: token.colorBorderSecondary, color: token.colorText, fontWeight: 700 }}>
+                          -10
+                        </Button>
+                        <Button onClick={() => adjustScrap(-1)} style={{ height: 48, backgroundColor: token.colorFillAlter, borderColor: token.colorBorderSecondary, color: token.colorText, fontWeight: 700 }}>
+                          -1
+                        </Button>
+                        <Button onClick={() => setScrapQuantity(0)} style={{ height: 48, backgroundColor: token.colorFillAlter, borderColor: token.colorBorderSecondary, color: token.colorTextSecondary, fontWeight: 700 }}>
+                          Zero
+                        </Button>
+                        <Button onClick={() => adjustScrap(1)} style={{ height: 48, backgroundColor: token.colorFillAlter, borderColor: token.colorBorderSecondary, color: '#f43f5e', fontWeight: 800 }}>
+                          +1
+                        </Button>
+                        <Button onClick={() => adjustScrap(10)} style={{ height: 48, backgroundColor: token.colorFillAlter, borderColor: token.colorBorderSecondary, color: '#f43f5e', fontWeight: 800 }}>
+                          +10
+                        </Button>
+                      </div>
+
+                      {/* Quick Preset Pills */}
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
+                        <Button onClick={() => setScrapQuantity(5)} style={{ height: 40, backgroundColor: token.colorFillAlter, borderColor: token.colorBorderSecondary, color: token.colorText, fontSize: 13, fontWeight: 700 }}>
+                          5 pcs
+                        </Button>
+                        <Button onClick={() => setScrapQuantity(15)} style={{ height: 40, backgroundColor: token.colorFillAlter, borderColor: token.colorBorderSecondary, color: token.colorText, fontSize: 13, fontWeight: 700 }}>
+                          15 pcs
+                        </Button>
+                        <Button onClick={() => setScrapQuantity(25)} style={{ height: 40, backgroundColor: '#881337', borderColor: '#e11d48', color: '#ffffff', fontSize: 13, fontWeight: 800 }}>
+                          25 pcs
+                        </Button>
+                      </div>
+                    </Card>
+                  </Col>
+
+                  {/* 3. MACHINE DOWNTIME (MINUTES) */}
+                  <Col xs={24} lg={8}>
+                    <Card
+                      style={{
+                        backgroundColor: token.colorBgContainer,
+                        borderColor: '#f59e0b',
+                        borderRadius: 16,
+                        boxShadow: '0 8px 24px rgba(245, 158, 11, 0.15)',
+                      }}
+                      bodyStyle={{ padding: 20 }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                        <span style={{ color: '#f59e0b', fontWeight: 800, fontSize: 15, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                          3. Machine Downtime
+                        </span>
+                        <span style={{ backgroundColor: '#78350f', color: '#fef3c7', padding: '3px 10px', borderRadius: 8, fontSize: 11, fontWeight: 800 }}>
+                          Mechanical / Power
+                        </span>
+                      </div>
+
+                      {/* Prominent Number Display */}
+                      <div
+                        style={{
+                          backgroundColor: token.colorFillAlter,
+                          borderRadius: 14,
+                          padding: '16px 12px',
+                          textAlign: 'center',
+                          border: '2px solid #d97706',
+                          marginBottom: 16,
+                        }}
+                      >
+                        <span style={{ fontSize: 46, fontWeight: 900, color: '#f59e0b', letterSpacing: '1px' }}>
+                          {machineDowntimeMinutes}
+                        </span>
+                        <span style={{ fontSize: 20, color: '#fbbf24', marginLeft: 8, fontWeight: 800 }}>min</span>
+                        <div style={{ color: '#d97706', fontSize: 12, fontWeight: 600 }}>
+                          {(machineDowntimeMinutes / 60).toFixed(2)} Lost Production Hours
+                        </div>
+                      </div>
+
+                      {/* Touch Counter Buttons */}
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6, marginBottom: 10 }}>
+                        <Button onClick={() => adjustDowntime(-15)} style={{ height: 48, backgroundColor: token.colorFillAlter, borderColor: token.colorBorderSecondary, color: token.colorText, fontWeight: 700 }}>
+                          -15m
+                        </Button>
+                        <Button onClick={() => setMachineDowntimeMinutes(0)} style={{ height: 48, backgroundColor: token.colorFillAlter, borderColor: token.colorBorderSecondary, color: token.colorTextSecondary, fontWeight: 700 }}>
+                          0m
+                        </Button>
+                        <Button onClick={() => adjustDowntime(15)} style={{ height: 48, backgroundColor: token.colorFillAlter, borderColor: token.colorBorderSecondary, color: '#f59e0b', fontWeight: 800 }}>
+                          +15m
+                        </Button>
+                        <Button onClick={() => adjustDowntime(30)} style={{ height: 48, backgroundColor: token.colorFillAlter, borderColor: token.colorBorderSecondary, color: '#f59e0b', fontWeight: 800 }}>
+                          +30m
+                        </Button>
+                      </div>
+
+                      {/* Quick Preset Pills */}
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
+                        <Button onClick={() => setMachineDowntimeMinutes(15)} style={{ height: 40, backgroundColor: token.colorFillAlter, borderColor: token.colorBorderSecondary, color: token.colorText, fontSize: 13, fontWeight: 700 }}>
+                          15 Min
+                        </Button>
+                        <Button onClick={() => setMachineDowntimeMinutes(30)} style={{ height: 40, backgroundColor: token.colorFillAlter, borderColor: token.colorBorderSecondary, color: token.colorText, fontSize: 13, fontWeight: 700 }}>
+                          30 Min
+                        </Button>
+                        <Button onClick={() => setMachineDowntimeMinutes(60)} style={{ height: 40, backgroundColor: '#78350f', borderColor: '#d97706', color: '#ffffff', fontSize: 13, fontWeight: 800 }}>
+                          60 Min
+                        </Button>
+                      </div>
+                    </Card>
+                  </Col>
+                </Row>
+
+                {/* Net Running Hours HUD */}
+                <div
+                  style={{
+                    marginTop: 20,
+                    padding: '14px 20px',
+                    backgroundColor: token.colorBgContainer,
+                    borderRadius: 14,
+                    border: `1px solid ${token.colorBorderSecondary}`,
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    flexWrap: 'wrap',
+                  }}
+                >
+                  <div>
+                    <span style={{ color: token.colorTextSecondary, fontSize: 13 }}>Operator: </span>
+                    <strong style={{ color: '#38bdf8', fontSize: 14 }}>{selectedOperatorName}</strong>
+                    <span style={{ color: token.colorBorderSecondary, margin: '0 10px' }}>|</span>
+                    <span style={{ color: token.colorTextSecondary, fontSize: 13 }}>Station: </span>
+                    <strong style={{ color: '#ea580c', fontSize: 14 }}>{telemetry.machines.find(m => m.id === selectedMachineId)?.machineCode || 'Station'}</strong>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontSize: 11, color: token.colorTextSecondary }}>Net Machine Running Time:</div>
+                      <div style={{ fontSize: 16, fontWeight: 800, color: '#10b981' }}>
+                        {netRunningHours.toFixed(2)} hrs / {shiftHours.toFixed(2)} hrs
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* ━━━ HIGH-VISIBILITY GREEN SUBMIT ACTION BUTTON ━━━ */}
+                <div style={{ marginTop: 24, textAlign: 'center' }}>
+                  <Button
+                    type="primary"
+                    loading={submitting}
+                    onClick={handleSubmitShiftReport}
+                    style={{
+                      height: 64,
+                      width: '100%',
+                      maxWidth: 620,
+                      background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)',
+                      borderColor: '#10b981',
+                      borderRadius: 16,
+                      fontSize: 21,
+                      fontWeight: 900,
+                      letterSpacing: '0.8px',
+                      boxShadow: '0 10px 30px rgba(16, 185, 129, 0.45)',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 12,
+                    }}
+                  >
+                    <ThunderboltOutlined style={{ fontSize: 24 }} />
+                    SUBMIT SHIFT REPORT
+                  </Button>
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
               STEP 4: SUBMISSION CONFIRMATION & REAL-TIME BALANCING
@@ -1231,10 +1246,10 @@ export const ShopfloorTouchscreenModal: React.FC<ShopfloorTouchscreenModalProps>
                 <CheckCircleOutlined style={{ fontSize: 48, color: '#34d399' }} />
               </div>
 
-              <div style={{ fontSize: 13, textTransform: 'uppercase', letterSpacing: '1.2px', color: '#34d399', fontWeight: 800 }}>
+              <div style={{ fontSize: 13, textTransform: 'uppercase', letterSpacing: '1.2px', color: '#10b981', fontWeight: 800 }}>
                 Transaction Verified & Ledger Cascaded
               </div>
-              <h2 style={{ fontSize: 28, fontWeight: 900, color: '#f8fafc', margin: '8px 0 16px' }}>
+              <h2 style={{ fontSize: 28, fontWeight: 900, color: token.colorText, margin: '8px 0 16px' }}>
                 Shift Report Successfully Recorded!
               </h2>
 
@@ -1243,15 +1258,15 @@ export const ShopfloorTouchscreenModal: React.FC<ShopfloorTouchscreenModalProps>
                 style={{
                   maxWidth: 640,
                   margin: '0 auto 26px',
-                  backgroundColor: '#131b2e',
+                  backgroundColor: token.colorBgContainer,
                   borderRadius: 16,
                   padding: 24,
-                  border: '1px solid #1e293b',
+                  border: `1px solid ${token.colorBorderSecondary}`,
                   textAlign: 'left',
                 }}
               >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #1e293b', paddingBottom: 14, marginBottom: 16 }}>
-                  <span style={{ color: '#94a3b8', fontSize: 14 }}>Production Entry Number:</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `1px solid ${token.colorBorderSecondary}`, paddingBottom: 14, marginBottom: 16 }}>
+                  <span style={{ color: token.colorTextSecondary, fontSize: 14 }}>Production Entry Number:</span>
                   <span style={{ fontSize: 20, fontWeight: 900, color: '#ea580c', fontFamily: 'monospace' }}>
                     {submissionResult.entryNumber}
                   </span>
@@ -1259,33 +1274,33 @@ export const ShopfloorTouchscreenModal: React.FC<ShopfloorTouchscreenModalProps>
 
                 <Row gutter={[16, 14]}>
                   <Col span={12}>
-                    <div style={{ fontSize: 12, color: '#94a3b8' }}>Target Item:</div>
-                    <div style={{ fontSize: 15, fontWeight: 700, color: '#e2e8f0' }}>{submissionResult.itemName}</div>
+                    <div style={{ fontSize: 12, color: token.colorTextSecondary }}>Target Item:</div>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: token.colorText }}>{submissionResult.itemName}</div>
                   </Col>
                   <Col span={12}>
-                    <div style={{ fontSize: 12, color: '#94a3b8' }}>Department / Section:</div>
-                    <div style={{ fontSize: 15, fontWeight: 700, color: '#e2e8f0' }}>{submissionResult.departmentName}</div>
+                    <div style={{ fontSize: 12, color: token.colorTextSecondary }}>Department / Section:</div>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: token.colorText }}>{submissionResult.departmentName}</div>
                   </Col>
                   <Col span={12}>
-                    <div style={{ fontSize: 12, color: '#94a3b8' }}>OK Units (Passed):</div>
+                    <div style={{ fontSize: 12, color: token.colorTextSecondary }}>OK Units (Passed):</div>
                     <div style={{ fontSize: 20, fontWeight: 900, color: '#10b981' }}>
-                      +{submissionResult.actualQuantity.toLocaleString()} pcs
+                      +{(submissionResult.actualQuantity ?? 0).toLocaleString()} pcs
                     </div>
                   </Col>
                   <Col span={12}>
-                    <div style={{ fontSize: 12, color: '#94a3b8' }}>Scrap Units Logged:</div>
+                    <div style={{ fontSize: 12, color: token.colorTextSecondary }}>Scrap Units Logged:</div>
                     <div style={{ fontSize: 20, fontWeight: 900, color: '#f43f5e' }}>
-                      {submissionResult.scrapQuantity.toLocaleString()} pcs
+                      {(submissionResult.scrapQuantity ?? 0).toLocaleString()} pcs
                     </div>
                   </Col>
                   <Col span={12}>
-                    <div style={{ fontSize: 12, color: '#94a3b8' }}>Updated Contract Remaining Balance:</div>
+                    <div style={{ fontSize: 12, color: token.colorTextSecondary }}>Updated Contract Remaining Balance:</div>
                     <div style={{ fontSize: 20, fontWeight: 900, color: '#fbbf24' }}>
-                      {submissionResult.updatedRemainingQty.toLocaleString()} pcs
+                      {(submissionResult.updatedRemainingQty ?? 0).toLocaleString()} pcs
                     </div>
                   </Col>
                   <Col span={12}>
-                    <div style={{ fontSize: 12, color: '#94a3b8' }}>Department Trend Progress:</div>
+                    <div style={{ fontSize: 12, color: token.colorTextSecondary }}>Department Trend Progress:</div>
                     <div style={{ fontSize: 20, fontWeight: 900, color: '#38bdf8' }}>
                       {submissionResult.newCompletionPercentage}% Completed
                     </div>
@@ -1305,9 +1320,9 @@ export const ShopfloorTouchscreenModal: React.FC<ShopfloorTouchscreenModalProps>
                   style={{
                     height: 52,
                     padding: '0 26px',
-                    backgroundColor: '#1e293b',
-                    borderColor: '#334155',
-                    color: '#f8fafc',
+                    backgroundColor: token.colorFillAlter,
+                    borderColor: token.colorBorderSecondary,
+                    color: token.colorText,
                     fontWeight: 800,
                     borderRadius: 12,
                     fontSize: 15,

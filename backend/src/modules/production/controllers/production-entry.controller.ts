@@ -254,10 +254,17 @@ export class ProductionEntryController {
   @RequireOrgScope()
   @RequirePermission('manufacturing.production.entries.view')
   @ApiQuery({ name: 'departmentId', required: false, description: 'Optional department ID to filter shifts configured in machine targets' })
+  @ApiQuery({ name: 'sectionId', required: false, description: 'Optional section ID to filter shifts configured in machine targets' })
+  @ApiQuery({ name: 'divisionId', required: false, description: 'Optional division ID to filter shifts configured in machine targets' })
   @ApiOperation({ summary: 'List shift master' })
-  async shifts(@Req() req: any, @Query('departmentId') departmentId?: string) {
+  async shifts(
+    @Req() req: any,
+    @Query('departmentId') departmentId?: string,
+    @Query('sectionId') sectionId?: string,
+    @Query('divisionId') divisionId?: string,
+  ) {
     const companyId = this.getCompanyId(req);
-    const data = await this.entryService.findShifts(companyId, departmentId);
+    const data = await this.entryService.findShifts(companyId, departmentId, sectionId, divisionId);
     return { success: true, data };
   }
 

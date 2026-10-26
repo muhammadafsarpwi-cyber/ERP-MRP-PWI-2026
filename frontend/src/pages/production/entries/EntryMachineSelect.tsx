@@ -1,12 +1,15 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  Card, Row, Col, DatePicker, Select, Button, Space, Typography,
-  Empty, Popover, Tag, Alert, Steps, App, theme,
+  Row, Col, DatePicker, Select, Button, Space, Typography,
+  Empty, Popover, Tag, Modal, App, theme, Progress, Badge, Tooltip,
 } from 'antd';
 import {
-  ArrowLeftOutlined, ReloadOutlined, SelectOutlined, EditOutlined,
+  DashboardOutlined, ArrowLeftOutlined, ReloadOutlined, EditOutlined,
   EyeOutlined, DeleteOutlined, FormOutlined, InboxOutlined,
+  ThunderboltOutlined, CalendarOutlined, AppstoreOutlined,
+  BuildOutlined, ToolOutlined, FireOutlined, ScissorOutlined,
+  MinusOutlined, FullscreenOutlined, FullscreenExitOutlined, CloseOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import apiService from '../../../services/api';
@@ -14,8 +17,9 @@ import { useLookups, ShiftLk } from './lookups';
 import { GlobalLoading } from '../../../components/shared';
 import { useEntryDockStore, type EntryContextParams } from './entryDockStore';
 import ProductionEntryDetailModal from './ProductionEntryDetailModal';
+import './productionEntryModal.css';
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
 
 interface MachineEntryMini {
   id: string;
@@ -90,16 +94,113 @@ const formatDivLabel = (d: { name: string; divisionCode?: string }) => {
   return code ? `${d.name} (${code})` : d.name;
 };
 
+// Department visual color palette for top selection cards
+const DEPT_COLOR_PALETTES = [
+  { color: '#3b82f6', bg: 'linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(30, 64, 175, 0.05) 100%)', icon: <ScissorOutlined /> },
+  { color: '#8b5cf6', bg: 'linear-gradient(135deg, rgba(139, 92, 246, 0.15) 0%, rgba(91, 33, 182, 0.05) 100%)', icon: <ToolOutlined /> },
+  { color: '#ea580c', bg: 'linear-gradient(135deg, rgba(234, 88, 12, 0.15) 0%, rgba(154, 52, 18, 0.05) 100%)', icon: <ThunderboltOutlined /> },
+  { color: '#10b981', bg: 'linear-gradient(135deg, rgba(16, 185, 129, 0.15) 0%, rgba(6, 95, 70, 0.05) 100%)', icon: <FireOutlined /> },
+  { color: '#06b6d4', bg: 'linear-gradient(135deg, rgba(6, 182, 212, 0.15) 0%, rgba(14, 116, 144, 0.05) 100%)', icon: <BuildOutlined /> },
+  { color: '#ec4899', bg: 'linear-gradient(135deg, rgba(236, 72, 153, 0.15) 0%, rgba(157, 23, 77, 0.05) 100%)', icon: <AppstoreOutlined /> },
+];
+
 /**
- * Step 1 of the production-entry flow: pick Date + Shift + organizational area,
- * then see every machine flagged as Already Entered / Entry Required BEFORE any
- * data-entry happens. Only "Entry Required" machines can open a new entry form.
+ * Enterprise Production Entry Wizard:
+ * Step 1: Shift & Production Area (Division, Section, Date, Shift)
+ * Step 2: Department Selection Cards + Wide Horizontal Machine Rows
+ * Step 3: Direct transition into Production Details Form
  */
-const EntryMachineSelect: React.FC = () => {
+export interface EntryMachineSelectProps {
+  isEmbedded?: boolean;
+  open?: boolean;
+  onClose?: () => void;
+  onEntryCreated?: () => void;
+}
+
+const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
+  isEmbedded = false,
+  open: propOpen,
+  onClose: propOnClose,
+  onEntryCreated,
+}) => {
   const { message, modal } = App.useApp();
+  const { token } = theme.useToken();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const lookups = useLookups();
+
+  // Wizard state: Step 1 (Setup) vs Step 2 (Department & Machines)
+  const [step, setStep] = useState<number>(searchParams.get('step') === '2' ? 2 : 1);
+  const [modalOpen, setModalOpen] = useState<boolean>(propOpen !== undefined ? propOpen : true);
+
+  useEffect(() => {
+    if (propOpen !== undefined) {
+      setModalOpen(propOpen);
+      if (propOpen) {
+        setIsMinimized(false);
+      }
+    }
+  }, [propOpen]);
+
+  // ── Window control states (Minimize, Maximize / Fullscreen, Movable via Mouse) ──
+  const [isMinimized, setIsMinimized] = useState<boolean>(false);
+  const [isMaximized, setIsMaximized] = useState<boolean>(false);
+  const [modalPos, setModalPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const dragRef = React.useRef<{
+    isDragging: boolean;
+    startX: number;
+    startY: number;
+    origX: number;
+    origY: number;
+  }>({
+    isDragging: false,
+    startX: 0,
+    startY: 0,
+    origX: 0,
+    origY: 0,
+  });
+
+  const handleDragStart = (e: React.MouseEvent) => {
+    // Only drag when not maximized and left mouse button clicked
+    if (isMaximized || e.button !== 0) return;
+    const target = e.target as HTMLElement;
+    if (
+      target.closest('button') ||
+      target.closest('input') ||
+      target.closest('.ant-select') ||
+      target.closest('.ant-btn') ||
+      target.closest('.ant-picker')
+    ) {
+      return;
+    }
+
+    dragRef.current = {
+      isDragging: true,
+      startX: e.clientX,
+      startY: e.clientY,
+      origX: modalPos.x,
+      origY: modalPos.y,
+    };
+
+    const handleMouseMove = (ev: MouseEvent) => {
+      if (!dragRef.current.isDragging) return;
+      const dx = ev.clientX - dragRef.current.startX;
+      const dy = ev.clientY - dragRef.current.startY;
+      setModalPos({
+        x: dragRef.current.origX + dx,
+        y: dragRef.current.origY + dy,
+      });
+    };
+
+    const handleMouseUp = () => {
+      dragRef.current.isDragging = false;
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+  };
 
   // ── selection state: date defaults to yesterday (1 day minus) ──
   const [entryDate, setEntryDate] = useState<dayjs.Dayjs | null>(
@@ -108,57 +209,63 @@ const EntryMachineSelect: React.FC = () => {
   const [shiftId, setShiftId] = useState<string | undefined>(searchParams.get('shiftId') || undefined);
   const [divisionId, setDivisionId] = useState<string | undefined>(searchParams.get('divisionId') || undefined);
   const [sectionId, setSectionId] = useState<string | undefined>(searchParams.get('sectionId') || undefined);
-  const [departmentId, setDepartmentId] = useState<string | undefined>(searchParams.get('departmentId') || undefined);
+
+  // Department selected in Step 2 for machine filtering
+  const [selectedDeptId, setSelectedDeptId] = useState<string | null>(null);
 
   // In-Modal Production Entry Detail Dialog State
   const [detailModalEntryId, setDetailModalEntryId] = useState<string | null>(null);
 
-  // ── department-specific target shifts ──
-  const [deptShifts, setDeptShifts] = useState<ShiftLk[] | null>(null);
-  const [deptShiftsLoading, setDeptShiftsLoading] = useState(false);
+  // ── section & division-scoped target shifts (Loads all 5+ shifts configured for the active Section) ──
+  const [scopedShifts, setScopedShifts] = useState<ShiftLk[] | null>(null);
+  const [scopedShiftsLoading, setScopedShiftsLoading] = useState(false);
 
-  // When departmentId changes, fetch shifts matching targets for that department
   useEffect(() => {
     let cancelled = false;
-    if (!departmentId) {
-      setDeptShifts(null);
+    if (!sectionId && !divisionId) {
+      setScopedShifts(null);
       return;
     }
-    setDeptShiftsLoading(true);
+    setScopedShiftsLoading(true);
     apiService
-      .get<{ success?: boolean; data?: ShiftLk[] }>('/production/shifts', { departmentId })
+      .get<{ success?: boolean; data?: ShiftLk[] }>('/production/shifts', {
+        ...(sectionId ? { sectionId } : { divisionId }),
+      })
       .then((res) => {
         if (cancelled) return;
         const shiftsData = Array.isArray(res) ? res : (res as any)?.data;
         if (Array.isArray(shiftsData) && shiftsData.length > 0) {
-          setDeptShifts(shiftsData);
-          setShiftId((prevShiftId) => {
-            const exists = shiftsData.some((s: ShiftLk) => s.id === prevShiftId);
-            return exists ? prevShiftId : shiftsData[0].id;
+          setScopedShifts(shiftsData);
+          setShiftId((prev) => {
+            if (prev && shiftsData.some((s) => s.id === prev)) return prev;
+            return shiftsData[0].id;
           });
         } else {
-          setDeptShifts(null);
+          setScopedShifts(null);
         }
       })
       .catch(() => {
-        if (!cancelled) setDeptShifts(null);
+        if (!cancelled) setScopedShifts(null);
       })
       .finally(() => {
-        if (!cancelled) setDeptShiftsLoading(false);
+        if (!cancelled) setScopedShiftsLoading(false);
       });
-
     return () => {
       cancelled = true;
     };
-  }, [departmentId]);
+  }, [sectionId, divisionId]);
 
-  const availableShifts = deptShifts && deptShifts.length > 0 ? deptShifts : lookups.shifts;
+  const availableShifts = scopedShifts && scopedShifts.length > 0 ? scopedShifts : lookups.shifts;
+  const effectiveShift = availableShifts.find((s) => s.id === shiftId);
+
+  const selectedDivObj = lookups.divisions.find((d) => d.id === divisionId);
+  const selectedSecObj = lookups.sections.find((s) => s.id === sectionId);
 
   // ── machine status global cache for 0ms tab switching & instantaneous hydration ──
   const dateIso = entryDate ? entryDate.format('YYYY-MM-DD') : undefined;
 
   // Key generator for in-memory status cache
-  const currentCacheKey = `${dateIso || ''}_${shiftId || ''}_${divisionId || 'all'}_${sectionId || 'all'}_${departmentId || 'all'}`;
+  const currentCacheKey = `${dateIso || ''}_${shiftId || ''}_${divisionId || 'all'}_${sectionId || 'all'}`;
   const initialCacheHit = machineStatusCache.get(currentCacheKey);
 
   // ── machine status state (seeded from in-memory cache if available) ──
@@ -169,7 +276,24 @@ const EntryMachineSelect: React.FC = () => {
   const [refreshTick, setRefreshTick] = useState(0);
 
   const sectionsFiltered = lookups.sectionsForDivision(divisionId);
-  const departmentsFiltered = lookups.departmentsForSection(sectionId);
+
+  // Active departments under selected division/section for Step 2 cards
+  const activeDepartments = useMemo(() => {
+    if (sectionId) {
+      return lookups.departmentsForSection(sectionId);
+    }
+    if (divisionId) {
+      return lookups.departmentsForDivision(divisionId);
+    }
+    return lookups.departments;
+  }, [sectionId, divisionId, lookups]);
+
+  // When departments load, auto-select first department if none selected
+  useEffect(() => {
+    if (activeDepartments.length > 0 && (!selectedDeptId || !activeDepartments.some(d => d.id === selectedDeptId))) {
+      setSelectedDeptId(activeDepartments[0].id);
+    }
+  }, [activeDepartments, selectedDeptId]);
 
   // Auto-select first shift when loaded if not yet chosen
   useEffect(() => {
@@ -194,14 +318,13 @@ const EntryMachineSelect: React.FC = () => {
       return;
     }
 
-    const cacheKey = `${dateIso}_${shiftId}_${divisionId || 'all'}_${sectionId || 'all'}_${departmentId || 'all'}`;
+    const cacheKey = `${dateIso}_${shiftId}_${divisionId || 'all'}_${sectionId || 'all'}`;
     const cached = machineStatusCache.get(cacheKey);
 
     // If cache hit, immediately display cached machines (0ms screen wipe)
     if (cached && cached.data.length > 0) {
       setMachines(cached.data);
       setMeta(cached.meta);
-      // If cached less than 15 seconds ago, skip background request unless explicitly refreshed
       if (Date.now() - cached.ts < 15000 && refreshTick === 0) {
         setLoading(false);
         return;
@@ -217,7 +340,6 @@ const EntryMachineSelect: React.FC = () => {
         shiftId,
         ...(divisionId && { divisionId }),
         ...(sectionId && { sectionId }),
-        ...(departmentId && { departmentId }),
       });
       const data = res.data || [];
       const resMeta = res.meta || null;
@@ -232,9 +354,9 @@ const EntryMachineSelect: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [dateIso, shiftId, divisionId, sectionId, departmentId, refreshTick]);
+  }, [dateIso, shiftId, divisionId, sectionId, refreshTick]);
 
-  // Recompute whenever Date / Shift / Division / Section / Department change
+  // Recompute whenever Date / Shift / Division / Section change
   useEffect(() => {
     const t = setTimeout(() => void fetchStatus(), 150);
     return () => clearTimeout(t);
@@ -253,13 +375,12 @@ const EntryMachineSelect: React.FC = () => {
   }, []);
 
   const openNewEntry = (m: MachineStatusRow) => {
-    const ctxDepartment = m.departmentId ?? departmentId;
+    const ctxDepartment = m.departmentId ?? selectedDeptId;
     const depObj = lookups.departments.find((d) => d.id === ctxDepartment);
     const ctxDivision = m.divisionId ?? divisionId ?? depObj?.divisionId;
     const ctxSection = m.sectionId ?? sectionId ?? depObj?.sectionId;
-    const effectiveShift = lookups.shifts.find((s) => s.id === shiftId);
     const divObj = lookups.divisions.find((d) => d.id === ctxDivision);
-    const secObj = lookups.sections.find((s) => s.id === ctxSection);
+    const secObj = lookups.sections.find((d) => d.id === ctxSection);
     const depName = m.departmentName || depObj?.name;
     const divName = divObj?.name;
     const secName = secObj?.name;
@@ -294,7 +415,7 @@ const EntryMachineSelect: React.FC = () => {
       ...(shiftId && { shiftId }),
       ...(divisionId && { divisionId }),
       ...(sectionId && { sectionId }),
-      ...(departmentId && { departmentId }),
+      ...(selectedDeptId && { departmentId: selectedDeptId }),
     });
   };
 
@@ -324,186 +445,928 @@ const EntryMachineSelect: React.FC = () => {
 
   const scopeLabel = useMemo(() => {
     const parts: string[] = [];
-    const dep = lookups.departments.find((d) => d.id === departmentId);
-    const sec = lookups.sections.find((s) => s.id === (departmentId ? dep?.sectionId : sectionId));
+    const sec = lookups.sections.find((s) => s.id === sectionId);
     const div = lookups.divisions.find((d) => d.id === divisionId);
-    if (dep) parts.push(`${dep.name} Department`);
-    else if (sec) parts.push(`${sec.name} Section`);
+    if (sec) parts.push(`${sec.name} Section`);
     else if (div) parts.push(`${div.name} (${div.divisionCode})`);
     return parts.length ? parts.join(' · ') : undefined;
-  }, [lookups.departments, lookups.sections, lookups.divisions, departmentId, sectionId, divisionId]);
+  }, [lookups.sections, lookups.divisions, sectionId, divisionId]);
+
+  const handleCloseModal = () => {
+    setModalOpen(false);
+    if (propOnClose) {
+      propOnClose();
+    }
+    if (!isEmbedded) {
+      navigate('/production/entries');
+    }
+  };
+
+  // Machines filtered by the active department selected in Step 2
+  const displayedMachines = useMemo(() => {
+    if (!selectedDeptId) return machines;
+    return machines.filter((m) => m.departmentId === selectedDeptId);
+  }, [machines, selectedDeptId]);
+
+  const activeDeptObj = activeDepartments.find((d) => d.id === selectedDeptId);
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, flexWrap: 'wrap', gap: 8 }}>
-        <Space align="center">
-          <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/production/entries')}>Back</Button>
-          <Title level={4} style={{ margin: 0 }}>New Production Entry</Title>
-        </Space>
-        <Space>
-          <Button
-            icon={<InboxOutlined />}
-            onClick={() => navigate('/production/packing')}
-            style={{ fontWeight: 600, borderColor: 'var(--theme-success, #10b981)', color: 'var(--theme-success, #10b981)' }}
-          >
-            Hand Packing (No Machine)
-          </Button>
-          <Button
-            icon={<FormOutlined />}
-            onClick={() => navigate('/production/entries/new')}
-            style={{ fontWeight: 600 }}
-          >
-            Direct Entry Form (Skip Machine Pre-Select)
-          </Button>
-        </Space>
-      </div>
-      <Steps
-        size="small"
-        current={0}
-        style={{ maxWidth: 480, margin: '8px 0 16px' }}
-        items={[{ title: 'Select Machine' }, { title: 'Production Details' }]}
-      />
-
-      <Card
-        size="small"
-        style={{
-          marginBottom: 12,
-          borderRadius: 10,
-          border: '1px solid var(--theme-border, rgba(148, 163, 184, 0.2))',
-          boxShadow: '0 2px 8px rgba(0, 0, 0, 0.04)',
+      {/* ── Enterprise Production Entry Wizard Modal ── */}
+      <Modal
+        open={modalOpen && !isMinimized}
+        onCancel={handleCloseModal}
+        width={isMaximized ? '100vw' : 1280}
+        centered={!isMaximized && modalPos.x === 0 && modalPos.y === 0}
+        footer={null}
+        closable={false}
+        destroyOnClose={false}
+        zIndex={50000}
+        getContainer={() => document.body}
+        style={
+          isMaximized
+            ? { top: 0, left: 0, right: 0, bottom: 0, margin: 0, paddingBottom: 0, maxWidth: '100vw', width: '100vw', height: '100vh', transform: 'none' }
+            : { top: 20, transform: `translate(${modalPos.x}px, ${modalPos.y}px)` }
+        }
+        bodyStyle={{
+          padding: isMaximized ? '24px 32px' : '24px 28px',
+          backgroundColor: token.colorBgContainer,
+          borderRadius: isMaximized ? 0 : 16,
+          height: isMaximized ? '100vh' : undefined,
+          maxHeight: isMaximized ? '100vh' : '92vh',
+          overflowY: 'auto',
+          boxShadow: isMaximized ? 'none' : '0 16px 48px rgba(0, 0, 0, 0.35)',
         }}
+        wrapClassName={isMaximized ? 'pwi-entry-wizard-modal-maximized' : 'pwi-entry-wizard-modal-wrap'}
       >
-        <Row gutter={[12, 8]} wrap align="middle">
-          <Col>
-            <Text type="secondary" style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 3 }}>Division</Text>
-            <Select
-              allowClear showSearch optionFilterProp="label" placeholder="All Divisions"
-              className={divisionId ? 'erp-field-filled' : 'erp-field-unfilled'}
-              style={{ width: 180, borderRadius: 8 }} value={divisionId}
-              options={lookups.divisions.map((d) => ({ value: d.id, label: formatDivLabel(d) }))}
-              onChange={(v) => { setDivisionId(v); setSectionId(undefined); setDepartmentId(undefined); }}
-            />
-          </Col>
-          <Col>
-            <Text type="secondary" style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 3 }}>Section</Text>
-            <Select
-              allowClear showSearch optionFilterProp="label" placeholder="All Sections"
-              className={sectionId ? 'erp-field-filled' : 'erp-field-unfilled'}
-              style={{ width: 160, borderRadius: 8 }} value={sectionId} disabled={!divisionId}
-              options={sectionsFiltered.map((s) => ({ value: s.id, label: s.name }))}
-              onChange={(v) => { setSectionId(v); setDepartmentId(undefined); }}
-            />
-          </Col>
-          <Col>
-            <Text type="secondary" style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 3 }}>Department</Text>
-            <Select
-              allowClear showSearch optionFilterProp="label" placeholder="All Departments"
-              className={departmentId ? 'erp-field-filled' : 'erp-field-unfilled'}
-              style={{ width: 170, borderRadius: 8 }} value={departmentId} disabled={!sectionId}
-              options={departmentsFiltered.map((d) => ({ value: d.id, label: `${d.name}${d.departmentCode && d.departmentCode !== d.name ? ` (${d.departmentCode})` : ''}` }))}
-              onChange={(v) => setDepartmentId(v)}
-            />
-          </Col>
-          <Col>
-            <Text type="secondary" style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 3 }}>Shift</Text>
-            <Select
-              placeholder="Select Shift"
-              className={shiftId ? 'erp-field-filled' : 'erp-field-unfilled'}
-              style={{ width: 220, borderRadius: 8 }}
-              value={shiftId}
-              loading={deptShiftsLoading}
-              options={availableShifts.map((s) => ({
-                value: s.id,
-                label: `${s.name} (${s.startTime ?? ''}–${s.endTime ?? ''})`,
-              }))}
-              onChange={(v) => setShiftId(v)}
-            />
-          </Col>
-          <Col>
-            <Text type="secondary" style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 3 }}>Production Date</Text>
-            <DatePicker
-              className={entryDate ? 'erp-field-filled' : ''}
-              style={{ width: 150, borderRadius: 8 }}
-              value={entryDate}
-              onChange={(v) => setEntryDate(v)}
-              allowClear={false}
-            />
-          </Col>
-          <Col flex="auto" style={{ textAlign: 'right' }}>
-            <Button icon={<ReloadOutlined />} onClick={() => setRefreshTick((t) => t + 1)} loading={loading}>
-              Refresh
-            </Button>
-          </Col>
-        </Row>
-      </Card>
-
-      {!ready && (
-        <Alert
-          type="info" showIcon
-          message="Select a Production Date, Shift and an organizational area (Division / Section / Department) to see which machines still need an entry."
-        />
-      )}
-
-      {ready && error && (
-        <Alert type="error" showIcon style={{ marginBottom: 12 }} message={error} />
-      )}
-
-      {ready && !error && (
-        <>
-          <Card size="small" style={{ marginBottom: 12 }}>
-            <Space size={24} wrap>
-              <Text>
-                Total Machines:{' '}
-                <Text strong>{meta?.totalMachines ?? '—'}</Text>
-              </Text>
-              <Text>
-                <span
-                  aria-hidden
-                  style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: 'var(--theme-success)', marginRight: 6 }}
-                />
-                Entered:{' '}
-                <Text strong>{meta?.enteredCount ?? '—'}</Text>
-              </Text>
-              <Text>
-                <span
-                  aria-hidden
-                  style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: 'var(--theme-danger)', marginRight: 6 }}
-                />
-                Entry Required:{' '}
-                <Text strong>{meta?.entryRequiredCount ?? '—'}</Text>
-              </Text>
-              {scopeLabel && <Tag color="blue">{scopeLabel}</Tag>}
-              {dateIso && <Tag>{dayjs(dateIso).format('DD-MMM-YYYY')}</Tag>}
-            </Space>
-          </Card>
-
-          {loading && machines.length === 0 ? (
-            <Card><GlobalLoading title="Loading Machines..." subtitle="Retrieving active machines for this selection..." badgeText="LIVE DATABASE QUERY" minHeight={240} /></Card>
-          ) : machines.length === 0 ? (
-            <Empty description="No active machines found for this selection." />
-          ) : (
+        {/* Top Header HUD Banner - Serves as Draggable Mouse Handle */}
+        <div
+          onMouseDown={handleDragStart}
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            marginBottom: 22,
+            borderBottom: `1px solid ${token.colorBorderSecondary}`,
+            paddingBottom: 16,
+            flexWrap: 'wrap',
+            gap: 12,
+            cursor: isMaximized ? 'default' : 'grab',
+            userSelect: 'none',
+          }}
+        >
+          {/* Left: Branding & Draggable indicator */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
             <div
               style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fill, minmax(235px, 1fr))',
-                gap: 10,
+                width: 44,
+                height: 44,
+                borderRadius: 12,
+                backgroundColor: '#ea580c',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                boxShadow: '0 4px 14px rgba(234, 88, 12, 0.45)',
+                color: '#ffffff',
+                fontSize: 22,
+                flexShrink: 0,
               }}
             >
-              {machines.map((m) => (
-                <MachineTile
-                  key={m.id}
-                  machine={m}
-                  onSelect={() => openNewEntry(m)}
-                  onEdit={(entryId) => handleEditEntry(entryId)}
-                  onView={(entryId) => setDetailModalEntryId(entryId)}
-                  onDelete={(entryId) => deleteEntry(entryId)}
-                />
-              ))}
+              <DashboardOutlined />
             </div>
-          )}
-        </>
-      )}
+            <div>
+              <div
+                style={{
+                  fontSize: 11,
+                  fontWeight: 900,
+                  textTransform: 'uppercase',
+                  letterSpacing: '1.2px',
+                  color: '#ea580c',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                }}
+              >
+                <span>FACTORY FLOOR TOUCH TERMINAL • ZERO-TYPING INTERFACE</span>
+                {!isMaximized && (
+                  <span
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 700,
+                      color: token.colorTextSecondary,
+                      backgroundColor: token.colorFillAlter,
+                      padding: '1px 8px',
+                      borderRadius: 6,
+                      border: `1px solid ${token.colorBorderSecondary}`,
+                      letterSpacing: 'normal',
+                      textTransform: 'none',
+                    }}
+                  >
+                    🖱️ Drag to Move
+                  </span>
+                )}
+              </div>
+              <div style={{ fontSize: 21, fontWeight: 900, color: token.colorText, marginTop: 2 }}>
+                Daily Production Entry Wizard
+              </div>
+            </div>
+          </div>
 
+          {/* Right: Step Indicator + Minimize, Maximize, Close Control Bar */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+            {/* Progression Step Indicator */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div
+                onClick={() => setStep(1)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '6px 14px',
+                  borderRadius: 20,
+                  backgroundColor: step === 1 ? '#ea580c' : token.colorFillAlter,
+                  color: step === 1 ? '#ffffff' : token.colorTextSecondary,
+                  fontWeight: 800,
+                  fontSize: 12,
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                <span>1 Shift & Area</span>
+              </div>
+              <span style={{ color: token.colorTextTertiary }}>➔</span>
+              <div
+                onClick={() => {
+                  if (ready) setStep(2);
+                  else message.warning('Please select a production date and shift to proceed');
+                }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '6px 14px',
+                  borderRadius: 20,
+                  backgroundColor: step === 2 ? '#ea580c' : token.colorFillAlter,
+                  color: step === 2 ? '#ffffff' : token.colorTextSecondary,
+                  fontWeight: 800,
+                  fontSize: 12,
+                  cursor: ready ? 'pointer' : 'not-allowed',
+                  opacity: ready ? 1 : 0.6,
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                <span>2 Department & Machines</span>
+              </div>
+              <span style={{ color: token.colorTextTertiary }}>➔</span>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '6px 14px',
+                  borderRadius: 20,
+                  backgroundColor: token.colorFillAlter,
+                  color: token.colorTextTertiary,
+                  fontWeight: 800,
+                  fontSize: 12,
+                  cursor: 'default',
+                  opacity: 0.6,
+                }}
+              >
+                <span>3 Production Details</span>
+              </div>
+            </div>
+
+            {/* Window Action Control Bar (Minimize, Maximize / Restore, Close) */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+                padding: '3px 6px',
+                borderRadius: 10,
+                backgroundColor: token.colorFillAlter,
+                border: `1px solid ${token.colorBorderSecondary}`,
+              }}
+            >
+              <Tooltip title="منیمائز کریں / Minimize (Leaves wizard open in background while you open other pages)">
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<MinusOutlined style={{ fontSize: 13 }} />}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsMinimized(true);
+                  }}
+                  style={{
+                    color: token.colorTextSecondary,
+                    width: 30,
+                    height: 30,
+                    borderRadius: 6,
+                  }}
+                />
+              </Tooltip>
+
+              <Tooltip title={isMaximized ? 'بحال کریں / Restore standard size' : 'میکسیمم کریں / Maximize fullscreen'}>
+                <Button
+                  type="text"
+                  size="small"
+                  icon={
+                    isMaximized ? (
+                      <FullscreenExitOutlined style={{ fontSize: 13 }} />
+                    ) : (
+                      <FullscreenOutlined style={{ fontSize: 13 }} />
+                    )
+                  }
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsMaximized((prev) => !prev);
+                  }}
+                  style={{
+                    color: token.colorTextSecondary,
+                    width: 30,
+                    height: 30,
+                    borderRadius: 6,
+                  }}
+                />
+              </Tooltip>
+
+              <Tooltip title="بند کریں / Close Wizard">
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<CloseOutlined style={{ fontSize: 13 }} />}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleCloseModal();
+                  }}
+                  danger
+                  style={{
+                    width: 30,
+                    height: 30,
+                    borderRadius: 6,
+                  }}
+                />
+              </Tooltip>
+            </div>
+          </div>
+        </div>
+
+        {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            STEP 1: SHIFT & PRODUCTION AREA IDENTIFICATION
+            ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+        {step === 1 && (
+          <div>
+            <div style={{ marginBottom: 20 }}>
+              <h3 style={{ margin: 0, fontSize: 19, fontWeight: 800, color: token.colorText }}>
+                Step 1: Shift & Production Area Identification
+              </h3>
+              <div style={{ color: token.colorTextSecondary, fontSize: 13, marginTop: 4 }}>
+                Select your target manufacturing division, operating date, and scheduled shift via rapid touch selectors (Zero Typing Required).
+              </div>
+            </div>
+
+            {/* 3 LARGE HIGH-CONTRAST SELECTION CARDS */}
+            <Row gutter={[18, 18]}>
+              {/* 1. ACTIVE MANUFACTURING AREA (DIVISION & SECTION ONLY) */}
+              <Col xs={24} md={8}>
+                <div
+                  style={{
+                    backgroundColor: token.colorBgContainer,
+                    border: `2px solid ${divisionId ? token.colorPrimary : token.colorBorderSecondary}`,
+                    borderRadius: 16,
+                    padding: 20,
+                    boxShadow: divisionId ? `0 4px 18px ${token.colorPrimary}22` : 'none',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'space-between',
+                    minHeight: 300,
+                  }}
+                >
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+                      <div
+                        style={{
+                          width: 44,
+                          height: 44,
+                          borderRadius: 12,
+                          background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.2) 0%, rgba(37, 99, 235, 0.1) 100%)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          color: '#3b82f6',
+                          fontSize: 22,
+                        }}
+                      >
+                        <AppstoreOutlined />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 16, fontWeight: 800, color: token.colorText }}>Manufacturing Area</div>
+                        <div style={{ fontSize: 12, color: token.colorTextSecondary }}>Division & Section Selection</div>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                      <div>
+                        <Text style={{ fontSize: 12, fontWeight: 700, color: token.colorTextSecondary, display: 'block', marginBottom: 4 }}>
+                          Select Manufacturing Division:
+                        </Text>
+                        <Select
+                          showSearch
+                          optionFilterProp="label"
+                          placeholder="Select Division"
+                          style={{ width: '100%', height: 44 }}
+                          value={divisionId}
+                          options={lookups.divisions.map((d) => ({ value: d.id, label: formatDivLabel(d) }))}
+                          onChange={(v) => {
+                            setDivisionId(v);
+                            setSectionId(undefined);
+                            setSelectedDeptId(null);
+                          }}
+                        />
+                      </div>
+
+                      {sectionsFiltered.length > 0 && (
+                        <div>
+                          <Text style={{ fontSize: 12, fontWeight: 700, color: token.colorTextSecondary, display: 'block', marginBottom: 4 }}>
+                            Operational Section (Optional):
+                          </Text>
+                          <Select
+                            allowClear
+                            showSearch
+                            optionFilterProp="label"
+                            placeholder="All Sections in Division"
+                            style={{ width: '100%', height: 44 }}
+                            value={sectionId}
+                            options={sectionsFiltered.map((s) => ({ value: s.id, label: s.name }))}
+                            onChange={(v) => {
+                              setSectionId(v);
+                              setSelectedDeptId(null);
+                            }}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div
+                    style={{
+                      marginTop: 14,
+                      padding: '10px 14px',
+                      borderRadius: 10,
+                      backgroundColor: token.colorFillAlter,
+                      border: `1px solid ${token.colorBorderSecondary}`,
+                    }}
+                  >
+                    <div style={{ fontSize: 11, color: token.colorTextSecondary, textTransform: 'uppercase', fontWeight: 700 }}>
+                      Verified Manufacturing Scope:
+                    </div>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: token.colorPrimary, marginTop: 2 }}>
+                      {scopeLabel || 'All Manufacturing Divisions'}
+                    </div>
+                  </div>
+                </div>
+              </Col>
+
+              {/* 2. PRODUCTION DATE */}
+              <Col xs={24} md={8}>
+                <div
+                  style={{
+                    backgroundColor: token.colorBgContainer,
+                    border: `2px solid ${entryDate ? '#ea580c' : token.colorBorderSecondary}`,
+                    borderRadius: 16,
+                    padding: 20,
+                    boxShadow: entryDate ? '0 4px 18px rgba(234, 88, 12, 0.15)' : 'none',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'space-between',
+                    minHeight: 300,
+                  }}
+                >
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+                      <div
+                        style={{
+                          width: 44,
+                          height: 44,
+                          borderRadius: 12,
+                          background: 'linear-gradient(135deg, rgba(234, 88, 12, 0.2) 0%, rgba(194, 65, 12, 0.1) 100%)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          color: '#ea580c',
+                          fontSize: 22,
+                        }}
+                      >
+                        <CalendarOutlined />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 16, fontWeight: 800, color: token.colorText }}>Production Work Date</div>
+                        <div style={{ fontSize: 12, color: token.colorTextSecondary }}>Shift Calendar Schedule</div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <Text style={{ fontSize: 12, fontWeight: 700, color: token.colorTextSecondary, display: 'block', marginBottom: 4 }}>
+                        Select Operating Date:
+                      </Text>
+                      <DatePicker
+                        style={{ width: '100%', height: 44, borderRadius: 8, fontSize: 15, fontWeight: 700 }}
+                        value={entryDate}
+                        onChange={(v) => setEntryDate(v)}
+                        allowClear={false}
+                      />
+
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6, marginTop: 12 }}>
+                        <Button
+                          onClick={() => setEntryDate(dayjs().subtract(1, 'day'))}
+                          style={{
+                            height: 38,
+                            fontSize: 12,
+                            fontWeight: 700,
+                            backgroundColor: token.colorFillAlter,
+                            borderColor: token.colorBorderSecondary,
+                            color: token.colorText,
+                          }}
+                        >
+                          Yesterday
+                        </Button>
+                        <Button
+                          onClick={() => setEntryDate(dayjs())}
+                          style={{
+                            height: 38,
+                            fontSize: 12,
+                            fontWeight: 700,
+                            backgroundColor: token.colorFillAlter,
+                            borderColor: token.colorBorderSecondary,
+                            color: token.colorText,
+                          }}
+                        >
+                          Today
+                        </Button>
+                        <Button
+                          onClick={() => setEntryDate(dayjs().subtract(2, 'day'))}
+                          style={{
+                            height: 38,
+                            fontSize: 12,
+                            fontWeight: 700,
+                            backgroundColor: token.colorFillAlter,
+                            borderColor: token.colorBorderSecondary,
+                            color: token.colorText,
+                          }}
+                        >
+                          -2 Days
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div
+                    style={{
+                      marginTop: 14,
+                      padding: '10px 14px',
+                      borderRadius: 10,
+                      backgroundColor: token.colorFillAlter,
+                      border: `1px solid ${token.colorBorderSecondary}`,
+                    }}
+                  >
+                    <div style={{ fontSize: 11, color: token.colorTextSecondary, textTransform: 'uppercase', fontWeight: 700 }}>
+                      Scheduled Date:
+                    </div>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: '#ea580c', marginTop: 2 }}>
+                      {entryDate ? entryDate.format('dddd, DD-MMMM-YYYY') : 'No Date Selected'}
+                    </div>
+                  </div>
+                </div>
+              </Col>
+
+              {/* 3. ACTIVE SHIFT ROSTER */}
+              <Col xs={24} md={8}>
+                <div
+                  style={{
+                    backgroundColor: token.colorBgContainer,
+                    border: `2px solid ${shiftId ? '#10b981' : token.colorBorderSecondary}`,
+                    borderRadius: 16,
+                    padding: 20,
+                    boxShadow: shiftId ? '0 4px 18px rgba(16, 185, 129, 0.15)' : 'none',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'space-between',
+                    minHeight: 300,
+                  }}
+                >
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+                      <div
+                        style={{
+                          width: 44,
+                          height: 44,
+                          borderRadius: 12,
+                          background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.2) 0%, rgba(5, 150, 105, 0.1) 100%)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          color: '#10b981',
+                          fontSize: 22,
+                        }}
+                      >
+                        <ThunderboltOutlined />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 16, fontWeight: 800, color: token.colorText }}>Active Shift Roster</div>
+                        <div style={{ fontSize: 12, color: token.colorTextSecondary }}>Manufacturing Shift Schedule</div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <Text style={{ fontSize: 12, fontWeight: 700, color: token.colorTextSecondary, display: 'block', marginBottom: 4 }}>
+                        Select Manufacturing Shift:
+                      </Text>
+                      <Select
+                        placeholder="Select Shift"
+                        style={{ width: '100%', height: 44 }}
+                        value={shiftId}
+                        loading={scopedShiftsLoading}
+                        options={availableShifts.map((s) => ({
+                          value: s.id,
+                          label: `${s.name} (${s.startTime ?? ''}–${s.endTime ?? ''})`,
+                        }))}
+                        onChange={(v) => setShiftId(v)}
+                      />
+                    </div>
+                  </div>
+
+                  <div
+                    style={{
+                      marginTop: 14,
+                      padding: '10px 14px',
+                      borderRadius: 10,
+                      backgroundColor: token.colorFillAlter,
+                      border: `1px solid ${token.colorBorderSecondary}`,
+                    }}
+                  >
+                    <div style={{ fontSize: 11, color: token.colorTextSecondary, textTransform: 'uppercase', fontWeight: 700 }}>
+                      Shift Capacity:
+                    </div>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: '#10b981', marginTop: 2 }}>
+                      {effectiveShift?.name?.includes('12') || effectiveShift?.name?.includes('N+OT')
+                        ? '12.00 Gross (8h Duty + 4h OT)'
+                        : '8.00 Net Hours Basis'}
+                    </div>
+                  </div>
+                </div>
+              </Col>
+            </Row>
+
+            {/* Big Proceed Action Button */}
+            <div style={{ marginTop: 28, textAlign: 'center' }}>
+              <Button
+                type="primary"
+                onClick={() => {
+                  if (!ready) {
+                    message.warning('Please select a production date and shift to proceed');
+                    return;
+                  }
+                  setStep(2);
+                }}
+                style={{
+                  height: 60,
+                  width: '100%',
+                  maxWidth: 500,
+                  background: 'linear-gradient(135deg, #ea580c 0%, #f97316 100%)',
+                  borderColor: '#ea580c',
+                  borderRadius: 14,
+                  fontSize: 18,
+                  fontWeight: 900,
+                  letterSpacing: '0.5px',
+                  boxShadow: '0 8px 24px rgba(234, 88, 12, 0.4)',
+                }}
+              >
+                PROCEED TO DEPARTMENT & MACHINES ➔
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            STEP 2: DEPARTMENT CARDS + WIDE HORIZONTAL MACHINE ROWS
+            ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+        {step === 2 && (
+          <div>
+            {/* Top Navigation & Info Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <Button
+                  icon={<ArrowLeftOutlined />}
+                  onClick={() => setStep(1)}
+                  style={{
+                    height: 42,
+                    backgroundColor: token.colorFillAlter,
+                    borderColor: token.colorBorderSecondary,
+                    color: token.colorText,
+                    fontWeight: 700,
+                    borderRadius: 10,
+                  }}
+                >
+                  Back to Step 1
+                </Button>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: token.colorText }}>
+                    Step 2: Department Selection & Machine Station Fleet
+                  </h3>
+                  <div style={{ color: token.colorTextSecondary, fontSize: 12, marginTop: 2 }}>
+                    Area: <strong style={{ color: token.colorPrimary }}>{scopeLabel || 'All Manufacturing'}</strong> | Shift: <strong style={{ color: '#10b981' }}>{effectiveShift?.name || 'Shift'}</strong> | Date: <strong style={{ color: '#ea580c' }}>{dateIso ? dayjs(dateIso).format('DD-MMM-YYYY') : '—'}</strong>
+                  </div>
+                </div>
+              </div>
+
+              <Space wrap>
+                <Button
+                  icon={<InboxOutlined />}
+                  onClick={() => {
+                    setModalOpen(false);
+                    navigate('/production/packing');
+                  }}
+                  style={{
+                    fontWeight: 600,
+                    borderColor: '#10b981',
+                    color: '#10b981',
+                    borderRadius: 8,
+                  }}
+                >
+                  Hand Packing (No Machine)
+                </Button>
+                <Button
+                  icon={<FormOutlined />}
+                  onClick={() => {
+                    setModalOpen(false);
+                    navigate('/production/entries/new');
+                  }}
+                  style={{ fontWeight: 600, borderRadius: 8 }}
+                >
+                  Direct Entry Form
+                </Button>
+                <Button
+                  icon={<ReloadOutlined />}
+                  onClick={() => setRefreshTick((t) => t + 1)}
+                  loading={loading}
+                  style={{ backgroundColor: token.colorFillAlter, borderColor: token.colorBorderSecondary, color: token.colorText, borderRadius: 8 }}
+                >
+                  Refresh Fleet
+                </Button>
+              </Space>
+            </div>
+
+            {/* ━━━ TOP DEPARTMENT CARDS (IDENTICAL TO IMAGE 2) ━━━ */}
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 13, textTransform: 'uppercase', color: token.colorTextSecondary, fontWeight: 800, marginBottom: 10 }}>
+                Manufacturing Departments ({activeDepartments.length} Sections Available):
+              </div>
+              <Row gutter={[12, 12]}>
+                {activeDepartments.map((dept, idx) => {
+                  const isSelected = selectedDeptId === dept.id;
+                  const palette = DEPT_COLOR_PALETTES[idx % DEPT_COLOR_PALETTES.length];
+                  const deptMachines = machines.filter((m) => m.departmentId === dept.id);
+                  const deptRequiredCount = deptMachines.filter((m) => m.status === 'ENTRY_REQUIRED').length;
+
+                  return (
+                    <Col xs={24} sm={12} md={activeDepartments.length <= 4 ? 6 : 4} key={dept.id}>
+                      <div
+                        onClick={() => setSelectedDeptId(dept.id)}
+                        style={{
+                          backgroundColor: isSelected ? token.colorFillSecondary : token.colorBgContainer,
+                          borderRadius: 14,
+                          padding: '14px 14px',
+                          border: `2px solid ${isSelected ? palette.color : token.colorBorderSecondary}`,
+                          cursor: 'pointer',
+                          transition: 'all 0.15s ease',
+                          boxShadow: isSelected ? `0 0 18px ${palette.color}33` : 'none',
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                          <div
+                            style={{
+                              width: 42,
+                              height: 42,
+                              borderRadius: 10,
+                              background: palette.bg,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              color: palette.color,
+                              fontSize: 18,
+                            }}
+                          >
+                            {palette.icon}
+                          </div>
+                          <Badge
+                            count={`${deptMachines.length} Machines`}
+                            style={{
+                              backgroundColor: deptRequiredCount > 0 ? '#ea580c' : '#065f46',
+                              color: '#ffffff',
+                              fontWeight: 700,
+                              fontSize: 11,
+                            }}
+                          />
+                        </div>
+
+                        <div style={{ fontSize: 15, fontWeight: 800, color: token.colorText, marginTop: 10, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {dept.name}
+                        </div>
+                        <div style={{ fontSize: 11, color: token.colorTextSecondary, marginTop: 2 }}>
+                          {dept.departmentCode || 'DEP'} • {deptRequiredCount} Pending
+                        </div>
+
+                        <div
+                          style={{
+                            marginTop: 10,
+                            textAlign: 'center',
+                            padding: '4px',
+                            borderRadius: 6,
+                            backgroundColor: token.colorFillAlter,
+                            color: palette.color,
+                            fontWeight: 800,
+                            fontSize: 11,
+                          }}
+                        >
+                          {isSelected ? '✓ Selected Section' : 'Tap to View Machines →'}
+                        </div>
+                      </div>
+                    </Col>
+                  );
+                })}
+              </Row>
+            </div>
+
+            {/* Summary Ribbon */}
+            <div
+              style={{
+                padding: '10px 16px',
+                backgroundColor: token.colorFillAlter,
+                borderRadius: 12,
+                border: `1px solid ${token.colorBorderSecondary}`,
+                marginBottom: 16,
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: 12,
+              }}
+            >
+              <Space size={18} wrap>
+                <Text style={{ fontSize: 13, color: token.colorText }}>
+                  Active Section: <strong style={{ color: token.colorPrimary }}>{activeDeptObj?.name || 'Selected Department'}</strong>
+                </Text>
+                <Text style={{ fontSize: 13, color: token.colorText }}>
+                  Total Machines: <Text strong style={{ color: token.colorText }}>{displayedMachines.length}</Text>
+                </Text>
+                <Text style={{ fontSize: 13, color: token.colorText }}>
+                  <span
+                    aria-hidden
+                    style={{ display: 'inline-block', width: 9, height: 9, borderRadius: '50%', background: '#10b981', marginRight: 6 }}
+                  />
+                  Entered: <Text strong style={{ color: '#10b981' }}>{displayedMachines.filter(m => m.status === 'ENTERED').length}</Text>
+                </Text>
+                <Text style={{ fontSize: 13, color: token.colorText }}>
+                  <span
+                    aria-hidden
+                    style={{ display: 'inline-block', width: 9, height: 9, borderRadius: '50%', background: '#f43f5e', marginRight: 6 }}
+                  />
+                  Entry Required: <Text strong style={{ color: '#f43f5e' }}>{displayedMachines.filter(m => m.status === 'ENTRY_REQUIRED').length}</Text>
+                </Text>
+              </Space>
+
+              <Space size={8} wrap>
+                {dateIso && <Tag color="blue" style={{ fontWeight: 700, borderRadius: 6 }}>{dayjs(dateIso).format('DD-MMM-YYYY')}</Tag>}
+              </Space>
+            </div>
+
+            {error && (
+              <div style={{ marginBottom: 14 }}>
+                <Tag color="error">{error}</Tag>
+              </div>
+            )}
+
+            {/* ━━━ WIDE HORIZONTAL MACHINE ROWS (IDENTICAL TO IMAGE 2 "لمبے رو") ━━━ */}
+            {loading && machines.length === 0 ? (
+              <div style={{ padding: '60px 0', textAlign: 'center' }}>
+                <GlobalLoading title="Loading Machines..." subtitle="Retrieving active machines for this selection..." badgeText="LIVE DATABASE QUERY" minHeight={240} />
+              </div>
+            ) : displayedMachines.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '40px 20px', backgroundColor: token.colorFillAlter, borderRadius: 14, border: `1px dashed ${token.colorBorderSecondary}` }}>
+                <div style={{ fontSize: 16, fontWeight: 700, color: token.colorText }}>
+                  No active machines found for {activeDeptObj?.name || 'this department'}.
+                </div>
+                <div style={{ fontSize: 13, color: token.colorTextSecondary, marginTop: 4 }}>
+                  Please select another department from the cards above.
+                </div>
+              </div>
+            ) : (
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 12,
+                  maxHeight: '48vh',
+                  overflowY: 'auto',
+                  paddingRight: 4,
+                }}
+              >
+                {displayedMachines.map((m) => (
+                  <HorizontalMachineRow
+                    key={m.id}
+                    machine={m}
+                    onSelect={() => {
+                      setModalOpen(false);
+                      if (propOnClose) propOnClose();
+                      openNewEntry(m);
+                    }}
+                    onEdit={(entryId) => handleEditEntry(entryId)}
+                    onView={(entryId) => setDetailModalEntryId(entryId)}
+                    onDelete={(entryId) => deleteEntry(entryId)}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
+
+      {/* ── Minimized Floating HUD Dock (Keeps wizard state alive in background while browsing other pages) ── */}
+      {modalOpen && isMinimized && (
+        <div
+          style={{
+            position: 'fixed',
+            bottom: 24,
+            right: 28,
+            zIndex: 50001,
+            backgroundColor: token.colorBgElevated,
+            border: `2px solid #ea580c`,
+            borderRadius: 16,
+            padding: '10px 18px',
+            boxShadow: '0 10px 32px rgba(234, 88, 12, 0.28), 0 4px 16px rgba(0,0,0,0.3)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 16,
+            backdropFilter: 'blur(16px)',
+          }}
+        >
+          <div
+            style={{
+              width: 36,
+              height: 36,
+              borderRadius: 10,
+              backgroundColor: '#ea580c',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#ffffff',
+              fontSize: 18,
+              boxShadow: '0 2px 8px rgba(234, 88, 12, 0.4)',
+            }}
+          >
+            <DashboardOutlined />
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 13, fontWeight: 800, color: token.colorText }}>
+                Daily Production Entry Wizard
+              </span>
+              <Tag color="orange" style={{ margin: 0, fontSize: 11, fontWeight: 700, borderRadius: 10 }}>
+                Step {step}: {step === 1 ? 'Shift & Area' : 'Machines'}
+              </Tag>
+            </div>
+            <div style={{ fontSize: 11, color: token.colorTextSecondary, marginTop: 2 }}>
+              {selectedSecObj?.name || 'Section'} • {effectiveShift?.name || 'Shift'} • {dateIso || 'Date'}
+            </div>
+          </div>
+
+          <Space size={6}>
+            <Button
+              type="primary"
+              size="small"
+              icon={<FullscreenOutlined />}
+              onClick={() => setIsMinimized(false)}
+              style={{
+                backgroundColor: '#ea580c',
+                borderColor: '#ea580c',
+                fontWeight: 700,
+                borderRadius: 8,
+              }}
+            >
+              بحال کریں / Restore
+            </Button>
+            <Button
+              type="text"
+              size="small"
+              icon={<CloseOutlined />}
+              onClick={handleCloseModal}
+              style={{ color: token.colorTextTertiary }}
+            />
+          </Space>
+        </div>
+      )}
 
       {/* ── Enterprise In-Modal Production Entry Detail Dialog ── */}
       <ProductionEntryDetailModal
@@ -523,7 +1386,11 @@ const EntryMachineSelect: React.FC = () => {
   );
 };
 
-const MachineTile: React.FC<{
+/**
+ * Wide Horizontal Machine Row Component ("لمبے رو")
+ * Styled identically to the horizontal contracts in Image 2.
+ */
+const HorizontalMachineRow: React.FC<{
   machine: MachineStatusRow;
   onSelect: () => void;
   onEdit: (entryId: string) => void;
@@ -532,9 +1399,8 @@ const MachineTile: React.FC<{
 }> = ({ machine, onSelect, onEdit, onView, onDelete }) => {
   const { token } = theme.useToken();
   const entered = machine.status === 'ENTERED';
-  const statusColor = entered ? token.colorSuccess : token.colorError;
 
-  // ── Metrics resolution (uses real machine targets & entry data) ───────────
+  // Metrics resolution
   const hasEntries = machine.entries && machine.entries.length > 0;
   const target = machine.targetQuantity !== undefined && machine.targetQuantity !== null
     ? machine.targetQuantity
@@ -562,18 +1428,17 @@ const MachineTile: React.FC<{
       ? Number((production - target).toFixed(4))
       : null;
 
-  // Variance indicator: ↑ positive (green), ↓ negative (red), – zero (neutral)
   let varianceNode: React.ReactNode = null;
   if (variance !== null) {
     if (variance > 0) {
       varianceNode = (
-        <span style={{ color: token.colorSuccess, fontWeight: 600 }}>
+        <span style={{ color: token.colorSuccess, fontWeight: 700 }}>
           ↑ {formatQty(variance)} {uom}
         </span>
       );
     } else if (variance < 0) {
       varianceNode = (
-        <span style={{ color: token.colorError, fontWeight: 600 }}>
+        <span style={{ color: token.colorError, fontWeight: 700 }}>
           ↓ {formatQty(Math.abs(variance))} {uom}
         </span>
       );
@@ -621,223 +1486,192 @@ const MachineTile: React.FC<{
   return (
     <div
       style={{
-        border: `1.5px solid ${entered ? token.colorSuccess : token.colorBorderSecondary}`,
-        borderRadius: 10,
-        padding: '12px 14px',
-        background: entered ? (token.colorSuccessBg || 'rgba(16, 185, 129, 0.08)') : token.colorBgContainer,
-        boxShadow: entered
-          ? '0 2px 8px rgba(16, 185, 129, 0.12)'
-          : (token.boxShadowTertiary || '0 2px 8px rgba(0, 0, 0, 0.04)'),
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 8,
-        transition: 'all 0.2s ease',
+        backgroundColor: token.colorBgContainer,
+        borderRadius: 14,
+        padding: '14px 20px',
+        border: `2px solid ${entered ? '#10b981' : token.colorBorderSecondary}`,
+        boxShadow: entered ? '0 4px 14px rgba(16, 185, 129, 0.12)' : '0 2px 6px rgba(0,0,0,0.03)',
+        transition: 'all 0.15s ease',
+      }}
+      onMouseEnter={(e) => {
+        if (!entered) {
+          e.currentTarget.style.borderColor = '#ea580c';
+          e.currentTarget.style.boxShadow = '0 4px 14px rgba(234, 88, 12, 0.2)';
+        }
+      }}
+      onMouseLeave={(e) => {
+        if (!entered) {
+          e.currentTarget.style.borderColor = token.colorBorderSecondary;
+          e.currentTarget.style.boxShadow = '0 2px 6px rgba(0,0,0,0.03)';
+        }
       }}
     >
-      <div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 6 }}>
-          <div style={{ fontWeight: 700, fontSize: 14, color: token.colorText, lineHeight: 1.3 }} title={machine.name}>
-            {machine.name}
-          </div>
-          <Tag style={{
-            fontSize: 11,
-            margin: 0,
-            fontWeight: 600,
-            padding: '0 6px',
-            background: token.colorFillAlter,
-            color: token.colorTextSecondary,
-            border: `1px solid ${token.colorBorderSecondary}`,
-          }}>
-            {machine.machineCode}
-          </Tag>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
-          {machine.departmentName && (
-            <Text style={{ fontSize: 11, color: token.colorTextSecondary }}>{machine.departmentName}</Text>
-          )}
-          {machine.systemCode && machine.systemCode !== machine.machineCode && (
-            <Text style={{ fontSize: 10, color: token.colorTextTertiary }}>· {machine.systemCode}</Text>
-          )}
-        </div>
-      </div>
-
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <span
-          aria-hidden
-          style={{ flex: 'none', width: 8, height: 8, borderRadius: '50%', background: statusColor }}
-        />
-        <Text strong style={{ fontSize: 11, color: statusColor }}>
-          {entered ? 'Already Entered' : 'Entry Required'}
-        </Text>
-      </div>
-
-      {/* ── Compact Machine KPI Section ─────────────────────────────────── */}
-      <div
-        style={{
-          border: `1px solid ${token.colorBorderSecondary}`,
-          borderRadius: 6,
-          padding: '4px 8px',
-          background: token.colorFillAlter,
-          display: 'grid',
-          gridTemplateColumns: '1fr 1fr 1fr',
-          gap: 4,
-          fontSize: 11,
-          lineHeight: 1.25,
-        }}
-      >
-        <div>
-          <div style={{ color: token.colorTextSecondary, fontSize: 10, fontWeight: 500 }}>Target</div>
-          <div style={{ fontWeight: 600, fontSize: 12, color: token.colorText }}>
-            {target !== null ? `${formatQty(target)} ${uom}` : '—'}
-          </div>
-        </div>
-        <div>
-          <div style={{ color: token.colorTextSecondary, fontSize: 10, fontWeight: 500 }}>Production</div>
-          <div style={{ fontWeight: 600, fontSize: 12, color: token.colorText }}>
-            {entered || target !== null ? `${formatQty(production)} ${uom}` : '—'}
-          </div>
-        </div>
-        <div style={{ textAlign: 'right' }}>
-          <div style={{ color: token.colorTextSecondary, fontSize: 10, fontWeight: 500 }}>Achievement</div>
-          <div
-            style={{
-              fontWeight: 600,
-              fontSize: 12,
-              color: achievement !== null && achievement >= 100 ? token.colorSuccess : token.colorText,
-            }}
-          >
-            {achievement !== null ? formatPercent(achievement) : '—'}
-          </div>
-          {varianceNode && (
-            <div style={{ fontSize: 10, lineHeight: 1.2, marginTop: 1 }}>
-              {varianceNode}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* ── Item Breakdown (1 Item, 2 Items, etc.) ─────────────────────── */}
-      {machine.entries && machine.entries.length > 0 && (
-        <div
-          style={{
-            borderRadius: 6,
-            padding: '5px 8px',
-            background: token.colorFillAlter,
-            border: `1px solid ${token.colorBorderSecondary}`,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 4,
-            maxHeight: 140,
-            overflowY: machine.entries.length > 3 ? 'auto' : 'visible',
-          }}
-        >
-          {machine.entries.map((itemEntry, idx) => (
-            <div
-              key={itemEntry.id || idx}
+      <Row gutter={[16, 10]} align="middle">
+        {/* Machine Identity & Status */}
+        <Col xs={24} md={7}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span
               style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
+                backgroundColor: entered ? '#10b981' : '#ea580c',
+                color: '#fff',
+                padding: '2px 8px',
+                borderRadius: 6,
                 fontSize: 11,
-                gap: 6,
+                fontWeight: 800,
+                letterSpacing: '0.5px',
               }}
             >
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 4,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                <span
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    width: 16,
-                    height: 16,
-                    borderRadius: 3,
-                    background: token.colorPrimary,
-                    color: '#fff',
-                    fontSize: 9.5,
-                    fontWeight: 700,
-                    flexShrink: 0,
-                  }}
-                >
-                  {idx + 1}
-                </span>
-                <span
-                  style={{
-                    fontWeight: 600,
-                    color: token.colorText,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                  }}
-                  title={itemEntry.itemName ?? itemEntry.itemId}
-                >
-                  {itemEntry.itemName || `Item #${idx + 1}`}
-                </span>
-              </div>
-              <div
-                style={{
-                  fontWeight: 700,
-                  fontVariantNumeric: 'tabular-nums',
-                  color: token.colorPrimary,
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {formatQty(itemEntry.actualQuantity)} {itemEntry.uom || uom}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+              {machine.machineCode}
+            </span>
+            <span style={{ color: token.colorTextSecondary, fontSize: 11 }}>
+              {machine.departmentName || 'Asset Machinery'}
+            </span>
+          </div>
+          <div style={{ fontSize: 16, fontWeight: 800, color: token.colorText, marginTop: 4 }}>
+            {machine.name}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3 }}>
+            <span
+              style={{
+                width: 8,
+                height: 8,
+                borderRadius: '50%',
+                background: entered ? '#10b981' : '#f43f5e',
+                display: 'inline-block',
+              }}
+            />
+            <span style={{ fontSize: 12, fontWeight: 700, color: entered ? '#10b981' : '#f43f5e' }}>
+              {entered ? 'Already Entered' : 'Entry Required'}
+            </span>
+            {machine.systemCode && machine.systemCode !== machine.machineCode && (
+              <span style={{ fontSize: 11, color: token.colorTextTertiary }}>• {machine.systemCode}</span>
+            )}
+          </div>
+        </Col>
 
-      <div style={{ marginTop: 'auto', paddingTop: 4 }}>
-        {entered ? (
-          machine.entryCount <= 1 ? (
-            <div style={{ display: 'flex', gap: 6, width: '100%' }}>
-              <Button
-                size="small"
-                type="primary"
-                ghost
-                icon={<EditOutlined />}
-                style={{ flex: 1, fontWeight: 600 }}
-                onClick={() => onEdit(machine.primaryEntryId || machine.entries[0]?.entryId || machine.entries[0]?.id)}
-              >
-                Edit
-              </Button>
-              <Button
-                size="small"
-                icon={<EyeOutlined />}
-                onClick={() => onView(machine.primaryEntryId || machine.entries[0]?.entryId || machine.entries[0]?.id)}
-              >
-                View
-              </Button>
-              <Button
-                size="small"
-                danger
-                icon={<DeleteOutlined />}
-                title="Delete dummy / test entry"
-                onClick={() => onDelete(machine.primaryEntryId || machine.entries[0]?.entryId || machine.entries[0]?.id)}
-              />
+        {/* Target & Production Numbers */}
+        <Col xs={24} md={8}>
+          <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
+            <div>
+              <div style={{ fontSize: 11, color: token.colorTextSecondary, fontWeight: 600 }}>Target:</div>
+              <div style={{ fontSize: 15, fontWeight: 800, color: token.colorText }}>
+                {target !== null ? `${formatQty(target)} ${uom}` : '—'}
+              </div>
             </div>
+            <div style={{ borderLeft: `1px solid ${token.colorBorderSecondary}`, height: 26 }} />
+            <div>
+              <div style={{ fontSize: 11, color: token.colorTextSecondary, fontWeight: 600 }}>Production:</div>
+              <div style={{ fontSize: 15, fontWeight: 800, color: entered || target !== null ? '#10b981' : token.colorText }}>
+                {entered || target !== null ? `${formatQty(production)} ${uom}` : '—'}
+              </div>
+            </div>
+            <div style={{ borderLeft: `1px solid ${token.colorBorderSecondary}`, height: 26 }} />
+            <div>
+              <div style={{ fontSize: 11, color: token.colorTextSecondary, fontWeight: 600 }}>Variance:</div>
+              <div style={{ fontSize: 13, fontWeight: 700 }}>
+                {varianceNode || '—'}
+              </div>
+            </div>
+          </div>
+
+          {/* Breakdown if multi-item */}
+          {machine.entries && machine.entries.length > 0 && (
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 5 }}>
+              {machine.entries.slice(0, 2).map((itemEntry, idx) => (
+                <span
+                  key={idx}
+                  style={{
+                    fontSize: 11,
+                    backgroundColor: token.colorFillAlter,
+                    padding: '1px 6px',
+                    borderRadius: 4,
+                    color: token.colorTextSecondary,
+                  }}
+                >
+                  {itemEntry.itemName || itemEntry.itemId}: {formatQty(itemEntry.actualQuantity)}
+                </span>
+              ))}
+              {machine.entries.length > 2 && (
+                <span style={{ fontSize: 11, color: token.colorTextTertiary }}>+{machine.entries.length - 2} more</span>
+              )}
+            </div>
+          )}
+        </Col>
+
+        {/* Visual Progress Bar (Achievement) */}
+        <Col xs={24} md={5}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
+            <span style={{ color: token.colorTextSecondary, fontSize: 11 }}>Achievement</span>
+            <span style={{ fontWeight: 800, color: achievement !== null && achievement >= 100 ? '#10b981' : token.colorText }}>
+              {achievement !== null ? formatPercent(achievement) : '—'}
+            </span>
+          </div>
+          <Progress
+            percent={achievement !== null ? Math.min(100, Math.round(achievement)) : 0}
+            status={achievement !== null && achievement >= 100 ? 'success' : 'active'}
+            strokeColor={{
+              '0%': '#ea580c',
+              '100%': '#10b981',
+            }}
+            trailColor={token.colorFillAlter}
+            strokeWidth={9}
+          />
+        </Col>
+
+        {/* Action Button */}
+        <Col xs={24} md={4} style={{ textAlign: 'right' }}>
+          {entered ? (
+            machine.entryCount <= 1 ? (
+              <Space size={6}>
+                <Button
+                  type="primary"
+                  ghost
+                  icon={<EditOutlined />}
+                  onClick={() => onEdit(machine.primaryEntryId || machine.entries[0]?.entryId || machine.entries[0]?.id)}
+                  style={{ fontWeight: 700, borderRadius: 8 }}
+                >
+                  Edit
+                </Button>
+                <Button
+                  icon={<EyeOutlined />}
+                  onClick={() => onView(machine.primaryEntryId || machine.entries[0]?.entryId || machine.entries[0]?.id)}
+                  style={{ borderRadius: 8 }}
+                />
+                <Button
+                  danger
+                  icon={<DeleteOutlined />}
+                  onClick={() => onDelete(machine.primaryEntryId || machine.entries[0]?.entryId || machine.entries[0]?.id)}
+                  style={{ borderRadius: 8 }}
+                />
+              </Space>
+            ) : (
+              <Popover content={entriesList} title={`${machine.entryCount} entries for this shift`} trigger="click">
+                <Button icon={<EditOutlined />} style={{ borderRadius: 8, fontWeight: 700 }}>
+                  Entries ({machine.entryCount})
+                </Button>
+              </Popover>
+            )
           ) : (
-            <Popover content={entriesList} title={`${machine.entryCount} entries for this shift`} trigger="click">
-              <Button block size="small" icon={<EditOutlined />}>
-                Existing Entries ({machine.entryCount})
-              </Button>
-            </Popover>
-          )
-        ) : (
-          <Button block size="small" type="primary" icon={<SelectOutlined />} onClick={onSelect}>
-            Select
-          </Button>
-        )}
-      </div>
+            <Button
+              type="primary"
+              onClick={onSelect}
+              style={{
+                height: 44,
+                width: '100%',
+                backgroundColor: '#ea580c',
+                borderColor: '#ea580c',
+                fontWeight: 900,
+                borderRadius: 10,
+                fontSize: 14,
+                letterSpacing: '0.5px',
+                boxShadow: '0 4px 14px rgba(234, 88, 12, 0.35)',
+              }}
+            >
+              SELECT ➔
+            </Button>
+          )}
+        </Col>
+      </Row>
     </div>
   );
 };
