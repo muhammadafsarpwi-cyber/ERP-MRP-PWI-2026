@@ -3704,14 +3704,14 @@ addToDept(org, {
         referenceId: entryRef.id,
         referenceNumber: entryRef.entryNumber || undefined,
         notes: r.scrapPcs > 0
-          ? `Automatic raw material consumption for production entry (${entryRef.machineNo}, ${entryRef.entryDate}) — includes ${this.round4(r.scrapPcs)} PCS component rejection/scrap`
+          ? `Automatic raw material consumption for production entry (${entryRef.machineNo}, ${entryRef.entryDate}) — includes ${this.round4(r.scrapPcs)} PCS component part rejection`
           : `Automatic raw material consumption for production entry (${entryRef.machineNo}, ${entryRef.entryDate})`,
         createdBy: userId ?? undefined,
       }, manager);
       await this.inventoryBalanceService.updateBalance(
         companyId, r.line.itemId, effectiveWh, null, null, targetUomId, r.required, 'OUT', manager,
       );
-      // Component-level production scrap: audit trail only (the rejected
+      // Component-level part rejection: audit trail only (the rejected
       // pieces are already part of the consumption deduction above — no
       // balance impact here, mirroring the FG-level scrap posting). The
       // quantity is expressed in the component's stock UOM so it stays
@@ -3731,8 +3731,8 @@ addToDept(org, {
           referenceId: entryRef.id,
           referenceNumber: entryRef.entryNumber || undefined,
           notes: r.scrapRemarks
-            ? `Component-level packing rejection/scrap for production entry (${entryRef.machineNo}, ${entryRef.entryDate}) — ${this.round4(r.scrapPcs)} PCS; reason: ${r.scrapRemarks}; audit trail, quantity already deducted with the component consumption`
-            : `Component-level packing rejection/scrap for production entry (${entryRef.machineNo}, ${entryRef.entryDate}) — ${this.round4(r.scrapPcs)} PCS; audit trail, quantity already deducted with the component consumption`,
+            ? `Component-level part rejection for production entry (${entryRef.machineNo}, ${entryRef.entryDate}) — ${this.round4(r.scrapPcs)} PCS; reason: ${r.scrapRemarks}; audit trail, quantity already deducted with the component consumption`
+            : `Component-level part rejection for production entry (${entryRef.machineNo}, ${entryRef.entryDate}) — ${this.round4(r.scrapPcs)} PCS; audit trail, quantity already deducted with the component consumption`,
           createdBy: userId ?? undefined,
         }, manager);
       }

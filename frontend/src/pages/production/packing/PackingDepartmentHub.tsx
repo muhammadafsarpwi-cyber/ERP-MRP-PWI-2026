@@ -978,8 +978,8 @@ export const PackingDepartmentHub: React.FC = () => {
       key: 'components',
       render: (_: any, r: any) => {
         const rem = String(r.remarks || '');
-        const scrapMatch = rem.match(/Component Scrap:\s*([^|]+)/i);
-        const scrapDetail = rem.match(/Scrap Detail:\s*([^|]+)/i);
+        const scrapMatch = rem.match(/(?:Component Scrap|Part Rejection):\s*([^|]+)/i);
+        const scrapDetail = rem.match(/(?:Scrap Detail|Reject Detail):\s*([^|]+)/i);
         if (Array.isArray(r.components) && r.components.length > 0) {
           return (
             <Space direction="vertical" size={1} style={{ fontSize: 11 }}>

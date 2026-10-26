@@ -230,12 +230,12 @@ const parseHandPackingEntry = (e: any): RecentPackingLog | null => {
   // Legacy global rejection (v1): "| Rejection: 120 PCS (1.08 KG, 1.2%)" — the
   // rejected PCS had been subtracted from the production quantity.
   const legacyRejMatch = remarks.match(/Rejection:\s*([\d.]+)\s*PCS\s*\(\s*([\d.]+)\s*KG(?:\s*,\s*([\d.]+)\s*%)?\s*\)/i);
-  // Component-wise rejection (current): "| Component Scrap: 146 PCS (1.314 KG) | Scrap Detail: WIP-SPL-013=73, SPI-FG-NP-005=73"
-  const compRejMatch = remarks.match(/Component Scrap:\s*([\d.]+)\s*PCS\s*\(\s*([\d.]+)\s*KG/i);
-  const scrapDetail = remarks.match(/Scrap Detail:\s*([^|]+)/i)?.[1]?.trim() || '';
-  // Per-component operator scrap reasons (audit string written at save time):
-  // "| Scrap Reasons: SPI-SPOKE-01=Head Crack; SPI-NIP-02=Bent Wire"
-  const scrapReasons = remarks.match(/Scrap Reasons:\s*([^|]+)/i)?.[1]?.trim() || '';
+  // Component-wise rejection (current): "| Part Rejection: 146 PCS (1.314 KG) | Reject Detail: WIP-SPL-013=73, SPI-FG-NP-005=73"
+  const compRejMatch = remarks.match(/(?:Component Scrap|Part Rejection):\s*([\d.]+)\s*PCS\s*\(\s*([\d.]+)\s*KG/i);
+  const scrapDetail = remarks.match(/(?:Scrap Detail|Reject Detail):\s*([^|]+)/i)?.[1]?.trim() || '';
+  // Per-component operator scrap/defect reasons (audit string written at save time):
+  // "| Fault Reasons: SPI-SPOKE-01=Head Crack; SPI-NIP-02=Bent Wire"
+  const scrapReasons = remarks.match(/(?:Scrap Reasons|Fault Reasons):\s*([^|]+)/i)?.[1]?.trim() || '';
   const netPcs = toNum(e.actualQuantity ?? e.actual_quantity);
   const packedFromRemarks = qtyMatch ? toNum(qtyMatch[3]) : 0;
   // Component-wise scrap never reduces the packed production quantity: the FG
@@ -839,6 +839,72 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
     setSelectedBagStyle(trimmed);
     form.setFieldsValue({ packagingStyle: trimmed });
     setNewBagStyleInput('');
+  };
+
+  // ── Part Rejection / Fault Reasons (Creatable dropdown with localStorage persistence) ──
+  const DEFAULT_REJECTION_REASONS: Array<{ value: string; label: string }> = useMemo(() => [
+    { value: 'Head Crack', label: 'Head Crack (ہیڈ کریک)' },
+    { value: 'Bend / Bent Spoke', label: 'Bend / Bent Spoke (بینڈ)' },
+    { value: 'Bending Break', label: 'Bending Break (بینڈنگ بریک)' },
+    { value: 'Cut Pieces / Cut Length', label: 'Cut Pieces / Cut Length (کٹے ہوئے پیس)' },
+    { value: 'Threading Defect', label: 'Threading Defect (تھریڈ خرابی)' },
+    { value: 'Plating Defect / Dull Finish', label: 'Plating Defect / Dull Finish (پلیٹنگ نقص)' },
+    { value: 'Rust / Oxidation', label: 'Rust / Oxidation (زنگ)' },
+    { value: 'Mix Quality / Wrong Gauge', label: 'Mix Quality / Wrong Gauge (مکس کوالٹی)' },
+    { value: 'Nipple Thread Defect', label: 'Nipple Thread Defect (نپل تھریڈ نقص)' },
+    { value: 'Nipple Crack / Broken', label: 'Nipple Crack / Broken (نپل کریک)' },
+  ], []);
+
+  const [rejectionReasonOptions, setRejectionReasonOptions] = useState<Array<{ value: string; label: string }>>(() => {
+    const initialDefaults = [
+      { value: 'Head Crack', label: 'Head Crack (ہیڈ کریک)' },
+      { value: 'Bend / Bent Spoke', label: 'Bend / Bent Spoke (بینڈ)' },
+      { value: 'Bending Break', label: 'Bending Break (بینڈنگ بریک)' },
+      { value: 'Cut Pieces / Cut Length', label: 'Cut Pieces / Cut Length (کٹے ہوئے پیس)' },
+      { value: 'Threading Defect', label: 'Threading Defect (تھریڈ خرابی)' },
+      { value: 'Plating Defect / Dull Finish', label: 'Plating Defect / Dull Finish (پلیٹنگ نقص)' },
+      { value: 'Rust / Oxidation', label: 'Rust / Oxidation (زنگ)' },
+      { value: 'Mix Quality / Wrong Gauge', label: 'Mix Quality / Wrong Gauge (مکس کوالٹی)' },
+      { value: 'Nipple Thread Defect', label: 'Nipple Thread Defect (نپل تھریڈ نقص)' },
+      { value: 'Nipple Crack / Broken', label: 'Nipple Crack / Broken (نپل کریک)' },
+    ];
+    try {
+      const saved = localStorage.getItem('pwi_custom_rejection_reasons');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const existingValues = new Set(parsed.map((p: any) => (p.value || p).toLowerCase()));
+          const extraDefaults = initialDefaults.filter((d) => !existingValues.has(d.value.toLowerCase()));
+          return [
+            ...extraDefaults,
+            ...parsed.map((p: any) => ({
+              value: p.value || p,
+              label: p.label || p.value || p,
+            })),
+          ];
+        }
+      }
+    } catch {}
+    return initialDefaults;
+  });
+  const [newRejectionReasonInput, setNewRejectionReasonInput] = useState<string>('');
+  const [rejectionSearchByComp, setRejectionSearchByComp] = useState<Record<string, string>>({});
+
+  const handleAddCustomRejectionReason = (customVal?: string) => {
+    const raw = customVal || newRejectionReasonInput;
+    if (!raw || !raw.trim()) return '';
+    const trimmed = raw.trim();
+    if (!rejectionReasonOptions.some((o) => o.value.toLowerCase() === trimmed.toLowerCase())) {
+      const newOpt = { value: trimmed, label: trimmed };
+      const updated = [newOpt, ...rejectionReasonOptions];
+      setRejectionReasonOptions(updated);
+      try {
+        localStorage.setItem('pwi_custom_rejection_reasons', JSON.stringify(updated));
+      } catch {}
+      message.success(`Added new fault reason: "${trimmed}"`);
+    }
+    setNewRejectionReasonInput('');
+    return trimmed;
   };
   const [selectedLine, setSelectedLine] = useState<string>('Hand Packing Line');
   const [overtimeHours, setOvertimeHours] = useState<number>(0);
@@ -3094,17 +3160,106 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
     );
   };
 
-  const renderRejectionRemarksCell = (masterKey: string, comp: BomComponentItem) => (
-    <Input
-      size="small"
-      className="rej-remarks-input"
-      value={comp.rejectionRemarks || ''}
-      maxLength={60}
-      placeholder="e.g. Head Crack"
-      allowClear
-      onChange={(e) => handleComponentRemarksChange(masterKey, comp.key, e.target.value)}
-    />
-  );
+  const renderRejectionRemarksCell = (masterKey: string, comp: BomComponentItem) => {
+    const curVal = comp.rejectionRemarks || undefined;
+    const compSearch = rejectionSearchByComp[comp.key] || '';
+
+    // If search text is present and does not exist in options, prepend a dynamic "+ Add" choice
+    let currentOptions = rejectionReasonOptions;
+    if (compSearch && compSearch.trim()) {
+      const trimmed = compSearch.trim();
+      const exists = currentOptions.some(
+        (o) => o.value.toLowerCase() === trimmed.toLowerCase() || o.label.toLowerCase() === trimmed.toLowerCase()
+      );
+      if (!exists) {
+        currentOptions = [
+          { value: trimmed, label: `✨ + Add "${trimmed}" as New Fault` },
+          ...currentOptions,
+        ];
+      }
+    }
+    if (curVal && !currentOptions.some((o) => o.value === curVal)) {
+      currentOptions = [{ value: curVal, label: curVal }, ...currentOptions];
+    }
+
+    return (
+      <Select
+        size="small"
+        showSearch
+        allowClear
+        popupMatchSelectWidth={false}
+        style={{ width: '100%', minWidth: 165 }}
+        placeholder="Select / Add fault..."
+        value={curVal}
+        onSearch={(txt) => {
+          setRejectionSearchByComp((prev) => ({ ...prev, [comp.key]: txt }));
+        }}
+        filterOption={(input, option) => {
+          const text = `${option?.label ?? ''} ${option?.value ?? ''}`.toLowerCase();
+          return text.includes(input.toLowerCase());
+        }}
+        onChange={(val) => {
+          if (!val) {
+            handleComponentRemarksChange(masterKey, comp.key, '');
+            setRejectionSearchByComp((prev) => ({ ...prev, [comp.key]: '' }));
+            return;
+          }
+          const added = handleAddCustomRejectionReason(String(val));
+          handleComponentRemarksChange(masterKey, comp.key, added || String(val));
+          setRejectionSearchByComp((prev) => ({ ...prev, [comp.key]: '' }));
+        }}
+        onInputKeyDown={(e) => {
+          if (e.key === 'Enter' && compSearch && compSearch.trim()) {
+            e.preventDefault();
+            e.stopPropagation();
+            const added = handleAddCustomRejectionReason(compSearch.trim());
+            handleComponentRemarksChange(masterKey, comp.key, added);
+            setRejectionSearchByComp((prev) => ({ ...prev, [comp.key]: '' }));
+          }
+        }}
+        options={currentOptions}
+        dropdownRender={(menu) => (
+          <>
+            {menu}
+            <Divider style={{ margin: '4px 0' }} />
+            <div
+              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 8px 6px' }}
+              onMouseDown={(e) => e.preventDefault()}
+            >
+              <Input
+                size="small"
+                placeholder="Type new fault (e.g. Head Crack)..."
+                value={newRejectionReasonInput}
+                onChange={(e) => setNewRejectionReasonInput(e.target.value)}
+                onKeyDown={(e) => e.stopPropagation()}
+                onPressEnter={(e) => {
+                  e.stopPropagation();
+                  if (newRejectionReasonInput.trim()) {
+                    const added = handleAddCustomRejectionReason(newRejectionReasonInput.trim());
+                    handleComponentRemarksChange(masterKey, comp.key, added);
+                  }
+                }}
+              />
+              <Button
+                type="primary"
+                size="small"
+                icon={<PlusOutlined />}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (newRejectionReasonInput.trim()) {
+                    const added = handleAddCustomRejectionReason(newRejectionReasonInput.trim());
+                    handleComponentRemarksChange(masterKey, comp.key, added);
+                  }
+                }}
+              >
+                + Add
+              </Button>
+            </div>
+          </>
+        )}
+      />
+    );
+  };
 
   // ── Dynamic Customer dropdown options (ACTIVE records from Customer List + SAFETY STOCK) ──
   const customerOptions = useMemo(() => {
@@ -3479,10 +3634,10 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
       );
       const hasComponentScrap = componentRejections.length > 0;
       const componentScrapRemarks = hasComponentScrap
-        ? ` | Component Scrap: ${componentScrap.pcs} PCS (${componentScrap.kg} KG) | Scrap Detail: ${componentScrap.detail}`
+        ? ` | Part Rejection: ${componentScrap.pcs} PCS (${componentScrap.kg} KG) | Reject Detail: ${componentScrap.detail}`
         : '';
       const componentScrapReasonsRemarks = componentScrap.reasons
-        ? ` | Scrap Reasons: ${componentScrap.reasons}`
+        ? ` | Fault Reasons: ${componentScrap.reasons}`
         : '';
 
       // Organization hierarchy resolution: Division (SPD) -> Section (SEC-013) -> Department (SPD-DEPT008) -> Shift
@@ -3577,9 +3732,10 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         itemId: primaryItem.itemId,
         uomId: pcsUom?.id,
         targetQuantity: (targetCartons || primaryItem.targetCartons || 100) * conversionFactors.pcsPerCarton,
-        // Full packed quantity: component-wise scrap never reduces the FG output.
+        // Full packed quantity: component-wise rejection never reduces the FG output.
         actualQuantity: primaryItem.quantityPcs,
-        scrapQuantity: 0,
+        // Part Rejection quantity in PCS (rejected parts during packing inspection)
+        scrapQuantity: componentScrap.pcs > 0 ? componentScrap.pcs : 0,
         processScrapKg: componentScrap.kg > 0 ? componentScrap.kg : 0,
         runningHours: 8 + Number(overtimeHours || 0),
         overtimeHours: Number(overtimeHours || 0),
@@ -3609,10 +3765,10 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
             uomId: pcsUom?.id,
             targetQuantity: (targetCartons || it.targetCartons || 100) * conversionFactors.pcsPerCarton,
             actualQuantity: it.quantityPcs,
-            scrapQuantity: 0,
+            scrapQuantity: itemScrap > 0 ? itemScrap : 0,
             processScrapKg: itemScrapKg > 0 ? itemScrapKg : 0,
             runningHours: 8 + Number(overtimeHours || 0),
-            remarks: `${it.cartons} Cartons (${it.gross} Gross) — Customer: ${activeCust} (SOC: ${activeSocNo}) | OT: ${overtimeHours}h${itemScrap > 0 ? ` | Component Scrap: ${itemScrap} PCS (${itemScrapKg} KG)` : ''}`,
+            remarks: `${it.cartons} Cartons (${it.gross} Gross) — Customer: ${activeCust} (SOC: ${activeSocNo}) | OT: ${overtimeHours}h${itemScrap > 0 ? ` | Part Rejection: ${itemScrap} PCS (${itemScrapKg} KG)` : ''}`,
           };
         }),
       };
@@ -4186,7 +4342,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
               </div>
               {r.rejectionPcs > 0 && (
                 <div style={{ fontSize: 10, color: 'var(--hp-value-danger)', fontWeight: 700, marginTop: 1 }}>
-                  incl. {formatNumber(r.rejectionPcs, 0)} scrap
+                  incl. {formatNumber(r.rejectionPcs, 0)} reject
                 </div>
               )}
             </div>
@@ -4220,19 +4376,19 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         },
       },
       {
-        title: <SplitHead top="Rejection" bottom="Scrap" hint="KG ⇄ PCS entry" />,
+        title: <SplitHead top="Part Rejection" bottom="(Defect)" hint="KG ⇄ PCS entry" />,
         key: 'rejectionEntry',
         width: 300,
         render: (_: any, comp: BomComponentItem) => renderRejectionEntryCell(record.key, comp),
       },
       {
-        title: <SplitHead top="Rejection" bottom="Remarks" />,
+        title: <SplitHead top="Part Rejection" bottom="Remarks" hint="Fault reason" />,
         key: 'rejectionRemarks',
-        width: 140,
+        width: 220,
         render: (_: any, comp: BomComponentItem) => renderRejectionRemarksCell(record.key, comp),
       },
       {
-        title: <SplitHead top="Rejection" bottom="% (KG)" align="center" />,
+        title: <SplitHead top="Part Rejection" bottom="% (KG)" align="center" />,
         key: 'rejectionPct',
         width: 112,
         align: 'center' as const,
@@ -8036,7 +8192,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                       </div>
                       {r.rejectionPcs > 0 && (
                         <div style={{ fontSize: 10, color: 'var(--hp-value-danger, #ef4444)', fontWeight: 700, marginTop: 1 }}>
-                          incl. {formatNumber(r.rejectionPcs, 0)} scrap
+                          incl. {formatNumber(r.rejectionPcs, 0)} reject
                         </div>
                       )}
                     </div>
@@ -8098,19 +8254,19 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                 },
               },
               {
-                title: <SplitHead top="Rejection" bottom="Scrap" hint="KG ⇄ PCS entry" />,
+                title: <SplitHead top="Part Rejection" bottom="(Defect)" hint="KG ⇄ PCS entry" />,
                 key: 'rejectionEntry',
                 width: 300,
                 render: (_: any, c: BomComponentItem) => renderRejectionEntryCell(primaryItem.key, c),
               },
               {
-                title: <SplitHead top="Rejection" bottom="Remarks" />,
+                title: <SplitHead top="Part Rejection" bottom="Remarks" hint="Fault reason" />,
                 key: 'rejectionRemarks',
-                width: 140,
+                width: 220,
                 render: (_: any, c: BomComponentItem) => renderRejectionRemarksCell(primaryItem.key, c),
               },
               {
-                title: <SplitHead top="Rejection" bottom="% (KG)" align="center" />,
+                title: <SplitHead top="Part Rejection" bottom="% (KG)" align="center" />,
                 key: 'rejectionPct',
                 width: 110,
                 align: 'center' as const,
@@ -8206,10 +8362,10 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                   <Table.Summary.Cell index={6}>
                     {totalScrapPcs > 0 ? (
                       <span style={{ fontWeight: 700, color: '#ef4444', fontSize: 12 }}>
-                        Scrap: {formatNumber(totalScrapPcs, 0)} PCS ({formatNumber(totalScrapKg, 3)} KG)
+                        Part Rejection: {formatNumber(totalScrapPcs, 0)} PCS ({formatNumber(totalScrapKg, 3)} KG)
                       </span>
                     ) : (
-                      <span style={{ color: 'var(--theme-text-muted, #94a3b8)', fontSize: 11.5 }}>No Scrap</span>
+                      <span style={{ color: 'var(--theme-text-muted, #94a3b8)', fontSize: 11.5 }}>No Rejection</span>
                     )}
                   </Table.Summary.Cell>
                   <Table.Summary.Cell index={7} align="center">
