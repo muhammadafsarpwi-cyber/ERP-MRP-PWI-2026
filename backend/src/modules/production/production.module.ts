@@ -12,12 +12,16 @@ import {
   DowntimeReason,
   ProductionUnit,
   ProductionUnitPrintLog,
+  BatchProductionCostingLedger,
+  MonthlyUtilityCostSheet,
+  MonthlyUtilityItemAllocation,
 } from './entities';
 import { ProductionRouting, RoutingOperation } from '../production-routing/entities';
 import { BillOfMaterials, BomLine } from '../bom/entities';
 import { Item, Uom, UomConversion } from '../item/entities';
 import { Division, Section, Department, DepartmentDivisionScope, Warehouse, Company } from '../organization/entities';
-import { SalesOrderItem } from '../sales/entities';
+import { SalesOrder, SalesOrderItem, SalesInvoice } from '../sales/entities';
+import { PurchaseOrderLine } from '../procurement/entities/purchase-order-line.entity';
 import { StockLedger, InventoryBalance } from '../inventory/entities';
 import {
   ProductionOrderService,
@@ -26,6 +30,8 @@ import {
   ProductionInventoryReportService,
   ProductionUnitService,
   ProductionOpenStockService,
+  ShopfloorTouchscreenService,
+  BatchCostingService,
 } from './services';
 import {
   ProductionOrderController,
@@ -33,6 +39,8 @@ import {
   ProductionInventoryReportController,
   ProductionUnitController,
   ProductionOpenStockController,
+  ShopfloorTouchscreenController,
+  BatchCostingController,
 } from './controllers';
 import { InventoryModule } from '../inventory/inventory.module';
 import { MachineTargetModule } from '../machine-target/machine-target.module';
@@ -67,11 +75,17 @@ import { BarcodeModule } from '../barcode/barcode.module';
       DepartmentDivisionScope,
       Warehouse,
       Company,
+      SalesOrder,
       SalesOrderItem,
+      SalesInvoice,
+      PurchaseOrderLine,
       StockLedger,
       InventoryBalance,
       ProductionUnit,
       ProductionUnitPrintLog,
+      BatchProductionCostingLedger,
+      MonthlyUtilityCostSheet,
+      MonthlyUtilityItemAllocation,
     ]),
     InventoryModule,
     MachineTargetModule,
@@ -87,6 +101,8 @@ import { BarcodeModule } from '../barcode/barcode.module';
     ProductionInventoryReportController,
     ProductionUnitController,
     ProductionOpenStockController,
+    ShopfloorTouchscreenController,
+    BatchCostingController,
   ],
   providers: [
     ProductionOrderService,
@@ -95,6 +111,8 @@ import { BarcodeModule } from '../barcode/barcode.module';
     ProductionInventoryReportService,
     ProductionUnitService,
     ProductionOpenStockService,
+    ShopfloorTouchscreenService,
+    BatchCostingService,
   ],
   exports: [
     ProductionOrderService,
@@ -102,6 +120,8 @@ import { BarcodeModule } from '../barcode/barcode.module';
     ProductionEntryService,
     ProductionUnitService,
     ProductionOpenStockService,
+    ShopfloorTouchscreenService,
+    BatchCostingService,
   ],
 })
 export class ProductionModule {}

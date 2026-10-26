@@ -690,6 +690,22 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
   // Selected Division / Section state for linked dropdowns
   const [selectedDivisionId, setSelectedDivisionId] = useState<string>('');
   const [selectedSectionId, setSelectedSectionId] = useState<string>('');
+  const [selectedPackingDeptId, setSelectedPackingDeptId] = useState<string>('');
+
+  // Explicit packing departments list for user selection (e.g. Spoke Packing vs Nipple Packing)
+  const packingDepartmentOptions = useMemo(() => {
+    return departments
+      .filter((d: any) => d.status === 'ACTIVE' && (
+        (d.name || '').toLowerCase().includes('pack') ||
+        (d.departmentCode || '').toLowerCase().includes('pack') ||
+        (d.departmentCode || '').toUpperCase() === 'SPI-NP-002' ||
+        (d.departmentCode || '').toUpperCase() === 'SPD-DEPT008'
+      ))
+      .map((d: any) => ({
+        value: d.id,
+        label: `${d.name} (${d.departmentCode || 'DEPT'})`,
+      }));
+  }, [departments]);
 
   // Daily packing target state (Cartons drives all conversions) - Authoritative default = 100 CTN
   const [targetCartons, setTargetCartons] = useState<number>(() => getSavedPackingTargetConfig().baseCartons);
@@ -2210,21 +2226,21 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
   // Handle Division Change in Form
   const handleDivisionChange = (divId: string) => {
     setSelectedDivisionId(divId);
-    // Division → Customer cascade: a division switch invalidates the previously
-    // selected customer (it belongs to a different division's account book).
-    // Cleared immediately so the form can never submit a mismatched pair.
     setSelectedCustomer(undefined);
     const packingSec = sections.find((s) => s.divisionId === divId && (((s.sectionCode || '').toUpperCase() === 'SEC-013') || (s.name || '').toLowerCase().includes('pack')))
       || sections.find((s) => s.divisionId === divId);
     setSelectedSectionId(packingSec?.id || '');
-    const packingDept = departments.find((d) => d.status === 'ACTIVE' && d.divisionId === divId && (d.sectionId === packingSec?.id || !d.sectionId) && ((d.departmentCode || '').toUpperCase() === 'SPD-DEPT008' || (d.name || '').toLowerCase().includes('pack')))
-      || departments.find((d) => d.status === 'ACTIVE' && (d.sectionId === packingSec?.id || d.divisionId === divId))
-      || departments.find((d) => d.status === 'ACTIVE' && ((d.departmentCode || '').toUpperCase() === 'SPD-DEPT008' || (d.name || '').toLowerCase().includes('pack')))
-      || departments.find((d) => d.status === 'ACTIVE');
+    // If selected packing dept doesn't belong to this division, reset it so user explicitly selects
+    if (selectedPackingDeptId) {
+      const currentDeptObj = departments.find((d: any) => d.id === selectedPackingDeptId);
+      if (currentDeptObj && currentDeptObj.divisionId && currentDeptObj.divisionId !== divId) {
+        setSelectedPackingDeptId('');
+        form.setFieldValue('departmentId', null);
+      }
+    }
     form.setFieldsValue({
       divisionId: divId,
       sectionId: packingSec?.id || null,
-      departmentId: packingDept?.id || SPD_PACKING_DEPT_ID,
       customerName: undefined,
     });
   };
@@ -2232,13 +2248,8 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
   // Handle Section Change in Form
   const handleSectionChange = (secId: string) => {
     setSelectedSectionId(secId);
-    const packingDept = departments.find((d) => d.status === 'ACTIVE' && d.sectionId === secId && ((d.departmentCode || '').toUpperCase() === 'SPD-DEPT008' || (d.name || '').toLowerCase().includes('pack')))
-      || departments.find((d) => d.status === 'ACTIVE' && d.sectionId === secId)
-      || departments.find((d) => d.status === 'ACTIVE' && ((d.departmentCode || '').toUpperCase() === 'SPD-DEPT008' || (d.name || '').toLowerCase().includes('pack')))
-      || departments.find((d) => d.status === 'ACTIVE');
     form.setFieldsValue({
       sectionId: secId,
-      departmentId: packingDept?.id || SPD_PACKING_DEPT_ID,
     });
   };
 
@@ -2643,6 +2654,11 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         const matchedShift = shifts.find((s) => s.name === r.shiftName || s.shiftCode === r.shiftName);
         if (matchedShift) setSelectedShiftId(matchedShift.id);
       }
+      const rawDeptId = r.rawEntry?.departmentId || r.rawEntry?.department_id || r.rawEntry?.department?.id;
+      if (rawDeptId) {
+        setSelectedPackingDeptId(rawDeptId);
+        form.setFieldValue('departmentId', rawDeptId);
+      }
       const editTarget = r.targetCartons || 100;
       setTargetCartons(editTarget);
       form.setFieldsValue({
@@ -2695,6 +2711,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
 
   const handleCancelEdit = useCallback(() => {
     setEditingEntryId(null);
+    setSelectedPackingDeptId('');
     setLockedSession(null);
     const autoNo = `PKG-${dayjs().format('YYYY')}-${String(Math.floor(Math.random() * 900) + 100).padStart(4, '0')}`;
     setCurrentBatchNo(autoNo);
@@ -3493,32 +3510,24 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         ? formValues.sectionId
         : (packingSec?.id || SPD_PACKING_SECTION_ID);
 
-      // 3. Department: strictly an ACTIVE packing department (SPD-DEPT008 / Spoke Packing).
-      // Inactive departments like Nipple Plating must never be submitted.
-      const formDept = departments.find((d: any) => d.id === formValues.departmentId);
-      const isFormDeptValidAndActive = formDept && formDept.status === 'ACTIVE' && (!formDept.divisionId || formDept.divisionId === resolvedDivisionId);
+      // 3. Department: strictly user-selected active packing department (e.g. Spoke Packing vs Nipple Packing).
+      // Any hidden hardcoded auto-allocations are disabled as per strict SOP.
+      const userSelectedDeptId = selectedPackingDeptId || formValues.departmentId;
+      if (!userSelectedDeptId) {
+        message.error('Please select the Packing Department (e.g., Spoke Packing vs Nipple Packing) before submitting.');
+        return;
+      }
 
-      const fallbackPackingDept = departments.find((d: any) =>
-        d.status === 'ACTIVE' &&
-        d.divisionId === resolvedDivisionId &&
-        ((d.departmentCode || '').toUpperCase() === 'SPD-DEPT008' || (d.name || '').toLowerCase().includes('spoke pack'))
-      ) || departments.find((d: any) =>
-        d.status === 'ACTIVE' &&
-        ((d.departmentCode || '').toUpperCase() === 'SPD-DEPT008' || (d.name || '').toLowerCase().includes('spoke pack'))
-      ) || departments.find((d: any) =>
-        d.status === 'ACTIVE' &&
-        d.divisionId === resolvedDivisionId &&
-        (d.name || '').toLowerCase().includes('pack')
-      ) || departments.find((d: any) => d.status === 'ACTIVE' && d.divisionId === resolvedDivisionId)
-        || departments.find((d: any) => d.status === 'ACTIVE')
-        || departments.find((d: any) => d.id === SPD_PACKING_DEPT_ID);
+      const formDept = departments.find((d: any) => d.id === userSelectedDeptId);
+      if (!formDept || formDept.status !== 'ACTIVE') {
+        message.error('The selected Packing Department is invalid or inactive. Please select a valid Packing Department.');
+        return;
+      }
 
-      const resolvedDepartmentId = isFormDeptValidAndActive
-        ? formValues.departmentId
-        : (fallbackPackingDept?.id || SPD_PACKING_DEPT_ID);
+      const resolvedDepartmentId = formDept.id;
 
       // Section alignment: ensure section matches resolvedDepartmentId's sectionId if defined
-      const resolvedDeptObj = departments.find((d: any) => d.id === resolvedDepartmentId);
+      const resolvedDeptObj = formDept;
       const alignedSectionId = (resolvedDeptObj && resolvedDeptObj.sectionId) ? resolvedDeptObj.sectionId : resolvedSectionId;
 
       const activeShift = shifts.find((s: any) => s.id === (selectedShiftId || formValues.shiftId)) || shifts[0];
@@ -7051,10 +7060,10 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
             boxShadow: 'none',
           }}
         >
-          {/* Row 1: Production Session Controls (1=Division, 2=Date, 3=Shift, 4=OT, 5=Shift Target) in single line */}
+          {/* Row 1: Production Session Controls (1=Division, 2=Packing Department, 3=Date, 4=Shift, 5=OT, 6=Shift Target) */}
           <Row gutter={[12, 10]} align="bottom">
             {/* 1. Division */}
-            <Col xs={24} sm={6} lg={4}>
+            <Col xs={24} sm={6} lg={3}>
               <div>
                 <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--theme-text-muted, #94a3b8)', marginBottom: 4, display: 'block' }}>
                   🏢 Division
@@ -7076,8 +7085,44 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
               </div>
             </Col>
 
-            {/* 2. Date */}
-            <Col xs={24} sm={6} lg={4}>
+            {/* 2. Select Packing Department (Mandatory Dropdown) */}
+            <Col xs={24} sm={6} lg={5}>
+              <div>
+                <span style={{ fontSize: 11.5, fontWeight: 700, color: selectedPackingDeptId ? 'var(--theme-text-muted, #94a3b8)' : '#ef4444', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <span>📦 Packing Dept</span>
+                  <span style={{ color: '#ef4444', fontWeight: 900 }}>*</span>
+                </span>
+                <Select
+                  showSearch
+                  status={!selectedPackingDeptId ? 'error' : undefined}
+                  disabled={!!lockedSession?.isLocked}
+                  optionFilterProp="label"
+                  placeholder="Select Packing Dept (Required)..."
+                  popupMatchSelectWidth={false}
+                  style={{ width: '100%', fontWeight: 700 }}
+                  value={selectedPackingDeptId || undefined}
+                  onChange={(val) => {
+                    setSelectedPackingDeptId(val || '');
+                    form.setFieldValue('departmentId', val || null);
+                    if (val) {
+                      const dObj = departments.find((d: any) => d.id === val);
+                      if (dObj?.divisionId && dObj.divisionId !== selectedDivisionId) {
+                        setSelectedDivisionId(dObj.divisionId);
+                        form.setFieldValue('divisionId', dObj.divisionId);
+                      }
+                      if (dObj?.sectionId) {
+                        setSelectedSectionId(dObj.sectionId);
+                        form.setFieldValue('sectionId', dObj.sectionId);
+                      }
+                    }
+                  }}
+                  options={packingDepartmentOptions}
+                />
+              </div>
+            </Col>
+
+            {/* 3. Date */}
+            <Col xs={24} sm={6} lg={3}>
               <div>
                 <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--theme-text-muted, #94a3b8)', marginBottom: 4, display: 'block' }}>
                   📅 Date
@@ -7092,8 +7137,8 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
               </div>
             </Col>
 
-            {/* 3. Shift */}
-            <Col xs={24} sm={6} lg={5}>
+            {/* 4. Shift */}
+            <Col xs={24} sm={6} lg={4}>
               <div>
                 <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--theme-text-muted, #94a3b8)', marginBottom: 4, display: 'block' }}>
                   ⏱️ Shift
@@ -7115,7 +7160,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
               </div>
             </Col>
 
-            {/* 4. Overtime (OT) */}
+            {/* 5. Overtime (OT) */}
             <Col xs={12} sm={3} lg={2}>
               <div>
                 <span style={{ fontSize: 11.5, fontWeight: 700, color: '#b45309', marginBottom: 4, display: 'block' }}>
@@ -7140,8 +7185,8 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
               </div>
             </Col>
 
-            {/* 5. Shift Target (Cartons) — Spans right with conversions */}
-            <Col xs={24} sm={12} lg={9}>
+            {/* 6. Shift Target (Cartons) — Spans right with conversions */}
+            <Col xs={24} sm={12} lg={7}>
               <div>
                 <span style={{ fontSize: 11.5, fontWeight: 700, color: '#10b981', marginBottom: 4, display: 'block' }}>
                   🎯 Shift Target

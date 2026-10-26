@@ -10,3 +10,5 @@ export { Shift, ShiftStatus } from './shift.entity';
 export { DowntimeReason, DowntimeReasonStatus } from './downtime-reason.entity';
 export { ProductionUnit, ProductionUnitStatus, ProductionUnitCodeType } from './production-unit.entity';
 export { ProductionUnitPrintLog, PrintEventType } from './production-unit-print-log.entity';
+export { BatchProductionCostingLedger, BatchCostingStage, BatchCostingStatus } from './batch-costing-ledger.entity';
+export { MonthlyUtilityCostSheet, MonthlyUtilityItemAllocation } from './monthly-utility-cost-sheet.entity';

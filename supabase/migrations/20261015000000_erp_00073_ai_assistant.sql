@@ -37,13 +37,21 @@ END $$;
 ALTER ROLE erp_ai_reader LOGIN PASSWORD 'ChangeMe_AiReader_Str0ng!';
 
 -- Privilege hardening: it can only connect and read. Period.
+-- NOTE: New roles default to NOSUPERUSER, NOBYPASSRLS, NOREPLICATION.
+-- Supabase's `postgres` role has CREATEROLE + CREATEDB but is NOT a Postgres
+-- SUPERUSER (only `supabase_admin` is), and PG 15/16+ rejects ALTER ROLE with
+-- NOSUPERUSER / NOBYPASSRLS / NOREPLICATION from non-superusers (ERROR 42501).
 ALTER ROLE erp_ai_reader
-  NOSUPERUSER        -- not a superuser
   NOCREATEDB         -- cannot create databases
   NOCREATEROLE       -- cannot create/modify roles
-  NOBYPASSRLS        -- cannot bypass row-level security
-  NOREPLICATION      -- cannot consume the WAL
   LOGIN CONNECTION LIMIT 10;   -- cap concurrent sessions (pooler + AI pool)
+
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = current_user AND rolsuper = true) THEN
+    ALTER ROLE erp_ai_reader NOSUPERUSER NOBYPASSRLS NOREPLICATION;
+  END IF;
+END $$;
 
 -- ────────────────────────────────────────────────────────────────────────────
 -- 2. STRICT EXECUTION TIMEOUTS (set directly on the role)

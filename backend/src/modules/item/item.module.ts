@@ -32,6 +32,7 @@ import { ItemDocumentController } from './controllers/item-document.controller';
 import { AuthModule } from '../auth/auth.module';
 import { PermissionModule } from '../permission/permission.module';
 import { UserModule } from '../user/user.module';
+import { ProductionRouting, RoutingOperation } from '../production-routing/entities';
 import { BarcodeModule } from '../barcode/barcode.module';
 import { AuditModule } from '../audit/audit.module';
 
@@ -42,6 +43,7 @@ import { AuditModule } from '../audit/audit.module';
       ItemAttributeDefinition, ItemAttributeValue, ItemSpecification, ItemDocument,
       Division, Section, Department, Warehouse,
       StockLedger, InventoryBalance, ProductionEntry,
+      ProductionRouting, RoutingOperation,
     ]),
     forwardRef(() => AuthModule),
     forwardRef(() => PermissionModule),

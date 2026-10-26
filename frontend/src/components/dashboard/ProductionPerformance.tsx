@@ -14,6 +14,8 @@ interface ProductionPerformanceProps {
   loading: boolean;
   nav: (path: string) => void;
   selectedDate?: string | null;
+  divisionId?: string;
+  divisionCode?: string;
 }
 
 /** Distinct color tokens per department for high scannability */
@@ -65,12 +67,49 @@ export const ProductionPerformance: React.FC<ProductionPerformanceProps> = ({
   loading,
   nav,
   selectedDate,
+  divisionId,
+  divisionCode,
 }) => {
   const [metricMode, setMetricMode] = useState<'output' | 'scrap' | 'trend'>('output');
 
   // Strict floor-wise order: Straightener → Swaging → Spoke → Spoke Plating → Packing → Dispatch
   const departments = useMemo(() => {
     const rawDepts = [...(data?.departments ?? [])];
+
+    const isSpokeDivision =
+      divisionId === 'd1000000-0000-0000-0000-000000000001' ||
+      divisionCode === 'DIV-SPD' ||
+      (!divisionId && !divisionCode);
+
+    if (!isSpokeDivision && divisionId) {
+      const filtered = rawDepts.filter((d) => !d.divisionId || d.divisionId === divisionId);
+      return sortDepartmentsFloorWise(filtered).map((d, idx) => {
+        const target = Math.round(d.targetQuantity || 0);
+        const actual = Math.round(d.actualQuantity || 0);
+        const productRejection = Number((d.productRejection ?? d.scrapQuantity ?? 0).toFixed(1));
+        const processCuttingScrap = Number((d.processCuttingScrap ?? d.processScrapKg ?? 0).toFixed(1));
+        const totalScrap = Number((productRejection + processCuttingScrap).toFixed(1));
+        const achievement = Number((d.achievementPercentage || 0).toFixed(1));
+        const deptName = d.departmentName || 'Unknown';
+        const colorToken = getDepartmentColor(deptName, idx);
+        return {
+          id: d.departmentId,
+          fullName: deptName,
+          shortName: deptName.length > 14 ? `${deptName.slice(0, 13)}…` : deptName,
+          target,
+          actual,
+          scrap: productRejection,
+          productRejection,
+          processCuttingScrap,
+          totalScrap,
+          achievement,
+          runningHours: Number((d.runningHours || 0).toFixed(1)),
+          downtimeHours: Number((d.downtimeHours || 0).toFixed(1)),
+          entryCount: d.entryCount || 0,
+          colorToken,
+        };
+      });
+    }
 
     // Canonical shop floor line sequence for Spoke Division
     const canonicalFloorStages = [

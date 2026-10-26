@@ -34,6 +34,7 @@ export interface ProductionSummary {
     processCuttingScrap?: number;
     totalRunningHours: number;
     totalDowntimeHours: number;
+    totalOvertimeHours?: number;
     achievementPercentage: number;
     efficiencyPercentage: number;
   };
@@ -48,6 +49,13 @@ export interface ProductionSummary {
     processCuttingScrap?: number;
     runningHours: number;
     downtimeHours: number;
+    overtimeHours?: number;
+    divisionId?: string | null;
+    reportingUom?: 'PCS' | 'GRS' | 'KG' | 'METER' | string;
+    secondaryUom?: 'PCS' | 'GRS' | 'KG' | 'METER' | 'NONE' | string;
+    enableConversionBridge?: boolean;
+    avgWeightPerMeter?: number;
+    avgWeightPerPiece?: number;
     entryCount: number;
     achievementPercentage: number;
   }>;
@@ -381,7 +389,94 @@ class DashboardService {
   async getFilterShifts(): Promise<{ success: boolean; data: FilterOption[] }> {
     return apiService.get('/dashboard/shifts');
   }
+
+  async getDepartmentProductionLedger(params?: {
+    departmentId?: string;
+    divisionId?: string;
+    dateFrom?: string;
+    dateTo?: string;
+  }): Promise<{ success: boolean; data: DepartmentLedgerData }> {
+    return apiService.get('/dashboard/department-ledger', params);
+  }
+}
+
+export interface DepartmentLedgerTicket {
+  id: string;
+  entryNumber: string;
+  itemCode: string;
+  itemName: string;
+  shiftName: string;
+  machineNo: string;
+  operatorName: string;
+  quantityPcs: number;
+  quantityKg: number;
+  scrapPcs: number;
+  scrapKg: number;
+  overtimeHours: number;
+  remarks: string;
+  nextProcess?: string;
+}
+
+export interface DepartmentLedgerTransaction {
+  date: string;
+  sourceDepartment: string;
+  targetDepartment: string;
+  inflowPcs: number;
+  inflowKg: number;
+  outflowPcs: number;
+  outflowKg: number;
+  toSwagingPcs?: number;
+  toSwagingKg?: number;
+  directToSpokePcs?: number;
+  directToSpokeKg?: number;
+  scrapPcs: number;
+  scrapKg: number;
+  runningFloorBalancePcs: number;
+  runningFloorBalanceKg: number;
+  entryCount: number;
+  overtimeHours: number;
+  tickets: DepartmentLedgerTicket[];
+}
+
+export interface DepartmentLedgerStage {
+  key: string;
+  code: string;
+  name: string;
+  departmentId: string;
+  active: boolean;
+}
+
+export interface DepartmentLedgerData {
+  department: {
+    id: string;
+    code: string;
+    name: string;
+    sourceDepartment: string;
+    targetDepartment: string;
+  };
+  summary: {
+    openingBalancePcs: number;
+    openingBalanceKg: number;
+    totalInflowPcs: number;
+    totalInflowKg: number;
+    totalOutflowPcs: number;
+    totalOutflowKg: number;
+    totalScrapPcs: number;
+    totalScrapKg: number;
+    currentFloorBalancePcs: number;
+    currentFloorBalanceKg: number;
+    totalTransactions: number;
+  };
+  stages: DepartmentLedgerStage[];
+  allDepartments: Array<{
+    id: string;
+    code: string;
+    name: string;
+    divisionId?: string;
+  }>;
+  transactions: DepartmentLedgerTransaction[];
 }
 
 export const dashboardService = new DashboardService();
 export default dashboardService;
+

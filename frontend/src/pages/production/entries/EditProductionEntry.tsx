@@ -45,6 +45,7 @@ import { lineToKg } from './downtimeHours';
 import { entryOvertimeHours } from './overtimeHours';
 import { splitEntryItemLines, consumedQuantityFromAuditLines } from './entryLines';
 import { formatNumber, toNum } from '../../../utils/numberFormat';
+import DowntimeReasonSelect from './DowntimeReasonSelect';
 
 const { Title, Text } = Typography;
 const { Option } = Select;
@@ -1000,13 +1001,11 @@ export const EditProductionEntry: React.FC = () => {
                             rules={[{ required: true, message: 'Select reason' }]}
                             style={{ margin: 0 }}
                           >
-                            <Select placeholder="Select Reason">
-                              {lookups.downtimeReasons.map((r) => (
-                                <Option key={r.id} value={r.id}>
-                                  {r.name}
-                                </Option>
-                              ))}
-                            </Select>
+                            <DowntimeReasonSelect
+                              placeholder="Select Reason"
+                              options={lookups.downtimeReasons.map((r) => ({ value: r.id, label: r.name }))}
+                              onReasonCreated={() => void lookups.loadDowntimeReasons?.()}
+                            />
                           </Form.Item>
                         </Col>
 

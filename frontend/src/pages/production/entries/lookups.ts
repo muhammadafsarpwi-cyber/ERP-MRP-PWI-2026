@@ -244,7 +244,7 @@ export function useLookups() {
   const loadDowntimeReasons = async (): Promise<DowntimeReasonLk[]> => {
     setDowntimeReasonsLoading(true);
     try {
-      const snapshot = await prefetchAllLookups();
+      const snapshot = await prefetchAllLookups(true);
       const list = (snapshot.downtimeReasons || []) as DowntimeReasonLk[];
       setDowntimeReasons(list);
       setDowntimeReasonsFailed(false);

@@ -1,6 +1,7 @@
-import { IsString, IsNotEmpty, IsOptional, MaxLength, Matches, ValidateIf } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, MaxLength, Matches, ValidateIf, IsEnum, IsBoolean } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsUuid } from '../../../common/validators';
+import { PrimaryUom, SecondaryUom } from '../entities/department.entity';
 
 export class CreateDepartmentDto {
   @ApiProperty({ description: 'Company ID' })
@@ -56,6 +57,31 @@ export class CreateDepartmentDto {
   @ValidateIf((_, v) => v != null && v !== '')
   @IsUuid()
   parentDepartmentId?: string | null;
+
+  @ApiPropertyOptional({ enum: PrimaryUom, description: 'Primary UOM for the department [KG, METER, PCS, GRS]' })
+  @IsOptional()
+  @IsEnum(PrimaryUom)
+  primaryUom?: string;
+
+  @ApiPropertyOptional({ enum: PrimaryUom, description: 'Reporting UOM (alias of primaryUom)' })
+  @IsOptional()
+  @IsEnum(PrimaryUom)
+  reportingUom?: string;
+
+  @ApiPropertyOptional({ enum: SecondaryUom, description: 'Secondary UOM for the department [KG, METER, PCS, GRS, NONE]' })
+  @IsOptional()
+  @IsEnum(SecondaryUom)
+  secondaryUom?: string;
+
+  @ApiPropertyOptional({ description: 'Enable multi-unit conversion bridge' })
+  @IsOptional()
+  @IsBoolean()
+  bridgeConversion?: boolean;
+
+  @ApiPropertyOptional({ description: 'Enable multi-unit conversion bridge (alias)' })
+  @IsOptional()
+  @IsBoolean()
+  enableConversionBridge?: boolean;
 }
 
 export class UpdateDepartmentDto {
@@ -105,5 +131,30 @@ export class UpdateDepartmentDto {
   @ValidateIf((_, v) => v != null && v !== '')
   @IsUuid()
   parentDepartmentId?: string | null;
+
+  @ApiPropertyOptional({ enum: PrimaryUom, description: 'Primary UOM for the department [KG, METER, PCS, GRS]' })
+  @IsOptional()
+  @IsEnum(PrimaryUom)
+  primaryUom?: string;
+
+  @ApiPropertyOptional({ enum: PrimaryUom, description: 'Reporting UOM (alias of primaryUom)' })
+  @IsOptional()
+  @IsEnum(PrimaryUom)
+  reportingUom?: string;
+
+  @ApiPropertyOptional({ enum: SecondaryUom, description: 'Secondary UOM for the department [KG, METER, PCS, GRS, NONE]' })
+  @IsOptional()
+  @IsEnum(SecondaryUom)
+  secondaryUom?: string;
+
+  @ApiPropertyOptional({ description: 'Enable multi-unit conversion bridge' })
+  @IsOptional()
+  @IsBoolean()
+  bridgeConversion?: boolean;
+
+  @ApiPropertyOptional({ description: 'Enable multi-unit conversion bridge (alias)' })
+  @IsOptional()
+  @IsBoolean()
+  enableConversionBridge?: boolean;
 }
 

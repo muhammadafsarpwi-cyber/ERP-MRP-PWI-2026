@@ -5,3 +5,5 @@ export { ProductionInventoryReportService } from './production-inventory-report.
 export { PRODUCTION_MOVEMENT_TYPES, ProductionInventoryReportMovementType, ProductionInventoryReportFilters } from './production-inventory-report.service';
 export { ProductionUnitService } from './production-unit.service';
 export { ProductionOpenStockService } from './production-open-stock.service';
+export { ShopfloorTouchscreenService } from './shopfloor-touchscreen.service';
+export { BatchCostingService } from './batch-costing.service';

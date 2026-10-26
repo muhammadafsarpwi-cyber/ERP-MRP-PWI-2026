@@ -10,6 +10,9 @@ import {
   PurchaseReturn, PurchaseReturnLine,
   PurchaseInvoice, PurchaseInvoiceLine,
 } from './entities';
+import { Item } from '../item/entities';
+import { InventoryBalance } from '../inventory/entities/inventory-balance.entity';
+import { StockLedger } from '../inventory/entities/stock-ledger.entity';
 import { SupplierService } from './services/supplier.service';
 import { PurchaseRequisitionService } from './services/purchase-requisition.service';
 import { RfqService } from './services/rfq.service';
@@ -18,6 +21,7 @@ import { PurchaseOrderService } from './services/purchase-order.service';
 import { GoodsReceiptService } from './services/goods-receipt.service';
 import { PurchaseReturnService } from './services/purchase-return.service';
 import { PurchaseInvoiceService } from './services/purchase-invoice.service';
+import { AutomatedPrEngineService } from './services/automated-pr-engine.service';
 import { SupplierController } from './controllers/supplier.controller';
 import { PurchaseRequisitionController } from './controllers/purchase-requisition.controller';
 import { RfqController } from './controllers/rfq.controller';
@@ -26,6 +30,7 @@ import { PurchaseOrderController } from './controllers/purchase-order.controller
 import { GoodsReceiptController } from './controllers/goods-receipt.controller';
 import { PurchaseReturnController } from './controllers/purchase-return.controller';
 import { PurchaseInvoiceController } from './controllers/purchase-invoice.controller';
+import { AutomatedPrController } from './controllers/automated-pr.controller';
 import { AuthModule } from '../auth/auth.module';
 import { PermissionModule } from '../permission/permission.module';
 import { UserModule } from '../user/user.module';
@@ -43,6 +48,9 @@ import { InventoryModule } from '../inventory/inventory.module';
       GoodsReceipt, GoodsReceiptLine,
       PurchaseReturn, PurchaseReturnLine,
       PurchaseInvoice, PurchaseInvoiceLine,
+      Item,
+      InventoryBalance,
+      StockLedger,
     ]),
     forwardRef(() => AuthModule),
     forwardRef(() => PermissionModule),
@@ -59,6 +67,7 @@ import { InventoryModule } from '../inventory/inventory.module';
     GoodsReceiptController,
     PurchaseReturnController,
     PurchaseInvoiceController,
+    AutomatedPrController,
   ],
   providers: [
     SupplierService,
@@ -69,12 +78,14 @@ import { InventoryModule } from '../inventory/inventory.module';
     GoodsReceiptService,
     PurchaseReturnService,
     PurchaseInvoiceService,
+    AutomatedPrEngineService,
   ],
   exports: [
     SupplierService,
     PurchaseRequisitionService,
     PurchaseOrderService,
     GoodsReceiptService,
+    AutomatedPrEngineService,
   ],
 })
 export class ProcurementModule {}

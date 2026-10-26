@@ -13,6 +13,7 @@
  * canonical floor stages.
  */
 export const FLOOR_WISE_DEPARTMENT_ORDER = [
+  'Raw Material (RM)',
   'Straightener',
   'Swaging',
   'Spoke',
@@ -27,14 +28,30 @@ export const FLOOR_WISE_DEPARTMENT_ORDER = [
  * written "Swaging"; both must land in slot 2 (index 1).
  */
 const FLOOR_WISE_ALIASES: Record<string, number> = {
-  swagging: 1,
-  'spoke packing': 4,
-  'packing department': 4,
-  'spoke packing department': 4,
-  'hand packing': 4,
-  'nipple packing': 4,
-  'spoke dispatch': 5,
-  'dispatch department': 5,
+  'raw material (rm)': 0,
+  'raw material': 0,
+  'raw material store': 0,
+  'raw material stores': 0,
+  'raw material stores (rm wire coil)': 0,
+  'rm-store': 0,
+  'spi stores': 0,
+  straightener: 1,
+  swagging: 2,
+  swaging: 2,
+  spoke: 3,
+  'spoke (header)': 3,
+  'spoke heading': 3,
+  'spoke plating': 4,
+  'spoke packing': 5,
+  'packing department': 5,
+  'spoke packing department': 5,
+  'hand packing': 5,
+  packing: 5,
+  'spoke dispatch': 6,
+  'dispatch department': 6,
+  'dispatch / fg logistics': 6,
+  'fg-dispatch': 6,
+  dispatch: 6,
 };
 
 /** Case/whitespace-insensitive key used for floor-position matching. */

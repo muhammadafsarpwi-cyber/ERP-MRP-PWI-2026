@@ -2,13 +2,15 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   Table, Button, Space, Tag, Form, Input, Select, App, Card,
   Row, Col, DatePicker, Segmented, Tooltip, Popconfirm, Divider, Spin, Steps,
+  InputNumber, Badge, Alert, Statistic,
 } from 'antd';
 import {
   PlusOutlined, EditOutlined, SearchOutlined, SendOutlined, CheckOutlined,
   CloseOutlined, ReloadOutlined, ApartmentOutlined, ShopOutlined, GlobalOutlined,
   FileDoneOutlined, InfoCircleOutlined, PartitionOutlined, DeleteOutlined, EyeOutlined,
   PrinterOutlined, CalendarOutlined, CheckCircleOutlined, ClockCircleOutlined,
-  FileTextOutlined,
+  FileTextOutlined, ThunderboltOutlined, AlertOutlined, SlidersOutlined,
+  RiseOutlined, DollarCircleOutlined, WarningOutlined, SyncOutlined, ShoppingOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
@@ -134,6 +136,32 @@ const PurchaseRequisitionManagement: React.FC = () => {
   const [pageSize] = useState(20);
   const [lineItems, setLineItems] = useState<ERPLine[]>([]);
   const [companyId, setCompanyId] = useState('');
+
+  // Automated Replenishment & System PR State
+  const [activeTab, setActiveTab] = useState<'STANDARD' | 'AUTO_SYSTEM'>('STANDARD');
+  const [systemPrs, setSystemPrs] = useState<any[]>([]);
+  const [systemLoading, setSystemLoading] = useState(false);
+  const [systemKpis, setSystemKpis] = useState<{
+    totalPendingPrs: number;
+    totalDeficitLines: number;
+    totalEstimatedValue: number;
+    lowStockRMsCount: number;
+  }>({
+    totalPendingPrs: 0,
+    totalDeficitLines: 0,
+    totalEstimatedValue: 0,
+    lowStockRMsCount: 0,
+  });
+  const [evaluating, setEvaluating] = useState(false);
+  const [convertingId, setConvertingId] = useState<string | null>(null);
+
+  // Review & Adjust Modal State
+  const [adjustModalVisible, setAdjustModalVisible] = useState(false);
+  const [selectedSystemPr, setSelectedSystemPr] = useState<any | null>(null);
+  const [adjustLines, setAdjustLines] = useState<any[]>([]);
+  const [adjustSupplierId, setAdjustSupplierId] = useState<string | undefined>(undefined);
+  const [adjustNotes, setAdjustNotes] = useState<string>('');
+  const [suppliersList, setSuppliersList] = useState<any[]>([]);
 
   // Master lists
   const [divisions, setDivisions] = useState<DivisionOption[]>(DEFAULT_DIVISIONS);
@@ -290,7 +318,101 @@ const PurchaseRequisitionManagement: React.FC = () => {
     }
   }, [search, filterStatus, pageSize, message]);
 
-  useEffect(() => { fetchData(page); }, [page, fetchData]);
+  const fetchSuppliers = useCallback(async () => {
+    try {
+      const res = await apiService.get<any>('/procurement/suppliers', { limit: 100 });
+      const items = Array.isArray(res) ? res : res?.data?.items || res?.items || res?.data || [];
+      setSuppliersList(items);
+    } catch {
+      // fallback
+    }
+  }, []);
+
+  const fetchSystemPrs = useCallback(async () => {
+    setSystemLoading(true);
+    try {
+      const res = await apiService.get<any>('/procurement/automated-pr/pending', {
+        companyId: companyId || undefined,
+      });
+      if (res && res.success) {
+        setSystemPrs(res.requisitions || []);
+        if (res.kpis) {
+          setSystemKpis(res.kpis);
+        }
+      }
+    } catch (err: any) {
+      console.error('Failed to load system PRs:', err);
+    } finally {
+      setSystemLoading(false);
+    }
+  }, [companyId]);
+
+  const handleRunEvaluation = async () => {
+    setEvaluating(true);
+    try {
+      const res = await apiService.post<any>('/procurement/automated-pr/evaluate', {
+        companyId: companyId || undefined,
+      });
+      message.success(
+        res?.message || '3-Month Sales Forecasting & Safety Stock replenishment evaluation completed successfully!'
+      );
+      await fetchSystemPrs();
+      await fetchData(page);
+    } catch (err: any) {
+      const errMsg = err?.response?.data?.message || err?.message || 'Failed to execute replenishment evaluation';
+      message.error(typeof errMsg === 'string' ? errMsg : 'Evaluation error');
+    } finally {
+      setEvaluating(false);
+    }
+  };
+
+  const handleOpenAdjustModal = (record: any) => {
+    setSelectedSystemPr(record);
+    setAdjustSupplierId(record.lines?.[0]?.supplierId || undefined);
+    setAdjustNotes(record.notes || '');
+    setAdjustLines(
+      (record.lines || []).map((l: any) => ({
+        lineId: l.id,
+        itemId: l.itemId,
+        itemCode: l.item?.itemCode || l.itemCode || 'RM-ITEM',
+        itemName: l.justification || l.item?.name || l.itemName || 'Raw Material',
+        uomCode: l.uom?.code || l.uomCode || 'PCS',
+        quantity: Number(l.quantity || 1),
+        unitPrice: Number(l.estimatedUnitPrice || 0),
+        supplierId: l.supplierId || undefined,
+        currentStock: Number(l.item?.balances?.[0]?.availableStock ?? 0),
+        notes: l.notes || '',
+      }))
+    );
+    setAdjustModalVisible(true);
+  };
+
+  const handleApproveToPo = async (prId: string, customOverrides?: any) => {
+    setConvertingId(prId);
+    try {
+      const payload: any = customOverrides || {};
+      const res = await apiService.post<any>(`/procurement/automated-pr/${prId}/approve-to-po`, payload);
+      const poCode = res?.data?.poCode || 'PO';
+      message.success(`Requisition approved! Successfully pushed to Active Purchase Order ${poCode}.`);
+      setAdjustModalVisible(false);
+      await fetchSystemPrs();
+      await fetchData(page);
+    } catch (err: any) {
+      const errMsg = err?.response?.data?.message || err?.message || 'Failed to approve and push to PO';
+      message.error(typeof errMsg === 'string' ? errMsg : 'Approval failed');
+    } finally {
+      setConvertingId(null);
+    }
+  };
+
+  useEffect(() => {
+    fetchData(page);
+  }, [page, fetchData]);
+
+  useEffect(() => {
+    fetchSystemPrs();
+    fetchSuppliers();
+  }, [fetchSystemPrs, fetchSuppliers]);
 
   const generateRequisitionCode = useCallback(() => {
     const currentYear = new Date().getFullYear();
@@ -720,61 +842,504 @@ const PurchaseRequisitionManagement: React.FC = () => {
     },
   ];
 
+  const systemColumns: ColumnsType<any> = [
+    {
+      title: 'System PR Code',
+      dataIndex: 'requisitionCode',
+      key: 'requisitionCode',
+      width: 175,
+      render: (code: string, record: any) => (
+        <Space direction="vertical" size={2}>
+          <a
+            onClick={() => handleView(record)}
+            style={{ fontWeight: 800, fontFamily: 'monospace', color: '#38bdf8', fontSize: 13.5, textDecoration: 'underline' }}
+          >
+            {code}
+          </a>
+          <Space size={4}>
+            <Tag color="cyan" style={{ fontSize: 10, padding: '0 5px', fontWeight: 700 }}>
+              ⚡ AUTO_FORECAST
+            </Tag>
+            <Tag color="geekblue" style={{ fontSize: 10, padding: '0 5px' }}>
+              3M-ROLLING
+            </Tag>
+          </Space>
+        </Space>
+      ),
+    },
+    {
+      title: 'Material Family / Category',
+      dataIndex: 'department',
+      key: 'department',
+      width: 200,
+      render: (dept: string, record: any) => (
+        <Space direction="vertical" size={2}>
+          <Tag color="purple" style={{ fontWeight: 700, fontSize: 12 }}>
+            {dept || 'Raw Material Group'}
+          </Tag>
+          <span style={{ fontSize: 11, color: '#94a3b8' }}>
+            {record.title || 'Dynamic Replenishment Sheet'}
+          </span>
+        </Space>
+      ),
+    },
+    {
+      title: 'Consolidated Deficit Items',
+      key: 'deficitSummary',
+      width: 250,
+      render: (_, record: any) => {
+        const lines = record.lines || [];
+        return (
+          <Space direction="vertical" size={2}>
+            <div style={{ fontWeight: 600, color: '#f1f5f9' }}>
+              {lines.length} Raw Material Item{lines.length === 1 ? '' : 's'} Consolidated
+            </div>
+            <div style={{ fontSize: 11, color: '#f59e0b', display: 'flex', alignItems: 'center', gap: 4 }}>
+              <AlertOutlined /> Stock below calculated Safety Buffer Line
+            </div>
+          </Space>
+        );
+      },
+    },
+    {
+      title: 'Estimated PR Total',
+      key: 'totalAmount',
+      width: 180,
+      align: 'right',
+      render: (_, record: any) => {
+        const total = (record.lines || []).reduce(
+          (sum: number, l: any) => sum + Number(l.estimatedTotalPrice || (Number(l.quantity || 0) * Number(l.estimatedUnitPrice || 0))),
+          0
+        );
+        return (
+          <div style={{ textAlign: 'right' }}>
+            <span style={{ fontWeight: 800, fontFamily: 'monospace', color: '#10b981', fontSize: 14 }}>
+              PKR {total.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+            </span>
+          </div>
+        );
+      },
+    },
+    {
+      title: 'Status & Horizon',
+      key: 'status',
+      width: 160,
+      render: (_, record: any) => (
+        <Space direction="vertical" size={2}>
+          <Tag color="gold" style={{ fontWeight: 700 }}>
+            {record.status === 'DRAFT' ? 'AWAITING APPROVAL' : record.status}
+          </Tag>
+          <span style={{ fontSize: 11, color: '#64748b' }}>
+            {dayjs(record.createdAt).format('DD/MM/YYYY HH:mm')}
+          </span>
+        </Space>
+      ),
+    },
+    {
+      title: 'Actions',
+      key: 'actions',
+      width: 260,
+      render: (_, record: any) => (
+        <Space size={8}>
+          <Button
+            size="small"
+            icon={<SlidersOutlined />}
+            onClick={() => handleOpenAdjustModal(record)}
+            style={{ borderColor: '#64748b', fontWeight: 600 }}
+          >
+            Review & Adjust
+          </Button>
+
+          <Popconfirm
+            title="Approve & Push to PO Ledger"
+            description={
+              <div style={{ maxWidth: 280 }}>
+                This will approve <b>{record.requisitionCode}</b> and immediately generate an active Purchase Order in the PO ledger.
+              </div>
+            }
+            okText="⚡ Approve & Push"
+            cancelText="Cancel"
+            okButtonProps={{ style: { background: '#059669', borderColor: '#059669', fontWeight: 700 } }}
+            onConfirm={() => handleApproveToPo(record.id)}
+          >
+            <Button
+              size="small"
+              type="primary"
+              icon={<ThunderboltOutlined />}
+              loading={convertingId === record.id}
+              style={{ background: '#059669', borderColor: '#059669', fontWeight: 700 }}
+            >
+              Approve to PO
+            </Button>
+          </Popconfirm>
+        </Space>
+      ),
+    },
+  ];
+
+  const renderSystemPrExpanded = (record: any) => {
+    const lines = record.lines || [];
+    return (
+      <div style={{ padding: '14px 18px', background: 'rgba(15, 23, 42, 0.65)', borderRadius: 8, border: '1px solid rgba(56, 189, 248, 0.25)', margin: '4px 0' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#38bdf8', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <PartitionOutlined />
+            <span>Deficit Breakdown & Dynamic Calculation Diagnostics</span>
+          </div>
+          <Tag color="blue" style={{ fontSize: 11, padding: '2px 8px' }}>
+            Formula: Suggested PR Purchase Qty = (3-Month Sales Forecast Qty + Safety Stock Buffer) - Current Available Stock
+          </Tag>
+        </div>
+
+        <Table
+          size="small"
+          pagination={false}
+          dataSource={lines}
+          rowKey={(l: any) => l.id || l.itemId}
+          columns={[
+            {
+              title: '#',
+              width: 45,
+              render: (_, __, idx) => idx + 1,
+            },
+            {
+              title: 'Item Code',
+              key: 'code',
+              width: 140,
+              render: (_, l: any) => (
+                <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#e2e8f0' }}>
+                  {l.item?.itemCode || l.itemCode || 'RM'}
+                </span>
+              ),
+            },
+            {
+              title: 'Raw Material Name',
+              key: 'name',
+              render: (_, l: any) => (
+                <span style={{ fontWeight: 600, color: '#f8fafc' }}>
+                  {l.justification || l.item?.name || l.itemName}
+                </span>
+              ),
+            },
+            {
+              title: 'UOM',
+              width: 80,
+              render: (_, l: any) => l.uom?.code || l.uomCode || 'PCS',
+            },
+            {
+              title: 'Suggested Purchase Qty',
+              dataIndex: 'quantity',
+              key: 'quantity',
+              width: 180,
+              align: 'right',
+              render: (q) => (
+                <span style={{ fontWeight: 800, color: '#38bdf8', fontSize: 13.5, fontFamily: 'monospace' }}>
+                  {Number(q || 0).toLocaleString()}
+                </span>
+              ),
+            },
+            {
+              title: 'Est. Unit Rate (PKR)',
+              dataIndex: 'estimatedUnitPrice',
+              key: 'rate',
+              width: 160,
+              align: 'right',
+              render: (r) => `Rs ${Number(r || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
+            },
+            {
+              title: 'Line Total (PKR)',
+              key: 'lineTotal',
+              width: 160,
+              align: 'right',
+              render: (_, l: any) => {
+                const total = Number(l.estimatedTotalPrice || (Number(l.quantity || 0) * Number(l.estimatedUnitPrice || 0)));
+                return (
+                  <span style={{ fontWeight: 700, color: '#10b981', fontFamily: 'monospace' }}>
+                    Rs {total.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  </span>
+                );
+              },
+            },
+            {
+              title: 'Engine Diagnostics',
+              dataIndex: 'notes',
+              key: 'notes',
+              render: (n) => <span style={{ fontSize: 11, color: '#94a3b8' }}>{n || 'Calculated via 3-Month Rolling Consumption'}</span>,
+            },
+          ]}
+        />
+      </div>
+    );
+  };
+
   return (
     <Card
       title={
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <FileDoneOutlined style={{ fontSize: 20, color: '#10b981' }} />
-          <span>Purchase Requisitions (PR)</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <FileDoneOutlined style={{ fontSize: 20, color: '#10b981' }} />
+            <span style={{ fontWeight: 700, fontSize: 16 }}>Purchase Requisitions (PR)</span>
+          </div>
+
+          <Segmented
+            value={activeTab}
+            onChange={(val: any) => {
+              setActiveTab(val);
+              if (val === 'AUTO_SYSTEM') {
+                fetchSystemPrs();
+              }
+            }}
+            options={[
+              {
+                label: (
+                  <Space size={6}>
+                    <FileTextOutlined />
+                    <span>All Purchase Requisitions</span>
+                  </Space>
+                ),
+                value: 'STANDARD',
+              },
+              {
+                label: (
+                  <Space size={6}>
+                    <ThunderboltOutlined style={{ color: '#38bdf8' }} />
+                    <span style={{ fontWeight: 700 }}>System-Generated Pending PRs</span>
+                    {systemPrs.length > 0 && (
+                      <Badge
+                        count={systemPrs.length}
+                        overflowCount={99}
+                        style={{ backgroundColor: '#ef4444', borderColor: '#b91c1c', fontWeight: 800 }}
+                      />
+                    )}
+                  </Space>
+                ),
+                value: 'AUTO_SYSTEM',
+              },
+            ]}
+          />
         </div>
       }
       extra={
-        <Space>
-          <Button icon={<ReloadOutlined />} onClick={() => fetchData(page)}>
-            Refresh
-          </Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate} style={{ fontWeight: 600 }}>
-            Create PR
-          </Button>
-        </Space>
+        activeTab === 'AUTO_SYSTEM' ? (
+          <Space>
+            <Button
+              icon={<ReloadOutlined />}
+              onClick={fetchSystemPrs}
+              loading={systemLoading}
+            >
+              Refresh Queue
+            </Button>
+            <Button
+              type="primary"
+              icon={<ThunderboltOutlined />}
+              onClick={handleRunEvaluation}
+              loading={evaluating}
+              style={{ background: '#0284c7', borderColor: '#0284c7', fontWeight: 700 }}
+            >
+              ⚡ Run Forecast Evaluation
+            </Button>
+          </Space>
+        ) : (
+          <Space>
+            <Button icon={<ReloadOutlined />} onClick={() => fetchData(page)}>
+              Refresh
+            </Button>
+            <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate} style={{ fontWeight: 600 }}>
+              Create PR
+            </Button>
+          </Space>
+        )
       }
     >
-      <Row gutter={16} style={{ marginBottom: 16 }}>
-        <Col span={8}>
-          <Input
-            placeholder="Search requisitions, titles, departments..."
-            prefix={<SearchOutlined />}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            onPressEnter={() => fetchData(1)}
-            allowClear
-          />
-        </Col>
-        <Col span={6}>
-          <Select
-            placeholder="Filter by status"
-            allowClear
-            style={{ width: '100%' }}
-            value={filterStatus}
-            onChange={setFilterStatus}
-          >
-            {STATUS_OPTIONS.map((s) => (
-              <Select.Option key={s} value={s}>{s}</Select.Option>
-            ))}
-          </Select>
-        </Col>
-        <Col span={4}>
-          <Button type="primary" onClick={() => fetchData(1)}>Search</Button>
-        </Col>
-      </Row>
+      {activeTab === 'AUTO_SYSTEM' ? (
+        <div>
+          {/* Automated Replenishment KPI Metrics Grid */}
+          <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+            <Col xs={24} sm={12} md={6}>
+              <Card
+                size="small"
+                style={{
+                  background: 'linear-gradient(135deg, rgba(2, 132, 199, 0.15), rgba(15, 23, 42, 0.6))',
+                  border: '1px solid rgba(56, 189, 248, 0.3)',
+                  borderRadius: 8,
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div>
+                    <div style={{ fontSize: 11, color: '#94a3b8', textTransform: 'uppercase', fontWeight: 700, letterSpacing: 0.5 }}>
+                      Replenishment Engine
+                    </div>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: '#38bdf8', marginTop: 4 }}>
+                      3-Month Horizon
+                    </div>
+                  </div>
+                  <Tag color="cyan" style={{ fontWeight: 700 }}>ACTIVE MODEL</Tag>
+                </div>
+                <div style={{ fontSize: 11, color: '#64748b', marginTop: 8 }}>
+                  90-day stock consumption + FG sales demand
+                </div>
+              </Card>
+            </Col>
 
-      <Table
-        columns={columns}
-        dataSource={data}
-        rowKey="id"
-        loading={loading}
-        pagination={{ current: page, total, pageSize, onChange: setPage, showSizeChanger: false }}
-      />
+            <Col xs={24} sm={12} md={6}>
+              <Card
+                size="small"
+                style={{
+                  background: 'linear-gradient(135deg, rgba(239, 68, 68, 0.12), rgba(15, 23, 42, 0.6))',
+                  border: '1px solid rgba(239, 68, 68, 0.3)',
+                  borderRadius: 8,
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div>
+                    <div style={{ fontSize: 11, color: '#94a3b8', textTransform: 'uppercase', fontWeight: 700, letterSpacing: 0.5 }}>
+                      Critical RM Deficits
+                    </div>
+                    <div style={{ fontSize: 20, fontWeight: 800, color: '#f87171', marginTop: 4 }}>
+                      {systemKpis.lowStockRMsCount || 0} Material{systemKpis.lowStockRMsCount === 1 ? '' : 's'}
+                    </div>
+                  </div>
+                  <Tag color="error" style={{ fontWeight: 700 }}>BELOW BUFFER</Tag>
+                </div>
+                <div style={{ fontSize: 11, color: '#64748b', marginTop: 8 }}>
+                  Available stock &lt; calculated safety threshold
+                </div>
+              </Card>
+            </Col>
+
+            <Col xs={24} sm={12} md={6}>
+              <Card
+                size="small"
+                style={{
+                  background: 'linear-gradient(135deg, rgba(245, 158, 11, 0.12), rgba(15, 23, 42, 0.6))',
+                  border: '1px solid rgba(245, 158, 11, 0.3)',
+                  borderRadius: 8,
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div>
+                    <div style={{ fontSize: 11, color: '#94a3b8', textTransform: 'uppercase', fontWeight: 700, letterSpacing: 0.5 }}>
+                      Pending System PRs
+                    </div>
+                    <div style={{ fontSize: 20, fontWeight: 800, color: '#fbbf24', marginTop: 4 }}>
+                      {systemPrs.length} Sheet{systemPrs.length === 1 ? '' : 's'}
+                    </div>
+                  </div>
+                  <Tag color="warning" style={{ fontWeight: 700 }}>AWAITING APPROVAL</Tag>
+                </div>
+                <div style={{ fontSize: 11, color: '#64748b', marginTop: 8 }}>
+                  Grouped by raw material family & vendor profile
+                </div>
+              </Card>
+            </Col>
+
+            <Col xs={24} sm={12} md={6}>
+              <Card
+                size="small"
+                style={{
+                  background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.12), rgba(15, 23, 42, 0.6))',
+                  border: '1px solid rgba(16, 185, 129, 0.3)',
+                  borderRadius: 8,
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div>
+                    <div style={{ fontSize: 11, color: '#94a3b8', textTransform: 'uppercase', fontWeight: 700, letterSpacing: 0.5 }}>
+                      Procurement Outlay
+                    </div>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: '#34d399', marginTop: 4, fontFamily: 'monospace' }}>
+                      PKR {Math.round(systemKpis.totalEstimatedValue || 0).toLocaleString()}
+                    </div>
+                  </div>
+                  <Tag color="success" style={{ fontWeight: 700 }}>SUGGESTED</Tag>
+                </div>
+                <div style={{ fontSize: 11, color: '#64748b', marginTop: 8 }}>
+                  Total estimated value for pending replenishments
+                </div>
+              </Card>
+            </Col>
+          </Row>
+
+          {/* Logic & Policy Diagnostic Alert */}
+          <Alert
+            message={
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span style={{ fontWeight: 700 }}>
+                  <ThunderboltOutlined style={{ marginRight: 6, color: '#38bdf8' }} />
+                  Automated Purchase Requisition (PR) Engine Active
+                </span>
+                <span style={{ fontSize: 11, color: '#94a3b8' }}>
+                  One-click approval pushes directly to active Purchase Order (PO) ledger
+                </span>
+              </div>
+            }
+            description={
+              <div style={{ fontSize: 12, marginTop: 4, lineHeight: 1.6, color: '#cbd5e1' }}>
+                <b>The Reorder Condition:</b> Triggered whenever <code>Current Available Stock &lt; Calculated Safety Stock Buffer</code>.
+                <br />
+                <b>Target Quantity Calculation:</b> <code>Suggested PR Purchase Qty = (3-Month Sales Forecast Qty + Safety Stock Buffer) - Current Available Stock</code>.
+                <br />
+                Multiple deficits within the same raw material family or vendor profile are consolidated into a single multi-row PR sheet to eliminate manual clutter.
+              </div>
+            }
+            type="info"
+            showIcon
+            style={{ marginBottom: 16, background: 'rgba(2, 132, 199, 0.08)', borderColor: 'rgba(56, 189, 248, 0.25)' }}
+          />
+
+          {/* System-Generated Pending PRs Approval Table */}
+          <Table
+            columns={systemColumns}
+            dataSource={systemPrs}
+            rowKey="id"
+            loading={systemLoading}
+            pagination={{ pageSize: 15, showSizeChanger: false }}
+            expandable={{
+              expandedRowRender: renderSystemPrExpanded,
+              defaultExpandAllRows: true,
+            }}
+          />
+        </div>
+      ) : (
+        <div>
+          <Row gutter={16} style={{ marginBottom: 16 }}>
+            <Col span={8}>
+              <Input
+                placeholder="Search requisitions, titles, departments..."
+                prefix={<SearchOutlined />}
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                onPressEnter={() => fetchData(1)}
+                allowClear
+              />
+            </Col>
+            <Col span={6}>
+              <Select
+                placeholder="Filter by status"
+                allowClear
+                style={{ width: '100%' }}
+                value={filterStatus}
+                onChange={setFilterStatus}
+              >
+                {STATUS_OPTIONS.map((s) => (
+                  <Select.Option key={s} value={s}>{s}</Select.Option>
+                ))}
+              </Select>
+            </Col>
+            <Col span={4}>
+              <Button type="primary" onClick={() => fetchData(1)}>Search</Button>
+            </Col>
+          </Row>
+
+          <Table
+            columns={columns}
+            dataSource={data}
+            rowKey="id"
+            loading={loading}
+            pagination={{ current: page, total, pageSize, onChange: setPage, showSizeChanger: false }}
+          />
+        </div>
+      )}
 
       {/* Upgraded Desktop Draggable & Resizable Modal */}
       <DraggableResizableModal
@@ -1380,6 +1945,222 @@ const PurchaseRequisitionManagement: React.FC = () => {
             );
           })()}
         </Spin>
+      </DraggableResizableModal>
+
+      {/* Review & Adjust System-Generated PR Modal */}
+      <DraggableResizableModal
+        title={
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <SlidersOutlined style={{ color: '#38bdf8', fontSize: 18 }} />
+            <span>Review & Adjust System PR ({selectedSystemPr?.requisitionCode})</span>
+          </div>
+        }
+        subtitle="Fine-tune replenishment purchase quantities, select preferred vendor, and approve directly to active Purchase Order (PO) ledger."
+        open={adjustModalVisible}
+        onCancel={() => setAdjustModalVisible(false)}
+        width={1050}
+        height={680}
+        footer={[
+          <Button key="cancel" onClick={() => setAdjustModalVisible(false)}>
+            Close
+          </Button>,
+          <Popconfirm
+            key="approveToPoConfirm"
+            title="Confirm Direct Push to Active PO"
+            description="Are you sure you want to approve this Requisition and push it directly into the active Purchase Order (PO) ledger?"
+            okText="Yes, Push to PO"
+            cancelText="Cancel"
+            okButtonProps={{ style: { background: '#059669', borderColor: '#059669', fontWeight: 700 } }}
+            onConfirm={() => {
+              if (!selectedSystemPr) return;
+              handleApproveToPo(selectedSystemPr.id, {
+                supplierId: adjustSupplierId,
+                notes: adjustNotes,
+                lines: adjustLines.map((l) => ({
+                  lineId: l.lineId,
+                  quantity: l.quantity,
+                  estimatedUnitPrice: l.unitPrice,
+                  supplierId: l.supplierId || adjustSupplierId,
+                })),
+              });
+            }}
+          >
+            <Button
+              type="primary"
+              loading={convertingId === selectedSystemPr?.id}
+              icon={<ThunderboltOutlined />}
+              style={{ background: '#059669', borderColor: '#059669', fontWeight: 700 }}
+            >
+              ⚡ Approve & Push to PO Ledger
+            </Button>
+          </Popconfirm>,
+        ]}
+      >
+        <div style={{ padding: '4px 0' }}>
+          {/* Header Card */}
+          <Card size="small" style={{ marginBottom: 14, background: 'rgba(15, 23, 42, 0.4)', borderColor: 'rgba(56, 189, 248, 0.2)' }}>
+            <Row gutter={16} align="middle">
+              <Col span={8}>
+                <div style={{ fontSize: 11, color: '#94a3b8', textTransform: 'uppercase', fontWeight: 700 }}>
+                  Raw Material Family
+                </div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: '#38bdf8', marginTop: 2 }}>
+                  {selectedSystemPr?.department || 'Raw Materials'}
+                </div>
+              </Col>
+              <Col span={8}>
+                <div style={{ fontSize: 11, color: '#94a3b8', textTransform: 'uppercase', fontWeight: 700 }}>
+                  Replenishment Policy
+                </div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#f1f5f9', marginTop: 2 }}>
+                  3-Month Rolling Sales & Consumption Model
+                </div>
+              </Col>
+              <Col span={8}>
+                <div style={{ fontSize: 11, color: '#94a3b8', textTransform: 'uppercase', fontWeight: 700 }}>
+                  Total Estimated Outlay
+                </div>
+                <div style={{ fontSize: 15, fontWeight: 800, color: '#10b981', marginTop: 2, fontFamily: 'monospace' }}>
+                  PKR {adjustLines.reduce((acc, l) => acc + (Number(l.quantity || 0) * Number(l.unitPrice || 0)), 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                </div>
+              </Col>
+            </Row>
+          </Card>
+
+          {/* Supplier and Approval Notes row */}
+          <Row gutter={16} style={{ marginBottom: 14 }}>
+            <Col span={12}>
+              <div style={{ marginBottom: 4, fontSize: 12, fontWeight: 600, color: '#cbd5e1' }}>
+                <ShoppingOutlined style={{ marginRight: 6, color: '#38bdf8' }} />
+                Assign Target Supplier / Vendor for PO
+              </div>
+              <Select
+                placeholder="Select vendor for Purchase Order..."
+                style={{ width: '100%' }}
+                value={adjustSupplierId}
+                onChange={(val) => setAdjustSupplierId(val)}
+                options={suppliersList.map((s) => ({
+                  value: s.id,
+                  label: `${s.supplierCode ? `[${s.supplierCode}] ` : ''}${s.name}`,
+                }))}
+                allowClear
+              />
+            </Col>
+            <Col span={12}>
+              <div style={{ marginBottom: 4, fontSize: 12, fontWeight: 600, color: '#cbd5e1' }}>
+                <FileTextOutlined style={{ marginRight: 6, color: '#38bdf8' }} />
+                Approval Notes / Overrides
+              </div>
+              <Input
+                placeholder="Optional procurement notes or justification..."
+                value={adjustNotes}
+                onChange={(e) => setAdjustNotes(e.target.value)}
+              />
+            </Col>
+          </Row>
+
+          {/* Deficit Items Editable Grid */}
+          <div style={{ marginBottom: 8, fontSize: 12, fontWeight: 700, color: '#38bdf8' }}>
+            Consolidated Deficit Items (Quantities & Rates Override Grid):
+          </div>
+          <Table
+            size="small"
+            pagination={false}
+            dataSource={adjustLines}
+            rowKey="lineId"
+            columns={[
+              {
+                title: '#',
+                width: 40,
+                render: (_, __, idx) => idx + 1,
+              },
+              {
+                title: 'Item Code',
+                dataIndex: 'itemCode',
+                key: 'itemCode',
+                width: 130,
+                render: (c) => <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#e2e8f0' }}>{c}</span>,
+              },
+              {
+                title: 'Raw Material Name',
+                dataIndex: 'itemName',
+                key: 'itemName',
+                render: (n) => <span style={{ fontWeight: 600, color: '#f8fafc' }}>{n}</span>,
+              },
+              {
+                title: 'UOM',
+                dataIndex: 'uomCode',
+                key: 'uomCode',
+                width: 75,
+              },
+              {
+                title: 'Current Available Stock',
+                dataIndex: 'currentStock',
+                key: 'currentStock',
+                width: 140,
+                align: 'right',
+                render: (s) => (
+                  <Tag color="orange" style={{ fontFamily: 'monospace', fontWeight: 700 }}>
+                    {Number(s || 0).toLocaleString()}
+                  </Tag>
+                ),
+              },
+              {
+                title: 'PR Order Qty (Editable)',
+                dataIndex: 'quantity',
+                key: 'quantity',
+                width: 160,
+                align: 'right',
+                render: (val, record, idx) => (
+                  <InputNumber
+                    min={1}
+                    value={val}
+                    onChange={(newVal) => {
+                      const updated = [...adjustLines];
+                      updated[idx].quantity = Number(newVal || 1);
+                      setAdjustLines(updated);
+                    }}
+                    style={{ width: '100%', fontWeight: 700 }}
+                  />
+                ),
+              },
+              {
+                title: 'Unit Rate PKR (Editable)',
+                dataIndex: 'unitPrice',
+                key: 'unitPrice',
+                width: 160,
+                align: 'right',
+                render: (val, record, idx) => (
+                  <InputNumber
+                    min={0}
+                    step={0.5}
+                    value={val}
+                    onChange={(newVal) => {
+                      const updated = [...adjustLines];
+                      updated[idx].unitPrice = Number(newVal || 0);
+                      setAdjustLines(updated);
+                    }}
+                    style={{ width: '100%', fontWeight: 700 }}
+                  />
+                ),
+              },
+              {
+                title: 'Subtotal (PKR)',
+                key: 'lineTotal',
+                width: 150,
+                align: 'right',
+                render: (_, r) => {
+                  const lineTotal = Number(r.quantity || 0) * Number(r.unitPrice || 0);
+                  return (
+                    <span style={{ fontWeight: 800, color: '#10b981', fontFamily: 'monospace' }}>
+                      Rs {lineTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    </span>
+                  );
+                },
+              },
+            ]}
+          />
+        </div>
       </DraggableResizableModal>
     </Card>
   );

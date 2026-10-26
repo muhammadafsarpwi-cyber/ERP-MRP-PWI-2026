@@ -68,6 +68,7 @@ interface SalesOrder {
   status: string;
   notes?: string;
   items?: any[];
+  itemFulfillment?: any[];
   relatedQuotation?: {
     id: string;
     quotationNumber: string;

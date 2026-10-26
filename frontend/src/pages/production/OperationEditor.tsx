@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import {
-  Modal, Form, Input, Select, App, Card, InputNumber, Row, Col, Checkbox, Space, Button, Table, Tooltip, Tag,
+  Modal, Form, Input, Select, App, Card, InputNumber, Row, Col, Checkbox, Space, Button, Table, Tooltip, Tag, Typography,
 } from 'antd';
 import {
   PlusOutlined, DeleteOutlined,
@@ -1224,8 +1224,8 @@ const OperationEditor: React.FC<OperationEditorProps> = ({
                                 >
                                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '2px 0' }}>
                                     <div>
-                                      <span style={{ fontWeight: 600, color: '#0f172a' }}>{i.name}</span>
-                                      <span style={{ color: '#475569', marginLeft: 6 }}>({i.itemCode})</span>
+                                      <span style={{ fontWeight: 600 }}>{i.name}</span>
+                                      <Typography.Text type="secondary" style={{ marginLeft: 6 }}>({i.itemCode})</Typography.Text>
                                     </div>
                                     {isPrimary ? (
                                       <Tag color="green" style={{ margin: 0, fontSize: 11, fontWeight: 600, borderRadius: 4 }}>
@@ -1483,8 +1483,8 @@ const OperationEditor: React.FC<OperationEditorProps> = ({
                                 >
                                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '2px 0' }}>
                                     <div>
-                                      <span style={{ fontWeight: 600, color: '#0f172a' }}>{i.name}</span>
-                                      <span style={{ color: '#475569', marginLeft: 6 }}>({i.itemCode})</span>
+                                      <span style={{ fontWeight: 600 }}>{i.name}</span>
+                                      <Typography.Text type="secondary" style={{ marginLeft: 6 }}>({i.itemCode})</Typography.Text>
                                     </div>
                                     {isFG ? (
                                       <Tag color="purple" style={{ margin: 0, fontSize: 11, fontWeight: 600, borderRadius: 4 }}>

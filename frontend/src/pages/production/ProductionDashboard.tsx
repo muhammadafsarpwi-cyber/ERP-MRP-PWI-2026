@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button, DatePicker, Select, Space, Badge, Tooltip, Dropdown } from 'antd';
 import {
@@ -59,11 +59,81 @@ import {
   topItemsScrapRollup,
   defectReasonDistribution,
 } from './entries/analyticsModel';
+import DepartmentProductionLedger from '../../components/dashboard/DepartmentProductionLedger';
 import './productionDashboard.css';
 
 const { RangePicker } = DatePicker;
 
-const PRODUCTION_DASHBOARD_TAB_ID = '/production/dashboard';
+const PRODUCTION_DASHBOARD_TAB_ID = '/production/dashboard/v2026_10_7stage';
+export const LAST_ACTIVE_DIVISION_STORAGE_KEY = 'pwi_last_active_division_id';
+
+const CANONICAL_DIVISIONS: FilterOption[] = [
+  { id: 'd1000000-0000-0000-0000-000000000001', name: 'Spoke Division', divisionCode: 'DIV-SPD' },
+  { id: 'd1000000-0000-0000-0000-000000000002', name: 'Control Cable Division', divisionCode: 'DIV-CCD' },
+  { id: '83ecd746-1cc9-4849-bec4-d00bcc3ceeec', name: 'Main Division E-51', divisionCode: 'DIV-PWI' },
+  { id: '0653339b-94d0-4cc5-b880-e07908b2015f', name: 'NB Division', divisionCode: 'DIV-NB' },
+];
+
+const DIVISION_UUID_ALIASES: Record<string, { canonicalId: string; name: string }> = {
+  'd1000000-0000-0000-0000-000000000001': { canonicalId: 'd1000000-0000-0000-0000-000000000001', name: 'Spoke Division' },
+  '10000000-0000-0000-0000-000000000001': { canonicalId: 'd1000000-0000-0000-0000-000000000001', name: 'Spoke Division' },
+  'd1000000-0000-0000-0000-000000000002': { canonicalId: 'd1000000-0000-0000-0000-000000000002', name: 'Control Cable Division' },
+  '10000000-0000-0000-0000-000000000002': { canonicalId: 'd1000000-0000-0000-0000-000000000002', name: 'Control Cable Division' },
+  '83ecd746-1cc9-4849-bec4-d00bcc3ceeec': { canonicalId: '83ecd746-1cc9-4849-bec4-d00bcc3ceeec', name: 'Main Division E-51' },
+  '0653339b-94d0-4cc5-b880-e07908b2015f': { canonicalId: '0653339b-94d0-4cc5-b880-e07908b2015f', name: 'NB Division' },
+};
+
+function normalizeDivisionId(rawId?: string | null): string | undefined {
+  if (!rawId) return undefined;
+  const trimmed = rawId.trim();
+  if (!trimmed) return undefined;
+  const alias = DIVISION_UUID_ALIASES[trimmed.toLowerCase()];
+  return alias ? alias.canonicalId : trimmed;
+}
+
+function resolveDivisionDisplayName(divId?: string | null, divList: FilterOption[] = []): string {
+  if (!divId) return 'All Divisions';
+  const normId = normalizeDivisionId(divId) || divId;
+  const matched = divList.find((d) => d.id === divId || d.id === normId);
+  if (matched) {
+    const literalName = matched.name || (matched as any).divisionName || (matched as any).division_name;
+    if (literalName && !/^[0-9a-f-]{32,36}$/i.test(literalName.trim())) {
+      return literalName;
+    }
+  }
+  const alias = DIVISION_UUID_ALIASES[divId.toLowerCase()] || DIVISION_UUID_ALIASES[normId.toLowerCase()];
+  if (alias) return alias.name;
+  return 'Spoke Division';
+}
+
+function mergeDivisionOptions(fetched: FilterOption[]): FilterOption[] {
+  const map = new Map<string, FilterOption>();
+  for (const c of CANONICAL_DIVISIONS) {
+    map.set(c.id, { ...c });
+  }
+  for (const d of fetched || []) {
+    if (!d || !d.id) continue;
+    const normId = normalizeDivisionId(d.id) || d.id;
+    const rawName = d.name || (d as any).divisionName || (d as any).division_name || '';
+    const isUuidLike = /^[0-9a-f-]{32,36}$/i.test(rawName.trim());
+    const cleanName = !isUuidLike && rawName.trim() ? rawName.trim() : resolveDivisionDisplayName(normId, CANONICAL_DIVISIONS);
+    map.set(normId, {
+      ...d,
+      id: normId,
+      name: cleanName,
+    });
+  }
+  return Array.from(map.values());
+}
+
+function filterActiveDepartmentsList(list: FilterOption[]): FilterOption[] {
+  return (list || []).filter((d: any) => {
+    if (!d) return false;
+    if (d.status && String(d.status).toUpperCase() !== 'ACTIVE') return false;
+    if (d.isActive === false || d.is_active === false) return false;
+    return true;
+  });
+}
 
 interface ServerEntrySummary {
   actual: number;
@@ -95,6 +165,65 @@ interface ProductionDashboardTabCache {
 
 const DEFECT_COLORS = ['#f97316', '#06b6d4', '#a855f7', '#10b981', '#ec4899', '#eab308'];
 const MACHINE_BAR_COLORS = ['#0ea5e9', '#6366f1', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6'];
+
+export interface DeptTabItem {
+  id: string;
+  name: string;
+  abbr: string;
+  label: string;
+}
+
+export function getDepartmentAbbr(name: string, code?: string): string {
+  if (code && code.trim().length <= 5) return code.trim().toUpperCase();
+  const n = (name || '').trim().toLowerCase();
+  if (n.includes('straight')) return 'STR';
+  if (n.includes('swag')) return 'SWG';
+  if (n.includes('spoke plat') || n.includes('barrel') || n === 'plating') return 'BL';
+  if (n.includes('nipple plat')) return 'NPL-PL';
+  if (n.includes('nipple pack')) return 'NPK';
+  if (n.includes('spoke pack') || n.includes('packing') || n.includes('pack')) return 'PKG';
+  if (n === 'spoke') return 'SPK';
+  if (n.includes('flatten')) return 'FT';
+  if (n.includes('spiral')) return 'SP';
+  if (n.includes('pvc')) return 'PVC';
+  if (n.includes('header')) return 'HDR';
+  if (n.includes('nipple')) return 'NPL';
+  if (n.includes('assembly')) return 'ASY';
+  if (n.includes('cable')) return 'CBL';
+  const words = (name || '').trim().split(/\s+/).filter(Boolean);
+  if (words.length > 1) {
+    return words.map((w) => w[0]).join('').toUpperCase().slice(0, 4);
+  }
+  return (name || '').trim().slice(0, 3).toUpperCase();
+}
+
+export const EmptyProductionState: React.FC<{ message?: string; subtext?: string; minHeight?: number }> = ({
+  message = 'No Active Production Data Registered',
+  subtext = 'No operational machinery desks or production tickets recorded for this division segment.',
+  minHeight = 220,
+}) => (
+  <div
+    style={{
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      height: '100%',
+      minHeight,
+      padding: '30px 20px',
+      color: 'var(--theme-text-muted, #94a3b8)',
+      background: 'rgba(148, 163, 184, 0.03)',
+      borderRadius: 8,
+      border: '1px dashed var(--theme-border, #cbd5e1)',
+    }}
+  >
+    <ApartmentOutlined style={{ fontSize: 32, color: 'var(--theme-text-muted, #94a3b8)', marginBottom: 10, opacity: 0.6 }} />
+    <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--theme-text, #475569)' }}>{message}</span>
+    <span style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', marginTop: 4, textAlign: 'center' }}>
+      {subtext}
+    </span>
+  </div>
+);
 
 export interface RejectionBarItem {
   name: string;
@@ -166,6 +295,83 @@ const REJECTION_CATEGORIES_BY_SECTION: Record<string, RejectionCategoryItem[]> =
   ],
 };
 
+/**
+ * Dynamic Multi-Unit Conversion Engine
+ * Resolves Primary and Secondary values strictly based on Department UOM registry
+ * and Item Master weight properties.
+ */
+function resolveDynamicUnits(
+  qty: number,
+  reportingUom?: string,
+  secondaryUom?: string | null,
+  enableConversionBridge?: boolean,
+  weightPerMeter?: number,
+  weightPerPiece?: number,
+): { primaryText: string; primaryBadge: string; secondaryText: string | null } {
+  const rep = (reportingUom || 'PCS').toUpperCase();
+  const sec = (secondaryUom || 'NONE').toUpperCase();
+  const wMeter = Number(weightPerMeter) > 0 ? Number(weightPerMeter) : 0.035;
+  const wPiece = Number(weightPerPiece) > 0 ? Number(weightPerPiece) : 0.008;
+
+  // 1. Spoke Division Standard Macro: reporting_uom = 'GRS' & secondary_uom = 'PCS'
+  if (rep === 'GRS' && sec === 'PCS') {
+    const grossVal = Math.round(qty / 144);
+    return {
+      primaryText: formatNumber(grossVal, 0),
+      primaryBadge: 'GRS',
+      secondaryText: `${formatNumber(qty, 0)} PCS`,
+    };
+  }
+
+  // 2. Continuous Wire / Strip Macro: reporting_uom = 'KG' & secondary_uom = 'METER'
+  // Case 1: Flattening / Raw Material Departments (primary_uom = 'KG')
+  if (rep === 'KG' && sec === 'METER') {
+    const kgVal = Math.round(qty * 10) / 10;
+    const meterVal = wMeter > 0 ? Math.round(kgVal / wMeter) : 0;
+    return {
+      primaryText: formatNumber(kgVal, 1),
+      primaryBadge: 'KG',
+      secondaryText: `${formatNumber(meterVal, 0)} MTR`,
+    };
+  }
+
+  // 3. Extrusion / Cable Macro: reporting_uom = 'METER' & secondary_uom = 'KG'
+  if (rep === 'METER' && sec === 'KG') {
+    const meterVal = qty;
+    const kgVal = Math.round(meterVal * wMeter * 10) / 10;
+    return {
+      primaryText: formatNumber(meterVal, 0),
+      primaryBadge: 'MTR',
+      secondaryText: `${formatNumber(kgVal, 1)} KG`,
+    };
+  }
+
+  // 4. Heavy / Chemical / Plating Profile: reporting_uom = 'KG' & secondary_uom = 'NONE'
+  if (rep === 'KG') {
+    return {
+      primaryText: formatNumber(qty, 1),
+      primaryBadge: 'KG',
+      secondaryText: null,
+    };
+  }
+
+  // 5. Piece / Unit Profile: reporting_uom = 'PCS' & secondary_uom = 'NONE'
+  if (rep === 'PCS') {
+    return {
+      primaryText: formatNumber(qty, 0),
+      primaryBadge: 'PCS',
+      secondaryText: null,
+    };
+  }
+
+  // Fallback: Generic dynamic display
+  return {
+    primaryText: formatNumber(qty, 0),
+    primaryBadge: rep,
+    secondaryText: sec !== 'NONE' ? `${formatNumber(qty, 0)} ${sec}` : null,
+  };
+}
+
 /** Splits an axis label into short stacked lines (max 3) so labels never overlap. */
 function wrapAxisLabel(raw: string, maxChars = 11, maxLines = 3): string[] {
   const words = String(raw ?? '').trim().split(/\s+/).filter(Boolean);
@@ -215,7 +421,32 @@ const WrappedAxisTick: React.FC<any> = ({ x, y, payload }) => {
 
 export const ProductionDashboard: React.FC = () => {
   const navigate = useNavigate();
-  const cachedTab = useMemo(() => tabSessionCache.get<ProductionDashboardTabCache>(PRODUCTION_DASHBOARD_TAB_ID), []);
+  const loadSeqRef = useRef<number>(0);
+  const deptLoadSeqRef = useRef<number>(0);
+
+  const savedDivisionId = useMemo(() => {
+    try {
+      const raw = localStorage.getItem(LAST_ACTIVE_DIVISION_STORAGE_KEY) || undefined;
+      const normalized = normalizeDivisionId(raw);
+      if (normalized && normalized !== raw) {
+        localStorage.setItem(LAST_ACTIVE_DIVISION_STORAGE_KEY, normalized);
+      }
+      return normalized;
+    } catch {
+      return undefined;
+    }
+  }, []);
+
+  const cachedTab = useMemo(() => {
+    const raw = tabSessionCache.get<ProductionDashboardTabCache>(PRODUCTION_DASHBOARD_TAB_ID);
+    if (!raw) return undefined;
+    // Purge cached ghost data if cached division does not match persisted active division
+    if (savedDivisionId && raw.filters?.divisionId !== savedDivisionId) {
+      tabSessionCache.remove(PRODUCTION_DASHBOARD_TAB_ID);
+      return undefined;
+    }
+    return raw;
+  }, [savedDivisionId]);
 
   const [loading, setLoading] = useState(!cachedTab);
   const [prod, setProd] = useState<ProductionSummary | null>(() => cachedTab?.prod ?? null);
@@ -226,34 +457,26 @@ export const ProductionDashboard: React.FC = () => {
   const [scrapEntries, setScrapEntries] = useState<any[]>(() => cachedTab?.scrapEntries ?? []);
   const [otEntries, setOtEntries] = useState<any[]>(() => cachedTab?.otEntries ?? []);
 
-  const [divisions, setDivisions] = useState<FilterOption[]>([]);
+  const [divisions, setDivisions] = useState<FilterOption[]>(CANONICAL_DIVISIONS);
   const [departments, setDepartments] = useState<FilterOption[]>([]);
 
-  const [filters, setFilters] = useState<DashboardFiltersType & { dateFrom?: string; dateTo?: string }>(
-    () => cachedTab?.filters ?? {},
-  );
-  const [showFilters, setShowFilters] = useState(false);
-  const [selectedSection, setSelectedSection] = useState<'all' | 'straightener' | 'swaging' | 'spoke' | 'plating' | 'packing'>('all');
-
-  // Load lookup options
-  useEffect(() => {
-    Promise.allSettled([dashboardService.getFilterDivisions()]).then(([d]) => {
-      if (d.status === 'fulfilled' && d.value.success) setDivisions(d.value.data);
-    });
-  }, []);
-
-  useEffect(() => {
-    if (!filters.divisionId) {
-      setDepartments([]);
-      return;
+  const [filters, setFilters] = useState<DashboardFiltersType & { dateFrom?: string; dateTo?: string }>(() => {
+    const base = cachedTab?.filters ?? {};
+    const effectiveDivId = savedDivisionId || normalizeDivisionId(base.divisionId);
+    if (effectiveDivId) {
+      return { ...base, divisionId: effectiveDivId };
     }
-    dashboardService.getFilterDepartments(filters.divisionId, filters.sectionId).then((res) => {
-      if (res.success) setDepartments(res.data);
-    });
-  }, [filters.divisionId, filters.sectionId]);
+    return base;
+  });
+  const [showFilters, setShowFilters] = useState(false);
+  const [selectedSection, setSelectedSection] = useState<string>('all');
+  const [selectedDowntimeSection, setSelectedDowntimeSection] = useState<string>('all');
+  const [selectedScrapSection, setSelectedScrapSection] = useState<string>('all');
+  const [selectedOtSection, setSelectedOtSection] = useState<string>('all');
 
   const load = useCallback(async (f?: DashboardFiltersType & { dateFrom?: string; dateTo?: string }) => {
     const eff = f ?? filters;
+    const seq = ++loadSeqRef.current;
     setLoading(true);
 
     const [prodR, trendR, machR, entrySumR, scrapR, otR] = await Promise.allSettled([
@@ -288,33 +511,143 @@ export const ProductionDashboard: React.FC = () => {
         chevronKey: 'WITH_OVERTIME',
         dateFrom: eff.dateFrom,
         dateTo: eff.dateTo,
+        divisionId: eff.divisionId,
+        departmentId: eff.departmentId,
       }),
     ]);
 
-    if (prodR.status === 'fulfilled' && prodR.value.success) setProd(prodR.value.data);
-    if (trendR.status === 'fulfilled' && trendR.value.success) setTrend(trendR.value.data);
-    if (machR.status === 'fulfilled' && machR.value.success) setMachines(machR.value.data);
-    if (entrySumR.status === 'fulfilled' && entrySumR.value?.summary) setEntrySummary(entrySumR.value.summary);
-    if (scrapR.status === 'fulfilled' && Array.isArray(scrapR.value?.data)) setScrapEntries(scrapR.value.data);
-    if (otR.status === 'fulfilled' && Array.isArray(otR.value?.data)) setOtEntries(otR.value.data);
+    if (seq !== loadSeqRef.current) return;
+
+    const nextProd = prodR.status === 'fulfilled' && prodR.value.success ? prodR.value.data : null;
+    const nextTrend = trendR.status === 'fulfilled' && trendR.value.success ? trendR.value.data : [];
+    const nextMachines = machR.status === 'fulfilled' && machR.value.success ? machR.value.data : [];
+    const nextEntrySummary = entrySumR.status === 'fulfilled' && entrySumR.value?.summary ? entrySumR.value.summary : null;
+    const nextScrapEntries = scrapR.status === 'fulfilled' && Array.isArray(scrapR.value?.data) ? scrapR.value.data : [];
+    const nextOtEntries = otR.status === 'fulfilled' && Array.isArray(otR.value?.data) ? otR.value.data : [];
+
+    setProd(nextProd);
+    setTrend(nextTrend);
+    setMachines(nextMachines);
+    setEntrySummary(nextEntrySummary);
+    setScrapEntries(nextScrapEntries);
+    setOtEntries(nextOtEntries);
 
     tabSessionCache.set<ProductionDashboardTabCache>(PRODUCTION_DASHBOARD_TAB_ID, {
-      prod: prodR.status === 'fulfilled' && prodR.value.success ? prodR.value.data : null,
-      trend: trendR.status === 'fulfilled' && trendR.value.success ? trendR.value.data : [],
-      machines: machR.status === 'fulfilled' && machR.value.success ? machR.value.data : [],
-      entrySummary: entrySumR.status === 'fulfilled' ? entrySumR.value.summary : null,
-      scrapEntries: scrapR.status === 'fulfilled' && Array.isArray(scrapR.value?.data) ? scrapR.value.data : [],
-      otEntries: otR.status === 'fulfilled' && Array.isArray(otR.value?.data) ? otR.value.data : [],
+      prod: nextProd,
+      trend: nextTrend,
+      machines: nextMachines,
+      entrySummary: nextEntrySummary,
+      scrapEntries: nextScrapEntries,
+      otEntries: nextOtEntries,
       filters: eff,
     });
     setLoading(false);
   }, [filters]);
 
+  // Dynamic Upper Dropdown Change with Immediate Cascading Update & LocalStorage Persistence
+  const handleDivisionChange = useCallback(
+    (rawNewDivId?: string) => {
+      const newDivId = normalizeDivisionId(rawNewDivId);
+      try {
+        if (newDivId) {
+          localStorage.setItem(LAST_ACTIVE_DIVISION_STORAGE_KEY, newDivId);
+        } else {
+          localStorage.removeItem(LAST_ACTIVE_DIVISION_STORAGE_KEY);
+        }
+      } catch {
+        // Ignore localStorage access errors in restricted environments
+      }
+
+      // 1. Reset all sub-tabs to 'all' so stale tabs from previous division do not linger
+      setSelectedSection('all');
+      setSelectedDowntimeSection('all');
+      setSelectedScrapSection('all');
+      setSelectedOtSection('all');
+
+      // 2. Completely isolate data variables; clear cached ghost figures immediately
+      tabSessionCache.remove(PRODUCTION_DASHBOARD_TAB_ID);
+      setProd(null);
+      setTrend([]);
+      setMachines([]);
+      setEntrySummary(null);
+      setScrapEntries([]);
+      setOtEntries([]);
+      setDepartments([]);
+
+      const updated = {
+        ...filters,
+        divisionId: newDivId || undefined,
+        departmentId: undefined, // Clear department selection on division change
+      };
+      setFilters(updated);
+
+      // 3. Immediately query departments: WHERE department.division_id = :selectedDivisionId AND status = 'ACTIVE'
+      const deptSeq = ++deptLoadSeqRef.current;
+      dashboardService.getFilterDepartments(newDivId || undefined).then((res) => {
+        if (deptSeq === deptLoadSeqRef.current && res.success) {
+          setDepartments(filterActiveDepartmentsList(res.data));
+        }
+      });
+
+      // 4. Immediately trigger multi-chart refresh loop
+      void load(updated);
+    },
+    [filters, load],
+  );
+
+  // Restore Last-Active Division from localStorage on mount and cascade all data queries
   useEffect(() => {
-    if (!tabSessionCache.has(PRODUCTION_DASHBOARD_TAB_ID) || !cachedTab?.prod || !cachedTab?.scrapEntries?.length) {
-      void load();
+    let persistedDivisionId: string | undefined;
+    try {
+      const rawPersisted = localStorage.getItem(LAST_ACTIVE_DIVISION_STORAGE_KEY) || undefined;
+      persistedDivisionId = normalizeDivisionId(rawPersisted);
+      if (persistedDivisionId && persistedDivisionId !== rawPersisted) {
+        localStorage.setItem(LAST_ACTIVE_DIVISION_STORAGE_KEY, persistedDivisionId);
+      }
+    } catch {
+      persistedDivisionId = undefined;
+    }
+
+    const activeDivisionId = persistedDivisionId || normalizeDivisionId(filters.divisionId);
+    const initialFilters = activeDivisionId
+      ? { ...filters, divisionId: activeDivisionId, departmentId: undefined }
+      : filters;
+
+    if (activeDivisionId && filters.divisionId !== activeDivisionId) {
+      setFilters(initialFilters);
+    }
+
+    const deptSeq = ++deptLoadSeqRef.current;
+    Promise.allSettled([
+      dashboardService.getFilterDivisions(),
+      dashboardService.getFilterDepartments(activeDivisionId, filters.sectionId),
+    ]).then(([d, depts]) => {
+      if (d.status === 'fulfilled' && d.value.success) {
+        setDivisions(mergeDivisionOptions(d.value.data));
+      }
+      if (deptSeq === deptLoadSeqRef.current && depts.status === 'fulfilled' && depts.value.success) {
+        setDepartments(filterActiveDepartmentsList(depts.value.data));
+      }
+    });
+
+    if (
+      persistedDivisionId ||
+      !tabSessionCache.has(PRODUCTION_DASHBOARD_TAB_ID) ||
+      !cachedTab?.prod ||
+      !cachedTab?.scrapEntries?.length
+    ) {
+      void load(initialFilters);
     }
   }, []);
+
+  useEffect(() => {
+    const deptSeq = ++deptLoadSeqRef.current;
+    dashboardService.getFilterDepartments(filters.divisionId, filters.sectionId).then((res) => {
+      if (deptSeq === deptLoadSeqRef.current && res.success) {
+        setDepartments(filterActiveDepartmentsList(res.data));
+      }
+    });
+  }, [filters.divisionId, filters.sectionId]);
 
   useEffect(() => {
     const handleGlobalRefresh = (e: Event) => {
@@ -453,128 +786,294 @@ export const ProductionDashboard: React.FC = () => {
   }, [trend]);
 
   // ── View States for Interactive Analytics Panels ────────────────────
+  // ── View States for Interactive Analytics Panels ────────────────────
   const [prodViewMode, setProdViewMode] = useState<'machine' | 'trend'>('machine');
-  const [selectedDowntimeSection, setSelectedDowntimeSection] = useState<string>('all');
-  const [selectedScrapSection, setSelectedScrapSection] = useState<string>('all');
   const [scrapViewMode, setScrapViewMode] = useState<'machine' | 'department' | 'item' | 'reason'>('machine');
-  const [selectedOtSection, setSelectedOtSection] = useState<string>('all');
   const [otViewMode, setOtViewMode] = useState<'operator' | 'machine'>('operator');
 
-  // Helper to filter machines by section strictly adhering to PWI department machine designations
+  // Global active department validator — hides any department set to INACTIVE in Organization Master
+  const isActiveDepartment = useCallback(
+    (deptId?: string | null, deptName?: string | null, rawDeptObj?: any): boolean => {
+      if (rawDeptObj) {
+        if (rawDeptObj.status && String(rawDeptObj.status).toUpperCase() !== 'ACTIVE') return false;
+        if (rawDeptObj.isActive === false || rawDeptObj.is_active === false) return false;
+      }
+      if (departments.length > 0) {
+        const nameLower = (deptName || '').trim().toLowerCase();
+        const isSpokePackingAlias =
+          nameLower === 'spoke packing' ||
+          nameLower === 'hand packing' ||
+          nameLower === 'packing' ||
+          nameLower === 'spoke packing department';
+        return departments.some((dep) => {
+          if (deptId && dep.id === deptId) return true;
+          const depLower = (dep.name || '').trim().toLowerCase();
+          if (nameLower && depLower === nameLower) return true;
+          if (
+            isSpokePackingAlias &&
+            (depLower === 'spoke packing' || depLower === 'packing' || dep.id === 'd3000000-0000-0000-0000-000000000008')
+          ) {
+            return true;
+          }
+          return false;
+        });
+      }
+      return true;
+    },
+    [departments],
+  );
+
+  const activeOtEntries = useMemo(() => {
+    return (otEntries || []).filter((r) =>
+      isActiveDepartment(
+        r.departmentId || r.department?.id,
+        r.department?.name || r.departmentName,
+        r.department,
+      ),
+    );
+  }, [otEntries, isActiveDepartment]);
+
+  const divisionSelectOptions = useMemo(() => {
+    const merged = mergeDivisionOptions(divisions);
+    const activeId = filters.divisionId;
+    if (activeId && !merged.some((d) => d.id === activeId)) {
+      merged.unshift({
+        id: activeId,
+        name: resolveDivisionDisplayName(activeId, merged),
+      });
+    }
+    return merged.map((d) => ({
+      value: d.id,
+      label: resolveDivisionDisplayName(d.id, merged),
+    }));
+  }, [divisions, filters.divisionId]);
+
+  // Dynamic Department Sub-Tabs binding directly to active division_id & ACTIVE status
+  const departmentTabs = useMemo<DeptTabItem[]>(() => {
+    const list: DeptTabItem[] = [{ id: 'all', name: 'All', abbr: 'ALL', label: 'All' }];
+    const scopedProdDepts =
+      prod?.departments && prod.departments.length > 0
+        ? (filters.divisionId
+            ? prod.departments.filter((d) => d.divisionId === filters.divisionId)
+            : prod.departments
+          ).filter((d) => isActiveDepartment(d.departmentId, d.departmentName, d))
+        : [];
+    const depts =
+      departments.length > 0
+        ? departments
+        : scopedProdDepts.map((d) => ({ id: d.departmentId, name: d.departmentName }));
+
+    for (const d of depts) {
+      if (!isActiveDepartment(d.id, d.name, d)) continue;
+      const abbr = getDepartmentAbbr(d.name, (d as any).code || (d as any).departmentCode);
+      list.push({
+        id: d.id,
+        name: d.name,
+        abbr,
+        label: `${d.name} (${abbr})`,
+      });
+    }
+    return list;
+  }, [departments, prod?.departments, filters.divisionId, isActiveDepartment]);
+
+  // Helper to filter machines by section / department adhering to active division & ACTIVE status
   const filterMachinesBySection = useCallback(
     (sec: string) => {
       if (!machines || machines.length === 0) return [];
-      if (sec === 'packing') {
-        const packMachines = machines.filter((m) => {
-          const dept = (m.departmentName || '').toUpperCase();
-          const code = (m.machineCode || '').toUpperCase();
-          return dept.includes('PACK') || code.startsWith('HAND-PACK') || code.startsWith('PKG') || code.startsWith('PKS');
-        });
-        if (packMachines.length > 0) return packMachines;
-        return [
-          { id: 'p1', machineCode: 'HAND-PACK-01', machineName: 'Spoke & Nipple Manual Hand Packing 1', departmentName: 'Spoke Packing', status: 'ACTIVE', criticality: 'HIGH', entryCount: 1, targetQuantity: 50000, actualQuantity: 48000, scrapQuantity: 0, processScrapKg: 0, runningHours: 8, downtimeHours: 0, avgAchievement: 96 },
-          { id: 'p2', machineCode: 'HAND-PACK-02', machineName: 'Spoke & Nipple Manual Hand Packing 2', department: 'Spoke Packing', departmentName: 'Spoke Packing', status: 'ACTIVE', criticality: 'HIGH', entryCount: 1, targetQuantity: 50000, actualQuantity: 47500, scrapQuantity: 0, processScrapKg: 0, runningHours: 8, downtimeHours: 0, avgAchievement: 95 },
-        ] as any[];
-      }
-      if (sec === 'all') {
-        return machines.filter((m) => {
-          const code = (m.machineCode || '').toUpperCase();
-          return (
-            code.startsWith('ST-') ||
-            code.startsWith('STR') ||
-            code.startsWith('SW-') ||
-            code.startsWith('SWG') ||
-            code.startsWith('SP-') ||
-            code.startsWith('SPK') ||
-            code.startsWith('BL-') ||
-            code.startsWith('HAND-PACK')
-          );
-        });
-      }
-      return machines.filter((m) => {
-        const code = (m.machineCode || '').toUpperCase().trim();
-        const dept = (m.departmentName || '').toUpperCase().trim();
+      const activeMachines = machines.filter((m) =>
+        isActiveDepartment((m as any).departmentId, m.departmentName, (m as any).department),
+      );
+      const divisionScopedMachines =
+        filters.divisionId && departments.length > 0
+          ? activeMachines.filter((m) => {
+              if ((m as any).divisionId) return (m as any).divisionId === filters.divisionId;
+              if ((m as any).departmentId) return departments.some((d) => d.id === (m as any).departmentId);
+              const mDept = (m.departmentName || '').toLowerCase().trim();
+              if (!mDept) return false;
+              return departments.some((d) => d.name.toLowerCase().trim() === mDept);
+            })
+          : activeMachines;
 
-        if (sec === 'straightener') {
-          return dept.includes('STRAIGHT') || code.startsWith('ST-') || code.startsWith('STR');
+      if (sec === 'all') {
+        return divisionScopedMachines;
+      }
+      return divisionScopedMachines.filter((m) => {
+        if ((m as any).departmentId && (m as any).departmentId === sec) return true;
+        const targetDept = departments.find((d) => d.id === sec);
+        if (targetDept) {
+          const mDept = (m.departmentName || '').toLowerCase().trim();
+          const tName = targetDept.name.toLowerCase().trim();
+          if (mDept === tName) return true;
         }
-        if (sec === 'swaging') {
-          return dept.includes('SWAG') || code.startsWith('SW-') || code.startsWith('SWG');
-        }
-        if (sec === 'spoke') {
-          if (dept.includes('SPIRAL') || dept.includes('PLAT') || dept.includes('PACK')) return false;
-          return dept.includes('SPOKE') || code.startsWith('SPK');
-        }
-        if (sec === 'plating') {
-          if (dept.includes('NIPPLE') || code === 'BL-10' || code === 'BL-11' || code === 'BL-12' || code.startsWith('NPL')) {
-            return false;
-          }
-          return dept.includes('PLAT') || (code.startsWith('BL-') && !code.startsWith('BL-1'));
-        }
-        if (sec === 'packing') {
-          return dept.includes('PACK') || code.startsWith('HAND-PACK') || code.startsWith('PKG') || code.startsWith('PKS');
-        }
-        return true;
+        const mCode = (m.machineCode || '').toLowerCase().trim();
+        const mName = (m.machineName || '').toLowerCase().trim();
+        const secLower = sec.toLowerCase().trim();
+        return mCode.includes(secLower) || mName.includes(secLower);
       });
     },
-    [machines],
+    [machines, departments, filters.divisionId, isActiveDepartment],
   );
 
   // ── Department Scorecard Matrix Data (PCS, KG, Rejection %, Plant Time, Overtime) ──
   const deptMatrix = useMemo(() => {
-    const defaultDepts = [
-      { id: 'd3000000-0000-0000-0000-000000000001', name: 'Straightener', target: 0, actual: 0, producedKg: 0, partRejectKg: 0, processScrapKg: 0, scrapKg: 0, scrapPct: 0, runningHours: 0, downHours: 0, totalHours: 0, runningPct: 0, downPct: 0, otHours: 0, eff: 0 },
-      { id: 'd3000000-0000-0000-0000-000000000002', name: 'Swagging', target: 0, actual: 0, producedKg: 0, partRejectKg: 0, processScrapKg: 0, scrapKg: 0, scrapPct: 0, runningHours: 0, downHours: 0, totalHours: 0, runningPct: 0, downPct: 0, otHours: 0, eff: 0 },
-      { id: 'd3000000-0000-0000-0000-000000000003', name: 'Spoke', target: 0, actual: 0, producedKg: 0, partRejectKg: 0, processScrapKg: 0, scrapKg: 0, scrapPct: 0, runningHours: 0, downHours: 0, totalHours: 0, runningPct: 0, downPct: 0, otHours: 0, eff: 0 },
-      { id: 'd3000000-0000-0000-0000-000000000006', name: 'Spoke Plating', target: 0, actual: 0, producedKg: 0, partRejectKg: 0, processScrapKg: 0, scrapKg: 0, scrapPct: 0, runningHours: 0, downHours: 0, totalHours: 0, runningPct: 0, downPct: 0, otHours: 0, eff: 0 },
-      { id: 'fd474329-e796-4343-831b-f95a9add41f0', name: 'Nipple Packing', target: 0, actual: 0, producedKg: 0, partRejectKg: 0, processScrapKg: 0, scrapKg: 0, scrapPct: 0, runningHours: 0, downHours: 0, totalHours: 0, runningPct: 0, downPct: 0, otHours: 0, eff: 0 },
-      { id: 'd3000000-0000-0000-0000-000000000008', name: 'Spoke Packing', target: 0, actual: 0, producedKg: 0, partRejectKg: 0, processScrapKg: 0, scrapKg: 0, scrapPct: 0, runningHours: 0, downHours: 0, totalHours: 0, runningPct: 0, downPct: 0, otHours: 0, eff: 0 },
-    ];
-
     if (prod?.departments && prod.departments.length > 0) {
-      const mapped = prod.departments.map((d) => {
-        const target = Number(d.targetQuantity || 0);
-        const actual = Number(d.actualQuantity || 0);
-        const producedKg = Math.round(actual * 0.008 * 10) / 10;
-        const deptLower = (d.departmentName || '').toLowerCase();
-        const isNoCuttingDept = deptLower.includes('pack') || deptLower.includes('plat');
-        const rawPart = Math.round(Number(d.scrapQuantity || 0) * 10) / 10;
-        const rawProc = Math.round(Number((d as any).processScrapKg || (d as any).processCuttingScrap || 0) * 10) / 10;
-        const partRejectKg = isNoCuttingDept ? Math.round((rawPart + rawProc) * 10) / 10 : rawPart;
-        const processScrapKg = isNoCuttingDept ? 0 : rawProc;
-        const scrapKg = Math.round((partRejectKg + processScrapKg) * 10) / 10;
-        const scrapPct = producedKg > 0 ? Math.round((scrapKg / producedKg) * 10000) / 100 : 0.0;
-        const runningHours = Math.round(Number(d.runningHours || 0) * 10) / 10;
-        const downHours = Math.round(Number(d.downtimeHours || 0) * 10) / 10;
-        const totalHours = Math.round((runningHours + downHours) * 10) / 10;
-        const runningPct = totalHours > 0 ? Math.round((runningHours / totalHours) * 1000) / 10 : 0.0;
-        const downPct = totalHours > 0 ? Math.round((downHours / totalHours) * 1000) / 10 : 0.0;
-        const otHours = Math.round(Number((d as any).overtimeHours || 0) * 10) / 10;
-        const eff = Number(d.achievementPercentage != null ? d.achievementPercentage : (target > 0 ? (actual / target) * 100 : 0));
-        return {
-          id: d.departmentId,
-          name: d.departmentName,
-          target,
-          actual,
-          producedKg,
-          partRejectKg,
-          processScrapKg,
-          scrapKg,
-          scrapPct,
-          runningHours,
-          downHours,
-          totalHours,
-          runningPct,
-          downPct,
-          otHours,
-          eff,
-        };
-      });
+      const filtered = (
+        filters.divisionId
+          ? prod.departments.filter((d) => {
+              if (d.divisionId && d.divisionId !== filters.divisionId) return false;
+              if (departments.length > 0) {
+                return isActiveDepartment(d.departmentId, d.departmentName, d);
+              }
+              return d.divisionId === filters.divisionId && isActiveDepartment(d.departmentId, d.departmentName, d);
+            })
+          : prod.departments.filter((d) => isActiveDepartment(d.departmentId, d.departmentName, d))
+      );
 
-      return mapped;
+      if (filtered.length > 0) {
+        return filtered.map((d) => {
+          const target = Number(d.targetQuantity || 0);
+          const actual = Number(d.actualQuantity || 0);
+          const deptObj = departments.find((dep) => dep.id === d.departmentId);
+          const deptLower = (d.departmentName || '').toLowerCase().trim();
+          let reportingUom = (d as any).primaryUom || (d as any).reportingUom || (deptObj as any)?.primaryUom || (deptObj as any)?.reportingUom || 'PCS';
+          let secondaryUom = (d as any).secondaryUom || (deptObj as any)?.secondaryUom || 'NONE';
+          
+          if (deptLower.includes('plat') && (deptLower.includes('spoke') || !deptLower.includes('nipple'))) {
+            reportingUom = 'GRS';
+            secondaryUom = 'PCS';
+          } else if (deptLower.includes('raw material') || deptLower.includes('rm')) {
+            reportingUom = 'KG';
+            secondaryUom = 'NONE';
+          }
+
+          const enableConversionBridge = Boolean((d as any).bridgeConversion ?? (d as any).enableConversionBridge ?? (deptObj as any)?.bridgeConversion ?? (deptObj as any)?.enableConversionBridge ?? true);
+          const avgWeightPerMeter = Number((d as any).avgWeightPerMeter) || Number((deptObj as any)?.avgWeightPerMeter) || 0.035;
+          const avgWeightPerPiece = Number((d as any).avgWeightPerPiece) || Number((deptObj as any)?.avgWeightPerPiece) || 0.008;
+
+          // Dynamic produced weight in KG
+          let producedKg = 0;
+          if (reportingUom === 'KG') {
+            producedKg = Math.round(actual * 10) / 10;
+          } else if (reportingUom === 'MTR' || reportingUom === 'METER') {
+            producedKg = Math.round(actual * avgWeightPerMeter * 10) / 10;
+          } else {
+            producedKg = Math.round(actual * avgWeightPerPiece * 10) / 10;
+          }
+
+          const isNoCuttingDept = deptLower.includes('pack') || deptLower.includes('plat');
+          const rawPart = Math.round(Number(d.scrapQuantity || 0) * 10) / 10;
+          const rawProc = Math.round(Number((d as any).processScrapKg || (d as any).processCuttingScrap || 0) * 10) / 10;
+          const partRejectKg = isNoCuttingDept ? Math.round((rawPart + rawProc) * 10) / 10 : rawPart;
+          const processScrapKg = isNoCuttingDept ? 0 : rawProc;
+          const scrapKg = Math.round((partRejectKg + processScrapKg) * 10) / 10;
+          const scrapPct = producedKg > 0 ? Math.round((scrapKg / producedKg) * 10000) / 100 : 0.0;
+          const runningHours = Math.round(Number(d.runningHours || 0) * 10) / 10;
+          const downHours = Math.round(Number(d.downtimeHours || 0) * 10) / 10;
+          const totalHours = Math.round((runningHours + downHours) * 10) / 10;
+          const runningPct = totalHours > 0 ? Math.round((runningHours / totalHours) * 1000) / 10 : 0.0;
+          const downPct = totalHours > 0 ? Math.round((downHours / totalHours) * 1000) / 10 : 0.0;
+          
+          // Case 2: Actively pool overtime from summary or individual entries
+          const directOt = Number((d as any).overtimeHours || 0);
+          const entriesOt = activeOtEntries
+            .filter((r) => {
+              const rDeptId = r.departmentId || r.department?.id;
+              if (rDeptId && rDeptId === d.departmentId) return true;
+              const rName = (r.department?.name || r.departmentName || '').toLowerCase().trim();
+              return rName === deptLower;
+            })
+            .reduce((sum, r) => sum + Number(r.overtimeHours || 0), 0);
+          const otHours = Math.round(Math.max(directOt, entriesOt) * 10) / 10;
+
+          const eff = Number(d.achievementPercentage != null ? d.achievementPercentage : (target > 0 ? (actual / target) * 100 : 0));
+
+          return {
+            id: d.departmentId,
+            name: d.departmentName,
+            reportingUom,
+            secondaryUom,
+            enableConversionBridge,
+            avgWeightPerMeter,
+            avgWeightPerPiece,
+            target,
+            actual,
+            producedKg,
+            partRejectKg,
+            processScrapKg,
+            scrapKg,
+            scrapPct,
+            runningHours,
+            downHours,
+            totalHours,
+            runningPct,
+            downPct,
+            otHours,
+            eff,
+          };
+        });
+      }
     }
-    return defaultDepts;
-  }, [prod]);
+
+    // When division filter is selected but no backend entries logged yet:
+    if (filters.divisionId) {
+      if (departments.length > 0) {
+        return departments.map((d) => {
+          const deptLower = (d.name || '').toLowerCase().trim();
+          const entriesOt = activeOtEntries
+            .filter((r) => {
+              const rDeptId = r.departmentId || r.department?.id;
+              if (rDeptId && rDeptId === d.id) return true;
+              const rName = (r.department?.name || r.departmentName || '').toLowerCase().trim();
+              return rName === deptLower;
+            })
+            .reduce((sum, r) => sum + Number(r.overtimeHours || 0), 0);
+          let reportingUom = (d as any).primaryUom || (d as any).reportingUom || 'PCS';
+          let secondaryUom = (d as any).secondaryUom || 'NONE';
+          if (deptLower.includes('plat') && (deptLower.includes('spoke') || !deptLower.includes('nipple'))) {
+            reportingUom = 'GRS';
+            secondaryUom = 'PCS';
+          } else if (deptLower.includes('raw material') || deptLower.includes('rm')) {
+            reportingUom = 'KG';
+            secondaryUom = 'NONE';
+          }
+          return {
+            id: d.id,
+            name: d.name,
+            reportingUom,
+            secondaryUom,
+            enableConversionBridge: Boolean((d as any).bridgeConversion ?? (d as any).enableConversionBridge),
+            avgWeightPerMeter: Number((d as any).avgWeightPerMeter) || 0.035,
+            avgWeightPerPiece: Number((d as any).avgWeightPerPiece) || 0.008,
+            target: 0,
+            actual: 0,
+            producedKg: 0,
+            partRejectKg: 0,
+            processScrapKg: 0,
+            scrapKg: 0,
+            scrapPct: 0,
+            runningHours: 0,
+            downHours: 0,
+            totalHours: 0,
+            runningPct: 0,
+            downPct: 0,
+            otHours: Math.round(entriesOt * 10) / 10,
+            eff: 0,
+          };
+        });
+      }
+      return [];
+    }
+
+    // Default canonical active Spoke departments only when no division filter is active
+    return [
+      { id: 'f8312f0c-ba1e-401a-80cd-43d6b5cc8c05', name: 'Raw Material (RM)', reportingUom: 'KG', secondaryUom: 'NONE', enableConversionBridge: true, avgWeightPerMeter: 0.035, avgWeightPerPiece: 1, target: 0, actual: 0, producedKg: 0, partRejectKg: 0, processScrapKg: 0, scrapKg: 0, scrapPct: 0, runningHours: 0, downHours: 0, totalHours: 0, runningPct: 0, downPct: 0, otHours: 0, eff: 0 },
+      { id: 'd3000000-0000-0000-0000-000000000001', name: 'Straightener', reportingUom: 'GRS', secondaryUom: 'PCS', enableConversionBridge: true, avgWeightPerMeter: 0.035, avgWeightPerPiece: 0.008, target: 0, actual: 0, producedKg: 0, partRejectKg: 0, processScrapKg: 0, scrapKg: 0, scrapPct: 0, runningHours: 0, downHours: 0, totalHours: 0, runningPct: 0, downPct: 0, otHours: 0, eff: 0 },
+      { id: 'd3000000-0000-0000-0000-000000000002', name: 'Swagging', reportingUom: 'GRS', secondaryUom: 'PCS', enableConversionBridge: true, avgWeightPerMeter: 0.035, avgWeightPerPiece: 0.008, target: 0, actual: 0, producedKg: 0, partRejectKg: 0, processScrapKg: 0, scrapKg: 0, scrapPct: 0, runningHours: 0, downHours: 0, totalHours: 0, runningPct: 0, downPct: 0, otHours: 0, eff: 0 },
+      { id: 'd3000000-0000-0000-0000-000000000003', name: 'Spoke', reportingUom: 'GRS', secondaryUom: 'PCS', enableConversionBridge: true, avgWeightPerMeter: 0.035, avgWeightPerPiece: 0.008, target: 0, actual: 0, producedKg: 0, partRejectKg: 0, processScrapKg: 0, scrapKg: 0, scrapPct: 0, runningHours: 0, downHours: 0, totalHours: 0, runningPct: 0, downPct: 0, otHours: 0, eff: 0 },
+      { id: 'd3000000-0000-0000-0000-000000000006', name: 'Spoke Plating', reportingUom: 'GRS', secondaryUom: 'PCS', enableConversionBridge: true, avgWeightPerMeter: 0.035, avgWeightPerPiece: 0.008, target: 0, actual: 0, producedKg: 0, partRejectKg: 0, processScrapKg: 0, scrapKg: 0, scrapPct: 0, runningHours: 0, downHours: 0, totalHours: 0, runningPct: 0, downPct: 0, otHours: 0, eff: 0 },
+      { id: 'd3000000-0000-0000-0000-000000000008', name: 'Spoke Packing', reportingUom: 'GRS', secondaryUom: 'PCS', enableConversionBridge: true, avgWeightPerMeter: 0.035, avgWeightPerPiece: 0.008, target: 0, actual: 0, producedKg: 0, partRejectKg: 0, processScrapKg: 0, scrapKg: 0, scrapPct: 0, runningHours: 0, downHours: 0, totalHours: 0, runningPct: 0, downPct: 0, otHours: 0, eff: 0 },
+    ].filter((d) => isActiveDepartment(d.id, d.name, d));
+  }, [prod, filters.divisionId, departments, activeOtEntries, isActiveDepartment]);
 
   // 1. Machine Output Chart Data
   const filteredMachines = useMemo(() => {
@@ -582,7 +1081,7 @@ export const ProductionDashboard: React.FC = () => {
   }, [filterMachinesBySection, selectedSection]);
 
   const machineChartData = useMemo(() => {
-    // When "All" is selected, display ALL DEPARTMENTS side-by-side
+    // When "All" is selected, display ALL DEPARTMENTS of active division side-by-side
     if (selectedSection === 'all') {
       return deptMatrix.map((d) => ({
         name: d.name,
@@ -593,17 +1092,6 @@ export const ProductionDashboard: React.FC = () => {
       }));
     }
 
-    // Packing Department: no physical machines, show Packing Lines & Customer Orders / Packs
-    if (selectedSection === 'packing') {
-      return [
-        { name: 'Crown Fit (CUS-001)', fullName: 'Crown Fit Auto Packs', target: 350000, actual: 342000, ach: 97.7 },
-        { name: 'Panther Tyres (CUS-002)', fullName: 'Panther Tyres OEM Export', target: 280000, actual: 265000, ach: 94.6 },
-        { name: 'Diamond Tyres (CUS-003)', fullName: 'Diamond OEM Cycle Line', target: 240000, actual: 232000, ach: 96.7 },
-        { name: 'Ali Shah Autos (CUS-005)', fullName: 'Ali Shah Commercial Boxes', target: 180000, actual: 168000, ach: 93.3 },
-        { name: 'Safety Stock (Buffer)', fullName: 'Finished Goods Safety Buffer', target: 200000, actual: 178400, ach: 89.2 },
-      ];
-    }
-
     return filteredMachines.map((m) => {
       const code = m.machineCode || m.machineName;
       const actual = Number(m.actualQuantity || 0);
@@ -611,7 +1099,7 @@ export const ProductionDashboard: React.FC = () => {
       const ach = target > 0 ? Math.round((actual / target) * 1000) / 10 : 0;
       return {
         name: code,
-        fullName: m.machineName,
+        fullName: m.machineName || code,
         actual,
         target,
         ach,
@@ -634,16 +1122,6 @@ export const ProductionDashboard: React.FC = () => {
       }));
     }
 
-    // Packing Department: Hand Packing lines breakdown
-    if (selectedDowntimeSection === 'packing') {
-      return [
-        { name: 'Line 1: Hand Packing', fullName: 'Spoke & Nipple Manual Hand Packing', runningHours: 110.0, downHours: 12.0, totalHours: 122.0, runPct: 90.2, downPct: 9.8 },
-        { name: 'Line 2: Header Pack', fullName: 'Polybag Heat Sealing & Header Packing', runningHours: 95.0, downHours: 14.0, totalHours: 109.0, runPct: 87.2, downPct: 12.8 },
-        { name: 'Line 3: Nipple Box Pack', fullName: 'Precision Nipple Counting & Boxing', runningHours: 105.0, downHours: 15.0, totalHours: 120.0, runPct: 87.5, downPct: 12.5 },
-        { name: 'Line 4: Master Carton', fullName: 'Carton Taping, Strapping & Dispatch Stage', runningHours: 110.0, downHours: 14.0, totalHours: 124.0, runPct: 88.7, downPct: 11.3 },
-      ];
-    }
-
     const machs = filterMachinesBySection(selectedDowntimeSection);
     return machs.map((m) => {
       const running = Number(m.runningHours || 0);
@@ -653,7 +1131,7 @@ export const ProductionDashboard: React.FC = () => {
       const downPct = total > 0 ? Math.round((down / total) * 1000) / 10 : 0;
       return {
         name: m.machineCode || m.machineName,
-        fullName: m.machineName,
+        fullName: m.machineName || m.machineCode,
         runningHours: running,
         downHours: down,
         totalHours: total,
@@ -667,17 +1145,20 @@ export const ProductionDashboard: React.FC = () => {
   const filteredScrapEntries = useMemo(() => {
     if (!scrapEntries || scrapEntries.length === 0) return [];
     return scrapEntries.filter((e) => {
+      const rowDeptId = e.departmentId || e.department?.id;
+      const dept = entryDepartmentLabel(e);
+      if (!isActiveDepartment(rowDeptId, dept, e.department)) return false;
       if (selectedScrapSection === 'all') return true;
-      const dept = entryDepartmentLabel(e).toLowerCase();
-      const mach = (e.machineNo || '').toLowerCase();
-      if (selectedScrapSection === 'straightener') return dept.includes('straight') || mach.startsWith('str') || mach.startsWith('st-');
-      if (selectedScrapSection === 'swaging') return dept.includes('swag') || mach.startsWith('swg') || mach.startsWith('sw-');
-      if (selectedScrapSection === 'spoke') return (dept === 'spoke' || (dept.includes('spoke') && !dept.includes('plat') && !dept.includes('pack'))) || mach.startsWith('spk');
-      if (selectedScrapSection === 'plating') return (dept.includes('plat') && !dept.includes('nipple')) || (mach.startsWith('bl-') && !mach.startsWith('bl-1'));
-      if (selectedScrapSection === 'packing') return dept.includes('pack') || mach.startsWith('hand-pack') || mach.startsWith('pkg') || mach.startsWith('pks');
-      return true;
+      if (rowDeptId && rowDeptId === selectedScrapSection) return true;
+      const deptLower = dept.toLowerCase().trim();
+      const targetDept = departments.find((d) => d.id === selectedScrapSection);
+      if (targetDept) {
+        const tName = targetDept.name.toLowerCase().trim();
+        if (deptLower === tName) return true;
+      }
+      return false;
     });
-  }, [scrapEntries, selectedScrapSection]);
+  }, [scrapEntries, selectedScrapSection, departments, isActiveDepartment]);
 
   // Machine-wise rejection data with Part Reject & Process Scrap separation
   const machineScrapData = useMemo<RejectionBarItem[]>(() => {
@@ -864,18 +1345,17 @@ export const ProductionDashboard: React.FC = () => {
     });
 
     if (selectedScrapSection !== 'all') {
+      const targetDept = departments.find((d) => d.id === selectedScrapSection);
+      const targetName = targetDept?.name.toLowerCase().trim();
       return depts.filter((d) => {
-        const name = d.name.toLowerCase();
-        if (selectedScrapSection === 'straightener') return name.includes('straight');
-        if (selectedScrapSection === 'swaging') return name.includes('swag');
-        if (selectedScrapSection === 'spoke') return name === 'spoke' || (name.includes('spoke') && !name.includes('plat') && !name.includes('pack'));
-        if (selectedScrapSection === 'plating') return name.includes('plat') && !name.includes('nipple');
-        if (selectedScrapSection === 'packing') return name.includes('pack');
-        return true;
+        if (d.department === targetDept?.name) return true;
+        const name = d.name.toLowerCase().trim();
+        if (targetName && (name === targetName || name.includes(targetName) || targetName.includes(name))) return true;
+        return false;
       });
     }
     return depts;
-  }, [deptMatrix, selectedScrapSection]);
+  }, [deptMatrix, selectedScrapSection, departments]);
 
   // Part / Item-wise rejection data
   const itemScrapData = useMemo<RejectionBarItem[]>(() => {
@@ -924,13 +1404,12 @@ export const ProductionDashboard: React.FC = () => {
         processScrapKg += d.processScrapKg;
       }
     } else {
+      const targetDept = departments.find((d) => d.id === selectedScrapSection);
+      const targetName = targetDept?.name.toLowerCase().trim();
       const match = deptMatrix.find((d) => {
-        const name = d.name.toLowerCase();
-        if (selectedScrapSection === 'straightener') return name.includes('straight');
-        if (selectedScrapSection === 'swaging') return name.includes('swag');
-        if (selectedScrapSection === 'spoke') return name === 'spoke' || (name.includes('spoke') && !name.includes('plat') && !name.includes('pack'));
-        if (selectedScrapSection === 'plating') return name.includes('plat') && !name.includes('nipple');
-        if (selectedScrapSection === 'packing') return name.includes('pack');
+        if (d.id && d.id === selectedScrapSection) return true;
+        const name = d.name.toLowerCase().trim();
+        if (targetName && (name === targetName || name.includes(targetName) || targetName.includes(name))) return true;
         return false;
       });
 
@@ -952,7 +1431,7 @@ export const ProductionDashboard: React.FC = () => {
       partRejectKg: Math.round(partRejectKg * 10) / 10,
       processScrapKg: Math.round(processScrapKg * 10) / 10,
     };
-  }, [scrapViewMode, itemScrapData, selectedScrapSection, deptMatrix, machineScrapData]);
+  }, [scrapViewMode, itemScrapData, selectedScrapSection, deptMatrix, machineScrapData, departments]);
 
   // Reason-wise defect distribution data
   const reasonScrapData = useMemo(() => {
@@ -987,15 +1466,15 @@ export const ProductionDashboard: React.FC = () => {
 
   // 4. Overtime Operations Data (Operator-wise & Machine-wise) with Deduplication
   const otChartData = useMemo(() => {
-    const matchOtDept = (deptName: string, sec: string) => {
+    const targetDept = selectedOtSection !== 'all' ? departments.find((d) => d.id === selectedOtSection) : null;
+    const targetName = targetDept?.name.toLowerCase().trim();
+
+    const matchOtDept = (deptName: string, sec: string, rowDeptId?: string) => {
       if (sec === 'all') return true;
-      const d = (deptName || '').toLowerCase();
-      if (sec === 'straightener') return d.includes('straight') || d.includes('str');
-      if (sec === 'swaging') return d.includes('swag');
-      if (sec === 'spoke') return (d.includes('spoke') || d.includes('spk')) && !d.includes('plat') && !d.includes('pack');
-      if (sec === 'plating') return d.includes('plat') || d.includes('barrel') || d.includes('bl');
-      if (sec === 'packing') return d.includes('pack') || d.includes('pkg');
-      return true;
+      if (rowDeptId && rowDeptId === sec) return true;
+      const d = (deptName || '').toLowerCase().trim();
+      if (targetName && (d === targetName || d.includes(targetName) || targetName.includes(d))) return true;
+      return false;
     };
 
     if (otViewMode === 'operator') {
@@ -1008,11 +1487,12 @@ export const ProductionDashboard: React.FC = () => {
        */
       const opMap = new Map<string, { name: string; dept: string; dailyMap: Map<string, number> }>();
 
-      for (const r of otEntries) {
+      for (const r of activeOtEntries) {
         const op = (r.operatorName || '').trim();
         if (!op) continue;
-        const dept = r.department?.name || r.departmentName || 'Spoke';
-        if (!matchOtDept(dept, selectedOtSection)) continue;
+        const dept = r.department?.name || r.departmentName || '';
+        const rowDeptId = r.departmentId || r.department?.id;
+        if (!matchOtDept(dept, selectedOtSection, rowDeptId)) continue;
 
         const dateKey = r.entryDate || (r.createdAt ? dayjs(r.createdAt).format('YYYY-MM-DD') : 'default-date');
         const h = Number(r.overtimeHours != null ? r.overtimeHours : (r.runningHours ? Number(r.runningHours) * 0.15 : 4));
@@ -1048,13 +1528,12 @@ export const ProductionDashboard: React.FC = () => {
     // Machine-wise overtime view — aggregated from the REAL overtime entries.
     const entryOt = (r: any) => Number(r.overtimeHours || 0);
     const entryDept = (r: any) => r.department?.name || r.departmentName || '';
-    const isPackingDept = (d: string) => d.toLowerCase().includes('pack');
     const norm = (s: string) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
     if (selectedOtSection === 'all') {
       // Department totals side-by-side
       const byDept = new Map<string, number>();
-      for (const r of otEntries) {
+      for (const r of activeOtEntries) {
         const h = entryOt(r);
         if (h <= 0) continue;
         const d = entryDept(r) || 'Unassigned';
@@ -1065,13 +1544,17 @@ export const ProductionDashboard: React.FC = () => {
         .sort((a, b) => b.hours - a.hours);
     }
 
-    const sectionEntries = otEntries.filter((r) => entryOt(r) > 0 && matchOtDept(entryDept(r), selectedOtSection));
+    const sectionEntries = activeOtEntries.filter((r) => {
+      const rowDeptId = r.departmentId || r.department?.id;
+      return entryOt(r) > 0 && matchOtDept(entryDept(r), selectedOtSection, rowDeptId);
+    });
 
-    if (selectedOtSection === 'packing') {
+    const isPackingDept = targetName ? targetName.includes('pack') : false;
+    if (isPackingDept) {
       // Packing has no machines — show overtime Part-wise (item / packing style)
       const byPart = new Map<string, { hours: number; dept: string }>();
       for (const r of sectionEntries) {
-        if (!isPackingDept(entryDept(r)) && !(r.machineNo || '').toUpperCase().startsWith('HAND-PACK')) continue;
+        if (!entryDept(r).toLowerCase().includes('pack') && !(r.machineNo || '').toUpperCase().startsWith('HAND-PACK')) continue;
         const style = /Style:\s*([^|]+)/i.exec(r.remarks || '')?.[1]?.trim();
         const part = (r.item?.name || r.item?.itemCode || style || 'Hand Packing').trim();
         const cur = byPart.get(part) || { hours: 0, dept: entryDept(r) || 'Packing' };
@@ -1083,7 +1566,7 @@ export const ProductionDashboard: React.FC = () => {
         .sort((a, b) => b.hours - a.hours);
     }
 
-    // Every machine of the section is shown (ST-01, ST-02 …), each with its own logged overtime
+    // Every machine of the section is shown, each with its own logged overtime
     const machs = filterMachinesBySection(selectedOtSection);
     const hoursByCode = new Map<string, number>();
     const extra = new Map<string, { hours: number; dept: string }>();
@@ -1113,7 +1596,7 @@ export const ProductionDashboard: React.FC = () => {
     });
     extra.forEach((v, code) => list.push({ name: code, fullName: code, hours: Math.round(v.hours * 10) / 10, dept: v.dept }));
     return list.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
-  }, [otViewMode, otEntries, selectedOtSection, filterMachinesBySection]);
+  }, [otViewMode, activeOtEntries, selectedOtSection, filterMachinesBySection, departments]);
 
   // Section summary helper for TOT = [ Target | Actual | Ach % ] badge requested by user
   const sectionSummary = useMemo(() => {
@@ -1124,13 +1607,12 @@ export const ProductionDashboard: React.FC = () => {
         ach: kpiMetrics.ach,
       };
     }
+    const targetDept = departments.find((d) => d.id === selectedSection);
+    const targetName = targetDept?.name.toLowerCase().trim();
     const deptMatch = deptMatrix.find((d) => {
-      const name = d.name.toLowerCase();
-      if (selectedSection === 'straightener') return name.includes('straight');
-      if (selectedSection === 'swaging') return name.includes('swag');
-      if (selectedSection === 'spoke') return name === 'spoke' || (name.includes('spoke') && !name.includes('plat') && !name.includes('pack'));
-      if (selectedSection === 'plating') return name.includes('plat');
-      if (selectedSection === 'packing') return name.includes('pack');
+      if (d.id && d.id === selectedSection) return true;
+      const name = d.name.toLowerCase().trim();
+      if (targetName && (name === targetName || name.includes(targetName) || targetName.includes(name))) return true;
       return false;
     });
     if (deptMatch) {
@@ -1147,7 +1629,7 @@ export const ProductionDashboard: React.FC = () => {
       actual: a,
       ach: t > 0 ? (a / t) * 100 : 85,
     };
-  }, [selectedSection, deptMatrix, kpiMetrics, filteredMachines]);
+  }, [selectedSection, deptMatrix, kpiMetrics, filteredMachines, departments]);
 
 
   const activeFilterCount = [filters.divisionId, filters.departmentId, filters.dateFrom].filter(Boolean).length;
@@ -1195,6 +1677,23 @@ export const ProductionDashboard: React.FC = () => {
           </div>
 
           <Space size={10} wrap>
+            {/* Main Division Filter Dropdown */}
+            <Select
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              placeholder="All Divisions"
+              style={{ minWidth: 200 }}
+              value={filters.divisionId}
+              onChange={handleDivisionChange}
+              options={divisionSelectOptions}
+              labelRender={(props) => {
+                const lbl = typeof props.label === 'string' ? props.label : '';
+                if (lbl && !/^[0-9a-f-]{32,36}$/i.test(lbl.trim())) return lbl;
+                return resolveDivisionDisplayName(String(props.value ?? ''), divisions);
+              }}
+            />
+
             {/* Quick L.E (Last Entry) Button */}
             <Tooltip title="Jump to Last Entry Date (L.E)">
               <Button
@@ -1338,10 +1837,26 @@ export const ProductionDashboard: React.FC = () => {
                 type="link"
                 size="small"
                 onClick={() => {
+                  try {
+                    localStorage.removeItem(LAST_ACTIVE_DIVISION_STORAGE_KEY);
+                  } catch {
+                    // ignore
+                  }
                   const empty = {};
                   setDatePreset('all');
+                  setSelectedSection('all');
+                  setSelectedDowntimeSection('all');
+                  setSelectedScrapSection('all');
+                  setSelectedOtSection('all');
+                  tabSessionCache.remove(PRODUCTION_DASHBOARD_TAB_ID);
+                  setProd(null);
+                  setTrend([]);
+                  setMachines([]);
+                  setEntrySummary(null);
+                  setScrapEntries([]);
+                  setOtEntries([]);
                   setFilters(empty);
-                  load(empty);
+                  void load(empty);
                 }}
                 style={{ fontSize: 12, padding: '0 4px', color: 'var(--theme-danger, #ef4444)' }}
               >
@@ -1386,11 +1901,17 @@ export const ProductionDashboard: React.FC = () => {
               <Select
                 allowClear
                 showSearch
+                optionFilterProp="label"
                 placeholder="All Divisions"
                 style={{ width: '100%' }}
                 value={filters.divisionId}
-                onChange={(v) => setFilters((p) => ({ ...p, divisionId: v, departmentId: undefined }))}
-                options={divisions.map((d) => ({ value: d.id, label: d.name }))}
+                onChange={handleDivisionChange}
+                options={divisionSelectOptions}
+                labelRender={(props) => {
+                  const lbl = typeof props.label === 'string' ? props.label : '';
+                  if (lbl && !/^[0-9a-f-]{32,36}$/i.test(lbl.trim())) return lbl;
+                  return resolveDivisionDisplayName(String(props.value ?? ''), divisions);
+                }}
               />
             </div>
 
@@ -1646,42 +2167,15 @@ export const ProductionDashboard: React.FC = () => {
             {prodViewMode === 'machine' && (
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
                 <div className="pwi-section-pill-bar">
-                  <span
-                    className={`pwi-section-pill ${selectedSection === 'all' ? 'pwi-section-pill--active' : ''}`}
-                    onClick={() => setSelectedSection('all')}
-                  >
-                    All
-                  </span>
-                  <span
-                    className={`pwi-section-pill ${selectedSection === 'straightener' ? 'pwi-section-pill--active' : ''}`}
-                    onClick={() => setSelectedSection('straightener')}
-                  >
-                    Straightener (STR)
-                  </span>
-                  <span
-                    className={`pwi-section-pill ${selectedSection === 'swaging' ? 'pwi-section-pill--active' : ''}`}
-                    onClick={() => setSelectedSection('swaging')}
-                  >
-                    Swaging (SWG)
-                  </span>
-                  <span
-                    className={`pwi-section-pill ${selectedSection === 'spoke' ? 'pwi-section-pill--active' : ''}`}
-                    onClick={() => setSelectedSection('spoke')}
-                  >
-                    Spoke (SPK)
-                  </span>
-                  <span
-                    className={`pwi-section-pill ${selectedSection === 'plating' ? 'pwi-section-pill--active' : ''}`}
-                    onClick={() => setSelectedSection('plating')}
-                  >
-                    Spoke Plating (BL)
-                  </span>
-                  <span
-                    className={`pwi-section-pill ${selectedSection === 'packing' ? 'pwi-section-pill--active' : ''}`}
-                    onClick={() => setSelectedSection('packing')}
-                  >
-                    Packing (PKG)
-                  </span>
+                  {departmentTabs.map((tab) => (
+                    <span
+                      key={tab.id}
+                      className={`pwi-section-pill ${selectedSection === tab.id ? 'pwi-section-pill--active' : ''}`}
+                      onClick={() => setSelectedSection(tab.id)}
+                    >
+                      {tab.label}
+                    </span>
+                  ))}
                 </div>
 
                 {/* TOT = [ Target | Actual | Ach % ] Badge requested by user */}
@@ -1689,23 +2183,15 @@ export const ProductionDashboard: React.FC = () => {
                   <span className="pwi-section-tot-label">
                     {selectedSection === 'all'
                       ? 'Total Output'
-                      : selectedSection === 'straightener'
-                      ? 'STR Total'
-                      : selectedSection === 'swaging'
-                      ? 'SWG Total'
-                      : selectedSection === 'spoke'
-                      ? 'SPK Total'
-                      : selectedSection === 'plating'
-                      ? 'Plating (BL) Total'
-                      : 'Packing (PKG) Total'}
+                      : `${departmentTabs.find((t) => t.id === selectedSection)?.abbr || 'Dept'} Total`}
                     :
                   </span>
                   <span className="pwi-section-tot-target" title="Target Standard">
-                    Plan: <strong>{formatNumber(sectionSummary.target, 0)}</strong> ({formatNumber(Math.round(sectionSummary.target / 144), 0)} GRS)
+                    Plan: <strong>{formatNumber(sectionSummary.target, 0)}</strong>
                   </span>
                   <span className="pwi-section-tot-sep">·</span>
                   <span className="pwi-section-tot-actual" title="Actual Good Output">
-                    Actual: <strong>{formatNumber(sectionSummary.actual, 0)}</strong> ({formatNumber(Math.round(sectionSummary.actual / 144), 0)} GRS)
+                    Actual: <strong>{formatNumber(sectionSummary.actual, 0)}</strong>
                   </span>
                   <span
                     className="pwi-section-tot-pct"
@@ -1719,10 +2205,8 @@ export const ProductionDashboard: React.FC = () => {
 
             <div style={{ width: '100%', height: 260 }}>
               {prodViewMode === 'machine' ? (
-                filteredMachines.length === 0 ? (
-                  <div style={{ textAlign: 'center', padding: '70px 0', color: 'var(--theme-text-muted, #94a3b8)', fontSize: 12 }}>
-                    No machines found in this section.
-                  </div>
+                machineChartData.length === 0 ? (
+                  <EmptyProductionState message="No Active Production Data Registered" />
                 ) : (
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={machineChartData} margin={{ top: 10, right: 10, left: -10, bottom: 4 }}>
@@ -1822,42 +2306,15 @@ export const ProductionDashboard: React.FC = () => {
 
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
               <div className="pwi-section-pill-bar">
-                <span
-                  className={`pwi-section-pill ${selectedDowntimeSection === 'all' ? 'pwi-section-pill--active' : ''}`}
-                  onClick={() => setSelectedDowntimeSection('all')}
-                >
-                  All
-                </span>
-                <span
-                  className={`pwi-section-pill ${selectedDowntimeSection === 'straightener' ? 'pwi-section-pill--active' : ''}`}
-                  onClick={() => setSelectedDowntimeSection('straightener')}
-                >
-                  Straightener (STR)
-                </span>
-                <span
-                  className={`pwi-section-pill ${selectedDowntimeSection === 'swaging' ? 'pwi-section-pill--active' : ''}`}
-                  onClick={() => setSelectedDowntimeSection('swaging')}
-                >
-                  Swaging (SWG)
-                </span>
-                <span
-                  className={`pwi-section-pill ${selectedDowntimeSection === 'spoke' ? 'pwi-section-pill--active' : ''}`}
-                  onClick={() => setSelectedDowntimeSection('spoke')}
-                >
-                  Spoke (SPK)
-                </span>
-                <span
-                  className={`pwi-section-pill ${selectedDowntimeSection === 'plating' ? 'pwi-section-pill--active' : ''}`}
-                  onClick={() => setSelectedDowntimeSection('plating')}
-                >
-                  Spoke Plating (BL)
-                </span>
-                <span
-                  className={`pwi-section-pill ${selectedDowntimeSection === 'packing' ? 'pwi-section-pill--active' : ''}`}
-                  onClick={() => setSelectedDowntimeSection('packing')}
-                >
-                  Packing (PKG)
-                </span>
+                {departmentTabs.map((tab) => (
+                  <span
+                    key={tab.id}
+                    className={`pwi-section-pill ${selectedDowntimeSection === tab.id ? 'pwi-section-pill--active' : ''}`}
+                    onClick={() => setSelectedDowntimeSection(tab.id)}
+                  >
+                    {tab.label}
+                  </span>
+                ))}
               </div>
 
               <div className="pwi-section-tot-badge" title="100% Plant Availability Breakdown">
@@ -1870,9 +2327,7 @@ export const ProductionDashboard: React.FC = () => {
 
             <div style={{ width: '100%', height: 260 }}>
               {downtimeChartData.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '70px 0', color: 'var(--theme-text-muted, #94a3b8)', fontSize: 12 }}>
-                  No downtime data recorded for this section.
-                </div>
+                <EmptyProductionState message="No Active Production Data Registered" />
               ) : (
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={downtimeChartData} margin={{ top: 10, right: 10, left: -10, bottom: 4 }}>
@@ -1954,42 +2409,15 @@ export const ProductionDashboard: React.FC = () => {
 
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
               <div className="pwi-section-pill-bar">
-                <span
-                  className={`pwi-section-pill ${selectedScrapSection === 'all' ? 'pwi-section-pill--active' : ''}`}
-                  onClick={() => setSelectedScrapSection('all')}
-                >
-                  All
-                </span>
-                <span
-                  className={`pwi-section-pill ${selectedScrapSection === 'straightener' ? 'pwi-section-pill--active' : ''}`}
-                  onClick={() => setSelectedScrapSection('straightener')}
-                >
-                  Straightener (STR)
-                </span>
-                <span
-                  className={`pwi-section-pill ${selectedScrapSection === 'swaging' ? 'pwi-section-pill--active' : ''}`}
-                  onClick={() => setSelectedScrapSection('swaging')}
-                >
-                  Swaging (SWG)
-                </span>
-                <span
-                  className={`pwi-section-pill ${selectedScrapSection === 'spoke' ? 'pwi-section-pill--active' : ''}`}
-                  onClick={() => setSelectedScrapSection('spoke')}
-                >
-                  Spoke (SPK)
-                </span>
-                <span
-                  className={`pwi-section-pill ${selectedScrapSection === 'plating' ? 'pwi-section-pill--active' : ''}`}
-                  onClick={() => setSelectedScrapSection('plating')}
-                >
-                  Spoke Plating (BL)
-                </span>
-                <span
-                  className={`pwi-section-pill ${selectedScrapSection === 'packing' ? 'pwi-section-pill--active' : ''}`}
-                  onClick={() => setSelectedScrapSection('packing')}
-                >
-                  Packing (PKG)
-                </span>
+                {departmentTabs.map((tab) => (
+                  <span
+                    key={tab.id}
+                    className={`pwi-section-pill ${selectedScrapSection === tab.id ? 'pwi-section-pill--active' : ''}`}
+                    onClick={() => setSelectedScrapSection(tab.id)}
+                  >
+                    {tab.label}
+                  </span>
+                ))}
               </div>
 
               {/* Total Rejection Breakdown Badge (Separates Part Reject from Process Cutting Scrap) */}
@@ -2020,11 +2448,7 @@ export const ProductionDashboard: React.FC = () => {
                       : machineScrapData;
 
                   if (chartData.length === 0) {
-                    return (
-                      <div style={{ textAlign: 'center', padding: '70px 0', color: 'var(--theme-text-muted, #94a3b8)', fontSize: 12 }}>
-                        No scrap records found for this selection.
-                      </div>
-                    );
+                    return <EmptyProductionState message="No Active Production Data Registered" />;
                   }
 
                   return (
@@ -2109,9 +2533,7 @@ export const ProductionDashboard: React.FC = () => {
                 })()
               ) : (
                 reasonScrapData.length === 0 ? (
-                  <div style={{ textAlign: 'center', padding: '70px 0', color: 'var(--theme-text-muted, #94a3b8)', fontSize: 12 }}>
-                    No defect records found for this selection.
-                  </div>
+                  <EmptyProductionState message="No Active Production Data Registered" />
                 ) : (
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={reasonScrapData} margin={{ top: 10, right: 10, left: -10, bottom: 4 }}>
@@ -2177,49 +2599,20 @@ export const ProductionDashboard: React.FC = () => {
             </div>
 
             <div className="pwi-section-pill-bar" style={{ marginBottom: 12 }}>
-              <span
-                className={`pwi-section-pill ${selectedOtSection === 'all' ? 'pwi-section-pill--active' : ''}`}
-                onClick={() => setSelectedOtSection('all')}
-              >
-                All
-              </span>
-              <span
-                className={`pwi-section-pill ${selectedOtSection === 'straightener' ? 'pwi-section-pill--active' : ''}`}
-                onClick={() => setSelectedOtSection('straightener')}
-              >
-                Straightener (STR)
-              </span>
-              <span
-                className={`pwi-section-pill ${selectedOtSection === 'swaging' ? 'pwi-section-pill--active' : ''}`}
-                onClick={() => setSelectedOtSection('swaging')}
-              >
-                Swaging (SWG)
-              </span>
-              <span
-                className={`pwi-section-pill ${selectedOtSection === 'spoke' ? 'pwi-section-pill--active' : ''}`}
-                onClick={() => setSelectedOtSection('spoke')}
-              >
-                Spoke (SPK)
-              </span>
-              <span
-                className={`pwi-section-pill ${selectedOtSection === 'plating' ? 'pwi-section-pill--active' : ''}`}
-                onClick={() => setSelectedOtSection('plating')}
-              >
-                Spoke Plating (BL)
-              </span>
-              <span
-                className={`pwi-section-pill ${selectedOtSection === 'packing' ? 'pwi-section-pill--active' : ''}`}
-                onClick={() => setSelectedOtSection('packing')}
-              >
-                Packing (PKG)
-              </span>
+              {departmentTabs.map((tab) => (
+                <span
+                  key={tab.id}
+                  className={`pwi-section-pill ${selectedOtSection === tab.id ? 'pwi-section-pill--active' : ''}`}
+                  onClick={() => setSelectedOtSection(tab.id)}
+                >
+                  {tab.label}
+                </span>
+              ))}
             </div>
 
             <div style={{ width: '100%', height: 260 }}>
               {otChartData.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '70px 0', color: 'var(--theme-text-muted, #94a3b8)', fontSize: 12 }}>
-                  No overtime hours logged for this selection.
-                </div>
+                <EmptyProductionState message="No Active Production Data Registered" />
               ) : (
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={otChartData} margin={{ top: 10, right: 10, left: -10, bottom: 4 }}>
@@ -2255,6 +2648,17 @@ export const ProductionDashboard: React.FC = () => {
           </div>
         </div>
 
+        {/* ── Sequential Shop Floor Accounting (Inflow / Outflow / Live WIP Ledger) ── */}
+        <DepartmentProductionLedger
+          divisionId={filters.divisionId}
+          departmentId={selectedSection !== 'all' ? selectedSection : filters.departmentId}
+          onDepartmentChange={(deptId) => {
+            if (deptId && deptId !== 'RM-STORE' && deptId !== 'FG-DISPATCH') {
+              setSelectedSection(deptId);
+            }
+          }}
+        />
+
         {/* ── Bottom Section: Department Performance Matrix & Direct Shortcuts ── */}
         <div className="pwi-panel">
           <div className="pwi-panel__header">
@@ -2275,10 +2679,10 @@ export const ProductionDashboard: React.FC = () => {
                     <ApartmentOutlined className="th-icon" style={{ color: 'var(--theme-primary, #0ea5e9)' }} /> Department
                   </th>
                   <th style={{ textAlign: 'right' }}>
-                    <AimOutlined className="th-icon" style={{ color: '#0ea5e9' }} /> Target Qty (GRS &amp; PCS)
+                    <AimOutlined className="th-icon" style={{ color: '#0ea5e9' }} /> Target Quantity
                   </th>
                   <th style={{ textAlign: 'right' }}>
-                    <CheckCircleOutlined className="th-icon" style={{ color: '#10b981' }} /> Good Production (GRS, PCS &amp; KG)
+                    <CheckCircleOutlined className="th-icon" style={{ color: '#10b981' }} /> Good Production
                   </th>
                   <th style={{ textAlign: 'right' }}>
                     <ThunderboltOutlined className="th-icon" style={{ color: '#3b82f6' }} /> Plant Efficiency (OEE)
@@ -2296,47 +2700,75 @@ export const ProductionDashboard: React.FC = () => {
                 </tr>
               </thead>
               <tbody>
-                {deptMatrix.map((d) => (
-                  <tr key={d.id}>
-                    <td>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span
-                          style={{
-                            width: 8,
-                            height: 8,
-                            borderRadius: '50%',
-                            background: 'var(--theme-primary, #0ea5e9)',
-                            display: 'inline-block',
-                            flexShrink: 0,
-                          }}
-                        />
-                        <span style={{ fontWeight: 700, color: 'var(--theme-text, #0f172a)', fontSize: 13 }}>
-                          {d.name}
-                        </span>
-                      </div>
+                {deptMatrix.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} style={{ padding: '40px 16px', textAlign: 'center' }}>
+                      <EmptyProductionState message="No Active Production Data Registered" />
                     </td>
-                    <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                      <div style={{ fontWeight: 800, color: '#0ea5e9', fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4 }}>
-                        <span>{formatNumber(Math.round(d.target / 144), 0)}</span>
-                        <span style={{ fontSize: 9.5, fontWeight: 700, color: '#0284c7', background: 'rgba(14, 165, 233, 0.12)', padding: '1px 5px', borderRadius: 4 }}>GRS</span>
-                      </div>
-                      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginTop: 1 }}>
-                        {formatNumber(d.target, 0)} PCS
-                      </div>
-                    </td>
-                    <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                      <div style={{ fontWeight: 800, color: '#10b981', fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4 }}>
-                        <span>{formatNumber(Math.round(d.actual / 144), 0)}</span>
-                        <span style={{ fontSize: 9.5, fontWeight: 700, color: '#059669', background: 'rgba(16, 185, 129, 0.12)', padding: '1px 5px', borderRadius: 4, letterSpacing: '0.02em' }}>GRS</span>
-                      </div>
-                      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--theme-text, #0f172a)', marginTop: 1 }}>
-                        {formatNumber(d.actual, 0)}{' '}
-                        <span style={{ fontSize: 9.5, fontWeight: 500, color: 'var(--theme-text-muted, #64748b)' }}>PCS</span>
-                      </div>
-                      <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)' }}>
-                        {formatNumber(d.producedKg, 1)} KG
-                      </div>
-                    </td>
+                  </tr>
+                ) : (
+                  deptMatrix.map((d) => {
+                    const targetUnits = resolveDynamicUnits(
+                      d.target,
+                      d.reportingUom,
+                      d.secondaryUom,
+                      d.enableConversionBridge,
+                      d.avgWeightPerMeter,
+                      d.avgWeightPerPiece,
+                    );
+                    const actualUnits = resolveDynamicUnits(
+                      d.actual,
+                      d.reportingUom,
+                      d.secondaryUom,
+                      d.enableConversionBridge,
+                      d.avgWeightPerMeter,
+                      d.avgWeightPerPiece,
+                    );
+                    return (
+                      <tr key={d.id}>
+                        <td>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span
+                              style={{
+                                width: 8,
+                                height: 8,
+                                borderRadius: '50%',
+                                background: 'var(--theme-primary, #0ea5e9)',
+                                display: 'inline-block',
+                                flexShrink: 0,
+                              }}
+                            />
+                            <span style={{ fontWeight: 700, color: 'var(--theme-text, #0f172a)', fontSize: 13 }}>
+                              {d.name}
+                            </span>
+                          </div>
+                        </td>
+                        <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                          <div style={{ fontWeight: 800, color: '#0ea5e9', fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4 }}>
+                            <span>{targetUnits.primaryText}</span>
+                            <span style={{ fontSize: 9.5, fontWeight: 700, color: '#0284c7', background: 'rgba(14, 165, 233, 0.12)', padding: '1px 5px', borderRadius: 4 }}>
+                              {targetUnits.primaryBadge}
+                            </span>
+                          </div>
+                          {targetUnits.secondaryText && (
+                            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginTop: 1 }}>
+                              {targetUnits.secondaryText}
+                            </div>
+                          )}
+                        </td>
+                        <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                          <div style={{ fontWeight: 800, color: '#10b981', fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4 }}>
+                            <span>{actualUnits.primaryText}</span>
+                            <span style={{ fontSize: 9.5, fontWeight: 700, color: '#059669', background: 'rgba(16, 185, 129, 0.12)', padding: '1px 5px', borderRadius: 4, letterSpacing: '0.02em' }}>
+                              {actualUnits.primaryBadge}
+                            </span>
+                          </div>
+                          {actualUnits.secondaryText && (
+                            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--theme-text, #0f172a)', marginTop: 1 }}>
+                              {actualUnits.secondaryText}
+                            </div>
+                          )}
+                        </td>
                     <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', minWidth: 110 }}>
                       <span style={{ color: d.eff >= 80 ? '#10b981' : '#f59e0b', fontWeight: 700, fontSize: 13 }}>
                         {d.eff.toFixed(1)}%
@@ -2434,7 +2866,9 @@ export const ProductionDashboard: React.FC = () => {
                       </Space>
                     </td>
                   </tr>
-                ))}
+                );
+              })
+            )}
               </tbody>
             </table>
           </div>

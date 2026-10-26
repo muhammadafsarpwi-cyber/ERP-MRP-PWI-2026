@@ -98,6 +98,7 @@ const DISCOVERED_ROUTES: string[] = [
   // therefore failed the "every leaf nav key maps to a registered route" test).
   '/reports',
   '/customers',
+  '/customers/analytics',
   '/sales/analytics',
   '/sales/finished-goods',
   '/sales/quotations', '/sales/orders', '/sales/orders-division-review', '/sales/deliveries',

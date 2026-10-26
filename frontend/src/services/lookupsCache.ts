@@ -190,7 +190,48 @@ export function isProductionDivision(div: { name?: string; divisionCode?: string
 }
 
 const CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes TTL for in-memory cache
-const STORAGE_KEY = 'erp_lookups_cache_v2027_p4';
+const STORAGE_KEY = 'erp_lookups_cache_v2027_p7_lifecycle';
+const LEGACY_STORAGE_KEYS = [
+  'erp_lookups_cache_v2027_p4',
+  'erp_lookups_cache_v2027_p3',
+  'erp_lookups_cache_v2027_p2',
+  'erp_lookups_cache_v2027',
+];
+
+/**
+ * Authoritative 7-Stage Manufacturing Lifecycle Sequence:
+ * [RM-STORE ➔ STR ➔ SWG ➔ SPK ➔ PL ➔ PKG ➔ FG-DISPATCH]
+ */
+export interface CanonicalLifecycleStage {
+  key: string;
+  code: string;
+  abbr: string;
+  name: string;
+  stageOrder: number;
+  defaultDepartmentId: string;
+  prevName: string;
+  nextName: string;
+}
+
+export const CANONICAL_SPOKE_LIFECYCLE_STAGES: CanonicalLifecycleStage[] = [
+  { key: 'rm-store', code: 'RM-STORE', abbr: 'RM-STORE', name: 'Raw Material Stores (RM Wire Coil)', stageOrder: 1, defaultDepartmentId: 'RM-STORE', prevName: 'Vendor / Mill Wire Coil Receipt', nextName: 'Wire Straightening (Straightener)' },
+  { key: 'straightener', code: 'SPD-DEPT001', abbr: 'STR', name: 'Straightener', stageOrder: 2, defaultDepartmentId: 'd3000000-0000-0000-0000-000000000001', prevName: 'Raw Material Stores (RM Wire Coil)', nextName: 'Swaging / Spoke Heading (Dynamic Route)' },
+  { key: 'swaging', code: 'SPD-DEPT002', abbr: 'SWG', name: 'Swaging', stageOrder: 3, defaultDepartmentId: 'd3000000-0000-0000-0000-000000000002', prevName: 'Straightener (Swaged Route Only)', nextName: 'Spoke Heading' },
+  { key: 'spoke', code: 'SPD-DEPT003', abbr: 'SPK', name: 'Spoke (Header)', stageOrder: 4, defaultDepartmentId: 'd3000000-0000-0000-0000-000000000003', prevName: 'Swaging + Direct Straightener Bypass', nextName: 'Spoke Plating' },
+  { key: 'plating', code: 'SPD-DEPT006', abbr: 'PL', name: 'Spoke Plating', stageOrder: 5, defaultDepartmentId: 'd3000000-0000-0000-0000-000000000006', prevName: 'Spoke Heading', nextName: 'Spoke Packing' },
+  { key: 'packing', code: 'SPD-DEPT008', abbr: 'PKG', name: 'Spoke Packing', stageOrder: 6, defaultDepartmentId: 'd3000000-0000-0000-0000-000000000008', prevName: 'Spoke Plating', nextName: 'Dispatch / FG Logistics' },
+  { key: 'dispatch', code: 'FG-DISPATCH', abbr: 'FG-DISPATCH', name: 'Dispatch / FG Logistics', stageOrder: 7, defaultDepartmentId: 'FG-DISPATCH', prevName: 'Spoke Packing', nextName: 'Customer Gate / Sales Dispatch' },
+];
+
+export const CANONICAL_CCD_LIFECYCLE_STAGES: CanonicalLifecycleStage[] = [
+  { key: 'rm-store-ccd', code: 'RM-STORE', abbr: 'RM-STORE', name: 'Raw Material Stores (RM Wire Coil)', stageOrder: 1, defaultDepartmentId: 'RM-STORE', prevName: 'Vendor / Wire Rod Receipt', nextName: 'Flattening' },
+  { key: 'flattening', code: 'CCD-DEPT001', abbr: 'FT', name: 'Flattening', stageOrder: 2, defaultDepartmentId: 'd3000000-0000-0000-0000-000000000010', prevName: 'Raw Material Stores (RM Wire Coil)', nextName: 'Spiral' },
+  { key: 'spiral', code: 'CCD-DEPT002', abbr: 'SP', name: 'Spiral', stageOrder: 3, defaultDepartmentId: 'd3000000-0000-0000-0000-000000000011', prevName: 'Flattening', nextName: 'PVC Coating' },
+  { key: 'pvc', code: 'CCD-DEPT003', abbr: 'PVC', name: 'PVC Coating', stageOrder: 4, defaultDepartmentId: 'd3000000-0000-0000-0000-000000000012', prevName: 'Spiral', nextName: 'Assembly' },
+  { key: 'assembly', code: 'CCD-DEPT004', abbr: 'ASY', name: 'Assembly', stageOrder: 5, defaultDepartmentId: 'CCD-DEPT004', prevName: 'PVC Coating', nextName: 'Packing' },
+  { key: 'packing', code: 'CCD-DEPT005', abbr: 'PKG', name: 'Packing', stageOrder: 6, defaultDepartmentId: 'CCD-DEPT005', prevName: 'Assembly', nextName: 'Dispatch / FG Logistics' },
+  { key: 'dispatch-ccd', code: 'FG-DISPATCH', abbr: 'FG-DISPATCH', name: 'Dispatch / FG Logistics', stageOrder: 7, defaultDepartmentId: 'FG-DISPATCH', prevName: 'Packing', nextName: 'Customer Gate / Sales Dispatch' },
+];
 
 let memoryCache: LookupsSnapshot | null = null;
 let activePrefetchPromise: Promise<LookupsSnapshot> | null = null;
@@ -198,6 +239,9 @@ const listeners = new Set<(snap: LookupsSnapshot) => void>();
 
 function safeLoadStorage(): LookupsSnapshot | null {
   try {
+    for (const legacyKey of LEGACY_STORAGE_KEYS) {
+      localStorage.removeItem(legacyKey);
+    }
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
@@ -246,6 +290,11 @@ export function getLookupsSnapshot(): LookupsSnapshot {
     // Ensure divisions are filtered to 4 production divisions
     fromStorage.divisions = fromStorage.divisions.filter(isProductionDivision);
     if (fromStorage.divisions.length === 0) fromStorage.divisions = CANONICAL_PRODUCTION_DIVISIONS;
+    if (Array.isArray(fromStorage.departments)) {
+      fromStorage.departments = fromStorage.departments.filter(
+        (d) => (!d.status || String(d.status).toUpperCase() === 'ACTIVE') && (d as any).isActive !== false,
+      );
+    }
     if (!fromStorage.warehouses || fromStorage.warehouses.length === 0) fromStorage.warehouses = FALLBACK_WAREHOUSES;
     memoryCache = fromStorage;
     return fromStorage;
@@ -319,7 +368,13 @@ export async function prefetchAllLookups(forceRefresh = false): Promise<LookupsS
       const prodDivisions = rawDivisions.filter(isProductionDivision);
       const divisions = prodDivisions.length > 0 ? prodDivisions : CANONICAL_PRODUCTION_DIVISIONS;
 
-      const validDepartments = departments.filter((d) => d.divisionId && d.sectionId);
+      const validDepartments = departments.filter(
+        (d) =>
+          d.divisionId &&
+          d.sectionId &&
+          (!d.status || String(d.status).toUpperCase() === 'ACTIVE') &&
+          (d as any).isActive !== false,
+      );
       const activeConversions = conversions.filter((c) => c.status === 'ACTIVE');
       const warehouses = rawWarehouses.length > 0 ? rawWarehouses : FALLBACK_WAREHOUSES;
 
@@ -400,4 +455,35 @@ export function cacheDepartmentItems(deptId: string, items: CachedItem[]) {
 export function getCachedDepartmentItems(deptId: string): CachedItem[] | undefined {
   const current = getLookupsSnapshot();
   return current.deptItemsMap[deptId];
+}
+
+export function addCachedDowntimeReason(reason: { id: string; name: string; code?: string }): void {
+  if (!reason || !reason.id || !reason.name) return;
+  const current = getLookupsSnapshot();
+  const exists = current.downtimeReasons.some(
+    (r) => r.id === reason.id || r.name.toLowerCase() === reason.name.trim().toLowerCase(),
+  );
+  if (exists) return;
+
+  const nextReasons = [
+    ...current.downtimeReasons,
+    {
+      id: reason.id,
+      name: reason.name.trim(),
+      code: reason.code || reason.name.trim().toUpperCase().replace(/[^A-Z0-9_]/g, '_').slice(0, 50),
+    },
+  ];
+
+  const updatedSnapshot: LookupsSnapshot = {
+    ...current,
+    downtimeReasons: nextReasons,
+    timestamp: Date.now(),
+  };
+
+  memoryCache = updatedSnapshot;
+  safeSaveStorage(updatedSnapshot);
+
+  listeners.forEach((cb) => {
+    try { cb(updatedSnapshot); } catch {}
+  });
 }

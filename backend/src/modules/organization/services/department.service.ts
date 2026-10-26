@@ -139,8 +139,17 @@ export class DepartmentService {
       }
     }
 
+    const primaryUom = (createDepartmentDto.primaryUom || createDepartmentDto.reportingUom || 'PCS').toUpperCase();
+    const secondaryUom = (createDepartmentDto.secondaryUom || 'NONE').toUpperCase();
+    const bridgeConversion = Boolean(createDepartmentDto.bridgeConversion ?? createDepartmentDto.enableConversionBridge ?? false);
+
     const department = this.departmentRepository.create({
       ...createDepartmentDto,
+      primaryUom,
+      reportingUom: primaryUom,
+      secondaryUom,
+      bridgeConversion,
+      enableConversionBridge: bridgeConversion,
       divisionId: createDepartmentDto.divisionId || (null as any),
       sectionId: createDepartmentDto.sectionId || (null as any),
       branchId: createDepartmentDto.branchId || (null as any),
@@ -339,6 +348,19 @@ export class DepartmentService {
     }
     if (updateDepartmentDto.parentDepartmentId !== undefined) {
       updatePayload.parentDepartmentId = updateDepartmentDto.parentDepartmentId || null;
+    }
+    if (updateDepartmentDto.primaryUom !== undefined || updateDepartmentDto.reportingUom !== undefined) {
+      const uom = (updateDepartmentDto.primaryUom || updateDepartmentDto.reportingUom || 'PCS').toUpperCase();
+      updatePayload.primaryUom = uom;
+      updatePayload.reportingUom = uom;
+    }
+    if (updateDepartmentDto.secondaryUom !== undefined) {
+      updatePayload.secondaryUom = (updateDepartmentDto.secondaryUom || 'NONE').toUpperCase();
+    }
+    if (updateDepartmentDto.bridgeConversion !== undefined || updateDepartmentDto.enableConversionBridge !== undefined) {
+      const bridge = Boolean(updateDepartmentDto.bridgeConversion ?? updateDepartmentDto.enableConversionBridge);
+      updatePayload.bridgeConversion = bridge;
+      updatePayload.enableConversionBridge = bridge;
     }
 
     // Direct database update eliminates TypeORM relation cache conflict

@@ -543,3 +543,19 @@ export class MachineEntryStatusQueryDto {
   @IsUUID('loose')
   departmentId?: string;
 }
+
+export class CreateDowntimeReasonDto {
+  @IsString()
+  @MaxLength(255)
+  name!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  code?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  description?: string | null;
+}

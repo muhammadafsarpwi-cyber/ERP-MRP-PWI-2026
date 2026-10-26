@@ -12,6 +12,21 @@ export enum DepartmentStatus {
   INACTIVE = 'INACTIVE',
 }
 
+export enum PrimaryUom {
+  KG = 'KG',
+  METER = 'METER',
+  PCS = 'PCS',
+  GRS = 'GRS',
+}
+
+export enum SecondaryUom {
+  KG = 'KG',
+  METER = 'METER',
+  PCS = 'PCS',
+  GRS = 'GRS',
+  NONE = 'NONE',
+}
+
 @Entity('departments')
 export class Department extends BaseEntity {
   @Column({ name: 'company_id', type: 'uuid' })
@@ -70,6 +85,21 @@ export class Department extends BaseEntity {
 
   @Column({ type: 'varchar', length: 20, default: DepartmentStatus.ACTIVE })
   status: DepartmentStatus;
+
+  @Column({ name: 'reporting_uom', type: 'varchar', length: 20, default: 'PCS' })
+  reportingUom: string;
+
+  @Column({ name: 'primary_uom', type: 'varchar', length: 20, default: 'PCS' })
+  primaryUom: string;
+
+  @Column({ name: 'secondary_uom', type: 'varchar', length: 20, default: 'NONE', nullable: true })
+  secondaryUom: string | null;
+
+  @Column({ name: 'enable_conversion_bridge', type: 'boolean', default: false })
+  enableConversionBridge: boolean;
+
+  @Column({ name: 'bridge_conversion', type: 'boolean', default: false })
+  bridgeConversion: boolean;
 
   @OneToMany(() => DepartmentDivisionScope, (scope) => scope.department)
   divisionScopes: DepartmentDivisionScope[];

@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException, ConflictException, ForbiddenException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, EntityManager, DeepPartial, In, DataSource } from 'typeorm';
+import { Repository, EntityManager, DeepPartial, In, DataSource, ILike } from 'typeorm';
 import {
   ProductionEntry,
   ProductionEntryItem,
@@ -9,9 +9,10 @@ import {
   Machine,
   Shift,
   DowntimeReason,
+  DowntimeReasonStatus,
 } from '../entities';
 import type { ProductionEntryNestedItem } from '../entities';
-import { CreateProductionEntryDto, UpdateProductionEntryDto, CreateMachineDto } from '../dto';
+import { CreateProductionEntryDto, UpdateProductionEntryDto, CreateMachineDto, CreateDowntimeReasonDto } from '../dto';
 import { Item, Uom, UomConversion } from '../../item/entities';
 import { Division, Section, Department, Warehouse, WarehouseType } from '../../organization/entities';
 import { BillOfMaterials, BomLine, BomStatus } from '../../bom/entities';
@@ -1268,10 +1269,59 @@ addToDept(org, {
   }
 
   async findDowntimeReasons(companyId: string): Promise<DowntimeReason[]> {
+    const effectiveCompanyId = companyId || '7725aa04-a270-4314-9e82-90949cbe7791';
     return this.downtimeReasonRepo.find({
-      where: { companyId, isActive: true },
-      order: { code: 'ASC' },
+      where: { companyId: effectiveCompanyId, isActive: true },
+      order: { name: 'ASC' },
     });
+  }
+
+  async createDowntimeReason(
+    companyId: string,
+    dto: CreateDowntimeReasonDto,
+    userId?: string,
+  ): Promise<DowntimeReason> {
+    const trimmedName = (dto.name || '').trim();
+    if (!trimmedName) {
+      throw new BadRequestException('Downtime reason name is required');
+    }
+
+    const effectiveCompanyId = companyId || '7725aa04-a270-4314-9e82-90949cbe7791';
+
+    // Deduplication guard: return existing active reason if matched (case-insensitive)
+    const existing = await this.downtimeReasonRepo.findOne({
+      where: { companyId: effectiveCompanyId, name: ILike(trimmedName), isActive: true },
+    });
+    if (existing) {
+      return existing;
+    }
+
+    // Auto-generate code if omitted
+    let candidateCode = dto.code
+      ? dto.code.trim().toUpperCase().replace(/[^A-Z0-9_]/g, '_').slice(0, 45)
+      : trimmedName.toUpperCase().replace(/[^A-Z0-9_]/g, '_').slice(0, 30);
+    if (!candidateCode) {
+      candidateCode = 'CUST';
+    }
+
+    let finalCode = candidateCode;
+    let suffix = 1;
+    while (await this.downtimeReasonRepo.findOne({ where: { companyId: effectiveCompanyId, code: finalCode } })) {
+      finalCode = `${candidateCode.slice(0, 35)}_${suffix++}`;
+    }
+
+    const reason = this.downtimeReasonRepo.create({
+      companyId: effectiveCompanyId,
+      code: finalCode,
+      name: trimmedName,
+      description: dto.description?.trim() || 'Custom downtime reason added from shop floor entry',
+      status: DowntimeReasonStatus.ACTIVE,
+      isActive: true,
+      createdBy: userId || null,
+      updatedBy: userId || null,
+    });
+
+    return this.downtimeReasonRepo.save(reason);
   }
 
   /**

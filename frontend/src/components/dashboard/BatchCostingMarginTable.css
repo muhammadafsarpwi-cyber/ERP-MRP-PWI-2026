@@ -1,0 +1,229 @@
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   Batch Production Costing Ledger & Margin Analytics - Dark Theme Stylesheet
+   High-contrast typography, sharp table borders, and zero washed-out elements
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+.erp-batch-costing-card {
+  background: linear-gradient(180deg, #0b1329 0%, #080d1e 100%) !important;
+  border: 1px solid #334155 !important;
+  border-radius: 12px !important;
+  padding: 24px !important;
+  margin-bottom: 24px !important;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45) !important;
+}
+
+/* Header & Title Hierarchy */
+.erp-batch-costing-title {
+  color: #ffffff !important;
+  font-weight: 800 !important;
+  font-size: 20px !important;
+  letter-spacing: -0.2px !important;
+  margin: 0 !important;
+}
+
+.erp-batch-costing-subtitle {
+  color: #e2e8f0 !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  margin-top: 4px !important;
+  display: block !important;
+}
+
+/* Financial Ribbon Metric Cards */
+.erp-costing-kpi-card {
+  background: #111827 !important;
+  border: 1px solid #334155 !important;
+  border-radius: 10px !important;
+  padding: 14px 16px !important;
+  transition: all 0.2s ease-in-out !important;
+}
+
+.erp-costing-kpi-card:hover {
+  border-color: #38bdf8 !important;
+  transform: translateY(-2px) !important;
+  box-shadow: 0 4px 12px rgba(56, 189, 248, 0.15) !important;
+}
+
+.erp-costing-kpi-label {
+  font-size: 11px !important;
+  color: #cbd5e1 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.6px !important;
+  font-weight: 700 !important;
+}
+
+.erp-costing-kpi-value {
+  font-size: 22px !important;
+  font-weight: 800 !important;
+  color: #ffffff !important;
+  margin-top: 4px !important;
+  line-height: 1.2 !important;
+}
+
+.erp-costing-kpi-subtext {
+  font-size: 12px !important;
+  color: #94a3b8 !important;
+  font-weight: 500 !important;
+  margin-top: 3px !important;
+}
+
+/* Sharp Table Borders & Gridlines */
+.erp-batch-costing-table {
+  border: 1px solid #334155 !important;
+  border-radius: 8px !important;
+  overflow: hidden !important;
+  background: #0f172a !important;
+}
+
+.erp-batch-costing-table .ant-table {
+  background: transparent !important;
+  color: #f8fafc !important;
+}
+
+/* Table Header */
+.erp-batch-costing-table .ant-table-thead > tr > th {
+  background: #1e293b !important;
+  color: #ffffff !important;
+  font-weight: 700 !important;
+  font-size: 12.5px !important;
+  border-bottom: 2px solid #475569 !important;
+  border-right: 1px solid #334155 !important;
+  padding: 12px 14px !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.4px !important;
+}
+
+.erp-batch-costing-table .ant-table-thead > tr > th:last-child {
+  border-right: none !important;
+}
+
+/* Table Body Cells & Gridlines */
+.erp-batch-costing-table .ant-table-tbody > tr > td {
+  background: #0f172a !important;
+  color: #f1f5f9 !important;
+  border-bottom: 1px solid #334155 !important;
+  border-right: 1px solid #1e293b !important;
+  padding: 12px 14px !important;
+  font-size: 13px !important;
+  transition: background 0.15s ease !important;
+}
+
+.erp-batch-costing-table .ant-table-tbody > tr > td:last-child {
+  border-right: none !important;
+}
+
+/* Row Hover */
+.erp-batch-costing-table .ant-table-tbody > tr:hover > td {
+  background: #1e293b !important;
+}
+
+/* High-Contrast Cell Elements */
+.erp-cell-primary {
+  color: #ffffff !important;
+  font-weight: 700 !important;
+  font-size: 13.5px !important;
+}
+
+.erp-cell-secondary {
+  color: #cbd5e1 !important;
+  font-size: 11.5px !important;
+  font-weight: 500 !important;
+  margin-top: 2px !important;
+}
+
+.erp-cell-accent-blue {
+  color: #38bdf8 !important;
+  font-weight: 700 !important;
+}
+
+.erp-cell-accent-amber {
+  color: #fbbf24 !important;
+  font-weight: 700 !important;
+}
+
+.erp-cell-accent-emerald {
+  color: #34d399 !important;
+  font-weight: 700 !important;
+}
+
+.erp-cell-accent-purple {
+  color: #c084fc !important;
+  font-weight: 700 !important;
+}
+
+/* Input Gateway Form Styles */
+.erp-utility-gateway-box {
+  background: #111827 !important;
+  border: 1px solid #38bdf8 !important;
+  border-radius: 10px !important;
+  padding: 22px 24px !important;
+  margin-bottom: 24px !important;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3) !important;
+}
+
+.erp-utility-form-label {
+  color: #ffffff !important;
+  font-weight: 600 !important;
+  font-size: 13px !important;
+}
+
+.erp-utility-input {
+  background: #0a0f1d !important;
+  border: 1px solid #475569 !important;
+  color: #ffffff !important;
+  border-radius: 6px !important;
+  font-weight: 600 !important;
+}
+
+.erp-utility-input:focus,
+.erp-utility-input:hover {
+  border-color: #38bdf8 !important;
+}
+
+/* Tabs Styling */
+.erp-batch-costing-tabs .ant-tabs-nav {
+  margin-bottom: 18px !important;
+}
+
+.erp-batch-costing-tabs .ant-tabs-card > .ant-tabs-nav .ant-tabs-tab {
+  background: #111827 !important;
+  border: 1px solid #334155 !important;
+  color: #cbd5e1 !important;
+  font-weight: 600 !important;
+  border-radius: 8px 8px 0 0 !important;
+  transition: all 0.2s ease !important;
+}
+
+.erp-batch-costing-tabs .ant-tabs-card > .ant-tabs-nav .ant-tabs-tab-active {
+  background: #1e293b !important;
+  border-color: #38bdf8 !important;
+  border-bottom-color: #1e293b !important;
+  color: #ffffff !important;
+  font-weight: 700 !important;
+}
+
+/* Ant Design Table Pagination Dark Mode */
+.erp-batch-costing-table .ant-pagination-item {
+  background: #111827 !important;
+  border-color: #334155 !important;
+}
+
+.erp-batch-costing-table .ant-pagination-item a {
+  color: #cbd5e1 !important;
+}
+
+.erp-batch-costing-table .ant-pagination-item-active {
+  background: #0284c7 !important;
+  border-color: #38bdf8 !important;
+}
+
+.erp-batch-costing-table .ant-pagination-item-active a {
+  color: #ffffff !important;
+}
+
+.erp-batch-costing-table .ant-pagination-prev .ant-pagination-item-link,
+.erp-batch-costing-table .ant-pagination-next .ant-pagination-item-link {
+  background: #111827 !important;
+  border-color: #334155 !important;
+  color: #cbd5e1 !important;
+}

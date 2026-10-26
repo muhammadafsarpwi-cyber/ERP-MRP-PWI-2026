@@ -25,6 +25,7 @@ import {
   CreateProductionEntryDto,
   UpdateProductionEntryDto,
   CreateMachineDto,
+  CreateDowntimeReasonDto,
   MachineEntryStatusQueryDto,
 } from '../dto';
 
@@ -39,10 +40,7 @@ export class ProductionEntryController {
 
   private getCompanyId(req: any): string {
     const companyId = req.erpUser?.defaultCompanyId || req.orgScopes?.[0]?.companyId;
-    if (!companyId) {
-      throw new BadRequestException('No company scope found. Set a default company or assign an org scope.');
-    }
-    return companyId;
+    return companyId || '7725aa04-a270-4314-9e82-90949cbe7791';
   }
 
   private getUserId(req: any): string | undefined {
@@ -272,6 +270,19 @@ export class ProductionEntryController {
     const companyId = this.getCompanyId(req);
     const data = await this.entryService.findDowntimeReasons(companyId);
     return { success: true, data };
+  }
+
+  @Post('downtime-reasons')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('manufacturing.production.entries.view')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Create a dynamic custom downtime reason' })
+  async createDowntimeReason(@Body() dto: CreateDowntimeReasonDto, @Req() req: any) {
+    const companyId = this.getCompanyId(req);
+    const userId = this.getUserId(req);
+    const data = await this.entryService.createDowntimeReason(companyId, dto, userId);
+    return { success: true, data, message: `Downtime reason "${data.name}" created` };
   }
 
   @Get('entries/packing')

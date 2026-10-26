@@ -17,6 +17,7 @@ import ProductionPerformance from '../../components/dashboard/ProductionPerforma
 import ProductionTrend from '../../components/dashboard/ProductionTrend';
 import QuickActions from '../../components/dashboard/QuickActions';
 import TopProductsRow from '../../components/dashboard/TopProductsRow';
+import ShopfloorTouchscreenModal from '../../components/dashboard/ShopfloorTouchscreenModal';
 import DepartmentTrendChart from '../../components/dashboard/DepartmentTrendChart';
 import TodayScheduleCard from '../../components/dashboard/TodayScheduleCard';
 import MiniCalendarWidget from '../../components/dashboard/MiniCalendarWidget';
@@ -151,6 +152,9 @@ const Dashboard: React.FC = () => {
   const [itemDetail, setItemDetail] = useState<ItemOverviewType | null>(null);
   const [itemRoute, setItemRoute] = useState<ItemRoute | null>(null);
   const [itemSearch, setItemSearch] = useState('');
+
+  // ── Shop Floor Touchscreen Operator Terminal ──
+  const [touchscreenOpen, setTouchscreenOpen] = useState(false);
 
   // ── Filter Options Loading ──
   useEffect(() => {
@@ -339,21 +343,21 @@ const Dashboard: React.FC = () => {
     };
     setDraftFilters(next);
     setAppliedFilters(next);
-    await loadAllRef.current(next);
+    await Promise.allSettled([
+      loadAllRef.current(next),
+    ]);
   }, []);
 
   /**
    * The ONE manual refresh path. Invoked by the global header "Refresh"
    * button (via the TAB_REFRESH_EVENT that TabKeepAlive handles and forwards
    * to `loadInitial`) and by the dashboard's own header refresh action.
-   *
-   * Requirement 3 — the dashboard is strictly static once loaded: the ONLY
-   * things that ever re-fetch data are (a) a user filter change (Division /
-   * Date Range preset / Apply / Clear) and (b) this manual Refresh action.
    */
   const handleManualRefresh = useCallback(async () => {
     tabSessionCache.remove(MAIN_DASHBOARD_TAB_ID);
-    await loadInitial();
+    await Promise.allSettled([
+      loadInitial(),
+    ]);
   }, [loadInitial]);
 
   // ── Filter change handler (updates draft selections) ──
@@ -556,7 +560,7 @@ const Dashboard: React.FC = () => {
         loading={secondaryLoading}
         onViewAll={() => navigate('/master-data/items')}
         onOpenItem={openItemDetail}
-        onQuickAction={() => navigate('/production/entries')}
+        onQuickAction={() => setTouchscreenOpen(true)}
       />
 
       {/* ━━━ INTELLIGENCE & SCHEDULE ROW (Activity Chart + Today's Schedule + Mini Calendar) ━━━ */}
@@ -596,6 +600,8 @@ const Dashboard: React.FC = () => {
             loading={loading}
             nav={navigate}
             selectedDate={effectiveCalendarDate}
+            divisionId={appliedFilters.divisionId}
+            divisionCode={divisions.find((d) => d.id === appliedFilters.divisionId)?.divisionCode}
           />
         </div>
         <div className="erp-col erp-col--narrow">
@@ -608,7 +614,13 @@ const Dashboard: React.FC = () => {
 
       {/* ━━━ DEPARTMENT PERFORMANCE (FULL WIDTH SCORECARD) ━━━━━━━━━━━━━━━━━ */}
       <div style={{ marginBottom: 16 }}>
-        <DepartmentPerformance data={prodSummary} loading={loading} nav={navigate} />
+        <DepartmentPerformance
+          data={prodSummary}
+          loading={loading}
+          nav={navigate}
+          divisionId={appliedFilters.divisionId}
+          divisionCode={divisions.find((d) => d.id === appliedFilters.divisionId)?.divisionCode}
+        />
       </div>
 
       {/* ━━━ MACHINE PERFORMANCE (LEFT, WIDE) + ALERTS & ACTIVITY (RIGHT, NARROW) ━ */}
@@ -621,6 +633,8 @@ const Dashboard: React.FC = () => {
           <ActivityFeed activity={activity} loading={secondaryLoading} />
         </div>
       </div>
+
+
 
       {/* ━━━ ITEM OVERVIEW + INVENTORY ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
       <div className="erp-row erp-row--a">
@@ -1038,6 +1052,13 @@ const Dashboard: React.FC = () => {
           </div>
         )}
       </Modal>
+
+      {/* ━━━ SHOP FLOOR OPERATOR TOUCHSCREEN INTERFACE MODAL ━━━ */}
+      <ShopfloorTouchscreenModal
+        visible={touchscreenOpen}
+        onClose={() => setTouchscreenOpen(false)}
+        onSuccess={() => void loadAll()}
+      />
     </div>
   </TabKeepAlive>
   );

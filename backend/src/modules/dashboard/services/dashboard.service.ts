@@ -17,7 +17,7 @@ import { Division } from '../../organization/entities/division.entity';
 import { Section } from '../../organization/entities/section.entity';
 import { Warehouse } from '../../organization/entities/warehouse.entity';
 import { BomLine } from '../../bom/entities/bom-line.entity';
-import { ProductionRouting, RoutingOperation } from '../../production-routing/entities';
+import { ProductionRouting, RoutingOperation, RoutingStatus } from '../../production-routing/entities';
 import { ItemBarcode } from '../../item/entities/item-barcode.entity';
 import { UomConversion } from '../../item/entities/uom-conversion.entity';
 import { applyDivisionScopeFilter } from '../../../common/division-scope.util';
@@ -76,6 +76,7 @@ export class DashboardService {
       .createQueryBuilder('d')
       .where('d.companyId = :companyId', { companyId })
       .andWhere('d.isActive = true')
+      .andWhere("d.status = 'ACTIVE'")
       .select(['d.id', 'd.divisionCode', 'd.name']);
     // Only the divisions the caller may see are offered to the filter dropdown.
     applyDivisionScopeFilter(qb, 'd.id', allowedDivisionIds);
@@ -86,7 +87,7 @@ export class DashboardService {
     if (divisionId) {
       const qb = this.sectionRepo
         .createQueryBuilder('s')
-        .innerJoin(Department, 'd', 'd.section_id = s.id')
+        .innerJoin(Department, 'd', "d.section_id = s.id AND d.is_active = true AND d.status = 'ACTIVE'")
         .where('s.company_id = :companyId', { companyId })
         .andWhere('s.is_active = true')
         .andWhere('d.division_id = :divisionId', { divisionId })
@@ -110,7 +111,8 @@ export class DashboardService {
     const qb = this.departmentRepo
       .createQueryBuilder('d')
       .where('d.company_id = :companyId', { companyId })
-      .andWhere('d.is_active = true');
+      .andWhere('d.is_active = true')
+      .andWhere("d.status = 'ACTIVE'");
 
     if (opts.sectionId) {
       qb.andWhere('d.section_id = :sectionId', { sectionId: opts.sectionId });
@@ -122,7 +124,14 @@ export class DashboardService {
     applyDivisionScopeFilter(qb, 'd.divisionId', opts.allowedDivisionIds);
 
     const departments = await qb
-      .select(['d.id', 'd.name'])
+      .select([
+        'd.id',
+        'd.name',
+        'd.departmentCode',
+        'd.divisionId',
+        'd.reportingUom',
+        'd.secondaryUom',
+      ])
       .orderBy('d.name', 'ASC')
       .getMany();
     // Department listings follow the fixed floor-wise shop-floor sequence
@@ -165,7 +174,7 @@ export class DashboardService {
 
     const machineCountQb = this.machineRepo
       .createQueryBuilder('m')
-      .leftJoin('m.department', 'd')
+      .innerJoin('m.department', 'd', "d.is_active = true AND d.status = 'ACTIVE'")
       .where('m.companyId = :companyId', { companyId });
     if (filters?.departmentId) machineCountQb.andWhere('m.department_id = :departmentId', { departmentId: filters.departmentId });
     if (filters?.sectionId) machineCountQb.andWhere('d.section_id = :sectionId', { sectionId: filters.sectionId });
@@ -178,7 +187,7 @@ export class DashboardService {
     if (filters?.departmentId || filters?.divisionId || filters?.sectionId) {
       const deptStatusQb = this.machineRepo
         .createQueryBuilder('m')
-        .leftJoin('m.department', 'd')
+        .innerJoin('m.department', 'd', "d.is_active = true AND d.status = 'ACTIVE'")
         .select('m.status', 'status')
         .addSelect('COUNT(*)', 'count')
         .where('m."company_id" = :companyId', { companyId });
@@ -302,6 +311,7 @@ export class DashboardService {
     const qb = this.entryRepo.createQueryBuilder('pe')
       .where('pe.company_id = :companyId', { companyId })
       .andWhere('pe.is_active = true')
+      .innerJoin(Department, 'depLast', "depLast.id = pe.department_id AND depLast.is_active = true AND depLast.status = 'ACTIVE'")
       .select("TO_CHAR(MAX(pe.entry_date), 'YYYY-MM-DD')", 'lastEntryDate');
     if (filters?.departmentId) qb.andWhere('pe.department_id = :departmentId', { departmentId: filters.departmentId });
     if (filters?.sectionId) {
@@ -325,7 +335,8 @@ export class DashboardService {
      * push the same work into SQL: one totals row, one GROUP BY department.
      */
     const applyScope = <T extends ObjectLiteral>(qb: SelectQueryBuilder<T>): SelectQueryBuilder<T> => {
-      qb.where('pe.company_id = :companyId', { companyId }).andWhere('pe.is_active = true');
+      qb.innerJoin(Department, 'depScope', "depScope.id = pe.department_id AND depScope.is_active = true AND depScope.status = 'ACTIVE'")
+        .where('pe.company_id = :companyId', { companyId }).andWhere('pe.is_active = true');
       if (filters?.dateFrom) qb.andWhere('pe.entry_date >= :dateFrom', { dateFrom: filters.dateFrom });
       if (filters?.dateTo) qb.andWhere('pe.entry_date <= :dateTo', { dateTo: filters.dateTo });
       if (filters?.departmentId) qb.andWhere('pe.department_id = :departmentId', { departmentId: filters.departmentId });
@@ -338,8 +349,7 @@ export class DashboardService {
       }
       if (filters?.divisionId) {
         qb.innerJoin(Department, 'd2', 'd2.id = pe.department_id')
-          .innerJoin(Division, 'div', 'div.id = d2.division_id')
-          .andWhere('d2.division_id = :divisionId', { divisionId: filters.divisionId });
+          .andWhere('(pe.division_id = :divisionId OR d2.division_id = :divisionId)', { divisionId: filters.divisionId });
       }
       // Server-side division scoping (Prompt #16) — never trusts a client dropdown.
       applyDivisionScopeFilter(qb, 'pe.divisionId', filters?.allowedDivisionIds);
@@ -354,6 +364,14 @@ export class DashboardService {
       .addSelect('COALESCE(SUM(pe.process_scrap_kg), 0)', 'totalProcessScrap')
       .addSelect('COALESCE(SUM(pe.running_hours), 0)', 'totalRunningHours')
       .addSelect('COALESCE(SUM(pe.downtime_hours), 0)', 'totalDowntimeHours')
+      .addSelect(`COALESCE(SUM(
+        CASE
+          WHEN COALESCE(pe.overtime_hours, 0) > 0 THEN pe.overtime_hours
+          WHEN pe.remarks ~* 'OT:\\s*([0-9]+(?:\\.[0-9]+)?)' THEN
+            CAST(SUBSTRING(pe.remarks FROM '(?i)OT:\\s*([0-9]+(?:\\.[0-9]+)?)') AS NUMERIC)
+          ELSE 0
+        END
+      ), 0)`, 'totalOvertimeHours')
       .getRawOne<{
         entryCount: string;
         totalTarget: string;
@@ -362,11 +380,16 @@ export class DashboardService {
         totalProcessScrap: string;
         totalRunningHours: string;
         totalDowntimeHours: string;
+        totalOvertimeHours: string;
       }>();
 
     const deptRows = await applyScope(this.entryRepo.createQueryBuilder('pe'))
       .select('pe.department_id', 'departmentId')
       .addSelect('dep.name', 'departmentName')
+      .addSelect('dep.division_id', 'divisionId')
+      .addSelect('COALESCE(dep.reporting_uom, \'PCS\')', 'reportingUom')
+      .addSelect('COALESCE(dep.secondary_uom, \'NONE\')', 'secondaryUom')
+      .addSelect('COALESCE(dep.enable_conversion_bridge, false)', 'enableConversionBridge')
       .addSelect('COUNT(*)', 'entryCount')
       .addSelect('COALESCE(SUM(pe.target_quantity), 0)', 'targetQuantity')
       .addSelect('COALESCE(SUM(pe.actual_quantity), 0)', 'actualQuantity')
@@ -374,13 +397,32 @@ export class DashboardService {
       .addSelect('COALESCE(SUM(pe.process_scrap_kg), 0)', 'processScrapKg')
       .addSelect('COALESCE(SUM(pe.running_hours), 0)', 'runningHours')
       .addSelect('COALESCE(SUM(pe.downtime_hours), 0)', 'downtimeHours')
+      .addSelect(`COALESCE(SUM(
+        CASE
+          WHEN COALESCE(pe.overtime_hours, 0) > 0 THEN pe.overtime_hours
+          WHEN pe.remarks ~* 'OT:\\s*([0-9]+(?:\\.[0-9]+)?)' THEN
+            CAST(SUBSTRING(pe.remarks FROM '(?i)OT:\\s*([0-9]+(?:\\.[0-9]+)?)') AS NUMERIC)
+          ELSE 0
+        END
+      ), 0)`, 'overtimeHours')
+      .addSelect('COALESCE(AVG(it.weight_per_meter), 0)', 'avgWeightPerMeter')
+      .addSelect('COALESCE(AVG(it.weight_per_piece), 0.008)', 'avgWeightPerPiece')
       .leftJoin(Department, 'dep', 'dep.id = pe.department_id')
+      .leftJoin(Item, 'it', 'it.id = pe.item_id')
       .groupBy('pe.department_id')
       .addGroupBy('dep.name')
+      .addGroupBy('dep.division_id')
+      .addGroupBy('dep.reporting_uom')
+      .addGroupBy('dep.secondary_uom')
+      .addGroupBy('dep.enable_conversion_bridge')
       .orderBy('dep.name', 'ASC')
       .getRawMany<{
         departmentId: string;
         departmentName: string | null;
+        divisionId: string | null;
+        reportingUom: string;
+        secondaryUom: string;
+        enableConversionBridge: boolean;
         entryCount: string;
         targetQuantity: string;
         actualQuantity: string;
@@ -388,6 +430,9 @@ export class DashboardService {
         processScrapKg: string;
         runningHours: string;
         downtimeHours: string;
+        overtimeHours: string;
+        avgWeightPerMeter: string;
+        avgWeightPerPiece: string;
       }>();
 
     const num = (v: string | number | null | undefined) => Number(v ?? 0);
@@ -402,17 +447,25 @@ export class DashboardService {
     const totalProcessScrap = num(totals?.totalProcessScrap);
     const totalRunningHours = num(totals?.totalRunningHours);
     const totalDowntimeHours = num(totals?.totalDowntimeHours);
+    const totalOvertimeHours = num(totals?.totalOvertimeHours);
 
     // If no single department filter is applied, guarantee all canonical floor-line
-    // departments (Straightener, Swaging, Spoke, Spoke Plating, Spoke Packing)
-    // are present on the floor line with 0 baseline even when 0 entries exist on that date.
-    let baselineDepts: Array<{ id: string; name: string }> = [];
+    // departments are present on the floor line with 0 baseline even when 0 entries exist on that date.
+    let baselineDepts: Array<{
+      id: string;
+      name: string;
+      divisionId?: string;
+      reportingUom?: string;
+      secondaryUom?: string | null;
+      enableConversionBridge?: boolean;
+    }> = [];
     if (!filters?.departmentId) {
       try {
         const depQb = this.departmentRepo
           .createQueryBuilder('d')
           .where('d.company_id = :companyId', { companyId })
-          .andWhere('d.is_active = true');
+          .andWhere('d.is_active = true')
+      .andWhere("d.status = 'ACTIVE'");
 
         if (filters?.sectionId) {
           depQb.andWhere('d.section_id = :sectionId', { sectionId: filters.sectionId });
@@ -421,13 +474,27 @@ export class DashboardService {
         } else {
           depQb.andWhere('(d.division_id = :spokeDivId OR d.name IN (:...floorNames))', {
             spokeDivId: 'd1000000-0000-0000-0000-000000000001',
-            floorNames: ['Straightener', 'Swagging', 'Spoke', 'Spoke Plating', 'Nipple Packing', 'Spoke Packing', 'Packing'],
+            floorNames: ['Raw Material (RM)', 'Raw Material Stores', 'SPI Stores', 'Straightener', 'Swagging', 'Spoke', 'Spoke Plating', 'Spoke Packing', 'Packing'],
           });
         }
         applyDivisionScopeFilter(depQb, 'd.divisionId', filters?.allowedDivisionIds);
-        const fetchedDepts = await depQb.select(['d.id', 'd.name']).getMany();
-        // Only include canonical physical floor stages for baseline completion
-        baselineDepts = fetchedDepts.filter((d) => floorWiseDepartmentRank(d.name) !== -1);
+        const fetchedDepts = await depQb
+          .select([
+            'd.id',
+            'd.name',
+            'd.division_id',
+            'd.reporting_uom',
+            'd.secondary_uom',
+            'd.enable_conversion_bridge',
+          ])
+          .getMany();
+        
+        if (filters?.divisionId === 'd1000000-0000-0000-0000-000000000001' || !filters?.divisionId) {
+          baselineDepts = fetchedDepts.filter((d) => floorWiseDepartmentRank(d.name) !== -1);
+        } else if (filters?.divisionId) {
+          const nonProdNames = ['facility maintenance', 'accounts', 'hr', 'finance', 'admin', 'warehouse', 'sales', 'it'];
+          baselineDepts = fetchedDepts.filter((d) => !nonProdNames.some((np) => d.name.toLowerCase().includes(np)));
+        }
       } catch {
         // Fallback gracefully to existing rows if query fails
       }
@@ -453,6 +520,9 @@ export class DashboardService {
             ...r,
             departmentId: SPOKE_PACKING_ID,
             departmentName: 'Spoke Packing',
+            reportingUom: 'GRS',
+            secondaryUom: 'PCS',
+            enableConversionBridge: true,
           };
         } else {
           spokePackingAcc.entryCount = String(Number(spokePackingAcc.entryCount || 0) + Number(r.entryCount || 0));
@@ -462,6 +532,7 @@ export class DashboardService {
           spokePackingAcc.processScrapKg = String(Number(spokePackingAcc.processScrapKg || 0) + Number(r.processScrapKg || 0));
           spokePackingAcc.runningHours = String(Number(spokePackingAcc.runningHours || 0) + Number(r.runningHours || 0));
           spokePackingAcc.downtimeHours = String(Number(spokePackingAcc.downtimeHours || 0) + Number(r.downtimeHours || 0));
+          spokePackingAcc.overtimeHours = String(Number(spokePackingAcc.overtimeHours || 0) + Number(r.overtimeHours || 0));
         }
       } else {
         normalizedDeptRows.push(r);
@@ -483,6 +554,10 @@ export class DashboardService {
         combinedRows.push({
           departmentId: bd.id,
           departmentName: bd.name,
+          divisionId: bd.divisionId ?? null,
+          reportingUom: (bd as any).reportingUom || (bd as any).reporting_uom || 'PCS',
+          secondaryUom: (bd as any).secondaryUom || (bd as any).secondary_uom || 'NONE',
+          enableConversionBridge: Boolean((bd as any).enableConversionBridge ?? (bd as any).enable_conversion_bridge),
           entryCount: '0',
           targetQuantity: '0',
           actualQuantity: '0',
@@ -490,7 +565,93 @@ export class DashboardService {
           processScrapKg: '0',
           runningHours: '0',
           downtimeHours: '0',
+          overtimeHours: '0',
+          avgWeightPerMeter: '0',
+          avgWeightPerPiece: '0.008',
         });
+      }
+    }
+
+    // Query actual Raw Material Receiving for the period from confirmed raw_material_receipts
+    let rmReceivedKg = 0;
+    let rmReceiptCount = 0;
+    try {
+      const rmRes = await this.entryRepo.query(`
+        SELECT COALESCE(SUM(rl.received_quantity), 0) AS "totalReceivedKg",
+               COUNT(DISTINCT r.id) AS "receiptCount"
+        FROM raw_material_receipts r
+        INNER JOIN raw_material_receipt_lines rl ON rl.receipt_id = r.id
+        WHERE (r.company_id = $1 OR r.company_id IS NULL)
+          AND r.status = 'CONFIRMED'
+          AND ($2::uuid IS NULL OR r.division_id = $2 OR r.division_id IS NULL)
+          AND ($3::date IS NULL OR r.receipt_date >= $3)
+          AND ($4::date IS NULL OR r.receipt_date <= $4)
+      `, [
+        companyId,
+        filters?.divisionId || null,
+        filters?.dateFrom || null,
+        filters?.dateTo || null,
+      ]);
+      rmReceivedKg = Math.round(Number(rmRes?.[0]?.totalReceivedKg || 0) * 10) / 10;
+      rmReceiptCount = Number(rmRes?.[0]?.receiptCount || 0);
+    } catch {
+      // Fallback gracefully if raw_material_receipts query fails
+    }
+
+    // Ensure Raw Material (RM) row exists at the start of Spoke Division sequence
+    const isSpokeScope = !filters?.divisionId || filters?.divisionId === 'd1000000-0000-0000-0000-000000000001';
+    if (isSpokeScope) {
+      const stRow = combinedRows.find((r) => (r.departmentName || '').toLowerCase().includes('straight'));
+      const stTargetPcs = num(stRow?.targetQuantity);
+      const stPieceWeight = num(stRow?.avgWeightPerPiece) > 0 ? num(stRow?.avgWeightPerPiece) : 0.0114;
+      const stPlannedWireKg = stTargetPcs > 0 ? Math.round(stTargetPcs * stPieceWeight * 10) / 10 : 0;
+      const rmTargetKg = stPlannedWireKg > 0 ? stPlannedWireKg : rmReceivedKg;
+
+      const rmRowIdx = combinedRows.findIndex((r) => {
+        const n = (r.departmentName || '').toLowerCase();
+        return n.includes('raw material') || n.includes('spi stores') || r.departmentId === 'f8312f0c-ba1e-401a-80cd-43d6b5cc8c05';
+      });
+
+      if (rmRowIdx !== -1) {
+        combinedRows[rmRowIdx].departmentName = 'Raw Material (RM)';
+        combinedRows[rmRowIdx].reportingUom = 'KG';
+        combinedRows[rmRowIdx].secondaryUom = 'NONE';
+        combinedRows[rmRowIdx].enableConversionBridge = true;
+        combinedRows[rmRowIdx].entryCount = String(rmReceiptCount);
+        combinedRows[rmRowIdx].actualQuantity = String(rmReceivedKg);
+        combinedRows[rmRowIdx].targetQuantity = String(rmTargetKg);
+        if (num(combinedRows[rmRowIdx].runningHours) === 0 && stRow) {
+          combinedRows[rmRowIdx].runningHours = stRow.runningHours;
+        }
+      } else {
+        combinedRows.push({
+          departmentId: 'f8312f0c-ba1e-401a-80cd-43d6b5cc8c05',
+          departmentName: 'Raw Material (RM)',
+          divisionId: filters?.divisionId || 'd1000000-0000-0000-0000-000000000001',
+          reportingUom: 'KG',
+          secondaryUom: 'NONE',
+          enableConversionBridge: true,
+          entryCount: String(rmReceiptCount || 1),
+          targetQuantity: String(rmTargetKg),
+          actualQuantity: String(rmReceivedKg),
+          scrapQuantity: '0',
+          processScrapKg: '0',
+          runningHours: stRow?.runningHours || '0',
+          downtimeHours: '0',
+          overtimeHours: '0',
+          avgWeightPerMeter: '0',
+          avgWeightPerPiece: '1',
+        });
+      }
+
+      // Guarantee Spoke Plating is always reported in GRS and PCS (never mislabeled raw KG)
+      for (const r of combinedRows) {
+        const n = (r.departmentName || '').toLowerCase();
+        if (n.includes('plat') && (n.includes('spoke') || !n.includes('nipple'))) {
+          r.reportingUom = 'GRS';
+          r.secondaryUom = 'PCS';
+          r.enableConversionBridge = true;
+        }
       }
     }
 
@@ -508,6 +669,14 @@ export class DashboardService {
         return {
           departmentId: r.departmentId,
           departmentName: r.departmentName ?? 'Unknown',
+          divisionId: (r as any).divisionId ?? null,
+          primaryUom: (r as any).primaryUom || (r as any).primary_uom || (r as any).reportingUom || (r as any).reporting_uom || 'PCS',
+          reportingUom: (r as any).reportingUom || (r as any).reporting_uom || 'PCS',
+          secondaryUom: (r as any).secondaryUom || (r as any).secondary_uom || 'NONE',
+          bridgeConversion: Boolean((r as any).bridgeConversion ?? (r as any).bridge_conversion ?? (r as any).enableConversionBridge ?? (r as any).enable_conversion_bridge),
+          enableConversionBridge: Boolean((r as any).enableConversionBridge ?? (r as any).enable_conversion_bridge),
+          avgWeightPerMeter: num((r as any).avgWeightPerMeter),
+          avgWeightPerPiece: num((r as any).avgWeightPerPiece) || 0.008,
           targetQuantity,
           actualQuantity,
           scrapQuantity,
@@ -516,6 +685,7 @@ export class DashboardService {
           processCuttingScrap: processScrapKg,
           runningHours: num(r.runningHours),
           downtimeHours: num(r.downtimeHours),
+          overtimeHours: round2(num(r.overtimeHours)),
           entryCount: num(r.entryCount),
           // Achievement per department = Actual ÷ Target × 100 with a
           // division-by-zero guard (no target ⇒ 0%, never Infinity/NaN).
@@ -538,6 +708,7 @@ export class DashboardService {
         processCuttingScrap: round4(totalProcessScrap),
         totalRunningHours: round2(totalRunningHours),
         totalDowntimeHours: round2(totalDowntimeHours),
+        totalOvertimeHours: round2(totalOvertimeHours),
         // Overall achievement = Actual ÷ Target × 100 with a
         // division-by-zero guard (no target ⇒ 0%, never Infinity/NaN).
         achievementPercentage: totalTarget > 0 ? round2((totalActual / totalTarget) * 100) : 0,
@@ -552,6 +723,7 @@ export class DashboardService {
   async getProductionTrend(companyId: string, days: number = 31, filters?: DashboardFilters) {
     const qb = this.entryRepo
       .createQueryBuilder('pe')
+      .innerJoin(Department, 'depTrend', "depTrend.id = pe.department_id AND depTrend.is_active = true AND depTrend.status = 'ACTIVE'")
       .select("TO_CHAR(pe.entry_date, 'YYYY-MM-DD')", 'date')
       .addSelect('COUNT(*)', 'entryCount')
       .addSelect('COALESCE(SUM(pe.target_quantity), 0)', 'target')
@@ -613,7 +785,7 @@ export class DashboardService {
   async getMachinePerformance(companyId: string, filters?: DashboardFilters) {
     const machineQb = this.machineRepo
       .createQueryBuilder('m')
-      .leftJoinAndSelect('m.department', 'department')
+      .innerJoinAndSelect('m.department', 'department', "department.is_active = true AND department.status = 'ACTIVE'")
       .where('m.company_id = :companyId', { companyId })
       .andWhere('m.is_active = true');
 
@@ -634,6 +806,7 @@ export class DashboardService {
 
     const entryQb = this.entryRepo
       .createQueryBuilder('pe')
+      .innerJoin(Department, 'depPerf', "depPerf.id = pe.department_id AND depPerf.is_active = true AND depPerf.status = 'ACTIVE'")
       .leftJoin(Machine, 'm', 'm.id = pe.machine_id')
       .select('COALESCE(pe.machine_id::text, m.id::text)', 'machineId')
       .addSelect('COALESCE(m.machine_code, pe.machine_no)', 'machineCode')
@@ -1399,6 +1572,7 @@ export class DashboardService {
 
     const qb = this.entryRepo
       .createQueryBuilder('pe')
+      .innerJoin(Department, 'depTrend', "depTrend.id = pe.department_id AND depTrend.is_active = true AND depTrend.status = 'ACTIVE'")
       .select("TO_CHAR(pe.entry_date, 'YYYY-MM-DD')", 'date')
       .addSelect('COUNT(*)', 'count')
       .addSelect('COALESCE(SUM(pe.actual_quantity), 0)', 'totalActual')
@@ -1540,14 +1714,15 @@ export class DashboardService {
     applyDivisionScopeFilter(mfgItemsQb, 'i.divisionId', filters?.allowedDivisionIds);
     const mfgItems = await mfgItemsQb.getMany();
 
-    const itemsWithRoutes = await this.entryRepo
-      .createQueryBuilder('pe')
-      .select('DISTINCT pe.item_id', 'itemId')
-      .where('pe.company_id = :companyId', { companyId })
+    const activeRoutings = await this.routingRepo
+      .createQueryBuilder('r')
+      .select('DISTINCT r.product_id', 'productId')
+      .where('r.company_id = :companyId', { companyId })
+      .andWhere('r.status = :status', { status: RoutingStatus.ACTIVE })
       .getRawMany();
-    const itemsWithRouteIds = new Set(itemsWithRoutes.map(r => r.itemId));
+    const routedProductIds = new Set(activeRoutings.map(r => r.productId));
 
-    const missingRouteItems = mfgItems.filter(item => !itemsWithRouteIds.has(item.id));
+    const missingRouteItems = mfgItems.filter(item => !routedProductIds.has(item.id));
     if (missingRouteItems.length > 0) {
       alerts.push({
         type: 'MISSING_ROUTE',
@@ -1619,4 +1794,847 @@ export class DashboardService {
       createdAt: log.createdAt,
     }));
   }
+
+  async getDepartmentProductionLedger(
+    companyId: string,
+    filters: {
+      departmentId?: string;
+      divisionId?: string;
+      dateFrom?: string;
+      dateTo?: string;
+      allowedDivisionIds?: string[];
+    } = {},
+  ) {
+    const SPOKE_STAGES = [
+      { key: 'rm-store', code: 'RM-STORE', name: 'Raw Material Stores (RM Wire Coil)', stageOrder: 1, prevCode: 'SUPPLIER-IN', prevName: 'Vendor / Mill Wire Coil Receipt', nextCode: 'SPD-DEPT001', nextName: 'Wire Straightening (Straightener)' },
+      { key: 'straightener', code: 'SPD-DEPT001', name: 'Straightener', stageOrder: 2, prevCode: 'RM-STORE', prevName: 'Raw Material Stores (RM Wire Coil)', nextCode: 'SPD-DEPT002', nextName: 'Swaging / Spoke Heading (Dynamic Route)' },
+      { key: 'swaging', code: 'SPD-DEPT002', name: 'Swagging', stageOrder: 3, prevCode: 'SPD-DEPT001', prevName: 'Straightener (Swaged Route Only)', nextCode: 'SPD-DEPT003', nextName: 'Spoke Heading' },
+      { key: 'spoke', code: 'SPD-DEPT003', name: 'Spoke', stageOrder: 4, prevCode: 'SPD-DEPT002', prevName: 'Swaging + Direct Straightener Bypass', nextCode: 'SPD-DEPT006', nextName: 'Spoke Plating' },
+      { key: 'plating', code: 'SPD-DEPT006', name: 'Spoke Plating', stageOrder: 5, prevCode: 'SPD-DEPT003', prevName: 'Spoke Heading', nextCode: 'SPD-DEPT008', nextName: 'Spoke Packing' },
+      { key: 'packing', code: 'SPD-DEPT008', name: 'Spoke Packing', stageOrder: 6, prevCode: 'SPD-DEPT006', prevName: 'Spoke Plating', nextCode: 'FG-DISPATCH', nextName: 'Dispatch / FG Logistics' },
+      { key: 'dispatch', code: 'FG-DISPATCH', name: 'Dispatch / FG Logistics', stageOrder: 7, prevCode: 'SPD-DEPT008', prevName: 'Spoke Packing', nextCode: 'CUSTOMER-GATE', nextName: 'Customer Gate / Sales Dispatch' },
+    ];
+
+    const CONTROL_CABLE_STAGES = [
+      { key: 'rm-store-ccd', code: 'RM-STORE', name: 'Raw Material Stores (RM Wire Coil)', stageOrder: 1, prevCode: 'SUPPLIER-IN', prevName: 'Vendor / Wire Rod Receipt', nextCode: 'CCD-DEPT001', nextName: 'Flattening' },
+      { key: 'flattening', code: 'CCD-DEPT001', name: 'Flattening', stageOrder: 2, prevCode: 'RM-STORE', prevName: 'Raw Material Stores (RM Wire Coil)', nextCode: 'CCD-DEPT002', nextName: 'Spiral' },
+      { key: 'spiral', code: 'CCD-DEPT002', name: 'Spiral', stageOrder: 3, prevCode: 'CCD-DEPT001', prevName: 'Flattening', nextCode: 'CCD-DEPT003', nextName: 'PVC Coating' },
+      { key: 'pvc', code: 'CCD-DEPT003', name: 'PVC Coating', stageOrder: 4, prevCode: 'CCD-DEPT002', prevName: 'Spiral', nextCode: 'CCD-DEPT004', nextName: 'Assembly' },
+      { key: 'assembly', code: 'CCD-DEPT004', name: 'Assembly', stageOrder: 5, prevCode: 'CCD-DEPT003', prevName: 'PVC Coating', nextCode: 'CCD-DEPT005', nextName: 'Packing' },
+      { key: 'packing', code: 'CCD-DEPT005', name: 'Packing', stageOrder: 6, prevCode: 'CCD-DEPT004', prevName: 'Assembly', nextCode: 'FG-DISPATCH', nextName: 'Dispatch / FG Logistics' },
+      { key: 'dispatch-ccd', code: 'FG-DISPATCH', name: 'Dispatch / FG Logistics', stageOrder: 7, prevCode: 'CCD-DEPT005', prevName: 'Packing', nextCode: 'CUSTOMER-GATE', nextName: 'Customer Gate / Sales Dispatch' },
+    ];
+
+    // Load all active departments to build selector options
+    const allDepts = await this.departmentRepo.find({
+      where: { status: 'ACTIVE' as any, isActive: true },
+      order: { name: 'ASC' },
+    });
+
+    const isAnchorCode = filters.departmentId === 'RM-STORE' || filters.departmentId === 'FG-DISPATCH';
+    const isControlCableDiv = filters.divisionId === 'd1000000-0000-0000-0000-000000000002';
+    const activeStageCatalog = isControlCableDiv ? CONTROL_CABLE_STAGES : SPOKE_STAGES;
+
+    // Identify target department adhering to division filter (or virtual anchor node RM-STORE / FG-DISPATCH)
+    let targetDept: { id: string; departmentCode: string; name: string; divisionId?: string } | undefined;
+    if (isAnchorCode) {
+      const anchorStage = activeStageCatalog.find(s => s.code === filters.departmentId)!;
+      targetDept = {
+        id: anchorStage.code,
+        departmentCode: anchorStage.code,
+        name: anchorStage.name,
+        divisionId: filters.divisionId || 'd1000000-0000-0000-0000-000000000001',
+      };
+    } else {
+      targetDept = allDepts.find(
+        d => (d.id === filters.departmentId || d.departmentCode === filters.departmentId) && (!filters.divisionId || d.divisionId === filters.divisionId),
+      );
+      if (!targetDept) {
+        targetDept = allDepts.find(d => d.id === filters.departmentId || d.departmentCode === filters.departmentId);
+      }
+      if (!targetDept) {
+        if (filters.divisionId && filters.divisionId !== 'd1000000-0000-0000-0000-000000000001') {
+          targetDept = allDepts.find(d => d.divisionId === filters.divisionId) || allDepts[0];
+        } else {
+          targetDept = allDepts.find(d => d.departmentCode === 'SPD-DEPT001') || allDepts.find(d => d.departmentCode === 'SPD-DEPT008') || allDepts[0];
+        }
+      }
+    }
+
+    const isCcd = isControlCableDiv
+      || targetDept?.divisionId === 'd1000000-0000-0000-0000-000000000002'
+      || (targetDept?.departmentCode && targetDept.departmentCode.startsWith('CCD'));
+
+    const currentStageInfo =
+      SPOKE_STAGES.find(s => s.code === targetDept?.departmentCode) ||
+      CONTROL_CABLE_STAGES.find(s => s.code === targetDept?.departmentCode);
+    const sourceDeptName = currentStageInfo ? currentStageInfo.prevName : 'Preceding Process / Stores';
+    const targetDeptName = currentStageInfo ? currentStageInfo.nextName : 'Next Sequential Process / Warehouse';
+
+    // Identify items that pass through Swaging vs items that bypass Swaging directly (Straightener -> Spoke Heading)
+    const swagedUpstreamItemIds = new Set<string>();
+    try {
+      const swagingDept = allDepts.find(d => d.departmentCode === 'SPD-DEPT002');
+      if (swagingDept) {
+        const swagingItems = await this.itemRepo.find({
+          where: { departmentId: swagingDept.id },
+          select: ['id', 'productionInItemId', 'productionInItemId2', 'productionInItemId3'],
+        });
+        for (const si of swagingItems) {
+          if (si.productionInItemId) swagedUpstreamItemIds.add(si.productionInItemId);
+          if (si.productionInItemId2) swagedUpstreamItemIds.add(si.productionInItemId2);
+          if (si.productionInItemId3) swagedUpstreamItemIds.add(si.productionInItemId3);
+        }
+      }
+    } catch {
+      // Fallback to item routeType / process inspection if query fails
+    }
+
+    // Query item-wise daily aggregates across active departments for dynamic multi-path routing
+    const dailyQb = this.entryRepo
+      .createQueryBuilder('pe')
+      .innerJoin('pe.department', 'd', "d.is_active = true AND d.status = 'ACTIVE'")
+      .leftJoin('pe.item', 'i')
+      .where('pe.company_id = :companyId', { companyId })
+      .andWhere('pe.deleted_at IS NULL')
+      .select("TO_CHAR(pe.entry_date, 'YYYY-MM-DD')", 'entryDate')
+      .addSelect('d.department_code', 'departmentCode')
+      .addSelect('i.id', 'itemId')
+      .addSelect('i.item_code', 'itemCode')
+      .addSelect('i.name', 'itemName')
+      .addSelect('i.route_type', 'routeType')
+      .addSelect('i.process_1', 'process1')
+      .addSelect('i.process_2', 'process2')
+      .addSelect('i.process_3', 'process3')
+      .addSelect('COALESCE(i.weight_per_piece, CASE WHEN i.pieces_per_kg > 0 THEN 1.0 / i.pieces_per_kg ELSE 0.008 END)', 'unitWeightKg')
+      .addSelect('COALESCE(SUM(pe.actual_quantity), 0)', 'outQty')
+      .addSelect('COALESCE(SUM(pe.scrap_quantity), 0)', 'scrapQty')
+      .addSelect('COALESCE(SUM(pe.process_scrap_kg), 0)', 'processScrapKg')
+      .addSelect('COUNT(pe.id)', 'entryCount')
+      .addSelect('COALESCE(SUM(pe.overtime_hours), 0)', 'otHours')
+      .groupBy("TO_CHAR(pe.entry_date, 'YYYY-MM-DD')")
+      .addGroupBy('d.department_code')
+      .addGroupBy('i.id')
+      .addGroupBy('i.item_code')
+      .addGroupBy('i.name')
+      .addGroupBy('i.route_type')
+      .addGroupBy('i.process_1')
+      .addGroupBy('i.process_2')
+      .addGroupBy('i.process_3')
+      .addGroupBy('i.weight_per_piece')
+      .addGroupBy('i.pieces_per_kg')
+      .orderBy("TO_CHAR(pe.entry_date, 'YYYY-MM-DD')", 'ASC');
+
+    const dailyItemRows = await dailyQb.getRawMany();
+
+    // Helper: does a Straightener item require Swaging or bypass Swaging directly to Spoke Heading?
+    const doesStraightenerItemRequireSwaging = (r: any): boolean => {
+      const p2 = String(r.process2 || '').toLowerCase().trim();
+      const p3 = String(r.process3 || '').toLowerCase().trim();
+      const nameAndCode = `${r.itemCode || ''} ${r.itemName || ''}`.toLowerCase();
+      // If item explicitly says Straight or process_2/process_3 is 'spoke' without swaging, it goes Direct to Spoke Heading
+      if (p3 === 'spoke' || p2 === 'spoke' || nameAndCode.includes('straight')) {
+        return false;
+      }
+      if (p3.includes('swag') || p2.includes('swag') || nameAndCode.includes('butted') || nameAndCode.includes('swag')) {
+        return true;
+      }
+      if (r.itemId && swagedUpstreamItemIds.has(r.itemId)) return true;
+      const rt = String(r.routeType || '').toUpperCase().trim();
+      if (rt === 'DIRECT_SPOKE') return false;
+      if (rt === 'STANDARD_SPD') return true;
+      return false;
+    };
+
+    interface DailyStageBucket {
+      outQty: number;
+      outWeightKg: number;
+      toSwagingQty: number;
+      toSwagingKg: number;
+      directToSpokeQty: number;
+      directToSpokeKg: number;
+      scrapQty: number;
+      scrapWeightKg: number;
+      entryCount: number;
+      otHours: number;
+    }
+
+    const emptyBucket = (): DailyStageBucket => ({
+      outQty: 0,
+      outWeightKg: 0,
+      toSwagingQty: 0,
+      toSwagingKg: 0,
+      directToSpokeQty: 0,
+      directToSpokeKg: 0,
+      scrapQty: 0,
+      scrapWeightKg: 0,
+      entryCount: 0,
+      otHours: 0,
+    });
+
+    const dailyByDate: Record<string, Record<string, DailyStageBucket>> = {};
+    for (const r of dailyItemRows) {
+      const dt = typeof r.entryDate === 'string' ? r.entryDate.slice(0, 10) : '';
+      if (!dt) continue;
+      if (!dailyByDate[dt]) dailyByDate[dt] = {};
+      const deptCode = r.departmentCode || 'UNKNOWN';
+      if (!dailyByDate[dt][deptCode]) dailyByDate[dt][deptCode] = emptyBucket();
+
+      const unitWt = parseFloat(r.unitWeightKg) || 0.008;
+      const outQty = parseFloat(r.outQty) || 0;
+      const outWeightKg = outQty * unitWt;
+      // CRITICAL: On Production EntryForm, pe.scrap_quantity (Part Rejection) AND pe.process_scrap_kg (Process Scrap)
+      // are BOTH recorded in KILOGRAMS (KG), e.g., 0.14 KG, 0.245 KG, 79.341 KG.
+      // Equivalent defective pieces are derived by dividing KG by Item Master weight_per_piece.
+      const partRejectKg = parseFloat(r.scrapQty) || 0;
+      const procScrapKg = parseFloat(r.processScrapKg) || 0;
+      const calcScrapKg = partRejectKg + procScrapKg;
+      const calcScrapPcs = unitWt > 0 ? Math.round(calcScrapKg / unitWt) : 0;
+
+      const b = dailyByDate[dt][deptCode];
+      b.outQty += outQty;
+      b.outWeightKg += outWeightKg;
+      b.scrapQty += calcScrapPcs;
+      b.scrapWeightKg += calcScrapKg;
+      b.entryCount += parseInt(r.entryCount, 10) || 0;
+      b.otHours += parseFloat(r.otHours) || 0;
+
+      if (deptCode === 'SPD-DEPT001') {
+        if (doesStraightenerItemRequireSwaging(r)) {
+          b.toSwagingQty += outQty;
+          b.toSwagingKg += outWeightKg;
+        } else {
+          b.directToSpokeQty += outQty;
+          b.directToSpokeKg += outWeightKg;
+        }
+      }
+    }
+
+    // Query discrete stock_ledger transfer / receipt / issue / dispatch vouchers
+    const ledgerVouchersByDate: Record<string, {
+      rmInPcs: number;
+      rmInKg: number;
+      rmOutPcs: number;
+      rmOutKg: number;
+      fgDispatchOutPcs: number;
+      fgDispatchOutKg: number;
+      deptInByCode: Record<string, { pcs: number; kg: number }>;
+    }> = {};
+
+    try {
+      const slQb = this.stockLedgerRepo
+        .createQueryBuilder('sl')
+        .leftJoin(Warehouse, 'w', 'w.id = sl.warehouse_id')
+        .leftJoin(Department, 'd', 'd.id = COALESCE(sl.department_id, w.department_id)')
+        .leftJoin(Item, 'i', 'i.id = sl.item_id')
+        .where('sl.company_id = :companyId', { companyId });
+
+      if (isCcd) {
+        slQb.andWhere(
+          "(w.division_id = 'd1000000-0000-0000-0000-000000000002' OR d.division_id = 'd1000000-0000-0000-0000-000000000002' OR w.warehouse_code LIKE 'CCD%' OR w.warehouse_code = 'RM-001-CCD')"
+        );
+      } else {
+        slQb.andWhere(
+          "(w.division_id = 'd1000000-0000-0000-0000-000000000001' OR d.division_id = 'd1000000-0000-0000-0000-000000000001' OR w.warehouse_code LIKE 'SPI%' OR w.warehouse_code = 'RM-002-SPI' OR (w.warehouse_code NOT LIKE 'CCD%' AND w.warehouse_code != 'RM-001-CCD'))"
+        );
+      }
+
+      const slRows = await slQb
+        .select("TO_CHAR(sl.transaction_date, 'YYYY-MM-DD')", 'txDate')
+        .addSelect('sl.direction', 'direction')
+        .addSelect('sl.transaction_type', 'txType')
+        .addSelect('w.warehouse_type', 'whType')
+        .addSelect('w.warehouse_code', 'whCode')
+        .addSelect('d.department_code', 'deptCode')
+        .addSelect('COALESCE(i.weight_per_piece, CASE WHEN i.pieces_per_kg > 0 THEN 1.0 / i.pieces_per_kg ELSE 0.008 END)', 'unitWt')
+        .addSelect('COALESCE(SUM(sl.quantity), 0)', 'qty')
+        .groupBy("TO_CHAR(sl.transaction_date, 'YYYY-MM-DD')")
+        .addGroupBy('sl.direction')
+        .addGroupBy('sl.transaction_type')
+        .addGroupBy('w.warehouse_type')
+        .addGroupBy('w.warehouse_code')
+        .addGroupBy('d.department_code')
+        .addGroupBy('i.weight_per_piece')
+        .addGroupBy('i.pieces_per_kg')
+        .getRawMany();
+
+      for (const s of slRows) {
+        const dt = s.txDate;
+        if (!dt) continue;
+        if (!ledgerVouchersByDate[dt]) {
+          ledgerVouchersByDate[dt] = {
+            rmInPcs: 0,
+            rmInKg: 0,
+            rmOutPcs: 0,
+            rmOutKg: 0,
+            fgDispatchOutPcs: 0,
+            fgDispatchOutKg: 0,
+            deptInByCode: {},
+          };
+        }
+        const v = ledgerVouchersByDate[dt];
+        const qty = Math.abs(parseFloat(s.qty) || 0);
+        const unitWt = parseFloat(s.unitWt) || 0.008;
+        const dir = String(s.direction || '').toUpperCase();
+        const whType = String(s.whType || '').toUpperCase();
+        const whCode = String(s.whCode || '').toUpperCase();
+        const txType = String(s.txType || '').toUpperCase();
+
+        // Raw Material Store movements — scoped strictly to active division
+        const isDivRmWh = isCcd
+          ? (whCode === 'RM-001-CCD' || (whType === 'RAW_MATERIAL' && (whCode.includes('CCD') || !whCode.includes('SPI'))))
+          : (whCode === 'RM-002-SPI' || (whType === 'RAW_MATERIAL' && !whCode.includes('CCD') && !whCode.includes('RM-001')));
+
+        if (isDivRmWh) {
+          // RM wire coil is typically tracked in KG or PCS; convert appropriately
+          const kgVal = qty < 5000 ? qty : qty * unitWt;
+          const pcsVal = qty < 5000 ? Math.round(qty / unitWt) : qty;
+          if (dir === 'IN') {
+            v.rmInPcs += pcsVal;
+            v.rmInKg += kgVal;
+          } else if (dir === 'OUT') {
+            v.rmOutPcs += pcsVal;
+            v.rmOutKg += kgVal;
+          }
+        }
+
+        // Finished Goods / Dispatch movements — scoped strictly to active division
+        const isDivFgWh = isCcd
+          ? (whCode.includes('CCD') || whType === 'FINISHED_GOODS')
+          : (!whCode.includes('CCD') && (whType === 'FINISHED_GOODS' || whCode.includes('FGDW') || whCode.includes('WH-00')));
+        if (isDivFgWh && (whType === 'FINISHED_GOODS' || whCode.includes('FGDW') || whCode.includes('WH-00') || txType.includes('DISPATCH') || txType.includes('SALE'))) {
+          if (dir === 'OUT') {
+            v.fgDispatchOutPcs += qty;
+            v.fgDispatchOutKg += qty * unitWt;
+          }
+        }
+
+        // Department-specific discrete transfer-in vouchers
+        if (s.deptCode && dir === 'IN' && (txType.includes('TRANSFER') || txType.includes('ISSUE'))) {
+          if (!v.deptInByCode[s.deptCode]) {
+            v.deptInByCode[s.deptCode] = { pcs: 0, kg: 0 };
+          }
+          v.deptInByCode[s.deptCode].pcs += qty;
+          v.deptInByCode[s.deptCode].kg += qty * unitWt;
+        }
+      }
+    } catch {
+      // Proceed gracefully if stock_ledger table is empty
+    }
+
+    // Load individual production tickets for target department
+    const ticketsByDate: Record<string, any[]> = {};
+    if (!isAnchorCode && targetDept?.id) {
+      const ticketsQb = this.entryRepo
+        .createQueryBuilder('pe')
+        .leftJoinAndSelect('pe.item', 'i')
+        .leftJoinAndSelect('pe.shift', 's')
+        .where('pe.company_id = :companyId', { companyId })
+        .andWhere('pe.department_id = :deptId', { deptId: targetDept.id })
+        .andWhere('pe.deleted_at IS NULL')
+        .orderBy('pe.entry_date', 'ASC')
+        .addOrderBy('pe.created_at', 'ASC');
+
+      if (filters.dateFrom) {
+        ticketsQb.andWhere('pe.entry_date >= :dateFrom', { dateFrom: filters.dateFrom });
+      }
+      if (filters.dateTo) {
+        ticketsQb.andWhere('pe.entry_date <= :dateTo', { dateTo: filters.dateTo });
+      }
+
+      const tickets = await ticketsQb.getMany();
+      const formatLocalYmd = (val: any): string => {
+        if (!val) return '';
+        if (typeof val === 'string') return val.slice(0, 10);
+        if (val instanceof Date) {
+          const y = val.getFullYear();
+          const m = String(val.getMonth() + 1).padStart(2, '0');
+          const d = String(val.getDate()).padStart(2, '0');
+          return `${y}-${m}-${d}`;
+        }
+        return '';
+      };
+      for (const t of tickets) {
+        const dt = formatLocalYmd(t.entryDate);
+        if (!dt) continue;
+        if (!ticketsByDate[dt]) ticketsByDate[dt] = [];
+        const unitWt = t.item?.weightPerPiece
+          ? Number(t.item.weightPerPiece)
+          : (t.item?.piecesPerKg && Number(t.item.piecesPerKg) > 0 ? 1.0 / Number(t.item.piecesPerKg) : 0.008);
+        const actQty = Number(t.actualQuantity) || 0;
+        // Both scrapQuantity (Part Rejection) and processScrapKg are stored in KG on ProductionEntry
+        const partRejectKg = Number(t.scrapQuantity) || 0;
+        const procScKg = Number(t.processScrapKg) || 0;
+        const calcScrapKg = partRejectKg + procScKg;
+        const calcScrapPcs = unitWt > 0 ? Math.round(calcScrapKg / unitWt) : 0;
+
+        let ticketNextProcess = targetDeptName;
+        if (targetDept?.departmentCode === 'SPD-DEPT001') {
+          const requiresSwaging = doesStraightenerItemRequireSwaging({
+            itemId: t.itemId,
+            itemCode: t.item?.itemCode,
+            itemName: t.item?.name,
+            routeType: (t.item as any)?.routeType,
+            process1: (t.item as any)?.process1,
+            process2: (t.item as any)?.process2,
+            process3: (t.item as any)?.process3,
+          });
+          ticketNextProcess = requiresSwaging ? '3. Swaging (Butted Route)' : '4. Spoke (Header) [Direct]';
+        }
+
+        ticketsByDate[dt].push({
+          id: t.id,
+          entryNumber: t.entryNumber,
+          itemCode: t.item?.itemCode || 'N/A',
+          itemName: t.item?.name || 'N/A',
+          shiftName: t.shift?.name || 'General',
+          machineNo: t.machineNo || 'N/A',
+          operatorName: t.operatorName || 'N/A',
+          quantityPcs: actQty,
+          quantityKg: Number((actQty * unitWt).toFixed(2)),
+          scrapPcs: calcScrapPcs,
+          scrapKg: Number(calcScrapKg.toFixed(3)),
+          overtimeHours: Number(t.overtimeHours) || 0,
+          remarks: t.remarks || '',
+          nextProcess: ticketNextProcess,
+        });
+      }
+    }
+
+    // Merge all chronological dates from production entries and stock transfer vouchers
+    const dateSet = new Set<string>([...Object.keys(dailyByDate), ...Object.keys(ledgerVouchersByDate)]);
+    const allDates = Array.from(dateSet).sort();
+
+    const targetCode = targetDept?.departmentCode || '';
+
+    // Resolve target department's physical/WIP warehouse to query actual on-hand stock and closing balances
+    let targetWhCode = '';
+    if (targetCode === 'RM-STORE') {
+      targetWhCode = isCcd ? 'RM-001-CCD' : 'RM-002-SPI';
+    } else if (targetCode === 'SPD-DEPT001') {
+      targetWhCode = 'SPI-ST-001';
+    } else if (targetCode === 'SPD-DEPT002') {
+      targetWhCode = 'SPI-SW-002';
+    } else if (targetCode === 'SPD-DEPT003') {
+      targetWhCode = 'SPI-SPK-003';
+    } else if (targetCode === 'SPD-DEPT006') {
+      targetWhCode = 'SPI-PL-004';
+    } else if (targetCode === 'SPD-DEPT008') {
+      targetWhCode = 'SPI-FGDW-001';
+    } else if (targetCode === 'CCD-DEPT001') {
+      targetWhCode = 'CCD-FT-001';
+    } else if (targetCode === 'CCD-DEPT002') {
+      targetWhCode = 'CCD-SP-002';
+    } else if (targetCode === 'CCD-DEPT003') {
+      targetWhCode = 'CCD-PVC-003';
+    } else if (targetCode === 'FG-DISPATCH') {
+      targetWhCode = isCcd ? 'WH-001' : 'SPI-FGDW-001';
+    }
+
+    let targetWarehouse: Warehouse | null = null;
+    try {
+      if (targetWhCode) {
+        targetWarehouse = await this.warehouseRepo.findOne({ where: { warehouseCode: targetWhCode } });
+      }
+      if (!targetWarehouse && targetDept?.id && !isAnchorCode) {
+        targetWarehouse = await this.warehouseRepo.findOne({
+          where: { departmentId: targetDept.id, warehouseType: 'WORK_IN_PROGRESS' as any },
+        });
+        if (!targetWarehouse) {
+          targetWarehouse = await this.warehouseRepo.findOne({ where: { departmentId: targetDept.id } });
+        }
+      }
+    } catch {
+      // Continue gracefully if warehouse lookup fails
+    }
+
+    // 1. Authoritative Live Current Stock sitting in this department (inventory_balances)
+    let liveWipPcs = 0;
+    let liveWipKg = 0;
+    if (targetWarehouse) {
+      try {
+        const liveBalRow = await this.inventoryBalanceRepo
+          .createQueryBuilder('ib')
+          .leftJoin(Item, 'i', 'i.id = ib.item_id')
+          .where('ib.warehouse_id = :whId', { whId: targetWarehouse.id })
+          .andWhere("ib.status = 'ACTIVE'")
+          .select('COALESCE(SUM(ib.on_hand), 0)', 'totalPcs')
+          .addSelect(
+            'COALESCE(SUM(ib.on_hand * COALESCE(i.weight_per_piece, CASE WHEN i.pieces_per_kg > 0 THEN 1.0 / i.pieces_per_kg ELSE 0.008 END)), 0)',
+            'totalKg'
+          )
+          .getRawOne();
+
+        if (liveBalRow) {
+          const rawPcs = parseFloat(liveBalRow.totalPcs) || 0;
+          const rawKg = parseFloat(liveBalRow.totalKg) || 0;
+          if (targetCode === 'RM-STORE') {
+            liveWipKg = Number(rawPcs.toFixed(2));
+            liveWipPcs = Math.round(rawPcs / 0.0115);
+          } else {
+            liveWipPcs = Math.round(rawPcs);
+            liveWipKg = Number(rawKg.toFixed(2));
+          }
+        }
+      } catch {
+        // Fallback
+      }
+    }
+
+    // 2. Date-wise closing stock ledger balances for this department's warehouse
+    const closingBalByDate: Record<string, { pcs: number; kg: number }> = {};
+    if (targetWarehouse) {
+      try {
+        const slDeltas = await this.stockLedgerRepo
+          .createQueryBuilder('sl')
+          .leftJoin(Item, 'i', 'i.id = sl.item_id')
+          .where('sl.warehouse_id = :whId', { whId: targetWarehouse.id })
+          .select("TO_CHAR(sl.transaction_date, 'YYYY-MM-DD')", 'dt')
+          .addSelect(
+            "SUM(CASE WHEN sl.direction = 'IN' THEN sl.quantity ELSE -sl.quantity END)",
+            'deltaPcs'
+          )
+          .addSelect(
+            "SUM(CASE WHEN sl.direction = 'IN' THEN sl.quantity * COALESCE(i.weight_per_piece, CASE WHEN i.pieces_per_kg > 0 THEN 1.0 / i.pieces_per_kg ELSE 0.008 END) ELSE -sl.quantity * COALESCE(i.weight_per_piece, CASE WHEN i.pieces_per_kg > 0 THEN 1.0 / i.pieces_per_kg ELSE 0.008 END) END)",
+            'deltaKg'
+          )
+          .groupBy("TO_CHAR(sl.transaction_date, 'YYYY-MM-DD')")
+          .orderBy("TO_CHAR(sl.transaction_date, 'YYYY-MM-DD')", 'ASC')
+          .getRawMany();
+
+        let rollingPcs = 0;
+        let rollingKg = 0;
+        for (const row of slDeltas) {
+          rollingPcs += parseFloat(row.deltaPcs) || 0;
+          rollingKg += parseFloat(row.deltaKg) || 0;
+          if (targetCode === 'RM-STORE') {
+            closingBalByDate[row.dt] = {
+              pcs: Math.round(rollingPcs / 0.0115),
+              kg: Number(rollingPcs.toFixed(2)),
+            };
+          } else {
+            closingBalByDate[row.dt] = {
+              pcs: Math.round(rollingPcs),
+              kg: Number(rollingKg.toFixed(2)),
+            };
+          }
+        }
+      } catch {
+        // Fallback
+      }
+    }
+
+    let cumulativeFloorBalPcs = 0;
+    let cumulativeFloorBalKg = 0;
+
+    let openingBalancePcs = 0;
+    let openingBalanceKg = 0;
+    let totalInflowPcs = 0;
+    let totalInflowKg = 0;
+    let totalOutflowPcs = 0;
+    let totalOutflowKg = 0;
+    let totalScrapPcs = 0;
+    let totalScrapKg = 0;
+
+    const transactions: any[] = [];
+
+    for (const dt of allDates) {
+      const isBeforeDateFrom = filters.dateFrom && dt < filters.dateFrom;
+      const isAfterDateTo = filters.dateTo && dt > filters.dateTo;
+
+      const dayData = dailyByDate[dt] || {};
+      const voucherData = ledgerVouchersByDate[dt];
+      const deptData = dayData[targetCode] || emptyBucket();
+
+      let inflowPcs = 0;
+      let inflowKg = 0;
+      let outflowPcs = deptData.outQty;
+      let outflowKg = deptData.outWeightKg;
+      let scrapPcs = deptData.scrapQty;
+      let scrapKg = deptData.scrapWeightKg;
+      let rowSourceDept = sourceDeptName;
+      let rowTargetDept = targetDeptName;
+
+      const stData = dayData['SPD-DEPT001'];
+      const swData = dayData['SPD-DEPT002'];
+      const spData = dayData['SPD-DEPT003'];
+      const plData = dayData['SPD-DEPT006'];
+      const pkData = dayData['SPD-DEPT008'];
+
+      if (targetCode === 'RM-STORE') {
+        // Position 1: Entry Anchor — Raw Material Stores (RM Wire Coil)
+        // Raw material is tracked in KG (Wire Coil) and issued strictly to 2. Straightener (or 2. Flattening for CCD)
+        const firstStageData = stData || dayData['CCD-DEPT001'];
+        const firstStageConsumptionPcs = firstStageData ? firstStageData.outQty + firstStageData.scrapQty : 0;
+        const firstStageConsumptionKg = firstStageData ? firstStageData.outWeightKg + firstStageData.scrapWeightKg : 0;
+
+        outflowPcs = firstStageConsumptionPcs;
+        outflowKg = firstStageConsumptionKg;
+        inflowPcs = voucherData && voucherData.rmInPcs > 0 ? voucherData.rmInPcs : 0;
+        inflowKg = voucherData && voucherData.rmInKg > 0 ? voucherData.rmInKg : 0;
+        scrapPcs = 0;
+        scrapKg = 0;
+        rowSourceDept = 'Vendor / Steel Wire Mill (GRN Receipt)';
+        rowTargetDept = isCcd ? '2. Flattening' : '2. Straightener';
+      } else if (targetCode === 'SPD-DEPT001') {
+        // Position 2: Wire Straightening — Inflow pulls from RM Wire Coil in KG & PCS
+        // In Wire Straightening, wire coil is drawn and cut on the machine to fulfill the shift tickets.
+        // Professional ERP Material Balance: Wire Drawn (Inflow) = Good Output Spoke Pieces + Cutting/Rejection Scrap.
+        const discreteIn = voucherData?.deptInByCode['SPD-DEPT001'];
+        if (discreteIn && discreteIn.pcs > 0) {
+          inflowPcs = discreteIn.pcs;
+          inflowKg = discreteIn.kg;
+        } else if (outflowPcs > 0 || scrapKg > 0 || scrapPcs > 0) {
+          inflowPcs = outflowPcs + scrapPcs;
+          inflowKg = outflowKg + scrapKg;
+        } else {
+          inflowPcs = 0;
+          inflowKg = 0;
+        }
+        rowSourceDept = '1. Raw Material Stores (RM Wire Coil)';
+        if (deptData.toSwagingQty > 0 && deptData.directToSpokeQty > 0) {
+          rowTargetDept = '4. Spoke (Header) [Direct] + 3. Swaging [Butted]';
+        } else if (deptData.directToSpokeQty > 0 && deptData.toSwagingQty === 0) {
+          rowTargetDept = '4. Spoke (Header) [Direct — No Swaging]';
+        } else if (deptData.toSwagingQty > 0) {
+          rowTargetDept = '3. Swaging';
+        }
+      } else if (targetCode === 'SPD-DEPT002') {
+        // Position 3: Swaging — ONLY receives items from Straightener that require Swaging (Direct Spoke items bypass Swaging!)
+        const discreteIn = voucherData?.deptInByCode['SPD-DEPT002'];
+        if (discreteIn && discreteIn.pcs > 0) {
+          inflowPcs = discreteIn.pcs;
+          inflowKg = discreteIn.kg;
+        } else if (stData) {
+          inflowPcs = stData.toSwagingQty;
+          inflowKg = stData.toSwagingKg;
+        }
+      } else if (targetCode === 'SPD-DEPT003') {
+        // Position 4: Spoke Heading — Dynamically receives Swaging Outflow + Direct Spoke items bypassing Swaging from Straightener!
+        const discreteIn = voucherData?.deptInByCode['SPD-DEPT003'];
+        if (discreteIn && discreteIn.pcs > 0) {
+          inflowPcs = discreteIn.pcs;
+          inflowKg = discreteIn.kg;
+        } else {
+          const fromSwagingPcs = swData ? swData.outQty : 0;
+          const fromSwagingKg = swData ? swData.outWeightKg : 0;
+          const directFromStraightenerPcs = stData ? stData.directToSpokeQty : 0;
+          const directFromStraightenerKg = stData ? stData.directToSpokeKg : 0;
+
+          inflowPcs = fromSwagingPcs + directFromStraightenerPcs;
+          inflowKg = fromSwagingKg + directFromStraightenerKg;
+
+          if (fromSwagingPcs > 0 && directFromStraightenerPcs > 0) {
+            rowSourceDept = 'Swaging + Straightener (Direct Bypass)';
+          } else if (directFromStraightenerPcs > 0) {
+            rowSourceDept = 'Straightener (Direct Bypass)';
+          } else if (fromSwagingPcs > 0) {
+            rowSourceDept = 'Swaging';
+          }
+        }
+      } else if (targetCode === 'SPD-DEPT006') {
+        // Position 5: Spoke Plating — Inflow strictly from preceding Spoke Heading outflow
+        const discreteIn = voucherData?.deptInByCode['SPD-DEPT006'];
+        if (discreteIn && discreteIn.pcs > 0) {
+          inflowPcs = discreteIn.pcs;
+          inflowKg = discreteIn.kg;
+        } else if (spData) {
+          inflowPcs = spData.outQty;
+          inflowKg = spData.outWeightKg;
+        }
+      } else if (targetCode === 'SPD-DEPT008') {
+        // Position 6: Spoke Packing — Inflow strictly from preceding Spoke Plating outflow
+        const discreteIn = voucherData?.deptInByCode['SPD-DEPT008'];
+        if (discreteIn && discreteIn.pcs > 0) {
+          inflowPcs = discreteIn.pcs;
+          inflowKg = discreteIn.kg;
+        } else if (plData) {
+          inflowPcs = plData.outQty;
+          inflowKg = plData.outWeightKg;
+        }
+      } else if (targetCode === 'FG-DISPATCH') {
+        // Position 7: Exit Anchor — Dispatch Department / Finished Goods Logistics
+        const packSource = pkData || dayData['CCD-DEPT005'];
+        inflowPcs = packSource ? packSource.outQty : 0;
+        inflowKg = packSource ? packSource.outWeightKg : 0;
+        outflowPcs = voucherData && voucherData.fgDispatchOutPcs > 0 ? voucherData.fgDispatchOutPcs : 0;
+        outflowKg = voucherData && voucherData.fgDispatchOutKg > 0 ? voucherData.fgDispatchOutKg : 0;
+        scrapPcs = 0;
+        scrapKg = 0;
+      } else if (currentStageInfo && currentStageInfo.prevCode && dayData[currentStageInfo.prevCode]) {
+        // Control Cable & other multi-stage sequential departments: pull strictly from preceding stage outflow
+        const prevStageData = dayData[currentStageInfo.prevCode];
+        inflowPcs = prevStageData.outQty;
+        inflowKg = prevStageData.outWeightKg;
+      } else {
+        const discreteIn = voucherData?.deptInByCode[targetCode];
+        if (discreteIn && discreteIn.pcs > 0) {
+          inflowPcs = discreteIn.pcs;
+          inflowKg = discreteIn.kg;
+        } else {
+          inflowPcs = outflowPcs + scrapPcs;
+          inflowKg = outflowKg + scrapKg;
+        }
+      }
+
+      // Authoritative day-ending WIP stock sitting in this department on date dt
+      const dayClosing = closingBalByDate[dt];
+      if (dayClosing) {
+        cumulativeFloorBalPcs = dayClosing.pcs;
+        cumulativeFloorBalKg = dayClosing.kg;
+      } else {
+        cumulativeFloorBalPcs = (cumulativeFloorBalPcs + inflowPcs) - (outflowPcs + scrapPcs);
+        cumulativeFloorBalKg = (cumulativeFloorBalKg + inflowKg) - (outflowKg + scrapKg);
+      }
+
+      if (isBeforeDateFrom) {
+        openingBalancePcs = cumulativeFloorBalPcs;
+        openingBalanceKg = cumulativeFloorBalKg;
+        continue;
+      }
+
+      if (isAfterDateTo) {
+        continue;
+      }
+
+      if (inflowPcs > 0 || outflowPcs > 0 || scrapKg > 0 || scrapPcs > 0 || (ticketsByDate[dt] && ticketsByDate[dt].length > 0)) {
+        totalInflowPcs += inflowPcs;
+        totalInflowKg += inflowKg;
+        totalOutflowPcs += outflowPcs;
+        totalOutflowKg += outflowKg;
+        totalScrapPcs += scrapPcs;
+        totalScrapKg += scrapKg;
+
+        transactions.push({
+          date: dt,
+          sourceDepartment: rowSourceDept,
+          targetDepartment: rowTargetDept,
+          inflowPcs: Math.round(inflowPcs),
+          inflowKg: Number(inflowKg.toFixed(2)),
+          outflowPcs: Math.round(outflowPcs),
+          outflowKg: Number(outflowKg.toFixed(2)),
+          toSwagingPcs: Math.round(deptData.toSwagingQty),
+          toSwagingKg: Number(deptData.toSwagingKg.toFixed(2)),
+          directToSpokePcs: Math.round(deptData.directToSpokeQty),
+          directToSpokeKg: Number(deptData.directToSpokeKg.toFixed(2)),
+          scrapPcs: Math.round(scrapPcs),
+          scrapKg: Number(scrapKg.toFixed(3)),
+          runningFloorBalancePcs: Math.round(cumulativeFloorBalPcs),
+          runningFloorBalanceKg: Number(cumulativeFloorBalKg.toFixed(2)),
+          entryCount: deptData.entryCount,
+          overtimeHours: deptData.otHours,
+          tickets: ticketsByDate[dt] || [],
+        });
+      }
+    }
+
+    // Authoritative Current Net Floor Balance: Real live on-hand WIP stock sitting in this department
+    const netFloorBalancePcs = liveWipPcs > 0 ? liveWipPcs : Math.round(cumulativeFloorBalPcs);
+    const netFloorBalanceKg = liveWipKg > 0 ? liveWipKg : Number(cumulativeFloorBalKg.toFixed(2));
+
+    transactions.sort((a, b) => b.date.localeCompare(a.date));
+
+    let stages = SPOKE_STAGES.map(s => {
+      const matched = allDepts.find(d => d.departmentCode === s.code);
+      return {
+        key: s.key,
+        code: s.code,
+        name: s.name,
+        departmentId: matched?.id || s.code,
+        active: targetDept?.departmentCode === s.code || targetDept?.id === (matched?.id || s.code),
+      };
+    });
+
+    if (filters.divisionId && filters.divisionId !== 'd1000000-0000-0000-0000-000000000001') {
+      const divDepts = allDepts.filter(d => d.divisionId === filters.divisionId);
+      if (isControlCableDiv) {
+        stages = CONTROL_CABLE_STAGES.map(s => {
+          const matched = divDepts.find(d => d.departmentCode === s.code || d.name.toLowerCase().includes(s.name.toLowerCase()));
+          return {
+            key: s.key,
+            code: s.code,
+            name: s.name,
+            departmentId: matched?.id || s.code,
+            active: Boolean(targetDept?.departmentCode === s.code || targetDept?.id === (matched?.id || s.code) || (matched && targetDept?.name === matched.name)),
+          };
+        });
+      } else if (divDepts.length > 0) {
+        stages = [
+          {
+            key: 'rm-store-div',
+            code: 'RM-STORE',
+            name: 'Raw Material Stores (RM Wire Coil)',
+            departmentId: 'RM-STORE',
+            active: targetDept?.departmentCode === 'RM-STORE',
+          },
+          ...divDepts.map(d => ({
+            key: d.id,
+            code: d.departmentCode || d.id,
+            name: d.name,
+            departmentId: d.id,
+            active: targetDept?.id === d.id || targetDept?.departmentCode === d.departmentCode,
+          })),
+          {
+            key: 'fg-dispatch-div',
+            code: 'FG-DISPATCH',
+            name: 'Dispatch / FG Logistics',
+            departmentId: 'FG-DISPATCH',
+            active: targetDept?.departmentCode === 'FG-DISPATCH',
+          },
+        ];
+      }
+    }
+
+    const activeDivisionIdForAnchors = filters.divisionId || 'd1000000-0000-0000-0000-000000000001';
+    const allDepartmentOptions = [
+      {
+        id: 'RM-STORE',
+        code: 'RM-STORE',
+        name: 'Raw Material Stores (RM Wire Coil)',
+        divisionId: activeDivisionIdForAnchors,
+      },
+      ...(filters.divisionId
+        ? allDepts.filter(d => d.divisionId === filters.divisionId)
+        : allDepts
+      ).map(d => ({
+        id: d.id,
+        code: d.departmentCode,
+        name: d.name,
+        divisionId: d.divisionId,
+      })),
+      {
+        id: 'FG-DISPATCH',
+        code: 'FG-DISPATCH',
+        name: 'Dispatch / FG Logistics',
+        divisionId: activeDivisionIdForAnchors,
+      },
+    ];
+
+    return {
+      department: {
+        id: targetDept?.id,
+        code: targetDept?.departmentCode,
+        name: targetDept?.name,
+        sourceDepartment: sourceDeptName,
+        targetDepartment: targetDeptName,
+      },
+      summary: {
+        openingBalancePcs: Math.round(openingBalancePcs),
+        openingBalanceKg: Number(openingBalanceKg.toFixed(2)),
+        totalInflowPcs: Math.round(totalInflowPcs),
+        totalInflowKg: Number(totalInflowKg.toFixed(2)),
+        totalOutflowPcs: Math.round(totalOutflowPcs),
+        totalOutflowKg: Number(totalOutflowKg.toFixed(2)),
+        totalScrapPcs: Math.round(totalScrapPcs),
+        totalScrapKg: Number(totalScrapKg.toFixed(2)),
+        currentFloorBalancePcs: netFloorBalancePcs,
+        currentFloorBalanceKg: netFloorBalanceKg,
+        totalTransactions: transactions.length,
+      },
+      stages,
+      allDepartments: allDepartmentOptions,
+      transactions,
+    };
+  }
 }
+

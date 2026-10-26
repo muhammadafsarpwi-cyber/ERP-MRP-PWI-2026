@@ -107,6 +107,32 @@ export class DashboardController {
     return { success: true, data };
   }
 
+  @Get('department-ledger')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @ApiQuery({ name: 'departmentId', required: false, description: 'Selected department ID or code' })
+  @ApiQuery({ name: 'divisionId', required: false })
+  @ApiQuery({ name: 'dateFrom', required: false })
+  @ApiQuery({ name: 'dateTo', required: false })
+  @ApiOperation({ summary: 'Department-wise Inflow/Outflow Production Ledger' })
+  async departmentLedger(
+    @Req() req: any,
+    @Query('departmentId') departmentId?: string,
+    @Query('divisionId') divisionId?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+  ) {
+    const companyId = this.getCompanyId(req);
+    const data = await this.dashboardService.getDepartmentProductionLedger(companyId, {
+      departmentId,
+      divisionId,
+      dateFrom,
+      dateTo,
+      allowedDivisionIds: this.divisions(req),
+    });
+    return { success: true, data };
+  }
+
   @Get('production/trend')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()

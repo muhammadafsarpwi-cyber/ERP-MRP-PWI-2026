@@ -12,6 +12,7 @@ import { ProductionEntry } from '../../production/entities/production-entry.enti
 import { BarcodeService } from '../../barcode/services/barcode.service';
 import { ConflictException, NotFoundException, BadRequestException } from '@nestjs/common';
 import { ActivityLogService } from '../../audit/services/activity-log.service';
+import { ProductionRouting, RoutingOperation } from '../../production-routing/entities';
 
 describe('ItemService', () => {
   let service: ItemService;
@@ -157,6 +158,29 @@ describe('ItemService', () => {
           useValue: {
             query: jest.fn().mockResolvedValue([]),
             transaction: jest.fn((cb) => cb({ query: jest.fn().mockResolvedValue([]), remove: jest.fn() })),
+          },
+        },
+        {
+          provide: getRepositoryToken(ProductionRouting),
+          useValue: {
+            find: jest.fn().mockResolvedValue([]),
+            findOne: jest.fn().mockResolvedValue(null),
+            create: jest.fn((dto) => ({ id: 'rtg-mock', ...dto })),
+            save: jest.fn((entity) => Promise.resolve({ id: 'rtg-mock', ...entity })),
+            update: jest.fn().mockResolvedValue({ affected: 1 }),
+            delete: jest.fn().mockResolvedValue({ affected: 1 }),
+          },
+        },
+        {
+          provide: getRepositoryToken(RoutingOperation),
+          useValue: {
+            find: jest.fn().mockResolvedValue([]),
+            findOne: jest.fn().mockResolvedValue(null),
+            create: jest.fn((dto) => ({ id: 'op-mock', ...dto })),
+            save: jest.fn((entity) => Promise.resolve(entity)),
+            update: jest.fn().mockResolvedValue({ affected: 1 }),
+            delete: jest.fn().mockResolvedValue({ affected: 1 }),
+            remove: jest.fn().mockResolvedValue([]),
           },
         },
       ],

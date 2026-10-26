@@ -20,6 +20,7 @@ import { formatNumber, formatDimension, toNum } from '../../../utils/numberForma
 import { useLookups, ItemLk } from './lookups';
 import { useEntryDockStore, EntryContextParams } from './entryDockStore';
 import { splitEntryItemLines, consumedQuantityFromAuditLines } from './entryLines';
+import DowntimeReasonSelect from './DowntimeReasonSelect';
 import './productionEntryModal.css';
 import '../../../styles/rejectionEntry.css';
 import {
@@ -3909,16 +3910,14 @@ const EntryForm: React.FC<EntryFormProps> = ({
                                           }),
                                         ]}
                                       >
-                                        <Select
+                                        <DowntimeReasonSelect
                                           size="small"
-                                          showSearch optionFilterProp="label"
                                           placeholder="Downtime reason"
-                                          popupMatchSelectWidth={false}
-                                          dropdownStyle={{ zIndex: 99999 }}
-                                          popupClassName="production-select-popup"
-                                          styles={{ popup: { root: { minWidth: 280 } } }}
                                           className={reasonId ? 'erp-field-filled' : 'erp-field-unfilled'}
                                           options={lookups.downtimeReasons.map((r) => ({ value: r.id, label: r.name }))}
+                                          onReasonCreated={() => {
+                                            void lookups.loadDowntimeReasons?.();
+                                          }}
                                         />
                                       </Form.Item>
                                     </Col>

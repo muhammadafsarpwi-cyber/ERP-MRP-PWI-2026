@@ -15,6 +15,7 @@ import { ProductionEntry } from '../../production/entities/production-entry.enti
 import { BarcodeService } from '../../barcode/services/barcode.service';
 import { BarcodeEntityType } from '../../barcode/entities/barcode.entity';
 import { ActivityLogService } from '../../audit/services/activity-log.service';
+import { ProductionRouting, RoutingOperation, RoutingStatus } from '../../production-routing/entities';
 
 /**
  * DUMMY-DATA-CLEANUP: one counted reference of an item in another table.
@@ -97,23 +98,45 @@ export class ItemService implements OnModuleInit {
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly activityLogService: ActivityLogService,
+    @InjectRepository(ProductionRouting)
+    private readonly routingRepository: Repository<ProductionRouting>,
+    @InjectRepository(RoutingOperation)
+    private readonly routingOperationRepository: Repository<RoutingOperation>,
   ) {}
 
   async onModuleInit() {
-    try {
-      // TASK #45: Heal any legacy records where production_in_item_id is set
-      // but production_out_item_id is NULL or out of sync (current item is the output).
-      await this.itemRepository
-        .createQueryBuilder()
-        .update(Item)
-        .set({ productionOutItemId: () => 'id' })
-        .where('production_in_item_id IS NOT NULL')
-        .andWhere('(production_out_item_id IS NULL OR production_out_item_id != id)')
-        .execute();
-      this.logger.log('Production OUT item auto-sync check completed successfully.');
-    } catch (err: any) {
-      this.logger.warn(`Could not run production OUT auto-sync check: ${err?.message}`);
-    }
+    setImmediate(async () => {
+      try {
+        // TASK #45: Heal any legacy records where production_in_item_id is set
+        // but production_out_item_id is NULL or out of sync (current item is the output).
+        await this.itemRepository
+          .createQueryBuilder()
+          .update(Item)
+          .set({ productionOutItemId: () => 'id' })
+          .where('production_in_item_id IS NOT NULL')
+          .andWhere('(production_out_item_id IS NULL OR production_out_item_id != id)')
+          .execute();
+        this.logger.log('Production OUT item auto-sync check completed successfully.');
+
+        // Auto-provision production routings for manufacturable items configured with process stages
+        const itemsWithProcesses = await this.itemRepository
+          .createQueryBuilder('item')
+          .where("item.processes IS NOT NULL AND jsonb_typeof(item.processes) = 'array' AND jsonb_array_length(item.processes) > 0")
+          .andWhere('(item.is_manufacturable = true OR item.item_type IN (:...mfgTypes))', {
+            mfgTypes: [ItemType.FINISHED_GOOD, ItemType.SEMI_FINISHED, ItemType.WORK_IN_PROGRESS],
+          })
+          .getMany();
+        
+        let syncCount = 0;
+        for (const itm of itemsWithProcesses) {
+          const res = await this.autoProvisionProductionRouting(itm, itm.processes);
+          if (res) syncCount++;
+        }
+        this.logger.log(`Auto-provisioned production routings for ${syncCount} items on module init.`);
+      } catch (err: any) {
+        this.logger.warn(`Could not run production auto-sync check: ${err?.message}`);
+      }
+    });
   }
 
   /**
@@ -594,6 +617,12 @@ export class ItemService implements OnModuleInit {
     }
 
     this.invalidateLookupCache();
+
+    // Auto-provision production routing from Item Master process configuration
+    if (Array.isArray(saved.processes) && saved.processes.length > 0) {
+      await this.autoProvisionProductionRouting(saved, saved.processes, userId);
+    }
+
     return saved;
   }
 
@@ -1147,7 +1176,206 @@ export class ItemService implements OnModuleInit {
 
     this.invalidateLookupCache();
     // Fresh read from the database so the returned object reflects the new state.
-    return this.findOne(id);
+    const updated = await this.findOne(id);
+    if (updated && Array.isArray(updated.processes) && updated.processes.length > 0) {
+      await this.autoProvisionProductionRouting(updated, updated.processes, userId);
+    }
+    return updated;
+  }
+
+  /**
+   * Auto-provisions or updates the Production Routing and Routing Operations
+   * directly from the Item Master's sequential process configuration (Item.processes).
+   * Eliminates duplicate entry and keeps routing maps completely synchronized.
+   */
+  async autoProvisionProductionRouting(item: Item, rawProcesses?: any[] | null, userId?: string): Promise<ProductionRouting | null> {
+    const processes = Array.isArray(rawProcesses) ? rawProcesses : (Array.isArray(item.processes) ? item.processes : []);
+    if (!processes || processes.length === 0) {
+      return null;
+    }
+
+    try {
+      // 1. Ensure item is marked manufacturable since it has production processes defined
+      if (!item.isManufacturable) {
+        await this.itemRepository.update(item.id, { isManufacturable: true });
+        item.isManufacturable = true;
+      }
+
+      // 2. Find existing production routing for this product and company
+      let routing = await this.routingRepository.findOne({
+        where: { productId: item.id, companyId: item.companyId },
+      });
+
+      const routingName = `${item.itemCode} - ${item.name}`;
+
+      if (!routing) {
+        // Generate new sequential routing code: RTG-XXX
+        const routingCode = await this.generateRoutingCode(item.companyId);
+        routing = this.routingRepository.create({
+          companyId: item.companyId,
+          productId: item.id,
+          routingCode,
+          name: routingName,
+          status: RoutingStatus.ACTIVE,
+          baseQuantity: 1,
+          routeTypeId: item.routeTypeId || null,
+          isDefault: true,
+          createdBy: userId || null,
+          updatedBy: userId || null,
+        });
+        routing = await this.routingRepository.save(routing);
+        this.logger.log(`Auto-provisioned new Production Routing ${routing.routingCode} for Item ${item.itemCode}`);
+      } else {
+        // Update existing routing details
+        routing.name = routingName;
+        routing.status = RoutingStatus.ACTIVE;
+        if (item.routeTypeId) {
+          routing.routeTypeId = item.routeTypeId;
+        }
+        routing.updatedBy = userId || routing.updatedBy || null;
+        await this.routingRepository.save(routing);
+        this.logger.log(`Synchronized Production Routing ${routing.routingCode} for Item ${item.itemCode}`);
+      }
+
+      // 3. Upsert or synchronize operations
+      const existingOps = await this.routingOperationRepository.find({
+        where: { routingId: routing.id },
+        order: { sequenceNo: 'ASC' },
+      });
+
+      const sortedProcesses = [...processes].sort((a, b) => {
+        const seqA = Number(a.sequence ?? 0);
+        const seqB = Number(b.sequence ?? 0);
+        return seqA - seqB;
+      });
+
+      const opsToSave: RoutingOperation[] = [];
+      const opsToDelete: RoutingOperation[] = [];
+
+      for (let idx = 0; idx < sortedProcesses.length; idx++) {
+        const proc = sortedProcesses[idx];
+        const seqNum = Number(proc.sequence) || (idx + 1);
+        const sequenceNo = seqNum * 10;
+        const opName = (proc.name || proc.departmentName || `Operation ${seqNum}`).trim();
+        const nameCode = opName.replace(/[^a-zA-Z0-9]/g, '').substring(0, 8).toUpperCase() || 'OP';
+        const operationCode = `OP-${nameCode}-${String(sequenceNo).padStart(3, '0')}`;
+
+        let op = existingOps[idx];
+        if (!op) {
+          op = this.routingOperationRepository.create({
+            companyId: item.companyId,
+            routingId: routing.id,
+            createdBy: userId || null,
+          });
+        }
+
+        let validDeptId: string | null = null;
+        if (proc.departmentId && String(proc.departmentId).trim() !== '') {
+          const dept = await this.departmentRepository.findOne({
+            where: { id: proc.departmentId },
+            select: ['id'],
+          });
+          if (dept) validDeptId = dept.id;
+        }
+
+        let validOutputItemId: string | null = null;
+        if (proc.outputItemId && String(proc.outputItemId).trim() !== '') {
+          const outItm = await this.itemRepository.findOne({
+            where: { id: proc.outputItemId },
+            select: ['id'],
+          });
+          if (outItm) validOutputItemId = outItm.id;
+        }
+        if (!validOutputItemId && idx === sortedProcesses.length - 1) {
+          validOutputItemId = item.id;
+        }
+
+        let validDivId: string | null = null;
+        if (proc.divisionId && String(proc.divisionId).trim() !== '') {
+          const div = await this.divisionRepository.findOne({
+            where: { id: proc.divisionId },
+            select: ['id'],
+          });
+          if (div) validDivId = div.id;
+        }
+        if (!validDivId) validDivId = item.divisionId || null;
+
+        let validSecId: string | null = null;
+        if (proc.sectionId && String(proc.sectionId).trim() !== '') {
+          const sec = await this.sectionRepository.findOne({
+            where: { id: proc.sectionId },
+            select: ['id'],
+          });
+          if (sec) validSecId = sec.id;
+        }
+        if (!validSecId) validSecId = item.sectionId || null;
+
+        op.sequenceNo = sequenceNo;
+        op.operationCode = operationCode;
+        op.operationName = opName;
+        op.departmentId = validDeptId;
+        op.divisionId = validDivId;
+        op.sectionId = validSecId;
+        op.outputItemId = validOutputItemId;
+        op.laborRequired = true;
+        op.machineRequired = false;
+        op.setupTimeMinutes = 0;
+        op.runTimeMinutes = 0;
+        op.queueTimeMinutes = 0;
+        op.waitTimeMinutes = 0;
+        op.updatedBy = userId || null;
+
+        opsToSave.push(op);
+      }
+
+      if (existingOps.length > sortedProcesses.length) {
+        opsToDelete.push(...existingOps.slice(sortedProcesses.length));
+      }
+
+      if (opsToSave.length > 0) {
+        await this.routingOperationRepository.save(opsToSave);
+      }
+
+      if (opsToDelete.length > 0) {
+        try {
+          await this.routingOperationRepository.remove(opsToDelete);
+        } catch (delErr: any) {
+          this.logger.warn(`Could not delete trailing routing operations for routing ${routing.id}: ${delErr?.message}`);
+        }
+      }
+
+      return routing;
+    } catch (err: any) {
+      this.logger.error(`Failed to auto-provision production routing for item ${item.itemCode}: ${err?.message}`, err?.stack);
+      return null;
+    }
+  }
+
+  private async generateRoutingCode(companyId: string): Promise<string> {
+    const routings = await this.routingRepository.find({
+      where: { companyId },
+      select: ['routingCode'],
+    });
+
+    let maxNum = 0;
+    for (const r of routings) {
+      if (!r.routingCode) continue;
+      const m = r.routingCode.match(/^RTG-(\d+)$/i);
+      if (m) {
+        const num = parseInt(m[1], 10);
+        if (num > maxNum) maxNum = num;
+      }
+    }
+
+    let candidateNum = maxNum + 1;
+    let candidate = `RTG-${String(candidateNum).padStart(3, '0')}`;
+    const existingSet = new Set(routings.map((r) => r.routingCode?.toUpperCase()));
+    while (existingSet.has(candidate.toUpperCase())) {
+      candidateNum++;
+      candidate = `RTG-${String(candidateNum).padStart(3, '0')}`;
+    }
+
+    return candidate;
   }
 
   async activate(id: string, userId?: string): Promise<Item> {

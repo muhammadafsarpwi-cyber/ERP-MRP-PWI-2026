@@ -298,3 +298,165 @@ describe('DashboardService - getItemRoute (TASK #45)', () => {
     expect(result.operations.length).toBe(0);
   });
 });
+
+describe('DashboardService - getAlerts (MISSING_ROUTE master data validation)', () => {
+  let service: DashboardService;
+  let itemRepo: any;
+  let routingRepo: any;
+  let machineRepo: any;
+  let targetRepo: any;
+  let poRepo: any;
+  let barcodeRepo: any;
+  let invBalanceRepo: any;
+
+  beforeEach(async () => {
+    itemRepo = { createQueryBuilder: jest.fn() };
+    routingRepo = { createQueryBuilder: jest.fn() };
+    machineRepo = { createQueryBuilder: jest.fn() };
+    targetRepo = { createQueryBuilder: jest.fn() };
+    poRepo = { createQueryBuilder: jest.fn() };
+    barcodeRepo = { createQueryBuilder: jest.fn() };
+    invBalanceRepo = { createQueryBuilder: jest.fn() };
+
+    invBalanceRepo.createQueryBuilder.mockReturnValue({
+      innerJoin: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      select: jest.fn().mockReturnThis(),
+      addSelect: jest.fn().mockReturnThis(),
+      groupBy: jest.fn().mockReturnThis(),
+      addGroupBy: jest.fn().mockReturnThis(),
+      getRawMany: jest.fn().mockResolvedValue([]),
+    });
+    machineRepo.createQueryBuilder.mockReturnValue({
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      select: jest.fn().mockReturnThis(),
+      getMany: jest.fn().mockResolvedValue([]),
+    });
+    targetRepo.createQueryBuilder.mockReturnValue({
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      leftJoin: jest.fn().mockReturnThis(),
+      getCount: jest.fn().mockResolvedValue(0),
+    });
+    poRepo.createQueryBuilder.mockReturnValue({
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      getCount: jest.fn().mockResolvedValue(0),
+    });
+    barcodeRepo.createQueryBuilder.mockReturnValue({
+      innerJoin: jest.fn().mockReturnThis(),
+      select: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      getRawMany: jest.fn().mockResolvedValue([]),
+    });
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        DashboardService,
+        { provide: getRepositoryToken(Item), useValue: itemRepo },
+        { provide: getRepositoryToken(ProductionRouting), useValue: routingRepo },
+        { provide: getRepositoryToken(ProductionEntry), useValue: {} },
+        { provide: getRepositoryToken(Machine), useValue: machineRepo },
+        { provide: getRepositoryToken(Shift), useValue: {} },
+        { provide: getRepositoryToken(MachineTarget), useValue: targetRepo },
+        { provide: getRepositoryToken(StockLedger), useValue: {} },
+        { provide: getRepositoryToken(InventoryBalance), useValue: invBalanceRepo },
+        { provide: getRepositoryToken(PurchaseOrder), useValue: poRepo },
+        { provide: getRepositoryToken(PurchaseOrderLine), useValue: {} },
+        { provide: getRepositoryToken(SalesOrder), useValue: {} },
+        { provide: getRepositoryToken(ActivityLog), useValue: {} },
+        { provide: getRepositoryToken(Department), useValue: {} },
+        { provide: getRepositoryToken(Division), useValue: {} },
+        { provide: getRepositoryToken(Section), useValue: {} },
+        { provide: getRepositoryToken(Warehouse), useValue: {} },
+        { provide: getRepositoryToken(BomLine), useValue: {} },
+        { provide: getRepositoryToken(RoutingOperation), useValue: {} },
+        { provide: getRepositoryToken(ItemBarcode), useValue: barcodeRepo },
+        { provide: getRepositoryToken(UomConversion), useValue: {} },
+      ],
+    }).compile();
+
+    service = module.get<DashboardService>(DashboardService);
+  });
+
+  it('validates routes against production_routings where status = ACTIVE and generates no alert when all products have active routes', async () => {
+    const mfgQb = {
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      select: jest.fn().mockReturnThis(),
+      getMany: jest.fn().mockResolvedValue([
+        { id: 'item-1', itemCode: 'SPI-FG-SPK-001', name: 'Spoke Butted 250X17' },
+        { id: 'item-2', itemCode: 'SPI-FG-SPK-002', name: 'Spoke Butted 250X18' },
+      ]),
+    };
+    const allItemsQb = {
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      select: jest.fn().mockReturnThis(),
+      getMany: jest.fn().mockResolvedValue([]),
+    };
+    itemRepo.createQueryBuilder
+      .mockReturnValueOnce(mfgQb)
+      .mockReturnValueOnce(allItemsQb);
+
+    const routingQb = {
+      select: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      getRawMany: jest.fn().mockResolvedValue([
+        { productId: 'item-1' },
+        { productId: 'item-2' },
+      ]),
+    };
+    routingRepo.createQueryBuilder.mockReturnValue(routingQb);
+
+    const alerts = await service.getAlerts('company-1');
+    const missingRouteAlert = alerts.find(a => a.type === 'MISSING_ROUTE');
+
+    expect(missingRouteAlert).toBeUndefined();
+    expect(routingRepo.createQueryBuilder).toHaveBeenCalledWith('r');
+    expect(routingQb.andWhere).toHaveBeenCalledWith('r.status = :status', { status: RoutingStatus.ACTIVE });
+  });
+
+  it('flags items as MISSING_ROUTE if is_manufacturable = true and missing active production_routings mapping', async () => {
+    const mfgQb = {
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      select: jest.fn().mockReturnThis(),
+      getMany: jest.fn().mockResolvedValue([
+        { id: 'item-1', itemCode: 'SPI-FG-SPK-001', name: 'Spoke Butted 250X17' },
+        { id: 'item-2', itemCode: 'SPI-FG-SPK-002', name: 'Spoke Butted 250X18' },
+      ]),
+    };
+    const allItemsQb = {
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      select: jest.fn().mockReturnThis(),
+      getMany: jest.fn().mockResolvedValue([]),
+    };
+    itemRepo.createQueryBuilder
+      .mockReturnValueOnce(mfgQb)
+      .mockReturnValueOnce(allItemsQb);
+
+    const routingQb = {
+      select: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      getRawMany: jest.fn().mockResolvedValue([
+        { productId: 'item-1' },
+      ]),
+    };
+    routingRepo.createQueryBuilder.mockReturnValue(routingQb);
+
+    const alerts = await service.getAlerts('company-1');
+    const missingRouteAlert = alerts.find(a => a.type === 'MISSING_ROUTE');
+
+    expect(missingRouteAlert).toBeDefined();
+    expect(missingRouteAlert?.count).toBe(1);
+    expect(missingRouteAlert?.title).toBe('1 Manufacturable Item(s) Without Route');
+    expect(missingRouteAlert?.description).toContain('SPI-FG-SPK-002');
+  });
+});
+
