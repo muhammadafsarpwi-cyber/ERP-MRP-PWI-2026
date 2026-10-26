@@ -344,6 +344,8 @@ export interface BomComponentItem {
   rejectionRemarks?: string;
   /** Pack without nipple (spokes only in Plain White Poly Bag into safety stock) */
   packWithoutNipple?: boolean;
+  /** Excluded from packing in this batch (e.g. customer ordered Inner spokes only, so Outer spoke is excluded) */
+  excludedFromPacking?: boolean;
 }
 
 export interface PackingMasterItemRow {
@@ -707,6 +709,26 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
       }));
   }, [departments]);
 
+  // Auto-sync selectedPackingDeptId with active division's packing department if empty
+  useEffect(() => {
+    if (!selectedPackingDeptId && departments.length > 0) {
+      const activeDiv = selectedDivisionId || SPD_DIVISION_ID;
+      const matched = departments.find((d: any) =>
+        d.status === 'ACTIVE' && (
+          ((d.departmentCode || '').toUpperCase() === 'SPD-DEPT008' && (!d.divisionId || d.divisionId === activeDiv)) ||
+          (d.divisionId === activeDiv && (d.name || '').toLowerCase().includes('pack')) ||
+          (d.id === SPD_PACKING_DEPT_ID)
+        )
+      ) || departments.find((d: any) => d.status === 'ACTIVE' && d.divisionId === activeDiv)
+        || departments.find((d: any) => d.status === 'ACTIVE' && (d.name || '').toLowerCase().includes('pack'));
+
+      if (matched) {
+        setSelectedPackingDeptId(matched.id);
+        form.setFieldValue('departmentId', matched.id);
+      }
+    }
+  }, [departments, selectedDivisionId, selectedPackingDeptId, form]);
+
   // Daily packing target state (Cartons drives all conversions) - Authoritative default = 100 CTN
   const [targetCartons, setTargetCartons] = useState<number>(() => getSavedPackingTargetConfig().baseCartons);
   const [targetUnit, setTargetUnit] = useState<'CTN' | 'GRS' | 'PCS'>('CTN');
@@ -843,45 +865,47 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
 
   // ── Part Rejection / Fault Reasons (Creatable dropdown with localStorage persistence) ──
   const DEFAULT_REJECTION_REASONS: Array<{ value: string; label: string }> = useMemo(() => [
-    { value: 'Head Crack', label: 'Head Crack (ہیڈ کریک)' },
-    { value: 'Bend / Bent Spoke', label: 'Bend / Bent Spoke (بینڈ)' },
-    { value: 'Bending Break', label: 'Bending Break (بینڈنگ بریک)' },
-    { value: 'Cut Pieces / Cut Length', label: 'Cut Pieces / Cut Length (کٹے ہوئے پیس)' },
-    { value: 'Threading Defect', label: 'Threading Defect (تھریڈ خرابی)' },
-    { value: 'Plating Defect / Dull Finish', label: 'Plating Defect / Dull Finish (پلیٹنگ نقص)' },
-    { value: 'Rust / Oxidation', label: 'Rust / Oxidation (زنگ)' },
-    { value: 'Mix Quality / Wrong Gauge', label: 'Mix Quality / Wrong Gauge (مکس کوالٹی)' },
-    { value: 'Nipple Thread Defect', label: 'Nipple Thread Defect (نپل تھریڈ نقص)' },
-    { value: 'Nipple Crack / Broken', label: 'Nipple Crack / Broken (نپل کریک)' },
+    { value: 'Head Crack', label: 'Head Crack' },
+    { value: 'Bend / Bent Spoke', label: 'Bend / Bent Spoke' },
+    { value: 'Bending Break', label: 'Bending Break' },
+    { value: 'Cut Pieces / Cut Length', label: 'Cut Pieces / Cut Length' },
+    { value: 'Threading Defect', label: 'Threading Defect' },
+    { value: 'Plating Defect / Dull Finish', label: 'Plating Defect / Dull Finish' },
+    { value: 'Rust / Oxidation', label: 'Rust / Oxidation' },
+    { value: 'Mix Quality / Wrong Gauge', label: 'Mix Quality / Wrong Gauge' },
+    { value: 'Nipple Thread Defect', label: 'Nipple Thread Defect' },
+    { value: 'Nipple Crack / Broken', label: 'Nipple Crack / Broken' },
   ], []);
 
   const [rejectionReasonOptions, setRejectionReasonOptions] = useState<Array<{ value: string; label: string }>>(() => {
     const initialDefaults = [
-      { value: 'Head Crack', label: 'Head Crack (ہیڈ کریک)' },
-      { value: 'Bend / Bent Spoke', label: 'Bend / Bent Spoke (بینڈ)' },
-      { value: 'Bending Break', label: 'Bending Break (بینڈنگ بریک)' },
-      { value: 'Cut Pieces / Cut Length', label: 'Cut Pieces / Cut Length (کٹے ہوئے پیس)' },
-      { value: 'Threading Defect', label: 'Threading Defect (تھریڈ خرابی)' },
-      { value: 'Plating Defect / Dull Finish', label: 'Plating Defect / Dull Finish (پلیٹنگ نقص)' },
-      { value: 'Rust / Oxidation', label: 'Rust / Oxidation (زنگ)' },
-      { value: 'Mix Quality / Wrong Gauge', label: 'Mix Quality / Wrong Gauge (مکس کوالٹی)' },
-      { value: 'Nipple Thread Defect', label: 'Nipple Thread Defect (نپل تھریڈ نقص)' },
-      { value: 'Nipple Crack / Broken', label: 'Nipple Crack / Broken (نپل کریک)' },
+      { value: 'Head Crack', label: 'Head Crack' },
+      { value: 'Bend / Bent Spoke', label: 'Bend / Bent Spoke' },
+      { value: 'Bending Break', label: 'Bending Break' },
+      { value: 'Cut Pieces / Cut Length', label: 'Cut Pieces / Cut Length' },
+      { value: 'Threading Defect', label: 'Threading Defect' },
+      { value: 'Plating Defect / Dull Finish', label: 'Plating Defect / Dull Finish' },
+      { value: 'Rust / Oxidation', label: 'Rust / Oxidation' },
+      { value: 'Mix Quality / Wrong Gauge', label: 'Mix Quality / Wrong Gauge' },
+      { value: 'Nipple Thread Defect', label: 'Nipple Thread Defect' },
+      { value: 'Nipple Crack / Broken', label: 'Nipple Crack / Broken' },
     ];
     try {
       const saved = localStorage.getItem('pwi_custom_rejection_reasons');
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          const existingValues = new Set(parsed.map((p: any) => (p.value || p).toLowerCase()));
+          // Clean any previous Urdu annotations from stored labels
+          const sanitized = parsed.map((p: any) => {
+            const rawVal = String(p.value || p).replace(/\s*\([^)]*[\u0600-\u06FF]+[^)]*\)/g, '').trim();
+            const rawLbl = String(p.label || p.value || p).replace(/\s*\([^)]*[\u0600-\u06FF]+[^)]*\)/g, '').trim();
+            return { value: rawVal, label: rawLbl || rawVal };
+          });
+          const existingValues = new Set(sanitized.map((p) => p.value.toLowerCase()));
           const extraDefaults = initialDefaults.filter((d) => !existingValues.has(d.value.toLowerCase()));
-          return [
-            ...extraDefaults,
-            ...parsed.map((p: any) => ({
-              value: p.value || p,
-              label: p.label || p.value || p,
-            })),
-          ];
+          const combined = [...extraDefaults, ...sanitized];
+          localStorage.setItem('pwi_custom_rejection_reasons', JSON.stringify(combined));
+          return combined;
         }
       }
     } catch {}
@@ -906,7 +930,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
     setNewRejectionReasonInput('');
     return trimmed;
   };
-  const [selectedLine, setSelectedLine] = useState<string>('Hand Packing Line');
+  const [selectedLine, setSelectedLine] = useState<string | undefined>(undefined);
   const [overtimeHours, setOvertimeHours] = useState<number>(0);
   const [selectedShiftId, setSelectedShiftId] = useState<string | undefined>(undefined);
   const [saveReviewModalVisible, setSaveReviewModalVisible] = useState<boolean>(false);
@@ -1368,14 +1392,33 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
     setSelectedCustomer(undefined);
     setSocNo('');
     setSelectedBagStyle(undefined);
+    setSelectedLine(undefined);
     setOvertimeHours(0);
     const stdTarget = getSavedPackingTargetConfig().baseCartons || 100;
     setTargetCartons(stdTarget);
+
+    // Auto-select active division's packing department
+    const activeDiv = selectedDivisionId || SPD_DIVISION_ID;
+    const divPackingDept = departments.find((d: any) =>
+      d.status === 'ACTIVE' && d.divisionId === activeDiv && (
+        (d.departmentCode || '').toUpperCase() === 'SPD-DEPT008' ||
+        (d.departmentCode || '').toUpperCase() === 'SPI-NP-002' ||
+        (d.name || '').toLowerCase().includes('pack') ||
+        (d.departmentCode || '').toLowerCase().includes('pack')
+      )
+    ) || departments.find((d: any) => d.status === 'ACTIVE' && d.divisionId === activeDiv)
+      || departments.find((d: any) => d.status === 'ACTIVE' && (d.name || '').toLowerCase().includes('pack'));
+
+    const chosenDeptId = divPackingDept?.id || SPD_PACKING_DEPT_ID;
+    setSelectedPackingDeptId(chosenDeptId);
+
     form.setFieldsValue({
       packingNo: batch,
       customerName: undefined,
       customerSocNo: undefined,
       packagingStyle: undefined,
+      packingStation: undefined,
+      departmentId: chosenDeptId,
     });
     setMasterItems((prev) => {
       const base = prev[0];
@@ -2168,10 +2211,12 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         // Auto-correct departmentId if it currently holds an inactive department (e.g. Nipple Plating)
         const currDeptId = form.getFieldValue('departmentId');
         const currDeptObj = loadedDeps.find((d: any) => d.id === currDeptId);
-        if (!currDeptId || currDeptId === 'd3000000-0000-0000-0000-000000000007' || (currDeptObj && currDeptObj.status !== 'ACTIVE')) {
-          form.setFieldValue('departmentId', defaultDept?.id || SPD_PACKING_DEPT_ID);
-          form.setFieldValue('sectionId', defaultSection?.id || SPD_PACKING_SECTION_ID);
-        }
+        const resolvedDeptId = (!currDeptId || currDeptId === 'd3000000-0000-0000-0000-000000000007' || (currDeptObj && currDeptObj.status !== 'ACTIVE'))
+          ? (defaultDept?.id || SPD_PACKING_DEPT_ID)
+          : currDeptId;
+        form.setFieldValue('departmentId', resolvedDeptId);
+        form.setFieldValue('sectionId', defaultSection?.id || SPD_PACKING_SECTION_ID);
+        setSelectedPackingDeptId(resolvedDeptId);
 
         const autoNo = `PKG-${dayjs().format('YYYY')}-${String(Math.floor(Math.random() * 900) + 100).padStart(4, '0')}`;
 
@@ -2296,17 +2341,23 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
     const packingSec = sections.find((s) => s.divisionId === divId && (((s.sectionCode || '').toUpperCase() === 'SEC-013') || (s.name || '').toLowerCase().includes('pack')))
       || sections.find((s) => s.divisionId === divId);
     setSelectedSectionId(packingSec?.id || '');
-    // If selected packing dept doesn't belong to this division, reset it so user explicitly selects
-    if (selectedPackingDeptId) {
-      const currentDeptObj = departments.find((d: any) => d.id === selectedPackingDeptId);
-      if (currentDeptObj && currentDeptObj.divisionId && currentDeptObj.divisionId !== divId) {
-        setSelectedPackingDeptId('');
-        form.setFieldValue('departmentId', null);
-      }
-    }
+    // Auto-select packing department belonging to this division
+    const divPackingDept = departments.find((d: any) =>
+      d.status === 'ACTIVE' && d.divisionId === divId && (
+        (d.departmentCode || '').toUpperCase() === 'SPD-DEPT008' ||
+        (d.departmentCode || '').toUpperCase() === 'SPI-NP-002' ||
+        (d.name || '').toLowerCase().includes('pack') ||
+        (d.departmentCode || '').toLowerCase().includes('pack')
+      )
+    ) || departments.find((d: any) => d.status === 'ACTIVE' && d.divisionId === divId)
+      || departments.find((d: any) => d.status === 'ACTIVE' && (d.name || '').toLowerCase().includes('pack'));
+
+    const chosenDeptId = divPackingDept?.id || '';
+    setSelectedPackingDeptId(chosenDeptId);
     form.setFieldsValue({
       divisionId: divId,
       sectionId: packingSec?.id || null,
+      departmentId: chosenDeptId || null,
       customerName: undefined,
     });
   };
@@ -2417,6 +2468,106 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
       })
     );
   }, []);
+
+  // Toggle Spoke Inclusion (Full Set vs Inner Only vs Outer Only)
+  const handleToggleSpokeInclusion = useCallback((masterKey: string, spokeType: 'inner' | 'outer' | 'full', include: boolean) => {
+    setMasterItems((prev) =>
+      prev.map((m) => {
+        if (m.key !== masterKey) return m;
+        const currentInner = m.components.find((c) => c.componentItemName?.toLowerCase().includes('inner') || c.componentItemCode?.toLowerCase().includes('inn'));
+        const currentOuter = m.components.find((c) => c.componentItemName?.toLowerCase().includes('outer') || c.componentItemCode?.toLowerCase().includes('out'));
+        
+        let nextExcludeInner = Boolean(currentInner?.excludedFromPacking);
+        let nextExcludeOuter = Boolean(currentOuter?.excludedFromPacking);
+
+        if (spokeType === 'full') {
+          nextExcludeInner = false;
+          nextExcludeOuter = false;
+        } else if (spokeType === 'inner') {
+          nextExcludeInner = !include;
+        } else if (spokeType === 'outer') {
+          nextExcludeOuter = !include;
+        }
+
+        if (nextExcludeInner && nextExcludeOuter) {
+          message.warning('Cannot exclude both Inner and Outer spokes. At least one spoke component must be packed.');
+          return m;
+        }
+
+        const isOnlyInner = !nextExcludeInner && nextExcludeOuter;
+        const isOnlyOuter = nextExcludeInner && !nextExcludeOuter;
+
+        const fgFactors = getItemPackagingFactors(m.itemCode, m.itemName);
+        const nextCartons = m.cartons || 0;
+
+        const nextComps = m.components.map((c) => {
+          const isNipple = c.componentItemName?.toLowerCase().includes('nipple') || c.componentItemCode?.toLowerCase().includes('np');
+          const isInner = c.componentItemName?.toLowerCase().includes('inner') || c.componentItemCode?.toLowerCase().includes('inn');
+          const isOuter = c.componentItemName?.toLowerCase().includes('outer') || c.componentItemCode?.toLowerCase().includes('out');
+
+          const isExcluded = (isInner && nextExcludeInner) || (isOuter && nextExcludeOuter);
+
+          if (isExcluded) {
+            return {
+              ...c,
+              excludedFromPacking: true,
+              requiredGross: 0,
+              requiredPcs: 0,
+              requiredQuantity: 0,
+              remainingGross: c.availableGross,
+              remainingPcs: c.availablePcs,
+              remainingStock: c.availableGross,
+              stockStatus: 'AVAILABLE' as const,
+            };
+          }
+
+          let gCtn = c.grossPerCarton || 5;
+          if (fgFactors.isCS) {
+            gCtn = isNipple ? fgFactors.nippleGross : (isInner || isOuter) ? fgFactors.innerGross : (c.grossPerCarton || fgFactors.innerGross);
+          } else {
+            gCtn = isNipple ? 10 : (isInner || isOuter) ? 5 : (c.grossPerCarton || 5);
+          }
+
+          if (isOnlyInner && isInner) {
+            gCtn = gCtn * 2;
+          }
+          if (isOnlyOuter && isOuter) {
+            gCtn = gCtn * 2;
+          }
+
+          const reqGross = Math.round(gCtn * nextCartons * 100) / 100;
+          const reqPcs = Math.round(
+            fgFactors.isCS
+              ? (isNipple ? fgFactors.nipplePcs : (isInner || isOuter) ? (isOnlyInner || isOnlyOuter ? fgFactors.innerPcs * 2 : fgFactors.innerPcs) : Math.round(reqGross * 144)) * nextCartons
+              : reqGross * conversionFactors.pcsPerGross
+          );
+          const remGross = Math.round((c.availableGross - reqGross) * 10) / 10;
+          const remPcs = Math.round(c.availablePcs - reqPcs);
+          const stockStatus = remGross >= 0 ? 'AVAILABLE' : 'INSUFFICIENT';
+
+          return {
+            ...c,
+            excludedFromPacking: false,
+            grossPerCarton: Math.round(gCtn * 1000) / 1000,
+            requiredGross: reqGross,
+            requiredPcs: reqPcs,
+            requiredQuantity: reqPcs,
+            remainingGross: remGross,
+            remainingPcs: remPcs,
+            remainingStock: remGross,
+            stockStatus: (c.packWithoutNipple && isNipple ? 'AVAILABLE' : stockStatus) as 'AVAILABLE' | 'INSUFFICIENT',
+          };
+        });
+
+        const hasShortage = nextComps.some((c) => !c.excludedFromPacking && !c.packWithoutNipple && c.stockStatus === 'INSUFFICIENT');
+        return {
+          ...m,
+          components: nextComps,
+          status: m.bomError ? 'NO_BOM' : hasShortage ? 'IN_PROGRESS' : 'ON_TRACK',
+        };
+      })
+    );
+  }, [conversionFactors]);
 
   // Complete a batch that was packed without nipples by recording nipple deduction on current date
   const handleAddNippleSubmit = async () => {
@@ -2615,10 +2766,28 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
     if (!row.bom || !row.components.length) return row.components;
     const fgFactors = getItemPackagingFactors(row.itemCode, row.itemName);
 
+    const innerComp = row.components.find((c) => c.componentItemName?.toLowerCase().includes('inner') || c.componentItemCode?.toLowerCase().includes('inn'));
+    const outerComp = row.components.find((c) => c.componentItemName?.toLowerCase().includes('outer') || c.componentItemCode?.toLowerCase().includes('out'));
+    const isOnlyInner = Boolean(innerComp && !innerComp.excludedFromPacking && outerComp && outerComp.excludedFromPacking);
+    const isOnlyOuter = Boolean(outerComp && !outerComp.excludedFromPacking && innerComp && innerComp.excludedFromPacking);
+
     return row.components.map((comp) => {
       const isNipple = comp.componentItemName?.toLowerCase().includes('nipple') || comp.componentItemCode?.toLowerCase().includes('np');
       const isInner = comp.componentItemName?.toLowerCase().includes('inner') || comp.componentItemCode?.toLowerCase().includes('inn');
       const isOuter = comp.componentItemName?.toLowerCase().includes('outer') || comp.componentItemCode?.toLowerCase().includes('out');
+
+      if (comp.excludedFromPacking) {
+        return {
+          ...comp,
+          requiredGross: 0,
+          requiredPcs: 0,
+          requiredQuantity: 0,
+          remainingGross: comp.availableGross,
+          remainingPcs: comp.availablePcs,
+          remainingStock: comp.availableGross,
+          stockStatus: 'AVAILABLE' as const,
+        };
+      }
       
       let gCtn = comp.grossPerCarton || 5;
       if (fgFactors.isCS) {
@@ -2627,15 +2796,22 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         gCtn = isNipple ? 10 : (isInner || isOuter) ? 5 : (comp.grossPerCarton || 5);
       }
 
+      if (isOnlyInner && isInner) {
+        gCtn = gCtn * 2;
+      }
+      if (isOnlyOuter && isOuter) {
+        gCtn = gCtn * 2;
+      }
+
       const reqGross = Math.round(gCtn * nextCartons * 100) / 100;
       const reqPcs = Math.round(
         fgFactors.isCS
-          ? (isNipple ? fgFactors.nipplePcs : (isInner || isOuter) ? fgFactors.innerPcs : Math.round(reqGross * 144)) * nextCartons
+          ? (isNipple ? fgFactors.nipplePcs : (isInner || isOuter) ? (isOnlyInner || isOnlyOuter ? fgFactors.innerPcs * 2 : fgFactors.innerPcs) : Math.round(reqGross * 144)) * nextCartons
           : reqGross * conversionFactors.pcsPerGross
       );
       const remGross = Math.round((comp.availableGross - reqGross) * 10) / 10;
       const remPcs = Math.round(comp.availablePcs - reqPcs);
-      const stockStatus: 'AVAILABLE' | 'INSUFFICIENT' = remGross >= 0 ? 'AVAILABLE' : 'INSUFFICIENT';
+      const stockStatus = remGross >= 0 ? 'AVAILABLE' : 'INSUFFICIENT';
 
       return {
         ...comp,
@@ -2646,7 +2822,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         remainingGross: remGross,
         remainingPcs: remPcs,
         remainingStock: remGross,
-        stockStatus,
+        stockStatus: (comp.packWithoutNipple && isNipple ? 'AVAILABLE' : stockStatus) as 'AVAILABLE' | 'INSUFFICIENT',
       };
     });
   }, [conversionFactors]);
@@ -2872,7 +3048,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
 
   // Handle Finished Good selection change on a row
   const handleProductSelect = useCallback(
-    (rowKey: string, newProductId: string) => {
+    (rowKey: string, newProductId: string, explicitCartons?: number) => {
       const found = fgItems.find((f) => f.id === newProductId) ||
         DEFAULT_SPOKE_FINISHED_GOODS.find((f) => f.id === newProductId);
       const itemCode = found?.itemCode || 'SPI-FG-SPK';
@@ -2880,9 +3056,9 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
       const fgFactors = getItemPackagingFactors(itemCode, itemName, found?.packagingSize);
 
       const currentRow = masterItems.find((r) => r.key === rowKey);
-      let targetCartons = currentRow?.cartons || 50;
+      let targetCartons = explicitCartons !== undefined ? explicitCartons : (currentRow?.cartons || 50);
 
-      // If active SOC is present, ensure we clamp to remaining balance
+      // If active SOC is present, ALWAYS default to the remaining balance for this item in the order!
       if (activeSocOrder && activeSocOrder.items) {
         const soItem = activeSocOrder.items.find((it: any) =>
           it.itemId === newProductId ||
@@ -2897,11 +3073,16 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
           const alreadyPackedCartons = Math.max(0, Number(packedInfo.packedCartons || 0));
           const remainingCartons = Math.max(0, Math.round((totalOrderedCartons - alreadyPackedCartons) * 100) / 100);
 
+          if (explicitCartons !== undefined) {
+            targetCartons = Math.min(explicitCartons, remainingCartons);
+          } else {
+            // Under SOC, auto-fill with the remaining balance cartons (e.g. 60 CTN, not 150)
+            targetCartons = remainingCartons;
+          }
+
           if (remainingCartons === 0) {
             targetCartons = 0;
             message.warning(`${itemCode} is already 100% packed (${alreadyPackedCartons}/${totalOrderedCartons} Cartons) for SOC #${socNo}!`);
-          } else if (targetCartons > remainingCartons) {
-            targetCartons = remainingCartons;
           }
         }
       }
@@ -3322,12 +3503,6 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         const itId = firstItem.item?.id || firstItem.itemId;
         if (itId) {
           handleProductSelect(targetItemKey, itId);
-          const fgFactors = getItemPackagingFactors(firstItem.item?.itemCode, firstItem.item?.name || firstItem.description);
-          const ctnFromOrder = firstItem.packageQuantity || firstItem.pkg_quantity || firstItem.pkgQuantity;
-          const itemCartons = ctnFromOrder ? Number(ctnFromOrder) : Math.round((Number(firstItem.quantity) || 0) / fgFactors.grossPerCarton);
-          if (itemCartons > 0) {
-            handleItemValueChange(targetItemKey, 'cartons', itemCartons);
-          }
         }
       }
     } else if (matches.length > 1) {
@@ -3341,12 +3516,6 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         const itId = firstItem.item?.id || firstItem.itemId;
         if (itId) {
           handleProductSelect(targetItemKey, itId);
-          const fgFactors = getItemPackagingFactors(firstItem.item?.itemCode, firstItem.item?.name || firstItem.description);
-          const ctnFromOrder = firstItem.packageQuantity || firstItem.pkg_quantity || firstItem.pkgQuantity;
-          const itemCartons = ctnFromOrder ? Number(ctnFromOrder) : Math.round((Number(firstItem.quantity) || 0) / fgFactors.grossPerCarton);
-          if (itemCartons > 0) {
-            handleItemValueChange(targetItemKey, 'cartons', itemCartons);
-          }
         }
       }
     } else {
@@ -3369,12 +3538,6 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
       const itId = firstItem.item?.id || firstItem.itemId;
       if (itId) {
         handleProductSelect(targetItemKey, itId);
-        const fgFactors = getItemPackagingFactors(firstItem.item?.itemCode, firstItem.item?.name || firstItem.description);
-        const ctnFromOrder = firstItem.packageQuantity || firstItem.pkg_quantity || firstItem.pkgQuantity;
-        const itemCartons = ctnFromOrder ? Number(ctnFromOrder) : Math.round((Number(firstItem.quantity) || 0) / fgFactors.grossPerCarton);
-        if (itemCartons > 0) {
-          handleItemValueChange(targetItemKey, 'cartons', itemCartons);
-        }
       }
     }
   };
@@ -3468,6 +3631,22 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
       const formValues = { ...form.getFieldsValue(true), ...(values || {}) };
 
       const primaryItem = masterItems[0];
+      if (!selectedCustomer) {
+        message.error('Please select a Customer / Target before saving.');
+        return;
+      }
+      if (selectedCustomer !== 'SAFETY STOCK' && !socNo) {
+        message.error('Please select or enter the SOC # before saving.');
+        return;
+      }
+      if (!selectedBagStyle) {
+        message.error('Please select or enter the Bag Style before saving.');
+        return;
+      }
+      if (!selectedLine) {
+        message.error('Please select the Packing Line before saving.');
+        return;
+      }
       if (!primaryItem || !primaryItem.itemId) {
         message.error('Please select a Finished Good Item before saving.');
         return;
@@ -3598,10 +3777,10 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
 
       const pcsUom = uoms.find((u) => u.code?.toUpperCase() === 'PCS') || uoms[0];
 
-      // Build component warehouse mapping for backend atomic deduction (exclude deferred without-nipple components)
+      // Build component warehouse mapping for backend atomic deduction (exclude deferred without-nipple and excluded components)
       const compWarehouseMap = masterItems.flatMap((m) =>
         m.components
-          .filter((c) => !c.packWithoutNipple)
+          .filter((c) => !c.packWithoutNipple && !c.excludedFromPacking)
           .map((c) => ({
             itemId: c.componentItemId,
             warehouseId: c.sourceWarehouseId || formValues.rawMaterialWarehouseId,
@@ -3616,6 +3795,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
       // entry-level scrapQuantity stays 0.
       const componentRejections = masterItems.flatMap((m) =>
         m.components
+          .filter((c) => !c.excludedFromPacking)
           .map((c) => ({ comp: c, calc: computeRowRejection(c) }))
           .filter(({ calc }) => calc.rejectionPcs > 0)
           .map(({ comp, calc }) => ({
@@ -3754,11 +3934,21 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
           const withoutNippleRemarks = isWithoutNippleBatch
             ? ` | Status: WITHOUT_NIPPLE | Without Nipple: ${withoutNippleComps.map((c) => `${c.componentItemCode} (${c.requiredGross} GRS)`).join(', ')} | Pending Nipple: ${withoutNippleComps.map((c) => `${c.componentItemCode} (${c.requiredGross} GRS / ${c.requiredPcs} PCS)`).join(', ')}`
             : '';
-          return `[HAND PACKING] Batch: ${activeBatchNo} | Division: ${activeDivName} | DivCode: ${activeDivCode} | SOC: ${activeSocNo} | Customer: ${activeCust} | Style: ${activeStyle} | Line: ${selectedLine} | OT: ${overtimeHours}h | Cartons: ${primaryItem.cartons} (${primaryItem.gross} Gross / ${primaryItem.quantityPcs} PCS) | Weight: ${computedBatchWeightKg} KG${componentScrapRemarks}${componentScrapReasonsRemarks}${withoutNippleRemarks}`.trim();
+          const hasInnerExcluded = primaryItem.components.some((c) => c.excludedFromPacking && (c.componentItemName?.toLowerCase().includes('inner') || c.componentItemCode?.toLowerCase().includes('inn')));
+          const hasOuterExcluded = primaryItem.components.some((c) => c.excludedFromPacking && (c.componentItemName?.toLowerCase().includes('outer') || c.componentItemCode?.toLowerCase().includes('out')));
+          const spokePackingRemark = (hasInnerExcluded && !hasOuterExcluded)
+            ? ' | ONLY_OUTER'
+            : (hasOuterExcluded && !hasInnerExcluded)
+              ? ' | ONLY_INNER'
+              : '';
+          return `[HAND PACKING] Batch: ${activeBatchNo} | Division: ${activeDivName} | DivCode: ${activeDivCode} | SOC: ${activeSocNo} | Customer: ${activeCust} | Style: ${activeStyle} | Line: ${selectedLine} | OT: ${overtimeHours}h | Cartons: ${primaryItem.cartons} (${primaryItem.gross} Gross / ${primaryItem.quantityPcs} PCS) | Weight: ${computedBatchWeightKg} KG${componentScrapRemarks}${componentScrapReasonsRemarks}${withoutNippleRemarks}${spokePackingRemark}`.trim();
         })(),
         items: masterItems.map((it, idx) => {
           const itemScrap = it.components.reduce((s, c) => s + computeRowRejection(c).rejectionPcs, 0);
           const itemScrapKg = Math.round(it.components.reduce((s, c) => s + computeRowRejection(c).rejectionKg, 0) * 1000) / 1000;
+          const itInnerEx = it.components.some((c) => c.excludedFromPacking && (c.componentItemName?.toLowerCase().includes('inner') || c.componentItemCode?.toLowerCase().includes('inn')));
+          const itOuterEx = it.components.some((c) => c.excludedFromPacking && (c.componentItemName?.toLowerCase().includes('outer') || c.componentItemCode?.toLowerCase().includes('out')));
+          const itSpokeRemark = (itInnerEx && !itOuterEx) ? ' | ONLY_OUTER' : (itOuterEx && !itInnerEx) ? ' | ONLY_INNER' : '';
           return {
             lineNumber: idx + 1,
             itemId: it.itemId,
@@ -3768,7 +3958,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
             scrapQuantity: itemScrap > 0 ? itemScrap : 0,
             processScrapKg: itemScrapKg > 0 ? itemScrapKg : 0,
             runningHours: 8 + Number(overtimeHours || 0),
-            remarks: `${it.cartons} Cartons (${it.gross} Gross) — Customer: ${activeCust} (SOC: ${activeSocNo}) | OT: ${overtimeHours}h${itemScrap > 0 ? ` | Part Rejection: ${itemScrap} PCS (${itemScrapKg} KG)` : ''}`,
+            remarks: `${it.cartons} Cartons (${it.gross} Gross) — Customer: ${activeCust} (SOC: ${activeSocNo}) | OT: ${overtimeHours}h${itemScrap > 0 ? ` | Part Rejection: ${itemScrap} PCS (${itemScrapKg} KG)` : ''}${itSpokeRemark}`,
           };
         }),
       };
@@ -4281,6 +4471,14 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         key: 'requiredQuantity',
         width: 140,
         render: (_: any, comp: BomComponentItem) => {
+          if (comp.excludedFromPacking) {
+            return (
+              <div style={{ textAlign: 'center' }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--theme-text-muted, #94a3b8)' }}>0 GRS</span>
+                <div style={{ fontSize: 10.5, color: 'var(--theme-text-muted, #94a3b8)' }}>(Excluded)</div>
+              </div>
+            );
+          }
           const isNipple = comp.componentItemName?.toLowerCase().includes('nipple') || comp.componentItemCode?.toLowerCase().includes('np');
           const grossPerCtn = comp.grossPerCarton || (comp.bomRatio ? Math.round(comp.bomRatio * conversionFactors.grossPerCarton) : (isNipple ? 10 : 5));
           const reqGross = comp.requiredGross || Math.round(grossPerCtn * (record.cartons || 50));
@@ -4330,6 +4528,14 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         key: 'totalDeduction',
         width: 150,
         render: (_: any, comp: BomComponentItem) => {
+          if (comp.excludedFromPacking) {
+            return (
+              <div style={{ textAlign: 'center' }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--theme-text-muted, #94a3b8)' }}>0 GRS</span>
+                <div style={{ fontSize: 10.5, color: 'var(--theme-text-muted, #94a3b8)' }}>(No Deduction)</div>
+              </div>
+            );
+          }
           const r = computeRowRejection(comp);
           const totalGross = Math.round((comp.requiredGross + r.rejectionPcs / conversionFactors.pcsPerGross) * 100) / 100;
           return (
@@ -4355,6 +4561,18 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         width: 150,
         align: 'center' as const,
         render: (_: any, comp: BomComponentItem) => {
+          if (comp.excludedFromPacking) {
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                <Tag style={{ fontWeight: 800, fontSize: 11, padding: '2px 8px', margin: 0, background: 'rgba(148, 163, 184, 0.15)', color: 'var(--theme-text-muted, #94a3b8)' }}>
+                  ⏭️ EXCLUDED
+                </Tag>
+                <span style={{ fontSize: 10.5, color: 'var(--theme-text-muted, #94a3b8)', fontWeight: 600, marginTop: 2 }}>
+                  Stock Untouched
+                </span>
+              </div>
+            );
+          }
           const r = computeRowRejection(comp);
           const totalDeductGross = comp.requiredGross + r.rejectionPcs / conversionFactors.pcsPerGross;
           const availGross = toNum(comp.availableGross ?? comp.availableStock);
@@ -7221,16 +7439,17 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
             {/* 1. Division */}
             <Col xs={24} sm={6} lg={3}>
               <div>
-                <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--theme-text-muted, #94a3b8)', marginBottom: 4, display: 'block' }}>
-                  🏢 Division
+                <span style={{ fontSize: 11.5, fontWeight: 700, color: selectedDivisionId ? '#059669' : '#ef4444', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <span>🏢 Division</span>
+                  {selectedDivisionId ? <span style={{ color: '#10b981', fontWeight: 900 }}>✔</span> : <span style={{ color: '#ef4444', fontWeight: 900 }}>*</span>}
                 </span>
                 <Select
                   showSearch
-                  disabled={!!lockedSession?.isLocked}
+                  disabled={false}
                   optionFilterProp="label"
                   placeholder="Select Division..."
                   popupMatchSelectWidth={false}
-                  style={{ width: '100%', fontWeight: 700 }}
+                  style={{ width: '100%', fontWeight: 700, borderColor: selectedDivisionId ? '#10b981' : undefined }}
                   value={selectedDivisionId || form.getFieldValue('divisionId') || undefined}
                   onChange={(val) => handleDivisionChange(val)}
                   options={divisions.map((d) => ({
@@ -7244,18 +7463,18 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
             {/* 2. Select Packing Department (Mandatory Dropdown) */}
             <Col xs={24} sm={6} lg={5}>
               <div>
-                <span style={{ fontSize: 11.5, fontWeight: 700, color: selectedPackingDeptId ? 'var(--theme-text-muted, #94a3b8)' : '#ef4444', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span style={{ fontSize: 11.5, fontWeight: 700, color: selectedPackingDeptId ? '#059669' : '#ef4444', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
                   <span>📦 Packing Dept</span>
-                  <span style={{ color: '#ef4444', fontWeight: 900 }}>*</span>
+                  {selectedPackingDeptId ? <span style={{ color: '#10b981', fontWeight: 900 }}>✔</span> : <span style={{ color: '#ef4444', fontWeight: 900 }}>*</span>}
                 </span>
                 <Select
                   showSearch
                   status={!selectedPackingDeptId ? 'error' : undefined}
-                  disabled={!!lockedSession?.isLocked}
+                  disabled={false}
                   optionFilterProp="label"
                   placeholder="Select Packing Dept (Required)..."
                   popupMatchSelectWidth={false}
-                  style={{ width: '100%', fontWeight: 700 }}
+                  style={{ width: '100%', fontWeight: 700, borderColor: selectedPackingDeptId ? '#10b981' : undefined }}
                   value={selectedPackingDeptId || undefined}
                   onChange={(val) => {
                     setSelectedPackingDeptId(val || '');
@@ -7452,8 +7671,9 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
             <Col xs={24} sm={10} lg={6}>
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                  <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--theme-text-muted, #94a3b8)' }}>
-                    👤 Customer / Target
+                  <span style={{ fontSize: 11.5, fontWeight: 700, color: selectedCustomer ? '#059669' : '#ef4444', display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <span>👤 Customer / Target</span>
+                    {selectedCustomer ? <span style={{ color: '#10b981', fontWeight: 900 }}>✔</span> : <span style={{ color: '#ef4444', fontWeight: 900 }}>*</span>}
                   </span>
                   <Button
                     type="text"
@@ -7469,10 +7689,11 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                 <Select
                   showSearch
                   allowClear
+                  status={!selectedCustomer ? 'error' : undefined}
                   optionFilterProp="label"
-                  placeholder={customersLoading ? 'Loading...' : 'Select Customer / Safety Stock...'}
+                  placeholder={customersLoading ? 'Loading...' : 'Select Customer / Safety Stock (Required)...'}
                   popupMatchSelectWidth={false}
-                  style={{ width: '100%', fontWeight: 700 }}
+                  style={{ width: '100%', fontWeight: 700, borderColor: selectedCustomer ? '#10b981' : undefined }}
                   value={selectedCustomer}
                   loading={customersLoading}
                   onChange={handleCustomerChange}
@@ -7484,8 +7705,9 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
             {/* SOC # — Enlarged width (lg={6}) so full order number and cartons are clearly visible */}
             <Col xs={24} sm={8} lg={6}>
               <div>
-                <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--theme-text-muted, #94a3b8)', marginBottom: 4, display: 'block' }}>
-                  📋 SOC # {matchingCustomerSocs.length > 1 ? `(${matchingCustomerSocs.length} Orders Available)` : ''}
+                <span style={{ fontSize: 11.5, fontWeight: 700, color: (selectedCustomer !== 'SAFETY STOCK' && !socNo) ? '#ef4444' : '#059669', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <span>📋 SOC # {matchingCustomerSocs.length > 1 ? `(${matchingCustomerSocs.length} Orders Available)` : ''}</span>
+                  {(selectedCustomer !== 'SAFETY STOCK' && !socNo) ? <span style={{ color: '#ef4444', fontWeight: 900 }}>*</span> : <span style={{ color: '#10b981', fontWeight: 900 }}>✔</span>}
                 </span>
                 {selectedCustomer === 'SAFETY STOCK' ? (
                   <Input
@@ -7495,8 +7717,9 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                   />
                 ) : matchingCustomerSocs.length > 1 ? (
                   <Select
-                    placeholder="Select SOC #"
-                    style={{ width: '100%', fontWeight: 700 }}
+                    status={!socNo ? 'error' : undefined}
+                    placeholder="Select SOC # (Required)..."
+                    style={{ width: '100%', fontWeight: 700, borderColor: socNo ? '#10b981' : undefined }}
                     value={socNo || undefined}
                     onChange={handleSocChange}
                     popupMatchSelectWidth={false}
@@ -7515,8 +7738,9 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                   />
                 ) : (
                   <Input
-                    placeholder="e.g. 5805"
-                    style={{ fontWeight: 700, borderRadius: 6, width: '100%' }}
+                    placeholder="e.g. 5805 (Required)"
+                    status={!socNo ? 'error' : undefined}
+                    style={{ fontWeight: 700, borderRadius: 6, width: '100%', borderColor: socNo ? '#10b981' : undefined }}
                     value={socNo}
                     onChange={(e) => {
                       setSocNo(e.target.value);
@@ -7530,15 +7754,17 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
             {/* Bag Style — Direct typing & Enter to add custom style with persistent storage */}
             <Col xs={12} sm={6} lg={4}>
               <div>
-                <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--theme-text-muted, #94a3b8)', marginBottom: 4, display: 'block' }}>
-                  🛍️ Bag Style {bagStyleOptions.length > 0 ? `(${bagStyleOptions.length})` : ''}
+                <span style={{ fontSize: 11.5, fontWeight: 700, color: selectedBagStyle ? '#059669' : '#ef4444', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <span>🛍️ Bag Style {bagStyleOptions.length > 0 ? `(${bagStyleOptions.length})` : ''}</span>
+                  {selectedBagStyle ? <span style={{ color: '#10b981', fontWeight: 900 }}>✔</span> : <span style={{ color: '#ef4444', fontWeight: 900 }}>*</span>}
                 </span>
                 <Select
                   allowClear
                   showSearch
-                  placeholder="Type or Select Style..."
+                  status={!selectedBagStyle ? 'error' : undefined}
+                  placeholder="Type or Select Style (Required)..."
                   popupMatchSelectWidth={false}
-                  style={{ width: '100%', fontWeight: 600 }}
+                  style={{ width: '100%', fontWeight: 600, borderColor: selectedBagStyle ? '#10b981' : undefined }}
                   value={selectedBagStyle}
                   searchValue={bagStyleSearch}
                   onSearch={(text) => setBagStyleSearch(text)}
@@ -7622,12 +7848,16 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
             {/* Packing Line */}
             <Col xs={12} sm={6} lg={5}>
               <div>
-                <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--theme-text-muted, #94a3b8)', marginBottom: 4, display: 'block' }}>
-                  🏭 Packing Line
+                <span style={{ fontSize: 11.5, fontWeight: 700, color: selectedLine ? '#059669' : '#ef4444', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <span>🏭 Packing Line</span>
+                  {selectedLine ? <span style={{ color: '#10b981', fontWeight: 900 }}>✔</span> : <span style={{ color: '#ef4444', fontWeight: 900 }}>*</span>}
                 </span>
                 <Select
+                  allowClear
+                  status={!selectedLine ? 'error' : undefined}
+                  placeholder="Select Packing Line (Required)..."
                   popupMatchSelectWidth={false}
-                  style={{ width: '100%', fontWeight: 600 }}
+                  style={{ width: '100%', fontWeight: 600, borderColor: selectedLine ? '#10b981' : undefined }}
                   value={selectedLine}
                   onChange={(val) => {
                     setSelectedLine(val);
@@ -7698,17 +7928,24 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                         message.warning(`⚠️ Item ${itemCode} is already 100% packed (${alreadyPackedCartons}/${totalOrderedCartons} Cartons) for SOC #${activeSocOrder.orderNumber}! Extra packing is blocked.`);
                         return;
                       }
-                      handleProductSelect(primaryItem.key, soItem.itemId || soItem.item?.id);
-                      handleItemValueChange(primaryItem.key, 'cartons', remainingCartons);
+                      handleProductSelect(primaryItem.key, soItem.itemId || soItem.item?.id, remainingCartons);
                     }}
                     style={{
                       cursor: isFullyPacked ? 'not-allowed' : 'pointer',
                       background: isFullyPacked
                         ? 'rgba(239, 68, 68, 0.12)'
-                        : (isCurrentSelected ? 'rgba(56, 189, 248, 0.25)' : (isPartiallyPacked ? 'rgba(16, 185, 129, 0.1)' : 'rgba(15, 23, 42, 0.6)')),
+                        : (isCurrentSelected
+                            ? 'rgba(56, 189, 248, 0.18)'
+                            : (isPartiallyPacked
+                                ? 'rgba(16, 185, 129, 0.12)'
+                                : 'var(--theme-surface-alt, rgba(56, 189, 248, 0.05))')),
                       border: isFullyPacked
                         ? '1.5px solid #ef4444'
-                        : (isCurrentSelected ? '1.5px solid #38bdf8' : (isPartiallyPacked ? '1px solid #10b981' : '1px solid rgba(56, 189, 248, 0.2)')),
+                        : (isCurrentSelected
+                            ? '1.5px solid #0284c7'
+                            : (isPartiallyPacked
+                                ? '1px solid #10b981'
+                                : '1px solid var(--theme-border, rgba(56, 189, 248, 0.25))')),
                       borderRadius: 6,
                       padding: '8px 14px',
                       fontSize: 12,
@@ -7717,7 +7954,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                     }}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
-                      <span style={{ fontWeight: 800, color: isFullyPacked ? '#ef4444' : (isCurrentSelected ? '#38bdf8' : '#f1f5f9'), fontSize: 13 }}>
+                      <span style={{ fontWeight: 800, color: isFullyPacked ? '#ef4444' : (isCurrentSelected ? '#0284c7' : 'var(--theme-heading, var(--theme-text, #0f172a))'), fontSize: 13 }}>
                         {itemCode} — {isFullyPacked ? '0 Cartons Left' : `${remainingCartons} Cartons Left`}
                       </span>
                       {isFullyPacked ? (
@@ -7731,11 +7968,11 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                       )}
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4, flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: 11, color: isFullyPacked ? '#fca5a5' : '#94a3b8' }}>
+                      <span style={{ fontSize: 11, color: isFullyPacked ? '#ef4444' : 'var(--theme-text-secondary, #64748b)' }}>
                         Ordered: <strong>{totalOrderedCartons} CTN</strong> ({qtyGross.toLocaleString()} GRS)
                       </span>
                       {alreadyPackedCartons > 0 && (
-                        <span style={{ fontSize: 11, color: isFullyPacked ? '#ef4444' : '#38bdf8', fontWeight: 600 }}>
+                        <span style={{ fontSize: 11, color: isFullyPacked ? '#ef4444' : '#0284c7', fontWeight: 600 }}>
                           Packed: <strong>{alreadyPackedCartons} CTN</strong>
                         </span>
                       )}
@@ -7745,7 +7982,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                         </span>
                       )}
                     </div>
-                    <div style={{ fontSize: 10.5, color: '#64748b', maxWidth: 320, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: 2 }}>
+                    <div style={{ fontSize: 10.5, color: 'var(--theme-text-muted, #94a3b8)', maxWidth: 320, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: 2 }}>
                       {itemName}
                     </div>
                   </div>
@@ -7789,16 +8026,18 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', flex: '1 1 300px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: '1 1 260px', minWidth: 200 }}>
-                <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--theme-text, #cbd5e1)', minWidth: 65, flexShrink: 0 }}>
-                  FG Item:
+                <span style={{ fontWeight: 700, fontSize: 13, color: primaryItem.itemId ? '#059669' : '#ef4444', minWidth: 65, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <span>FG Item:</span>
+                  {primaryItem.itemId ? <span style={{ color: '#10b981', fontWeight: 900 }}>✔</span> : <span style={{ color: '#ef4444', fontWeight: 900 }}>*</span>}
                 </span>
                 <Select
                   showSearch
+                  status={!primaryItem.itemId ? 'error' : undefined}
                   optionFilterProp="label"
-                  placeholder="Select Finished Good Item..."
+                  placeholder="Select Finished Good Item (Required)..."
                   value={primaryItem.itemId || undefined}
                   onChange={(newId) => handleProductSelect(primaryItem.key, newId)}
-                  style={{ width: '100%', fontWeight: 700 }}
+                  style={{ width: '100%', fontWeight: 700, borderColor: primaryItem.itemId ? '#10b981' : undefined }}
                   options={itemOptions}
                 />
               </div>
@@ -7821,10 +8060,12 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
 
                 return (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-                    <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--theme-text, #cbd5e1)' }}>
-                      Cartons:
+                    <span style={{ fontWeight: 700, fontSize: 13, color: (primaryItem.cartons && primaryItem.cartons > 0) ? '#059669' : '#ef4444', display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <span>Cartons:</span>
+                      {(primaryItem.cartons && primaryItem.cartons > 0) ? <span style={{ color: '#10b981', fontWeight: 900 }}>✔</span> : <span style={{ color: '#ef4444', fontWeight: 900 }}>*</span>}
                     </span>
                     <InputNumber
+                      status={(!primaryItem.cartons || primaryItem.cartons <= 0) ? 'error' : undefined}
                       controls={false}
                       min={0}
                       max={remainingCartons !== undefined ? remainingCartons : undefined}
@@ -7865,7 +8106,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                         width: 90,
                         fontWeight: 800,
                         fontSize: 14,
-                        borderColor: isFullyPacked ? '#ef4444' : undefined,
+                        borderColor: isFullyPacked ? '#ef4444' : ((primaryItem.cartons && primaryItem.cartons > 0) ? '#10b981' : undefined),
                         background: isFullyPacked ? 'rgba(239, 68, 68, 0.08)' : undefined,
                       }}
                     />
@@ -8041,6 +8282,68 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         >
           {showBomTable ? (
             <div className="hp-comp-shell">
+              {/* Spoke Packing Mode Selection (Full Set vs Inner Only vs Outer Only) */}
+              {(() => {
+                const innerComp = primaryItem.components.find((c) => c.componentItemName?.toLowerCase().includes('inner') || c.componentItemCode?.toLowerCase().includes('inn'));
+                const outerComp = primaryItem.components.find((c) => c.componentItemName?.toLowerCase().includes('outer') || c.componentItemCode?.toLowerCase().includes('out'));
+                if (!innerComp || !outerComp) return null;
+
+                const currentMode = (!innerComp.excludedFromPacking && outerComp.excludedFromPacking)
+                  ? 'INNER_ONLY'
+                  : (innerComp.excludedFromPacking && !outerComp.excludedFromPacking)
+                    ? 'OUTER_ONLY'
+                    : 'FULL_SET';
+
+                return (
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      flexWrap: 'wrap',
+                      gap: 10,
+                      marginBottom: 12,
+                      padding: '8px 14px',
+                      background: 'var(--theme-surface-alt, rgba(56, 189, 248, 0.05))',
+                      borderRadius: 8,
+                      border: '1px solid var(--theme-border, rgba(56, 189, 248, 0.2))',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                      <span style={{ fontWeight: 800, fontSize: 13, color: 'var(--theme-heading, var(--theme-text, #0f172a))' }}>
+                        ⚙️ Spoke Packing Mode:
+                      </span>
+                      <Segmented
+                        size="small"
+                        value={currentMode}
+                        onChange={(val) => {
+                          if (val === 'FULL_SET') {
+                            handleToggleSpokeInclusion(primaryItem.key, 'full', true);
+                          } else if (val === 'INNER_ONLY') {
+                            handleToggleSpokeInclusion(primaryItem.key, 'inner', true);
+                            handleToggleSpokeInclusion(primaryItem.key, 'outer', false);
+                          } else if (val === 'OUTER_ONLY') {
+                            handleToggleSpokeInclusion(primaryItem.key, 'outer', true);
+                            handleToggleSpokeInclusion(primaryItem.key, 'inner', false);
+                          }
+                        }}
+                        options={[
+                          { label: '📦 Full Set (Inner + Outer + Nipple)', value: 'FULL_SET' },
+                          { label: '🔵 Inner Spokes Only (+ Nipple)', value: 'INNER_ONLY' },
+                          { label: '🟣 Outer Spokes Only (+ Nipple)', value: 'OUTER_ONLY' },
+                        ]}
+                      />
+                    </div>
+                    <div style={{ fontSize: 11.5, color: 'var(--theme-text-muted, #94a3b8)', fontWeight: 600 }}>
+                      {currentMode === 'FULL_SET'
+                        ? 'Standard Spoke Assembly: 5 GRS Inner + 5 GRS Outer + 10 GRS Nipple'
+                        : (currentMode === 'INNER_ONLY'
+                            ? 'Inner Spokes Only: 10 GRS Inner + Nipple (Outer Excluded / Stock Protected)'
+                            : 'Outer Spokes Only: 10 GRS Outer + Nipple (Inner Excluded / Stock Protected)')}
+                    </div>
+                  </div>
+                );
+              })()}
           <Table
             dataSource={primaryItem.components}
             scroll={{ x: 'max-content' }}
@@ -8051,6 +8354,8 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                 width: 270,
                 render: (_: any, c: BomComponentItem) => {
                   const isNipple = c.componentItemName?.toLowerCase().includes('nipple') || c.componentItemCode?.toLowerCase().includes('np');
+                  const isInner = c.componentItemName?.toLowerCase().includes('inner') || c.componentItemCode?.toLowerCase().includes('inn');
+                  const isOuter = c.componentItemName?.toLowerCase().includes('outer') || c.componentItemCode?.toLowerCase().includes('out');
                   return (
                     <div style={{ minWidth: 0 }}>
                       <ComponentItemCell comp={c} />
@@ -8092,6 +8397,30 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                           </Tag>
                         )}
                       </div>
+                      {isInner && (
+                        <div style={{ marginTop: 6, padding: '4px 8px', background: c.excludedFromPacking ? 'rgba(148, 163, 184, 0.12)' : 'rgba(56, 189, 248, 0.08)', borderRadius: 5, border: c.excludedFromPacking ? '1px dashed rgba(148, 163, 184, 0.4)' : '1px solid rgba(56, 189, 248, 0.3)' }}>
+                          <Checkbox
+                            checked={!c.excludedFromPacking}
+                            onChange={(e) => handleToggleSpokeInclusion(primaryItem.key, 'inner', e.target.checked)}
+                          >
+                            <span style={{ fontSize: 11.5, fontWeight: 800, color: c.excludedFromPacking ? 'var(--theme-text-muted, #94a3b8)' : '#0284c7' }}>
+                              {c.excludedFromPacking ? '⏭️ Skip Inner Spoke (Not Packed)' : '✔ Pack Inner Spoke'}
+                            </span>
+                          </Checkbox>
+                        </div>
+                      )}
+                      {isOuter && (
+                        <div style={{ marginTop: 6, padding: '4px 8px', background: c.excludedFromPacking ? 'rgba(148, 163, 184, 0.12)' : 'rgba(168, 85, 247, 0.08)', borderRadius: 5, border: c.excludedFromPacking ? '1px dashed rgba(148, 163, 184, 0.4)' : '1px solid rgba(168, 85, 247, 0.3)' }}>
+                          <Checkbox
+                            checked={!c.excludedFromPacking}
+                            onChange={(e) => handleToggleSpokeInclusion(primaryItem.key, 'outer', e.target.checked)}
+                          >
+                            <span style={{ fontSize: 11.5, fontWeight: 800, color: c.excludedFromPacking ? 'var(--theme-text-muted, #94a3b8)' : '#9333ea' }}>
+                              {c.excludedFromPacking ? '⏭️ Skip Outer Spoke (Not Packed)' : '✔ Pack Outer Spoke'}
+                            </span>
+                          </Checkbox>
+                        </div>
+                      )}
                       {isNipple && (
                         <div style={{ marginTop: 6, padding: '4px 8px', background: c.packWithoutNipple ? 'rgba(245, 158, 11, 0.15)' : 'rgba(148, 163, 184, 0.08)', borderRadius: 5, border: c.packWithoutNipple ? '1.5px solid #f59e0b' : '1px dashed rgba(148, 163, 184, 0.3)' }}>
                           <Checkbox
@@ -8121,6 +8450,18 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                 width: 135,
                 align: 'center' as const,
                 render: (_: any, c: any) => {
+                  if (c.excludedFromPacking) {
+                    return (
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                        <Tag style={{ fontWeight: 800, fontSize: 11, margin: 0, background: 'rgba(148, 163, 184, 0.15)', color: 'var(--theme-text-muted, #94a3b8)' }}>
+                          ⏭️ EXCLUDED
+                        </Tag>
+                        <span style={{ fontSize: 10.5, color: 'var(--theme-text-muted, #94a3b8)', fontWeight: 600, marginTop: 2 }}>
+                          Not Packed
+                        </span>
+                      </div>
+                    );
+                  }
                   if (c.packWithoutNipple) {
                     return (
                       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
@@ -8168,6 +8509,18 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                 width: 135,
                 align: 'center' as const,
                 render: (_: any, c: BomComponentItem) => {
+                  if (c.excludedFromPacking) {
+                    return (
+                      <div>
+                        <span style={{ fontWeight: 800, fontSize: 12.5, color: 'var(--theme-text-muted, #94a3b8)' }}>
+                          0 GRS
+                        </span>
+                        <div style={{ fontSize: 10.5, color: 'var(--theme-text-muted, #94a3b8)' }}>
+                          (0 PCS)
+                        </div>
+                      </div>
+                    );
+                  }
                   if (c.packWithoutNipple) {
                     return (
                       <div>
@@ -8205,6 +8558,18 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                 width: 145,
                 align: 'center' as const,
                 render: (_: any, c: BomComponentItem) => {
+                  if (c.excludedFromPacking) {
+                    return (
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                        <Tag style={{ fontWeight: 800, fontSize: 11, padding: '2px 8px', margin: 0, background: 'rgba(148, 163, 184, 0.15)', color: 'var(--theme-text-muted, #94a3b8)' }}>
+                          ⏭️ EXCLUDED
+                        </Tag>
+                        <span style={{ fontSize: 10.5, color: 'var(--theme-text-muted, #94a3b8)', fontWeight: 600, marginTop: 2 }}>
+                          Stock Untouched
+                        </span>
+                      </div>
+                    );
+                  }
                   if (c.packWithoutNipple) {
                     return (
                       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
@@ -8293,6 +8658,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
               let anyShortage = false;
 
               (pageData as BomComponentItem[]).forEach((c) => {
+                if (c.excludedFromPacking) return;
                 const r = computeRowRejection(c);
                 const wpp = r.perPieceWeightKg > 0 ? r.perPieceWeightKg : lookupComponentWeightPerPieceKg(c.componentItemCode, c.componentItemName);
                 const reqKg = Math.round((c.requiredPcs || 0) * wpp * 10) / 10;
@@ -8319,9 +8685,9 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
               const fgDeductPcs = fgOutputPcs + totalScrapPcs;
 
               return (
-                <Table.Summary.Row style={{ background: 'var(--theme-surface-alt, #0f172a)' }}>
+                <Table.Summary.Row style={{ background: 'var(--theme-surface-alt, rgba(148, 163, 184, 0.08))' }}>
                   <Table.Summary.Cell index={0}>
-                    <span style={{ fontWeight: 800, color: 'var(--theme-heading, var(--theme-text, #0f172a))', fontSize: 13 }}>
+                    <span style={{ fontWeight: 800, color: 'var(--theme-heading, var(--theme-text))', fontSize: 13 }}>
                       Total Components Required:
                     </span>
                   </Table.Summary.Cell>

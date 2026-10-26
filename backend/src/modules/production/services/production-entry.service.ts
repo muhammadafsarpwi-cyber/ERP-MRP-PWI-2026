@@ -3518,6 +3518,14 @@ addToDept(org, {
       entryRemarks.includes('WITHOUT_NIPPLE') ||
       entryRemarks.includes('Without Nipple')
     );
+    const isOnlyInner = isHandPacking && (
+      entryRemarks.includes('ONLY_INNER') ||
+      entryRemarks.includes('Only Inner')
+    );
+    const isOnlyOuter = isHandPacking && (
+      entryRemarks.includes('ONLY_OUTER') ||
+      entryRemarks.includes('Only Outer')
+    );
 
     for (const line of lines) {
       const component = await this.itemRepo.findOne({ where: { id: line.itemId }, relations: ['baseUom'] });
@@ -3525,14 +3533,36 @@ addToDept(org, {
         (component.itemCode || '').toLowerCase().includes('np') ||
         (component.name || '').toLowerCase().includes('nipple')
       );
+      const isLineInner = component && (
+        (component.itemCode || '').toLowerCase().includes('inn') ||
+        (component.name || '').toLowerCase().includes('inner')
+      );
+      const isLineOuter = component && (
+        (component.itemCode || '').toLowerCase().includes('out') ||
+        (component.name || '').toLowerCase().includes('outer')
+      );
+
       if (isWithoutNipple && isLineNipple) {
         // Pack Without Nipple: Nipple deduction is deferred until arrival
+        continue;
+      }
+      if (isOnlyInner && isLineOuter) {
+        // Exclude Outer spoke from deduction when packing Only Inner
+        continue;
+      }
+      if (isOnlyOuter && isLineInner) {
+        // Exclude Inner spoke from deduction when packing Only Outer
         continue;
       }
 
       let required = isHandPacking
         ? await this.computeHandPackingRequirement(line, handPackingCartons)
         : await this.computeBomRequirement(companyId, output, bom!, line, productionQty);
+
+      if (isHandPacking && ((isOnlyInner && isLineInner) || (isOnlyOuter && isLineOuter))) {
+        // When packing only inner or only outer, the single spoke takes the full carton quantity (doubled)
+        required = this.round4(required * 2);
+      }
       // Component-level rejection / scrap: convert the rejected PCS quantity
       // into the component's stock UOM (PCS→unit factor, or KG via the Item
       // Master per-piece weight) and ADD it to the requirement. `scrapPcs` is
