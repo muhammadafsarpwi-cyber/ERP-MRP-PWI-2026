@@ -17,6 +17,7 @@ const { Text, Title, Paragraph } = Typography;
 export const InstallAppPrompt: React.FC = () => {
   const {
     isInstalled,
+    isInstallable,
     showBanner,
     dismissBanner,
     promptInstall,
@@ -25,13 +26,10 @@ export const InstallAppPrompt: React.FC = () => {
     closeInstallModal,
   } = usePwaInstall();
 
-  // If already installed, do not render prompt
-  if (isInstalled) return null;
-
   return (
     <>
       {/* ── Auto Slide-in Install Banner on Site Open ───────────────────── */}
-      {showBanner && (
+      {showBanner && !isInstalled && (
         <div
           role="dialog"
           aria-label="Install App Prompt"
@@ -211,9 +209,28 @@ export const InstallAppPrompt: React.FC = () => {
         open={isInstallModalOpen}
         onCancel={closeInstallModal}
         footer={[
-          <Button key="close" type="primary" onClick={closeInstallModal}>
-            Got it
+          <Button key="close" onClick={closeInstallModal}>
+            Close / بند کریں
           </Button>,
+          ...(isInstallable
+            ? [
+                <Button
+                  key="install"
+                  type="primary"
+                  icon={<DownloadOutlined />}
+                  onClick={() => {
+                    void promptInstall();
+                  }}
+                  style={{
+                    background: 'linear-gradient(135deg, #0284c7 0%, #2563eb 100%)',
+                    borderColor: '#38bdf8',
+                    fontWeight: 700,
+                  }}
+                >
+                  Install Now / ابھی انسٹال کریں
+                </Button>,
+              ]
+            : []),
         ]}
         title={
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -222,13 +239,23 @@ export const InstallAppPrompt: React.FC = () => {
               alt="PWI Logo"
               style={{ width: 22, height: 22 }}
             />
-            <span>How to Install PWI ERP as an App</span>
+            <span>How to Install PWI ERP as an App (ایپ انسٹالیشن گائیڈ)</span>
           </div>
         }
         centered
-        width={460}
+        width={500}
       >
-        {isIos ? (
+        {isInstalled ? (
+          <div style={{ padding: '12px 0', textAlign: 'center' }}>
+            <CheckCircleFilled style={{ color: '#10b981', fontSize: 36, marginBottom: 8 }} />
+            <Title level={5} style={{ margin: 0, color: '#10b981' }}>
+              PWI ERP is already installed!
+            </Title>
+            <Paragraph style={{ fontSize: 13, color: '#64748b', marginTop: 6 }}>
+              آپ کے ڈیوائس پر پاکستان وائر انڈسٹریز ERP پہلے سے انسٹال ہے۔ آپ اسے اپنی ہوم اسکرین یا ڈیسک ٹاپ ایپس سے کھول سکتے ہیں۔
+            </Paragraph>
+          </div>
+        ) : isIos ? (
           <div>
             <Paragraph style={{ fontSize: 13, color: '#475569' }}>
               Follow these simple steps in <strong>Safari</strong> on your iPhone or iPad to install PWI ERP directly to your home screen:
@@ -239,7 +266,7 @@ export const InstallAppPrompt: React.FC = () => {
                   1
                 </div>
                 <div>
-                  <Text strong>Tap the Share button</Text>
+                  <Text strong>Tap the Share button (شیئر کا بٹن)</Text>
                   <div style={{ fontSize: 12, color: '#64748b' }}>
                     Tap the <ShareAltOutlined /> icon in the Safari navigation bar at the bottom.
                   </div>
@@ -263,7 +290,7 @@ export const InstallAppPrompt: React.FC = () => {
                   3
                 </div>
                 <div>
-                  <Text strong>Confirm Installation</Text>
+                  <Text strong>Confirm Installation (ہوم اسکرین پر شامل کریں)</Text>
                   <div style={{ fontSize: 12, color: '#64748b' }}>
                     Tap <strong>Add</strong> in the top right corner. The app icon will appear on your home screen!
                   </div>
@@ -273,25 +300,25 @@ export const InstallAppPrompt: React.FC = () => {
           </div>
         ) : (
           <div>
-            <Paragraph style={{ fontSize: 13, color: '#475569' }}>
-              You can install Pakistan Wire Industries ERP on Windows, macOS, ChromeOS, or Android:
+            <Paragraph style={{ fontSize: 13, color: '#475569', marginBottom: 14 }}>
+              پاکستان وائر انڈسٹریز ERP کو اپنے لیپ ٹاپ یا موبائل پر باآسانی انسٹال کریں:
             </Paragraph>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, margin: '14px 0' }}>
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-                <CheckCircleFilled style={{ color: '#10b981', fontSize: 16, marginTop: 2 }} />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, background: '#f8fafc', padding: 12, borderRadius: 10, border: '1px solid #e2e8f0' }}>
+                <DesktopOutlined style={{ color: '#2563eb', fontSize: 20, marginTop: 2 }} />
                 <div>
-                  <Text strong>In Google Chrome or Microsoft Edge</Text>
-                  <div style={{ fontSize: 12, color: '#64748b' }}>
-                    Click the <strong>Install icon (⊕ or computer icon)</strong> in the right side of the address bar at the top of your screen, then click <strong>Install</strong>.
+                  <Text strong>Google Chrome یا Microsoft Edge (لیپ ٹاپ / کمپیوٹر)</Text>
+                  <div style={{ fontSize: 12, color: '#64748b', marginTop: 3 }}>
+                    براؤزر کے ایڈریس بار میں دائیں جانب موجود <strong>انسٹال آئیکن (⊕ یا کمپیوٹر آئیکن)</strong> پر کلک کریں، اور پھر <strong>Install</strong> پر کلک کریں۔
                   </div>
                 </div>
               </div>
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-                <CheckCircleFilled style={{ color: '#10b981', fontSize: 16, marginTop: 2 }} />
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, background: '#f8fafc', padding: 12, borderRadius: 10, border: '1px solid #e2e8f0' }}>
+                <MobileOutlined style={{ color: '#10b981', fontSize: 20, marginTop: 2 }} />
                 <div>
-                  <Text strong>On Android Devices</Text>
-                  <div style={{ fontSize: 12, color: '#64748b' }}>
-                    Tap the browser menu (⋮) in the top-right and choose <strong>"Install app"</strong> or <strong>"Add to Home screen"</strong>.
+                  <Text strong>اینڈرائڈ موبائل فون (Android Devices)</Text>
+                  <div style={{ fontSize: 12, color: '#64748b', marginTop: 3 }}>
+                    براؤزر مینو (اوپر دائیں کونے میں تین نقطے ⋮) دبائیں اور <strong>"Install app"</strong> یا <strong>"Add to Home screen"</strong> منتخب کریں۔
                   </div>
                 </div>
               </div>

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Row, Col, DatePicker, Select, Button, Space, Typography,
-  Empty, Popover, Tag, Modal, App, theme, Progress, Badge, Tooltip,
+  Empty, Popover, Tag, Modal, App, theme, Progress, Badge, Tooltip, Grid,
 } from 'antd';
 import {
   DashboardOutlined, ArrowLeftOutlined, ReloadOutlined, EditOutlined,
@@ -128,6 +128,8 @@ const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const lookups = useLookups();
+  const screens = Grid.useBreakpoint();
+  const isMobile = !screens.md;
 
   // Wizard state: Step 1 (Setup) vs Step 2 (Department & Machines)
   const [step, setStep] = useState<number>(searchParams.get('step') === '2' ? 2 : 1);
@@ -476,125 +478,129 @@ const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
       <Modal
         open={modalOpen && !isMinimized}
         onCancel={handleCloseModal}
-        width={isMaximized ? '100vw' : 1280}
-        centered={!isMaximized && modalPos.x === 0 && modalPos.y === 0}
+        width={isMobile || isMaximized ? '100vw' : 1280}
+        centered={!isMobile && !isMaximized && modalPos.x === 0 && modalPos.y === 0}
         footer={null}
         closable={false}
         destroyOnClose={false}
         zIndex={50000}
         getContainer={() => document.body}
         style={
-          isMaximized
+          isMobile
+            ? { top: 0, left: 0, right: 0, bottom: 0, margin: 0, padding: 0, maxWidth: '100vw', width: '100vw', height: '100vh', transform: 'none' }
+            : isMaximized
             ? { top: 0, left: 0, right: 0, bottom: 0, margin: 0, paddingBottom: 0, maxWidth: '100vw', width: '100vw', height: '100vh', transform: 'none' }
             : { top: 20, transform: `translate(${modalPos.x}px, ${modalPos.y}px)` }
         }
         bodyStyle={{
-          padding: isMaximized ? '24px 32px' : '24px 28px',
+          padding: isMobile ? '12px 12px 28px' : isMaximized ? '22px 30px' : '22px 26px',
           backgroundColor: token.colorBgContainer,
-          borderRadius: isMaximized ? 0 : 16,
-          height: isMaximized ? '100vh' : undefined,
-          maxHeight: isMaximized ? '100vh' : '92vh',
+          borderRadius: isMobile || isMaximized ? 0 : 16,
+          height: isMobile || isMaximized ? '100vh' : undefined,
+          maxHeight: isMobile || isMaximized ? '100vh' : '92vh',
           overflowY: 'auto',
-          boxShadow: isMaximized ? 'none' : '0 16px 48px rgba(0, 0, 0, 0.35)',
+          boxShadow: isMobile || isMaximized ? 'none' : '0 16px 48px rgba(0, 0, 0, 0.35)',
         }}
-        wrapClassName={isMaximized ? 'pwi-entry-wizard-modal-maximized' : 'pwi-entry-wizard-modal-wrap'}
+        wrapClassName={isMobile ? 'pwi-entry-wizard-modal-mobile' : isMaximized ? 'pwi-entry-wizard-modal-maximized' : 'pwi-entry-wizard-modal-wrap'}
       >
         {/* Top Header HUD Banner - Serves as Draggable Mouse Handle */}
         <div
-          onMouseDown={handleDragStart}
+          onMouseDown={isMobile || isMaximized ? undefined : handleDragStart}
           style={{
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
-            marginBottom: 22,
+            marginBottom: isMobile ? 12 : 20,
             borderBottom: `1px solid ${token.colorBorderSecondary}`,
-            paddingBottom: 16,
+            paddingBottom: isMobile ? 10 : 14,
             flexWrap: 'wrap',
-            gap: 12,
-            cursor: isMaximized ? 'default' : 'grab',
+            gap: isMobile ? 8 : 12,
+            cursor: isMobile || isMaximized ? 'default' : 'grab',
             userSelect: 'none',
           }}
         >
           {/* Left: Branding & Draggable indicator */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 12 }}>
             <div
               style={{
-                width: 44,
-                height: 44,
-                borderRadius: 12,
+                width: isMobile ? 34 : 44,
+                height: isMobile ? 34 : 44,
+                borderRadius: 10,
                 backgroundColor: '#ea580c',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 boxShadow: '0 4px 14px rgba(234, 88, 12, 0.45)',
                 color: '#ffffff',
-                fontSize: 22,
+                fontSize: isMobile ? 17 : 22,
                 flexShrink: 0,
               }}
             >
               <DashboardOutlined />
             </div>
             <div>
-              <div
-                style={{
-                  fontSize: 11,
-                  fontWeight: 900,
-                  textTransform: 'uppercase',
-                  letterSpacing: '1.2px',
-                  color: '#ea580c',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                }}
-              >
-                <span>FACTORY FLOOR TOUCH TERMINAL • ZERO-TYPING INTERFACE</span>
-                {!isMaximized && (
-                  <span
-                    style={{
-                      fontSize: 10,
-                      fontWeight: 700,
-                      color: token.colorTextSecondary,
-                      backgroundColor: token.colorFillAlter,
-                      padding: '1px 8px',
-                      borderRadius: 6,
-                      border: `1px solid ${token.colorBorderSecondary}`,
-                      letterSpacing: 'normal',
-                      textTransform: 'none',
-                    }}
-                  >
-                    🖱️ Drag to Move
-                  </span>
-                )}
-              </div>
-              <div style={{ fontSize: 21, fontWeight: 900, color: token.colorText, marginTop: 2 }}>
+              {!isMobile && (
+                <div
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 900,
+                    textTransform: 'uppercase',
+                    letterSpacing: '1.2px',
+                    color: '#ea580c',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                  }}
+                >
+                  <span>FACTORY FLOOR TOUCH TERMINAL • ZERO-TYPING INTERFACE</span>
+                  {!isMaximized && (
+                    <span
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 700,
+                        color: token.colorTextSecondary,
+                        backgroundColor: token.colorFillAlter,
+                        padding: '1px 8px',
+                        borderRadius: 6,
+                        border: `1px solid ${token.colorBorderSecondary}`,
+                        letterSpacing: 'normal',
+                        textTransform: 'none',
+                      }}
+                    >
+                      🖱️ Drag to Move
+                    </span>
+                  )}
+                </div>
+              )}
+              <div style={{ fontSize: isMobile ? 16 : 21, fontWeight: 900, color: token.colorText, marginTop: 1 }}>
                 Daily Production Entry Wizard
               </div>
             </div>
           </div>
 
           {/* Right: Step Indicator + Minimize, Maximize, Close Control Bar */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 6 : 12 }}>
             {/* Progression Step Indicator */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <div
                 onClick={() => setStep(1)}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: 6,
-                  padding: '6px 14px',
+                  gap: 4,
+                  padding: isMobile ? '4px 8px' : '6px 14px',
                   borderRadius: 20,
                   backgroundColor: step === 1 ? '#ea580c' : token.colorFillAlter,
                   color: step === 1 ? '#ffffff' : token.colorTextSecondary,
                   fontWeight: 800,
-                  fontSize: 12,
+                  fontSize: isMobile ? 11 : 12,
                   cursor: 'pointer',
                   transition: 'all 0.15s ease',
                 }}
               >
-                <span>1 Shift & Area</span>
+                <span>{isMobile ? '1 Area' : '1 Shift & Area'}</span>
               </div>
-              <span style={{ color: token.colorTextTertiary }}>➔</span>
+              <span style={{ color: token.colorTextTertiary, fontSize: 11 }}>➔</span>
               <div
                 onClick={() => {
                   if (ready) setStep(2);
@@ -603,38 +609,42 @@ const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
                 style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: 6,
-                  padding: '6px 14px',
+                  gap: 4,
+                  padding: isMobile ? '4px 8px' : '6px 14px',
                   borderRadius: 20,
                   backgroundColor: step === 2 ? '#ea580c' : token.colorFillAlter,
                   color: step === 2 ? '#ffffff' : token.colorTextSecondary,
                   fontWeight: 800,
-                  fontSize: 12,
+                  fontSize: isMobile ? 11 : 12,
                   cursor: ready ? 'pointer' : 'not-allowed',
                   opacity: ready ? 1 : 0.6,
                   transition: 'all 0.15s ease',
                 }}
               >
-                <span>2 Department & Machines</span>
+                <span>{isMobile ? '2 Machines' : '2 Department & Machines'}</span>
               </div>
-              <span style={{ color: token.colorTextTertiary }}>➔</span>
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  padding: '6px 14px',
-                  borderRadius: 20,
-                  backgroundColor: token.colorFillAlter,
-                  color: token.colorTextTertiary,
-                  fontWeight: 800,
-                  fontSize: 12,
-                  cursor: 'default',
-                  opacity: 0.6,
-                }}
-              >
-                <span>3 Production Details</span>
-              </div>
+              {!isMobile && (
+                <>
+                  <span style={{ color: token.colorTextTertiary, fontSize: 11 }}>➔</span>
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      padding: '6px 14px',
+                      borderRadius: 20,
+                      backgroundColor: token.colorFillAlter,
+                      color: token.colorTextTertiary,
+                      fontWeight: 800,
+                      fontSize: 12,
+                      cursor: 'default',
+                      opacity: 0.6,
+                    }}
+                  >
+                    <span>3 Production Details</span>
+                  </div>
+                </>
+              )}
             </div>
 
             {/* Window Action Control Bar (Minimize, Maximize / Restore, Close) */}
@@ -642,68 +652,70 @@ const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: 4,
-                padding: '3px 6px',
-                borderRadius: 10,
+                gap: 3,
+                padding: '2px 4px',
+                borderRadius: 8,
                 backgroundColor: token.colorFillAlter,
                 border: `1px solid ${token.colorBorderSecondary}`,
               }}
             >
-              <Tooltip title="منیمائز کریں / Minimize (Leaves wizard open in background while you open other pages)">
+              <Tooltip title="منیمائز کریں / Minimize">
                 <Button
                   type="text"
                   size="small"
-                  icon={<MinusOutlined style={{ fontSize: 13 }} />}
+                  icon={<MinusOutlined style={{ fontSize: 12 }} />}
                   onClick={(e) => {
                     e.stopPropagation();
                     setIsMinimized(true);
                   }}
                   style={{
                     color: token.colorTextSecondary,
-                    width: 30,
-                    height: 30,
+                    width: 28,
+                    height: 28,
                     borderRadius: 6,
                   }}
                 />
               </Tooltip>
 
-              <Tooltip title={isMaximized ? 'بحال کریں / Restore standard size' : 'میکسیمم کریں / Maximize fullscreen'}>
-                <Button
-                  type="text"
-                  size="small"
-                  icon={
-                    isMaximized ? (
-                      <FullscreenExitOutlined style={{ fontSize: 13 }} />
-                    ) : (
-                      <FullscreenOutlined style={{ fontSize: 13 }} />
-                    )
-                  }
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setIsMaximized((prev) => !prev);
-                  }}
-                  style={{
-                    color: token.colorTextSecondary,
-                    width: 30,
-                    height: 30,
-                    borderRadius: 6,
-                  }}
-                />
-              </Tooltip>
+              {!isMobile && (
+                <Tooltip title={isMaximized ? 'بحال کریں / Restore standard size' : 'میکسیمم کریں / Maximize fullscreen'}>
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={
+                      isMaximized ? (
+                        <FullscreenExitOutlined style={{ fontSize: 12 }} />
+                      ) : (
+                        <FullscreenOutlined style={{ fontSize: 12 }} />
+                      )
+                    }
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setIsMaximized((prev) => !prev);
+                    }}
+                    style={{
+                      color: token.colorTextSecondary,
+                      width: 28,
+                      height: 28,
+                      borderRadius: 6,
+                    }}
+                  />
+                </Tooltip>
+              )}
 
               <Tooltip title="بند کریں / Close Wizard">
                 <Button
                   type="text"
                   size="small"
-                  icon={<CloseOutlined style={{ fontSize: 13 }} />}
+                  icon={<CloseOutlined style={{ fontSize: 12 }} />}
                   onClick={(e) => {
                     e.stopPropagation();
                     handleCloseModal();
                   }}
                   danger
                   style={{
-                    width: 30,
-                    height: 30,
+                    width: 28,
+                    height: 28,
                     borderRadius: 6,
                   }}
                 />
@@ -726,47 +738,47 @@ const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
               </div>
             </div>
 
-            {/* 3 LARGE HIGH-CONTRAST SELECTION CARDS */}
-            <Row gutter={[18, 18]}>
+            {/* 3 LARGE HIGH-CONTRAST SELECTION CARDS (ZERO BORDER & MOBILE RESPONSIVE) */}
+            <Row gutter={isMobile ? [12, 12] : [18, 18]}>
               {/* 1. ACTIVE MANUFACTURING AREA (DIVISION & SECTION ONLY) */}
               <Col xs={24} md={8}>
                 <div
                   style={{
                     backgroundColor: token.colorBgContainer,
-                    border: `2px solid ${divisionId ? token.colorPrimary : token.colorBorderSecondary}`,
-                    borderRadius: 16,
-                    padding: 20,
-                    boxShadow: divisionId ? `0 4px 18px ${token.colorPrimary}22` : 'none',
+                    border: 'none',
+                    borderRadius: 14,
+                    padding: isMobile ? '12px 14px' : '18px 20px',
+                    boxShadow: '0 2px 10px rgba(0, 0, 0, 0.05)',
                     display: 'flex',
                     flexDirection: 'column',
                     justifyContent: 'space-between',
-                    minHeight: 300,
+                    minHeight: isMobile ? 'auto' : 270,
                   }}
                 >
                   <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: isMobile ? 12 : 16 }}>
                       <div
                         style={{
-                          width: 44,
-                          height: 44,
-                          borderRadius: 12,
+                          width: isMobile ? 36 : 44,
+                          height: isMobile ? 36 : 44,
+                          borderRadius: 10,
                           background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.2) 0%, rgba(37, 99, 235, 0.1) 100%)',
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
                           color: '#3b82f6',
-                          fontSize: 22,
+                          fontSize: isMobile ? 18 : 22,
                         }}
                       >
                         <AppstoreOutlined />
                       </div>
                       <div>
-                        <div style={{ fontSize: 16, fontWeight: 800, color: token.colorText }}>Manufacturing Area</div>
-                        <div style={{ fontSize: 12, color: token.colorTextSecondary }}>Division & Section Selection</div>
+                        <div style={{ fontSize: isMobile ? 15 : 16, fontWeight: 800, color: token.colorText }}>Manufacturing Area</div>
+                        <div style={{ fontSize: 11, color: token.colorTextSecondary }}>Division & Section Selection</div>
                       </div>
                     </div>
 
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? 10 : 14 }}>
                       <div>
                         <Text style={{ fontSize: 12, fontWeight: 700, color: token.colorTextSecondary, display: 'block', marginBottom: 4 }}>
                           Select Manufacturing Division:
@@ -775,7 +787,7 @@ const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
                           showSearch
                           optionFilterProp="label"
                           placeholder="Select Division"
-                          style={{ width: '100%', height: 44 }}
+                          style={{ width: '100%', height: 42 }}
                           value={divisionId}
                           options={lookups.divisions.map((d) => ({ value: d.id, label: formatDivLabel(d) }))}
                           onChange={(v) => {
@@ -796,7 +808,7 @@ const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
                             showSearch
                             optionFilterProp="label"
                             placeholder="All Sections in Division"
-                            style={{ width: '100%', height: 44 }}
+                            style={{ width: '100%', height: 42 }}
                             value={sectionId}
                             options={sectionsFiltered.map((s) => ({ value: s.id, label: s.name }))}
                             onChange={(v) => {
@@ -811,17 +823,17 @@ const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
 
                   <div
                     style={{
-                      marginTop: 14,
-                      padding: '10px 14px',
+                      marginTop: isMobile ? 10 : 14,
+                      padding: isMobile ? '8px 12px' : '10px 14px',
                       borderRadius: 10,
                       backgroundColor: token.colorFillAlter,
-                      border: `1px solid ${token.colorBorderSecondary}`,
+                      border: 'none',
                     }}
                   >
                     <div style={{ fontSize: 11, color: token.colorTextSecondary, textTransform: 'uppercase', fontWeight: 700 }}>
                       Verified Manufacturing Scope:
                     </div>
-                    <div style={{ fontSize: 14, fontWeight: 800, color: token.colorPrimary, marginTop: 2 }}>
+                    <div style={{ fontSize: 13, fontWeight: 800, color: token.colorPrimary, marginTop: 2 }}>
                       {scopeLabel || 'All Manufacturing Divisions'}
                     </div>
                   </div>
@@ -833,36 +845,36 @@ const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
                 <div
                   style={{
                     backgroundColor: token.colorBgContainer,
-                    border: `2px solid ${entryDate ? '#ea580c' : token.colorBorderSecondary}`,
-                    borderRadius: 16,
-                    padding: 20,
-                    boxShadow: entryDate ? '0 4px 18px rgba(234, 88, 12, 0.15)' : 'none',
+                    border: 'none',
+                    borderRadius: 14,
+                    padding: isMobile ? '12px 14px' : '18px 20px',
+                    boxShadow: '0 2px 10px rgba(0, 0, 0, 0.05)',
                     display: 'flex',
                     flexDirection: 'column',
                     justifyContent: 'space-between',
-                    minHeight: 300,
+                    minHeight: isMobile ? 'auto' : 270,
                   }}
                 >
                   <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: isMobile ? 12 : 16 }}>
                       <div
                         style={{
-                          width: 44,
-                          height: 44,
-                          borderRadius: 12,
+                          width: isMobile ? 36 : 44,
+                          height: isMobile ? 36 : 44,
+                          borderRadius: 10,
                           background: 'linear-gradient(135deg, rgba(234, 88, 12, 0.2) 0%, rgba(194, 65, 12, 0.1) 100%)',
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
                           color: '#ea580c',
-                          fontSize: 22,
+                          fontSize: isMobile ? 18 : 22,
                         }}
                       >
                         <CalendarOutlined />
                       </div>
                       <div>
-                        <div style={{ fontSize: 16, fontWeight: 800, color: token.colorText }}>Production Work Date</div>
-                        <div style={{ fontSize: 12, color: token.colorTextSecondary }}>Shift Calendar Schedule</div>
+                        <div style={{ fontSize: isMobile ? 15 : 16, fontWeight: 800, color: token.colorText }}>Production Work Date</div>
+                        <div style={{ fontSize: 11, color: token.colorTextSecondary }}>Shift Calendar Schedule</div>
                       </div>
                     </div>
 
@@ -871,21 +883,21 @@ const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
                         Select Operating Date:
                       </Text>
                       <DatePicker
-                        style={{ width: '100%', height: 44, borderRadius: 8, fontSize: 15, fontWeight: 700 }}
+                        style={{ width: '100%', height: 42, borderRadius: 8, fontSize: 14, fontWeight: 700 }}
                         value={entryDate}
                         onChange={(v) => setEntryDate(v)}
                         allowClear={false}
                       />
 
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6, marginTop: 12 }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6, marginTop: 10 }}>
                         <Button
                           onClick={() => setEntryDate(dayjs().subtract(1, 'day'))}
                           style={{
-                            height: 38,
+                            height: 36,
                             fontSize: 12,
                             fontWeight: 700,
                             backgroundColor: token.colorFillAlter,
-                            borderColor: token.colorBorderSecondary,
+                            border: 'none',
                             color: token.colorText,
                           }}
                         >
@@ -894,11 +906,11 @@ const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
                         <Button
                           onClick={() => setEntryDate(dayjs())}
                           style={{
-                            height: 38,
+                            height: 36,
                             fontSize: 12,
                             fontWeight: 700,
                             backgroundColor: token.colorFillAlter,
-                            borderColor: token.colorBorderSecondary,
+                            border: 'none',
                             color: token.colorText,
                           }}
                         >
@@ -907,11 +919,11 @@ const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
                         <Button
                           onClick={() => setEntryDate(dayjs().subtract(2, 'day'))}
                           style={{
-                            height: 38,
+                            height: 36,
                             fontSize: 12,
                             fontWeight: 700,
                             backgroundColor: token.colorFillAlter,
-                            borderColor: token.colorBorderSecondary,
+                            border: 'none',
                             color: token.colorText,
                           }}
                         >
@@ -923,17 +935,17 @@ const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
 
                   <div
                     style={{
-                      marginTop: 14,
-                      padding: '10px 14px',
+                      marginTop: isMobile ? 10 : 14,
+                      padding: isMobile ? '8px 12px' : '10px 14px',
                       borderRadius: 10,
                       backgroundColor: token.colorFillAlter,
-                      border: `1px solid ${token.colorBorderSecondary}`,
+                      border: 'none',
                     }}
                   >
                     <div style={{ fontSize: 11, color: token.colorTextSecondary, textTransform: 'uppercase', fontWeight: 700 }}>
                       Scheduled Date:
                     </div>
-                    <div style={{ fontSize: 14, fontWeight: 800, color: '#ea580c', marginTop: 2 }}>
+                    <div style={{ fontSize: 13, fontWeight: 800, color: '#ea580c', marginTop: 2 }}>
                       {entryDate ? entryDate.format('dddd, DD-MMMM-YYYY') : 'No Date Selected'}
                     </div>
                   </div>
@@ -945,36 +957,36 @@ const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
                 <div
                   style={{
                     backgroundColor: token.colorBgContainer,
-                    border: `2px solid ${shiftId ? '#10b981' : token.colorBorderSecondary}`,
-                    borderRadius: 16,
-                    padding: 20,
-                    boxShadow: shiftId ? '0 4px 18px rgba(16, 185, 129, 0.15)' : 'none',
+                    border: 'none',
+                    borderRadius: 14,
+                    padding: isMobile ? '12px 14px' : '18px 20px',
+                    boxShadow: '0 2px 10px rgba(0, 0, 0, 0.05)',
                     display: 'flex',
                     flexDirection: 'column',
                     justifyContent: 'space-between',
-                    minHeight: 300,
+                    minHeight: isMobile ? 'auto' : 270,
                   }}
                 >
                   <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: isMobile ? 12 : 16 }}>
                       <div
                         style={{
-                          width: 44,
-                          height: 44,
-                          borderRadius: 12,
+                          width: isMobile ? 36 : 44,
+                          height: isMobile ? 36 : 44,
+                          borderRadius: 10,
                           background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.2) 0%, rgba(5, 150, 105, 0.1) 100%)',
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
                           color: '#10b981',
-                          fontSize: 22,
+                          fontSize: isMobile ? 18 : 22,
                         }}
                       >
                         <ThunderboltOutlined />
                       </div>
                       <div>
-                        <div style={{ fontSize: 16, fontWeight: 800, color: token.colorText }}>Active Shift Roster</div>
-                        <div style={{ fontSize: 12, color: token.colorTextSecondary }}>Manufacturing Shift Schedule</div>
+                        <div style={{ fontSize: isMobile ? 15 : 16, fontWeight: 800, color: token.colorText }}>Active Shift Roster</div>
+                        <div style={{ fontSize: 11, color: token.colorTextSecondary }}>Manufacturing Shift Schedule</div>
                       </div>
                     </div>
 
@@ -984,7 +996,7 @@ const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
                       </Text>
                       <Select
                         placeholder="Select Shift"
-                        style={{ width: '100%', height: 44 }}
+                        style={{ width: '100%', height: 42 }}
                         value={shiftId}
                         loading={scopedShiftsLoading}
                         options={availableShifts.map((s) => ({
@@ -998,17 +1010,17 @@ const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
 
                   <div
                     style={{
-                      marginTop: 14,
-                      padding: '10px 14px',
+                      marginTop: isMobile ? 10 : 14,
+                      padding: isMobile ? '8px 12px' : '10px 14px',
                       borderRadius: 10,
                       backgroundColor: token.colorFillAlter,
-                      border: `1px solid ${token.colorBorderSecondary}`,
+                      border: 'none',
                     }}
                   >
                     <div style={{ fontSize: 11, color: token.colorTextSecondary, textTransform: 'uppercase', fontWeight: 700 }}>
                       Shift Capacity:
                     </div>
-                    <div style={{ fontSize: 14, fontWeight: 800, color: '#10b981', marginTop: 2 }}>
+                    <div style={{ fontSize: 13, fontWeight: 800, color: '#10b981', marginTop: 2 }}>
                       {effectiveShift?.name?.includes('12') || effectiveShift?.name?.includes('N+OT')
                         ? '12.00 Gross (8h Duty + 4h OT)'
                         : '8.00 Net Hours Basis'}
@@ -1019,7 +1031,7 @@ const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
             </Row>
 
             {/* Big Proceed Action Button */}
-            <div style={{ marginTop: 28, textAlign: 'center' }}>
+            <div style={{ marginTop: isMobile ? 16 : 26, textAlign: 'center' }}>
               <Button
                 type="primary"
                 onClick={() => {
@@ -1030,16 +1042,16 @@ const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
                   setStep(2);
                 }}
                 style={{
-                  height: 60,
+                  height: isMobile ? 48 : 58,
                   width: '100%',
                   maxWidth: 500,
                   background: 'linear-gradient(135deg, #ea580c 0%, #f97316 100%)',
                   borderColor: '#ea580c',
-                  borderRadius: 14,
-                  fontSize: 18,
+                  borderRadius: 12,
+                  fontSize: isMobile ? 15 : 18,
                   fontWeight: 900,
                   letterSpacing: '0.5px',
-                  boxShadow: '0 8px 24px rgba(234, 88, 12, 0.4)',
+                  boxShadow: '0 6px 20px rgba(234, 88, 12, 0.35)',
                 }}
               >
                 PROCEED TO DEPARTMENT & MACHINES ➔
@@ -1135,12 +1147,12 @@ const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
                         onClick={() => setSelectedDeptId(dept.id)}
                         style={{
                           backgroundColor: isSelected ? token.colorFillSecondary : token.colorBgContainer,
-                          borderRadius: 14,
-                          padding: '14px 14px',
-                          border: `2px solid ${isSelected ? palette.color : token.colorBorderSecondary}`,
+                          borderRadius: 12,
+                          padding: isMobile ? '10px 12px' : '14px 14px',
+                          border: 'none',
                           cursor: 'pointer',
                           transition: 'all 0.15s ease',
-                          boxShadow: isSelected ? `0 0 18px ${palette.color}33` : 'none',
+                          boxShadow: isSelected ? `0 0 16px ${palette.color}44` : '0 2px 8px rgba(0,0,0,0.04)',
                         }}
                       >
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -1398,6 +1410,8 @@ const HorizontalMachineRow: React.FC<{
   onDelete: (entryId: string) => void;
 }> = ({ machine, onSelect, onEdit, onView, onDelete }) => {
   const { token } = theme.useToken();
+  const screens = Grid.useBreakpoint();
+  const isMobile = !screens.md;
   const entered = machine.status === 'ENTERED';
 
   // Metrics resolution
@@ -1487,23 +1501,12 @@ const HorizontalMachineRow: React.FC<{
     <div
       style={{
         backgroundColor: token.colorBgContainer,
-        borderRadius: 14,
-        padding: '14px 20px',
-        border: `2px solid ${entered ? '#10b981' : token.colorBorderSecondary}`,
-        boxShadow: entered ? '0 4px 14px rgba(16, 185, 129, 0.12)' : '0 2px 6px rgba(0,0,0,0.03)',
+        borderRadius: 12,
+        padding: isMobile ? '10px 12px' : '14px 20px',
+        border: 'none',
+        borderLeft: `4px solid ${entered ? '#10b981' : '#ea580c'}`,
+        boxShadow: entered ? '0 2px 10px rgba(16, 185, 129, 0.12)' : '0 2px 8px rgba(0,0,0,0.04)',
         transition: 'all 0.15s ease',
-      }}
-      onMouseEnter={(e) => {
-        if (!entered) {
-          e.currentTarget.style.borderColor = '#ea580c';
-          e.currentTarget.style.boxShadow = '0 4px 14px rgba(234, 88, 12, 0.2)';
-        }
-      }}
-      onMouseLeave={(e) => {
-        if (!entered) {
-          e.currentTarget.style.borderColor = token.colorBorderSecondary;
-          e.currentTarget.style.boxShadow = '0 2px 6px rgba(0,0,0,0.03)';
-        }
       }}
     >
       <Row gutter={[16, 10]} align="middle">
@@ -1656,13 +1659,13 @@ const HorizontalMachineRow: React.FC<{
               type="primary"
               onClick={onSelect}
               style={{
-                height: 44,
+                height: isMobile ? 38 : 44,
                 width: '100%',
                 backgroundColor: '#ea580c',
                 borderColor: '#ea580c',
                 fontWeight: 900,
-                borderRadius: 10,
-                fontSize: 14,
+                borderRadius: 8,
+                fontSize: isMobile ? 13 : 14,
                 letterSpacing: '0.5px',
                 boxShadow: '0 4px 14px rgba(234, 88, 12, 0.35)',
               }}

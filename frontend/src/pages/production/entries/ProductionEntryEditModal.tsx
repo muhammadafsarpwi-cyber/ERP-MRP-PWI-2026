@@ -1,5 +1,5 @@
 import React from 'react';
-import { Modal } from 'antd';
+import { Modal, Grid } from 'antd';
 import EntryForm from './EntryForm';
 import type { EntryContextParams } from './entryDockStore';
 
@@ -29,6 +29,9 @@ export const ProductionEntryEditModal: React.FC<ProductionEntryEditModalProps> =
   onClose,
   onSuccess,
 }) => {
+  const screens = Grid.useBreakpoint();
+  const isMobile = !screens.md;
+
   if (!open) return null;
   if (mode === 'edit' && !entryId) return null;
 
@@ -38,11 +41,21 @@ export const ProductionEntryEditModal: React.FC<ProductionEntryEditModalProps> =
     <Modal
       open={open}
       zIndex={2400}
-      centered
-      width="96vw"
-      style={{ maxWidth: 1560, top: 20 }}
+      centered={!isMobile}
+      width={isMobile ? '100vw' : '96vw'}
+      style={
+        isMobile
+          ? { maxWidth: '100vw', width: '100vw', top: 0, left: 0, margin: 0, padding: 0, height: '100vh' }
+          : { maxWidth: 1560, top: 20 }
+      }
       styles={{
-        body: { padding: '8px 12px', maxHeight: 'calc(92vh - 60px)', overflowY: 'auto' },
+        body: {
+          padding: isMobile ? '6px 6px' : '8px 12px',
+          maxHeight: isMobile ? '100vh' : 'calc(92vh - 60px)',
+          height: isMobile ? '100vh' : undefined,
+          borderRadius: isMobile ? 0 : undefined,
+          overflowY: 'auto',
+        },
       }}
       destroyOnHidden
       footer={null}

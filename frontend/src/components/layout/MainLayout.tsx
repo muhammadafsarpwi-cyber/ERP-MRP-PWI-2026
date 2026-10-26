@@ -904,7 +904,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
               <NotificationBell />
               <EmailCommunicationIcon />
               <WhatsAppCommunicationIcon />
-              <InstallAppHeaderButton />
+              {!isMobile && <InstallAppHeaderButton />}
               <ClassicalMusicControl />
               <ThemeSettingsButton />
               <ProfileMenu />
