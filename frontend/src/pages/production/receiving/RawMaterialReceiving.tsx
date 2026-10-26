@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert, Badge, Button, Card, Checkbox, Col, DatePicker, Divider, Form, Input, InputNumber,
-  Modal, Popconfirm, Popover, Progress, Row, Select, Space, Spin, Table, Tag, Tooltip, Typography, message, App as AntApp,
+  Modal, Popconfirm, Popover, Progress, Row, Select, Space, Spin, Table, Tag, Tooltip, Typography, message, App as AntApp, theme,
 } from 'antd';
 import {
   AppstoreOutlined, CameraOutlined, CloseOutlined, CopyOutlined, DatabaseOutlined, DeleteOutlined, EditOutlined, EyeOutlined,
@@ -22,6 +22,7 @@ import type { SaveResultData, SaveResultPhase } from '../../../components/shared
 import { useRawReceiptDraftStore } from '../../../store/rawReceiptDraftStore';
 import type { ReceiptDraft, OrgBundle } from '../../../store/rawReceiptDraftStore';
 import { tabSessionCache, TAB_REFRESH_EVENT } from '../../../services/tabSessionCache';
+import { useThemeStore } from '../../../theme/themeStore';
 import './rawMaterialForms.css';
 
 const { Text, Title } = Typography;
@@ -225,39 +226,53 @@ const formatBytes = (b: number): string => {
   return `${(b / (1024 * 1024)).toFixed(1)} MB`;
 };
 
-const WAREHOUSE_COLOR_PALETTES = [
-  { text: '#38bdf8', bg: 'rgba(56, 189, 248, 0.14)', border: 'rgba(56, 189, 248, 0.45)' }, // Cyan (CCD)
-  { text: '#c084fc', bg: 'rgba(192, 132, 252, 0.14)', border: 'rgba(192, 132, 252, 0.45)' }, // Purple / Violet (SPI)
-  { text: '#fbbf24', bg: 'rgba(251, 191, 36, 0.14)', border: 'rgba(251, 191, 36, 0.45)' }, // Amber / Gold (Main)
-  { text: '#34d399', bg: 'rgba(52, 211, 153, 0.14)', border: 'rgba(52, 211, 153, 0.45)' }, // Emerald (FT)
-  { text: '#fb7185', bg: 'rgba(251, 113, 133, 0.14)', border: 'rgba(251, 113, 133, 0.45)' }, // Rose (SP)
-  { text: '#60a5fa', bg: 'rgba(96, 165, 250, 0.14)', border: 'rgba(96, 165, 250, 0.45)' }, // Sky (ST)
-  { text: '#fb923c', bg: 'rgba(251, 146, 60, 0.14)', border: 'rgba(251, 146, 60, 0.45)' }, // Orange (SW)
-  { text: '#e879f9', bg: 'rgba(232, 121, 249, 0.14)', border: 'rgba(232, 121, 249, 0.45)' }, // Fuchsia (PVC)
-  { text: '#a3e635', bg: 'rgba(163, 230, 53, 0.14)', border: 'rgba(163, 230, 53, 0.45)' }, // Lime (Nipple/Packing)
-  { text: '#2dd4bf', bg: 'rgba(45, 212, 191, 0.14)', border: 'rgba(45, 212, 191, 0.45)' }, // Teal (SPL)
+const WAREHOUSE_COLOR_PALETTES_DARK = [
+  { text: '#38bdf8', bg: 'rgba(56, 189, 248, 0.16)', border: 'rgba(56, 189, 248, 0.45)' }, // Cyan (CCD)
+  { text: '#c084fc', bg: 'rgba(192, 132, 252, 0.16)', border: 'rgba(192, 132, 252, 0.45)' }, // Purple / Violet (SPI)
+  { text: '#fbbf24', bg: 'rgba(251, 191, 36, 0.16)', border: 'rgba(251, 191, 36, 0.45)' }, // Amber / Gold (Main)
+  { text: '#34d399', bg: 'rgba(52, 211, 153, 0.16)', border: 'rgba(52, 211, 153, 0.45)' }, // Emerald (FT)
+  { text: '#fb7185', bg: 'rgba(251, 113, 133, 0.16)', border: 'rgba(251, 113, 133, 0.45)' }, // Rose (SP)
+  { text: '#60a5fa', bg: 'rgba(96, 165, 250, 0.16)', border: 'rgba(96, 165, 250, 0.45)' }, // Sky (ST)
+  { text: '#fb923c', bg: 'rgba(251, 146, 60, 0.16)', border: 'rgba(251, 146, 60, 0.45)' }, // Orange (SW)
+  { text: '#e879f9', bg: 'rgba(232, 121, 249, 0.16)', border: 'rgba(232, 121, 249, 0.45)' }, // Fuchsia (PVC)
+  { text: '#a3e635', bg: 'rgba(163, 230, 53, 0.16)', border: 'rgba(163, 230, 53, 0.45)' }, // Lime (Nipple/Packing)
+  { text: '#2dd4bf', bg: 'rgba(45, 212, 191, 0.16)', border: 'rgba(45, 212, 191, 0.45)' }, // Teal (SPL)
 ];
 
-const getWarehouseBadgeStyle = (name?: string, id?: string) => {
-  if (!name && !id) return WAREHOUSE_COLOR_PALETTES[0];
+const WAREHOUSE_COLOR_PALETTES_LIGHT = [
+  { text: '#0e7490', bg: '#ecfeff', border: '#a5f3fc' }, // Cyan (CCD)
+  { text: '#7e22ce', bg: '#f5f3ff', border: '#ddd6fe' }, // Purple / Violet (SPI)
+  { text: '#b45309', bg: '#fffbeb', border: '#fde68a' }, // Amber / Gold (Main)
+  { text: '#047857', bg: '#ecfdf5', border: '#a7f3d0' }, // Emerald (FT)
+  { text: '#be123c', bg: '#fff1f2', border: '#fecdd3' }, // Rose (SP)
+  { text: '#0369a1', bg: '#f0f9ff', border: '#bae6fd' }, // Sky (ST)
+  { text: '#c2410c', bg: '#fff7ed', border: '#fed7aa' }, // Orange (SW)
+  { text: '#a21caf', bg: '#fdf4ff', border: '#f5d0fe' }, // Fuchsia (PVC)
+  { text: '#4d7c0f', bg: '#f7fee7', border: '#d9f99d' }, // Lime (Nipple/Packing)
+  { text: '#0f766e', bg: '#f0fdfa', border: '#99f6e4' }, // Teal (SPL)
+];
+
+const getWarehouseBadgeStyle = (name?: string, id?: string, isDark: boolean = false) => {
+  const palettes = isDark ? WAREHOUSE_COLOR_PALETTES_DARK : WAREHOUSE_COLOR_PALETTES_LIGHT;
+  if (!name && !id) return palettes[0];
   const upper = (name || '').toUpperCase();
-  if (upper.includes('CCD')) return WAREHOUSE_COLOR_PALETTES[0]; // Cyan
-  if (upper.includes('SPI') || upper.includes('SPOKE')) return WAREHOUSE_COLOR_PALETTES[1]; // Purple
-  if (upper.includes('MAIN')) return WAREHOUSE_COLOR_PALETTES[2]; // Amber
-  if (upper.includes('FT')) return WAREHOUSE_COLOR_PALETTES[3]; // Emerald
-  if (upper.includes('SP ') || upper.includes('PLATING') || upper.includes('PRODUCTION')) return WAREHOUSE_COLOR_PALETTES[4]; // Rose
-  if (upper.includes('ST ') || upper.includes('STRAIGHT')) return WAREHOUSE_COLOR_PALETTES[5]; // Sky
-  if (upper.includes('SW ') || upper.includes('SWAG')) return WAREHOUSE_COLOR_PALETTES[6]; // Orange
-  if (upper.includes('PVC')) return WAREHOUSE_COLOR_PALETTES[7]; // Fuchsia
-  if (upper.includes('NIPPLE') || upper.includes('PACKING')) return WAREHOUSE_COLOR_PALETTES[8]; // Lime
+  if (upper.includes('CCD')) return palettes[0]; // Cyan
+  if (upper.includes('SPI') || upper.includes('SPOKE')) return palettes[1]; // Purple
+  if (upper.includes('MAIN')) return palettes[2]; // Amber
+  if (upper.includes('FT')) return palettes[3]; // Emerald
+  if (upper.includes('SP ') || upper.includes('PLATING') || upper.includes('PRODUCTION')) return palettes[4]; // Rose
+  if (upper.includes('ST ') || upper.includes('STRAIGHT')) return palettes[5]; // Sky
+  if (upper.includes('SW ') || upper.includes('SWAG')) return palettes[6]; // Orange
+  if (upper.includes('PVC')) return palettes[7]; // Fuchsia
+  if (upper.includes('NIPPLE') || upper.includes('PACKING')) return palettes[8]; // Lime
 
   const str = id || name || '';
   let hash = 0;
   for (let i = 0; i < str.length; i++) {
     hash = (hash * 31 + str.charCodeAt(i)) & 0xffffffff;
   }
-  const idx = Math.abs(hash) % WAREHOUSE_COLOR_PALETTES.length;
-  return WAREHOUSE_COLOR_PALETTES[idx];
+  const idx = Math.abs(hash) % palettes.length;
+  return palettes[idx];
 };
 
 const ALL_RECEIPT_COLUMNS: { key: string; label: string }[] = [
@@ -331,6 +346,8 @@ const DiagonalExpandIcon: React.FC<{ expanded?: boolean; size?: number; color?: 
 
 const RawMaterialReceiving: React.FC = () => {
   const { message } = AntApp.useApp();
+  const { token } = theme.useToken();
+  const isDark = useThemeStore((state) => state.draft.mode === 'dark');
   const [form] = Form.useForm();
   const cachedTab = useMemo(() => tabSessionCache.get<RawMaterialReceivingTabCache>(RM_RECEIVING_TAB_ID), []);
 
@@ -1880,7 +1897,7 @@ const RawMaterialReceiving: React.FC = () => {
       key: 'gatePassNo',
       width: 130,
       render: (v?: string) => {
-        if (!v || v === '-') return <span style={{ color: 'var(--theme-text-muted, #64748b)' }}>—</span>;
+        if (!v || v === '-') return <span style={{ color: token.colorTextTertiary }}>—</span>;
         const val = String(v).trim();
         const formatted = val.toUpperCase().startsWith('GP-') || val.toUpperCase().startsWith('GPN-')
           ? val
@@ -1891,11 +1908,11 @@ const RawMaterialReceiving: React.FC = () => {
               fontFamily: 'monospace, var(--theme-font-mono, sans-serif)',
               fontWeight: 700,
               fontSize: 12,
-              color: '#38bdf8',
-              background: 'rgba(56, 189, 248, 0.12)',
+              color: isDark ? '#38bdf8' : '#0369a1',
+              background: isDark ? 'rgba(56, 189, 248, 0.12)' : '#e0f2fe',
               padding: '2px 8px',
               borderRadius: 4,
-              border: '1px solid rgba(56, 189, 248, 0.28)',
+              border: isDark ? '1px solid rgba(56, 189, 248, 0.28)' : '1px solid #bae6fd',
               whiteSpace: 'nowrap',
             }}
           >
@@ -1910,18 +1927,18 @@ const RawMaterialReceiving: React.FC = () => {
       width: 145,
       render: (_, r) => {
         const po = (r as any).poCode || r.reference || (r.purchaseOrderId ? 'PO Linked' : null);
-        if (!po || po === '-') return <span style={{ color: 'var(--theme-text-muted, #64748b)' }}>—</span>;
+        if (!po || po === '-') return <span style={{ color: token.colorTextTertiary }}>—</span>;
         return (
           <span
             style={{
               fontFamily: 'monospace, var(--theme-font-mono, sans-serif)',
               fontWeight: 700,
               fontSize: 12,
-              color: '#38bdf8',
-              background: 'rgba(56, 189, 248, 0.14)',
+              color: isDark ? '#38bdf8' : '#0369a1',
+              background: isDark ? 'rgba(56, 189, 248, 0.14)' : '#e0f2fe',
               padding: '2px 8px',
               borderRadius: 4,
-              border: '1px solid rgba(56, 189, 248, 0.35)',
+              border: isDark ? '1px solid rgba(56, 189, 248, 0.35)' : '1px solid #bae6fd',
               whiteSpace: 'nowrap',
               display: 'inline-block',
             }}
@@ -1937,18 +1954,18 @@ const RawMaterialReceiving: React.FC = () => {
       key: 'heatNumber',
       width: 130,
       render: (v?: string) => {
-        if (!v || v === '-') return <span style={{ color: 'var(--theme-text-muted, #64748b)' }}>—</span>;
+        if (!v || v === '-') return <span style={{ color: token.colorTextTertiary }}>—</span>;
         return (
           <span
             style={{
               fontFamily: 'monospace, var(--theme-font-mono, sans-serif)',
               fontWeight: 700,
               fontSize: 12,
-              color: '#f59e0b',
-              background: 'rgba(245, 158, 11, 0.14)',
+              color: isDark ? '#fbbf24' : '#b45309',
+              background: isDark ? 'rgba(245, 158, 11, 0.14)' : '#fef3c7',
               padding: '2px 8px',
               borderRadius: 4,
-              border: '1px solid rgba(245, 158, 11, 0.35)',
+              border: isDark ? '1px solid rgba(245, 158, 11, 0.35)' : '1px solid #fde68a',
               whiteSpace: 'nowrap',
               display: 'inline-block',
             }}
@@ -1964,34 +1981,44 @@ const RawMaterialReceiving: React.FC = () => {
       key: 'receiptDate',
       width: 125,
       render: (v: string) => (
-        <span style={{ whiteSpace: 'nowrap', fontWeight: 600, color: '#e2e8f0' }}>
+        <span style={{ whiteSpace: 'nowrap', fontWeight: 700, fontSize: 12.5, color: token.colorText }}>
           {v ? dayjs(v).format('DD-MMM-YYYY') : '—'}
         </span>
       ),
     },
-    { title: 'Receipt Code', dataIndex: 'receiptCode', key: 'receiptCode', width: 130, render: (v: string) => <Text strong>{v}</Text> },
+    {
+      title: 'Receipt Code',
+      dataIndex: 'receiptCode',
+      key: 'receiptCode',
+      width: 130,
+      render: (v: string) => (
+        <Text strong style={{ color: token.colorText, fontFamily: 'monospace', fontSize: 12.5 }}>
+          {v}
+        </Text>
+      ),
+    },
     {
       title: (
         <div>
-          <div style={{ color: '#38bdf8', fontSize: 11, fontWeight: 700, letterSpacing: '0.4px' }}>DIVISION</div>
-          <div style={{ color: '#c084fc', fontSize: 10, fontWeight: 600 }}>SECTION</div>
-          <div style={{ color: '#fbbf24', fontSize: 10, fontWeight: 600 }}>DEPARTMENT</div>
+          <div style={{ color: isDark ? '#38bdf8' : '#0369a1', fontSize: 11, fontWeight: 700, letterSpacing: '0.4px' }}>DIVISION</div>
+          <div style={{ color: isDark ? '#c084fc' : '#7e22ce', fontSize: 10, fontWeight: 600 }}>SECTION</div>
+          <div style={{ color: isDark ? '#fbbf24' : '#b45309', fontSize: 10, fontWeight: 600 }}>DEPARTMENT</div>
         </div>
       ),
       key: 'orgHierarchy',
       width: 250,
       render: (_, r) => (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '2px 0' }}>
-          <div style={{ color: '#38bdf8', fontWeight: 700, fontSize: 12.5, whiteSpace: 'nowrap' }}>
+          <div style={{ color: isDark ? '#38bdf8' : '#0369a1', fontWeight: 700, fontSize: 12.5, whiteSpace: 'nowrap' }}>
             {r.division ? `${r.division.divisionCode ? `${r.division.divisionCode} ` : ''}${r.division.name}`.trim() : '—'}
           </div>
           {r.section?.name && (
-            <div style={{ color: '#c084fc', fontWeight: 600, fontSize: 11.5, whiteSpace: 'nowrap' }}>
+            <div style={{ color: isDark ? '#c084fc' : '#7e22ce', fontWeight: 600, fontSize: 11.5, whiteSpace: 'nowrap' }}>
               {r.section.name}
             </div>
           )}
           {r.department?.name && (
-            <div style={{ color: '#fbbf24', fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap' }}>
+            <div style={{ color: isDark ? '#fbbf24' : '#b45309', fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap' }}>
               {r.department.name}
             </div>
           )}
@@ -2004,8 +2031,8 @@ const RawMaterialReceiving: React.FC = () => {
       width: 195,
       render: (_, r) => {
         const name = r.warehouse?.name;
-        if (!name) return <span style={{ color: 'var(--theme-text-muted, #64748b)' }}>—</span>;
-        const colorStyle = getWarehouseBadgeStyle(name, r.warehouse?.id);
+        if (!name) return <span style={{ color: token.colorTextTertiary }}>—</span>;
+        const colorStyle = getWarehouseBadgeStyle(name, r.warehouse?.id, isDark);
         return (
           <span
             style={{
@@ -2022,7 +2049,7 @@ const RawMaterialReceiving: React.FC = () => {
               overflow: 'hidden',
               textOverflow: 'ellipsis',
               letterSpacing: '0.2px',
-              boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+              boxShadow: isDark ? '0 1px 3px rgba(0,0,0,0.3)' : '0 1px 2px rgba(0,0,0,0.06)',
             }}
             title={name}
           >
@@ -2042,18 +2069,29 @@ const RawMaterialReceiving: React.FC = () => {
           style={{
             fontWeight: 700,
             fontSize: 12,
-            color: '#38bdf8',
-            background: 'rgba(56, 189, 248, 0.1)',
+            color: isDark ? '#38bdf8' : '#0369a1',
+            background: isDark ? 'rgba(56, 189, 248, 0.1)' : '#e0f2fe',
             padding: '1px 8px',
             borderRadius: 10,
-            border: '1px solid rgba(56, 189, 248, 0.25)',
+            border: isDark ? '1px solid rgba(56, 189, 248, 0.25)' : '1px solid #bae6fd',
           }}
         >
           {v ?? 0}
         </span>
       ),
     },
-    { title: 'Gate Pass Qty', dataIndex: 'gatePassTotal', key: 'gatePassTotal', width: 120, align: 'right' as const, render: (v?: number) => formatNumber(v, 2) },
+    {
+      title: 'Gate Pass Qty',
+      dataIndex: 'gatePassTotal',
+      key: 'gatePassTotal',
+      width: 120,
+      align: 'right' as const,
+      render: (v?: number) => (
+        <span style={{ fontWeight: 600, color: token.colorText }}>
+          {formatNumber(v, 2)}
+        </span>
+      ),
+    },
     {
       title: 'Received Qty',
       dataIndex: 'receivedTotal',
@@ -2061,18 +2099,25 @@ const RawMaterialReceiving: React.FC = () => {
       width: 120,
       align: 'right' as const,
       render: (v?: number) => (
-        <span style={{ fontWeight: 700, color: '#34d399' }}>
+        <span style={{ fontWeight: 700, color: isDark ? '#34d399' : '#059669' }}>
           {formatNumber(v, 2)}
         </span>
       ),
     },
     {
-      title: 'Difference', dataIndex: 'differenceTotal', key: 'differenceTotal', width: 110, align: 'right' as const,
-      render: (v?: number) => (
-        <span style={{ fontWeight: 600, color: Number(v || 0) === 0 ? undefined : 'var(--theme-warning, #d48806)' }}>
-          {formatNumber(v, 2)}
-        </span>
-      ),
+      title: 'Difference',
+      dataIndex: 'differenceTotal',
+      key: 'differenceTotal',
+      width: 110,
+      align: 'right' as const,
+      render: (v?: number) => {
+        const val = Number(v || 0);
+        return (
+          <span style={{ fontWeight: 600, color: val === 0 ? token.colorTextSecondary : (isDark ? '#fbbf24' : '#d97706') }}>
+            {formatNumber(v, 2)}
+          </span>
+        );
+      },
     },
     {
       title: 'Status',
@@ -2106,10 +2151,10 @@ const RawMaterialReceiving: React.FC = () => {
       width: 155,
       render: (_, r) => (
         <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.25 }}>
-          <span style={{ fontWeight: 600, fontSize: 12.5, whiteSpace: 'nowrap' }}>
+          <span style={{ fontWeight: 600, fontSize: 12.5, whiteSpace: 'nowrap', color: token.colorText }}>
             {r.createdByName || (r.createdBy ? 'Admin' : '-')}
           </span>
-          <span style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', whiteSpace: 'nowrap' }}>
+          <span style={{ fontSize: 11, color: token.colorTextSecondary, whiteSpace: 'nowrap' }}>
             {r.createdAt ? dayjs(r.createdAt).format('DD-MMM-YYYY HH:mm') : '-'}
           </span>
         </div>
@@ -2121,10 +2166,10 @@ const RawMaterialReceiving: React.FC = () => {
       width: 155,
       render: (_, r) => (
         <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.25 }}>
-          <span style={{ fontWeight: 600, fontSize: 12.5, whiteSpace: 'nowrap' }}>
+          <span style={{ fontWeight: 600, fontSize: 12.5, whiteSpace: 'nowrap', color: token.colorText }}>
             {r.updatedByName || (r.updatedBy ? 'Admin' : '-')}
           </span>
-          <span style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', whiteSpace: 'nowrap' }}>
+          <span style={{ fontSize: 11, color: token.colorTextSecondary, whiteSpace: 'nowrap' }}>
             {r.updatedAt ? dayjs(r.updatedAt).format('DD-MMM-YYYY HH:mm') : '-'}
           </span>
         </div>
@@ -2183,12 +2228,12 @@ const RawMaterialReceiving: React.FC = () => {
               justifyContent: 'space-between',
               marginBottom: 8,
               paddingBottom: 8,
-              borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+              borderBottom: `1px solid ${token.colorBorderSecondary}`,
             }}
           >
             <Space size={6}>
-              <AppstoreOutlined style={{ color: '#38bdf8' }} />
-              <Text strong style={{ fontSize: 13, color: '#f1f5f9' }}>Visible Columns</Text>
+              <AppstoreOutlined style={{ color: isDark ? '#38bdf8' : token.colorPrimary }} />
+              <Text strong style={{ fontSize: 13, color: token.colorText }}>Visible Columns</Text>
             </Space>
             <Tag color={visibleColumns.length === ALL_RECEIPT_COLUMNS.length ? 'default' : 'cyan'} style={{ margin: 0, fontSize: 11, fontWeight: 700 }}>
               {visibleColumns.length} / {ALL_RECEIPT_COLUMNS.length}
@@ -2199,7 +2244,7 @@ const RawMaterialReceiving: React.FC = () => {
             <Button size="small" type="link" style={{ padding: 0, fontSize: 12, height: 'auto', fontWeight: 600 }} onClick={handleSelectAllColumns}>
               Select All
             </Button>
-            <Button size="small" type="link" style={{ padding: 0, fontSize: 12, height: 'auto', color: '#94a3b8' }} onClick={handleResetColumns}>
+            <Button size="small" type="link" style={{ padding: 0, fontSize: 12, height: 'auto', color: token.colorTextSecondary }} onClick={handleResetColumns}>
               Reset to Default
             </Button>
           </div>
@@ -2216,13 +2261,13 @@ const RawMaterialReceiving: React.FC = () => {
                     margin: 0,
                     padding: '4px 8px',
                     borderRadius: 4,
-                    background: isChecked ? 'rgba(56, 189, 248, 0.07)' : 'transparent',
-                    border: isChecked ? '1px solid rgba(56, 189, 248, 0.2)' : '1px solid transparent',
+                    background: isChecked ? (isDark ? 'rgba(56, 189, 248, 0.07)' : 'rgba(14, 165, 233, 0.08)') : 'transparent',
+                    border: isChecked ? (isDark ? '1px solid rgba(56, 189, 248, 0.2)' : '1px solid rgba(14, 165, 233, 0.3)') : '1px solid transparent',
                     display: 'flex',
                     alignItems: 'center',
                   }}
                 >
-                  <span style={{ fontSize: 12.5, fontWeight: isChecked ? 600 : 400, color: isChecked ? '#f1f5f9' : '#94a3b8' }}>
+                  <span style={{ fontSize: 12.5, fontWeight: isChecked ? 600 : 400, color: isChecked ? token.colorText : token.colorTextSecondary }}>
                     {col.label}
                   </span>
                 </Checkbox>
@@ -2239,9 +2284,9 @@ const RawMaterialReceiving: React.FC = () => {
           borderRadius: 6,
           display: 'inline-flex',
           alignItems: 'center',
-          borderColor: visibleColumns.length < ALL_RECEIPT_COLUMNS.length ? '#38bdf8' : undefined,
-          color: visibleColumns.length < ALL_RECEIPT_COLUMNS.length ? '#38bdf8' : undefined,
-          background: visibleColumns.length < ALL_RECEIPT_COLUMNS.length ? 'rgba(56, 189, 248, 0.1)' : undefined,
+          borderColor: visibleColumns.length < ALL_RECEIPT_COLUMNS.length ? (isDark ? '#38bdf8' : token.colorPrimary) : undefined,
+          color: visibleColumns.length < ALL_RECEIPT_COLUMNS.length ? (isDark ? '#38bdf8' : token.colorPrimary) : undefined,
+          background: visibleColumns.length < ALL_RECEIPT_COLUMNS.length ? (isDark ? 'rgba(56, 189, 248, 0.1)' : 'rgba(14, 165, 233, 0.1)') : undefined,
         }}
       >
         <span>Columns</span>
@@ -2250,9 +2295,9 @@ const RawMaterialReceiving: React.FC = () => {
             count={`${visibleColumns.length}/${ALL_RECEIPT_COLUMNS.length}`}
             style={{
               marginLeft: 6,
-              backgroundColor: 'rgba(56, 189, 248, 0.25)',
-              color: '#38bdf8',
-              border: '1px solid rgba(56, 189, 248, 0.4)',
+              backgroundColor: isDark ? 'rgba(56, 189, 248, 0.25)' : '#e0f2fe',
+              color: isDark ? '#38bdf8' : '#0369a1',
+              border: isDark ? '1px solid rgba(56, 189, 248, 0.4)' : '1px solid #7dd3fc',
               fontSize: 10,
               fontWeight: 700,
             }}
@@ -2490,16 +2535,18 @@ const RawMaterialReceiving: React.FC = () => {
                       width: 24,
                       height: 24,
                       borderRadius: 4,
-                      border: '1px solid rgba(56, 189, 248, 0.45)',
-                      background: expanded ? 'rgba(56, 189, 248, 0.22)' : 'rgba(56, 189, 248, 0.08)',
-                      color: '#38bdf8',
+                      border: isDark ? '1px solid rgba(56, 189, 248, 0.45)' : '1px solid #7dd3fc',
+                      background: expanded
+                        ? (isDark ? 'rgba(56, 189, 248, 0.22)' : '#e0f2fe')
+                        : (isDark ? 'rgba(56, 189, 248, 0.08)' : '#f0f9ff'),
+                      color: isDark ? '#38bdf8' : '#0369a1',
                       cursor: 'pointer',
                       padding: 0,
                       transition: 'all 0.15s ease',
                     }}
                     title={expanded ? 'Collapse items' : `Expand ${count} item(s)`}
                   >
-                    <DiagonalExpandIcon expanded={expanded} size={13} color="#38bdf8" />
+                    <DiagonalExpandIcon expanded={expanded} size={13} color={isDark ? '#38bdf8' : '#0369a1'} />
                   </button>
                 );
               },
@@ -2518,13 +2565,13 @@ const RawMaterialReceiving: React.FC = () => {
                       style={{
                         margin: '6px 0 6px 32px',
                         padding: '16px 20px',
-                        background: 'rgba(15, 23, 42, 0.85)',
+                        background: isDark ? 'rgba(15, 23, 42, 0.85)' : token.colorFillAlter,
                         borderRadius: 8,
-                        border: '1px solid rgba(56, 189, 248, 0.3)',
+                        border: isDark ? '1px solid rgba(56, 189, 248, 0.3)' : `1px solid ${token.colorBorderSecondary}`,
                         display: 'flex',
                         alignItems: 'center',
                         gap: 12,
-                        color: '#38bdf8',
+                        color: isDark ? '#38bdf8' : token.colorPrimary,
                       }}
                     >
                       <GlobalLoading spinnerOnly size="small" />
@@ -2538,30 +2585,30 @@ const RawMaterialReceiving: React.FC = () => {
                     style={{
                       margin: '6px 0 6px 32px',
                       padding: '12px 16px',
-                      background: 'rgba(15, 23, 42, 0.75)',
+                      background: isDark ? 'rgba(15, 23, 42, 0.75)' : token.colorFillAlter,
                       borderRadius: 8,
-                      border: '1px solid rgba(56, 189, 248, 0.22)',
-                      boxShadow: '0 4px 14px rgba(0, 0, 0, 0.25)',
+                      border: isDark ? '1px solid rgba(56, 189, 248, 0.22)' : `1px solid ${token.colorBorderSecondary}`,
+                      boxShadow: isDark ? '0 4px 14px rgba(0, 0, 0, 0.25)' : '0 2px 8px rgba(0, 0, 0, 0.05)',
                     }}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
                       <Space size={8}>
-                        <Text strong style={{ color: '#38bdf8', fontSize: 13, letterSpacing: '0.3px' }}>
+                        <Text strong style={{ color: isDark ? '#38bdf8' : token.colorPrimary, fontSize: 13, letterSpacing: '0.3px' }}>
                           Gate Pass Line Items ({lines.length || record.lineCount || 0})
                         </Text>
                         <Tag color="blue" style={{ fontSize: 11, fontWeight: 600 }}>{record.receiptCode}</Tag>
                       </Space>
                       {record.gatePassNo && (
-                        <span style={{ fontSize: 12, color: '#94a3b8' }}>
+                        <span style={{ fontSize: 12, color: token.colorTextSecondary }}>
                           Gate Pass:{' '}
-                          <span style={{ color: '#38bdf8', fontWeight: 700, fontFamily: 'monospace' }}>
+                          <span style={{ color: isDark ? '#38bdf8' : '#0369a1', fontWeight: 700, fontFamily: 'monospace' }}>
                             {String(record.gatePassNo).toUpperCase().startsWith('GP-') ? record.gatePassNo : `GP-${record.gatePassNo}`}
                           </span>
                         </span>
                       )}
                     </div>
                     {lines.length === 0 ? (
-                      <div style={{ color: '#94a3b8', padding: '10px 0', fontSize: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <div style={{ color: token.colorTextSecondary, padding: '10px 0', fontSize: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
                         <span>Line details not yet loaded.</span>
                         <Button
                           size="small"
@@ -2586,14 +2633,14 @@ const RawMaterialReceiving: React.FC = () => {
                             key: 'lineNumber',
                             width: 50,
                             align: 'center',
-                            render: (_, l, idx) => <span style={{ color: '#94a3b8', fontWeight: 600 }}>{l.lineNumber ?? idx + 1}</span>,
+                            render: (_, l, idx) => <span style={{ color: token.colorTextSecondary, fontWeight: 600 }}>{l.lineNumber ?? idx + 1}</span>,
                           },
                           {
                             title: 'Item Code',
                             key: 'itemCode',
                             width: 150,
                             render: (_, l) => (
-                              <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#38bdf8' }}>
+                              <span style={{ fontFamily: 'monospace', fontWeight: 700, color: isDark ? '#38bdf8' : '#0369a1' }}>
                                 {l.item?.itemCode || '—'}
                               </span>
                             ),
@@ -2602,7 +2649,7 @@ const RawMaterialReceiving: React.FC = () => {
                             title: 'Raw Material Item',
                             key: 'itemName',
                             render: (_, l) => (
-                              <span style={{ fontWeight: 600, color: '#f1f5f9' }}>
+                              <span style={{ fontWeight: 600, color: token.colorText }}>
                                 {l.item?.name || '—'}
                               </span>
                             ),
@@ -2624,7 +2671,7 @@ const RawMaterialReceiving: React.FC = () => {
                             width: 130,
                             align: 'right',
                             render: (_, l) => (
-                              <span style={{ fontWeight: 600, color: '#cbd5e1' }}>
+                              <span style={{ fontWeight: 600, color: token.colorText }}>
                                 {formatNumber(l.gatePassQuantity, 2)}
                               </span>
                             ),
@@ -2635,7 +2682,7 @@ const RawMaterialReceiving: React.FC = () => {
                             width: 130,
                             align: 'right',
                             render: (_, l) => (
-                              <span style={{ fontWeight: 700, color: '#34d399' }}>
+                              <span style={{ fontWeight: 700, color: isDark ? '#34d399' : '#059669' }}>
                                 {formatNumber(l.receivedQuantity, 2)}
                               </span>
                             ),
@@ -2648,7 +2695,7 @@ const RawMaterialReceiving: React.FC = () => {
                             render: (_, l) => {
                               const diff = Number(l.difference ?? (Number(l.gatePassQuantity || 0) - Number(l.receivedQuantity || 0)));
                               return (
-                                <span style={{ fontWeight: 700, color: diff === 0 ? '#94a3b8' : 'var(--theme-warning, #fbbf24)' }}>
+                                <span style={{ fontWeight: 700, color: diff === 0 ? token.colorTextSecondary : (isDark ? '#fbbf24' : '#d97706') }}>
                                   {formatNumber(diff, 2)}
                                 </span>
                               );
@@ -3218,14 +3265,16 @@ const RawMaterialReceiving: React.FC = () => {
                       marginBottom: 12,
                       padding: '12px',
                       borderRadius: 10,
-                      background: 'linear-gradient(145deg, rgba(15, 23, 42, 0.85) 0%, rgba(30, 41, 59, 0.7) 100%)',
-                      border: '1px solid rgba(56, 189, 248, 0.35)',
-                      boxShadow: '0 4px 16px rgba(0, 0, 0, 0.3)',
+                      background: isDark
+                        ? 'linear-gradient(145deg, rgba(15, 23, 42, 0.85) 0%, rgba(30, 41, 59, 0.7) 100%)'
+                        : token.colorFillAlter,
+                      border: isDark ? '1px solid rgba(56, 189, 248, 0.35)' : `1px solid ${token.colorBorderSecondary}`,
+                      boxShadow: isDark ? '0 4px 16px rgba(0, 0, 0, 0.3)' : '0 2px 8px rgba(0, 0, 0, 0.05)',
                     }}
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span style={{ fontSize: 13, fontWeight: 700, color: '#38bdf8' }}>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: isDark ? '#38bdf8' : token.colorPrimary }}>
                           📦 PO Blanket Progress & Balance
                         </span>
                         {poLoading && <Spin size="small" />}
@@ -3235,7 +3284,14 @@ const RawMaterialReceiving: React.FC = () => {
                           size="small"
                           type="primary"
                           ghost
-                          style={{ fontSize: 11, height: 24, padding: '0 8px', borderColor: '#38bdf8', color: '#38bdf8', fontWeight: 600 }}
+                          style={{
+                            fontSize: 11,
+                            height: 24,
+                            padding: '0 8px',
+                            borderColor: isDark ? '#38bdf8' : token.colorPrimary,
+                            color: isDark ? '#38bdf8' : token.colorPrimary,
+                            fontWeight: 600,
+                          }}
                           onClick={handlePrefillPoItems}
                         >
                           + Prefill Open Items
@@ -3243,7 +3299,7 @@ const RawMaterialReceiving: React.FC = () => {
                       )}
                     </div>
 
-                    <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 10, lineHeight: 1.3 }}>
+                    <div style={{ fontSize: 11, color: token.colorTextSecondary, marginBottom: 10, lineHeight: 1.3 }}>
                       Monthly Blanket PO requirement tracking (since 01-Oct-2026). Staggered deliveries automatically update remaining balance in real time.
                     </div>
 
@@ -3266,19 +3322,25 @@ const RawMaterialReceiving: React.FC = () => {
                                 padding: '8px 10px',
                                 borderRadius: 6,
                                 background: isOver
-                                  ? 'rgba(239, 68, 68, 0.12)'
+                                  ? (isDark ? 'rgba(239, 68, 68, 0.12)' : '#fef2f2')
                                   : isFullyMet
-                                  ? 'rgba(16, 185, 129, 0.1)'
-                                  : 'rgba(30, 41, 59, 0.8)',
+                                  ? (isDark ? 'rgba(16, 185, 129, 0.1)' : '#f0fdf4')
+                                  : (isDark ? 'rgba(30, 41, 59, 0.8)' : token.colorBgContainer),
                                 border: `1px solid ${
-                                  isOver ? '#ef4444' : isFullyMet ? '#10b981' : 'rgba(148, 163, 184, 0.25)'
+                                  isOver
+                                    ? '#ef4444'
+                                    : isFullyMet
+                                    ? '#10b981'
+                                    : isDark
+                                    ? 'rgba(148, 163, 184, 0.25)'
+                                    : token.colorBorderSecondary
                                 }`,
                               }}
                             >
                               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                                <span style={{ fontWeight: 700, fontSize: 12, color: '#f1f5f9' }}>
+                                <span style={{ fontWeight: 700, fontSize: 12, color: token.colorText }}>
                                   {it.itemCode}
-                                  <span style={{ fontWeight: 400, color: '#94a3b8', marginLeft: 6, fontSize: 11 }}>
+                                  <span style={{ fontWeight: 400, color: token.colorTextSecondary, marginLeft: 6, fontSize: 11 }}>
                                     {it.itemName}
                                   </span>
                                 </span>
@@ -3291,7 +3353,7 @@ const RawMaterialReceiving: React.FC = () => {
                                     CLOSED (100% RECEIVED)
                                   </Tag>
                                 ) : (
-                                  <Tag color="processing" style={{ margin: 0, fontSize: 10, fontWeight: 700, color: '#38bdf8', borderColor: '#38bdf8' }}>
+                                  <Tag color="processing" style={{ margin: 0, fontSize: 10, fontWeight: 700 }}>
                                     OPEN ({formatNumber(liveBalance, 2)} {it.uomCode} LEFT)
                                   </Tag>
                                 )}
@@ -3299,24 +3361,24 @@ const RawMaterialReceiving: React.FC = () => {
 
                               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 4, fontSize: 10, marginBottom: 4 }}>
                                 <div>
-                                  <span style={{ color: '#64748b' }}>Ordered: </span>
-                                  <span style={{ color: '#e2e8f0', fontWeight: 600 }}>{formatNumber(it.orderedQty, 2)}</span>
+                                  <span style={{ color: token.colorTextSecondary }}>Ordered: </span>
+                                  <span style={{ color: token.colorText, fontWeight: 600 }}>{formatNumber(it.orderedQty, 2)}</span>
                                 </div>
                                 <div>
-                                  <span style={{ color: '#64748b' }}>Past Recv: </span>
-                                  <span style={{ color: '#38bdf8', fontWeight: 600 }}>{formatNumber(it.receivedQty, 2)}</span>
+                                  <span style={{ color: token.colorTextSecondary }}>Past Recv: </span>
+                                  <span style={{ color: isDark ? '#38bdf8' : '#0284c7', fontWeight: 600 }}>{formatNumber(it.receivedQty, 2)}</span>
                                 </div>
                                 <div>
-                                  <span style={{ color: '#64748b' }}>Current GP: </span>
-                                  <span style={{ color: currentRecv > 0 ? '#f59e0b' : '#94a3b8', fontWeight: 700 }}>
+                                  <span style={{ color: token.colorTextSecondary }}>Current GP: </span>
+                                  <span style={{ color: currentRecv > 0 ? (isDark ? '#f59e0b' : '#b45309') : token.colorTextSecondary, fontWeight: 700 }}>
                                     {currentRecv > 0 ? `+${formatNumber(currentRecv, 2)}` : '0.00'}
                                   </span>
                                 </div>
                                 <div>
-                                  <span style={{ color: '#64748b' }}>Balance: </span>
+                                  <span style={{ color: token.colorTextSecondary }}>Balance: </span>
                                   <span style={{
                                     fontWeight: 800,
-                                    color: liveBalance < 0 ? '#ef4444' : liveBalance === 0 ? '#10b981' : '#f59e0b',
+                                    color: liveBalance < 0 ? '#ef4444' : liveBalance === 0 ? '#10b981' : (isDark ? '#fbbf24' : '#b45309'),
                                   }}>
                                     {formatNumber(liveBalance, 2)} {it.uomCode}
                                   </span>

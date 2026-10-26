@@ -308,7 +308,12 @@ export class ProductionInventoryReportService {
             SELECT 1 FROM production_entries pe_rel
             LEFT JOIN production_entry_items pei_rel ON pei_rel.production_entry_id = pe_rel.id
             WHERE pe_rel.id = sl.reference_id
-              AND (pe_rel.item_id = sl.item_id OR pei_rel.item_id = sl.item_id)
+              AND (
+                pe_rel.item_id = sl.item_id 
+                OR pei_rel.item_id = sl.item_id
+                OR sl.transaction_type IN ('PRODUCTION_CONSUMPTION', 'PRODUCTION_ISSUE')
+                OR (sl.transaction_type = 'PRODUCTION_REVERSAL' AND sl.direction = 'IN')
+              )
           )
         )
       )`)
@@ -620,7 +625,12 @@ export class ProductionInventoryReportService {
           SELECT 1 FROM production_entries pe_rel
           LEFT JOIN production_entry_items pei_rel ON pei_rel.production_entry_id = pe_rel.id
           WHERE pe_rel.id = sl.reference_id
-            AND (pe_rel.item_id = sl.item_id OR pei_rel.item_id = sl.item_id)
+            AND (
+              pe_rel.item_id = sl.item_id 
+              OR pei_rel.item_id = sl.item_id
+              OR sl.transaction_type IN ('PRODUCTION_CONSUMPTION', 'PRODUCTION_ISSUE')
+              OR (sl.transaction_type = 'PRODUCTION_REVERSAL' AND sl.direction = 'IN')
+            )
         )
       )
     )`;

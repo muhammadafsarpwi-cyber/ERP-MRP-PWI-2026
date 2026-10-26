@@ -739,49 +739,56 @@ export const buildChainGrid = (
     return i >= 0 && i + 1 < stageOrder.length ? stageOrder[i + 1] : undefined;
   };
 
+  const fgItemCode = def.fgItemCode || def.key;
+  const fgSrc = rowByCode.get(fgItemCode);
+  const dpDispatched = round4(num(fgSrc?.totalOut));
+
   // ── PASS 1 — independent cells: Opening + Production from the ledger. ──
   const pass1: StagePass[] = declaredRows.map((rowDef) => {
-    const src = rowByCode.get(rowDef.itemCode);
+    const isDp = rowDef.stage === 'DP';
+    const src = isDp ? fgSrc : rowByCode.get(rowDef.itemCode);
     const multiplier =
       rowDef.stage === 'RM'
         ? 1
-        : resolveWeight(src?.uomCode, weightMap[rowDef.itemCode], rowDef.itemCode);
+        : resolveWeight(src?.uomCode, weightMap[rowDef.itemCode] ?? weightMap[fgItemCode], rowDef.itemCode);
     return {
       def: rowDef,
       src,
-      opBalance: round4(num(src?.openingBalance)),
-      production: round4(
-        rowDef.stage === 'RM'
-          ? num(src?.totalIn)
-          : num(src?.produced !== undefined ? src.produced : src?.totalIn),
-      ),
+      opBalance: isDp ? 0 : round4(num(src?.openingBalance)),
+      production: isDp
+        ? dpDispatched
+        : round4(
+            rowDef.stage === 'RM'
+              ? num(src?.totalIn)
+              : num(src?.produced !== undefined ? src.produced : src?.totalIn),
+          ),
       multiplier,
-      found: Boolean(src),
+      found: isDp ? Boolean(fgSrc) : Boolean(src),
     };
   });
 
   const byStage = (stage: string) => pass1.filter((p) => p.def.stage === stage);
 
   /**
-   * ── PASS 2 — Issuance = the SUCCESSOR stage's Production. ──
-   * Resolved from the stages present, so a chain with no SW depletes ST
-   * straight from SP without any index gymnastics.
+   * ── PASS 2 — Issuance = actual recorded stock ledger issues, or successor stage Production. ──
+   * When actual consumption is recorded in the stock ledger (e.g. SPK consuming ST), that real
+   * outward flow is used so that Today's Closing strictly equals Tomorrow's Opening with 100% precision.
    */
   const resolveIssuance = (p: StagePass): IssuanceResolution => {
     const stage = p.def.stage;
     const recordedOut = round4(num(p.src?.totalOut));
     const recordedConsumed = p.src?.consumed !== undefined ? round4(num(p.src?.consumed)) : 0;
+    const actualOut = round4(Math.max(recordedOut, recordedConsumed));
     // Outflows from vendor returns — ONLY RAW MATERIAL (RM) can ever have return outflows!
-    // In all WIP manufacturing stages (ST, SW, SP, PL, FG), issuance is STRICTLY driven by successor production.
     const nonProdOut = stage === 'RM' && p.src?.consumed !== undefined
       ? Math.max(0, round4(recordedOut - recordedConsumed))
       : 0;
 
     const ledger = (rule: string): IssuanceResolution => {
-      const val = stage === 'RM' ? recordedOut : 0;
+      const val = stage === 'RM' ? recordedOut : actualOut;
       let remarks = '—';
       if (val > 0) {
-        remarks = `Return Out: ${fmtQty(val, 'KG')} KG`;
+        remarks = stage === 'RM' ? `Return Out: ${fmtQty(val, 'KG')} KG` : `Issued: ${fmtQty(val, p.src?.uomCode)}`;
       }
       return {
         value: val,
@@ -793,13 +800,25 @@ export const buildChainGrid = (
       };
     };
 
-    if (TERMINAL_STAGES.has(stage)) {
+    if (stage === 'DP') {
+      const val = dpDispatched;
+      return {
+        value: 0,
+        rule: 'Terminal Dispatch Stage — Dispatched Quantity in Closing',
+        driven: false,
+        remarks: val > 0 ? `Dispatched (${fmtQty(val, p.src?.uomCode ?? 'PCS')})` : '—',
+        prodValue: 0,
+        returnOutValue: 0,
+      };
+    }
+
+    if (stage === 'FG') {
       const val = recordedOut;
       return {
         value: val,
-        rule: 'Recorded issues (OUT) — terminal stage',
+        rule: 'Recorded issues (OUT) — Issued to DP',
         driven: false,
-        remarks: val > 0 ? `Dispatched (${fmtQty(val, p.src?.uomCode)})` : '—',
+        remarks: val > 0 ? `Issued to DP (${fmtQty(val, p.src?.uomCode ?? 'PCS')})` : '—',
         prodValue: 0,
         returnOutValue: val,
       };
@@ -816,26 +835,11 @@ export const buildChainGrid = (
         ? consumers.filter((c) => c.def.splitSide === p.def.splitSide)
         : consumers.filter((c) => c.def.splitSide === undefined);
 
-    /**
-     * §GHOST ISSUANCE SUPPRESSION — an issuance is only meaningful when the
-     * stage it feeds actually holds material. When every row of the successor
-     * stage is inert (no opening balance and no production anywhere in it)
-     * there is no downstream receipt to offset a transfer, so the stock-ledger
-     * OUT rows that belong to other documents — or to a period before this
-     * chain was active — would be painted into the ISSUANCE cell as a
-     * transfer into a stage that never received anything. Those figures are
-     * withheld here rather than three times later (grid / print / PDF all
-     * read the same resolution).
-     *
-     * The basis is the set this row would actually draw from: the same-side
-     * successor rows when the stage is split (Inner→Inner), otherwise the
-     * whole successor pool.
-     */
     const downstreamRows = matched.length > 0 ? matched : consumers;
     const downstreamLive = downstreamRows.some(
       (c) => Math.abs(c.opBalance) > 1e-9 || Math.abs(c.production) > 1e-9,
     );
-    if (!downstreamLive) {
+    if (!downstreamLive && actualOut <= 0) {
       return {
         value: 0,
         rule: `${nextStage} holds no material — issuance suppressed (no downstream receipt)`,
@@ -857,14 +861,11 @@ export const buildChainGrid = (
     };
 
     if (matched.length > 0) {
-      if (!matched.every((c) => c.found)) {
+      if (!matched.every((c) => c.found) && actualOut <= 0) {
         return ledger(`Recorded issues (OUT) — ${nextStage} driver unavailable`);
       }
       const parts = matched.map(convert);
-      if (parts.some((v) => v === null)) {
-        return ledger('Recorded issues (OUT) — successor weight missing');
-      }
-      const prodValue = round4(parts.reduce<number>((s, v) => s + (v ?? 0), 0));
+      const prodValue = parts.some((v) => v === null) ? 0 : round4(parts.reduce<number>((s, v) => s + (v ?? 0), 0));
       const label = matched.map((c) => c.def.itemCode).join(' + ');
       const totalValue = round4(prodValue + nonProdOut);
 
@@ -874,20 +875,18 @@ export const buildChainGrid = (
           remarks = `Prod: ${fmtQty(prodValue, 'KG')} KG | Return Out: ${fmtQty(nonProdOut, 'KG')} KG`;
         } else if (nonProdOut > 0) {
           remarks = `Return Out: ${fmtQty(nonProdOut, 'KG')} KG`;
-        } else if (prodValue > 0) {
-          remarks = `Prod Consumed: ${fmtQty(prodValue, 'KG')} KG`;
+        } else if (totalValue > 0) {
+          remarks = `Prod Consumed: ${fmtQty(totalValue, 'KG')} KG`;
         }
       } else {
-        if (prodValue > 0) {
+        if (totalValue > 0) {
           remarks = `Issued to ${nextStage}`;
         }
       }
 
       return {
         value: totalValue,
-        rule: needsKg
-          ? `${label} Production × weight (KG)${nonProdOut > 0 ? ` + Return Out (${nonProdOut} KG)` : ''}`
-          : `= ${label} Production`,
+        rule: needsKg ? `${label} Production × weight (KG)` : `= ${label} Production`,
         driven: true,
         remarks,
         prodValue,
@@ -897,14 +896,11 @@ export const buildChainGrid = (
 
     // No shared side ⇒ my stage rows share the successor pool equally.
     // (PL Inner + PL Outer each take half of the single FG bundle.)
-    if (!consumers.every((c) => c.found)) {
+    if (!consumers.every((c) => c.found) && actualOut <= 0) {
       return ledger(`Recorded issues (OUT) — ${nextStage} driver unavailable`);
     }
     const parts = consumers.map(convert);
-    if (parts.some((v) => v === null)) {
-      return ledger('Recorded issues (OUT) — successor weight missing');
-    }
-    const pool = round4(parts.reduce<number>((s, v) => s + (v ?? 0), 0));
+    const pool = parts.some((v) => v === null) ? 0 : round4(parts.reduce<number>((s, v) => s + (v ?? 0), 0));
     const shareCount = byStage(stage).length || 1;
     const prodValue = round4(pool / shareCount);
     const totalValue = round4(prodValue + nonProdOut);
@@ -915,11 +911,11 @@ export const buildChainGrid = (
         remarks = `Prod: ${fmtQty(prodValue, 'KG')} KG | Return Out: ${fmtQty(nonProdOut, 'KG')} KG`;
       } else if (nonProdOut > 0) {
         remarks = `Return Out: ${fmtQty(nonProdOut, 'KG')} KG`;
-      } else if (prodValue > 0) {
-        remarks = `Prod Consumed: ${fmtQty(prodValue, 'KG')} KG`;
+      } else if (totalValue > 0) {
+        remarks = `Prod Consumed: ${fmtQty(totalValue, 'KG')} KG`;
       }
     } else {
-      if (prodValue > 0) {
+      if (totalValue > 0) {
         remarks = `Issued to ${nextStage}`;
       }
     }
@@ -948,9 +944,11 @@ export const buildChainGrid = (
       stage: p.def.stage,
       stageLabel: p.def.stageLabel,
       itemCode: p.def.itemCode,
-      itemName: p.src?.itemName ?? (itemNames && itemNames[p.def.itemCode]) ?? p.def.itemLabel ?? '—',
+      itemName: p.def.stage === 'DP'
+        ? (p.def.itemLabel ?? `${fgSrc?.itemName ?? def.label} — Outward Dispatch Stage`)
+        : (p.src?.itemName ?? (itemNames && itemNames[p.def.itemCode]) ?? p.def.itemLabel ?? '—'),
       splitSide: p.def.splitSide,
-      uomCode: p.src?.uomCode ?? null,
+      uomCode: p.src?.uomCode ?? (p.def.stage === 'DP' ? (fgSrc?.uomCode ?? 'PCS') : null),
       opBalance: p.opBalance,
       production: p.production,
       subTotal,
@@ -1726,15 +1724,7 @@ const ItemWiseProductionLedger: React.FC = () => {
               '/production/inventory-report',
               { dateFrom: monthFrom, dateTo: endDate },
             );
-      // 3) Baseline request ⇒ opening balances at monthFrom
-      const baseReq =
-        monthFrom === endDate
-          ? Promise.resolve(null)
-          : apiService.get<{ data: { items?: ReportRow[] } }>(
-              '/production/inventory-report',
-              { dateFrom: monthFrom, dateTo: monthFrom },
-            );
-      // 4) All Daily Production Entries across [monthFrom, endDate]
+      // 3) All Daily Production Entries across [monthFrom, endDate]
       // Buffer dateFrom by 1 day earlier to avoid UTC/PKT timezone offset dropping 19:00 UTC entries!
       const queryDateFrom = dayjs(monthFrom).subtract(1, 'day').format('YYYY-MM-DD');
       const queryDateTo = dayjs(endDate).add(1, 'day').format('YYYY-MM-DD');
@@ -1743,10 +1733,9 @@ const ItemWiseProductionLedger: React.FC = () => {
         { dateFrom: queryDateFrom, dateTo: queryDateTo, limit: 1000 },
       );
 
-      const [dayRes, monthRes, baseRes, entriesRes] = await Promise.all([
+      const [dayRes, monthRes, entriesRes] = await Promise.all([
         dayReq,
         monthReq,
-        baseReq,
         entriesReq,
       ]);
 
@@ -1757,7 +1746,6 @@ const ItemWiseProductionLedger: React.FC = () => {
 
       const dayItems: ReportRow[] = (dayRes?.data?.items ?? []).map((r) => ({ ...r }));
       const monthItems = (monthRes?.data?.items ?? dayItems).map((r) => ({ ...r }));
-      const baseItems: ReportRow[] = (baseRes?.data?.items ?? dayItems).map((r) => ({ ...r }));
       const entriesList = Array.isArray(entriesRes?.data) ? entriesRes.data : [];
 
       const weights = { ...STANDARD_ITEM_WEIGHTS, ...weightMapRef.current };
@@ -1769,67 +1757,9 @@ const ItemWiseProductionLedger: React.FC = () => {
       // each document's OUTPUT children so multi-item logs stay item-isolated.
       const dailyProdMap = bucketDailyProduction(entriesList);
 
-      // Multi-day rolling window: carry forward previous day's closing into next day's opening
-      if (monthFrom !== endDate && baseItems.length > 0) {
-        // Compute all days in sequence from monthFrom to endDate
-        const days: string[] = [];
-        let cur = dayjs(monthFrom);
-        const endD = dayjs(endDate);
-        while (!cur.isAfter(endD)) {
-          days.push(cur.format('YYYY-MM-DD'));
-          cur = cur.add(1, 'day');
-        }
-
-        let currentItemMap = new Map<string, ReportRow>();
-        baseItems.forEach((r) => currentItemMap.set(r.itemCode, { ...r }));
-        dayItems.forEach((r) => {
-          if (!currentItemMap.has(r.itemCode)) {
-            currentItemMap.set(r.itemCode, { ...r, openingBalance: 0, totalIn: 0, totalOut: 0, produced: 0 });
-          }
-        });
-
-        // Iterate through all days before endDate, rolling closing -> next day opening
-        for (let i = 0; i < days.length - 1; i++) {
-          const dayStr = days[i];
-          const prodForDay = dailyProdMap.get(dayStr) ?? new Map<string, number>();
-
-          const dayRows: ReportRow[] = Array.from(currentItemMap.values()).map((r) => ({
-            ...r,
-            produced: prodForDay.get(r.itemCode) ?? 0,
-            totalIn:
-              r.itemType === 'RAW_MATERIAL' || r.itemCode.startsWith('RM-')
-                ? prodForDay.get(r.itemCode) ?? 0
-                : 0,
-            totalOut: 0,
-            consumed: 0,
-            scrapOut: 0,
-          }));
-
-          const nextClosing = new Map<string, number>();
-          for (const chain of currentChains) {
-            const grid = buildChainGrid(chain, dayRows, {}, weights, currentNames);
-            for (const row of grid.rows) {
-              nextClosing.set(row.itemCode, row.closingPieces);
-            }
-          }
-
-          // Advance opening balances for next day
-          for (const [code, closingVal] of nextClosing.entries()) {
-            const existing = currentItemMap.get(code);
-            if (existing) {
-              existing.openingBalance = closingVal;
-            }
-          }
-        }
-
-        // Apply carried-forward opening balances to dayItems
-        dayItems.forEach((targetRow) => {
-          const carried = currentItemMap.get(targetRow.itemCode);
-          if (carried !== undefined) {
-            targetRow.openingBalance = carried.openingBalance;
-          }
-        });
-      }
+      // Server-side rolling ledger contract:
+      // The backend /production/inventory-report calculates the exact cumulative opening balance
+      // directly from all stock ledger movements strictly before the selected date.
 
       // In daily ledger mode (single selected day):
       // Production must strictly be ONLY the entries recorded on that exact date!

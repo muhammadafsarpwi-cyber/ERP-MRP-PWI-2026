@@ -800,6 +800,9 @@ export const ProductionDashboard: React.FC = () => {
       }
       if (departments.length > 0) {
         const nameLower = (deptName || '').trim().toLowerCase();
+        if (nameLower.includes('raw material') || nameLower === 'rm' || nameLower.includes('stores')) {
+          return true;
+        }
         const isSpokePackingAlias =
           nameLower === 'spoke packing' ||
           nameLower === 'hand packing' ||

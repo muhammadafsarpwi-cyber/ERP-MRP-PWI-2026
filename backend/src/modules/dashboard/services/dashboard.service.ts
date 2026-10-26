@@ -583,7 +583,7 @@ export class DashboardService {
         INNER JOIN raw_material_receipt_lines rl ON rl.receipt_id = r.id
         WHERE (r.company_id = $1 OR r.company_id IS NULL)
           AND r.status = 'CONFIRMED'
-          AND ($2::uuid IS NULL OR r.division_id = $2 OR r.division_id IS NULL)
+          AND ($2::uuid IS NULL OR r.division_id = $2)
           AND ($3::date IS NULL OR r.receipt_date >= $3)
           AND ($4::date IS NULL OR r.receipt_date <= $4)
       `, [
@@ -598,60 +598,113 @@ export class DashboardService {
       // Fallback gracefully if raw_material_receipts query fails
     }
 
-    // Ensure Raw Material (RM) row exists at the start of Spoke Division sequence
-    const isSpokeScope = !filters?.divisionId || filters?.divisionId === 'd1000000-0000-0000-0000-000000000001';
-    if (isSpokeScope) {
-      const stRow = combinedRows.find((r) => (r.departmentName || '').toLowerCase().includes('straight'));
-      const stTargetPcs = num(stRow?.targetQuantity);
-      const stPieceWeight = num(stRow?.avgWeightPerPiece) > 0 ? num(stRow?.avgWeightPerPiece) : 0.0114;
-      const stPlannedWireKg = stTargetPcs > 0 ? Math.round(stTargetPcs * stPieceWeight * 10) / 10 : 0;
-      const rmTargetKg = stPlannedWireKg > 0 ? stPlannedWireKg : rmReceivedKg;
+    // Query Target Quantity from Purchase Orders (PO) for Raw Materials
+    let rmTargetKg = 0;
+    try {
+      const poRes = await this.entryRepo.query(`
+        SELECT COALESCE(SUM(pol.quantity), 0) AS "totalPoKg",
+               COUNT(DISTINCT po.id) AS "poCount"
+        FROM purchase_order_lines pol
+        INNER JOIN purchase_orders po ON po.id = pol.po_id
+        INNER JOIN items itm ON itm.id = pol.item_id
+        WHERE (po.company_id = $1 OR po.company_id IS NULL)
+          AND po.status NOT IN ('CANCELLED')
+          AND itm.item_type = 'RAW_MATERIAL'
+          AND ($2::uuid IS NULL OR itm.division_id = $2 OR po.warehouse_id IN (
+            SELECT w.id FROM warehouses w WHERE w.division_id = $2
+          ))
+          AND ($3::date IS NULL OR po.order_date >= $3)
+          AND ($4::date IS NULL OR po.order_date <= $4)
+      `, [
+        companyId,
+        filters?.divisionId || null,
+        filters?.dateFrom || null,
+        filters?.dateTo || null,
+      ]);
 
-      const rmRowIdx = combinedRows.findIndex((r) => {
-        const n = (r.departmentName || '').toLowerCase();
-        return n.includes('raw material') || n.includes('spi stores') || r.departmentId === 'f8312f0c-ba1e-401a-80cd-43d6b5cc8c05';
-      });
-
-      if (rmRowIdx !== -1) {
-        combinedRows[rmRowIdx].departmentName = 'Raw Material (RM)';
-        combinedRows[rmRowIdx].reportingUom = 'KG';
-        combinedRows[rmRowIdx].secondaryUom = 'NONE';
-        combinedRows[rmRowIdx].enableConversionBridge = true;
-        combinedRows[rmRowIdx].entryCount = String(rmReceiptCount);
-        combinedRows[rmRowIdx].actualQuantity = String(rmReceivedKg);
-        combinedRows[rmRowIdx].targetQuantity = String(rmTargetKg);
-        if (num(combinedRows[rmRowIdx].runningHours) === 0 && stRow) {
-          combinedRows[rmRowIdx].runningHours = stRow.runningHours;
-        }
-      } else {
-        combinedRows.push({
-          departmentId: 'f8312f0c-ba1e-401a-80cd-43d6b5cc8c05',
-          departmentName: 'Raw Material (RM)',
-          divisionId: filters?.divisionId || 'd1000000-0000-0000-0000-000000000001',
-          reportingUom: 'KG',
-          secondaryUom: 'NONE',
-          enableConversionBridge: true,
-          entryCount: String(rmReceiptCount || 1),
-          targetQuantity: String(rmTargetKg),
-          actualQuantity: String(rmReceivedKg),
-          scrapQuantity: '0',
-          processScrapKg: '0',
-          runningHours: stRow?.runningHours || '0',
-          downtimeHours: '0',
-          overtimeHours: '0',
-          avgWeightPerMeter: '0',
-          avgWeightPerPiece: '1',
-        });
+      const queriedPoKg = Math.round(Number(poRes?.[0]?.totalPoKg || 0) * 10) / 10;
+      if (queriedPoKg > 0) {
+        rmTargetKg = queriedPoKg;
+      } else if (filters?.dateFrom || filters?.dateTo) {
+        // Fallback: If date filter was set to a narrow range without new POs, check lifetime POs for that division
+        const lifetimePoRes = await this.entryRepo.query(`
+          SELECT COALESCE(SUM(pol.quantity), 0) AS "totalPoKg"
+          FROM purchase_order_lines pol
+          INNER JOIN purchase_orders po ON po.id = pol.po_id
+          INNER JOIN items itm ON itm.id = pol.item_id
+          WHERE (po.company_id = $1 OR po.company_id IS NULL)
+            AND po.status NOT IN ('CANCELLED')
+            AND itm.item_type = 'RAW_MATERIAL'
+            AND ($2::uuid IS NULL OR itm.division_id = $2);
+        `, [companyId, filters?.divisionId || null]);
+        rmTargetKg = Math.round(Number(lifetimePoRes?.[0]?.totalPoKg || 0) * 10) / 10;
       }
+    } catch {
+      // Fallback gracefully if PO query fails
+    }
 
-      // Guarantee Spoke Plating is always reported in GRS and PCS (never mislabeled raw KG)
-      for (const r of combinedRows) {
+    // Secondary fallback: if no PO is in database, fallback to planned wire or actual received
+    if (rmTargetKg === 0) {
+      const firstLineRow = combinedRows.find((r) => {
         const n = (r.departmentName || '').toLowerCase();
-        if (n.includes('plat') && (n.includes('spoke') || !n.includes('nipple'))) {
-          r.reportingUom = 'GRS';
-          r.secondaryUom = 'PCS';
-          r.enableConversionBridge = true;
-        }
+        return n.includes('straight') || n.includes('flat') || n.includes('spiral');
+      });
+      const firstTargetPcs = num(firstLineRow?.targetQuantity);
+      const pieceWeight = num(firstLineRow?.avgWeightPerPiece) > 0 ? num(firstLineRow?.avgWeightPerPiece) : 0.0114;
+      const plannedWireKg = firstTargetPcs > 0 ? Math.round(firstTargetPcs * pieceWeight * 10) / 10 : 0;
+      rmTargetKg = plannedWireKg > 0 ? plannedWireKg : rmReceivedKg;
+    }
+
+    // Ensure Raw Material (RM) row exists for any active division or all divisions
+    const rmRowIdx = combinedRows.findIndex((r) => {
+      const n = (r.departmentName || '').toLowerCase();
+      return n.includes('raw material') || n.includes('spi stores') || n.includes('ccd stores') || r.departmentId === 'f8312f0c-ba1e-401a-80cd-43d6b5cc8c05' || r.departmentId === 'd8cf64a6-ebfc-4a94-a807-4960d3166752';
+    });
+
+    const isCcd = filters?.divisionId === 'd1000000-0000-0000-0000-000000000002';
+    const canonicalRmId = isCcd
+      ? 'd8cf64a6-ebfc-4a94-a807-4960d3166752' // CCD Stores
+      : 'f8312f0c-ba1e-401a-80cd-43d6b5cc8c05'; // Spoke Raw Material (RM)
+
+    if (rmRowIdx !== -1) {
+      combinedRows[rmRowIdx].departmentName = 'Raw Material (RM)';
+      combinedRows[rmRowIdx].reportingUom = 'KG';
+      combinedRows[rmRowIdx].secondaryUom = 'NONE';
+      combinedRows[rmRowIdx].enableConversionBridge = true;
+      combinedRows[rmRowIdx].entryCount = String(rmReceiptCount);
+      combinedRows[rmRowIdx].actualQuantity = String(rmReceivedKg);
+      combinedRows[rmRowIdx].targetQuantity = String(rmTargetKg);
+      if (filters?.divisionId) {
+        combinedRows[rmRowIdx].divisionId = filters.divisionId;
+      }
+    } else {
+      combinedRows.unshift({
+        departmentId: canonicalRmId,
+        departmentName: 'Raw Material (RM)',
+        divisionId: filters?.divisionId || (isCcd ? 'd1000000-0000-0000-0000-000000000002' : 'd1000000-0000-0000-0000-000000000001'),
+        reportingUom: 'KG',
+        secondaryUom: 'NONE',
+        enableConversionBridge: true,
+        entryCount: String(rmReceiptCount || 1),
+        targetQuantity: String(rmTargetKg),
+        actualQuantity: String(rmReceivedKg),
+        scrapQuantity: '0',
+        processScrapKg: '0',
+        runningHours: '0',
+        downtimeHours: '0',
+        overtimeHours: '0',
+        avgWeightPerMeter: '0',
+        avgWeightPerPiece: '1',
+      });
+    }
+
+    // Guarantee Spoke Plating is always reported in GRS and PCS (never mislabeled raw KG)
+    for (const r of combinedRows) {
+      const n = (r.departmentName || '').toLowerCase();
+      if (n.includes('plat') && (n.includes('spoke') || !n.includes('nipple'))) {
+        r.reportingUom = 'GRS';
+        r.secondaryUom = 'PCS';
+        r.enableConversionBridge = true;
       }
     }
 

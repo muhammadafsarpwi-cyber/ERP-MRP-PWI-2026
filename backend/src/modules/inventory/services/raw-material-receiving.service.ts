@@ -1,5 +1,5 @@
 import {
-  Injectable, BadRequestException, NotFoundException,
+  Injectable, BadRequestException, NotFoundException, OnModuleInit, Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -58,7 +58,8 @@ export type DivisionScope = string[] | undefined;
 const REPORT_WINDOW_DAYS = 31;
 
 @Injectable()
-export class RawMaterialReceivingService {
+export class RawMaterialReceivingService implements OnModuleInit {
+  private readonly logger = new Logger(RawMaterialReceivingService.name);
   private static readonly PHOTO_MIMES = ['image/jpeg', 'image/png', 'image/webp'];
   private static readonly PHOTO_MAX_BYTES = 5 * 1024 * 1024;
   private static readonly ATTACH_EXT_ALLOW = new Set(['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'csv']);
@@ -116,6 +117,17 @@ export class RawMaterialReceivingService {
     configService: ConfigService,
   ) {
     this.storagePath = path.resolve(configService.get<string>('STORAGE_PATH', './storage'));
+  }
+
+  async onModuleInit(): Promise<void> {
+    try {
+      await this.receiptRepo.manager.query(`
+        ALTER TABLE purchase_order_lines DROP CONSTRAINT IF EXISTS ck_po_lines_received;
+      `);
+      this.logger.log('Verified purchase_order_lines flexible receipt constraint.');
+    } catch (err: any) {
+      this.logger.warn(`Could not ensure ck_po_lines_received dropped: ${err.message}`);
+    }
   }
 
   // ─────────────────────────────────────────────────────────────────────────

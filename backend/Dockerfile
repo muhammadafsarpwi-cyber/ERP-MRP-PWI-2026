@@ -7,7 +7,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install dependencies
-RUN npm ci
+RUN npm ci || npm install --no-audit --no-fund
 
 # Copy source code
 COPY . .
@@ -29,7 +29,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install production dependencies only
-RUN npm ci --only=production
+RUN npm ci --omit=dev || npm install --omit=dev --no-audit --no-fund
 
 # Copy built application
 COPY --from=builder /app/dist ./dist

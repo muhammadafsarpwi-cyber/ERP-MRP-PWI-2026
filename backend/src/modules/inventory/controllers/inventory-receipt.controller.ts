@@ -1,5 +1,5 @@
 import {
-  Controller, Get, Post, Patch, Delete, Body, Param, Req, Query, UseGuards, HttpCode, HttpStatus, BadRequestException, NotFoundException, ForbiddenException, UploadedFile, UseInterceptors,
+  Controller, Get, Post, Patch, Delete, Body, Param, Req, Query, UseGuards, HttpCode, HttpStatus, BadRequestException, NotFoundException, ForbiddenException, UploadedFile, UseInterceptors, HttpException, Logger,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery, ApiConsumes } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -395,23 +395,29 @@ export class InventoryReceiptController {
   @RequirePermission('manufacturing.material_receiving.create')
   @ApiOperation({ summary: 'Create a multi-item raw material receipt (Gate Pass). Posts stock IN for received quantities only.' })
   async createMultiReceipt(@Body() dto: CreateRawMaterialReceiptDto, @Req() req: any) {
-    const companyId = this.getCompanyId(req);
-    // Defence in depth: `DivisionScopeGuard` already rejects an out-of-scope
-    // body `divisionId`, and `RawMaterialReceivingService.createReceipt` asserts
-    // it again. Re-checking here means the controller boundary is self-defending
-    // even if the guard chain is ever reordered.
-    this.assertDivisionInScope(req, dto.divisionId);
-    const data = await this.rawMaterialService.createReceipt(
-      companyId, dto, req.erpUser?.id, this.divisionScope(req),
-    );
-    const alreadyProcessed = (data as any)?.alreadyProcessed === true;
-    return {
-      success: true,
-      data,
-      ...(alreadyProcessed
-        ? { alreadyProcessed: true, message: 'Gate Pass already processed in inventory. No duplicate posting was created.' }
-        : {}),
-    };
+    try {
+      const companyId = this.getCompanyId(req);
+      // Defence in depth: `DivisionScopeGuard` already rejects an out-of-scope
+      // body `divisionId`, and `RawMaterialReceivingService.createReceipt` asserts
+      // it again. Re-checking here means the controller boundary is self-defending
+      // even if the guard chain is ever reordered.
+      this.assertDivisionInScope(req, dto.divisionId);
+      const data = await this.rawMaterialService.createReceipt(
+        companyId, dto, req.erpUser?.id, this.divisionScope(req),
+      );
+      const alreadyProcessed = (data as any)?.alreadyProcessed === true;
+      return {
+        success: true,
+        data,
+        ...(alreadyProcessed
+          ? { alreadyProcessed: true, message: 'Gate Pass already processed in inventory. No duplicate posting was created.' }
+          : {}),
+      };
+    } catch (err: any) {
+      if (err instanceof HttpException) throw err;
+      Logger.error(`[InventoryReceiptController] Gate pass creation failed: ${err.message}`, err.stack);
+      throw new BadRequestException(err?.message || 'Failed to save raw material receipt.');
+    }
   }
 
   @Get('gate-pass')
