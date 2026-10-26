@@ -95,6 +95,22 @@ describe('downtimeHours — KPIs', () => {
     expect(effectiveRunning(5, 3, 0)).toBe(5);
     expect(effectiveDowntime(5, 3, 0)).toBe(3);
   });
+
+  it('12-hour shift treats 8h duty + 4h OT as 12h total available (not 16h)', () => {
+    // 12h shift with 4h OT and 0 downtime: total 12h running
+    expect(effectiveRunning(12, 0, 12, 4)).toBe(12);
+    expect(effectiveDowntime(12, 0, 12, 4)).toBe(0);
+
+    // 12h shift with 4h OT and 2h downtime: 10h running, 2h downtime
+    expect(effectiveRunning(10, 2, 12, 4)).toBe(10);
+    expect(effectiveDowntime(10, 2, 12, 4)).toBe(2);
+
+    // 12h shift with 5h OT (1 extra hour) and 0 downtime: 13h running
+    expect(effectiveRunning(13, 0, 12, 5)).toBe(13);
+
+    // 8h shift with 2h OT and 1h downtime: 9h running
+    expect(effectiveRunning(9, 1, 8, 2)).toBe(9);
+  });
 });
 
 describe('downtimeHours — multi-line downtime total', () => {

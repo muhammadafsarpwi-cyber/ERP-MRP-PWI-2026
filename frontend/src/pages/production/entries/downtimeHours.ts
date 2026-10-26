@@ -75,14 +75,20 @@ export function rebalancePair(
 
 /** Derived running used for KPIs (respects the plan; falls back to stored value). */
 export function effectiveRunning(runningHours: number, downtimeHours: number, plannedHours: number, overtimeHours: number = 0): number {
-  const totalAvailable = plannedHours > 0 ? plannedHours + Math.max(0, overtimeHours) : 0;
+  const is12h = plannedHours >= 12;
+  const totalAvailable = is12h
+    ? (8 + Math.max(0, overtimeHours))
+    : (plannedHours > 0 ? plannedHours + Math.max(0, overtimeHours) : 0);
   if (totalAvailable > 0) return round2(Math.max(0, Math.min(totalAvailable, totalAvailable - downtimeHours)));
   return runningHours;
 }
 
 /** Derived downtime used for KPIs/display. */
 export function effectiveDowntime(runningHours: number, downtimeHours: number, plannedHours: number, overtimeHours: number = 0): number {
-  const totalAvailable = plannedHours > 0 ? plannedHours + Math.max(0, overtimeHours) : 0;
+  const is12h = plannedHours >= 12;
+  const totalAvailable = is12h
+    ? (8 + Math.max(0, overtimeHours))
+    : (plannedHours > 0 ? plannedHours + Math.max(0, overtimeHours) : 0);
   if (totalAvailable > 0) return round2(Math.max(0, totalAvailable - effectiveRunning(runningHours, downtimeHours, plannedHours, overtimeHours)));
   return downtimeHours;
 }
@@ -203,7 +209,9 @@ export function convertProductToComponentQty(
 
   // Product in METER/LENGTH and Component in KG/WEIGHT
   if (isProdLength && isCompWeight) {
-    if (wpm > 0) return round6(q * wpm);
+    const compWpm = typeof component === 'object' && component ? toNum2((component as any).weightPerMeter) : 0;
+    const effWpm = compWpm > 0 ? compWpm : wpm;
+    if (effWpm > 0) return round6(q * effWpm);
   }
 
   // Product in KG/WEIGHT and Component in PCS/COUNT

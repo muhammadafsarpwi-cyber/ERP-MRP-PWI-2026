@@ -80,7 +80,8 @@ const { Title, Text } = Typography;
  *  from the form store (there is no `plannedHours` form field, so a
  *  Form.useWatch would always resolve to 0 and show "Planned 0h"). */
 const DowntimeSummary: React.FC<{ totalDowntime: number; plannedHours: number; runningHours: number; overtimeHours?: number }> = ({ totalDowntime, plannedHours, runningHours, overtimeHours = 0 }) => {
-  const totalPlanned = plannedHours + overtimeHours;
+  const is12h = plannedHours >= 12;
+  const totalPlanned = is12h ? (8 + overtimeHours) : (plannedHours + overtimeHours);
   const remaining = Math.max(0, totalPlanned - runningHours - totalDowntime);
   const isBalanced = totalPlanned > 0 && Math.abs(runningHours + totalDowntime - totalPlanned) < 0.01;
 
@@ -333,10 +334,11 @@ const EntryForm: React.FC<EntryFormProps> = ({
   // Multiple rejection defect rows can be added via the + Add Rejection button.
   // When KG is active, KG is editable and Pieces is read-only.
   // When PCS is active, Pieces is editable and KG is read-only.
-  const [rejectionUnit, setRejectionUnit] = useState<'KG' | 'PCS'>('KG');
+  const [rejectionUnit, setRejectionUnit] = useState<'KG' | 'PCS' | 'M'>('KG');
   const [rejectionRows, setRejectionRows] = useState<Array<{ id: string; kg: number | null; pcs: number | null; reason: string }>>([
     { id: 'rej-1', kg: null, pcs: null, reason: '' },
   ]);
+  const [extraItemDetails, setExtraItemDetails] = useState<Record<string, ItemLk>>({});
   const rawMatWarehouseWatch = Form.useWatch('rawMaterialWarehouseId', form);
   const warehouseWatch = Form.useWatch('warehouseId', form);
   const postToInventoryWatch = Form.useWatch('postToInventory', form);
@@ -719,7 +721,13 @@ const EntryForm: React.FC<EntryFormProps> = ({
         matchedRawWh = warehouses.find((w) => label(w.name, w.warehouseCode).includes('sw production') || w.warehouseCode === 'SPI-SW-002');
       } else if (inDeptText.includes('plat') || inDeptText.includes('pl') || inItem.itemCode?.startsWith('WIP-PL')) {
         matchedRawWh = warehouses.find((w) => label(w.name, w.warehouseCode).includes('pl production') || w.warehouseCode === 'SPI-PL-004');
-      } else if (inDeptText.includes('flatten') || inDeptText.includes('ft') || inItem.itemCode?.startsWith('WIP-FT')) {
+      } else if (
+        selectedItem?.itemCode === 'WIP-CS-006' ||
+        inDeptText.includes('flatten') || inDeptText.includes('ft') ||
+        inItem.itemCode?.startsWith('WIP-FT') ||
+        inItem.itemCode?.startsWith('FLAT-STRIP') ||
+        inItem.itemCode?.includes('STRIP')
+      ) {
         matchedRawWh = warehouses.find((w) => label(w.name, w.warehouseCode).includes('ft production') || w.warehouseCode === 'CCD-FT-001');
       }
     }
@@ -1075,11 +1083,14 @@ const EntryForm: React.FC<EntryFormProps> = ({
     return toNum(src?.plannedHours, 0);
   }, [mode, entry?.shift, lookups.shifts, ctxShiftId]);
 
-  // Total AVAILABLE hours = shift hours + overtime (8h shift + 4h OT = 12h).
-  // Every capacity metric below (efficiency, its KPI hint) measures production
-  // against THIS whole operational slot — never the bare baseline shift — so an
-  // OT-extended shift can no longer inflate efficiency above real capacity.
-  const totalAvailableHours = plannedHours + overtimeHours;
+  const is12HourShift = plannedHours >= 12;
+  const regularShiftHours = is12HourShift ? 8 : (plannedHours > 0 ? plannedHours : 8);
+
+  // Total AVAILABLE hours = shift duty hours + overtime (8h duty + 4h OT = 12h).
+  // A 12-hour shift represents standard 8h duty + 4h built-in OT (total 12h gross, NOT 16h!).
+  // Any extra overtime beyond 4h (e.g. 5h OT) increases total available (8h + 5h = 13h).
+  // For an 8-hour shift, regular duty is 8h with 0 default OT (total 8h + manual OT).
+  const totalAvailableHours = is12HourShift ? (8 + overtimeHours) : (plannedHours + overtimeHours);
 
   // ── Downtime entry mode: AUTO (Running is input, Downtime derived) or
   //    MANUAL (Downtime entries are input, Running derived). Both keep the
@@ -1104,20 +1115,20 @@ const EntryForm: React.FC<EntryFormProps> = ({
 
   // AUTO: running hours is the operator's input → downtime = planned − running
   const setHoursFromRunning = useCallback((v: number | null | undefined) => {
-    const derived = deriveFromRunning(v, plannedHours, totalDowntime);
+    const effectivePlan = totalAvailableHours > 0 ? totalAvailableHours : plannedHours;
+    const derived = deriveFromRunning(v, effectivePlan, totalDowntime);
     if (Number.isNaN(derived.runningHours)) return;
     form.setFieldsValue({ runningHours: derived.runningHours });
-  }, [form, plannedHours, totalDowntime]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [form, totalAvailableHours, plannedHours, totalDowntime]);
 
-  // MANUAL: total downtime from lines → running = planned − totalDowntime
+  // MANUAL: total downtime from lines → running = totalAvailable − totalDowntime
   // Called whenever any downtime line hours change.
   const setRunningFromDowntimeLines = useCallback((total: number) => {
-    if (plannedHours > 0) {
-      const totalAvailable = plannedHours + overtimeHours;
-      const clamped = round2(Math.max(0, Math.min(totalAvailable, total)));
-      form.setFieldsValue({ runningHours: round2(Math.max(0, totalAvailable - clamped)) });
+    if (totalAvailableHours > 0) {
+      const clamped = round2(Math.max(0, Math.min(totalAvailableHours, total)));
+      form.setFieldsValue({ runningHours: round2(Math.max(0, totalAvailableHours - clamped)) });
     }
-  }, [form, plannedHours, overtimeHours]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [form, totalAvailableHours]);
 
   // Switching AUTO ↔ MANUAL preserves the current split and keeps the pair
   // consistent with the shift plan.
@@ -1129,16 +1140,17 @@ const EntryForm: React.FC<EntryFormProps> = ({
     } else {
       // Switching to AUTO: downtime lines are informational breakdown only
       // running hours is the input, derive from current state
+      const targetCapacity = totalAvailableHours > 0 ? totalAvailableHours : plannedHours;
       const pair = rebalancePair(
         toNum(form.getFieldValue('runningHours')),
         totalDowntime,
-        plannedHours,
+        targetCapacity,
         next,
       );
       form.setFieldsValue({ runningHours: pair.runningHours });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [plannedHours, totalDowntime]);
+  }, [totalAvailableHours, plannedHours, totalDowntime, setRunningFromDowntimeLines]);
 
   // First derivation + shift changes. When planned hours first become known, a
   // fresh create starts at full running / zero downtime while an edit keeps its
@@ -1146,18 +1158,37 @@ const EntryForm: React.FC<EntryFormProps> = ({
   // rebalanced around the new plan while respecting the active entry mode.
   useEffect(() => {
     if (!(plannedHours > 0)) return;
+    const is12h = plannedHours >= 12;
+    const defaultOt = is12h ? 4 : 0;
+
     if (!hoursInitRef.current) {
       hoursInitRef.current = true;
-      if (mode === 'create') form.setFieldsValue({ runningHours: round2(plannedHours) });
+      if (mode === 'create') {
+        form.setFieldsValue({
+          overtimeHours: defaultOt,
+          runningHours: round2(plannedHours),
+        });
+      }
       return;
     }
+
+    if (mode === 'create') {
+      const currentOt = toNum(form.getFieldValue('overtimeHours'));
+      if (is12h && currentOt === 0) {
+        form.setFieldsValue({ overtimeHours: 4 });
+      } else if (!is12h && currentOt === 4) {
+        form.setFieldsValue({ overtimeHours: 0 });
+      }
+    }
+
     if (downtimeMode === 'manual') {
       setRunningFromDowntimeLines(totalDowntime);
     } else {
+      const targetCapacity = is12h ? (8 + toNum(form.getFieldValue('overtimeHours'), defaultOt)) : plannedHours;
       const pair = rebalancePair(
         toNum(form.getFieldValue('runningHours')),
         totalDowntime,
-        plannedHours,
+        targetCapacity,
         downtimeMode,
       );
       form.setFieldsValue({ runningHours: pair.runningHours });
@@ -1592,12 +1623,61 @@ const EntryForm: React.FC<EntryFormProps> = ({
     return round2(toNum(scrapQty));
   }, [scrapQty]);
 
-  // ── Product Rejection [KG | PCS] bidirectional conversion ──────────────────
-  // Per Piece Weight from Item Master; auto-defaults to 1.0 KG if missing or <= 0
-  const fgWeightPerPiece = useMemo(() => {
-    const wpp = toNum(primaryItem?.weightPerPiece);
-    return wpp > 0 ? wpp : 1.0;
-  }, [primaryItem?.weightPerPiece]);
+  // Load authoritative item master weight attributes if missing from initial lookup
+  useEffect(() => {
+    if (primaryItem?.id && primaryItem.weightPerMeter === undefined && primaryItem.weightPerPiece === undefined) {
+      apiService.get<{ data?: ItemLk }>(`/master-data/items/${primaryItem.id}`).then((res) => {
+        if (res?.data) {
+          setExtraItemDetails((prev) => ({ ...prev, [primaryItem.id]: res.data! }));
+        }
+      }).catch(() => {});
+    }
+  }, [primaryItem?.id, primaryItem?.weightPerMeter, primaryItem?.weightPerPiece]);
+
+  const effectivePrimaryItem = useMemo(() => {
+    if (!primaryItem?.id) return primaryItem;
+    return extraItemDetails[primaryItem.id] || primaryItem;
+  }, [primaryItem, extraItemDetails]);
+
+  // ── Product Rejection [KG | M / PCS] bidirectional conversion ──────────────────
+  // Determine if item is Meter-based (LENGTH / Meter) or Piece-based (COUNT / Pieces)
+  const isMeterBased = useMemo(() => {
+    if (toNum(effectivePrimaryItem?.weightPerMeter) > 0) return true;
+    if (primaryUomType === 'LENGTH') return true;
+    const uCode = (effectivePrimaryItem?.baseUom?.code || '').toUpperCase();
+    if (uCode === 'M' || uCode === 'METER' || uCode === 'METERS') return true;
+    return false;
+  }, [effectivePrimaryItem, primaryUomType]);
+
+  const secondaryUnitLabel = isMeterBased ? 'M' : 'PCS';
+  const secondaryUnitFullLabel = isMeterBased ? 'METERS' : 'PIECES';
+  const weightBadgePrefix = isMeterBased ? 'Wt/M:' : 'Wt/Pc:';
+
+  // Conversion metric factor:
+  // For Meter-based items: uses Item Master weightPerMeter attribute
+  // For Piece-based items: uses Item Master weightPerPiece attribute
+  const fgMetricFactor = useMemo(() => {
+    if (isMeterBased) {
+      const wpm = toNum(effectivePrimaryItem?.weightPerMeter);
+      if (wpm > 0) return wpm;
+      const wpp = toNum(effectivePrimaryItem?.weightPerPiece);
+      if (wpp > 0) return wpp;
+      return 1.0;
+    } else {
+      const wpp = toNum(effectivePrimaryItem?.weightPerPiece);
+      if (wpp > 0) return wpp;
+      const wpm = toNum(effectivePrimaryItem?.weightPerMeter);
+      if (wpm > 0) return wpm;
+      return 1.0;
+    }
+  }, [isMeterBased, effectivePrimaryItem?.weightPerMeter, effectivePrimaryItem?.weightPerPiece]);
+
+  const isMetricFactorFromItemMaster = useMemo(() => {
+    if (isMeterBased) {
+      return toNum(effectivePrimaryItem?.weightPerMeter) > 0 || toNum(effectivePrimaryItem?.weightPerPiece) > 0;
+    }
+    return toNum(effectivePrimaryItem?.weightPerPiece) > 0 || toNum(effectivePrimaryItem?.weightPerMeter) > 0;
+  }, [isMeterBased, effectivePrimaryItem?.weightPerMeter, effectivePrimaryItem?.weightPerPiece]);
 
   // Derived totals across all rejection breakdown rows
   const totalRejectionKg = useMemo(() => {
@@ -1634,26 +1714,26 @@ const EntryForm: React.FC<EntryFormProps> = ({
     setRejectionRows((prev) => {
       const updated = prev.map((r) => {
         if (r.id !== id) return r;
-        const derivedPcs = kg !== null ? Math.round((kg / fgWeightPerPiece) * 100) / 100 : null;
-        return { ...r, kg, pcs: derivedPcs };
+        const derivedSec = kg !== null ? Math.round((kg / fgMetricFactor) * 100) / 100 : null;
+        return { ...r, kg, pcs: derivedSec };
       });
       syncFormRejection(updated);
       return updated;
     });
-  }, [fgWeightPerPiece, syncFormRejection]);
+  }, [fgMetricFactor, syncFormRejection]);
 
   const handleRowPcsChange = useCallback((id: string, val: number | null) => {
-    const pcs = val === null ? null : Math.max(0, Number(val) || 0);
+    const sec = val === null ? null : Math.max(0, Number(val) || 0);
     setRejectionRows((prev) => {
       const updated = prev.map((r) => {
         if (r.id !== id) return r;
-        const derivedKg = pcs !== null ? Math.round(pcs * fgWeightPerPiece * 10000) / 10000 : null;
-        return { ...r, pcs, kg: derivedKg };
+        const derivedKg = sec !== null ? Math.round(sec * fgMetricFactor * 10000) / 10000 : null;
+        return { ...r, pcs: sec, kg: derivedKg };
       });
       syncFormRejection(updated);
       return updated;
     });
-  }, [fgWeightPerPiece, syncFormRejection]);
+  }, [fgMetricFactor, syncFormRejection]);
 
   const handleRowReasonChange = useCallback((id: string, reason: string) => {
     setRejectionRows((prev) => {
@@ -1684,44 +1764,51 @@ const EntryForm: React.FC<EntryFormProps> = ({
     });
   }, [syncFormRejection]);
 
-  const handleRejectionUnitToggle = useCallback((next: 'KG' | 'PCS') => {
+  const handleRejectionUnitToggle = useCallback((next: 'KG' | 'PCS' | 'M') => {
     setRejectionUnit(next);
     setRejectionRows((prev) => {
       const updated = prev.map((r) => {
         if (next === 'KG' && r.pcs !== null && r.pcs > 0 && (r.kg === null || r.kg === 0)) {
-          return { ...r, kg: Math.round(r.pcs * fgWeightPerPiece * 10000) / 10000 };
+          return { ...r, kg: Math.round(r.pcs * fgMetricFactor * 10000) / 10000 };
         }
-        if (next === 'PCS' && r.kg !== null && r.kg > 0 && (r.pcs === null || r.pcs === 0)) {
-          return { ...r, pcs: Math.round((r.kg / fgWeightPerPiece) * 100) / 100 };
+        if (next !== 'KG' && r.kg !== null && r.kg > 0 && (r.pcs === null || r.pcs === 0)) {
+          return { ...r, pcs: Math.round((r.kg / fgMetricFactor) * 100) / 100 };
         }
         return r;
       });
       syncFormRejection(updated);
       return updated;
     });
-  }, [fgWeightPerPiece, syncFormRejection]);
+  }, [fgMetricFactor, syncFormRejection]);
 
-  // If item master per-piece weight changes, re-derive peer unit values
+  // Keep rejection unit aligned if item unit switches
+  useEffect(() => {
+    if (rejectionUnit !== 'KG') {
+      setRejectionUnit(isMeterBased ? 'M' : 'PCS');
+    }
+  }, [isMeterBased]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // If item master per-piece or per-meter weight changes, re-derive peer unit values
   useEffect(() => {
     setRejectionRows((prev) => {
       const updated = prev.map((r) => {
         if (rejectionUnit === 'KG' && r.kg !== null && r.kg > 0) {
-          return { ...r, pcs: Math.round((r.kg / fgWeightPerPiece) * 100) / 100 };
+          return { ...r, pcs: Math.round((r.kg / fgMetricFactor) * 100) / 100 };
         }
-        if (rejectionUnit === 'PCS' && r.pcs !== null && r.pcs > 0) {
-          return { ...r, kg: Math.round(r.pcs * fgWeightPerPiece * 10000) / 10000 };
+        if (rejectionUnit !== 'KG' && r.pcs !== null && r.pcs > 0) {
+          return { ...r, kg: Math.round(r.pcs * fgMetricFactor * 10000) / 10000 };
         }
         return r;
       });
       syncFormRejection(updated);
       return updated;
     });
-  }, [fgWeightPerPiece]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [fgMetricFactor]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const rejectionHint = `1 PC = ${formatNumber(fgWeightPerPiece, 4)} KG — ${
+  const rejectionHint = `1 ${secondaryUnitLabel} = ${formatNumber(fgMetricFactor, 4)} KG — ${
     rejectionUnit === 'KG'
-      ? 'KG is active (Pieces calculated automatically)'
-      : 'Pieces is active (KG calculated automatically)'
+      ? `KG is active (${secondaryUnitFullLabel.toLowerCase()} calculated automatically)`
+      : `${secondaryUnitFullLabel.toLowerCase()} is active (KG calculated automatically)`
   }.`;
 
   // ── Rejection Reasons catalog with presets, user additions & localStorage persistence ──
@@ -1940,7 +2027,7 @@ const EntryForm: React.FC<EntryFormProps> = ({
     }
 
     if (plannedHours > 0) {
-      return Math.abs(round2(derivedRunning + totalDowntime) - (plannedHours + overtimeHours)) <= 0.05;
+      return Math.abs(round2(derivedRunning + totalDowntime) - totalAvailableHours) <= 0.05;
     }
     return derivedRunning > 0 || totalDowntime > 0;
   }, [downtimeEntriesWatch, plannedHours, derivedRunning, totalDowntime]);
@@ -2079,7 +2166,7 @@ const EntryForm: React.FC<EntryFormProps> = ({
       }
       // Authoritative aggregate downtime + running hours for the parent entry
       payload.downtimeHours = computedDowntime;
-      const totalAvailable = plannedHours > 0 ? round2(plannedHours + Math.max(0, overtimeHours)) : toNum(values.runningHours);
+      const totalAvailable = totalAvailableHours > 0 ? round2(totalAvailableHours) : toNum(values.runningHours);
       if (totalAvailable > 0) {
         if (computedDowntime > 0) {
           payload.runningHours = round2(Math.max(0, totalAvailable - computedDowntime));
@@ -3339,16 +3426,18 @@ const EntryForm: React.FC<EntryFormProps> = ({
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 6, alignItems: 'end', marginBottom: 10 }}>
                     {/* 1 — Shift Hours [AUTO] */}
                     <Form.Item
-                      label={<span style={figLabelStyle}>Shift Hours <Tag color="default" style={figTagStyle}>Auto</Tag></span>}
+                      label={<span style={figLabelStyle}>Shift Hours <Tag color="default" style={figTagStyle}>{is12HourShift ? '8h Duty' : 'Auto'}</Tag></span>}
                       style={{ marginBottom: 0 }}
                     >
-                      <div style={figAutoBoxStyle}>{formatNumber(plannedHours, 2)} h</div>
+                      <div style={figAutoBoxStyle} title={is12HourShift ? 'Standard shift duty is 8h (12h shift includes 4h automatic overtime)' : undefined}>
+                        {formatNumber(regularShiftHours, 2)} h
+                      </div>
                     </Form.Item>
 
                     {/* 2 — Overtime (OT) [USER INPUT] */}
                     <Form.Item
                       name="overtimeHours"
-                      initialValue={0}
+                      initialValue={is12HourShift ? 4 : 0}
                       label={<span style={{ ...figLabelStyle, color: '#8b5cf6', fontWeight: 600 }}>Overtime (OT) <Tag color="purple" style={figTagStyle}>Input</Tag></span>}
                       style={{ marginBottom: 0 }}
                     >
@@ -3357,7 +3446,7 @@ const EntryForm: React.FC<EntryFormProps> = ({
                         min={0}
                         max={16}
                         step={0.5}
-                        placeholder="0"
+                        placeholder={is12HourShift ? '4' : '0'}
                         className={overtimeHours > 0 ? 'erp-field-filled' : 'erp-field-unfilled'}
                       />
                     </Form.Item>
@@ -3418,19 +3507,19 @@ const EntryForm: React.FC<EntryFormProps> = ({
                           </Tag>
                         </span>
 
-                        {/* Mode Toggle: [KG | PCS] */}
+                        {/* Mode Toggle: [KG | M] or [KG | PCS] */}
                         <Segmented
                           size="small"
-                          value={rejectionUnit}
-                          onChange={(v) => handleRejectionUnitToggle(v as 'KG' | 'PCS')}
+                          value={rejectionUnit === 'KG' ? 'KG' : secondaryUnitLabel}
+                          onChange={(v) => handleRejectionUnitToggle(v as 'KG' | 'PCS' | 'M')}
                           options={[
                             { label: 'KG', value: 'KG' },
-                            { label: 'PCS', value: 'PCS' },
+                            { label: secondaryUnitLabel, value: secondaryUnitLabel },
                           ]}
                           style={{ fontWeight: 600 }}
                         />
 
-                        {/* Clearly visible, fixed read-only Auto Per-Piece Weight Badge (defaults to 1.0 KG if none) */}
+                        {/* Clearly visible, dynamic read-only Auto Per-Piece / Per-Meter Weight Badge */}
                         <div
                           style={{
                             display: 'inline-flex',
@@ -3444,16 +3533,16 @@ const EntryForm: React.FC<EntryFormProps> = ({
                           }}
                         >
                           <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #94a3b8)' }}>
-                            Wt/Pc:
+                            {weightBadgePrefix}
                           </span>
                           <span style={{ fontSize: 12.5, fontWeight: 800, color: '#38bdf8' }}>
-                            {formatNumber(fgWeightPerPiece, 4)} KG
+                            {formatNumber(fgMetricFactor, 4)} {isMeterBased ? 'KG/M' : 'KG'}
                           </span>
                           <Tag
-                            color={toNum(primaryItem?.weightPerPiece) > 0 ? 'blue' : 'default'}
+                            color={isMetricFactorFromItemMaster ? 'blue' : 'default'}
                             style={{ fontSize: 9.5, padding: '0 4px', margin: 0, lineHeight: '16px' }}
                           >
-                            {toNum(primaryItem?.weightPerPiece) > 0 ? 'Item Master' : 'Auto 1 KG'}
+                            {isMetricFactorFromItemMaster ? 'Item Master' : (isMeterBased ? 'Auto 1 KG/M' : 'Auto 1 KG')}
                           </Tag>
                         </div>
                       </div>
@@ -3462,7 +3551,7 @@ const EntryForm: React.FC<EntryFormProps> = ({
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                         {totalRejectionKg > 0 ? (
                           <span style={{ fontSize: 11.5, fontWeight: 700, color: '#10b981' }}>
-                            Total: {formatNumber(totalRejectionKg, 2)} KG ({formatNumber(totalRejectionPcs, 0)} PCS)
+                            Total: {formatNumber(totalRejectionKg, 2)} KG ({formatNumber(totalRejectionPcs, isMeterBased ? 2 : 0)} {secondaryUnitLabel})
                           </span>
                         ) : null}
 
@@ -3510,10 +3599,10 @@ const EntryForm: React.FC<EntryFormProps> = ({
                           fontSize: 10.5,
                           fontWeight: 700,
                           letterSpacing: '0.05em',
-                          color: rejectionUnit === 'PCS' ? '#10b981' : 'var(--theme-text-muted, #94a3b8)',
+                          color: rejectionUnit !== 'KG' ? '#10b981' : 'var(--theme-text-muted, #94a3b8)',
                         }}
                       >
-                        PIECES {rejectionUnit === 'PCS' ? '★ Active' : '(Auto Read-Only)'}
+                        {secondaryUnitFullLabel} {rejectionUnit !== 'KG' ? '★ Active' : '(Auto Read-Only)'}
                       </span>
                       <span
                         style={{
@@ -3532,7 +3621,7 @@ const EntryForm: React.FC<EntryFormProps> = ({
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                       {rejectionRows.map((row) => {
                         const isKgActive = rejectionUnit === 'KG';
-                        const isPcsActive = rejectionUnit === 'PCS';
+                        const isSecActive = rejectionUnit !== 'KG';
 
                         return (
                           <div
@@ -3563,19 +3652,19 @@ const EntryForm: React.FC<EntryFormProps> = ({
                               />
                             </div>
 
-                            {/* Pieces Input */}
+                            {/* Secondary Unit Input (Meters or Pieces) */}
                             <div>
                               <InputNumber
                                 controls={false}
                                 style={{ width: '100%' }}
                                 min={0}
-                                step={1}
+                                step={isMeterBased ? 0.1 : 1}
                                 placeholder="0"
-                                disabled={!isPcsActive}
+                                disabled={!isSecActive}
                                 value={row.pcs ?? undefined}
                                 onChange={(val) => handleRowPcsChange(row.id, val)}
                                 className={
-                                  isPcsActive
+                                  isSecActive
                                     ? (row.pcs !== null && row.pcs !== undefined && row.pcs > 0 ? 'erp-field-filled' : 'erp-field-unfilled')
                                     : 'rej-input-ro'
                                 }
@@ -3695,7 +3784,7 @@ const EntryForm: React.FC<EntryFormProps> = ({
                   </Form.Item>
 
                   <div style={{ marginTop: 4, fontSize: 10.5, color: 'var(--theme-text-muted, #64748b)' }}>
-                    Target based on: {formatNumber(derivedRunning, 2)}h running ({plannedHours}h shift + {overtimeHours}h OT - {totalDowntime}h downtime)
+                    Target based on: {formatNumber(derivedRunning, 2)}h running ({is12HourShift ? `8h duty + ${formatNumber(overtimeHours, 2)}h OT` : `${plannedHours}h shift + ${formatNumber(overtimeHours, 2)}h OT`} - {formatNumber(totalDowntime, 2)}h downtime)
                   </div>
                 </div>
 
@@ -4097,7 +4186,7 @@ const EntryForm: React.FC<EntryFormProps> = ({
                   <div className="kpi-col-percent">
                     <StatisticMini
                       label="Efficiency %"
-                      hint={`running vs available${plannedHours > 0 ? ` (${formatNumber(plannedHours, 2)}h shift${overtimeHours > 0 ? ` + ${formatNumber(overtimeHours, 2)}h OT` : ''} = ${formatNumber(totalAvailableHours, 2)}h)` : ''}`}
+                      hint={`running vs available${plannedHours > 0 ? ` (${is12HourShift ? `8h duty + ${formatNumber(overtimeHours, 2)}h OT` : `${formatNumber(plannedHours, 2)}h shift${overtimeHours > 0 ? ` + ${formatNumber(overtimeHours, 2)}h OT` : ''}`} = ${formatNumber(totalAvailableHours, 2)}h)` : ''}`}
                       content={<KpiPercentage value={efficiency} fontSize={18} fontWeight={600} />}
                       accent="var(--theme-success)"
                       icon={<ThunderboltOutlined />}
@@ -4946,6 +5035,10 @@ interface RawMatLine {
   rawBaseUomCode?: string | null;
   /** Source/store department of the raw material Item Master record. */
   rawDepartmentName?: string | null;
+  /** Optional custom row label (e.g. 'Input Material 1:') */
+  inputRowLabel?: string;
+  /** Weight per meter of the raw material component for dynamic length-to-weight calculation. */
+  weightPerMeter?: number | null;
 }
 
 interface RawMatItem {
@@ -5349,60 +5442,174 @@ const RawMaterialAvailability: React.FC<{
 
           const prodWireSizeMm = item?.wireSizeMm ?? null;
 
-          const lines: RawMatLine[] = [{
-            lineId: `${prevStageItemId}`,
-            rawItemId: prevStageItemId,
-            itemCode: prevStageItemCode ?? '—',
-            itemName: prevStageItemName ?? '',
-            uomCode: rawBaseUomCode ?? component?.baseUom?.code ?? bomLine?.uom?.code ?? '—',
-            rawQuantity,
-            rawScrapFactor,
-            rawYield,
-            lineUomId: lineUomId ?? prevStageItemId,
-            componentBaseUomId: componentBaseUomId ?? prevStageItemId,
-            required: Math.round(req * 10000) / 10000,
-            available: null,
-            balance: null,
-            shortage: null,
-            loadingAvailable: true,
-            availableError: false,
-            rawSource: reqSource,
-            rawWireSizeMm,
-            prodWireSizeMm,
-            rawBaseUomCode,
-            rawDepartmentName: sourceDepartmentName,
-          }];
+          let lines: RawMatLine[] = [];
+          if (item?.itemCode === 'WIP-CS-006') {
+            // Dual input matrix for WIP-CS-006:
+            // Input Material 1: Flat Strip T 0.80 × W 1.85 mm (FLAT-STRIP-005)
+            // Input Material 2: Flat Strip T 0.95 × W 2.10 mm (FLAT-STRIP-006)
+            let strip005 = lookups.items.find((i) => i.itemCode === 'FLAT-STRIP-005' || i.id === masterInItemId);
+            if (!strip005 && masterInItemId) {
+              try {
+                const s5Res = await apiService.get<{ data?: ItemLk }>(`/master-data/items/${masterInItemId}`);
+                if (s5Res?.data) strip005 = s5Res.data;
+              } catch {}
+            }
+            const strip006Id = (item as any)?.productionInItemId2 || '36fef579-55af-46b6-b348-82f989ba53de';
+            let strip006 = lookups.items.find((i) => i.itemCode === 'FLAT-STRIP-006' || i.id === strip006Id);
+            if (!strip006 && strip006Id) {
+              try {
+                const s6Res = await apiService.get<{ data?: ItemLk }>(`/master-data/items/${strip006Id}`);
+                if (s6Res?.data) strip006 = s6Res.data;
+              } catch {}
+            }
+
+            const totalMeters = prodQty + scrapKg;
+            const wpm005 = Number(strip005?.weightPerMeter || 0.0374);
+            const wpm006 = Number(strip006?.weightPerMeter || 0.0434);
+            const req005 = Math.round(totalMeters * wpm005 * 10000) / 10000;
+            const req006 = Math.round(totalMeters * wpm006 * 10000) / 10000;
+
+            const id005 = strip005?.id || masterInItemId || '5a842114-54a3-4b70-9bc0-07df54bfd9d6';
+            const id006 = strip006?.id || strip006Id;
+
+            lines = [
+              {
+                lineId: `${id005}`,
+                rawItemId: id005,
+                itemCode: strip005?.itemCode || 'FLAT-STRIP-005',
+                itemName: strip005?.name || 'Flat Strip T 0.80 × W 1.85 mm',
+                inputRowLabel: 'Input Material 1:',
+                uomCode: 'KG',
+                weightPerMeter: wpm005,
+                rawQuantity: 1,
+                rawScrapFactor: 0,
+                rawYield: 100,
+                lineUomId: strip005?.baseUomId || id005,
+                componentBaseUomId: strip005?.baseUomId || id005,
+                required: req005,
+                available: null,
+                balance: null,
+                shortage: null,
+                loadingAvailable: true,
+                availableError: false,
+                rawSource: 'item-master',
+                rawWireSizeMm: strip005?.wireSizeMm ?? null,
+                prodWireSizeMm: item.wireSizeMm ?? null,
+                rawBaseUomCode: 'KG',
+                rawDepartmentName: 'FT Production Department',
+              },
+              {
+                lineId: `${id006}`,
+                rawItemId: id006,
+                itemCode: strip006?.itemCode || 'FLAT-STRIP-006',
+                itemName: strip006?.name || 'Flat Strip T 0.95 × W 2.10 mm',
+                inputRowLabel: 'Input Material 2:',
+                uomCode: 'KG',
+                weightPerMeter: wpm006,
+                rawQuantity: 1,
+                rawScrapFactor: 0,
+                rawYield: 100,
+                lineUomId: strip006?.baseUomId || id006,
+                componentBaseUomId: strip006?.baseUomId || id006,
+                required: req006,
+                available: null,
+                balance: null,
+                shortage: null,
+                loadingAvailable: true,
+                availableError: false,
+                rawSource: 'item-master',
+                rawWireSizeMm: strip006?.wireSizeMm ?? null,
+                prodWireSizeMm: item.wireSizeMm ?? null,
+                rawBaseUomCode: 'KG',
+                rawDepartmentName: 'FT Production Department',
+              },
+            ];
+          } else {
+            lines = [{
+              lineId: `${prevStageItemId}`,
+              rawItemId: prevStageItemId,
+              itemCode: prevStageItemCode ?? '—',
+              itemName: prevStageItemName ?? '',
+              uomCode: rawBaseUomCode ?? component?.baseUom?.code ?? bomLine?.uom?.code ?? '—',
+              rawQuantity,
+              rawScrapFactor,
+              rawYield,
+              lineUomId: lineUomId ?? prevStageItemId,
+              componentBaseUomId: componentBaseUomId ?? prevStageItemId,
+              required: Math.round(req * 10000) / 10000,
+              available: null,
+              balance: null,
+              shortage: null,
+              loadingAvailable: true,
+              availableError: false,
+              rawSource: reqSource,
+              rawWireSizeMm,
+              prodWireSizeMm,
+              rawBaseUomCode,
+              rawDepartmentName: sourceDepartmentName,
+            }];
+          }
+
           if (cancelled) return;
-          setData((prev) => ({
-            ...prev,
-            [itemId]: {
-              itemId,
-              itemCode: item?.itemCode ?? '',
-              itemName: item?.name ?? '',
-              traceStatus: 'ready',
-              prevStageItemId,
-              prevStageItemCode,
-              prevStageItemName,
-              prevStageName: prevStageOpName,
-              bomFound: bomLine ? true : false,
-              baseQuantity,
-              lines,
-              loading: false,
-              // TASK #33 / #34B
-              chainWarning,
-              productionInItemId: masterInItemId,
-              productionOutItemId: masterOutItemId,
-              inputChain,
-              outAvailable: null,
-              outUomCode: item?.baseUom?.code ?? null,
-              outLoading: true,
-              outError: false,
-              // TASK #35
-              outItemName: item?.name ?? null,
-              inUomCode: rawBaseUomCode ?? component?.baseUom?.code ?? null,
-              sourceDepartmentName,
-            },
-          }));
+          if (item?.itemCode === 'WIP-CS-006') {
+            setData((prev) => ({
+              ...prev,
+              [itemId]: {
+                itemId,
+                itemCode: item?.itemCode ?? 'WIP-CS-006',
+                itemName: item?.name ?? 'Spiral Core 5.75 mm DS',
+                traceStatus: 'ready',
+                prevStageItemId: lines[0]?.rawItemId || masterInItemId,
+                prevStageItemCode: 'FLAT-STRIP-005, FLAT-STRIP-006',
+                prevStageItemName: 'Flat Strip T 0.80 × W 1.85 mm & Flat Strip T 0.95 × W 2.10 mm',
+                prevStageName: 'Flattening',
+                bomFound: false,
+                baseQuantity: 1,
+                lines,
+                loading: false,
+                chainWarning: null,
+                productionInItemId: masterInItemId,
+                productionOutItemId: itemId,
+                inputChain: ['WIP-CS-006', 'FLAT-STRIP-005 + FLAT-STRIP-006'],
+                outAvailable: null,
+                outUomCode: item?.baseUom?.code ?? 'M',
+                outLoading: true,
+                outError: false,
+                outItemName: item?.name ?? null,
+                inUomCode: 'KG',
+                sourceDepartmentName: 'FT Production Department',
+              },
+            }));
+          } else {
+            setData((prev) => ({
+              ...prev,
+              [itemId]: {
+                itemId,
+                itemCode: item?.itemCode ?? '',
+                itemName: item?.name ?? '',
+                traceStatus: 'ready',
+                prevStageItemId,
+                prevStageItemCode,
+                prevStageItemName,
+                prevStageName: prevStageOpName,
+                bomFound: bomLine ? true : false,
+                baseQuantity,
+                lines,
+                loading: false,
+                chainWarning,
+                productionInItemId: masterInItemId,
+                productionOutItemId: masterOutItemId,
+                inputChain,
+                outAvailable: null,
+                outUomCode: item?.baseUom?.code ?? null,
+                outLoading: true,
+                outError: false,
+                outItemName: item?.name ?? null,
+                inUomCode: rawBaseUomCode ?? component?.baseUom?.code ?? null,
+                sourceDepartmentName,
+              },
+            }));
+          }
 
           // ── 4) Exact-item inventory for the resolved raw material.
           // Static baseline preservation: on initial load/edit, the baseline is
@@ -5545,6 +5752,18 @@ const RawMaterialAvailability: React.FC<{
         next[key] = {
           ...it,
           lines: it.lines.map((l) => {
+            if (it.itemCode === 'WIP-CS-006' || l.itemCode === 'FLAT-STRIP-005' || l.itemCode === 'FLAT-STRIP-006') {
+              const totalMeters = Math.max(0, toNum(prod.actualQuantity)) + scrapKg;
+              const wpm = Number(l.weightPerMeter || (l.itemCode === 'FLAT-STRIP-005' ? 0.0374 : 0.0434));
+              const required = Math.round(totalMeters * wpm * 10000) / 10000;
+              let balance = l.balance;
+              let shortage = l.shortage;
+              if (l.available != null) {
+                balance = Math.round((l.available - required) * 10000) / 10000;
+                shortage = Math.max(0, Math.round(-balance * 10000) / 10000);
+              }
+              return { ...l, required, balance, shortage };
+            }
             const componentItem = lookups.items.find((i) => i.id === l.rawItemId);
             const compUom = l.uomCode || l.rawBaseUomCode || componentItem?.baseUom?.code || 'KG';
             const convertedUnits = convertProductToComponentQty(units, enrichedProduct, compUom);
@@ -5696,7 +5915,7 @@ const RawMaterialAvailability: React.FC<{
               </div>
             )}
             {/* EXACT RAW MATERIAL + REQUIRED / AVAILABLE / SHORTAGE */}
-            {info.lines.map((line) => {
+            {info.lines.map((line, lineIdx) => {
               const wireSizeMismatch = line.rawWireSizeMm != null && line.prodWireSizeMm != null
                 && Math.abs(line.rawWireSizeMm - line.prodWireSizeMm) > 0.001;
               return (
@@ -5706,7 +5925,9 @@ const RawMaterialAvailability: React.FC<{
                 }}>
                   {/* Input Material: Item Name + Code */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <Text type="secondary" style={{ fontSize: 11, minWidth: 90 }}>Input Material</Text>
+                    <Text type="secondary" style={{ fontSize: 11, minWidth: 105 }}>
+                      {line.inputRowLabel || (info.lines.length > 1 ? `Input Material ${lineIdx + 1}:` : 'Input Material')}
+                    </Text>
                     <Text strong style={{ fontSize: 12, color: 'var(--theme-primary)' }} data-testid={`material-flow-rawitem-${index + 1}`}>
                       {line.itemName || line.itemCode}
                     </Text>

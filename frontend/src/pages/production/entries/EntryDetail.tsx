@@ -544,7 +544,7 @@ export const EntryDetail: React.FC<EntryDetailProps> = ({
   // An EARLY FINISH — duty still below the planned shift — keeps its own
   // recorded running hours, so the Remaining figure stays meaningful instead
   // of being silently inflated to fill the shift.
-  const totalAvailableHours = planned != null ? planned + ot : null;
+  const totalAvailableHours = planned != null ? (planned >= 12 ? 8 + ot : planned + ot) : null;
   const dutyHours = running + totalDowntime;
   const shiftFullyConsumed = planned != null && dutyHours >= planned;
   const mustUsePlanMath = totalAvailableHours != null

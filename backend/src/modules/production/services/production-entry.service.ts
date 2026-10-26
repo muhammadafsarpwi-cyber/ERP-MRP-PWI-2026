@@ -1737,9 +1737,14 @@ addToDept(org, {
     let effectiveWorkingHours = Number(dto.runningHours || 0);
     const shift = await this.shiftRepo.findOne({ where: { id: dto.shiftId, companyId } });
     const shiftPlanned = Number(shift?.plannedHours ?? 0);
-    if (shiftPlanned > 0 && ot > 0 && effectiveWorkingHours <= shiftPlanned && Number(dto.downtimeHours || 0) === 0) {
-      effectiveWorkingHours = this.round2(effectiveWorkingHours + ot);
-      dto.runningHours = effectiveWorkingHours;
+    const is12hShift = shiftPlanned >= 12;
+    const baseDutyHours = is12hShift ? 8 : shiftPlanned;
+    if (shiftPlanned > 0 && ot > 0 && Number(dto.downtimeHours || 0) === 0) {
+      const expectedTotal = is12hShift ? (8 + ot) : (shiftPlanned + ot);
+      if (effectiveWorkingHours < expectedTotal && effectiveWorkingHours === baseDutyHours) {
+        effectiveWorkingHours = expectedTotal;
+        dto.runningHours = effectiveWorkingHours;
+      }
     }
 
     // ERP-00016: resolve the machine target FIRST so the final UOM/target feed
@@ -1805,7 +1810,8 @@ addToDept(org, {
         ot = this.deriveOvertime(dto.runningHours, dto.downtimeHours, resolved.plannedHours);
       }
     }
-    const totalPlanned = (resolved.plannedHours > 0) ? (resolved.plannedHours + ot) : 0;
+    const is12h = Number(resolved.plannedHours || 0) >= 12;
+    const totalPlanned = is12h ? (8 + ot) : ((resolved.plannedHours > 0) ? (resolved.plannedHours + ot) : 0);
     const effectiveRunning = (totalPlanned > 0 && dto.downtimeHours > 0 && (dto.runningHours + dto.downtimeHours > totalPlanned))
       ? this.round2(Math.max(0, totalPlanned - dto.downtimeHours))
       : dto.runningHours;
@@ -1939,9 +1945,14 @@ addToDept(org, {
     let effectiveWorkingHours = Number(merged.runningHours || 0);
     const shift = await this.shiftRepo.findOne({ where: { id: merged.shiftId, companyId } });
     const shiftPlanned = Number(shift?.plannedHours ?? 0);
-    if (shiftPlanned > 0 && ot > 0 && effectiveWorkingHours <= shiftPlanned && Number(merged.downtimeHours || 0) === 0) {
-      effectiveWorkingHours = this.round2(effectiveWorkingHours + ot);
-      merged.runningHours = effectiveWorkingHours;
+    const is12hShift = shiftPlanned >= 12;
+    const baseDutyHours = is12hShift ? 8 : shiftPlanned;
+    if (shiftPlanned > 0 && ot > 0 && Number(merged.downtimeHours || 0) === 0) {
+      const expectedTotal = is12hShift ? (8 + ot) : (shiftPlanned + ot);
+      if (effectiveWorkingHours < expectedTotal && effectiveWorkingHours === baseDutyHours) {
+        effectiveWorkingHours = expectedTotal;
+        merged.runningHours = effectiveWorkingHours;
+      }
     }
 
     // ERP-00016: re-resolve the target when machine/shift/date/hours changed.
@@ -1988,7 +1999,8 @@ addToDept(org, {
         ot = this.deriveOvertime(merged.runningHours, merged.downtimeHours, resolved.plannedHours);
       }
     }
-    const totalPlanned = (resolved.plannedHours > 0) ? (resolved.plannedHours + ot) : 0;
+    const is12h = Number(resolved.plannedHours || 0) >= 12;
+    const totalPlanned = is12h ? (8 + ot) : ((resolved.plannedHours > 0) ? (resolved.plannedHours + ot) : 0);
     const effectiveRunning = (totalPlanned > 0 && merged.downtimeHours > 0 && (merged.runningHours + merged.downtimeHours > totalPlanned))
       ? this.round2(Math.max(0, totalPlanned - merged.downtimeHours))
       : merged.runningHours;
@@ -3150,7 +3162,8 @@ addToDept(org, {
   private deriveOvertime(runningHours: number, downtimeHours: number, plannedHours: number): number {
     if (!(plannedHours > 0)) return 0;
     const dutyHours = this.round2(Number(runningHours || 0) + Number(downtimeHours || 0));
-    return dutyHours > plannedHours ? this.round2(dutyHours - plannedHours) : 0;
+    const threshold = plannedHours >= 12 ? 8 : plannedHours;
+    return dutyHours > threshold ? this.round2(dutyHours - threshold) : (plannedHours >= 12 ? 4 : 0);
   }
 
   private resolvePlannedHours(entry: ProductionEntry): number {
@@ -3460,6 +3473,116 @@ addToDept(org, {
 
     const product = await this.itemRepo.findOne({ where: { id: output.itemId }, relations: ['baseUom'] });
     const authoritativeInItemId = product?.productionInItemId ?? null;
+
+    // ── MULTI-INPUT INVENTORY DEDUCTION HOOK FOR MULTI-WIRE ASSEMBLY (WIP-CS-006) ──
+    if (product?.itemCode === 'WIP-CS-006') {
+      let ccdFtWh = await this.warehouseRepo.findOne({
+        where: { warehouseCode: 'CCD-FT-001', companyId },
+      });
+      const effectiveWh = ccdFtWh?.id || sourceStoreId;
+      if (!effectiveWh) {
+        throw new BadRequestException('Raw Material Source Warehouse (CCD-FT-001) could not be determined.');
+      }
+
+      // Input Material 1: FLAT-STRIP-005 (Flat Strip T 0.80 × W 1.85 mm)
+      // Input Material 2: FLAT-STRIP-006 (Flat Strip T 0.95 × W 2.10 mm)
+      const strip005 = (product.productionInItemId
+        ? await this.itemRepo.findOne({ where: { id: product.productionInItemId }, relations: ['baseUom'] })
+        : null) || (await this.itemRepo.findOne({ where: { itemCode: 'FLAT-STRIP-005', companyId }, relations: ['baseUom'] }));
+
+      const strip006 = ((product as any).productionInItemId2
+        ? await this.itemRepo.findOne({ where: { id: (product as any).productionInItemId2 }, relations: ['baseUom'] })
+        : null) || (await this.itemRepo.findOne({ where: { itemCode: 'FLAT-STRIP-006', companyId }, relations: ['baseUom'] }));
+
+      if (!strip005 || !strip006) {
+        throw new BadRequestException('Dual raw materials for WIP-CS-006 (FLAT-STRIP-005 and FLAT-STRIP-006) could not be found.');
+      }
+
+      const inputMeters = Number(output.actualQuantity) + Number(output.scrapQuantity || 0);
+      const wpm005 = Number(strip005.weightPerMeter || 0.0374);
+      const wpm006 = Number(strip006.weightPerMeter || 0.0434);
+      const req005 = this.round4(inputMeters * wpm005);
+      const req006 = this.round4(inputMeters * wpm006);
+
+      const avail005 = await this.inventoryBalanceService.getAvailableStock(
+        companyId, strip005.id, effectiveWh, undefined, undefined, manager,
+      );
+      const avail006 = await this.inventoryBalanceService.getAvailableStock(
+        companyId, strip006.id, effectiveWh, undefined, undefined, manager,
+      );
+
+      const requirements = [
+        {
+          line: {
+            id: `cs006-in-${strip005.id}`,
+            itemId: strip005.id,
+            quantity: 1,
+            uomId: strip005.baseUomId,
+            scrapFactor: 0,
+            yieldPercentage: 100,
+            lineNumber: 1,
+          } as BomLine,
+          required: req005,
+          uomCode: strip005.baseUom?.code || 'KG',
+          available: avail005,
+          warehouseId: effectiveWh,
+          scrapPcs: 0,
+          scrapQty: 0,
+          scrapRemarks: '',
+        },
+        {
+          line: {
+            id: `cs006-in-${strip006.id}`,
+            itemId: strip006.id,
+            quantity: 1,
+            uomId: strip006.baseUomId,
+            scrapFactor: 0,
+            yieldPercentage: 100,
+            lineNumber: 2,
+          } as BomLine,
+          required: req006,
+          uomCode: strip006.baseUom?.code || 'KG',
+          available: avail006,
+          warehouseId: effectiveWh,
+          scrapPcs: 0,
+          scrapQty: 0,
+          scrapRemarks: '',
+        },
+      ];
+
+      const missing = plan ? undefined : requirements.find((r) => r.available < r.required);
+      if (missing) {
+        throw new BadRequestException(
+          `Raw material stock is insufficient. Required: ${this.round4(missing.required)} ${missing.uomCode} | Available: ${this.round4(missing.available)} ${missing.uomCode}`,
+        );
+      }
+
+      const consumed: Array<{ itemId: string; uomId: string | null; required: number; warehouseId: string; scrap?: number }> = [];
+      for (const r of requirements) {
+        const targetUomId = r.line.uomId;
+        consumed.push({ itemId: r.line.itemId, uomId: targetUomId ?? null, required: r.required, warehouseId: r.warehouseId, scrap: r.scrapQty });
+        if (plan) continue;
+        await this.stockLedgerService.create({
+          companyId,
+          transactionType: 'PRODUCTION_CONSUMPTION',
+          transactionDate: this.resolveBusinessTransactionDate(entryRef.entryDate),
+          itemId: r.line.itemId,
+          warehouseId: r.warehouseId,
+          quantity: r.required,
+          uomId: targetUomId,
+          direction: 'OUT',
+          referenceType: ENTRY_REFERENCE_TYPE,
+          referenceId: entryRef.id,
+          referenceNumber: entryRef.entryNumber || undefined,
+          notes: `Multi-input raw material consumption for production entry (${entryRef.machineNo}, ${entryRef.entryDate}) - ${r.line.itemId === strip005.id ? 'FLAT-STRIP-005' : 'FLAT-STRIP-006'}`,
+          createdBy: userId ?? undefined,
+        }, manager);
+        await this.inventoryBalanceService.updateBalance(
+          companyId, r.line.itemId, r.warehouseId, null, null, targetUomId, r.required, 'OUT', manager,
+        );
+      }
+      return plan ? consumed : [];
+    }
 
     const bom = await this.findActiveBom(companyId, output.itemId);
     if (!bom && !authoritativeInItemId) {
@@ -4058,7 +4181,7 @@ addToDept(org, {
 
     // Product in METER/LENGTH and Component in KG/WEIGHT: qty × weightPerMeter
     if (isProdLength && isCompWeight) {
-      const wpm = Number(product.weightPerMeter || 0);
+      const wpm = Number((component as any)?.weightPerMeter || product.weightPerMeter || 0);
       if (wpm > 0) return this.round4(quantity * wpm);
     }
 

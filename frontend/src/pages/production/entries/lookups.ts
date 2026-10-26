@@ -36,8 +36,11 @@ export interface ItemLk extends LookupItem {
   lengthPerPiece?: number | null;
   // TASK #33: Production Flow Mapping
   productionInItemId?: string | null;
+  productionInItemId2?: string | null;
+  productionInItemId3?: string | null;
   productionOutItemId?: string | null;
-  productionInItem?: { id: string; itemCode: string; name: string; wireSizeMm?: number | null; baseUomId?: string; baseUom?: { code: string }; departmentId?: string | null } | null;
+  productionInItem?: { id: string; itemCode: string; name: string; wireSizeMm?: number | null; baseUomId?: string; baseUom?: { code: string }; departmentId?: string | null; weightPerMeter?: number | null } | null;
+  productionInItem2?: { id: string; itemCode: string; name: string; wireSizeMm?: number | null; baseUomId?: string; baseUom?: { code: string }; departmentId?: string | null; weightPerMeter?: number | null } | null;
   productionOutItem?: { id: string; itemCode: string; name: string; wireSizeMm?: number | null; baseUomId?: string; baseUom?: { code: string }; departmentId?: string | null } | null;
 }
 export interface UomLk extends LookupItem { code: string; symbol: string; uomType: string; }

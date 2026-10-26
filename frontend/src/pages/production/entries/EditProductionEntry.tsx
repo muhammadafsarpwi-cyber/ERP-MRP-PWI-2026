@@ -330,7 +330,7 @@ export const EditProductionEntry: React.FC = () => {
     // (duty still below the plan) keeps its own recorded running hours.
     const plannedHours = toNum(entry?.shift?.plannedHours || 8);
     const ot = toNum(watchedOvertime || 0);
-    const totalPlanned = plannedHours + ot;
+    const totalPlanned = plannedHours >= 12 ? (8 + ot) : (plannedHours + ot);
     const recordedRunning = toNum(watchedRunning ?? entry?.runningHours ?? 0);
     const dtSum = (watchedDowntimes || []).reduce((s, d) => s + toNum(d?.downtimeHours), 0);
     const running = (plannedHours > 0 && dtSum > 0 && recordedRunning + dtSum >= plannedHours)
