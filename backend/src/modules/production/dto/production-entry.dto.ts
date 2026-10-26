@@ -49,6 +49,16 @@ export class ProductionEntryItemDto {
   scrapQuantity?: number;
 
   @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 4 })
+  @Min(0)
+  processScrapKg?: number;
+
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 4 })
+  @Min(0)
+  scrapKg?: number;
+
+  @IsOptional()
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   @Max(24)
