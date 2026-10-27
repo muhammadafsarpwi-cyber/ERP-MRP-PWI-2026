@@ -39,7 +39,6 @@ import {
   ReloadOutlined,
   SafetyOutlined,
   SearchOutlined,
-  TeamOutlined,
   ThunderboltOutlined,
   ToolOutlined,
   UnorderedListOutlined,
@@ -238,8 +237,6 @@ const renderDualQty = (v: number | null | undefined, r: ReportRow, colorClass: s
 };
 
 const dateShort = (v?: string | null): string => (v ? new Date(v).toISOString().slice(0, 10) : '-');
-const dateTime = (v?: string | null): string =>
-  v ? new Date(v).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-';
 
 const specLine = (r: ReportRow): string => {
   if (r.thicknessMm != null || r.widthMm != null) return `${formatDimension(r.thicknessMm)} × ${formatDimension(r.widthMm)}`;

@@ -108,25 +108,25 @@ export class InventoryBalanceService {
     if (!companyId || !itemId) return 0;
 
     let available = 0;
-    // Specific balance: exact on-hand − reserved in that warehouse/location/batch.
-    if (warehouseId) {
-      const balance = await this.findByItemWarehouse(companyId, itemId, warehouseId, locationId, batchId, manager);
+    const repo = manager ? manager.getRepository(InventoryBalance) : this.repo;
+
+    // Specific location and/or batch balance: exact on-hand − reserved in that warehouse/location/batch.
+    if (locationId || batchId) {
+      const balance = await this.findByItemWarehouse(companyId, itemId, warehouseId || '', locationId, batchId, manager);
       if (balance) {
         available = Number(balance.onHand) - Number(balance.reserved);
       }
     } else {
-      // No warehouse selected: aggregate the item's real available stock across
-      // every ACTIVE balance in this company, so callers (e.g. the Production
-      // Entry raw-material availability) never see a fabricated zero.
-      const repo = manager ? manager.getRepository(InventoryBalance) : this.repo;
+      // Warehouse-level or company-wide balance:
+      // Aggregate across ALL active balance rows (both batched and unbatched) in that warehouse/company,
+      // so items with multiple batches (e.g. batch-tracked raw materials) reflect true total available stock.
       const qb = repo
         .createQueryBuilder('balance')
         .select('COALESCE(SUM(balance.on_hand - balance.reserved), 0)', 'available')
         .where('balance.companyId = :companyId', { companyId })
         .andWhere('balance.itemId = :itemId', { itemId })
         .andWhere('balance.status = :status', { status: 'ACTIVE' });
-      if (locationId) qb.andWhere('balance.locationId = :locationId', { locationId });
-      if (batchId) qb.andWhere('balance.batchId = :batchId', { batchId });
+      if (warehouseId) qb.andWhere('balance.warehouseId = :warehouseId', { warehouseId });
       const row = await qb.getRawOne();
       available = Number(row?.available) || 0;
     }

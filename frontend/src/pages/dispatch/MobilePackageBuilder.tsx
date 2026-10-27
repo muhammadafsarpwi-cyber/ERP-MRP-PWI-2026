@@ -17,8 +17,8 @@ import {
 import {
   ScanOutlined,
   CameraOutlined,
-  CheckCircleOutlined,
-  WarningOutlined,
+
+
   DeleteOutlined,
   LockOutlined,
   PrinterOutlined,
@@ -34,7 +34,7 @@ import {
 } from '../../services/dispatchPackageService';
 import { DispatchPackagePrintModal } from './DispatchPackagePrint';
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
 
 // ── Web Audio Feedback Helper ────────────────────────────────────────────────
 function playAudioTone(freq: number, durationSec: number, type: OscillatorType = 'sine'): void {

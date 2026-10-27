@@ -21,30 +21,63 @@ describe('InventoryBalanceService — availability contracts (TASK #39 Part C)',
     service = new InventoryBalanceService(repo, policyRepo);
   });
 
-  it('C1: exact item + warehouse returns the REAL on-hand − reserved of that balance row', async () => {
-    repo.findOne.mockResolvedValue({ onHand: 5000, reserved: 0 });
-    expect(await service.getAvailableStock(COMPANY, ITEM, WH_A)).toBe(5000);
-    expect(repo.findOne).toHaveBeenCalledWith(expect.objectContaining({
-      where: { companyId: COMPANY, itemId: ITEM, warehouseId: WH_A },
-    }));
+  it('C1: exact item + warehouse aggregates ALL active balance rows (both batched and unbatched) in that store', async () => {
+    const qb: any = {
+      select: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      getRawOne: jest.fn().mockResolvedValue({ available: '7700' }),
+    };
+    repo.createQueryBuilder.mockReturnValue(qb);
+    expect(await service.getAvailableStock(COMPANY, ITEM, WH_A)).toBe(7700);
+    expect(qb.andWhere).toHaveBeenCalledWith('balance.warehouseId = :warehouseId', { warehouseId: WH_A });
+    expect(qb.andWhere).toHaveBeenCalledWith('balance.status = :status', { status: 'ACTIVE' });
   });
 
   it('C1b: reserved stock is always deducted in the exact-store availability', async () => {
-    repo.findOne.mockResolvedValue({ onHand: 5000, reserved: 200 });
+    const qb: any = {
+      select: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      getRawOne: jest.fn().mockResolvedValue({ available: '4800' }),
+    };
+    repo.createQueryBuilder.mockReturnValue(qb);
     expect(await service.getAvailableStock(COMPANY, ITEM, WH_A)).toBe(4800);
   });
 
+  it('C1c: specific batch/location queries use findOne for exact batch row', async () => {
+    repo.findOne.mockResolvedValue({ onHand: 553.177, reserved: 0 });
+    expect(await service.getAvailableStock(COMPANY, ITEM, WH_A, undefined, 'batch-1')).toBe(553.177);
+    expect(repo.findOne).toHaveBeenCalledWith(expect.objectContaining({
+      where: { companyId: COMPANY, itemId: ITEM, warehouseId: WH_A, batchId: 'batch-1' },
+    }));
+  });
+
   it('C2: no balance row in the EXACT store returns 0 (stock in another store never leaks in)', async () => {
-    repo.findOne.mockResolvedValue(null);
+    const qb: any = {
+      select: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      getRawOne: jest.fn().mockResolvedValue({ available: '0' }),
+    };
+    repo.createQueryBuilder.mockReturnValue(qb);
     expect(await service.getAvailableStock(COMPANY, ITEM, WH_A)).toBe(0);
   });
 
   it('C2b: the same item stocked in another warehouse does NOT inflate the exact-store availability', async () => {
-    // Source store has no row; a different store has the 5000 KG. The exact
-    // source-store query must stay 0 — this is the reported "UI shows 0 while
-    // Inventory shows 5000" trap: the item lives in a DIFFERENT store.
-    repo.findOne.mockResolvedValueOnce(null);
-    repo.findOne.mockResolvedValueOnce({ onHand: 5000, reserved: 0 });
+    const qbA: any = {
+      select: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      getRawOne: jest.fn().mockResolvedValue({ available: '0' }),
+    };
+    const qbB: any = {
+      select: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      getRawOne: jest.fn().mockResolvedValue({ available: '5000' }),
+    };
+    repo.createQueryBuilder.mockReturnValueOnce(qbA).mockReturnValueOnce(qbB);
     expect(await service.getAvailableStock(COMPANY, ITEM, WH_A)).toBe(0);
     expect(await service.getAvailableStock(COMPANY, ITEM, WH_B)).toBe(5000);
   });
