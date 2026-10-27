@@ -2437,11 +2437,15 @@ const EntryForm: React.FC<EntryFormProps> = ({
     const div = lookups.divisions.find((d) => d.id === payload.divisionId);
     const sec = lookups.sections.find((s) => s.id === payload.sectionId);
     const dep = lookups.departments.find((d) => d.id === payload.departmentId);
-    const itm = lookups.items.find((i) => i.id === payload.itemId);
-    const uomLk = lookups.uoms.find((u) => u.id === payload.uomId);
     const itemsArr = (Array.isArray(payload.items) ? payload.items : []) as any[];
     const firstLine = itemsArr.find((l) => !!l.itemId);
-    const qty = firstLine?.actualQuantity ?? payload.actualQuantity;
+    const resolvedItemId = payload.itemId || firstLine?.itemId || (values as any)?.itemId || (values as any)?.productionItems?.[0]?.itemId || itemId;
+    const itm = lookups.items.find((i) => i.id === resolvedItemId);
+    const resolvedItemCode = itm?.itemCode || firstLine?.itemCode || (values as any)?.itemCode || (values as any)?.productionItems?.[0]?.itemCode;
+    const resolvedItemName = itm?.name || firstLine?.itemName || (values as any)?.itemName || (values as any)?.productionItems?.[0]?.itemName;
+    const resolvedUomId = payload.uomId || firstLine?.uomId || itm?.baseUomId || (itm as any)?.uomId;
+    const uomLk = lookups.uoms.find((u) => u.id === resolvedUomId) || (itm as any)?.baseUom;
+    const qty = firstLine?.actualQuantity ?? payload.actualQuantity ?? (values as any)?.actualQuantity;
     const tgt = machineLinked ? displayTarget : toNum(targetQty);
     setSavedEntry({
       entryId: saved.id,
@@ -2452,8 +2456,8 @@ const EntryForm: React.FC<EntryFormProps> = ({
       section: sec?.name,
       department: dep?.name,
       machineNo: String(saved.machineNo ?? payload.machineNo ?? ''),
-      itemCode: itm?.itemCode,
-      itemName: itm?.name,
+      itemCode: resolvedItemCode,
+      itemName: resolvedItemName,
       quantity: qty !== undefined && qty !== null ? formatNumber(toNum(qty), 4) : undefined,
       actualQuantity: qty !== undefined && qty !== null ? formatNumber(toNum(qty), 2) : undefined,
       targetQuantity: tgt !== null && tgt !== undefined ? formatNumber(toNum(tgt), 2) : undefined,
@@ -2464,7 +2468,7 @@ const EntryForm: React.FC<EntryFormProps> = ({
     setSaveError(null);
     useEntryDockStore.getState().setHasUnsavedChanges(false);
     setSavedOpen(true);
-  }, [lookups.shifts, lookups.divisions, lookups.sections, lookups.departments, lookups.items, lookups.uoms, machineLinked, displayTarget, targetQty, achievement]);
+  }, [lookups.shifts, lookups.divisions, lookups.sections, lookups.departments, lookups.items, lookups.uoms, machineLinked, displayTarget, targetQty, achievement, itemId]);
 
   // Execute the actual persistence after operator audits & confirms
   const doExecutePersist = useCallback(async () => {
@@ -2536,6 +2540,7 @@ const EntryForm: React.FC<EntryFormProps> = ({
       if (qDivisionId) qs.set('divisionId', qDivisionId);
       if (qSectionId) qs.set('sectionId', qSectionId);
       if (qDepartmentId) qs.set('departmentId', qDepartmentId);
+      qs.set('step', '2');
       navigate(`/production/entries/select?${qs.toString()}`);
       return;
     }
@@ -2564,6 +2569,7 @@ const EntryForm: React.FC<EntryFormProps> = ({
       qs.set('divisionId', String(ctxIds.divisionId ?? ''));
       qs.set('sectionId', String(ctxIds.sectionId ?? ''));
       qs.set('departmentId', String(ctxIds.departmentId ?? ''));
+      qs.set('step', '2');
       navigate(`/production/entries/select?${qs.toString()}`);
     }
   }, [mode, lockedContext, id, ctxIds, navigate, isModal, onCloseModal, saveError]);
@@ -2575,6 +2581,7 @@ const EntryForm: React.FC<EntryFormProps> = ({
     if (ctxIds.divisionId) qs.set('divisionId', ctxIds.divisionId);
     if (ctxIds.sectionId) qs.set('sectionId', ctxIds.sectionId);
     if (ctxIds.departmentId) qs.set('departmentId', ctxIds.departmentId);
+    qs.set('step', '2');
     const s = qs.toString();
     navigate(`/production/entries/select${s ? `?${s}` : ''}`);
   };

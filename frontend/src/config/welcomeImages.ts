@@ -21,7 +21,7 @@ export interface WelcomeSlideItem {
  *
  *   1. WIRE ROD DRAWING DIVISION — slots 01–04
  *      rod yard → drawing machines → dies & lubricants → anneal & galvanize
- *   2. SPOKE DIVISION (بائیک کی تیلیاں) — slots 05–08
+ *   2. SPOKE DIVISION — slots 05–08
  *      cut & heading → thread rolling & nipples → plating baths → finished macro
  *   3. OUTER CASING DIVISION — slots 09–12
  *      PVC extrusion → conduit rows → inventory by diameter → printing & cutting
@@ -50,7 +50,7 @@ export const WELCOME_SLIDE_ITEMS: WelcomeSlideItem[] = [
     title: 'Annealing & Galvanizing',
     subtitle: 'Furnace lines for high-tensile wire — heat treatment & zinc coating',
   },
-  /* 2. SPOKE DIVISION / بائیک کی تیلیاں (05–08) */
+  /* 2. SPOKE DIVISION (05–08) */
   {
     src: `${process.env.PUBLIC_URL}/images/welcome/welcome-05.jpg`,
     title: 'Spoke Cutting & Heading',

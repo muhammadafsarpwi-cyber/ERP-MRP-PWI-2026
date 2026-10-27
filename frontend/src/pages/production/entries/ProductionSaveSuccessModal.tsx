@@ -1,8 +1,9 @@
 import React from 'react';
-import { Modal, Button, Space, Typography, Divider, Tag } from 'antd';
+import { Modal, Button, Space, Typography, Divider, Tag, theme } from 'antd';
 import {
   CheckCircleFilled, EyeOutlined, PlusOutlined, UndoOutlined, LoadingOutlined,
   CloseCircleFilled, ExclamationCircleFilled, BarcodeOutlined,
+  CalendarOutlined, FieldTimeOutlined, AppstoreOutlined,
 } from '@ant-design/icons';
 
 const { Text, Title } = Typography;
@@ -26,22 +27,15 @@ export interface SavedEntrySummary {
   status?: string;
 }
 
-/** A single summary row: label + value (value omitted → row hidden). */
-const Row: React.FC<{ label: string; value?: React.ReactNode }> = ({ label, value }) => {
-  if (value === undefined || value === null || value === '') return null;
-  return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, padding: '5px 0' }}>
-      <Text type="secondary" style={{ fontSize: 12 }}>{label}</Text>
-      <Text strong style={{ fontSize: 13, textAlign: 'right' }}>{value}</Text>
-    </div>
-  );
-};
-
 /**
- * PROMPT-35 success confirmation, loading spinner, and feedback modal.
- * When saving is in progress, displays a prominent spinning loader in an independent modal popup.
- * If saving succeeds, displays a big green checkmark and key figures (Actual, Target, Achievement %).
- * If saving fails or returns shortage/error comments, displays the server feedback inside the modal popup.
+ * Enterprise Production Entry Save Confirmation & Success Modal
+ * Displays:
+ * 1. Success header with 100% complete indicator
+ * 2. Entry Reference & Machine No.
+ * 3. Actual, Target, Achievement % metrics
+ * 4. Produced Item Confirmation Card (Item Code + Item Name)
+ * 5. Production Date & Shift
+ * 6. High-tech operator action buttons: (+ Enter Another Entry / Next Machine, Generate Labels, View, Close)
  */
 const ProductionSaveSuccessModal: React.FC<{
   open: boolean;
@@ -53,7 +47,19 @@ const ProductionSaveSuccessModal: React.FC<{
   onNew: () => void;
   onClose: () => void;
   onGenerateLabels?: () => void;
-}> = ({ open, saving = false, error = null, entry, mode = 'create', onView, onNew, onClose, onGenerateLabels }) => {
+}> = ({
+  open,
+  saving = false,
+  error = null,
+  entry,
+  mode = 'create',
+  onView,
+  onNew,
+  onClose,
+  onGenerateLabels,
+}) => {
+  const { token } = theme.useToken();
+
   if (!open) return null;
   if (!saving && !entry && !error) return null;
 
@@ -65,10 +71,16 @@ const ProductionSaveSuccessModal: React.FC<{
       centered
       closable={!saving}
       maskClosable={false}
-      width={480}
+      width={500}
       footer={null}
-      style={{ borderRadius: 14, overflow: 'hidden' }}
+      bodyStyle={{
+        backgroundColor: token.colorBgContainer,
+        padding: '24px 22px 20px',
+        borderRadius: 16,
+      }}
+      style={{ borderRadius: 16, overflow: 'hidden' }}
     >
+      {/* ── Loading Spinner State ── */}
       {saving ? (
         <div style={{ textAlign: 'center', padding: '28px 16px' }}>
           <div
@@ -79,20 +91,22 @@ const ProductionSaveSuccessModal: React.FC<{
               width: 76,
               height: 76,
               borderRadius: '50%',
-              background: 'rgba(24, 144, 255, 0.08)',
+              background: token.colorFillAlter,
               marginBottom: 16,
+              boxShadow: '0 4px 16px rgba(0, 0, 0, 0.08)',
             }}
           >
-            <LoadingOutlined style={{ fontSize: 44, color: 'var(--theme-primary, #1890ff)' }} spin />
+            <LoadingOutlined style={{ fontSize: 42, color: token.colorPrimary }} spin />
           </div>
-          <Title level={4} style={{ margin: 0, color: 'var(--theme-text, #0f172a)' }}>
+          <Title level={4} style={{ margin: 0, color: token.colorText }}>
             Saving Production Entry...
           </Title>
-          <Text type="secondary" style={{ display: 'block', marginTop: 8, fontSize: 13 }}>
+          <Text style={{ display: 'block', marginTop: 8, fontSize: 13, color: token.colorTextSecondary }}>
             Recording production shift figures, inventory updates, and calculating targets. Please wait...
           </Text>
         </div>
       ) : error ? (
+        /* ── Error / Alert State ── */
         <div style={{ textAlign: 'center', padding: '16px 8px 8px' }}>
           <div
             style={{
@@ -102,18 +116,18 @@ const ProductionSaveSuccessModal: React.FC<{
               width: 76,
               height: 76,
               borderRadius: '50%',
-              background: 'linear-gradient(135deg, #fee2e2 0%, #fecaca 100%)',
-              color: '#dc2626',
+              background: 'rgba(239, 68, 68, 0.12)',
+              color: '#ef4444',
               marginBottom: 12,
-              boxShadow: '0 4px 12px rgba(220, 38, 38, 0.2)',
+              boxShadow: '0 4px 14px rgba(239, 68, 68, 0.2)',
             }}
           >
             <CloseCircleFilled style={{ fontSize: 44 }} />
           </div>
-          <Title level={4} style={{ margin: 0, color: 'var(--theme-text, #0f172a)' }}>
+          <Title level={4} style={{ margin: 0, color: token.colorText }}>
             Production Entry Feedback / Alert
           </Title>
-          <Text type="secondary" style={{ display: 'block', marginTop: 4, fontSize: 12 }}>
+          <Text style={{ display: 'block', marginTop: 4, fontSize: 12, color: token.colorTextSecondary }}>
             The production entry could not be completed due to the following requirement:
           </Text>
 
@@ -122,93 +136,105 @@ const ProductionSaveSuccessModal: React.FC<{
               marginTop: 16,
               marginBottom: 18,
               padding: '12px 16px',
-              borderRadius: 8,
-              border: '1px solid #fca5a5',
-              background: '#fef2f2',
+              borderRadius: 10,
+              border: '1px solid rgba(239, 68, 68, 0.3)',
+              background: 'rgba(239, 68, 68, 0.06)',
               textAlign: 'left',
             }}
           >
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-              <ExclamationCircleFilled style={{ color: '#dc2626', fontSize: 18, marginTop: 2, flexShrink: 0 }} />
-              <Text strong style={{ fontSize: 13, color: '#991b1b', lineHeight: 1.5, wordBreak: 'break-word' }}>
+              <ExclamationCircleFilled style={{ color: '#ef4444', fontSize: 18, marginTop: 2, flexShrink: 0 }} />
+              <Text strong style={{ fontSize: 13, color: '#ef4444', lineHeight: 1.5, wordBreak: 'break-word' }}>
                 {error}
               </Text>
             </div>
           </div>
 
           <Space direction="vertical" style={{ width: '100%', padding: '0 4px' }}>
-            <Button type="primary" danger block size="large" onClick={onClose}>
+            <Button
+              type="primary"
+              danger
+              block
+              size="large"
+              onClick={onClose}
+              style={{ height: 42, fontWeight: 700, borderRadius: 10 }}
+            >
               Review & Adjust Entry
             </Button>
           </Space>
         </div>
       ) : entry ? (
+        /* ── Success State ── */
         <>
-          <div style={{ textAlign: 'center', padding: '8px 8px 4px' }}>
+          {/* Top Checkmark Header */}
+          <div style={{ textAlign: 'center', padding: '4px 8px 10px' }}>
             <div
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                width: 76,
-                height: 76,
+                width: 72,
+                height: 72,
                 borderRadius: '50%',
-                background: 'linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%)',
-                color: 'var(--theme-success, #16a34a)',
-                marginBottom: 12,
-                boxShadow: '0 4px 12px rgba(22, 163, 74, 0.2)',
+                background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.15) 0%, rgba(16, 185, 129, 0.25) 100%)',
+                color: '#10b981',
+                marginBottom: 10,
+                boxShadow: '0 4px 18px rgba(16, 185, 129, 0.25)',
               }}
             >
-              <CheckCircleFilled style={{ fontSize: 44 }} />
+              <CheckCircleFilled style={{ fontSize: 42 }} />
             </div>
-            <Title level={4} style={{ margin: 0, color: 'var(--theme-text, #0f172a)' }}>
+            <Title level={4} style={{ margin: 0, fontSize: 19, fontWeight: 800, color: token.colorText }}>
               Production Entry Saved Successfully!
             </Title>
-            <Text type="secondary" style={{ display: 'block', marginTop: 4, fontSize: 12 }}>
+            <Text style={{ display: 'block', marginTop: 4, fontSize: 12, color: token.colorTextSecondary }}>
               {mode === 'edit' ? 'The production entry has been updated.' : 'The production entry has been recorded.'}
             </Text>
             <div style={{ marginTop: 8 }}>
               <Tag
-                color="#16a34a"
                 style={{
-                  padding: '3px 12px',
-                  borderRadius: 12,
-                  fontSize: 12,
-                  fontWeight: 700,
-                  background: '#ecfdf5',
-                  borderColor: '#10b981',
-                  color: '#047857',
+                  padding: '4px 14px',
+                  borderRadius: 14,
+                  fontSize: 11,
+                  fontWeight: 800,
+                  letterSpacing: '0.5px',
+                  background: 'rgba(16, 185, 129, 0.12)',
+                  borderColor: 'rgba(16, 185, 129, 0.35)',
+                  color: '#10b981',
                 }}
               >
-                <CheckCircleFilled style={{ marginRight: 5 }} />
+                <CheckCircleFilled style={{ marginRight: 6 }} />
                 7 STEPS OK · 100% COMPLETE
               </Tag>
             </div>
           </div>
 
-          <Divider style={{ margin: '12px 0' }} />
-
-          {/* Entry Reference & Machine No. card */}
+          {/* ── 1. Entry Reference & Machine No. Card ── */}
           <div
             style={{
+              marginTop: 10,
               marginBottom: 10,
-              padding: '10px 14px',
-              borderRadius: 8,
-              border: '1px solid var(--theme-border-strong, #cbd5e1)',
-              background: 'var(--theme-surface-alt, #f8fafc)',
+              padding: '12px 16px',
+              borderRadius: 12,
+              border: `1px solid ${token.colorBorderSecondary}`,
+              backgroundColor: token.colorFillAlter,
             }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{ textAlign: 'left' }}>
-                <Text type="secondary" style={{ fontSize: 11, letterSpacing: 0.5, textTransform: 'uppercase' }}>ENTRY REFERENCE</Text>
-                <div style={{ fontSize: 17, fontWeight: 700, color: 'var(--theme-primary, #1890ff)' }}>
+                <div style={{ fontSize: 10, letterSpacing: '0.8px', textTransform: 'uppercase', fontWeight: 800, color: token.colorTextTertiary }}>
+                  ENTRY REFERENCE
+                </div>
+                <div style={{ fontSize: 17, fontWeight: 900, color: token.colorPrimary, marginTop: 2, fontFamily: 'monospace' }}>
                   {entry.entryNumber || entry.entryId}
                 </div>
               </div>
               {entry.machineNo && (
                 <div style={{ textAlign: 'right' }}>
-                  <Text type="secondary" style={{ fontSize: 11, letterSpacing: 0.5, textTransform: 'uppercase' }}>MACHINE NO.</Text>
-                  <div style={{ fontSize: 17, fontWeight: 700, color: '#0f172a' }}>
+                  <div style={{ fontSize: 10, letterSpacing: '0.8px', textTransform: 'uppercase', fontWeight: 800, color: token.colorTextTertiary }}>
+                    MACHINE NO.
+                  </div>
+                  <div style={{ fontSize: 17, fontWeight: 900, color: token.colorText, marginTop: 2 }}>
                     {entry.machineNo}
                   </div>
                 </div>
@@ -216,7 +242,7 @@ const ProductionSaveSuccessModal: React.FC<{
             </div>
           </div>
 
-          {/* 3 Main Figures in one clean row: Actual, Target, Achievement % */}
+          {/* ── 2. 3-Figure Metrics Bar: Actual, Target, Achievement % ── */}
           <div
             style={{
               display: 'grid',
@@ -224,96 +250,247 @@ const ProductionSaveSuccessModal: React.FC<{
               gap: 8,
               padding: '8px',
               marginBottom: 12,
-              borderRadius: 8,
-              background: 'var(--theme-surface-alt, #f8fafc)',
-              border: '1px solid var(--theme-border, #e2e8f0)',
+              borderRadius: 12,
+              backgroundColor: token.colorFillAlter,
+              border: `1px solid ${token.colorBorderSecondary}`,
               textAlign: 'center',
             }}
           >
-            {/* Actual Production */}
-            <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 6, padding: '6px 4px' }}>
-              <Text type="secondary" style={{ fontSize: 10, display: 'block', color: '#1e40af', fontWeight: 600 }}>
+            {/* Actual Output */}
+            <div
+              style={{
+                backgroundColor: 'rgba(2, 132, 199, 0.08)',
+                border: '1px solid rgba(2, 132, 199, 0.25)',
+                borderRadius: 8,
+                padding: '8px 4px',
+              }}
+            >
+              <div style={{ fontSize: 10, color: '#0284c7', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                 ACTUAL
-              </Text>
-              <Text strong style={{ fontSize: 14, color: '#1d4ed8' }}>
-                {entry.actualQuantity ?? entry.quantity ?? '—'}{entry.uom ? ` ${entry.uom}` : ''}
-              </Text>
+              </div>
+              <div style={{ fontSize: 16, fontWeight: 900, color: '#0284c7', marginTop: 2 }}>
+                {entry.actualQuantity ?? entry.quantity ?? '0'}{entry.uom ? ` ${entry.uom}` : ''}
+              </div>
             </div>
 
-            {/* Target Production */}
-            <div style={{ background: '#f5f3ff', border: '1px solid #ddd6fe', borderRadius: 6, padding: '6px 4px' }}>
-              <Text type="secondary" style={{ fontSize: 10, display: 'block', color: '#5b21b6', fontWeight: 600 }}>
+            {/* Target Output */}
+            <div
+              style={{
+                backgroundColor: 'rgba(124, 58, 237, 0.08)',
+                border: '1px solid rgba(124, 58, 237, 0.25)',
+                borderRadius: 8,
+                padding: '8px 4px',
+              }}
+            >
+              <div style={{ fontSize: 10, color: '#7c3aed', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                 TARGET
-              </Text>
-              <Text strong style={{ fontSize: 14, color: '#6d28d9' }}>
-                {entry.targetQuantity !== undefined && entry.targetQuantity !== null ? `${entry.targetQuantity}${entry.uom ? ` ${entry.uom}` : ''}` : '—'}
-              </Text>
+              </div>
+              <div style={{ fontSize: 16, fontWeight: 900, color: '#7c3aed', marginTop: 2 }}>
+                {entry.targetQuantity !== undefined && entry.targetQuantity !== null ? `${entry.targetQuantity}${entry.uom ? ` ${entry.uom}` : ''}` : '0'}
+              </div>
             </div>
 
             {/* Achievement % */}
-            <div
-              style={{
-                background: entry.achievementPercentage !== undefined && entry.achievementPercentage !== null && Number(entry.achievementPercentage) >= 100
-                  ? '#ecfdf5' : '#fffbeb',
-                border: `1px solid ${entry.achievementPercentage !== undefined && entry.achievementPercentage !== null && Number(entry.achievementPercentage) >= 100
-                  ? '#a7f3d0' : '#fde68a'}`,
-                borderRadius: 6,
-                padding: '6px 4px',
-              }}
-            >
-              <Text type="secondary" style={{ fontSize: 10, display: 'block', color: '#374151', fontWeight: 600 }}>
-                ACHIEVEMENT
-              </Text>
-              <Text
-                strong
-                style={{
-                  fontSize: 14,
-                  color: entry.achievementPercentage !== undefined && entry.achievementPercentage !== null && Number(entry.achievementPercentage) >= 100
-                    ? '#047857' : '#b45309',
-                }}
-              >
-                {entry.achievementPercentage !== undefined && entry.achievementPercentage !== null
-                  ? `${entry.achievementPercentage}%`
-                  : '—'}
-              </Text>
+            {(() => {
+              const achNum = entry.achievementPercentage !== undefined && entry.achievementPercentage !== null
+                ? Number(entry.achievementPercentage)
+                : null;
+              const isGood = achNum !== null && achNum >= 100;
+              const hasVal = achNum !== null && !isNaN(achNum);
+              return (
+                <div
+                  style={{
+                    backgroundColor: hasVal && isGood ? 'rgba(16, 185, 129, 0.08)' : 'rgba(245, 158, 11, 0.08)',
+                    border: `1px solid ${hasVal && isGood ? 'rgba(16, 185, 129, 0.3)' : 'rgba(245, 158, 11, 0.3)'}`,
+                    borderRadius: 8,
+                    padding: '8px 4px',
+                  }}
+                >
+                  <div style={{ fontSize: 10, color: hasVal && isGood ? '#10b981' : '#f59e0b', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                    ACHIEVEMENT
+                  </div>
+                  <div style={{ fontSize: 16, fontWeight: 900, color: hasVal && isGood ? '#10b981' : '#f59e0b', marginTop: 2 }}>
+                    {hasVal ? `${achNum}%` : '—'}
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+
+          {/* ── 3. MANUFACTURED ITEM / PRODUCT CONFIRMATION CARD (HIGHLIGHTED) ── */}
+          <div
+            style={{
+              padding: '12px 14px',
+              borderRadius: 12,
+              backgroundColor: token.colorFillAlter,
+              border: `1.5px solid ${token.colorPrimary}`,
+              marginBottom: 10,
+              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.04)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+              <span style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.6px', color: token.colorPrimary, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <AppstoreOutlined style={{ fontSize: 14 }} />
+                MANUFACTURED ITEM / PRODUCT
+              </span>
+              {entry.itemCode && (
+                <Tag
+                  color="blue"
+                  style={{
+                    margin: 0,
+                    fontWeight: 800,
+                    fontSize: 12,
+                    padding: '1px 8px',
+                    borderRadius: 6,
+                    fontFamily: 'monospace',
+                  }}
+                >
+                  {entry.itemCode}
+                </Tag>
+              )}
+            </div>
+            <div style={{ fontSize: 14, fontWeight: 800, color: token.colorText, wordBreak: 'break-word' }}>
+              {entry.itemName || entry.itemCode || 'Manufactured Item confirmed'}
             </div>
           </div>
 
-          <div style={{ padding: '0 4px' }}>
-            <Row label="Production Date" value={entry.entryDate ? String(entry.entryDate) : undefined} />
-            <Row label="Shift" value={entry.shift} />
-            <Row label="Division" value={entry.division} />
-            <Row label="Section" value={entry.section} />
-            <Row label="Department" value={entry.department} />
-            <Row
-              label="Item"
-              value={entry.itemCode || entry.itemName
-                ? <>{entry.itemCode && <Text strong style={{ fontSize: 13 }}>{entry.itemCode}</Text>}{entry.itemName ? ` ${entry.itemName}` : ''}</>
-                : undefined}
-            />
-            <Row label="Status" value={entry.status || 'Saved'} />
+          {/* ── 4. Production Date & Active Shift ── */}
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(2, 1fr)',
+              gap: 8,
+              marginBottom: 16,
+            }}
+          >
+            <div
+              style={{
+                padding: '9px 12px',
+                borderRadius: 10,
+                backgroundColor: token.colorFillAlter,
+                border: `1px solid ${token.colorBorderSecondary}`,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+              }}
+            >
+              <CalendarOutlined style={{ color: '#ea580c', fontSize: 16 }} />
+              <div>
+                <div style={{ fontSize: 10, textTransform: 'uppercase', color: token.colorTextSecondary, fontWeight: 700 }}>
+                  Production Date
+                </div>
+                <div style={{ fontSize: 13, fontWeight: 800, color: token.colorText, marginTop: 1 }}>
+                  {entry.entryDate ? String(entry.entryDate) : '—'}
+                </div>
+              </div>
+            </div>
+
+            <div
+              style={{
+                padding: '9px 12px',
+                borderRadius: 10,
+                backgroundColor: token.colorFillAlter,
+                border: `1px solid ${token.colorBorderSecondary}`,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+              }}
+            >
+              <FieldTimeOutlined style={{ color: '#10b981', fontSize: 16 }} />
+              <div>
+                <div style={{ fontSize: 10, textTransform: 'uppercase', color: token.colorTextSecondary, fontWeight: 700 }}>
+                  Active Shift
+                </div>
+                <div style={{ fontSize: 13, fontWeight: 800, color: token.colorText, marginTop: 1 }}>
+                  {entry.shift || '—'}
+                </div>
+              </div>
+            </div>
           </div>
 
-          <Divider style={{ margin: '14px 0 16px' }} />
+          <Divider style={{ margin: '12px 0 16px', borderColor: token.colorBorderSecondary }} />
 
-          <Space direction="vertical" style={{ width: '100%', padding: '0 4px' }}>
+          {/* ── 5. High-Tech Action Buttons ── */}
+          <Space direction="vertical" size={10} style={{ width: '100%' }}>
+            {/* 1. Enter Another Entry / Next Machine (MOST PROMINENT) */}
             <Button
               type="primary"
               block
               size="large"
-              icon={<BarcodeOutlined />}
-              style={{ background: '#0284c7', borderColor: '#0284c7' }}
+              icon={<PlusOutlined style={{ fontSize: 16 }} />}
+              onClick={onNew}
+              style={{
+                height: 46,
+                background: 'linear-gradient(135deg, #ea580c 0%, #f97316 100%)',
+                borderColor: '#ea580c',
+                color: '#ffffff',
+                fontWeight: 900,
+                fontSize: 15,
+                borderRadius: 12,
+                boxShadow: '0 4px 16px rgba(234, 88, 12, 0.35)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 8,
+              }}
+            >
+              {mode === 'edit' ? 'New Machine Entry' : '+ Enter Next Machine Entry'}
+            </Button>
+
+            {/* 2. Generate Coils & Unit Labels */}
+            <Button
+              type="primary"
+              block
+              size="large"
+              icon={<BarcodeOutlined style={{ fontSize: 16 }} />}
               onClick={onGenerateLabels || onView}
+              style={{
+                height: 42,
+                background: 'linear-gradient(135deg, #0284c7 0%, #0ea5e9 100%)',
+                borderColor: '#0284c7',
+                color: '#ffffff',
+                fontWeight: 800,
+                fontSize: 14,
+                borderRadius: 10,
+                boxShadow: '0 4px 14px rgba(2, 132, 199, 0.25)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 8,
+              }}
             >
               Generate Coils & Unit Labels
             </Button>
-            <Button block icon={<EyeOutlined />} onClick={onView}>
+
+            {/* 3. View Entry Details */}
+            <Button
+              block
+              icon={<EyeOutlined />}
+              onClick={onView}
+              style={{
+                height: 40,
+                fontWeight: 700,
+                borderRadius: 10,
+                backgroundColor: token.colorFillAlter,
+                borderColor: token.colorBorderSecondary,
+                color: token.colorText,
+              }}
+            >
               View Entry Details
             </Button>
-            <Button block icon={<PlusOutlined />} onClick={onNew}>
-              {mode === 'edit' ? 'New Entry' : 'Enter Another Entry'}
-            </Button>
-            <Button block icon={<UndoOutlined />} onClick={onClose}>
+
+            {/* 4. Close (Returns to modal or page) */}
+            <Button
+              type="text"
+              block
+              icon={<UndoOutlined />}
+              onClick={onClose}
+              style={{
+                height: 36,
+                fontWeight: 700,
+                color: token.colorTextSecondary,
+              }}
+            >
               Close
             </Button>
           </Space>

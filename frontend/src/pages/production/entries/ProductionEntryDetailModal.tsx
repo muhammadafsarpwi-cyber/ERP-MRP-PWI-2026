@@ -30,6 +30,7 @@ export const ProductionEntryDetailModal: React.FC<ProductionEntryDetailModalProp
       onCancel={onClose}
       footer={null}
       width="96vw"
+      zIndex={65000}
       style={{
         top: 20,
         maxWidth: 1520,

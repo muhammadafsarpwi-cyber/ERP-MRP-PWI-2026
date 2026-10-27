@@ -69,14 +69,14 @@ export const ProductionEntryModal: React.FC = () => {
         style={{
           display: isMinimized ? 'none' : 'flex',
           pointerEvents: isMinimized ? 'none' : 'auto',
-          zIndex: 50000,
+          zIndex: 60000,
         }}
         onClick={(e) => e.stopPropagation()}
       >
         <div
           className={`entry-modal-window ${isMaximized ? 'mode-maximized' : 'mode-normal'}`}
           data-testid="production-entry-modal"
-          style={{ zIndex: 50001 }}
+          style={{ zIndex: 60001 }}
         >
           {/* ── Window Header Bar ── */}
           <div className="entry-window-header">

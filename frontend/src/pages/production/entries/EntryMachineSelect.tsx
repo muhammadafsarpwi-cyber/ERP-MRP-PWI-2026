@@ -117,6 +117,25 @@ export interface EntryMachineSelectProps {
   onEntryCreated?: () => void;
 }
 
+const WIZARD_STORAGE_KEY = 'pwi_entry_wizard_active_state';
+
+interface SavedWizardState {
+  step?: number;
+  entryDate?: string;
+  shiftId?: string;
+  divisionId?: string;
+  sectionId?: string;
+  selectedDeptId?: string | null;
+}
+
+const getSavedWizardState = (): SavedWizardState | null => {
+  try {
+    const raw = sessionStorage.getItem(WIZARD_STORAGE_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return null;
+};
+
 const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
   isEmbedded = false,
   open: propOpen,
@@ -131,8 +150,16 @@ const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
   const screens = Grid.useBreakpoint();
   const isMobile = !screens.md;
 
+  const savedWizard = useMemo(() => getSavedWizardState(), []);
+
   // Wizard state: Step 1 (Setup) vs Step 2 (Department & Machines)
-  const [step, setStep] = useState<number>(searchParams.get('step') === '2' ? 2 : 1);
+  const [step, setStep] = useState<number>(() => {
+    const paramStep = searchParams.get('step');
+    if (paramStep === '2') return 2;
+    if (paramStep === '1') return 1;
+    if (savedWizard?.step) return savedWizard.step;
+    return 1;
+  });
   const [modalOpen, setModalOpen] = useState<boolean>(propOpen !== undefined ? propOpen : true);
 
   useEffect(() => {
@@ -205,15 +232,43 @@ const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
   };
 
   // ── selection state: date defaults to yesterday (1 day minus) ──
-  const [entryDate, setEntryDate] = useState<dayjs.Dayjs | null>(
-    searchParams.get('entryDate') ? dayjs(searchParams.get('entryDate') as string) : dayjs().subtract(1, 'day'),
+  const [entryDate, setEntryDate] = useState<dayjs.Dayjs | null>(() => {
+    const qDate = searchParams.get('entryDate');
+    if (qDate) return dayjs(qDate);
+    if (savedWizard?.entryDate) return dayjs(savedWizard.entryDate);
+    return dayjs().subtract(1, 'day');
+  });
+  const [shiftId, setShiftId] = useState<string | undefined>(
+    () => searchParams.get('shiftId') || savedWizard?.shiftId || undefined,
   );
-  const [shiftId, setShiftId] = useState<string | undefined>(searchParams.get('shiftId') || undefined);
-  const [divisionId, setDivisionId] = useState<string | undefined>(searchParams.get('divisionId') || undefined);
-  const [sectionId, setSectionId] = useState<string | undefined>(searchParams.get('sectionId') || undefined);
+  const [divisionId, setDivisionId] = useState<string | undefined>(
+    () => searchParams.get('divisionId') || savedWizard?.divisionId || undefined,
+  );
+  const [sectionId, setSectionId] = useState<string | undefined>(
+    () => searchParams.get('sectionId') || savedWizard?.sectionId || undefined,
+  );
 
   // Department selected in Step 2 for machine filtering
-  const [selectedDeptId, setSelectedDeptId] = useState<string | null>(null);
+  const [selectedDeptId, setSelectedDeptId] = useState<string | null>(
+    () => searchParams.get('departmentId') || savedWizard?.selectedDeptId || null,
+  );
+
+  // Sync state to sessionStorage so page refreshes and inter-component transitions preserve Step 2 & selections
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(
+        WIZARD_STORAGE_KEY,
+        JSON.stringify({
+          step,
+          entryDate: entryDate ? entryDate.format('YYYY-MM-DD') : null,
+          shiftId: shiftId || null,
+          divisionId: divisionId || null,
+          sectionId: sectionId || null,
+          selectedDeptId: selectedDeptId || null,
+        }),
+      );
+    } catch {}
+  }, [step, entryDate, shiftId, divisionId, sectionId, selectedDeptId]);
 
   // In-Modal Production Entry Detail Dialog State
   const [detailModalEntryId, setDetailModalEntryId] = useState<string | null>(null);
@@ -370,11 +425,12 @@ const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
     const unsub = useEntryDockStore.subscribe((state) => {
       if (wasOpen && !state.isOpen) {
         setRefreshTick((t) => t + 1);
+        if (onEntryCreated) onEntryCreated();
       }
       wasOpen = state.isOpen;
     });
     return () => unsub();
-  }, []);
+  }, [onEntryCreated]);
 
   const openNewEntry = (m: MachineStatusRow) => {
     const ctxDepartment = m.departmentId ?? selectedDeptId;
@@ -425,6 +481,7 @@ const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
     (entryId: string) => {
       modal.confirm({
         centered: true,
+        zIndex: 70000,
         title: 'Delete Production Entry?',
         content:
           'Are you sure you want to permanently delete this production entry? This will remove dummy or test data and allow you to re-enter production for this machine.',
@@ -455,6 +512,9 @@ const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
   }, [lookups.sections, lookups.divisions, sectionId, divisionId]);
 
   const handleCloseModal = () => {
+    try {
+      sessionStorage.removeItem(WIZARD_STORAGE_KEY);
+    } catch {}
     setModalOpen(false);
     if (propOnClose) {
       propOnClose();
@@ -659,7 +719,7 @@ const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
                 border: `1px solid ${token.colorBorderSecondary}`,
               }}
             >
-              <Tooltip title="منیمائز کریں / Minimize">
+              <Tooltip title="Minimize">
                 <Button
                   type="text"
                   size="small"
@@ -678,7 +738,7 @@ const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
               </Tooltip>
 
               {!isMobile && (
-                <Tooltip title={isMaximized ? 'بحال کریں / Restore standard size' : 'میکسیمم کریں / Maximize fullscreen'}>
+                <Tooltip title={isMaximized ? 'Restore standard size' : 'Maximize fullscreen'}>
                   <Button
                     type="text"
                     size="small"
@@ -703,7 +763,7 @@ const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
                 </Tooltip>
               )}
 
-              <Tooltip title="بند کریں / Close Wizard">
+              <Tooltip title="Close Wizard">
                 <Button
                   type="text"
                   size="small"
@@ -1259,7 +1319,7 @@ const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
               </div>
             )}
 
-            {/* ━━━ WIDE HORIZONTAL MACHINE ROWS (IDENTICAL TO IMAGE 2 "لمبے رو") ━━━ */}
+            {/* ━━━ WIDE HORIZONTAL MACHINE ROWS ━━━ */}
             {loading && machines.length === 0 ? (
               <div style={{ padding: '60px 0', textAlign: 'center' }}>
                 <GlobalLoading title="Loading Machines..." subtitle="Retrieving active machines for this selection..." badgeText="LIVE DATABASE QUERY" minHeight={240} />
@@ -1289,8 +1349,6 @@ const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
                     key={m.id}
                     machine={m}
                     onSelect={() => {
-                      setModalOpen(false);
-                      if (propOnClose) propOnClose();
                       openNewEntry(m);
                     }}
                     onEdit={(entryId) => handleEditEntry(entryId)}
@@ -1367,7 +1425,7 @@ const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
                 borderRadius: 8,
               }}
             >
-              بحال کریں / Restore
+              Restore Wizard
             </Button>
             <Button
               type="text"
@@ -1399,7 +1457,7 @@ const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
 };
 
 /**
- * Wide Horizontal Machine Row Component ("لمبے رو")
+ * Wide Horizontal Machine Row Component
  * Styled identically to the horizontal contracts in Image 2.
  */
 const HorizontalMachineRow: React.FC<{

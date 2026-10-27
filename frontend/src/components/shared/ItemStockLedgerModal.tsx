@@ -423,12 +423,12 @@ export const ItemStockLedgerModal: React.FC<ItemStockLedgerModalProps> = ({
 
         return (
           <div style={{ lineHeight: 1.35 }}>
-            {/* 1. PO # (Top / اوپر) */}
+            {/* 1. PO # (Top) */}
             <div style={{ fontSize: 11, fontWeight: 700, color: po ? (isDark ? '#38bdf8' : '#0284c7') : (isDark ? '#64748b' : '#94a3b8'), fontVariantNumeric: 'tabular-nums' }}>
               <span style={{ fontSize: 10, color: themeColors.subtitleColor, marginRight: 4 }}>PO:</span>
               {po || '—'}
             </div>
-            {/* 2. SOC # (Bottom / نیچے) */}
+            {/* 2. SOC # (Bottom) */}
             <div style={{ fontSize: 11, fontWeight: 700, color: soc ? (isDark ? '#c084fc' : '#7e22ce') : (isDark ? '#64748b' : '#94a3b8'), fontVariantNumeric: 'tabular-nums', marginTop: 2 }}>
               <span style={{ fontSize: 10, color: themeColors.subtitleColor, marginRight: 4 }}>SOC:</span>
               {soc || '—'}

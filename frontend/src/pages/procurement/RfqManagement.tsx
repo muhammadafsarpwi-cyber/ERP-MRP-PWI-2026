@@ -780,7 +780,7 @@ const RfqManagement: React.FC = () => {
         </Form>
       </DraggableResizableModal>
 
-      {/* 2. Comparative Statement Modal (موازنہ) */}
+      {/* 2. Comparative Statement Modal */}
       <DraggableResizableModal
         title={`Comparative Statement — ${comparingRfq?.rfqCode || ''}`}
         subtitle="📊 Side-by-side comparison of supplier quotes, rates, delivery terms & winner selection"

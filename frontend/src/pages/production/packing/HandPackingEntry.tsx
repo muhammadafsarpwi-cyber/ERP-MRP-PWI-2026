@@ -3916,7 +3916,6 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         actualQuantity: primaryItem.quantityPcs,
         // Part Rejection quantity in PCS (rejected parts during packing inspection)
         scrapQuantity: componentScrap.pcs > 0 ? componentScrap.pcs : 0,
-        processScrapKg: componentScrap.kg > 0 ? componentScrap.kg : 0,
         runningHours: 8 + Number(overtimeHours || 0),
         overtimeHours: Number(overtimeHours || 0),
         downtimeHours: 0,
@@ -3956,7 +3955,6 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
             targetQuantity: (targetCartons || it.targetCartons || 100) * conversionFactors.pcsPerCarton,
             actualQuantity: it.quantityPcs,
             scrapQuantity: itemScrap > 0 ? itemScrap : 0,
-            processScrapKg: itemScrapKg > 0 ? itemScrapKg : 0,
             runningHours: 8 + Number(overtimeHours || 0),
             remarks: `${it.cartons} Cartons (${it.gross} Gross) — Customer: ${activeCust} (SOC: ${activeSocNo}) | OT: ${overtimeHours}h${itemScrap > 0 ? ` | Part Rejection: ${itemScrap} PCS (${itemScrapKg} KG)` : ''}${itSpokeRemark}`,
           };

@@ -235,7 +235,7 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
 
       <Modal
         open={internalOpen && phase === 'confirm'}
-        zIndex={2500}
+        zIndex={70000}
         title={
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <div

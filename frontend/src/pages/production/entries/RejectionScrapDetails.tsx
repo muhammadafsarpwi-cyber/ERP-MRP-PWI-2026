@@ -148,14 +148,14 @@ const RejectionScrapDetails: React.FC<RejectionScrapDetailsProps> = ({ seed, bui
         />
         <MetricTile
           testId="part-reject"
-          label="Part Reject (پارٹ ریجیکٹ)"
+          label="Part Reject"
           value={`${kgFixed(totals.partRejectKg)} KG`}
           tone={totals.partRejectKg > 0 ? '#f43f5e' : undefined}
           hint="Product Rejection Pieces"
         />
         <MetricTile
           testId="process-scrap"
-          label="Process Scrap (اسکریپ)"
+          label="Process Scrap"
           value={`${kgFixed(totals.processScrapKg)} KG`}
           tone={totals.processScrapKg > 0 ? '#0ea5e9' : undefined}
           hint="Cutting, Wire & Packing Waste"
@@ -271,11 +271,11 @@ const RejectionScrapDetails: React.FC<RejectionScrapDetailsProps> = ({ seed, bui
                 </span>
                 <span>
                   <span style={{ display: 'inline-block', width: 9, height: 9, borderRadius: 2, background: '#f43f5e', marginRight: 5 }} />
-                  Part Reject (پارٹ ریجیکٹ)
+                  Part Reject
                 </span>
                 <span>
                   <span style={{ display: 'inline-block', width: 9, height: 9, borderRadius: 2, background: '#0ea5e9', marginRight: 5 }} />
-                  Process Scrap (اسکریپ)
+                  Process Scrap
                 </span>
               </div>
             </>
