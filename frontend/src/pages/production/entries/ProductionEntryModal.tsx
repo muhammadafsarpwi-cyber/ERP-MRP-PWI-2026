@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Space, Button, Tooltip, Popconfirm, Tag, Modal, message } from 'antd';
+import { Space, Button, Tooltip, Popconfirm, Tag, Modal, message, theme, Grid } from 'antd';
 import {
   MinusOutlined,
   FullscreenOutlined,
@@ -11,12 +11,17 @@ import {
   ExclamationCircleFilled,
   DeleteOutlined,
   ReloadOutlined,
+  BarChartOutlined,
 } from '@ant-design/icons';
 import { useEntryDockStore } from './entryDockStore';
 import EntryForm from './EntryForm';
 import './productionEntryModal.css';
 
 export const ProductionEntryModal: React.FC = () => {
+  const { token } = theme.useToken();
+  const screens = Grid.useBreakpoint();
+  const isMobile = !screens.md;
+
   const {
     isOpen,
     isMinimized,
@@ -81,29 +86,95 @@ export const ProductionEntryModal: React.FC = () => {
           {/* ── Window Header Bar ── */}
           <div className="entry-window-header">
             <div className="entry-window-title-group">
-              <div className="entry-window-icon-badge">
+              <div
+                className="entry-window-icon-badge"
+                style={{
+                  width: isMobile ? 32 : 38,
+                  height: isMobile ? 32 : 38,
+                  backgroundColor: '#ea580c',
+                  color: '#ffffff',
+                  boxShadow: '0 2px 10px rgba(234, 88, 12, 0.4)',
+                }}
+              >
                 <ThunderboltFilled />
               </div>
               <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <h3 className="entry-window-title">{machineLabel}</h3>
-                  <Tag color="var(--theme-accent, #10b981)" style={{ fontWeight: 700, margin: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <h3 className="entry-window-title" style={{ fontSize: isMobile ? 14 : 16 }}>{machineLabel}</h3>
+                  <Tag color="#10b981" style={{ fontWeight: 700, margin: 0 }}>
                     {shiftLabel}
                   </Tag>
                   {dateLabel && (
-                    <Tag style={{ margin: 0, background: 'rgba(255, 255, 255, 0.1)', color: '#e2e8f0', border: 'none' }}>
+                    <Tag style={{ margin: 0, background: 'rgba(255, 255, 255, 0.12)', color: '#ffffff', border: 'none', fontWeight: 600 }}>
                       {dateLabel}
                     </Tag>
                   )}
                 </div>
-                <span className="entry-window-subtitle">
-                  Split Book Entry Workflow • Steps 1 to 8 (Left: Form Entry • Right: Linked Live View)
-                </span>
+                {!isMobile && (
+                  <span className="entry-window-subtitle">
+                    Daily Book Entry • Shift Production & Downtime Logging
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Progression Step Indicator (Steps 1 & 2 -> Step 3 Active) */}
+            <div className="entry-progression-stepper" style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  padding: isMobile ? '2px 7px' : '4px 10px',
+                  borderRadius: 16,
+                  backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                  color: 'rgba(255, 255, 255, 0.75)',
+                  fontWeight: 700,
+                  fontSize: isMobile ? 10 : 11,
+                  userSelect: 'none',
+                }}
+              >
+                <span>{isMobile ? '1 Area' : '1 Shift & Area'}</span>
+              </div>
+              <span style={{ color: 'rgba(255, 255, 255, 0.35)', fontSize: 10 }}>➔</span>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  padding: isMobile ? '2px 7px' : '4px 10px',
+                  borderRadius: 16,
+                  backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                  color: 'rgba(255, 255, 255, 0.75)',
+                  fontWeight: 700,
+                  fontSize: isMobile ? 10 : 11,
+                  userSelect: 'none',
+                }}
+              >
+                <span>{isMobile ? '2 Machines' : '2 Department & Machines'}</span>
+              </div>
+              <span style={{ color: 'rgba(255, 255, 255, 0.35)', fontSize: 10 }}>➔</span>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  padding: isMobile ? '2px 8px' : '4px 12px',
+                  borderRadius: 16,
+                  backgroundColor: '#ea580c',
+                  color: '#ffffff',
+                  fontWeight: 800,
+                  fontSize: isMobile ? 10 : 11.5,
+                  boxShadow: '0 2px 8px rgba(234, 88, 12, 0.45)',
+                  userSelect: 'none',
+                }}
+              >
+                <span>{isMobile ? '3 Feed Details' : '3 Production Details'}</span>
               </div>
             </div>
 
             {/* Window Controls */}
-            <div className="entry-window-controls" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div className="entry-window-controls" style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 5 : 8 }}>
               {/* Refresh Form & Data */}
               <Tooltip title="Refresh Form & Reload Live Data">
                 <button
@@ -118,23 +189,30 @@ export const ProductionEntryModal: React.FC = () => {
                     color: '#38bdf8',
                     cursor: isRefreshing ? 'wait' : 'pointer',
                     fontWeight: 600,
+                    padding: isMobile ? '4px 8px' : '5px 12px',
+                    fontSize: isMobile ? 11 : 12,
                   }}
                 >
                   <ReloadOutlined spin={isRefreshing} />
-                  <span>{isRefreshing ? 'Refreshing…' : 'Refresh'}</span>
+                  <span>{isRefreshing ? '…' : 'Refresh'}</span>
                 </button>
               </Tooltip>
 
               {/* View Details Toggle */}
-              <button
-                type="button"
-                className="entry-window-view-toggle"
-                onClick={toggleLinkedView}
-                title={showLinkedView ? 'Hide Linked Details Panel (Focus Form)' : 'Show Linked Details Panel'}
-              >
-                {showLinkedView ? <EyeInvisibleOutlined /> : <EyeOutlined />}
-                <span>{showLinkedView ? 'Hide Details' : 'View Details'}</span>
-              </button>
+              <Tooltip title={showLinkedView ? 'Hide Live Details' : 'View Live Details'}>
+                <button
+                  type="button"
+                  className="entry-window-view-toggle"
+                  onClick={toggleLinkedView}
+                  style={{
+                    padding: isMobile ? '4px 8px' : '5px 12px',
+                    fontSize: isMobile ? 11 : 12,
+                  }}
+                >
+                  {showLinkedView ? <EyeInvisibleOutlined /> : <EyeOutlined />}
+                  <span>{showLinkedView ? 'Hide Details' : 'View Details'}</span>
+                </button>
+              </Tooltip>
 
               {/* Minimize */}
               <Tooltip title="Minimize to Dock (-)">

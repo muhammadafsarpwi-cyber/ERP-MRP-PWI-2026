@@ -1812,6 +1812,21 @@ const EntryForm: React.FC<EntryFormProps> = ({
     });
   }, [fgMetricFactor, isMeterBased, syncFormRejection]);
 
+  const handleRowPcsChange = useCallback((id: string, val: number | null) => {
+    const pcs = val === null ? null : Math.max(0, Number(val) || 0);
+    setRejectionRows((prev) => {
+      const updated = prev.map((r) => {
+        if (r.id !== id) return r;
+        const derivedKg = (pcs !== null && fgMetricFactor > 0)
+          ? (Math.round(pcs * fgMetricFactor * 1000) / 1000)
+          : null;
+        return { ...r, pcs, kg: derivedKg };
+      });
+      syncFormRejection(updated);
+      return updated;
+    });
+  }, [fgMetricFactor, syncFormRejection]);
+
   // Auto-recalculate bracketed secondary unit yield if item conversion metric factor updates
   useEffect(() => {
     if (fgMetricFactor > 0) {
@@ -3538,7 +3553,7 @@ const EntryForm: React.FC<EntryFormProps> = ({
                   </div>
 
                   {/* Row 1 — Shift Hours · Overtime (OT) · Running Hours · Process Cutting Scrap (KG) [4 equal boxes in 1 line] */}
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 6, alignItems: 'end', marginBottom: 10 }}>
+                  <div className="entry-shift-hours-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 6, alignItems: 'end', marginBottom: 10 }}>
                     {/* 1 — Shift Hours [AUTO] */}
                     <Form.Item
                       label={<span style={figLabelStyle}>Shift Hours <Tag color="default" style={figTagStyle}>{is12HourShift ? '8h Duty' : 'Auto'}</Tag></span>}
@@ -3590,11 +3605,11 @@ const EntryForm: React.FC<EntryFormProps> = ({
                     </Form.Item>
                   </div>
 
-                  {/* Row 2 — Product Rejection [KG | PCS] Multi-Line Breakdown with Add button & Auto Wt/Pc */}
+                  {/* Row 2 — Product Rejection [KG | M / PCS] Multi-Line Breakdown with Add button & Auto Wt/Pc */}
                   <div
                     className="rej-entry-block"
                     style={{
-                      background: 'rgba(15, 23, 42, 0.35)',
+                      background: 'var(--theme-surface-alt, rgba(15, 23, 42, 0.35))',
                       border: '1px solid var(--theme-border, rgba(148, 163, 184, 0.2))',
                       borderRadius: 8,
                       padding: '10px 12px 8px',
@@ -3622,18 +3637,32 @@ const EntryForm: React.FC<EntryFormProps> = ({
                           </Tag>
                         </span>
 
-                        {/* Locked Primary Input: KG badge */}
-                        <Tag color="green" style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', margin: 0, borderRadius: 4 }}>
-                          Input: KG
-                        </Tag>
+                        {/* Interactive Unit Toggle [KG | M] (CCD) or [KG | PCS] (SPD) */}
+                        {!isWeightBased && (
+                          <Segmented
+                            size="small"
+                            value={rejectionUnit === 'KG' ? 'KG' : secondaryUnitLabel}
+                            onChange={(v) => handleRejectionUnitToggle(v as 'KG' | 'PCS' | 'M')}
+                            options={[
+                              { label: 'KG', value: 'KG' },
+                              { label: secondaryUnitLabel, value: secondaryUnitLabel },
+                            ]}
+                            style={{ fontWeight: 700 }}
+                          />
+                        )}
+                        {isWeightBased && (
+                          <Tag color="green" style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', margin: 0, borderRadius: 4 }}>
+                            Input: KG
+                          </Tag>
+                        )}
 
-                        {/* Clearly visible, dynamic read-only Auto Per-Piece / Per-Meter / Per-KG Weight Badge */}
+                        {/* Dynamic read-only Auto Per-Piece / Per-Meter / Per-KG Weight Badge */}
                         <div
                           style={{
                             display: 'inline-flex',
                             alignItems: 'center',
                             gap: 6,
-                            background: 'var(--theme-surface-alt, rgba(30, 41, 59, 0.85))',
+                            background: 'var(--theme-surface, rgba(30, 41, 59, 0.85))',
                             border: '1px solid var(--theme-border-secondary, rgba(148, 163, 184, 0.3))',
                             borderRadius: 6,
                             padding: '3px 8px',
@@ -3684,6 +3713,7 @@ const EntryForm: React.FC<EntryFormProps> = ({
 
                     {/* Column Headers */}
                     <div
+                      className="rej-row-header-grid"
                       style={{
                         display: 'grid',
                         gridTemplateColumns: 'minmax(140px, 175px) minmax(140px, 175px) 1fr 34px',
@@ -3697,20 +3727,20 @@ const EntryForm: React.FC<EntryFormProps> = ({
                           fontSize: 10.5,
                           fontWeight: 700,
                           letterSpacing: '0.05em',
-                          color: '#10b981',
+                          color: rejectionUnit === 'KG' ? '#10b981' : 'var(--theme-text-muted, #94a3b8)',
                         }}
                       >
-                        REJECTION MASS (KG) ★
+                        {rejectionUnit === 'KG' ? 'REJECTION MASS (KG) ★' : 'CALCULATED MASS (KG)'}
                       </span>
                       <span
                         style={{
                           fontSize: 10.5,
                           fontWeight: 700,
                           letterSpacing: '0.05em',
-                          color: 'var(--theme-text-muted, #94a3b8)',
+                          color: rejectionUnit !== 'KG' ? '#10b981' : 'var(--theme-text-muted, #94a3b8)',
                         }}
                       >
-                        CALCULATED YIELD ({secondaryUnitLabel})
+                        {rejectionUnit !== 'KG' ? `REJECTION (${secondaryUnitLabel}) ★` : `CALCULATED YIELD (${secondaryUnitLabel})`}
                       </span>
                       <span
                         style={{
@@ -3728,9 +3758,11 @@ const EntryForm: React.FC<EntryFormProps> = ({
                     {/* Rejection Rows List */}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                       {rejectionRows.map((row) => {
+                        const isKgActive = rejectionUnit === 'KG';
                         return (
                           <div
                             key={row.id}
+                            className="rej-row-grid"
                             style={{
                               display: 'grid',
                               gridTemplateColumns: 'minmax(140px, 175px) minmax(140px, 175px) 1fr 34px',
@@ -3740,23 +3772,51 @@ const EntryForm: React.FC<EntryFormProps> = ({
                           >
                             {/* Primary Input locked entirely to KG */}
                             <div>
-                              <InputNumber
-                                controls={false}
-                                style={{ width: '100%', fontWeight: 700 }}
-                                min={0}
-                                step={0.01}
-                                precision={3}
-                                placeholder="0.000"
-                                addonAfter="KG"
-                                value={row.kg ?? undefined}
-                                onChange={(val) => handleRowKgChange(row.id, val)}
-                                className={
-                                  row.kg !== null && row.kg !== undefined && row.kg > 0
-                                    ? 'erp-field-filled'
-                                    : 'erp-field-unfilled'
-                                }
-                              />
-                              {toNum(row.kg) > 0 && (
+                              {isKgActive ? (
+                                <InputNumber
+                                  controls={false}
+                                  style={{ width: '100%', fontWeight: 700 }}
+                                  min={0}
+                                  step={0.01}
+                                  precision={3}
+                                  placeholder="0.000"
+                                  addonAfter="KG"
+                                  aria-label="Product Rejection (KG)"
+                                  value={row.kg ?? undefined}
+                                  onChange={(val) => handleRowKgChange(row.id, val)}
+                                  className={
+                                    row.kg !== null && row.kg !== undefined && row.kg > 0
+                                      ? 'erp-field-filled'
+                                      : 'erp-field-unfilled'
+                                  }
+                                />
+                              ) : (
+                                <div
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    height: 32,
+                                    background: 'var(--theme-surface-alt, rgba(30, 41, 59, 0.5))',
+                                    border: '1px solid var(--theme-border-secondary, rgba(148, 163, 184, 0.2))',
+                                    borderRadius: 6,
+                                    padding: '0 8px',
+                                    fontSize: 12,
+                                    fontWeight: 700,
+                                    color: toNum(row.kg) > 0 ? '#10b981' : 'var(--theme-text-muted, #94a3b8)',
+                                    whiteSpace: 'nowrap',
+                                  }}
+                                >
+                                  {toNum(row.kg) > 0 ? (
+                                    <span>
+                                      <strong style={{ color: 'var(--theme-text)' }}>{formatNumber(row.kg, 3)} KG</strong>
+                                    </span>
+                                  ) : (
+                                    <span style={{ color: 'var(--theme-text-muted, #94a3b8)' }}>—</span>
+                                  )}
+                                </div>
+                              )}
+                              {toNum(row.kg) > 0 && isKgActive && (
                                 <div style={{ marginTop: 3, fontSize: 11, fontWeight: 700, color: 'var(--theme-text)' }}>
                                   <strong>{formatNumber(row.kg, 3)} KG</strong>{' '}
                                   {!isWeightBased && fgMetricFactor > 0 ? (
@@ -3768,37 +3828,61 @@ const EntryForm: React.FC<EntryFormProps> = ({
                               )}
                             </div>
 
-                            {/* Automated Bracketed Secondary Yield Display */}
+                            {/* Secondary Unit Input (Meters / Pieces) */}
                             <div>
-                              <div
-                                style={{
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  height: 32,
-                                  background: 'var(--theme-surface-alt, rgba(30, 41, 59, 0.5))',
-                                  border: '1px solid var(--theme-border-secondary, rgba(148, 163, 184, 0.2))',
-                                  borderRadius: 6,
-                                  padding: '0 8px',
-                                  fontSize: 12,
-                                  fontWeight: 700,
-                                  color: toNum(row.kg) > 0 ? '#10b981' : 'var(--theme-text-muted, #94a3b8)',
-                                  whiteSpace: 'nowrap',
-                                }}
-                              >
-                                {toNum(row.kg) > 0 && fgMetricFactor > 0 && !isWeightBased ? (
-                                  <span>
-                                    <strong style={{ color: 'var(--theme-text)' }}>{formatNumber(row.kg, 3)} KG</strong>{' '}
-                                    <span style={{ color: '#10b981' }}>
-                                      ({formatNumber(toNum(row.kg) / fgMetricFactor, isMeterBased ? 2 : 0)} {secondaryUnitLabel})
+                              {!isKgActive ? (
+                                <InputNumber
+                                  controls={false}
+                                  style={{ width: '100%', fontWeight: 700 }}
+                                  min={0}
+                                  step={isMeterBased ? 0.1 : 1}
+                                  placeholder="0"
+                                  addonAfter={secondaryUnitLabel}
+                                  aria-label={`Product Rejection (${secondaryUnitLabel})`}
+                                  value={row.pcs ?? undefined}
+                                  onChange={(val) => handleRowPcsChange(row.id, val)}
+                                  className={
+                                    row.pcs !== null && row.pcs !== undefined && row.pcs > 0
+                                      ? 'erp-field-filled'
+                                      : 'erp-field-unfilled'
+                                  }
+                                />
+                              ) : (
+                                <div
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    height: 32,
+                                    background: 'var(--theme-surface-alt, rgba(30, 41, 59, 0.5))',
+                                    border: '1px solid var(--theme-border-secondary, rgba(148, 163, 184, 0.2))',
+                                    borderRadius: 6,
+                                    padding: '0 8px',
+                                    fontSize: 12,
+                                    fontWeight: 700,
+                                    color: toNum(row.pcs) > 0 ? '#10b981' : 'var(--theme-text-muted, #94a3b8)',
+                                    whiteSpace: 'nowrap',
+                                  }}
+                                >
+                                  {toNum(row.pcs) > 0 && fgMetricFactor > 0 && !isWeightBased ? (
+                                    <span>
+                                      <strong style={{ color: 'var(--theme-text)' }}>{formatNumber(row.pcs, isMeterBased ? 2 : 0)} {secondaryUnitLabel}</strong>
                                     </span>
+                                  ) : (
+                                    <span style={{ color: 'var(--theme-text-muted, #94a3b8)', fontWeight: 500 }}>
+                                      {toNum(row.kg) > 0 && isWeightBased ? <strong>{formatNumber(row.kg, 3)} KG</strong> : '—'}
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                              {toNum(row.pcs) > 0 && !isKgActive && (
+                                <div style={{ marginTop: 3, fontSize: 11, fontWeight: 700, color: 'var(--theme-text)' }}>
+                                  <strong>{formatNumber(row.pcs, isMeterBased ? 2 : 0)} {secondaryUnitLabel}</strong>{' '}
+                                  <span style={{ color: '#10b981' }}>
+                                    ({formatNumber(row.kg ?? 0, 3)} KG)
                                   </span>
-                                ) : (
-                                  <span style={{ color: 'var(--theme-text-muted, #94a3b8)', fontWeight: 500 }}>
-                                    {toNum(row.kg) > 0 && isWeightBased ? <strong>{formatNumber(row.kg, 3)} KG</strong> : '—'}
-                                  </span>
-                                )}
-                              </div>
+                                </div>
+                              )}
                             </div>
 
                             {/* Rejection Remarks AutoComplete */}
