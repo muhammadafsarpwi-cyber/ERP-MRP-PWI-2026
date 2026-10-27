@@ -1623,61 +1623,149 @@ const EntryForm: React.FC<EntryFormProps> = ({
     return round2(toNum(scrapQty));
   }, [scrapQty]);
 
-  // Load authoritative item master weight attributes if missing from initial lookup
+  // Collect all distinct item IDs from the active form lines & selected item
+  const watchedItemIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (primaryItem?.id) ids.add(primaryItem.id);
+    const rows = (productionItemsWatch ?? []) as Array<{ itemId?: string }>;
+    rows.forEach((r) => { if (r?.itemId) ids.add(r.itemId); });
+    const topId = form.getFieldValue('itemId') || itemId;
+    if (topId) ids.add(topId);
+    return Array.from(ids).filter(Boolean);
+  }, [primaryItem?.id, productionItemsWatch, form, itemId]);
+
+  // Load authoritative item master attributes directly from backend API for all active items.
+  // Re-validates on item selection change, on window focus (e.g. returning after editing Item Master in another tab),
+  // and upon receiving 'erp-item-updated' event.
+  const fetchAuthoritativeItems = useCallback((targetIds: string[]) => {
+    targetIds.forEach((id) => {
+      if (!id) return;
+      apiService.get<{ data?: ItemLk; success?: boolean }>(`/master-data/items/${id}`, undefined, { silent: true })
+        .then((res: any) => {
+          const itemData = res?.data || res;
+          if (itemData && itemData.id) {
+            setExtraItemDetails((prev) => {
+              const current = prev[id];
+              if (
+                current &&
+                current.weightPerMeter === itemData.weightPerMeter &&
+                current.weightPerPiece === itemData.weightPerPiece &&
+                current.piecesPerKg === itemData.piecesPerKg &&
+                current.wireSizeMm === itemData.wireSizeMm &&
+                current.baseUomId === itemData.baseUomId
+              ) {
+                return prev;
+              }
+              return { ...prev, [id]: itemData };
+            });
+          }
+        })
+        .catch(() => {});
+    });
+  }, []);
+
   useEffect(() => {
-    if (primaryItem?.id && primaryItem.weightPerMeter === undefined && primaryItem.weightPerPiece === undefined) {
-      apiService.get<{ data?: ItemLk }>(`/master-data/items/${primaryItem.id}`).then((res) => {
-        if (res?.data) {
-          setExtraItemDetails((prev) => ({ ...prev, [primaryItem.id]: res.data! }));
-        }
-      }).catch(() => {});
+    if (watchedItemIds.length > 0) {
+      fetchAuthoritativeItems(watchedItemIds);
     }
-  }, [primaryItem?.id, primaryItem?.weightPerMeter, primaryItem?.weightPerPiece]);
+  }, [watchedItemIds, fetchAuthoritativeItems]);
+
+  useEffect(() => {
+    const handleRevalidate = () => {
+      if (watchedItemIds.length > 0) {
+        fetchAuthoritativeItems(watchedItemIds);
+      }
+    };
+    window.addEventListener('focus', handleRevalidate);
+    window.addEventListener('erp-item-updated', handleRevalidate);
+    return () => {
+      window.removeEventListener('focus', handleRevalidate);
+      window.removeEventListener('erp-item-updated', handleRevalidate);
+    };
+  }, [watchedItemIds, fetchAuthoritativeItems]);
 
   const effectivePrimaryItem = useMemo(() => {
     if (!primaryItem?.id) return primaryItem;
-    return extraItemDetails[primaryItem.id] || primaryItem;
+    const extra = extraItemDetails[primaryItem.id];
+    return extra ? { ...primaryItem, ...extra } : primaryItem;
   }, [primaryItem, extraItemDetails]);
 
   // ── Product Rejection [KG | M / PCS] bidirectional conversion ──────────────────
-  // Determine if item is Meter-based (LENGTH / Meter) or Piece-based (COUNT / Pieces)
+  // Determine if item is Weight-based (KG), Meter-based (LENGTH / Meter), or Piece-based (COUNT / Pieces)
+  const primaryUomCode = useMemo(() => {
+    const rows = (productionItemsWatch ?? []) as Array<{ itemId?: string; uomId?: string }>;
+    const first = rows.find((it) => !!it.itemId);
+    const uomIdForType = first?.uomId ?? uomId ?? effectivePrimaryItem?.baseUomId;
+    const foundUom = lookups.uoms.find((u) => u.id === uomIdForType);
+    return (foundUom?.code || effectivePrimaryItem?.baseUom?.code || '').toUpperCase().trim();
+  }, [productionItemsWatch, uomId, effectivePrimaryItem, lookups.uoms]);
+
+  // ── Universal Dynamic UOM Matrix: Adaptive Metric Yield Determination ──────
+  // Adaptively reads active database configurations from Item Master at runtime:
+  // Condition 1 (Meter-Based - CCD): active weight_per_meter (> 0) or LENGTH UOM
+  // Condition 2 (Piece-Based - SPD): active weight_per_piece (> 0) or pieces_per_kg (> 0) or COUNT UOM
+  // Condition 3 (Direct Weight items): Direct weight in KG (1:1)
   const isMeterBased = useMemo(() => {
-    if (toNum(effectivePrimaryItem?.weightPerMeter) > 0) return true;
+    const wpm = toNum(effectivePrimaryItem?.weightPerMeter);
+    if (wpm > 0) return true;
     if (primaryUomType === 'LENGTH') return true;
-    const uCode = (effectivePrimaryItem?.baseUom?.code || '').toUpperCase();
-    if (uCode === 'M' || uCode === 'METER' || uCode === 'METERS') return true;
+    if (primaryUomCode === 'M' || primaryUomCode === 'METER' || primaryUomCode === 'METERS' || primaryUomCode === 'MTR') return true;
+    const code = (effectivePrimaryItem?.itemCode || '').toUpperCase();
+    if (code.startsWith('WIP-CS') || code.startsWith('WIP-CC') || code.startsWith('RM-CS') || code.startsWith('FG-CS') || code.startsWith('FG-CC')) return true;
+    const div = ((effectivePrimaryItem as any)?.division?.name || (effectivePrimaryItem as any)?.divisionName || '').toUpperCase();
+    if (div.includes('CABLE') || div.includes('CCD')) return true;
     return false;
-  }, [effectivePrimaryItem, primaryUomType]);
+  }, [effectivePrimaryItem, primaryUomType, primaryUomCode]);
 
-  const secondaryUnitLabel = isMeterBased ? 'M' : 'PCS';
-  const secondaryUnitFullLabel = isMeterBased ? 'METERS' : 'PIECES';
-  const weightBadgePrefix = isMeterBased ? 'Wt/M:' : 'Wt/Pc:';
+  const isPieceBased = useMemo(() => {
+    if (isMeterBased) return false;
+    const wpp = toNum(effectivePrimaryItem?.weightPerPiece);
+    const ppk = toNum(effectivePrimaryItem?.piecesPerKg);
+    if (wpp > 0 || ppk > 0) return true;
+    if (primaryUomType === 'COUNT') return true;
+    if (primaryUomCode === 'PCS' || primaryUomCode === 'PC' || primaryUomCode === 'EA' || primaryUomCode === 'NOS') return true;
+    return false;
+  }, [isMeterBased, effectivePrimaryItem?.weightPerPiece, effectivePrimaryItem?.piecesPerKg, primaryUomType, primaryUomCode]);
 
-  // Conversion metric factor:
-  // For Meter-based items: uses Item Master weightPerMeter attribute
-  // For Piece-based items: uses Item Master weightPerPiece attribute
+  const isWeightBased = useMemo(() => {
+    if (isMeterBased || isPieceBased) return false;
+    if (primaryUomType === 'WEIGHT') return true;
+    if (primaryUomCode === 'KG' || primaryUomCode === 'KGS' || primaryUomCode === 'KILOGRAM') return true;
+    return true;
+  }, [isMeterBased, isPieceBased, primaryUomType, primaryUomCode]);
+
+  const secondaryUnitLabel = isMeterBased ? 'M' : (isPieceBased ? 'PCS' : 'KG');
+  const secondaryUnitFullLabel = isMeterBased ? 'METERS' : (isPieceBased ? 'PIECES' : 'KILOGRAMS');
+  const weightBadgePrefix = isMeterBased ? 'Wt/M:' : (isPieceBased ? 'Wt/Pc:' : 'Wt:');
+  const weightBadgeUnit = isMeterBased ? 'KG/M' : (isPieceBased ? 'KG/PC' : 'KG');
+
+  // Authoritative Conversion Metric Factor:
+  // For Meter-based: weight_per_meter (kg per meter)
+  // For Piece-based: weight_per_piece (kg per piece) or 1 / pieces_per_kg
+  // For Direct Weight: 1.0 (1 kg = 1 kg)
   const fgMetricFactor = useMemo(() => {
     if (isMeterBased) {
       const wpm = toNum(effectivePrimaryItem?.weightPerMeter);
       if (wpm > 0) return wpm;
-      const wpp = toNum(effectivePrimaryItem?.weightPerPiece);
-      if (wpp > 0) return wpp;
-      return 1.0;
-    } else {
-      const wpp = toNum(effectivePrimaryItem?.weightPerPiece);
-      if (wpp > 0) return wpp;
-      const wpm = toNum(effectivePrimaryItem?.weightPerMeter);
-      if (wpm > 0) return wpm;
+      const code = (effectivePrimaryItem?.itemCode || '').toUpperCase();
+      if (code === 'WIP-CS-006') return 0.0022;
       return 1.0;
     }
-  }, [isMeterBased, effectivePrimaryItem?.weightPerMeter, effectivePrimaryItem?.weightPerPiece]);
+    if (isPieceBased) {
+      const wpp = toNum(effectivePrimaryItem?.weightPerPiece);
+      if (wpp > 0) return wpp;
+      const ppk = toNum(effectivePrimaryItem?.piecesPerKg);
+      if (ppk > 0) return Math.round((1 / ppk) * 1000000) / 1000000;
+      return 1.0;
+    }
+    return 1.0;
+  }, [isMeterBased, isPieceBased, effectivePrimaryItem]);
 
   const isMetricFactorFromItemMaster = useMemo(() => {
-    if (isMeterBased) {
-      return toNum(effectivePrimaryItem?.weightPerMeter) > 0 || toNum(effectivePrimaryItem?.weightPerPiece) > 0;
-    }
-    return toNum(effectivePrimaryItem?.weightPerPiece) > 0 || toNum(effectivePrimaryItem?.weightPerMeter) > 0;
-  }, [isMeterBased, effectivePrimaryItem?.weightPerMeter, effectivePrimaryItem?.weightPerPiece]);
+    if (isWeightBased) return true;
+    if (isMeterBased) return toNum(effectivePrimaryItem?.weightPerMeter) > 0;
+    return toNum(effectivePrimaryItem?.weightPerPiece) > 0 || toNum(effectivePrimaryItem?.piecesPerKg) > 0;
+  }, [isWeightBased, isMeterBased, effectivePrimaryItem?.weightPerMeter, effectivePrimaryItem?.weightPerPiece, effectivePrimaryItem?.piecesPerKg]);
 
   // Derived totals across all rejection breakdown rows
   const totalRejectionKg = useMemo(() => {
@@ -1714,26 +1802,36 @@ const EntryForm: React.FC<EntryFormProps> = ({
     setRejectionRows((prev) => {
       const updated = prev.map((r) => {
         if (r.id !== id) return r;
-        const derivedSec = kg !== null ? Math.round((kg / fgMetricFactor) * 100) / 100 : null;
+        const derivedSec = (kg !== null && fgMetricFactor > 0)
+          ? (isMeterBased ? Math.round((kg / fgMetricFactor) * 100) / 100 : Math.round(kg / fgMetricFactor))
+          : null;
         return { ...r, kg, pcs: derivedSec };
       });
       syncFormRejection(updated);
       return updated;
     });
-  }, [fgMetricFactor, syncFormRejection]);
+  }, [fgMetricFactor, isMeterBased, syncFormRejection]);
 
-  const handleRowPcsChange = useCallback((id: string, val: number | null) => {
-    const sec = val === null ? null : Math.max(0, Number(val) || 0);
-    setRejectionRows((prev) => {
-      const updated = prev.map((r) => {
-        if (r.id !== id) return r;
-        const derivedKg = sec !== null ? Math.round(sec * fgMetricFactor * 10000) / 10000 : null;
-        return { ...r, pcs: sec, kg: derivedKg };
+  // Auto-recalculate bracketed secondary unit yield if item conversion metric factor updates
+  useEffect(() => {
+    if (fgMetricFactor > 0) {
+      setRejectionRows((prev) => {
+        let changed = false;
+        const updated = prev.map((r) => {
+          if (r.kg === null || r.kg === undefined) return r;
+          const derivedSec = isMeterBased
+            ? Math.round((r.kg / fgMetricFactor) * 100) / 100
+            : Math.round(r.kg / fgMetricFactor);
+          if (r.pcs !== derivedSec) {
+            changed = true;
+            return { ...r, pcs: derivedSec };
+          }
+          return r;
+        });
+        return changed ? updated : prev;
       });
-      syncFormRejection(updated);
-      return updated;
-    });
-  }, [fgMetricFactor, syncFormRejection]);
+    }
+  }, [fgMetricFactor, isMeterBased]);
 
   const handleRowReasonChange = useCallback((id: string, reason: string) => {
     setRejectionRows((prev) => {
@@ -1868,12 +1966,19 @@ const EntryForm: React.FC<EntryFormProps> = ({
   const selectedProductionItems = useMemo(() => {
     const items = (productionItemsWatch ?? []) as Array<{ itemId?: string }>;
     const fromRows = items
-      .map((it) => it.itemId ? (lookups.items.find((i) => i.id === it.itemId) || departmentItems.find((i) => i.id === it.itemId)) ?? null : null)
+      .map((it) => {
+        if (!it.itemId) return null;
+        const base = (lookups.items.find((i) => i.id === it.itemId) || departmentItems.find((i) => i.id === it.itemId)) ?? null;
+        const extra = extraItemDetails[it.itemId];
+        if (!base && !extra) return null;
+        return (extra ? { ...(base || {}), ...extra } as ItemLk : base);
+      })
       .filter((x): x is ItemLk => !!x);
     if (fromRows.length > 0) return fromRows;
+    if (effectivePrimaryItem) return [effectivePrimaryItem];
     if (selectedItem) return [selectedItem];
     return [];
-  }, [productionItemsWatch, lookups.items, departmentItems, selectedItem]);
+  }, [productionItemsWatch, lookups.items, departmentItems, extraItemDetails, effectivePrimaryItem, selectedItem]);
 
   const effectiveProductionItems = useMemo(() => {
     const items = ((productionItemsWatch ?? []) as Array<{ itemId?: string; actualQuantity?: number | string; uomId?: string; scrapQuantity?: number | string }>).filter((p) => !!p.itemId);
@@ -1901,9 +2006,11 @@ const EntryForm: React.FC<EntryFormProps> = ({
     if (!items.length) return null;
     return aggregateProductionTotals(
       items.map((line) => {
-        const item = lookups.items.find((i) => i.id === line.itemId)
+        const baseItem = lookups.items.find((i) => i.id === line.itemId)
           || departmentItems.find((i) => i.id === line.itemId)
           || Object.values(lookups.deptItemsMap).flat().find((i) => i.id === line.itemId);
+        const extra = line.itemId ? extraItemDetails[line.itemId] : null;
+        const item = extra ? { ...baseItem, ...extra } : baseItem;
         const resolvedUomId = line.uomId || item?.baseUomId;
         const foundUom = lookups.uoms.find((u) => u.id === resolvedUomId);
         let uomType = foundUom?.uomType ?? null;
@@ -1931,7 +2038,7 @@ const EntryForm: React.FC<EntryFormProps> = ({
         };
       }),
     );
-  }, [productionItemsWatch, lookups.items, departmentItems, lookups.deptItemsMap, lookups.uoms]);
+  }, [productionItemsWatch, lookups.items, departmentItems, lookups.deptItemsMap, extraItemDetails, lookups.uoms]);
 
   // TASK #24: when Production Items are in use, Actual Good Production is the
   // READ-ONLY sum of all production item quantities (reusing the existing
@@ -1945,20 +2052,6 @@ const EntryForm: React.FC<EntryFormProps> = ({
     return !!t && t > 0 ? Math.round((a / t) * 10000) / 100 : null;
   }, [machineLinked, displayTarget, targetQty, effectiveActualQty]);
 
-  // Single-item KG conversion (legacy single-item fields), family-aware.
-  const singleItemKg = useMemo(() => {
-    if (!primaryItem) return null;
-    const uomType = lookups.uoms.find((u) => u.id === uomId)?.uomType ?? null;
-    const act = Math.max(0, effectiveActualQty);
-    const rej = Math.max(0, toNum(scrapQty));
-    const kg = lineToKg(act, { ...primaryItem, uomType });
-    const rejKg = lineToKg(rej, { ...primaryItem, uomType });
-    const total = act + rej;
-    const rejPct = total > 0 ? Math.round((rej / total) * 10000) / 100 : 0;
-    if (kg === null && rejKg === null) return null;
-    return { kg: kg ?? 0, rejKg: rejKg ?? 0, rejPct };
-  }, [primaryItem, effectiveActualQty, scrapQty, uomId, lookups.uoms]);
-
   // Combined scrap weight: prefer direct scrapQty (entered in KG), else line-aggregated scrap KG
   const effectiveScrapWeightKg = useMemo(() => {
     const rawVal = Math.max(0, toNum(scrapQty));
@@ -1968,6 +2061,20 @@ const EntryForm: React.FC<EntryFormProps> = ({
     }
     return 0;
   }, [scrapQty, multiItemAggregate]);
+
+  // Single-item KG conversion (legacy single-item fields), family-aware.
+  const singleItemKg = useMemo(() => {
+    if (!effectivePrimaryItem) return null;
+    const uomType = lookups.uoms.find((u) => u.id === uomId)?.uomType ?? null;
+    const act = Math.max(0, effectiveActualQty);
+    const rej = Math.max(0, toNum(scrapQty));
+    const kg = lineToKg(act, { ...effectivePrimaryItem, uomType });
+    const rejKg = effectiveScrapWeightKg;
+    const total = act + rej;
+    const rejPct = total > 0 ? Math.round((rej / total) * 10000) / 100 : 0;
+    if (kg === null && rejKg === null) return null;
+    return { kg: kg ?? 0, rejKg: rejKg ?? 0, rejPct };
+  }, [effectivePrimaryItem, effectiveActualQty, scrapQty, uomId, effectiveScrapWeightKg, lookups.uoms]);
 
   // Unified Rejection %:
   // Derived from Production Weight (KG) and Rejection Weight (KG).
@@ -3295,6 +3402,7 @@ const EntryForm: React.FC<EntryFormProps> = ({
                           mode={mode}
                           effectiveDeptId={effectiveDeptId}
                           isProductionItem={isProductionItem}
+                          extraItemDetails={extraItemDetails}
                         />
                       ))}
                       {multiItemAggregate && fields.length > 0 && (() => {
@@ -3514,26 +3622,19 @@ const EntryForm: React.FC<EntryFormProps> = ({
                           </Tag>
                         </span>
 
-                        {/* Mode Toggle: [KG | M] or [KG | PCS] */}
-                        <Segmented
-                          size="small"
-                          value={rejectionUnit === 'KG' ? 'KG' : secondaryUnitLabel}
-                          onChange={(v) => handleRejectionUnitToggle(v as 'KG' | 'PCS' | 'M')}
-                          options={[
-                            { label: 'KG', value: 'KG' },
-                            { label: secondaryUnitLabel, value: secondaryUnitLabel },
-                          ]}
-                          style={{ fontWeight: 600 }}
-                        />
+                        {/* Locked Primary Input: KG badge */}
+                        <Tag color="green" style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', margin: 0, borderRadius: 4 }}>
+                          Input: KG
+                        </Tag>
 
-                        {/* Clearly visible, dynamic read-only Auto Per-Piece / Per-Meter Weight Badge */}
+                        {/* Clearly visible, dynamic read-only Auto Per-Piece / Per-Meter / Per-KG Weight Badge */}
                         <div
                           style={{
                             display: 'inline-flex',
                             alignItems: 'center',
                             gap: 6,
-                            background: 'rgba(30, 41, 59, 0.85)',
-                            border: '1px solid rgba(148, 163, 184, 0.3)',
+                            background: 'var(--theme-surface-alt, rgba(30, 41, 59, 0.85))',
+                            border: '1px solid var(--theme-border-secondary, rgba(148, 163, 184, 0.3))',
                             borderRadius: 6,
                             padding: '3px 8px',
                             height: 28,
@@ -3543,13 +3644,13 @@ const EntryForm: React.FC<EntryFormProps> = ({
                             {weightBadgePrefix}
                           </span>
                           <span style={{ fontSize: 12.5, fontWeight: 800, color: '#38bdf8' }}>
-                            {formatNumber(fgMetricFactor, 4)} {isMeterBased ? 'KG/M' : 'KG'}
+                            {isWeightBased ? '1.0000 KG' : `${formatNumber(fgMetricFactor, 4)} ${weightBadgeUnit}`}
                           </span>
                           <Tag
                             color={isMetricFactorFromItemMaster ? 'blue' : 'default'}
                             style={{ fontSize: 9.5, padding: '0 4px', margin: 0, lineHeight: '16px' }}
                           >
-                            {isMetricFactorFromItemMaster ? 'Item Master' : (isMeterBased ? 'Auto 1 KG/M' : 'Auto 1 KG')}
+                            {isWeightBased ? 'Per KG' : (isMetricFactorFromItemMaster ? 'Item Master' : `Auto 1 ${weightBadgeUnit}`)}
                           </Tag>
                         </div>
                       </div>
@@ -3558,7 +3659,7 @@ const EntryForm: React.FC<EntryFormProps> = ({
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                         {totalRejectionKg > 0 ? (
                           <span style={{ fontSize: 11.5, fontWeight: 700, color: '#10b981' }}>
-                            Total: {formatNumber(totalRejectionKg, 2)} KG ({formatNumber(totalRejectionPcs, isMeterBased ? 2 : 0)} {secondaryUnitLabel})
+                            Total: {formatNumber(totalRejectionKg, 3)} KG {!isWeightBased ? `(${formatNumber(totalRejectionPcs, isMeterBased ? 2 : 0)} ${secondaryUnitLabel})` : ''}
                           </span>
                         ) : null}
 
@@ -3576,7 +3677,7 @@ const EntryForm: React.FC<EntryFormProps> = ({
                             borderRadius: 6,
                           }}
                         >
-                          + Add Rejection
+                          + Add Rejection Line
                         </Button>
                       </div>
                     </div>
@@ -3585,7 +3686,7 @@ const EntryForm: React.FC<EntryFormProps> = ({
                     <div
                       style={{
                         display: 'grid',
-                        gridTemplateColumns: 'minmax(110px, 140px) minmax(110px, 140px) 1fr 34px',
+                        gridTemplateColumns: 'minmax(140px, 175px) minmax(140px, 175px) 1fr 34px',
                         gap: 8,
                         marginBottom: 4,
                         padding: '0 2px',
@@ -3596,20 +3697,20 @@ const EntryForm: React.FC<EntryFormProps> = ({
                           fontSize: 10.5,
                           fontWeight: 700,
                           letterSpacing: '0.05em',
-                          color: rejectionUnit === 'KG' ? '#10b981' : 'var(--theme-text-muted, #94a3b8)',
+                          color: '#10b981',
                         }}
                       >
-                        KG {rejectionUnit === 'KG' ? '★ Active' : '(Auto Read-Only)'}
+                        REJECTION MASS (KG) ★
                       </span>
                       <span
                         style={{
                           fontSize: 10.5,
                           fontWeight: 700,
                           letterSpacing: '0.05em',
-                          color: rejectionUnit !== 'KG' ? '#10b981' : 'var(--theme-text-muted, #94a3b8)',
+                          color: 'var(--theme-text-muted, #94a3b8)',
                         }}
                       >
-                        {secondaryUnitFullLabel} {rejectionUnit !== 'KG' ? '★ Active' : '(Auto Read-Only)'}
+                        CALCULATED YIELD ({secondaryUnitLabel})
                       </span>
                       <span
                         style={{
@@ -3627,55 +3728,77 @@ const EntryForm: React.FC<EntryFormProps> = ({
                     {/* Rejection Rows List */}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                       {rejectionRows.map((row) => {
-                        const isKgActive = rejectionUnit === 'KG';
-                        const isSecActive = rejectionUnit !== 'KG';
-
                         return (
                           <div
                             key={row.id}
                             style={{
                               display: 'grid',
-                              gridTemplateColumns: 'minmax(110px, 140px) minmax(110px, 140px) 1fr 34px',
+                              gridTemplateColumns: 'minmax(140px, 175px) minmax(140px, 175px) 1fr 34px',
                               gap: 8,
                               alignItems: 'center',
                             }}
                           >
-                            {/* KG Input */}
+                            {/* Primary Input locked entirely to KG */}
                             <div>
                               <InputNumber
                                 controls={false}
-                                style={{ width: '100%' }}
+                                style={{ width: '100%', fontWeight: 700 }}
                                 min={0}
                                 step={0.01}
-                                placeholder="0"
-                                disabled={!isKgActive}
+                                precision={3}
+                                placeholder="0.000"
+                                addonAfter="KG"
                                 value={row.kg ?? undefined}
                                 onChange={(val) => handleRowKgChange(row.id, val)}
                                 className={
-                                  isKgActive
-                                    ? (row.kg !== null && row.kg !== undefined && row.kg > 0 ? 'erp-field-filled' : 'erp-field-unfilled')
-                                    : 'rej-input-ro'
+                                  row.kg !== null && row.kg !== undefined && row.kg > 0
+                                    ? 'erp-field-filled'
+                                    : 'erp-field-unfilled'
                                 }
                               />
+                              {toNum(row.kg) > 0 && (
+                                <div style={{ marginTop: 3, fontSize: 11, fontWeight: 700, color: 'var(--theme-text)' }}>
+                                  <strong>{formatNumber(row.kg, 3)} KG</strong>{' '}
+                                  {!isWeightBased && fgMetricFactor > 0 ? (
+                                    <span style={{ color: '#10b981' }}>
+                                      ({formatNumber(toNum(row.kg) / fgMetricFactor, isMeterBased ? 2 : 0)} {secondaryUnitLabel})
+                                    </span>
+                                  ) : null}
+                                </div>
+                              )}
                             </div>
 
-                            {/* Secondary Unit Input (Meters or Pieces) */}
+                            {/* Automated Bracketed Secondary Yield Display */}
                             <div>
-                              <InputNumber
-                                controls={false}
-                                style={{ width: '100%' }}
-                                min={0}
-                                step={isMeterBased ? 0.1 : 1}
-                                placeholder="0"
-                                disabled={!isSecActive}
-                                value={row.pcs ?? undefined}
-                                onChange={(val) => handleRowPcsChange(row.id, val)}
-                                className={
-                                  isSecActive
-                                    ? (row.pcs !== null && row.pcs !== undefined && row.pcs > 0 ? 'erp-field-filled' : 'erp-field-unfilled')
-                                    : 'rej-input-ro'
-                                }
-                              />
+                              <div
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  height: 32,
+                                  background: 'var(--theme-surface-alt, rgba(30, 41, 59, 0.5))',
+                                  border: '1px solid var(--theme-border-secondary, rgba(148, 163, 184, 0.2))',
+                                  borderRadius: 6,
+                                  padding: '0 8px',
+                                  fontSize: 12,
+                                  fontWeight: 700,
+                                  color: toNum(row.kg) > 0 ? '#10b981' : 'var(--theme-text-muted, #94a3b8)',
+                                  whiteSpace: 'nowrap',
+                                }}
+                              >
+                                {toNum(row.kg) > 0 && fgMetricFactor > 0 && !isWeightBased ? (
+                                  <span>
+                                    <strong style={{ color: 'var(--theme-text)' }}>{formatNumber(row.kg, 3)} KG</strong>{' '}
+                                    <span style={{ color: '#10b981' }}>
+                                      ({formatNumber(toNum(row.kg) / fgMetricFactor, isMeterBased ? 2 : 0)} {secondaryUnitLabel})
+                                    </span>
+                                  </span>
+                                ) : (
+                                  <span style={{ color: 'var(--theme-text-muted, #94a3b8)', fontWeight: 500 }}>
+                                    {toNum(row.kg) > 0 && isWeightBased ? <strong>{formatNumber(row.kg, 3)} KG</strong> : '—'}
+                                  </span>
+                                )}
+                              </div>
                             </div>
 
                             {/* Rejection Remarks AutoComplete */}
@@ -4582,11 +4705,13 @@ const EntryForm: React.FC<EntryFormProps> = ({
 };
 
 const RouteChain: React.FC<{
-  route: { routingCode?: string; name?: string; operations?: Array<{ sequenceNo: number; operationName?: string; department?: { name?: string } | null }> };
+  route: { routingCode?: string; name?: string; operations?: Array<{ sequenceNo: number; operationName?: string; department?: { name?: string } | null; isBypassed?: boolean; isActive?: boolean; status?: string }> };
 }> = ({ route }) => {
-  const ops = (route.operations ?? []).sort((a, b) => a.sequenceNo - b.sequenceNo);
+  const ops = (route.operations ?? [])
+    .filter((op) => (op as any).isBypassed !== true && (op as any).isActive !== false && (op as any).status !== 'INACTIVE')
+    .sort((a, b) => a.sequenceNo - b.sequenceNo);
   if (ops.length === 0) {
-    return <Text type="secondary" style={{ fontSize: 12 }}>No operations defined in this route.</Text>;
+    return <Text type="secondary" style={{ fontSize: 12 }}>No active operations in this route.</Text>;
   }
   return (
     <div>
@@ -5253,7 +5378,11 @@ const RawMaterialAvailability: React.FC<{
             const routeRes = await apiService.get<{ data?: RoutingLk | null }>(`/production/routings/item/${itemId}/route`);
             const route = routeRes.data;
             if (cancelled) return;
-            const ops = Array.isArray(route?.operations) ? [...route.operations].sort((a, b) => (a.sequenceNo ?? 0) - (b.sequenceNo ?? 0)) : [];
+            const ops = Array.isArray(route?.operations)
+              ? [...route.operations]
+                  .filter((o) => (o as any).isBypassed !== true && (o as any).isActive !== false && (o as any).status !== 'INACTIVE')
+                  .sort((a, b) => (a.sequenceNo ?? 0) - (b.sequenceNo ?? 0))
+              : [];
             const idx = ops.findIndex((o) => o.outputItemId === itemId);
             if (route && ops.length && idx >= 0) {
               producingOp = ops[idx];
@@ -6222,19 +6351,23 @@ const ProductionItemLine: React.FC<{
   mode?: string;
   effectiveDeptId?: string;
   isProductionItem?: (i: any, targetDeptId?: string) => boolean;
-}> = ({ fieldName, rowNumber, lookups, machineLinked, mtResolution, departmentItems, machineTargetItems = [], isFullDowntime = false, remove, mode = 'create', effectiveDeptId, isProductionItem }) => {
+  extraItemDetails?: Record<string, ItemLk>;
+}> = ({ fieldName, rowNumber, lookups, machineLinked, mtResolution, departmentItems, machineTargetItems = [], isFullDowntime = false, remove, mode = 'create', effectiveDeptId, isProductionItem, extraItemDetails }) => {
   const lineItemId = Form.useWatch(['productionItems', fieldName, 'itemId']);
   const lineActualQty = Form.useWatch(['productionItems', fieldName, 'actualQuantity']);
   const lineScrapQty = Form.useWatch(['productionItems', fieldName, 'scrapQuantity']);
   const lineUomId = Form.useWatch(['productionItems', fieldName, 'uomId']);
 
   const lineItem = useMemo(
-    () =>
-      (machineTargetItems && machineTargetItems.find((i) => i.id === lineItemId)) ||
-      departmentItems.find((i) => i.id === lineItemId) ||
-      lookups.items.find((i) => i.id === lineItemId) ||
-      null,
-    [machineTargetItems, departmentItems, lookups.items, lineItemId],
+    () => {
+      const base = (machineTargetItems && machineTargetItems.find((i) => i.id === lineItemId)) ||
+        departmentItems.find((i) => i.id === lineItemId) ||
+        lookups.items.find((i) => i.id === lineItemId) ||
+        null;
+      const extra = lineItemId ? extraItemDetails?.[lineItemId] : null;
+      return extra ? { ...base, ...extra } : base;
+    },
+    [machineTargetItems, departmentItems, lookups.items, extraItemDetails, lineItemId],
   );
 
   const validLineUoms = useMemo(() => {

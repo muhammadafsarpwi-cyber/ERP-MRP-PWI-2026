@@ -25,8 +25,8 @@ export const databaseConfig = (
     logging: configService.get<string>('DB_LOGGING', 'false') === 'true',
     migrations: [__dirname + '/../database/migrations/*{.ts,.js}'],
     connectTimeoutMS: 15000,
-    retryAttempts: 999999,
-    retryDelay: 5000,
+    retryAttempts: Number(process.env.DB_RETRY_ATTEMPTS || (process.env.NODE_ENV === 'production' ? 10 : 5)),
+    retryDelay: Number(process.env.DB_RETRY_DELAY || 3000),
     keepConnectionAlive: true,
     extra: {
       ssl: sslConfig,

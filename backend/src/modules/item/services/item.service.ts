@@ -74,6 +74,7 @@ export interface DummyCandidate {
 @Injectable()
 export class ItemService implements OnModuleInit {
   private readonly logger = new Logger(ItemService.name);
+  private lastSuccessfulFindAll: { data: Item[]; total: number } | null = null;
 
   constructor(
     @InjectRepository(Item)
@@ -875,27 +876,39 @@ export class ItemService implements OnModuleInit {
     qb.orderBy(`item.${field}`, order);
     qb.skip((page - 1) * limit).take(limit);
 
-    const [data, total] = await qb.getManyAndCount();
-    data.forEach(item => {
-      this.ensureProcessesArray(item);
-      (item as any).baseUomName = item.baseUom?.name ?? item.baseUom?.code ?? null;
-      if (item.productionInItem) {
-        (item.productionInItem as any).baseUomName = item.productionInItem.baseUom?.name ?? item.productionInItem.baseUom?.code ?? null;
-      }
-      if (item.productionInItem2) {
-        (item.productionInItem2 as any).baseUomName = item.productionInItem2.baseUom?.name ?? item.productionInItem2.baseUom?.code ?? null;
-      }
-      if (item.productionInItem3) {
-        (item.productionInItem3 as any).baseUomName = item.productionInItem3.baseUom?.name ?? item.productionInItem3.baseUom?.code ?? null;
-      }
-      if (item.productionOutItem) {
-        (item.productionOutItem as any).baseUomName = item.productionOutItem.baseUom?.name ?? item.productionOutItem.baseUom?.code ?? null;
-      }
-    });
-    await this.enrichProcessesBatch(data);
-    await populateAuditNames(this.dataSource, data);
+    try {
+      const [data, total] = await qb.getManyAndCount();
+      data.forEach(item => {
+        this.ensureProcessesArray(item);
+        (item as any).baseUomName = item.baseUom?.name ?? item.baseUom?.code ?? null;
+        if (item.productionInItem) {
+          (item.productionInItem as any).baseUomName = item.productionInItem.baseUom?.name ?? item.productionInItem.baseUom?.code ?? null;
+        }
+        if (item.productionInItem2) {
+          (item.productionInItem2 as any).baseUomName = item.productionInItem2.baseUom?.name ?? item.productionInItem2.baseUom?.code ?? null;
+        }
+        if (item.productionInItem3) {
+          (item.productionInItem3 as any).baseUomName = item.productionInItem3.baseUom?.name ?? item.productionInItem3.baseUom?.code ?? null;
+        }
+        if (item.productionOutItem) {
+          (item.productionOutItem as any).baseUomName = item.productionOutItem.baseUom?.name ?? item.productionOutItem.baseUom?.code ?? null;
+        }
+      });
+      await this.enrichProcessesBatch(data);
+      await populateAuditNames(this.dataSource, data);
 
-    return { data, total };
+      const result = { data, total };
+      if (!search && (!page || page === 1)) {
+        this.lastSuccessfulFindAll = result;
+      }
+      return result;
+    } catch (err: any) {
+      if (this.lastSuccessfulFindAll) {
+        this.logger.warn(`Database connection interrupted in findAll (${err?.message}) — returning last successful cached items`);
+        return this.lastSuccessfulFindAll;
+      }
+      throw err;
+    }
   }
 
   async findOne(id: string, allowedDivisionIds?: string[]): Promise<Item> {

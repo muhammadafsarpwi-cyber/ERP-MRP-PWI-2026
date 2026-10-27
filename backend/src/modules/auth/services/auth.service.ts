@@ -268,7 +268,7 @@ export class AuthService {
       fs.writeFileSync(filePath, buffer);
     } catch {}
 
-    const avatarUrl = `data:${dto.mime};base64,${dto.data}`;
+    const avatarUrl = `/uploads/avatars/${authUserId}/${filename}`;
     const saved = await this.userService.setAvatarUrl(authUserId, avatarUrl);
     const permissions = await this.permissionMatrixService.getUserPermissions(saved.id);
 

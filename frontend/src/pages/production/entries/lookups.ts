@@ -116,6 +116,7 @@ export function useLookups() {
       if (snap.sections.length > 0) setSections(snap.sections as Section[]);
       if (snap.departments.length > 0) setDepartments(snap.departments as Department[]);
       if (snap.items.length > 0) setItems(snap.items as ItemLk[]);
+      if (snap.deptItemsMap) setDeptItemsMap(snap.deptItemsMap as Record<string, ItemLk[]>);
       if (snap.uoms.length > 0) setUoms(snap.uoms as UomLk[]);
       if (snap.uomConversions.length > 0) setUomConversions(snap.uomConversions as UomConversionLk[]);
       if (snap.shifts.length > 0) setShifts(snap.shifts as ShiftLk[]);
@@ -186,10 +187,12 @@ export function useLookups() {
   }, []);
 
   /** Dynamically loads items for a specific department (strictly WIP and RM) and caches them */
-  const loadDepartmentItems = useCallback(async (departmentId: string, itemTypes = 'WORK_IN_PROGRESS,RAW_MATERIAL,WIP,RM'): Promise<ItemLk[]> => {
+  const loadDepartmentItems = useCallback(async (departmentId: string, itemTypes = 'WORK_IN_PROGRESS,RAW_MATERIAL,WIP,RM', forceRefresh = false): Promise<ItemLk[]> => {
     if (!departmentId) return [];
-    const cached = getCachedDepartmentItems(departmentId) || deptItemsMap[departmentId];
-    if (cached && cached.length > 0) return cached as ItemLk[];
+    if (!forceRefresh) {
+      const cached = getCachedDepartmentItems(departmentId) || deptItemsMap[departmentId];
+      if (cached && cached.length > 0) return cached as ItemLk[];
+    }
     setDeptItemsLoading((prev) => ({ ...prev, [departmentId]: true }));
     try {
       const fetched = await fetchList<ItemLk>('/master-data/items', {

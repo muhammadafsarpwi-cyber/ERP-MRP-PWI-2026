@@ -5,6 +5,7 @@ import {
   IsEnum,
   IsNumber,
   MaxLength,
+  NotContains,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { DocumentType } from '../entities/item-document.entity';
@@ -31,6 +32,7 @@ export class CreateItemDocumentDto {
   @IsString()
   @IsNotEmpty()
   @MaxLength(1000)
+  @NotContains('data:image', { message: 'Raw base64 images cannot be stored in the database. Upload to Storage bucket first and provide static URL.' })
   fileUrl: string;
 
   @ApiPropertyOptional({ description: 'File size in bytes' })

@@ -713,7 +713,7 @@ export const buildChainGrid = (
   itemNames?: Record<string, string>,
 ): ChainGrid => {
   const declaredRows = def.rows.filter(
-    (r) => typeof r.itemCode === 'string' && r.itemCode.trim() !== '',
+    (r) => typeof r.itemCode === 'string' && r.itemCode.trim() !== '' && !(r as any).isBypassed && !(r as any).isInactive,
   );
 
   const emptySummary: ChainSummary = {

@@ -339,8 +339,10 @@ export class ErpUserService {
     return this.userRepository.save(user);
   }
 
-  /** Persist the avatar URL for the user resolved by their auth id. */
   async setAvatarUrl(authUserId: string, avatarUrl: string | null, actorUserId?: string): Promise<ErpUser> {
+    if (avatarUrl && avatarUrl.startsWith('data:image')) {
+      throw new BadRequestException('Raw base64 images cannot be stored in the database. Use static URL pointers.');
+    }
     const user = await this.findByAuthUserId(authUserId);
     if (!user) {
       throw new NotFoundException('User not found');
@@ -375,6 +377,9 @@ export class ErpUserService {
   }
 
   async setUserAvatarById(id: string, avatarUrl: string | null, actorUserId?: string): Promise<ErpUser> {
+    if (avatarUrl && avatarUrl.startsWith('data:image')) {
+      throw new BadRequestException('Raw base64 images cannot be stored in the database. Use static URL pointers.');
+    }
     const user = await this.findOne(id);
     user.avatarUrl = avatarUrl;
     user.updatedBy = actorUserId ?? user.id;

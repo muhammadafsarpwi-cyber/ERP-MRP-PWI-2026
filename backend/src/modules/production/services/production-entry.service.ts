@@ -228,8 +228,14 @@ export function calcActualKg(
 ): number | null {
   const u = (uomCode || '').toUpperCase().trim();
   if (UOM_WEIGHT.has(u)) return Math.round(actualQuantity * 10000) / 10000;
-  if (UOM_LENGTH.has(u)) return weightPerMeter == null ? null : Math.round(actualQuantity * weightPerMeter * 10000) / 10000;
-  if (UOM_COUNT.has(u)) return weightPerPiece == null ? null : Math.round(actualQuantity * weightPerPiece * 10000) / 10000;
+  // Condition 1: Meter-Based Products (active weight_per_meter or LENGTH UOM)
+  if (UOM_LENGTH.has(u) || (weightPerMeter != null && Number(weightPerMeter) > 0)) {
+    return weightPerMeter == null ? null : Math.round(actualQuantity * Number(weightPerMeter) * 10000) / 10000;
+  }
+  // Condition 2: Piece-Based Products (active weight_per_piece or COUNT UOM)
+  if (UOM_COUNT.has(u) || (weightPerPiece != null && Number(weightPerPiece) > 0)) {
+    return weightPerPiece == null ? null : Math.round(actualQuantity * Number(weightPerPiece) * 10000) / 10000;
+  }
   return null;
 }
 

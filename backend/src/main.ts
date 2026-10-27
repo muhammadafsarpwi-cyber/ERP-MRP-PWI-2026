@@ -24,6 +24,8 @@ async function bootstrap() {
     index: false,
     dotfiles: 'deny',
     fallthrough: false,
+    maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days client cache
+    immutable: true,
   });
 
   // Global validation pipe

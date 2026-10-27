@@ -155,13 +155,23 @@ export function lineToKg(quantity: number | string | null | undefined, item: KgC
   const wpm = toNum2(item?.weightPerMeter);
   const wpp = toNum2(item?.weightPerPiece);
   const ppk = toNum2(item?.piecesPerKg);
+
   if (family === 'WEIGHT' || uomCode === 'KG') return round6(q);
-  if (family === 'LENGTH' || uomCode === 'M' || uomCode === 'METER') return wpm > 0 ? round6(q * wpm) : null;
-  if (family === 'COUNT' || uomCode === 'PCS' || uomCode === 'EA') {
+
+  // Condition 1: Meter-based items (CCD / Spiral / Outer Casing)
+  // If item contains active weightPerMeter configuration (> 0) or LENGTH UOM
+  if (wpm > 0 || family === 'LENGTH' || uomCode === 'M' || uomCode === 'METER' || uomCode === 'METERS' || uomCode === 'MTR') {
+    return wpm > 0 ? round6(q * wpm) : null;
+  }
+
+  // Condition 2: Piece-based items (SPD / Spokes / Nipples)
+  // If item contains active weightPerPiece (> 0) or piecesPerKg (> 0) or COUNT UOM
+  if (wpp > 0 || ppk > 0 || family === 'COUNT' || uomCode === 'PCS' || uomCode === 'PC' || uomCode === 'EA' || uomCode === 'NOS') {
     if (wpp > 0) return round6(q * wpp);
     if (ppk > 0) return round6(q / ppk);
     return null;
   }
+
   return null;
 }
 

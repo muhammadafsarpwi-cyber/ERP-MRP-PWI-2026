@@ -189,6 +189,10 @@ if (-not $SkipBackend) {
     if (Test-TcpPort -Port 3001) {
         $results.Backend = "PASS"
         Write-Host "[SKIP] Backend check skipped, port 3001 is listening" -ForegroundColor Yellow
+    } else {
+        $results.Backend = "SKIPPED"
+        $results.API = "SKIPPED"
+        Write-Host "[SKIP] Backend startup bypassed (-SkipBackend specified)" -ForegroundColor Yellow
     }
 }
 
@@ -277,9 +281,17 @@ Write-Host "    Health:    http://localhost:3001/api/v1/health" -ForegroundColor
 Write-Host "================================================" -ForegroundColor White
 Write-Host ""
 
-$allPass = ($results.Frontend -eq "PASS") -and ($results.Backend -eq "PASS")
+$backendOk = ($results.Backend -eq "PASS") -or ($SkipBackend -and ($results.Backend -eq "SKIPPED" -or $results.Backend -eq "PASS"))
+$frontendOk = ($results.Frontend -eq "PASS") -or ($SkipFrontend -and ($results.Frontend -eq "SKIPPED" -or $results.Frontend -eq "PASS"))
+$allPass = $backendOk -and $frontendOk
 if ($allPass) {
-    Write-Host "RESULT: PASS" -ForegroundColor Green
+    if ($SkipBackend) {
+        Write-Host "RESULT: PASS (Frontend Bypass Mode)" -ForegroundColor Green
+    } elseif ($SkipFrontend) {
+        Write-Host "RESULT: PASS (Backend Only Mode)" -ForegroundColor Green
+    } else {
+        Write-Host "RESULT: PASS" -ForegroundColor Green
+    }
 } else {
     Write-Host "RESULT: FAIL" -ForegroundColor Red
 }

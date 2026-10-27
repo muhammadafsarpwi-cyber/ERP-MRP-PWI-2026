@@ -48,7 +48,7 @@ import InputMaterialSelect, { registerItemsInCache } from './items/InputMaterial
 import ProductionFlowCard, { StageBlock } from './items/ProductionFlowCard';
 import { buildRouteFlow, findRouteCycles, normalizeRouteRows, type RouteRow, type RouteStageSource } from './items/productionRoute';
 import { tabSessionCache, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
-import { getLookupsSnapshot } from '../../services/lookupsCache';
+import { getLookupsSnapshot, invalidateLookupsCache, prefetchAllLookups } from '../../services/lookupsCache';
 import { useHeaderActions, type HeaderAction } from '../../components/layout/headerActionsStore';
 import './itemManagement.css';
 
@@ -1307,16 +1307,27 @@ const ItemManagement: React.FC = () => {
         if (list.length === 0 && nextTotal > 0 && queryState.page > 1) setPage(1);
       } catch (err: any) {
         if (seq !== fetchSeqRef.current) return;
-        const raw = err?.response?.data?.message;
-        const errorText: string =
-          (Array.isArray(raw) ? raw.join('; ') : raw) ||
-          describeRequestError(err) ||
-          'Failed to load items. Please try again.';
-        // Never present a stale/unfiltered dataset as a successful filter run.
-        setItems([]);
-        setTotal(0);
-        setError(errorText);
-        messageRef.current?.error(`Could not load items — ${errorText}`);
+        const prevSnapshot = tabSessionCache.get<ItemMasterCache>(ITEM_CACHE_KEY);
+        const lookupsItems = getLookupsSnapshot().items;
+        const fallbackList = (prevSnapshot?.items && prevSnapshot.items.length > 0)
+          ? prevSnapshot.items
+          : (lookupsItems && lookupsItems.length > 0 ? (lookupsItems as any) : []);
+
+        if (fallbackList.length > 0) {
+          setItems(fallbackList);
+          setTotal(prevSnapshot?.total || fallbackList.length);
+          messageRef.current?.warning('Displaying cached items (server connection recovering...)');
+        } else {
+          setItems([]);
+          setTotal(0);
+          const raw = err?.response?.data?.message;
+          const errorText: string =
+            (Array.isArray(raw) ? raw.join('; ') : raw) ||
+            describeRequestError(err) ||
+            'Failed to load items. Please try again.';
+          setError(errorText);
+          messageRef.current?.error(`Could not load items — ${errorText}`);
+        }
       } finally {
         if (seq === fetchSeqRef.current) {
           setLoading(false);
@@ -2190,6 +2201,13 @@ const ItemManagement: React.FC = () => {
         savedItemName = data.name || savedItemName;
       }
 
+      // Immediately invalidate lookups cache and prefetch so Production Entry & other tabs reflect changes
+      invalidateLookupsCache();
+      prefetchAllLookups(true).catch(() => {});
+      try {
+        window.dispatchEvent(new CustomEvent('erp-item-updated', { detail: { id: editing?.id, itemCode: savedItemCode } }));
+      } catch {}
+
       setResultData({
         title: editing ? 'Item Updated Successfully' : 'Item Saved Successfully',
         message: editing
@@ -2227,6 +2245,8 @@ const ItemManagement: React.FC = () => {
     if (resultPhase === 'success') {
       setFormOpen(false);
       form.resetFields();
+      invalidateLookupsCache();
+      prefetchAllLookups(true).catch(() => {});
       fetchItems({ force: true });
     }
   };
@@ -2239,6 +2259,11 @@ const ItemManagement: React.FC = () => {
     try {
       await apiService.patch(`/master-data/items/${record.id}/${action}`);
       message.success(`Item ${record.itemCode} ${action}d`);
+      invalidateLookupsCache();
+      prefetchAllLookups(true).catch(() => {});
+      try {
+        window.dispatchEvent(new CustomEvent('erp-item-updated', { detail: { id: record.id, itemCode: record.itemCode } }));
+      } catch {}
       fetchItems({ force: true });
     } catch (err: any) {
       message.error(err?.response?.data?.message || `Failed to ${action} item`);
@@ -2249,6 +2274,11 @@ const ItemManagement: React.FC = () => {
     try {
       await apiService.delete(`/master-data/items/${record.id}`);
       message.success(`Item ${record.itemCode} deleted`);
+      invalidateLookupsCache();
+      prefetchAllLookups(true).catch(() => {});
+      try {
+        window.dispatchEvent(new CustomEvent('erp-item-updated', { detail: { id: record.id } }));
+      } catch {}
       fetchItems({ force: true });
     } catch (err: any) {
       message.error(err?.response?.data?.message || 'Failed to delete item');
