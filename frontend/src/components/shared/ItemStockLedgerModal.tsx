@@ -5,6 +5,7 @@ import {
   ReloadOutlined, DownloadOutlined, ArrowUpOutlined, ArrowDownOutlined,
   SearchOutlined, FileTextOutlined, ApartmentOutlined,
   MinusOutlined, FullscreenOutlined, FullscreenExitOutlined, CloseOutlined,
+  PrinterOutlined, FilePdfOutlined, WhatsAppOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
@@ -12,6 +13,7 @@ import apiService from '../../services/api';
 import { formatNumber } from '../../utils/numberFormat';
 import { formatApiError } from '../../utils/apiError';
 import { useThemeStore } from '../../theme/themeStore';
+import { exportItemLedgerPdf, printItemLedger, shareItemLedgerWhatsApp, cleanRemarks } from '../../utils/itemLedgerExport';
 
 const { Text } = Typography;
 
@@ -85,6 +87,14 @@ export const ItemStockLedgerModal: React.FC<ItemStockLedgerModalProps> = ({
   useEffect(() => {
     setSelectedWarehouseId(warehouseId);
   }, [warehouseId]);
+
+  const selectedWarehouseName = useMemo(() => {
+    if (!selectedWarehouseId) return 'All Warehouses';
+    if (selectedWarehouseId === '2f6aabde-69c1-4068-a0ea-b0fe1b8fb0b5') return 'SPI FG Dispatch Warehouse';
+    if (selectedWarehouseId === 'cf5c9db8-5e84-41d5-a4b4-988b8dfd122d') return 'SPI Nipple Packing Warehouse';
+    if (selectedWarehouseId === 'a70e0a7e-2ffa-47e4-83a9-c894d9dff41b') return 'SPL Spoke Plating Dept';
+    return warehouseName || 'Warehouse';
+  }, [selectedWarehouseId, warehouseName]);
 
   const isDark = useThemeStore((state) => state.draft.mode === 'dark');
 
@@ -169,11 +179,20 @@ export const ItemStockLedgerModal: React.FC<ItemStockLedgerModalProps> = ({
 
   const activeItemCode = data?.item?.itemCode || itemCode || '';
   const currentUom = (data?.item?.uomCode || 'PCS').toUpperCase();
-  const isFgItem = currentUom === 'PCS' || currentUom === 'GRS' || activeItemCode.toUpperCase().startsWith('SPI-FG');
+  const isFgItem =
+    currentUom === 'PCS' ||
+    currentUom === 'GRS' ||
+    currentUom === 'PIECES' ||
+    currentUom === 'NO' ||
+    currentUom === 'NOS' ||
+    activeItemCode.toUpperCase().startsWith('SPI-FG') ||
+    activeItemCode.toUpperCase().startsWith('FG-') ||
+    activeItemCode.toUpperCase().includes('SPK') ||
+    activeItemCode.toUpperCase().includes('NP');
 
   const formatUnitBreakdown = useCallback((rawQty: number) => {
     if (!isFgItem) return null;
-    const isPcs = currentUom === 'PCS';
+    const isPcs = currentUom !== 'GRS';
     let pcs = 0;
     let gross = 0;
     if (isPcs) {
@@ -192,17 +211,17 @@ export const ItemStockLedgerModal: React.FC<ItemStockLedgerModalProps> = ({
 
     const absGross = Math.abs(gross);
     const roundCartons = Math.round(cartons);
-    const fmtGrs = absGross % 1 === 0 ? formatNumber(gross, 0) : formatNumber(gross, 2);
-    const fmtCtn = formatNumber(roundCartons, 0);
-    const fmtPcs = formatNumber(pcs, 0);
+    const fmtCtn = `${formatNumber(roundCartons, 0)} CTN`;
+    const fmtGrs = `${absGross % 1 === 0 ? formatNumber(gross, 0) : formatNumber(gross, 2)} GRS`;
+    const fmtPcs = `${formatNumber(pcs, 0)} PCS`;
 
     return {
       gross,
       cartons: roundCartons,
       pcs,
-      fmtGrs: `${fmtGrs} GRS`,
-      fmtCtn: `${fmtCtn} CTN`,
-      fmtPcs: `${fmtPcs} PCS`,
+      fmtCtn,
+      fmtGrs,
+      fmtPcs,
     };
   }, [isFgItem, currentUom, activeItemCode]);
 
@@ -525,24 +544,29 @@ export const ItemStockLedgerModal: React.FC<ItemStockLedgerModalProps> = ({
       },
     },
     {
-      title: 'Received (+ IN)',
+      title: (
+        <div>
+          <div>Received (+ IN)</div>
+          <div style={{ fontSize: 9.5, fontWeight: 600, color: isDark ? '#34d399' : '#059669' }}>CTN • GRS • PCS</div>
+        </div>
+      ),
       dataIndex: 'inQuantity',
       key: 'inQuantity',
-      width: 140,
+      width: 145,
       align: 'right',
       render: (v: number) => {
         if (!v || v <= 0) return <span style={{ color: isDark ? '#475569' : '#94a3b8' }}>—</span>;
         const conv = formatUnitBreakdown(v);
         if (conv) {
           return (
-            <div style={{ textAlign: 'right', lineHeight: 1.25 }}>
+            <div style={{ textAlign: 'right', lineHeight: 1.2 }}>
               <div style={{ color: isDark ? '#34d399' : '#059669', fontWeight: 800, fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
-                +{conv.fmtGrs}
-              </div>
-              <div style={{ color: isDark ? '#6ee7b7' : '#047857', fontWeight: 700, fontSize: 11, fontVariantNumeric: 'tabular-nums' }}>
                 +{conv.fmtCtn}
               </div>
-              <div style={{ color: isDark ? '#94a3b8' : '#0f172a', fontWeight: 600, fontSize: 10, fontVariantNumeric: 'tabular-nums', marginTop: 1 }}>
+              <div style={{ color: isDark ? '#6ee7b7' : '#047857', fontWeight: 700, fontSize: 10.5, fontVariantNumeric: 'tabular-nums', marginTop: 1 }}>
+                +{conv.fmtGrs}
+              </div>
+              <div style={{ color: isDark ? '#94a3b8' : '#64748b', fontWeight: 600, fontSize: 9.5, fontVariantNumeric: 'tabular-nums', marginTop: 1 }}>
                 +{conv.fmtPcs}
               </div>
             </div>
@@ -556,24 +580,29 @@ export const ItemStockLedgerModal: React.FC<ItemStockLedgerModalProps> = ({
       },
     },
     {
-      title: 'Issued (- OUT)',
+      title: (
+        <div>
+          <div>Issued (- OUT)</div>
+          <div style={{ fontSize: 9.5, fontWeight: 600, color: isDark ? '#f87171' : '#dc2626' }}>CTN • GRS • PCS</div>
+        </div>
+      ),
       dataIndex: 'outQuantity',
       key: 'outQuantity',
-      width: 140,
+      width: 145,
       align: 'right',
       render: (v: number) => {
         if (!v || v <= 0) return <span style={{ color: isDark ? '#475569' : '#94a3b8' }}>—</span>;
         const conv = formatUnitBreakdown(v);
         if (conv) {
           return (
-            <div style={{ textAlign: 'right', lineHeight: 1.25 }}>
+            <div style={{ textAlign: 'right', lineHeight: 1.2 }}>
               <div style={{ color: isDark ? '#f87171' : '#dc2626', fontWeight: 800, fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
-                -{conv.fmtGrs}
-              </div>
-              <div style={{ color: isDark ? '#fca5a5' : '#b91c1c', fontWeight: 700, fontSize: 11, fontVariantNumeric: 'tabular-nums' }}>
                 -{conv.fmtCtn}
               </div>
-              <div style={{ color: isDark ? '#94a3b8' : '#0f172a', fontWeight: 600, fontSize: 10, fontVariantNumeric: 'tabular-nums', marginTop: 1 }}>
+              <div style={{ color: isDark ? '#fca5a5' : '#b91c1c', fontWeight: 700, fontSize: 10.5, fontVariantNumeric: 'tabular-nums', marginTop: 1 }}>
+                -{conv.fmtGrs}
+              </div>
+              <div style={{ color: isDark ? '#94a3b8' : '#64748b', fontWeight: 600, fontSize: 9.5, fontVariantNumeric: 'tabular-nums', marginTop: 1 }}>
                 -{conv.fmtPcs}
               </div>
             </div>
@@ -587,7 +616,12 @@ export const ItemStockLedgerModal: React.FC<ItemStockLedgerModalProps> = ({
       },
     },
     {
-      title: 'Running Balance',
+      title: (
+        <div>
+          <div>Running Balance</div>
+          <div style={{ fontSize: 9.5, fontWeight: 600, color: isDark ? '#38bdf8' : '#0284c7' }}>CTN • GRS • PCS</div>
+        </div>
+      ),
       dataIndex: 'runningBalance',
       key: 'runningBalance',
       width: 175,
@@ -596,12 +630,12 @@ export const ItemStockLedgerModal: React.FC<ItemStockLedgerModalProps> = ({
         const conv = formatUnitBreakdown(v);
         if (conv) {
           return (
-            <div style={{ textAlign: 'right', lineHeight: 1.25 }}>
+            <div style={{ textAlign: 'right', lineHeight: 1.2 }}>
               <div
                 style={{
                   color: isDark ? '#38bdf8' : '#0284c7',
                   fontWeight: 800,
-                  fontSize: 12,
+                  fontSize: 12.5,
                   fontVariantNumeric: 'tabular-nums',
                   background: isDark ? 'rgba(56, 189, 248, 0.12)' : 'rgba(2, 132, 199, 0.08)',
                   padding: '2px 6px',
@@ -610,9 +644,9 @@ export const ItemStockLedgerModal: React.FC<ItemStockLedgerModalProps> = ({
                   display: 'inline-block',
                 }}
               >
-                {conv.fmtGrs} • {conv.fmtCtn}
+                {conv.fmtCtn} • {conv.fmtGrs}
               </div>
-              <div style={{ color: isDark ? '#94a3b8' : '#0f172a', fontWeight: 600, fontSize: 10, fontVariantNumeric: 'tabular-nums', marginTop: 2 }}>
+              <div style={{ color: isDark ? '#94a3b8' : '#64748b', fontWeight: 600, fontSize: 10, fontVariantNumeric: 'tabular-nums', marginTop: 2 }}>
                 {conv.fmtPcs}
               </div>
             </div>
@@ -642,11 +676,27 @@ export const ItemStockLedgerModal: React.FC<ItemStockLedgerModalProps> = ({
       dataIndex: 'notes',
       key: 'notes',
       width: 220,
-      render: (v?: string) => (
-        <span style={{ color: themeColors.subtitleColor, fontSize: 11, wordBreak: 'break-word' }}>
-          {v || '—'}
-        </span>
-      ),
+      render: (v?: string) => {
+        const clean = cleanRemarks(v);
+        return (
+          <Tooltip title={v || '—'} placement="topLeft">
+            <span
+              style={{
+                color: themeColors.subtitleColor,
+                fontSize: 11,
+                display: 'block',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                maxWidth: 210,
+                cursor: 'pointer',
+              }}
+            >
+              {clean}
+            </span>
+          </Tooltip>
+        );
+      },
     },
   ];
 
@@ -804,13 +854,72 @@ export const ItemStockLedgerModal: React.FC<ItemStockLedgerModalProps> = ({
       }
       width={isMaximized ? '98vw' : 'min(92vw, 1180px)'}
       footer={[
-        <Button key="refresh" icon={<ReloadOutlined />} onClick={fetchLedger} loading={loading} style={{ background: themeColors.footerBtnBg, borderColor: themeColors.footerBtnBorder, color: themeColors.footerBtnColor, fontWeight: 600 }}>
-          Refresh
+        <Button
+          key="wa"
+          icon={<WhatsAppOutlined style={{ color: '#25D366' }} />}
+          onClick={() => data && shareItemLedgerWhatsApp(data, selectedWarehouseName)}
+          disabled={!data || loading}
+          style={{
+            background: isDark ? 'rgba(37, 211, 102, 0.12)' : 'rgba(37, 211, 102, 0.08)',
+            borderColor: isDark ? 'rgba(37, 211, 102, 0.35)' : 'rgba(37, 211, 102, 0.35)',
+            color: isDark ? '#4ade80' : '#15803d',
+            fontWeight: 700,
+          }}
+        >
+          WhatsApp
         </Button>,
-        <Button key="csv" icon={<DownloadOutlined />} onClick={exportCsv} disabled={!data || !data.movements.length} style={{ background: themeColors.footerBtnBg, borderColor: themeColors.footerBtnBorder, color: themeColors.footerBtnColor, fontWeight: 600 }}>
+        <Button
+          key="pdf"
+          icon={<FilePdfOutlined style={{ color: '#ef4444' }} />}
+          onClick={() => data && exportItemLedgerPdf(data, selectedWarehouseName)}
+          disabled={!data || loading}
+          style={{
+            background: isDark ? 'rgba(239, 68, 68, 0.12)' : 'rgba(239, 68, 68, 0.08)',
+            borderColor: isDark ? 'rgba(239, 68, 68, 0.35)' : 'rgba(239, 68, 68, 0.35)',
+            color: isDark ? '#f87171' : '#dc2626',
+            fontWeight: 700,
+          }}
+        >
+          PDF
+        </Button>,
+        <Button
+          key="print"
+          icon={<PrinterOutlined style={{ color: isDark ? '#38bdf8' : '#0284c7' }} />}
+          onClick={() => data && printItemLedger(data, selectedWarehouseName)}
+          disabled={!data || loading}
+          style={{
+            background: isDark ? 'rgba(56, 189, 248, 0.12)' : 'rgba(2, 132, 199, 0.08)',
+            borderColor: isDark ? 'rgba(56, 189, 248, 0.35)' : 'rgba(2, 132, 199, 0.35)',
+            color: isDark ? '#38bdf8' : '#0284c7',
+            fontWeight: 700,
+          }}
+        >
+          Print
+        </Button>,
+        <Button
+          key="csv"
+          icon={<DownloadOutlined />}
+          onClick={exportCsv}
+          disabled={!data || !data.movements.length}
+          style={{ background: themeColors.footerBtnBg, borderColor: themeColors.footerBtnBorder, color: themeColors.footerBtnColor, fontWeight: 600 }}
+        >
           Export CSV
         </Button>,
-        <Button key="close" type="primary" onClick={onClose} style={{ background: '#0284c7', borderColor: '#0ea5e9', fontWeight: 700 }}>
+        <Button
+          key="refresh"
+          icon={<ReloadOutlined />}
+          onClick={fetchLedger}
+          loading={loading}
+          style={{ background: themeColors.footerBtnBg, borderColor: themeColors.footerBtnBorder, color: themeColors.footerBtnColor, fontWeight: 600 }}
+        >
+          Refresh
+        </Button>,
+        <Button
+          key="close"
+          type="primary"
+          onClick={onClose}
+          style={{ background: '#0284c7', borderColor: '#0ea5e9', fontWeight: 700 }}
+        >
           Close
         </Button>,
       ]}
@@ -880,7 +989,62 @@ export const ItemStockLedgerModal: React.FC<ItemStockLedgerModalProps> = ({
           </div>
         </Space>
 
-        <Space size="middle" wrap>
+        <Space size="middle" wrap align="center">
+          {/* Executive Document Share & Print Actions */}
+          <Space size="small">
+            <Tooltip title="Share Ledger Summary on WhatsApp">
+              <Button
+                size="small"
+                icon={<WhatsAppOutlined style={{ color: '#25D366' }} />}
+                onClick={() => data && shareItemLedgerWhatsApp(data, selectedWarehouseName)}
+                disabled={!data || loading}
+                style={{
+                  background: isDark ? 'rgba(37, 211, 102, 0.12)' : 'rgba(37, 211, 102, 0.08)',
+                  borderColor: isDark ? 'rgba(37, 211, 102, 0.35)' : 'rgba(37, 211, 102, 0.35)',
+                  color: isDark ? '#4ade80' : '#15803d',
+                  fontWeight: 700,
+                  fontSize: 12,
+                }}
+              >
+                WhatsApp
+              </Button>
+            </Tooltip>
+            <Tooltip title="Export Official PDF Report">
+              <Button
+                size="small"
+                icon={<FilePdfOutlined style={{ color: '#ef4444' }} />}
+                onClick={() => data && exportItemLedgerPdf(data, selectedWarehouseName)}
+                disabled={!data || loading}
+                style={{
+                  background: isDark ? 'rgba(239, 68, 68, 0.12)' : 'rgba(239, 68, 68, 0.08)',
+                  borderColor: isDark ? 'rgba(239, 68, 68, 0.35)' : 'rgba(239, 68, 68, 0.35)',
+                  color: isDark ? '#f87171' : '#dc2626',
+                  fontWeight: 700,
+                  fontSize: 12,
+                }}
+              >
+                PDF
+              </Button>
+            </Tooltip>
+            <Tooltip title="Print Stock Movement Ledger">
+              <Button
+                size="small"
+                icon={<PrinterOutlined style={{ color: isDark ? '#38bdf8' : '#0284c7' }} />}
+                onClick={() => data && printItemLedger(data, selectedWarehouseName)}
+                disabled={!data || loading}
+                style={{
+                  background: isDark ? 'rgba(56, 189, 248, 0.12)' : 'rgba(2, 132, 199, 0.08)',
+                  borderColor: isDark ? 'rgba(56, 189, 248, 0.35)' : 'rgba(2, 132, 199, 0.35)',
+                  color: isDark ? '#38bdf8' : '#0284c7',
+                  fontWeight: 700,
+                  fontSize: 12,
+                }}
+              >
+                Print
+              </Button>
+            </Tooltip>
+          </Space>
+
           <span
             style={{
               padding: '3px 10px',

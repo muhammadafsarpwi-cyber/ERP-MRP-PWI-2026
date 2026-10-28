@@ -11,7 +11,7 @@ import {
   CheckOutlined, UndoOutlined, DatabaseOutlined, CalendarOutlined,
   ToolOutlined, TeamOutlined, ApartmentOutlined, CheckCircleFilled,
   ArrowDownOutlined, ArrowUpOutlined, EyeOutlined, EyeInvisibleOutlined, UserOutlined,
-  EditOutlined, PlusSquareOutlined, MinusSquareOutlined, ShopOutlined,
+  EditOutlined, PlusSquareOutlined, MinusSquareOutlined, ShopOutlined, AppstoreOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import apiService from '../../../services/api';
@@ -207,16 +207,16 @@ const figLabelStyle: React.CSSProperties = {
 };
 const figTagStyle: React.CSSProperties = { fontSize: 9, padding: '0 3px', lineHeight: '14px', margin: 0 };
 const figAutoBoxStyle: React.CSSProperties = {
-  padding: '4px 6px',
+  padding: '6px 10px',
   borderRadius: 6,
   background: 'rgba(100, 116, 139, 0.08)',
   border: '1px solid rgba(100, 116, 139, 0.25)',
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
-  height: 32,
+  height: 38,
   fontWeight: 700,
-  fontSize: 13,
+  fontSize: 13.5,
   color: 'var(--theme-text, #334155)',
 };
 const figRunningBoxStyle: React.CSSProperties = {
@@ -224,7 +224,7 @@ const figRunningBoxStyle: React.CSSProperties = {
   background: 'rgba(59, 130, 246, 0.1)',
   border: '1px solid rgba(59, 130, 246, 0.4)',
   fontWeight: 800,
-  fontSize: 13.5,
+  fontSize: 14,
   color: '#2563eb',
 };
 
@@ -2697,6 +2697,9 @@ const EntryForm: React.FC<EntryFormProps> = ({
   }, [mode, lockedContext, id, ctxIds, navigate, isModal, onCloseModal, saveError]);
 
   const changeSelection = () => {
+    if (isModal && onCloseModal) {
+      onCloseModal();
+    }
     const qs = new URLSearchParams();
     if (ctxIds.entryDate) qs.set('entryDate', ctxIds.entryDate);
     if (ctxIds.shiftId) qs.set('shiftId', ctxIds.shiftId);
@@ -2875,8 +2878,8 @@ const EntryForm: React.FC<EntryFormProps> = ({
         marginBottom: 16,
         borderRadius: 10,
         border: '1px solid var(--theme-border, rgba(255, 255, 255, 0.12))',
-        background: 'var(--theme-surface-alt, #0f172a)',
-        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.25)',
+        background: 'var(--theme-surface, #ffffff)',
+        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.04)',
       }}
       styles={{ body: { padding: '12px 16px' } }}
     >
@@ -3172,60 +3175,123 @@ const EntryForm: React.FC<EntryFormProps> = ({
         {!loadingEntry && (
           <>
             <div className="entry-book-container">
-            {/* ── LEFT PANE: Data Entry Form (Left page of Entry Book) ── */}
+            {/* ── RIGHT PANE: Data Entry Form ── */}
             <div className={`entry-book-form-pane ${!effectiveShowLinked ? 'full-width' : ''}`}>
-              {/* ── STEP 1: Operator ── */}
+              {/* ── UNIFIED STEP 1 & 2: Operator & Store Routing ── */}
               <Card
-                title="Operator"
+                title={
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 700 }}>
+                    <UserOutlined style={{ color: 'var(--theme-primary, #2563eb)' }} />
+                    <span>Operator & Store Flow</span>
+                  </span>
+                }
                 size="small"
-                extra={<Tag color={isStep1Done ? '#16a34a' : '#1d4ed8'} style={{ fontWeight: 700, borderRadius: 12, padding: '2px 10px' }}>{isStep1Done ? <><CheckOutlined style={{ marginRight: 4 }} />STEP 1 OK</> : 'STEP 1'}</Tag>}
+                extra={
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginRight: 4 }}>
+                      <Text style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--theme-text-secondary)' }}>Direct Posting:</Text>
+                      <Form.Item name="postToInventory" valuePropName="checked" noStyle>
+                        <Switch size="small" disabled={!!productionOrderId || mode === 'edit'} />
+                      </Form.Item>
+                    </div>
+                    <Tag color={isStep1Done ? '#16a34a' : '#1d4ed8'} style={{ fontWeight: 700, borderRadius: 12, padding: '1px 8px', margin: 0 }}>
+                      {isStep1Done ? 'Step 1 OK' : 'Step 1'}
+                    </Tag>
+                    <Tag color={isStep2Done ? '#16a34a' : '#1d4ed8'} style={{ fontWeight: 700, borderRadius: 12, padding: '1px 8px', margin: 0 }}>
+                      {isStep2Done ? 'Step 2 OK' : 'Step 2'}
+                    </Tag>
+                  </div>
+                }
               >
-                <Form.Item
-                  name="operatorName"
-                  label="Operator Name"
-                  tooltip="Pick an HR-listed operator to auto-fill their name, or choose Manual to type a name not in HR."
-                  rules={[{ required: true, message: 'Operator name is required' }]}
-                  style={{ marginBottom: 0 }}
-                >
-                  <Select
-                    showSearch
-                    allowClear
-                    loading={lookups.hrEmployeesLoading}
-                    optionFilterProp="label"
-                    placeholder="Select HR operator or type manual name"
-                    notFoundContent={
-                      lookups.hrEmployeesLoading ? (
-                        <div style={{ padding: '8px 12px', textAlign: 'center' }}>
-                          <GlobalLoading spinnerOnly size="small" /> <span style={{ marginLeft: 8 }}>Loading HR operators...</span>
-                        </div>
-                      ) : (
-                        "No HR operators found — type a name to enter manually"
-                      )
-                    }
-                    popupMatchSelectWidth={false}
-                    className={operatorWatch ? 'erp-field-filled' : 'erp-field-unfilled'}
-                    dropdownStyle={{ zIndex: 99999 }}
-                    popupClassName="production-select-popup"
-                    styles={{ popup: { root: { minWidth: 260, maxWidth: '95vw' } } }}
-                    options={operatorOptions}
-                    onChange={(val) => {
-                      form.setFieldsValue({ operatorName: val || undefined });
-                    }}
-                    onSelect={(val) => {
-                      form.setFieldsValue({ operatorName: val });
-                    }}
-                    onSearch={(val) => {
-                      if (val && val.trim().length > 0) {
-                        const matches = operatorOptions.some(
-                          (o) => o.value.toLowerCase() === val.trim().toLowerCase()
-                        );
-                        if (!matches) {
-                          form.setFieldsValue({ operatorName: val.trim() });
-                        }
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
+                  {/* 1. Operator Selection */}
+                  <div>
+                    <Form.Item
+                      name="operatorName"
+                      label={<span style={{ fontSize: 11.5, fontWeight: 600 }}>Operator Name</span>}
+                      rules={[{ required: true, message: 'Operator name is required' }]}
+                      style={{ marginBottom: 0 }}
+                    >
+                      <Select
+                        showSearch
+                        allowClear
+                        loading={lookups.hrEmployeesLoading}
+                        optionFilterProp="label"
+                        placeholder="Select or type operator"
+                        popupMatchSelectWidth={false}
+                        className={operatorWatch ? 'erp-field-filled' : 'erp-field-unfilled'}
+                        dropdownStyle={{ zIndex: 99999 }}
+                        popupClassName="production-select-popup"
+                        styles={{ popup: { root: { minWidth: 260, maxWidth: '95vw' } } }}
+                        options={operatorOptions}
+                        onChange={(val) => {
+                          form.setFieldsValue({ operatorName: val || undefined });
+                        }}
+                        onSelect={(val) => {
+                          form.setFieldsValue({ operatorName: val });
+                        }}
+                        onSearch={(val) => {
+                          if (val && val.trim().length > 0) {
+                            const matches = operatorOptions.some(
+                              (o) => o.value.toLowerCase() === val.trim().toLowerCase()
+                            );
+                            if (!matches) {
+                              form.setFieldsValue({ operatorName: val.trim() });
+                            }
+                          }
+                        }}
+                      />
+                    </Form.Item>
+                  </div>
+
+                  {/* 2. Source Raw Material Warehouse (IN) */}
+                  <div>
+                    <Form.Item
+                      name="rawMaterialWarehouseId"
+                      label={
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 600 }}>
+                          <span style={{ fontSize: 9, fontWeight: 800, padding: '1px 5px', borderRadius: 4, background: 'rgba(16, 185, 129, 0.15)', color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.35)' }}>IN</span>
+                          <span>Source Store (Raw Material)</span>
+                        </span>
                       }
-                    }}
-                  />
-                </Form.Item>
+                      style={{ marginBottom: 0 }}
+                    >
+                      <Select
+                        allowClear showSearch optionFilterProp="label" placeholder="Select Source Warehouse (IN)"
+                        data-testid="raw-source-store-select"
+                        className={rawMatWarehouseWatch ? 'erp-field-filled' : 'erp-field-unfilled'}
+                        dropdownStyle={{ zIndex: 99999 }}
+                        popupClassName="production-select-popup"
+                        options={divisionWarehouses.map((w) => ({ value: w.id, label: `${w.name} (${w.warehouseCode})${w.warehouseType ? ` [${w.warehouseType}]` : ''}` }))}
+                      />
+                    </Form.Item>
+                  </div>
+
+                  {/* 3. Destination Receipt Warehouse (OUT) */}
+                  <div>
+                    <Form.Item
+                      name="warehouseId"
+                      label={
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 600 }}>
+                          <span style={{ fontSize: 9, fontWeight: 800, padding: '1px 5px', borderRadius: 4, background: 'rgba(6, 182, 212, 0.15)', color: '#06b6d4', border: '1px solid rgba(6, 182, 212, 0.35)' }}>OUT</span>
+                          <span>Destination Store (Finished Goods)</span>
+                        </span>
+                      }
+                      rules={mode === 'edit' || isFullDowntime ? [] : [{ required: true, message: 'Receipt Warehouse is required' }]}
+                      style={{ marginBottom: 0 }}
+                    >
+                      <Select
+                        allowClear showSearch placeholder="Select Destination Warehouse (OUT)"
+                        filterOption={(input, option) => String(option?.label ?? '').toLowerCase().includes(input.toLowerCase())}
+                        className={warehouseWatch ? 'erp-field-filled' : 'erp-field-unfilled'}
+                        dropdownStyle={{ zIndex: 99999 }}
+                        popupClassName="production-select-popup"
+                        options={destinationWarehouses.map((w) => ({ value: w.id, label: `${w.name} (${w.warehouseCode})${w.warehouseType ? ` [${w.warehouseType}]` : ''}` }))}
+                      />
+                    </Form.Item>
+                  </div>
+                </div>
+
                 {/* Auto-populated behind the scenes; kept so backend contract is 100% satisfied */}
                 <Form.Item name="supervisorName" noStyle>
                   <Input type="hidden" />
@@ -3233,123 +3299,6 @@ const EntryForm: React.FC<EntryFormProps> = ({
                 <Form.Item name="coilSize" noStyle>
                   <Input type="hidden" />
                 </Form.Item>
-              </Card>
-
-              {/* ── STEP 2: Inventory & Warehouse Material Flow (Make-to-Stock) ── */}
-              <Card
-                title={
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                    <ShopOutlined style={{ color: 'var(--theme-primary, #2563eb)' }} />
-                    <span>Inventory & Warehouse Material Flow (Make-to-Stock)</span>
-                  </span>
-                }
-                size="small"
-                style={{ marginTop: 16 }}
-                extra={<Tag color={isStep2Done ? '#16a34a' : '#1d4ed8'} style={{ fontWeight: 700, borderRadius: 12, padding: '2px 10px' }}>{isStep2Done ? <><CheckOutlined style={{ marginRight: 4 }} />STEP 2 OK</> : 'STEP 2'}</Tag>}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, paddingBottom: 10, borderBottom: '1px solid var(--theme-border, rgba(255, 255, 255, 0.08))' }}>
-                  <div>
-                    <Text strong style={{ fontSize: 13, display: 'block' }}>Direct Stock Posting</Text>
-                    <Text type="secondary" style={{ fontSize: 12 }}>
-                      Automatically deduct consumed raw materials and post completed output to inventory warehouses.
-                    </Text>
-                  </div>
-                  <Form.Item
-                    name="postToInventory"
-                    valuePropName="checked"
-                    style={{ margin: 0 }}
-                    extra={mode === 'edit' ? 'Decided at creation' : undefined}
-                  >
-                    <Switch disabled={!!productionOrderId || mode === 'edit'} />
-                  </Form.Item>
-                </div>
-
-                <div style={{ background: 'var(--theme-surface-alt, #0f172a)', border: '1px solid var(--theme-border, #334155)', borderRadius: 8, padding: 14 }}>
-                  <Row gutter={[16, 12]}>
-                    {/* 1. Inbound: Raw Material Source Warehouse ("IN") */}
-                    <Col xs={24} md={12}>
-                      <Form.Item
-                        name="rawMaterialWarehouseId"
-                        label={
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                            <span
-                              style={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                fontSize: 9.5,
-                                fontWeight: 800,
-                                letterSpacing: '0.5px',
-                                padding: '1px 6px',
-                                borderRadius: 4,
-                                background: 'rgba(16, 185, 129, 0.15)',
-                                color: '#10b981',
-                                border: '1px solid rgba(16, 185, 129, 0.35)',
-                                lineHeight: '13px',
-                              }}
-                            >
-                              IN
-                            </span>
-                            <span style={{ fontWeight: 600 }}>Source Raw Material Warehouse</span>
-                          </span>
-                        }
-                        tooltip="Warehouse from which raw materials are automatically deducted when this entry posts to inventory. Defaults to first ACTIVE RAW MATERIAL store if unassigned."
-                        style={{ marginBottom: 0 }}
-                      >
-                        <Select
-                          allowClear showSearch optionFilterProp="label" placeholder="Select Source Warehouse (IN)"
-                          data-testid="raw-source-store-select"
-                          className={rawMatWarehouseWatch ? 'erp-field-filled' : 'erp-field-unfilled'}
-                          dropdownStyle={{ zIndex: 99999 }}
-                          popupClassName="production-select-popup"
-                          options={divisionWarehouses.map((w) => ({ value: w.id, label: `${w.name} (${w.warehouseCode})${w.warehouseType ? ` [${w.warehouseType}]` : ''}` }))}
-                        />
-                      </Form.Item>
-                    </Col>
-
-                    {/* 2. Outbound: Destination / Receipt Warehouse ("OUT") */}
-                    <Col xs={24} md={12}>
-                      <Form.Item
-                        name="warehouseId"
-                        label={
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                            <span
-                              style={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                fontSize: 9.5,
-                                fontWeight: 800,
-                                letterSpacing: '0.5px',
-                                padding: '1px 6px',
-                                borderRadius: 4,
-                                background: 'rgba(6, 182, 212, 0.15)',
-                                color: '#06b6d4',
-                                border: '1px solid rgba(6, 182, 212, 0.35)',
-                                lineHeight: '13px',
-                              }}
-                            >
-                              OUT
-                            </span>
-                            <span style={{ fontWeight: 600 }}>Destination Finished Goods / Receipt Warehouse</span>
-                          </span>
-                        }
-                        tooltip="Warehouse where completed manufactured products and good output are deposited."
-                        rules={mode === 'edit' || isFullDowntime ? [] : [{ required: true, message: 'Receipt Warehouse is required for stock posting' }]}
-                        style={{ marginBottom: 0 }}
-                      >
-                        <Select
-                          allowClear showSearch placeholder="Select Destination Finished Goods Warehouse (OUT)"
-                          filterOption={(input, option) => String(option?.label ?? '').toLowerCase().includes(input.toLowerCase())}
-                          className={warehouseWatch ? 'erp-field-filled' : 'erp-field-unfilled'}
-                          dropdownStyle={{ zIndex: 99999 }}
-                          popupClassName="production-select-popup"
-                          options={destinationWarehouses.map((w) => ({ value: w.id, label: `${w.name} (${w.warehouseCode})${w.warehouseType ? ` [${w.warehouseType}]` : ''}` }))}
-                        />
-                      </Form.Item>
-                    </Col>
-                  </Row>
-                </div>
               </Card>
 
               {/* ── STEP 3: Production Items ── */}
@@ -3449,53 +3398,120 @@ const EntryForm: React.FC<EntryFormProps> = ({
                               )}
                             </div>
 
-                            {/* Row 1: Actual (50%) & Target (50%) divided equally */}
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, width: '100%' }}>
-                              {/* 1. Actual Production */}
-                              {/* 1. Actual Production */}
-                              <div className="totals-actual-card">
-                                <span style={{ color: 'var(--theme-text-secondary, #64748b)', fontSize: 12, fontWeight: 600 }}>Actual:</span>
-                                <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
-                                  <span style={{ fontSize: 14, fontWeight: 800, color: '#3b82f6' }}>
-                                    {formatNumber(multiItemAggregate.totalActual, 2)}
-                                  </span>
-                                  <span style={{ fontSize: 11, fontWeight: 600, color: '#60a5fa' }}>{uomLabel}</span>
-                                </div>
-                              </div>
+                            {/* Single Unified Row: Target -> Actual -> Variance (+/-) -> Achievement */}
+                            {(() => {
+                              const actVal = toNum(multiItemAggregate.totalActual);
+                              const targetVal = tgtVal !== null && tgtVal !== undefined ? toNum(tgtVal) : null;
+                              const variance = targetVal !== null ? actVal - targetVal : null;
+                              const isPositive = variance !== null && variance >= 0;
+                              return (
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 8, width: '100%' }}>
+                                  {/* 1. Target Production */}
+                                  <div
+                                    style={{
+                                      background: 'var(--theme-surface, #ffffff)',
+                                      border: '1px solid var(--theme-border, rgba(168, 85, 247, 0.25))',
+                                      borderRadius: 8,
+                                      padding: '8px 12px',
+                                      display: 'flex',
+                                      flexDirection: 'column',
+                                      justifyContent: 'center',
+                                      minHeight: 54,
+                                    }}
+                                  >
+                                    <span style={{ color: 'var(--theme-text-secondary, #64748b)', fontSize: 11, fontWeight: 600 }}>Target:</span>
+                                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+                                      <span style={{ fontSize: 16, fontWeight: 800, color: '#a855f7' }}>
+                                        {tgtVal !== null && tgtVal !== undefined ? formatNumber(tgtVal, 2) : '—'}
+                                      </span>
+                                      <span style={{ fontSize: 11, fontWeight: 600, color: '#c084fc' }}>{uomLabel}</span>
+                                    </div>
+                                    {targetRateLabel && (
+                                      <span data-testid="target-rate-totals" style={{ display: 'block', fontSize: 10, color: 'var(--theme-text-muted, #94a3b8)', marginTop: 1, whiteSpace: 'nowrap' }}>
+                                        {targetRateLabel}
+                                      </span>
+                                    )}
+                                  </div>
 
-                              {/* 2. Target Production */}
-                              <div className="totals-target-card">
-                                <span style={{ color: 'var(--theme-text-secondary, #64748b)', fontSize: 12, fontWeight: 600 }}>Target:</span>
-                                <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
-                                  <span style={{ fontSize: 14, fontWeight: 800, color: '#a855f7' }}>
-                                    {tgtVal !== null && tgtVal !== undefined ? formatNumber(tgtVal, 2) : '—'}
-                                  </span>
-                                  <span style={{ fontSize: 11, fontWeight: 600, color: '#c084fc' }}>{uomLabel}</span>
-                                </div>
-                                {/* PANEL C — mirror the Target Master per-hour basis */}
-                                <span data-testid="target-rate-totals" style={{ display: 'block', fontSize: 10.5, color: 'var(--theme-text-secondary, #64748b)', marginTop: 2 }}>
-                                  {targetRateLabel}
-                                </span>
-                              </div>
-                            </div>
+                                  {/* 2. Actual Production */}
+                                  <div
+                                    style={{
+                                      background: 'var(--theme-surface, #ffffff)',
+                                      border: '1px solid var(--theme-border, rgba(59, 130, 246, 0.25))',
+                                      borderRadius: 8,
+                                      padding: '8px 12px',
+                                      display: 'flex',
+                                      flexDirection: 'column',
+                                      justifyContent: 'center',
+                                      minHeight: 54,
+                                    }}
+                                  >
+                                    <span style={{ color: 'var(--theme-text-secondary, #64748b)', fontSize: 11, fontWeight: 600 }}>Actual:</span>
+                                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+                                      <span style={{ fontSize: 16, fontWeight: 800, color: '#3b82f6' }}>
+                                        {formatNumber(actVal, 2)}
+                                      </span>
+                                      <span style={{ fontSize: 11, fontWeight: 600, color: '#60a5fa' }}>{uomLabel}</span>
+                                    </div>
+                                  </div>
 
-                            {/* Row 2: Target Achievement (100% full width card) */}
-                            <div className={`totals-achievement-card ${achievement === null ? 'empty' : isTargetMet ? 'met' : ''}`}>
-                              <span style={{ fontSize: 12, fontWeight: 600 }}>Achievement:</span>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                <span style={{ fontSize: 15, fontWeight: 800 }}>
-                                  {achievement !== null ? `${formatNumber(achievement, 1)}%` : '—'}
-                                </span>
-                                {isTargetMet && <CheckCircleFilled style={{ color: '#10b981', fontSize: 15 }} />}
-                              </div>
-                            </div>
+                                  {/* 3. Variance / Balance (+ / - Quantity) */}
+                                  <div
+                                    style={{
+                                      background: variance === null ? 'var(--theme-surface, #ffffff)' : isPositive ? 'rgba(16, 185, 129, 0.06)' : 'rgba(239, 68, 68, 0.06)',
+                                      border: `1px solid ${variance === null ? 'var(--theme-border)' : isPositive ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
+                                      borderRadius: 8,
+                                      padding: '8px 12px',
+                                      display: 'flex',
+                                      flexDirection: 'column',
+                                      justifyContent: 'center',
+                                      minHeight: 54,
+                                    }}
+                                  >
+                                    <span style={{ color: 'var(--theme-text-secondary, #64748b)', fontSize: 11, fontWeight: 600 }}>Variance (±):</span>
+                                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+                                      <span style={{
+                                        fontSize: 16,
+                                        fontWeight: 800,
+                                        color: variance === null ? 'var(--theme-text)' : isPositive ? '#10b981' : '#ef4444'
+                                      }}>
+                                        {variance !== null ? `${isPositive ? '+' : ''}${formatNumber(variance, 2)}` : '—'}
+                                      </span>
+                                      <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--theme-text-secondary)' }}>{uomLabel}</span>
+                                    </div>
+                                  </div>
+
+                                  {/* 4. Target Achievement */}
+                                  <div
+                                    style={{
+                                      background: isTargetMet ? 'rgba(16, 185, 129, 0.08)' : 'var(--theme-surface, #ffffff)',
+                                      border: `1px solid ${isTargetMet ? 'rgba(16, 185, 129, 0.35)' : 'var(--theme-border, rgba(245, 158, 11, 0.25))'}`,
+                                      borderRadius: 8,
+                                      padding: '8px 12px',
+                                      display: 'flex',
+                                      flexDirection: 'column',
+                                      justifyContent: 'center',
+                                      minHeight: 54,
+                                    }}
+                                  >
+                                    <span style={{ color: 'var(--theme-text-secondary, #64748b)', fontSize: 11, fontWeight: 600 }}>Achievement:</span>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                      <span style={{ fontSize: 16, fontWeight: 800, color: isTargetMet ? '#10b981' : (achievement ?? 0) >= 80 ? '#3b82f6' : '#f59e0b' }}>
+                                        {achievement !== null ? `${formatNumber(achievement, 1)}%` : '—'}
+                                      </span>
+                                      {isTargetMet && <CheckCircleFilled style={{ color: '#10b981', fontSize: 16 }} />}
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })()}
                           </div>
                         );
                       })()}
                     </>
-                    );
-                  }}
-                </Form.List>
+                  );
+                }}
+              </Form.List>
               </Card>
 
               {/* ── STEP 5: Production Figures ── */}
@@ -3572,7 +3588,7 @@ const EntryForm: React.FC<EntryFormProps> = ({
                       style={{ marginBottom: 0 }}
                     >
                       <InputNumber
-                        style={{ width: '100%' }}
+                        style={{ width: '100%', height: 38 }}
                         min={0}
                         max={16}
                         step={0.5}
@@ -3597,7 +3613,7 @@ const EntryForm: React.FC<EntryFormProps> = ({
                       style={{ marginBottom: 0 }}
                     >
                       <InputNumber
-                        style={{ width: '100%' }}
+                        style={{ width: '100%', height: 38 }}
                         min={0}
                         placeholder="0"
                         className={(processScrapQty !== undefined && processScrapQty !== null && processScrapQty !== '') || isFullDowntime ? 'erp-field-filled' : 'erp-field-unfilled'}
@@ -3775,7 +3791,7 @@ const EntryForm: React.FC<EntryFormProps> = ({
                               {isKgActive ? (
                                 <InputNumber
                                   controls={false}
-                                  style={{ width: '100%', fontWeight: 700 }}
+                                  style={{ width: '100%', height: 38, fontWeight: 700 }}
                                   min={0}
                                   step={0.01}
                                   precision={3}
@@ -3796,7 +3812,8 @@ const EntryForm: React.FC<EntryFormProps> = ({
                                     display: 'flex',
                                     alignItems: 'center',
                                     justifyContent: 'center',
-                                    height: 32,
+                                    height: 38,
+                                    minHeight: 38,
                                     background: 'var(--theme-surface-alt, rgba(30, 41, 59, 0.5))',
                                     border: '1px solid var(--theme-border-secondary, rgba(148, 163, 184, 0.2))',
                                     borderRadius: 6,
@@ -3833,7 +3850,7 @@ const EntryForm: React.FC<EntryFormProps> = ({
                               {!isKgActive ? (
                                 <InputNumber
                                   controls={false}
-                                  style={{ width: '100%', fontWeight: 700 }}
+                                  style={{ width: '100%', height: 38, fontWeight: 700 }}
                                   min={0}
                                   step={isMeterBased ? 0.1 : 1}
                                   placeholder="0"
@@ -3853,7 +3870,8 @@ const EntryForm: React.FC<EntryFormProps> = ({
                                     display: 'flex',
                                     alignItems: 'center',
                                     justifyContent: 'center',
-                                    height: 32,
+                                    height: 38,
+                                    minHeight: 38,
                                     background: 'var(--theme-surface-alt, rgba(30, 41, 59, 0.5))',
                                     border: '1px solid var(--theme-border-secondary, rgba(148, 163, 184, 0.2))',
                                     borderRadius: 6,
@@ -3928,6 +3946,7 @@ const EntryForm: React.FC<EntryFormProps> = ({
                                 style={{ width: '100%' }}
                               >
                                 <Input
+                                  style={{ height: 38 }}
                                   suffix={
                                     <Button
                                       type="text"
@@ -4053,61 +4072,49 @@ const EntryForm: React.FC<EntryFormProps> = ({
               >
                 {plannedHours > 0 && (
                   <div style={{
-                    background: 'rgba(0, 0, 0, 0.04)',
-                    border: '1px solid var(--theme-border, #e2e8f0)',
-                    borderRadius: 6,
-                    padding: '6px 10px',
-                    marginBottom: 10,
+                    background: 'var(--theme-surface-alt, rgba(255, 255, 255, 0.04))',
+                    border: '1px solid var(--theme-border, rgba(148, 163, 184, 0.2))',
+                    borderRadius: 8,
+                    padding: '8px 14px',
+                    marginBottom: 12,
                     display: 'flex',
                     alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 6,
+                    justifyContent: 'space-between',
                     flexWrap: 'wrap',
-                    fontSize: 12,
+                    gap: 8,
                   }}>
-                    <span className="downtime-pill planned">
-                      Planned: {formatNumber(plannedHours, 2)}h
-                    </span>
-                    {overtimeHours > 0 && (
-                      <>
-                        <span style={{ fontWeight: 700, color: '#8b5cf6' }}>+</span>
-                        <span className="downtime-pill" style={{ background: 'rgba(139, 92, 246, 0.12)', color: '#8b5cf6', borderColor: 'rgba(139, 92, 246, 0.4)' }}>
-                          OT: {formatNumber(overtimeHours, 2)}h
-                        </span>
-                      </>
-                    )}
-                    <span style={{ fontWeight: 700, color: 'var(--theme-text-secondary, #64748b)' }}>−</span>
-                    <span className="downtime-pill running">
-                      Running: {formatNumber(derivedRunning, 2)}h
-                    </span>
-                    <span style={{ fontWeight: 700, color: 'var(--theme-text-secondary, #64748b)' }}>=</span>
-                    <span className={`downtime-pill ${derivedDowntime > 0 ? 'downtime' : 'planned'}`}>
-                      Downtime: {formatNumber(derivedDowntime, 2)}h
-                    </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', fontSize: 12 }}>
+                      <span className="downtime-pill planned">Planned: {formatNumber(plannedHours, 2)}h</span>
+                      {overtimeHours > 0 && (
+                        <>
+                          <span style={{ fontWeight: 700, color: '#8b5cf6' }}>+</span>
+                          <span className="downtime-pill" style={{ background: 'rgba(139, 92, 246, 0.12)', color: '#8b5cf6', borderColor: 'rgba(139, 92, 246, 0.4)' }}>
+                            OT: {formatNumber(overtimeHours, 2)}h
+                          </span>
+                        </>
+                      )}
+                      <span style={{ fontWeight: 700, color: 'var(--theme-text-secondary, #64748b)' }}>−</span>
+                      <span className="downtime-pill running">Running: {formatNumber(derivedRunning, 2)}h</span>
+                      <span style={{ fontWeight: 700, color: 'var(--theme-text-secondary, #64748b)' }}>=</span>
+                      <span className={`downtime-pill ${derivedDowntime > 0 ? 'downtime' : 'planned'}`}>
+                        Downtime: {formatNumber(derivedDowntime, 2)}h
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: 11, color: 'var(--theme-text-muted)' }}>Entry Mode:</span>
+                      <Segmented
+                        size="small"
+                        value={downtimeMode}
+                        onChange={(val) => handleDowntimeModeChange(val as DowntimeMode)}
+                        options={[
+                          { label: 'AUTO (Running → Downtime)', value: 'auto' },
+                          { label: 'MANUAL (Downtime → Running)', value: 'manual' },
+                        ]}
+                        style={{ fontWeight: 600 }}
+                      />
+                    </div>
                   </div>
                 )}
-
-                {/* Entry Mode toggle */}
-                <Row gutter={8} style={{ marginBottom: 6 }}>
-                  <Col span={24}>
-                    <Form.Item
-                      label="Entry Mode"
-                      tooltip="AUTO: enter Running Hours and Downtime is derived from the shift plan. MANUAL: enter Downtime lines and Running is derived."
-                      style={{ marginBottom: 4 }}
-                    >
-                      <Select
-                        value={downtimeMode}
-                        onChange={handleDowntimeModeChange}
-                        dropdownStyle={{ zIndex: 99999 }}
-                        popupClassName="production-select-popup"
-                        options={[
-                          { value: 'auto', label: 'AUTO (Running → Downtime)' },
-                          { value: 'manual', label: 'MANUAL (Downtime → Running)' },
-                        ]}
-                      />
-                    </Form.Item>
-                  </Col>
-                </Row>
 
                 {downtimeMode === 'auto' && (
                   <div style={{
@@ -4177,12 +4184,12 @@ const EntryForm: React.FC<EntryFormProps> = ({
                                     borderRadius: 6,
                                     padding: '6px 8px',
                                     background: confirmed
-                                      ? 'rgba(82, 196, 26, 0.08)'
-                                      : (isIncomplete ? 'rgba(239, 68, 68, 0.06)' : (isComplete ? 'rgba(82, 196, 26, 0.04)' : 'transparent')),
+                                      ? 'rgba(16, 185, 129, 0.08)'
+                                      : (isComplete ? 'rgba(16, 185, 129, 0.04)' : 'var(--theme-surface-alt, rgba(255, 255, 255, 0.02))'),
                                     border: `1px solid ${
                                       confirmed
-                                        ? 'rgba(82, 196, 26, 0.40)'
-                                        : (isIncomplete ? 'rgba(239, 68, 68, 0.45)' : (isComplete ? 'rgba(82, 196, 26, 0.35)' : 'var(--theme-border)'))
+                                        ? 'rgba(16, 185, 129, 0.4)'
+                                        : (isComplete ? 'rgba(16, 185, 129, 0.3)' : 'var(--theme-border, rgba(148, 163, 184, 0.2))')
                                     }`,
                                   }}
                                 >
@@ -4214,8 +4221,8 @@ const EntryForm: React.FC<EntryFormProps> = ({
                                         ]}
                                       >
                                         <DowntimeReasonSelect
-                                          size="small"
                                           placeholder="Downtime reason"
+                                          style={{ height: 38 }}
                                           className={reasonId ? 'erp-field-filled' : 'erp-field-unfilled'}
                                           options={lookups.downtimeReasons.map((r) => ({ value: r.id, label: r.name }))}
                                           onReasonCreated={() => {
@@ -4241,19 +4248,18 @@ const EntryForm: React.FC<EntryFormProps> = ({
                                         ]}
                                       >
                                         <InputNumber
-                                          size="small"
                                           min={0}
                                           max={plannedHours > 0 ? plannedHours : 24}
                                           step={0.25}
                                           placeholder="Hours"
-                                          style={{ width: '100%' }}
+                                          style={{ width: '100%', height: 38 }}
                                           className={(hours !== undefined && hours !== null && hours !== '') ? 'erp-field-filled' : 'erp-field-unfilled'}
                                         />
                                       </Form.Item>
                                     </Col>
                                     <Col span={5}>
                                       <Form.Item name={[f.name, 'remarks']} noStyle>
-                                        <Input size="small" placeholder="Notes" />
+                                        <Input placeholder="Notes" style={{ height: 38 }} />
                                       </Form.Item>
                                     </Col>
                                     <Col span={4}>
@@ -4298,8 +4304,6 @@ const EntryForm: React.FC<EntryFormProps> = ({
                     );
                     }}
                 </Form.List>
-
-                <DowntimeSummary totalDowntime={totalDowntime} plannedHours={plannedHours} runningHours={derivedRunning} overtimeHours={overtimeHours} />
 
                 <Form.Item name="remarks" label="Remarks" style={{ marginTop: 12 }}>
                   <Input.TextArea rows={2} maxLength={500} showCount placeholder="Notes about this shift's production" />
@@ -4366,84 +4370,112 @@ const EntryForm: React.FC<EntryFormProps> = ({
                 {/* ── Production Context (compact; replaces duplicated full-size fields) ── */}
                 {showSummary ? renderContextSummary() : renderLegacyContextFields()}
 
-                {/* ── TOP KPI AREA: 2 clean lines, balanced card grid ── */}
-                <div data-testid="kpi-row" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
-                  {/* ── PANEL A — Target: the dynamic pro-rated total with the
-                      Target Master per-hour basis underneath it, so the same
-                      figure + rate pair shown in Panels B and C is visible
-                      here before the entry is submitted. ── */}
-                  <div className="kpi-col-target">
-                    <StatisticMini
-                      label="Target"
-                      hint={targetRateLabel}
-                      content={
-                        <Text strong style={{ fontSize: 18, fontWeight: 600 }}>
-                          {summaryTarget !== null ? formatNumber(summaryTarget, 0) : '—'}
-                          <span style={{ fontSize: 11, marginLeft: 4, fontWeight: 400, color: 'var(--theme-text-muted)' }}>
-                            {mtResolution?.uom?.code || primaryItem?.baseUom?.code || entry?.uom?.code || ''}
+                {/* ── TOP KPI AREA: Modern Circular Gauges & Dynamic Metrics (Mockup Design) ── */}
+                <div data-testid="kpi-row" style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
+                  {/* Gauge 1: Target & Achievement Dashboard Circular Ring */}
+                  <div
+                    style={{
+                      background: 'var(--theme-surface-alt, rgba(255, 255, 255, 0.04))',
+                      borderRadius: 12,
+                      border: '1px solid var(--theme-border, rgba(148, 163, 184, 0.2))',
+                      padding: '14px 16px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-around',
+                      boxShadow: '0 2px 8px rgba(0, 0, 0, 0.05)',
+                    }}
+                  >
+                    <Progress
+                      type="dashboard"
+                      percent={Math.min(100, Math.max(0, achievement ?? 0))}
+                      gapDegree={70}
+                      size={110}
+                      strokeColor={{ '0%': '#10b981', '100%': '#06b6d4' }}
+                      format={() => (
+                        <div style={{ textAlign: 'center' }}>
+                          <span style={{ fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--theme-text-muted, #94a3b8)', display: 'block' }}>Target</span>
+                          <span style={{ fontSize: 16, fontWeight: 800, color: 'var(--theme-text, #ffffff)', lineHeight: '18px', display: 'block' }}>
+                            {summaryTarget !== null ? formatNumber(summaryTarget, 0) : '—'}
                           </span>
-                        </Text>
-                      }
-                      accent="#a855f7"
-                      icon={<AimOutlined />}
+                          <span style={{ fontSize: 10, color: 'var(--theme-text-muted, #94a3b8)' }}>
+                            {mtResolution?.uom?.code || primaryItem?.baseUom?.code || entry?.uom?.code || 'M'}
+                          </span>
+                        </div>
+                      )}
                     />
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 120 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+                        <span style={{ fontSize: 11, color: 'var(--theme-text-secondary, #94a3b8)' }}>Achievement:</span>
+                        <KpiPercentage value={achievement} fontSize={14} fontWeight={700} />
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+                        <span style={{ fontSize: 11, color: 'var(--theme-text-secondary, #94a3b8)' }}>Efficiency:</span>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: (efficiency ?? 0) >= 85 ? '#10b981' : '#f59e0b' }}>
+                          {efficiency !== null && efficiency !== undefined ? `${formatNumber(efficiency, 1)}%` : '—'}
+                        </span>
+                      </div>
+                      {targetRateLabel && (
+                        <div style={{ fontSize: 10, color: 'var(--theme-text-muted, #64748b)', borderTop: '1px solid var(--theme-border, rgba(148, 163, 184, 0.15))', paddingTop: 4 }}>
+                          Rate: {targetRateLabel}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                  <div className="kpi-col-percent">
-                    <StatisticMini
-                      label="Achievement %"
-                      hint="actual vs target"
-                      content={<KpiPercentage value={achievement} fontSize={18} fontWeight={600} />}
-                      accent="#1890ff"
-                      icon={<TrophyOutlined />}
-                    />
-                  </div>
-                  <div className="kpi-col-percent">
-                    <StatisticMini
-                      label="Efficiency %"
-                      hint={`running vs available${plannedHours > 0 ? ` (${is12HourShift ? `8h duty + ${formatNumber(overtimeHours, 2)}h OT` : `${formatNumber(plannedHours, 2)}h shift${overtimeHours > 0 ? ` + ${formatNumber(overtimeHours, 2)}h OT` : ''}`} = ${formatNumber(totalAvailableHours, 2)}h)` : ''}`}
-                      content={<KpiPercentage value={efficiency} fontSize={18} fontWeight={600} />}
-                      accent="var(--theme-success)"
-                      icon={<ThunderboltOutlined />}
-                    />
-                  </div>
-                  <div className="kpi-col-percent">
-                    <StatisticMini
-                      label="Rejection %"
-                      hint="Rejection ÷ Total"
-                      content={
-                        <Text strong style={{ fontSize: 18, fontWeight: 600, color: 'var(--theme-text)' }}>
-                          {formatNumber(rejectionPct, 2)}%
-                        </Text>
-                      }
-                      accent="var(--theme-warning)"
-                      icon={<WarningOutlined />}
-                    />
-                  </div>
-                  <div className="kpi-col-weight">
-                    <StatisticMini
-                      label="Production Weight (KG)"
-                      hint={multiItemAggregate ? "sum of all items × weight/meter" : "actual × weight/meter"}
-                      content={
-                        <Text strong style={{ fontSize: 15, color: 'var(--theme-text)' }}>
-                          {formatNumber(multiItemAggregate?.totalKg ?? singleItemKg?.kg ?? 0, 3)} KG
-                        </Text>
-                      }
-                      accent="var(--theme-success)"
-                      icon={<GoldOutlined />}
-                    />
-                  </div>
-                  <div className="kpi-col-weight">
-                    <StatisticMini
-                      label="Rejection Weight (KG)"
-                      hint="Rejection / Scrap × item weight"
-                      content={
-                        <Text strong style={{ fontSize: 15, color: 'var(--theme-text)' }}>
-                          {formatNumber(effectiveScrapWeightKg, 3)} KG
-                        </Text>
-                      }
-                      accent="var(--theme-warning)"
-                      icon={<CloseCircleOutlined />}
-                    />
+
+                  {/* Secondary KPI Row: Rejection % Ring & Weights */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 }}>
+                    {/* Rejection Gauge Tile */}
+                    <div
+                      style={{
+                        background: 'var(--theme-surface-alt, rgba(255, 255, 255, 0.04))',
+                        borderRadius: 10,
+                        border: '1px solid var(--theme-border, rgba(148, 163, 184, 0.2))',
+                        padding: '10px 12px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 10,
+                      }}
+                    >
+                      <Progress
+                        type="dashboard"
+                        percent={Math.min(100, Math.max(0, rejectionPct ?? 0))}
+                        gapDegree={70}
+                        size={64}
+                        strokeColor={(rejectionPct ?? 0) > 3 ? '#ef4444' : '#f59e0b'}
+                        format={() => (
+                          <span style={{ fontSize: 11, fontWeight: 800, color: 'var(--theme-text, #ffffff)' }}>
+                            {formatNumber(rejectionPct ?? 0, 0)}%
+                          </span>
+                        )}
+                      />
+                      <div>
+                        <span style={{ fontSize: 10, textTransform: 'uppercase', color: 'var(--theme-text-muted, #94a3b8)', fontWeight: 700, display: 'block' }}>Rejection</span>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--theme-text, #ffffff)' }}>
+                          {formatNumber(effectiveScrapWeightKg, 2)} KG
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Production Output Weight Tile */}
+                    <div
+                      style={{
+                        background: 'var(--theme-surface-alt, rgba(255, 255, 255, 0.04))',
+                        borderRadius: 10,
+                        border: '1px solid var(--theme-border, rgba(148, 163, 184, 0.2))',
+                        padding: '10px 12px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <span style={{ fontSize: 10, textTransform: 'uppercase', color: '#10b981', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <GoldOutlined /> Good Weight
+                      </span>
+                      <span style={{ fontSize: 15, fontWeight: 800, color: 'var(--theme-text, #ffffff)', marginTop: 2 }}>
+                        {formatNumber(multiItemAggregate?.totalKg ?? singleItemKg?.kg ?? 0, 2)} KG
+                      </span>
+                      <span style={{ fontSize: 9.5, color: 'var(--theme-text-muted, #94a3b8)' }}>Output to Finished Goods</span>
+                    </div>
                   </div>
                 </div>
 
@@ -4530,114 +4562,36 @@ const EntryForm: React.FC<EntryFormProps> = ({
                   </div>
                 </div>
 
-                {/* ── Live Machine Target & Output Calibration (View Pane) ── */}
-                {machineLinked && (
-                  <Card
-                    size="small"
-                    style={{
-                      marginBottom: 16,
-                      border: '1px solid var(--theme-accent, #10b981)',
-                      background: 'linear-gradient(145deg, rgba(16, 185, 129, 0.08) 0%, rgba(15, 23, 42, 0.6) 100%)',
-                      borderRadius: 10,
-                    }}
-                    title={
-                      <span style={{ fontSize: 13, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                        <AimOutlined style={{ color: 'var(--theme-accent, #10b981)' }} />
-                        Machine Target & Live Production Calibration
-                      </span>
-                    }
-                    extra={
-                      mtResolution ? (
-                        <Tag color="#10b981" style={{ fontWeight: 700, borderRadius: 12 }}>
-                          ACTIVE TARGET
-                        </Tag>
-                      ) : resolvingMt ? (
-                        <Tag color="#3b82f6" style={{ fontWeight: 600, borderRadius: 12 }}>Resolving Target…</Tag>
-                      ) : mtError ? (
-                        <Tag color="#ef4444" style={{ fontWeight: 700, borderRadius: 12 }}>Target Missing</Tag>
-                      ) : null
-                    }
-                  >
-                    <Row gutter={[8, 8]} align="middle">
-                      <Col xs={12} sm={6}>
-                        <div style={{ background: 'rgba(0, 0, 0, 0.25)', padding: '8px 10px', borderRadius: 8, border: '1px solid rgba(255, 255, 255, 0.06)' }}>
-                          <Text type="secondary" style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.3, display: 'block' }}>Target Production</Text>
-                          <Text strong style={{ fontSize: 17, color: 'var(--theme-accent, #10b981)' }}>
-                            {displayTarget !== null ? formatNumber(displayTarget, 2) : '—'}
-                            <span style={{ fontSize: 11, marginLeft: 4, fontWeight: 400, color: 'var(--theme-text-muted)' }}>
-                              {mtResolution?.uom?.code || entry?.uom?.code || ''}
-                            </span>
-                          </Text>
-                          {/* PANEL B — Target Master per-hour basis for this cell */}
-                          <Text type="secondary" data-testid="target-rate-calibration" style={{ fontSize: 10.5, display: 'block', marginTop: 2 }}>{targetRateLabel}</Text>
-                        </div>
-                      </Col>
-                      <Col xs={12} sm={6}>
-                        <div style={{ background: 'rgba(0, 0, 0, 0.25)', padding: '8px 10px', borderRadius: 8, border: '1px solid rgba(255, 255, 255, 0.06)' }}>
-                          <Text type="secondary" style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.3, display: 'block' }}>Actual Good Output</Text>
-                          <Text strong style={{ fontSize: 17, color: '#38bdf8' }}>
-                            {formatNumber(multiItemAggregate?.totalActual ?? 0, 2)}
-                            <span style={{ fontSize: 11, marginLeft: 4, fontWeight: 400, color: 'var(--theme-text-muted)' }}>
-                              {mtResolution?.uom?.code || entry?.uom?.code || ''}
-                            </span>
-                          </Text>
-                        </div>
-                      </Col>
-                      <Col xs={12} sm={6}>
-                        <div style={{ background: 'rgba(0, 0, 0, 0.25)', padding: '8px 10px', borderRadius: 8, border: '1px solid rgba(255, 255, 255, 0.06)' }}>
-                          <Text type="secondary" style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.3, display: 'block' }}>Achievement</Text>
-                          <Text strong style={{ fontSize: 17, color: (achievement ?? 0) >= 100 ? '#10b981' : (achievement ?? 0) >= 80 ? '#f59e0b' : '#f97316' }}>
-                            {achievement !== null ? `${achievement}%` : '0%'}
-                          </Text>
-                        </div>
-                      </Col>
-                      <Col xs={12} sm={6}>
-                        <div style={{ background: 'rgba(0, 0, 0, 0.25)', padding: '8px 10px', borderRadius: 8, border: '1px solid rgba(255, 255, 255, 0.06)' }}>
-                          <Text type="secondary" style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.3, display: 'block' }}>Target Rate</Text>
-                          <Text strong style={{ fontSize: 13, display: 'block', lineHeight: '24px' }}>
-                            {mtResolution?.targetPerHour
-                              ? `${formatNumber(mtResolution.targetPerHour, 1)} / h`
-                              : mtResolution
-                              ? `${formatNumber(mtResolution.standardTarget, 0)} / ${formatNumber(mtResolution.standardHours, 1)}h`
-                              : '—'}
-                          </Text>
-                        </div>
-                      </Col>
-                    </Row>
-
-                    <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)' }}>
-                      <span>
-                        <ClockCircleOutlined style={{ marginRight: 4 }} />
-                        Planned Shift: <strong style={{ color: 'var(--theme-text)' }}>{formatNumber(plannedHours, 2)}h</strong>
-                        {plannedHours > 0 && ` (${overtimeHours > 0 ? `+${formatNumber(overtimeHours, 2)}h OT · ` : ''}Running ${formatNumber(derivedRunning, 2)}h + Downtime ${formatNumber(totalDowntime, 2)}h)`}
-                      </span>
-                      <span>
-                        {mtResolution?.item
-                          ? `Scoped: Item ${mtResolution.item.code}`
-                          : mtResolution
-                          ? 'General Shift Target'
-                          : ''}
-                      </span>
-                    </div>
-
-                    {mtError && (
-                      <Alert
-                        type="error"
-                        showIcon
-                        style={{ marginTop: 10 }}
-                        message={mtError}
-                        description={`Missing target for Machine ${ctxMachineCode} on shift ${summaryCtx?.shiftLabel ?? ''}. Create an active target under Machine Targets.`}
-                      />
-                    )}
-                  </Card>
+                {/* ── Target Missing Alert if any ── */}
+                {machineLinked && mtError && (
+                  <Alert
+                    type="error"
+                    showIcon
+                    style={{ marginBottom: 16, borderRadius: 8 }}
+                    message={mtError}
+                    description={`Missing target for Machine ${ctxMachineCode} on shift ${summaryCtx?.shiftLabel ?? ''}. Create an active target under Machine Targets.`}
+                  />
                 )}
 
                 {/* ── Item Details (one compact strip per selected production item) ── */}
                 {selectedProductionItems.length > 0 && (
                   <Card
                     size="small"
-                    style={{ marginBottom: 16, borderLeft: '3px solid var(--theme-success)', background: 'var(--theme-success-soft)' }}
-                    title={<span style={{ fontSize: 13 }}><InfoCircleOutlined style={{ marginRight: 6, color: 'var(--theme-success)' }} />Item Details</span>}
+                    style={{
+                      marginBottom: 16,
+                      borderRadius: 12,
+                      border: '1px solid var(--theme-border, rgba(148, 163, 184, 0.2))',
+                      background: 'var(--theme-surface, #ffffff)',
+                      boxShadow: '0 2px 8px rgba(0, 0, 0, 0.04)',
+                    }}
+                    title={
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <AppstoreOutlined style={{ color: '#ea580c', fontSize: 15 }} />
+                        <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--theme-text)' }}>
+                          Item Specifications & Recipe
+                        </span>
+                      </div>
+                    }
                   >
                     {selectedProductionItems.map((item, idx) => {
                       const prodRow = (productionItemsWatch ?? []).find((p: { itemId?: string; uomId?: string } | null | undefined) => p?.itemId === item.id);
@@ -4905,6 +4859,24 @@ const ItemMetadatum: React.FC<{ label: string; value: React.ReactNode }> = ({ la
  *  below the production item info (Code, Name, Wire Size, UOM, Available).
  *  TASK #35: Shows the exact Production IN code/UOM, its source/store department,
  *  and the read-only Production OUT product (the current Item itself). */
+const SpecRow: React.FC<{ label: string; value: React.ReactNode; isLast?: boolean }> = ({ label, value, isLast }) => (
+  <div
+    style={{
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      padding: '5px 0',
+      borderBottom: isLast ? 'none' : '1px solid var(--theme-border-secondary, rgba(148, 163, 184, 0.15))',
+      fontSize: 12,
+      gap: 12,
+    }}
+  >
+    <span style={{ color: 'var(--theme-text-secondary, #64748b)', fontWeight: 500, minWidth: 100 }}>{label}</span>
+    <span style={{ color: 'var(--theme-text, #0f172a)', fontWeight: 700, textAlign: 'right', wordBreak: 'break-word' }}>{value}</span>
+  </div>
+);
+
+/** Classic structured specification card for the selected item and its BOM recipe. */
 const ItemDetailsStrip: React.FC<{
   item: ItemLk;
   rawMaterial?: {
@@ -4948,7 +4920,6 @@ const ItemDetailsStrip: React.FC<{
     }
   }, [productionInItemId, allItems, item.productionInItem, rawMaterial?.productionInItemName, rawMaterial?.itemName]);
 
-  // Format helper: Name (Code) or Name or Code, NEVER a raw UUID
   const formatItemDisplay = (
     id?: string | null,
     directItem?: { name?: string | null; itemCode?: string | null } | null,
@@ -4962,7 +4933,6 @@ const ItemDetailsStrip: React.FC<{
     if (name && code && name !== code) return `${name} (${code})`;
     if (name) return name;
     if (code) return code;
-    // Guard against UUID leakage: if id matches a UUID pattern, never show it!
     if (id && !UUID_RE.test(String(id))) return id;
     return defaultLabel;
   };
@@ -4976,179 +4946,100 @@ const ItemDetailsStrip: React.FC<{
     return formatItemDisplay(productionInItemId, null, inName, inCode, 'Configured Input Material');
   })();
 
-  const outputProductLabel = (() => {
-    if (productionOutItemId === item.id) {
-      return formatItemDisplay(item.id, item);
-    }
-    if (item.productionOutItem) {
-      return formatItemDisplay(item.productionOutItemId, item.productionOutItem);
-    }
-    return formatItemDisplay(
-      productionOutItemId,
-      null,
-      rawMaterial?.productionOutItemName || item.name,
-      item.itemCode,
-      item.name || item.itemCode || 'Self Output Product'
-    );
-  })();
-
   return (
-    <div data-testid="item-details-strip">
+    <div data-testid="item-details-strip" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {/* ── Section 1: Item Core Specifications ── */}
       <div
-        style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'stretch', rowGap: 8 }}
+        style={{
+          background: 'var(--theme-surface-alt, rgba(255, 255, 255, 0.04))',
+          borderRadius: 8,
+          padding: '8px 12px',
+          border: '1px solid var(--theme-border, rgba(148, 163, 184, 0.15))',
+        }}
       >
-        {item.name && (
-          <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
-            <ItemMetadatum label="Item Name" value={<strong style={{ color: 'var(--theme-primary, #2563eb)' }}>{item.name}</strong>} />
-          </div>
-        )}
-        {item.itemCode && (
-          <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
-            <ItemMetadatum label="Item Code" value={item.itemCode} />
-          </div>
-        )}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+          <span style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', color: 'var(--theme-primary, #ea580c)', letterSpacing: 0.5 }}>
+            Product Details
+          </span>
+          {item.itemCode && (
+            <Tag color="orange" style={{ margin: 0, fontWeight: 700, borderRadius: 10 }}>
+              {item.itemCode}
+            </Tag>
+          )}
+        </div>
+        <SpecRow label="Item Name" value={item.name || item.itemCode} />
         {item.wireSizeMm != null && (
-          <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
-            <ItemMetadatum label="Wire Size" value={<>{formatDimension(item.wireSizeMm)} mm</>} />
-          </div>
+          <SpecRow label="Wire Size" value={`${formatDimension(item.wireSizeMm)} mm`} />
         )}
         {item.routeType && (
-          <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
-            <ItemMetadatum label="Route" value={item.routeType} />
-          </div>
-        )}
-        {item.departmentName && (
-          <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
-            <ItemMetadatum label="Department" value={item.departmentName} />
-          </div>
-        )}
-        {item.sectionName && (
-          <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
-            <ItemMetadatum label="Section" value={item.sectionName} />
-          </div>
-        )}
-        {item.divisionName && (
-          <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
-            <ItemMetadatum label="Division" value={item.divisionName} />
-          </div>
-        )}
-        {item.categoryName && (
-          <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
-            <ItemMetadatum label="Category" value={item.categoryName} />
-          </div>
-        )}
-        {item.weightPerPiece != null && (
-          <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
-            <ItemMetadatum label="Weight/Piece" value={<>{formatNumber(item.weightPerPiece, 5)} kg</>} />
-          </div>
-        )}
-        {item.piecesPerKg != null && (
-          <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
-            <ItemMetadatum label="Pieces/KG" value={formatNumber(item.piecesPerKg, 3)} />
-          </div>
+          <SpecRow label="Process Route" value={item.routeType} />
         )}
         {item.weightPerMeter != null && (
-          <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
-            <ItemMetadatum label="Weight/Meter" value={<>{formatNumber(item.weightPerMeter, 6)} kg</>} />
-          </div>
+          <SpecRow label="Weight / Meter" value={`${formatNumber(item.weightPerMeter, 6)} kg`} />
         )}
-        {item.lengthPerPiece != null && (
-          <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
-            <ItemMetadatum label="Length/Piece" value={<>{formatNumber(item.lengthPerPiece, 4)} m</>} />
-          </div>
+        {item.weightPerPiece != null && (
+          <SpecRow label="Weight / Piece" value={`${formatNumber(item.weightPerPiece, 5)} kg`} />
+        )}
+        {item.piecesPerKg != null && (
+          <SpecRow label="Pieces / KG" value={formatNumber(item.piecesPerKg, 3)} />
         )}
         {item.baseUom && (
-          <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
-            <ItemMetadatum label="Base UOM" value={<>{item.baseUom.code}{item.baseUom.symbol ? ` (${item.baseUom.symbol})` : ''}</>} />
-          </div>
+          <SpecRow label="Base Unit (UOM)" value={`${item.baseUom.code}${item.baseUom.symbol ? ` (${item.baseUom.symbol})` : ''}`} />
         )}
         {item.itemType && (
-          <div style={{ display: 'flex' }}>
-            <ItemMetadatum label="Type" value={item.itemType.replace(/_/g, ' ')} />
-          </div>
+          <SpecRow
+            label="Item Stage"
+            value={<Tag color="cyan" style={{ margin: 0, fontWeight: 600 }}>{item.itemType.replace(/_/g, ' ')}</Tag>}
+            isLast={!rawMaterial && !productionInItemId}
+          />
         )}
       </div>
-      {/* TASK #32: Raw Material details within Item Details */}
-      {rawMaterial && (
-        <div style={{
-          marginTop: 6, paddingTop: 6,
-          borderTop: '1px solid rgba(128,128,128,0.15)',
-          display: 'flex', flexWrap: 'wrap', alignItems: 'stretch', rowGap: 8,
-        }}>
-          <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
-            <ItemMetadatum label="Raw Material" value={
-              <span style={{ color: 'var(--theme-primary)' }}>
-                {rawMaterial.itemName || rawMaterial.itemCode}{rawMaterial.itemName && rawMaterial.itemName !== rawMaterial.itemCode ? ` (${rawMaterial.itemCode})` : ''}
-              </span>
-            } />
+
+      {/* ── Section 2: BOM Input Material Allocation ── */}
+      {(rawMaterial || productionInItemId) && (
+        <div
+          style={{
+            background: 'var(--theme-surface-alt, rgba(255, 255, 255, 0.04))',
+            borderRadius: 8,
+            padding: '8px 12px',
+            border: '1px solid var(--theme-border, rgba(148, 163, 184, 0.15))',
+          }}
+        >
+          <div style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', color: '#10b981', letterSpacing: 0.5, marginBottom: 4 }}>
+            Allocated Raw Material (BOM)
           </div>
-          {rawMaterial.wireSizeMm != null && (
-            <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
-              <ItemMetadatum label="RM Wire Size" value={<>{formatDimension(rawMaterial.wireSizeMm)} mm</>} />
-            </div>
+          <SpecRow
+            label="Input Material"
+            value={<span style={{ color: 'var(--theme-primary, #2563eb)' }}>{inputMaterialLabel}</span>}
+          />
+          {rawMaterial?.productionInDepartmentName && (
+            <SpecRow label="Source Section" value={rawMaterial.productionInDepartmentName} />
           )}
-          {rawMaterial.uomCode && (
-            <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
-              <ItemMetadatum label="RM UOM" value={rawMaterial.productionInUomCode ?? rawMaterial.uomCode} />
-            </div>
+          {rawMaterial?.uomCode && (
+            <SpecRow label="RM Unit" value={rawMaterial.productionInUomCode ?? rawMaterial.uomCode} />
           )}
-          {rawMaterial.available != null && (
-            <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
-              <ItemMetadatum label="RM Available" value={<>{formatNumber(rawMaterial.available, 3)} {rawMaterial.uomCode ?? ''}</>} />
-            </div>
-          )}
-        </div>
-      )}
-      {/* TASK #33/#34B: Production Flow — Input Material + Output Product display.
-          The current item IS the output of its own production stage; the OUT is
-          server-owned and auto-synced to the current item (shown as "self"). */}
-      {(productionInItemId || productionOutItemId) && (
-        <div style={{
-          marginTop: 6, paddingTop: 6,
-          borderTop: '1px solid rgba(128,128,128,0.15)',
-          display: 'flex', flexWrap: 'wrap', alignItems: 'stretch', rowGap: 8,
-        }}>
-          {productionInItemId && (
-            <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
-              <ItemMetadatum label="Input Material" value={
-                <span style={{ color: 'var(--theme-primary)' }}>
-                  {inputMaterialLabel}
-                </span>
-              } />
-            </div>
-          )}
-          {productionInItemId && rawMaterial?.productionInUomCode && (
-            <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
-              <ItemMetadatum label="Production IN UOM" value={rawMaterial.productionInUomCode} />
-            </div>
-          )}
-          {productionInItemId && rawMaterial?.productionInDepartmentName && (
-            <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
-              <ItemMetadatum label="Production IN Source" value={rawMaterial.productionInDepartmentName} />
-            </div>
-          )}
-          {productionOutItemId && (
-            <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
-              <ItemMetadatum label="Output Product" value={
-                <span style={{ color: 'var(--theme-success, #52c41a)' }}>
-                  {outputProductLabel}
-                </span>
-              } />
-            </div>
-          )}
-          {productionOutItemId && rawMaterial?.productionOutItemName && rawMaterial.productionOutItemName !== item.itemCode && (
-            <div style={{ display: 'flex', paddingRight: 16, borderRight: '1px solid rgba(128,128,128,0.28)', marginRight: 16 }}>
-              <ItemMetadatum label="Output Product Name" value={rawMaterial.productionOutItemName} />
-            </div>
+          {rawMaterial?.available != null && (
+            <SpecRow
+              label="Available Stock"
+              value={
+                <Tag color={toNum(rawMaterial.available) > 0 ? '#10b981' : '#f59e0b'} style={{ margin: 0, fontWeight: 700 }}>
+                  {`${formatNumber(rawMaterial.available, 2)} ${rawMaterial.uomCode ?? ''}`}
+                </Tag>
+              }
+              isLast
+            />
           )}
         </div>
       )}
+
       {chainWarning && (
         <div style={{
-          marginTop: 6, padding: '4px 8px',
-          background: '#fff7e6', borderRadius: 4, border: '1px solid #ffd591',
+          padding: '6px 10px',
+          background: 'rgba(245, 158, 11, 0.1)',
+          borderRadius: 6,
+          border: '1px solid rgba(245, 158, 11, 0.3)',
         }}>
-          <Text type="warning" style={{ fontSize: 11 }}>{chainWarning}</Text>
+          <Text type="warning" style={{ fontSize: 11, fontWeight: 600 }}>{chainWarning}</Text>
         </div>
       )}
     </div>
@@ -6079,7 +5970,7 @@ const RawMaterialAvailability: React.FC<{
               )}
             </div>
             {/* TASK #34B: OUTPUT INVENTORY — real current balance of the produced item + projected balance */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', paddingLeft: 96 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', paddingLeft: 0 }}>
               <Text type="secondary" style={{ fontSize: 11 }}>
                 Output Inventory {receiptStoreLabel ? `(${receiptStoreLabel})` : ''}
               </Text>
@@ -6166,18 +6057,18 @@ const RawMaterialAvailability: React.FC<{
                   {/* TASK #35: Source / Store department of the exact input Item Master record
                       (the production department may differ — consumption comes from the source). */}
                   {line.rawDepartmentName && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingLeft: 96 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingLeft: 0 }}>
                       <Text type="secondary" style={{ fontSize: 11 }}>Source <Text strong data-testid={`material-flow-source-${index + 1}`}>{line.rawDepartmentName}</Text></Text>
                     </div>
                   )}
                   {/* TASK #37: source STORE warehouse the consumption is actually applied to. */}
                   {sourceStoreLabel && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingLeft: 96 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingLeft: 0 }}>
                       <Text type="secondary" style={{ fontSize: 11 }}>Source Store <Text strong data-testid={`material-flow-store-${index + 1}`}>{sourceStoreLabel}</Text></Text>
                     </div>
                   )}
                   {/* Wire Size + UOM row */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingLeft: 96 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingLeft: 0 }}>
                     {line.rawWireSizeMm != null && (
                       <Text type="secondary" style={{ fontSize: 11 }} data-testid={`material-flow-rawwire-${index + 1}`}>
                         Wire Size: <Text strong>{formatDimension(line.rawWireSizeMm)} mm</Text>
@@ -6200,7 +6091,7 @@ const RawMaterialAvailability: React.FC<{
                     />
                   )}
                   {/* Required / Available / Shortage / Status */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', paddingLeft: 96 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', paddingLeft: 0 }}>
                     <Text type="secondary" style={{ fontSize: 11 }}>Required <Text strong data-testid={`material-flow-required-${index + 1}`}>{formatNumber(line.required, 3)} {line.uomCode}</Text></Text>
                     <Text type="secondary">·</Text>
                     {line.loadingAvailable ? (
@@ -6222,28 +6113,31 @@ const RawMaterialAvailability: React.FC<{
                 </div>
               );
             })}
-            {/* 2-Line Material Movement & Balance Impact Report (Before vs Movement vs After) */}
+            {/* Clean High-Contrast Stock Movement & Balance Impact Report */}
             {info.lines.length > 0 && (
               <div style={{
-                marginTop: 10,
-                padding: '10px 12px',
-                background: 'var(--theme-surface-alt, #0f172a)',
-                borderRadius: 8,
-                border: '1px solid var(--theme-border, rgba(255, 255, 255, 0.08))',
+                marginTop: 12,
+                padding: '12px 14px',
+                background: 'var(--theme-surface, #ffffff)',
+                borderRadius: 10,
+                border: '1px solid var(--theme-border, rgba(148, 163, 184, 0.2))',
+                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.04)',
                 display: 'flex',
                 flexDirection: 'column',
-                gap: 8,
+                gap: 12,
               }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 4, borderBottom: '1px solid var(--theme-border, rgba(255, 255, 255, 0.06))' }}>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--theme-text, #e2e8f0)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                    Stock Movement & Balance Impact
-                  </span>
-                  <span style={{ fontSize: 10, color: 'var(--theme-text-muted, #94a3b8)' }}>
-                    Before → Movement → After
-                  </span>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 6, borderBottom: '1px solid var(--theme-border-secondary, rgba(148, 163, 184, 0.15))' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ fontSize: 12, fontWeight: 800, color: 'var(--theme-text, #0f172a)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                      Stock Movement & Balance Impact
+                    </span>
+                  </div>
+                  <Tag color="blue" style={{ margin: 0, fontSize: 10, fontWeight: 700 }}>
+                    Opening → Movement → Balance
+                  </Tag>
                 </div>
 
-                {/* Line 1: INPUT Raw Material */}
+                {/* Line 1: RAW MATERIAL (IN) */}
                 {info.lines.map((rawLine, rIdx) => {
                   const alreadyIssued = consumedByItem?.[String(rawLine.rawItemId)] ?? 0;
                   const rawConsumed = rawLine.required ?? 0;
@@ -6253,42 +6147,63 @@ const RawMaterialAvailability: React.FC<{
                   }
                   const rawAfter = Math.max(0, rawBefore - rawConsumed);
                   const rawUom = rawLine.uomCode ?? rawLine.rawBaseUomCode ?? '';
+                  const hasShortage = rawConsumed > rawBefore;
+
                   return (
                     <div key={rawLine.lineId || rIdx} style={{
-                      background: 'rgba(239, 68, 68, 0.04)',
-                      border: 'none',
-                      borderLeft: '3px solid #ef4444',
-                      borderRadius: 6,
-                      padding: '8px 10px',
+                      background: 'var(--theme-surface-alt, rgba(239, 68, 68, 0.03))',
+                      border: '1px solid var(--theme-border-secondary, rgba(148, 163, 184, 0.2))',
+                      borderLeft: '4px solid #ef4444',
+                      borderRadius: 8,
+                      padding: '10px 12px',
                     }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, flexWrap: 'wrap', gap: 4 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <span style={{
-                            background: 'rgba(239, 68, 68, 0.15)', color: '#f87171', border: 'none',
-                            fontWeight: 700, fontSize: 9.5, borderRadius: 3, padding: '1px 6px',
-                            display: 'inline-flex', alignItems: 'center', gap: 4,
-                          }}>
-                            <ArrowDownOutlined style={{ fontSize: 9 }} /> INPUT (RAW MATERIAL)
-                          </span>
-                          <Text strong style={{ fontSize: 11.5 }}>{rawLine.itemCode}</Text>
-                          {rawLine.itemName && <Text type="secondary" style={{ fontSize: 11 }}>— {rawLine.itemName}</Text>}
-                        </div>
-                        <span style={{ fontSize: 10, color: 'var(--theme-text-muted)', background: 'rgba(255, 255, 255, 0.06)', padding: '1px 6px', borderRadius: 3, border: 'none' }}>
-                          Source: <strong style={{ color: 'var(--theme-text)' }}>{sourceStoreLabel || rawLine.rawDepartmentName || 'Source Store'}</strong>
+                      {/* Row 1: Badge on Left, Item Code on Right (Zero Overlap) */}
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 3 }}>
+                        <Tag color="error" style={{ margin: 0, fontWeight: 800, fontSize: 10, padding: '0 8px' }}>
+                          RAW INPUT
+                        </Tag>
+                        <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--theme-text)' }}>
+                          {rawLine.itemCode}
                         </span>
                       </div>
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 6, textAlign: 'center' }}>
-                        <div style={{ background: 'rgba(255, 255, 255, 0.04)', borderRadius: 5, padding: '5px 4px' }}>
-                          <span style={{ fontSize: 9, textTransform: 'uppercase', color: 'var(--theme-text-muted, #94a3b8)', fontWeight: 600, display: 'block', letterSpacing: 0.3 }}>Opening</span>
-                          <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--theme-text, #ffffff)' }}>{formatNumber(rawBefore, 3)} {rawUom}</span>
+                      {/* Row 2: Full Item Name on its own dedicated line */}
+                      {rawLine.itemName && (
+                        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--theme-text)', marginBottom: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {rawLine.itemName}
                         </div>
-                        <div style={{ background: 'rgba(239, 68, 68, 0.08)', borderRadius: 5, padding: '5px 4px' }}>
-                          <span style={{ fontSize: 9, textTransform: 'uppercase', color: '#f87171', fontWeight: 600, display: 'block', letterSpacing: 0.3 }}>Consumed</span>
-                          <span style={{ fontSize: 12, fontWeight: 700, color: '#ef4444' }}>−{formatNumber(rawConsumed, 3)} {rawUom}</span>
+                      )}
+                      {/* Row 3: Source Store Location on its own dedicated line */}
+                      <div style={{ fontSize: 11, color: 'var(--theme-text-muted)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <ShopOutlined style={{ fontSize: 11, color: 'var(--theme-text-secondary)' }} />
+                        <span>Source:</span>
+                        <strong style={{ color: 'var(--theme-text)' }}>{sourceStoreLabel || rawLine.rawDepartmentName || 'Source Store'}</strong>
+                      </div>
+
+                      {/* 3 Metric Pills: Available -> Consumed (-) -> Balance */}
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8, textAlign: 'center' }}>
+                        <div style={{ background: 'var(--theme-surface)', border: '1px solid var(--theme-border-secondary)', borderRadius: 6, padding: '6px 4px' }}>
+                          <span style={{ fontSize: 10, textTransform: 'uppercase', color: 'var(--theme-text-muted)', fontWeight: 600, display: 'block' }}>Opening</span>
+                          <span style={{ fontSize: 12.5, fontWeight: 800, color: 'var(--theme-text)', whiteSpace: 'nowrap', display: 'block' }}>
+                            {formatNumber(rawBefore, 2)} {rawUom}
+                          </span>
                         </div>
-                        <div style={{ background: 'rgba(16, 185, 129, 0.08)', borderRadius: 5, padding: '5px 4px' }}>
-                          <span style={{ fontSize: 9, textTransform: 'uppercase', color: '#34d399', fontWeight: 600, display: 'block', letterSpacing: 0.3 }}>Remaining</span>
-                          <span style={{ fontSize: 12, fontWeight: 700, color: '#10b981' }}>{formatNumber(rawAfter, 3)} {rawUom}</span>
+                        <div style={{ background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.25)', borderRadius: 6, padding: '6px 4px' }}>
+                          <span style={{ fontSize: 10, textTransform: 'uppercase', color: '#ef4444', fontWeight: 600, display: 'block' }}>Consumed (−)</span>
+                          <span style={{ fontSize: 12.5, fontWeight: 800, color: '#ef4444', whiteSpace: 'nowrap', display: 'block' }}>
+                            −{formatNumber(rawConsumed, 2)} {rawUom}
+                          </span>
+                        </div>
+                        <div style={{
+                          background: hasShortage ? 'rgba(239, 68, 68, 0.12)' : 'rgba(16, 185, 129, 0.08)',
+                          border: `1px solid ${hasShortage ? '#ef4444' : 'rgba(16, 185, 129, 0.3)'}`,
+                          borderRadius: 6, padding: '6px 4px'
+                        }}>
+                          <span style={{ fontSize: 10, textTransform: 'uppercase', color: hasShortage ? '#ef4444' : '#10b981', fontWeight: 700, display: 'block' }}>
+                            {hasShortage ? 'SHORTAGE' : 'BALANCE'}
+                          </span>
+                          <span style={{ fontSize: 12.5, fontWeight: 800, color: hasShortage ? '#ef4444' : '#10b981', whiteSpace: 'nowrap', display: 'block' }}>
+                            {hasShortage ? '−' : '+'}{formatNumber(Math.abs(rawAfter), 2)} {rawUom}
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -6303,42 +6218,56 @@ const RawMaterialAvailability: React.FC<{
                   const outProduced = actualQty;
                   const outAfter = outBefore + outProduced;
                   const outUom = info.outUomCode ?? '';
+
                   return (
                     <div style={{
-                      background: 'rgba(16, 185, 129, 0.04)',
-                      border: 'none',
-                      borderLeft: '3px solid #10b981',
-                      borderRadius: 6,
-                      padding: '8px 10px',
+                      background: 'var(--theme-surface-alt, rgba(16, 185, 129, 0.03))',
+                      border: '1px solid var(--theme-border-secondary, rgba(148, 163, 184, 0.2))',
+                      borderLeft: '4px solid #10b981',
+                      borderRadius: 8,
+                      padding: '10px 12px',
                     }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, flexWrap: 'wrap', gap: 4 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <span style={{
-                            background: 'rgba(16, 185, 129, 0.15)', color: '#34d399', border: 'none',
-                            fontWeight: 700, fontSize: 9.5, borderRadius: 3, padding: '1px 6px',
-                            display: 'inline-flex', alignItems: 'center', gap: 4,
-                          }}>
-                            <ArrowUpOutlined style={{ fontSize: 9 }} /> OUTPUT (GOOD PRODUCTION)
-                          </span>
-                          <Text strong style={{ fontSize: 11.5 }}>{info.itemCode}</Text>
-                          {info.itemName && <Text type="secondary" style={{ fontSize: 11 }}>— {info.itemName}</Text>}
-                        </div>
-                        <span style={{ fontSize: 10, color: 'var(--theme-text-muted)', background: 'rgba(255, 255, 255, 0.06)', padding: '1px 6px', borderRadius: 3, border: 'none' }}>
-                          Receipt: <strong style={{ color: 'var(--theme-text)' }}>{receiptStoreLabel || 'Receipt Warehouse'}</strong>
+                      {/* Row 1: Badge on Left, Item Code on Right (Zero Overlap) */}
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 3 }}>
+                        <Tag color="success" style={{ margin: 0, fontWeight: 800, fontSize: 10, padding: '0 8px' }}>
+                          FG OUTPUT
+                        </Tag>
+                        <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--theme-text)' }}>
+                          {info.itemCode}
                         </span>
                       </div>
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 6, textAlign: 'center' }}>
-                        <div style={{ background: 'rgba(255, 255, 255, 0.04)', borderRadius: 5, padding: '5px 4px' }}>
-                          <span style={{ fontSize: 9, textTransform: 'uppercase', color: 'var(--theme-text-muted, #94a3b8)', fontWeight: 600, display: 'block', letterSpacing: 0.3 }}>Opening</span>
-                          <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--theme-text, #ffffff)' }}>{formatNumber(outBefore, 3)} {outUom}</span>
+                      {/* Row 2: Full Item Name on its own dedicated line */}
+                      {info.itemName && (
+                        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--theme-text)', marginBottom: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {info.itemName}
                         </div>
-                        <div style={{ background: 'rgba(16, 185, 129, 0.08)', borderRadius: 5, padding: '5px 4px' }}>
-                          <span style={{ fontSize: 9, textTransform: 'uppercase', color: '#34d399', fontWeight: 600, display: 'block', letterSpacing: 0.3 }}>Produced (+)</span>
-                          <span style={{ fontSize: 12, fontWeight: 700, color: '#10b981' }}>+{formatNumber(outProduced, 3)} {outUom}</span>
+                      )}
+                      {/* Row 3: Receipt Store Location on its own dedicated line */}
+                      <div style={{ fontSize: 11, color: 'var(--theme-text-muted)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <ShopOutlined style={{ fontSize: 11, color: 'var(--theme-text-secondary)' }} />
+                        <span>Receipt:</span>
+                        <strong style={{ color: 'var(--theme-text)' }}>{receiptStoreLabel || 'Receipt Warehouse'}</strong>
+                      </div>
+
+                      {/* 3 Metric Pills: Opening -> Produced (+) -> Closing */}
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8, textAlign: 'center' }}>
+                        <div style={{ background: 'var(--theme-surface)', border: '1px solid var(--theme-border-secondary)', borderRadius: 6, padding: '6px 4px' }}>
+                          <span style={{ fontSize: 10, textTransform: 'uppercase', color: 'var(--theme-text-muted)', fontWeight: 600, display: 'block' }}>Opening</span>
+                          <span style={{ fontSize: 12.5, fontWeight: 800, color: 'var(--theme-text)', whiteSpace: 'nowrap', display: 'block' }}>
+                            {formatNumber(outBefore, 2)} {outUom}
+                          </span>
                         </div>
-                        <div style={{ background: 'rgba(16, 185, 129, 0.14)', borderRadius: 5, padding: '5px 4px' }}>
-                          <span style={{ fontSize: 9, textTransform: 'uppercase', color: '#34d399', fontWeight: 700, display: 'block', letterSpacing: 0.3 }}>Closing</span>
-                          <span style={{ fontSize: 12, fontWeight: 800, color: '#34d399' }}>{formatNumber(outAfter, 3)} {outUom}</span>
+                        <div style={{ background: 'rgba(16, 185, 129, 0.08)', border: '1px solid rgba(16, 185, 129, 0.3)', borderRadius: 6, padding: '6px 4px' }}>
+                          <span style={{ fontSize: 10, textTransform: 'uppercase', color: '#10b981', fontWeight: 600, display: 'block' }}>Produced (+)</span>
+                          <span style={{ fontSize: 12.5, fontWeight: 800, color: '#10b981', whiteSpace: 'nowrap', display: 'block' }}>
+                            +{formatNumber(outProduced, 2)} {outUom}
+                          </span>
+                        </div>
+                        <div style={{ background: 'rgba(6, 182, 212, 0.08)', border: '1px solid rgba(6, 182, 212, 0.35)', borderRadius: 6, padding: '6px 4px' }}>
+                          <span style={{ fontSize: 10, textTransform: 'uppercase', color: '#06b6d4', fontWeight: 700, display: 'block' }}>Closing</span>
+                          <span style={{ fontSize: 12.5, fontWeight: 800, color: '#06b6d4', whiteSpace: 'nowrap', display: 'block' }}>
+                            {formatNumber(outAfter, 2)} {outUom}
+                          </span>
                         </div>
                       </div>
                     </div>

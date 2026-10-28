@@ -54,7 +54,7 @@ export const DowntimeReasonSelect: React.FC<DowntimeReasonSelectProps> = ({
   options,
   onReasonCreated,
   placeholder = 'Downtime reason',
-  size = 'small',
+  size = 'middle',
   className,
   style,
   disabled = false,
@@ -219,7 +219,7 @@ export const DowntimeReasonSelect: React.FC<DowntimeReasonSelectProps> = ({
             style={{
               padding: '6px 8px',
               borderTop: '1px solid rgba(255, 255, 255, 0.08)',
-              background: 'rgba(15, 23, 42, 0.98)',
+              background: 'var(--theme-surface-elevated, #1e293b)',
             }}
           >
             {!isAdding ? (
@@ -279,9 +279,9 @@ export const DowntimeReasonSelect: React.FC<DowntimeReasonSelectProps> = ({
                   }}
                   disabled={saving}
                   style={{
-                    background: '#0b0f19',
-                    borderColor: '#334155',
-                    color: '#f8fafc',
+                    background: 'var(--theme-surface-alt, #0f172a)',
+                    borderColor: 'var(--theme-border, #334155)',
+                    color: 'var(--theme-text, #f8fafc)',
                     fontSize: 12,
                   }}
                 />

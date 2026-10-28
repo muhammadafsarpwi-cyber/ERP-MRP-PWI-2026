@@ -6,6 +6,7 @@ import { CreateGoodsReceiptDto, UpdateGoodsReceiptDto, GoodsReceiptFilterDto } f
 import { StockLedgerService } from '../../inventory/services/stock-ledger.service';
 import { InventoryBalanceService } from '../../inventory/services/inventory-balance.service';
 import { Warehouse } from '../../organization/entities/warehouse.entity';
+import { StockLedger } from '../../inventory/entities';
 import { Item, UomConversion } from '../../item/entities';
 
 const GRN_REFERENCE_TYPE = 'GOODS_RECEIPT';
@@ -368,9 +369,98 @@ export class GoodsReceiptService {
     }
 
     if (receipt.status === 'POSTED') {
-      // For POSTED receipts, header metadata is updated; stock ledger lines are preserved to prevent inventory discrepancy
       receipt.updatedBy = userId || null;
-      await this.repo.save(receipt);
+      await this.repo.manager.transaction(async (manager) => {
+        await manager.query("SET LOCAL app.ledger_maintenance = 'on'");
+        await manager.getRepository(GoodsReceipt).save(receipt);
+
+        if (lines && Array.isArray(lines)) {
+          const currentLines = await manager.getRepository(GoodsReceiptLine).find({ where: { receiptId: id } });
+          const poLines = receipt.poId ? await manager.getRepository(PurchaseOrderLine).find({ where: { poId: receipt.poId } }) : [];
+          const poLineMap = new Map(poLines.map((p) => [p.id, p]));
+
+          for (const lineDto of lines) {
+            const lineAny = lineDto as any;
+            const existingLine = currentLines.find(
+              (cl) => (lineAny.id && cl.id === lineAny.id) ||
+                      (lineDto.poLineId && cl.poLineId === lineDto.poLineId) ||
+                      (lineDto.itemId && cl.itemId === lineDto.itemId)
+            );
+
+            if (existingLine) {
+              const oldAccepted = Number(existingLine.quantityAccepted || 0);
+              const newAccepted = Number(lineDto.quantityAccepted !== undefined ? lineDto.quantityAccepted : (lineDto.quantityReceived || oldAccepted));
+              const newReceived = Number(lineDto.quantityReceived !== undefined ? lineDto.quantityReceived : (lineDto.quantityAccepted || oldAccepted));
+
+              if (newAccepted !== oldAccepted) {
+                let oldBaseQty = oldAccepted;
+                let newBaseQty = newAccepted;
+                if (existingLine.itemId) {
+                  const item = await manager.getRepository(Item).findOne({ where: { id: existingLine.itemId } });
+                  if (item && item.baseUomId && existingLine.uomId && item.baseUomId !== existingLine.uomId) {
+                    const conv = await manager.getRepository(UomConversion).findOne({
+                      where: { fromUomId: existingLine.uomId, toUomId: item.baseUomId },
+                    });
+                    if (conv && Number(conv.conversionFactor) > 0) {
+                      oldBaseQty = oldAccepted * Number(conv.conversionFactor);
+                      newBaseQty = newAccepted * Number(conv.conversionFactor);
+                    }
+                  }
+                }
+
+                const deltaBase = newBaseQty - oldBaseQty;
+                const deltaAccepted = newAccepted - oldAccepted;
+
+                // Synchronize stock ledger
+                const ledgerEntries = await manager.getRepository(StockLedger).find({
+                  where: {
+                    referenceId: receipt.id,
+                    itemId: existingLine.itemId,
+                  },
+                });
+
+                if (ledgerEntries.length > 0) {
+                  for (const sl of ledgerEntries) {
+                    sl.quantity = newBaseQty;
+                    sl.notes = `Goods receipt ${receipt.receiptCode}${newBaseQty !== newAccepted ? ` (${newAccepted} converted to ${newBaseQty})` : ''}`;
+                    await manager.getRepository(StockLedger).save(sl);
+                  }
+                }
+
+                // Adjust inventory balance
+                if (deltaBase !== 0 && receipt.warehouseId) {
+                  await manager.query(`
+                    UPDATE inventory_balances
+                    SET on_hand = on_hand + $1,
+                        available = available + $1,
+                        updated_at = NOW()
+                    WHERE item_id = $2 AND warehouse_id = $3
+                  `, [deltaBase, existingLine.itemId, receipt.warehouseId]);
+                }
+
+                // Adjust PO line received quantity if applicable
+                if (existingLine.poLineId && poLineMap.has(existingLine.poLineId)) {
+                  const poLine = poLineMap.get(existingLine.poLineId)!;
+                  const newPolReceived = Math.max(0, Number(poLine.receivedQuantity || 0) + deltaAccepted);
+                  await manager.getRepository(PurchaseOrderLine).update(poLine.id, {
+                    receivedQuantity: newPolReceived,
+                  });
+                }
+              }
+
+              // Update the goods receipt line
+              existingLine.quantityReceived = newReceived;
+              existingLine.quantityAccepted = newAccepted;
+              if (lineDto.quantityOrdered !== undefined) existingLine.quantityOrdered = Number(lineDto.quantityOrdered);
+              if (lineDto.quantityRejected !== undefined) existingLine.quantityRejected = Number(lineDto.quantityRejected);
+              if (lineDto.unitPrice !== undefined) existingLine.unitPrice = Number(lineDto.unitPrice);
+              existingLine.updatedBy = userId || null;
+              await manager.getRepository(GoodsReceiptLine).save(existingLine);
+            }
+          }
+        }
+      });
+
       return this.findOne(id);
     }
 

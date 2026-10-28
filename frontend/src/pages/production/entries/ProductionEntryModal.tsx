@@ -105,7 +105,7 @@ export const ProductionEntryModal: React.FC = () => {
                     {shiftLabel}
                   </Tag>
                   {dateLabel && (
-                    <Tag style={{ margin: 0, background: 'rgba(255, 255, 255, 0.12)', color: '#ffffff', border: 'none', fontWeight: 600 }}>
+                    <Tag style={{ margin: 0, background: token.colorFillAlter, color: token.colorText, border: 'none', fontWeight: 600 }}>
                       {dateLabel}
                     </Tag>
                   )}
@@ -127,8 +127,7 @@ export const ProductionEntryModal: React.FC = () => {
                   gap: 4,
                   padding: isMobile ? '2px 7px' : '4px 10px',
                   borderRadius: 16,
-                  backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                  color: 'rgba(255, 255, 255, 0.75)',
+                  backgroundColor: token.colorFillAlter, color: token.colorTextSecondary,
                   fontWeight: 700,
                   fontSize: isMobile ? 10 : 11,
                   userSelect: 'none',
@@ -136,7 +135,7 @@ export const ProductionEntryModal: React.FC = () => {
               >
                 <span>{isMobile ? '1 Area' : '1 Shift & Area'}</span>
               </div>
-              <span style={{ color: 'rgba(255, 255, 255, 0.35)', fontSize: 10 }}>➔</span>
+              <span style={{ color: token.colorTextTertiary, fontSize: 10 }}>➔</span>
               <div
                 style={{
                   display: 'flex',
@@ -144,8 +143,7 @@ export const ProductionEntryModal: React.FC = () => {
                   gap: 4,
                   padding: isMobile ? '2px 7px' : '4px 10px',
                   borderRadius: 16,
-                  backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                  color: 'rgba(255, 255, 255, 0.75)',
+                  backgroundColor: token.colorFillAlter, color: token.colorTextSecondary,
                   fontWeight: 700,
                   fontSize: isMobile ? 10 : 11,
                   userSelect: 'none',
@@ -153,7 +151,7 @@ export const ProductionEntryModal: React.FC = () => {
               >
                 <span>{isMobile ? '2 Machines' : '2 Department & Machines'}</span>
               </div>
-              <span style={{ color: 'rgba(255, 255, 255, 0.35)', fontSize: 10 }}>➔</span>
+              <span style={{ color: token.colorTextTertiary, fontSize: 10 }}>➔</span>
               <div
                 style={{
                   display: 'flex',

@@ -75,15 +75,15 @@
 }
 
 .gr-view-meta-card {
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--theme-surface-alt, rgba(0, 0, 0, 0.02));
+  border: 1px solid var(--theme-border, rgba(0, 0, 0, 0.08));
   border-radius: 6px;
   padding: 10px 14px;
 }
 
 .gr-view-meta-label {
   font-size: 11px;
-  color: #94a3b8;
+  color: var(--theme-text-secondary, #64748b);
   text-transform: uppercase;
   font-weight: 600;
   letter-spacing: 0.5px;
@@ -93,33 +93,33 @@
 .gr-view-meta-val {
   font-size: 13px;
   font-weight: 700;
-  color: #f8fafc;
+  color: var(--theme-text, #0f172a);
 }
 
 .gr-view-table {
   width: 100%;
   border-collapse: collapse;
   margin-top: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--theme-border, #cbd5e1);
   border-radius: 6px;
   overflow: hidden;
 }
 
 .gr-view-table th {
-  background: rgba(255, 255, 255, 0.05);
-  color: #94a3b8;
+  background: var(--theme-fill-alter, #f8fafc);
+  color: var(--theme-text-secondary, #64748b);
   font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
   padding: 8px 10px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: 1px solid var(--theme-border, #cbd5e1);
 }
 
 .gr-view-table td {
   padding: 8px 10px;
   font-size: 12px;
-  color: #e2e8f0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  color: var(--theme-text, #0f172a);
+  border-bottom: 1px solid var(--theme-border, #e2e8f0);
 }
 
 .gr-view-table tr:last-child td {

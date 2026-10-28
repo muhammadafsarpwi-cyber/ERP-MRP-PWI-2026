@@ -1230,13 +1230,13 @@ const GoodsReceiptManagement: React.FC = () => {
             </div>
 
             {viewingItem.notes && (
-              <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 6, padding: '8px 12px', marginBottom: 16 }}>
-                <span style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' }}>Notes: </span>
-                <span style={{ fontSize: 13, color: '#e2e8f0' }}>{viewingItem.notes}</span>
+              <div style={{ background: 'var(--theme-surface-alt, rgba(0,0,0,0.02))', border: '1px solid var(--theme-border, #e2e8f0)', borderRadius: 6, padding: '8px 12px', marginBottom: 16 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--theme-text-secondary, #64748b)', textTransform: 'uppercase' }}>Notes: </span>
+                <span style={{ fontSize: 13, color: 'var(--theme-text, #0f172a)' }}>{viewingItem.notes}</span>
               </div>
             )}
 
-            <div style={{ fontWeight: 700, fontSize: 14, color: '#f8fafc', marginBottom: 8 }}>
+            <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--theme-heading, var(--theme-text, #0f172a))', marginBottom: 8 }}>
               Received Line Items ({(viewingItem.lines || viewingItem.items || []).length})
             </div>
             <table className="gr-view-table">
@@ -1261,17 +1261,17 @@ const GoodsReceiptManagement: React.FC = () => {
                     <tr key={line.id || idx}>
                       <td>{idx + 1}</td>
                       <td>
-                        <div style={{ fontWeight: 600, color: '#f8fafc' }}>
+                        <div style={{ fontWeight: 600, color: 'var(--theme-text, #0f172a)' }}>
                           {line.itemName || line.item?.name || line.conditionNotes || 'Item'}
                         </div>
-                        <div style={{ fontSize: 11, color: '#94a3b8' }}>
+                        <div style={{ fontSize: 11, color: 'var(--theme-text-secondary, #64748b)' }}>
                           {line.itemCode || line.item?.itemCode || '—'} {line.uomCode || line.uom?.code ? `(${line.uomCode || line.uom?.code})` : ''}
                         </div>
                       </td>
                       <td style={{ textAlign: 'right' }}>{Number(line.quantityOrdered || 0).toLocaleString()}</td>
-                      <td style={{ textAlign: 'right', fontWeight: 700, color: '#38bdf8' }}>{qtyRec.toLocaleString()}</td>
-                      <td style={{ textAlign: 'right', color: '#10b981' }}>{Number(line.quantityAccepted || qtyRec).toLocaleString()}</td>
-                      <td style={{ textAlign: 'right', color: Number(line.quantityRejected || 0) > 0 ? '#ef4444' : '#94a3b8' }}>
+                      <td style={{ textAlign: 'right', fontWeight: 700, color: '#0284c7' }}>{qtyRec.toLocaleString()}</td>
+                      <td style={{ textAlign: 'right', color: '#10b981', fontWeight: 600 }}>{Number(line.quantityAccepted || qtyRec).toLocaleString()}</td>
+                      <td style={{ textAlign: 'right', color: Number(line.quantityRejected || 0) > 0 ? '#ef4444' : 'var(--theme-text-muted, #94a3b8)' }}>
                         {Number(line.quantityRejected || 0).toLocaleString()}
                       </td>
                       <td style={{ textAlign: 'right' }}>PKR {rate.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>

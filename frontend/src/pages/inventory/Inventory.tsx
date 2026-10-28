@@ -1,14 +1,15 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Typography, Card, Row, Col, Statistic, Alert, Button, Empty, Select, Input, Space, Tag } from 'antd';
+import { Typography, Card, Row, Col, Statistic, Alert, Button, Empty, Select, Input, Space, Tag, Tooltip } from 'antd';
 import {
   InboxOutlined, AlertOutlined, SwapOutlined, BarChartOutlined, ReloadOutlined,
   SearchOutlined, DatabaseOutlined, FilterOutlined, CheckCircleOutlined,
-  AppstoreOutlined, HistoryOutlined,
+  AppstoreOutlined, HistoryOutlined, PrinterOutlined, FilePdfOutlined, WhatsAppOutlined,
 } from '@ant-design/icons';
 import apiService from '../../services/api';
 import { formatNumber } from '../../utils/numberFormat';
 import { ERPTable, ItemStockLedgerModal } from '../../components/shared';
 import { useThemeStore } from '../../theme/themeStore';
+import { fetchAndExportItemLedger } from '../../utils/itemLedgerExport';
 
 const getPcsGrossCarton = (
   quantity: number,
@@ -782,36 +783,94 @@ const Inventory: React.FC = () => {
           {
             title: 'Action',
             key: 'action',
-            width: 100,
+            width: 175,
             align: 'center' as const,
             render: (_, r) => {
               const itemId = r.item?.id || (r as any).itemId;
+              const itemCode = r.item?.itemCode || (r as any).itemCode;
+              const itemName = r.item?.name || (r as any).itemName;
+              const whId = r.warehouse?.id || selectedWarehouse;
+              const whName = r.warehouse?.name;
+              const uomCode = r.uom?.code || r.uomCode || r.item?.uom?.code;
+
               return (
-                <Button
-                  size="small"
-                  icon={<HistoryOutlined style={{ color: isDark ? '#38bdf8' : '#0284c7' }} />}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (itemId) {
-                      setLedgerModalItem({
-                        itemId,
-                        itemCode: r.item?.itemCode || (r as any).itemCode,
-                        itemName: r.item?.name || (r as any).itemName,
-                        warehouseId: r.warehouse?.id || selectedWarehouse,
-                        warehouseName: r.warehouse?.name,
-                      });
-                    }
-                  }}
-                  style={{
-                    background: isDark ? 'rgba(56, 189, 248, 0.1)' : 'rgba(2, 132, 199, 0.08)',
-                    borderColor: isDark ? 'rgba(56, 189, 248, 0.3)' : 'rgba(2, 132, 199, 0.3)',
-                    color: isDark ? '#38bdf8' : '#0284c7',
-                    fontSize: 11,
-                    fontWeight: 700,
-                  }}
-                >
-                  Ledger
-                </Button>
+                <Space size={4}>
+                  <Tooltip title="View Stock Ledger">
+                    <Button
+                      size="small"
+                      icon={<HistoryOutlined style={{ color: isDark ? '#38bdf8' : '#0284c7' }} />}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (itemId) {
+                          setLedgerModalItem({
+                            itemId,
+                            itemCode,
+                            itemName,
+                            warehouseId: whId,
+                            warehouseName: whName,
+                          });
+                        }
+                      }}
+                      style={{
+                        background: isDark ? 'rgba(56, 189, 248, 0.1)' : 'rgba(2, 132, 199, 0.08)',
+                        borderColor: isDark ? 'rgba(56, 189, 248, 0.3)' : 'rgba(2, 132, 199, 0.3)',
+                        color: isDark ? '#38bdf8' : '#0284c7',
+                        fontSize: 11,
+                        fontWeight: 700,
+                      }}
+                    >
+                      Ledger
+                    </Button>
+                  </Tooltip>
+                  <Tooltip title="Print Stock Ledger">
+                    <Button
+                      size="small"
+                      icon={<PrinterOutlined style={{ color: isDark ? '#38bdf8' : '#0284c7' }} />}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (itemId) {
+                          fetchAndExportItemLedger(itemId, whId, whName, 'print', { itemCode, itemName, uomCode });
+                        }
+                      }}
+                      style={{
+                        background: isDark ? 'rgba(56, 189, 248, 0.1)' : 'rgba(2, 132, 199, 0.08)',
+                        borderColor: isDark ? 'rgba(56, 189, 248, 0.3)' : 'rgba(2, 132, 199, 0.3)',
+                      }}
+                    />
+                  </Tooltip>
+                  <Tooltip title="Export PDF">
+                    <Button
+                      size="small"
+                      icon={<FilePdfOutlined style={{ color: '#ef4444' }} />}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (itemId) {
+                          fetchAndExportItemLedger(itemId, whId, whName, 'pdf', { itemCode, itemName, uomCode });
+                        }
+                      }}
+                      style={{
+                        background: isDark ? 'rgba(239, 68, 68, 0.1)' : 'rgba(239, 68, 68, 0.08)',
+                        borderColor: isDark ? 'rgba(239, 68, 68, 0.3)' : 'rgba(239, 68, 68, 0.3)',
+                      }}
+                    />
+                  </Tooltip>
+                  <Tooltip title="Share WhatsApp">
+                    <Button
+                      size="small"
+                      icon={<WhatsAppOutlined style={{ color: '#25D366' }} />}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (itemId) {
+                          fetchAndExportItemLedger(itemId, whId, whName, 'whatsapp', { itemCode, itemName, uomCode });
+                        }
+                      }}
+                      style={{
+                        background: isDark ? 'rgba(37, 211, 102, 0.1)' : 'rgba(37, 211, 102, 0.08)',
+                        borderColor: isDark ? 'rgba(37, 211, 102, 0.3)' : 'rgba(37, 211, 102, 0.3)',
+                      }}
+                    />
+                  </Tooltip>
+                </Space>
               );
             },
           },
