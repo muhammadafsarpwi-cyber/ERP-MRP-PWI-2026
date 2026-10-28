@@ -711,6 +711,7 @@ export const buildChainGrid = (
   monthScrap: Record<string, number>,
   weightMap: Record<string, number | null>,
   itemNames?: Record<string, string>,
+  openingBalanceOverrides?: Map<string, number>,
 ): ChainGrid => {
   const declaredRows = def.rows.filter(
     (r) => typeof r.itemCode === 'string' && r.itemCode.trim() !== '' && !(r as any).isBypassed && !(r as any).isInactive,
@@ -752,12 +753,22 @@ export const buildChainGrid = (
       rowDef.stage === 'RM'
         ? 1
         : resolveWeight(src?.uomCode, weightMap[rowDef.itemCode] ?? weightMap[fgItemCode], rowDef.itemCode);
+
+    // Chain-isolated override ensures shared items (e.g. WIP-ST-001) in multiple chains never clobber each other
+    const chainKeyOverride = openingBalanceOverrides?.get(`${def.key}__${rowDef.itemCode}`);
+    const genericOverride = openingBalanceOverrides?.get(rowDef.itemCode);
+    const resolvedOp = chainKeyOverride !== undefined
+      ? chainKeyOverride
+      : genericOverride !== undefined
+        ? genericOverride
+        : isDp
+          ? round4(num(dpRowSource?.openingBalance ?? 0))
+          : round4(num(src?.openingBalance));
+
     return {
       def: rowDef,
       src,
-      opBalance: isDp
-        ? round4(num(dpRowSource?.openingBalance ?? 0))
-        : round4(num(src?.openingBalance)),
+      opBalance: round4(num(resolvedOp)),
       production: isDp
         ? dpDispatched
         : round4(
@@ -1383,6 +1394,7 @@ interface CachedLedgerReport {
   dayItems: ReportRow[];
   monthItems: ReportRow[];
   monthScrap: Record<string, number>;
+  chainOpeningOverrides?: Map<string, number>;
 }
 const ledgerReportCache = new Map<string, CachedLedgerReport>();
 const rawDayItemsReportCache = new Map<string, ReportRow[]>();
@@ -1402,6 +1414,7 @@ const ItemWiseProductionLedger: React.FC = () => {
   const activeRequestIdRef = useRef<number>(0);
 
   const [rows, setRows] = useState<ReportRow[]>([]);
+  const [chainOpeningOverrides, setChainOpeningOverrides] = useState<Map<string, number>>(new Map());
   const [monthScrap, setMonthScrap] = useState<Record<string, number>>({});
   const [weightMap, setWeightMap] = useState<Record<string, number | null>>(() => ({
     ...STANDARD_ITEM_WEIGHTS,
@@ -1786,6 +1799,7 @@ const ItemWiseProductionLedger: React.FC = () => {
       );
 
       let displayRows: ReportRow[] = monthItems;
+      let finalOverrides = new Map<string, number>();
 
       if (!isRange) {
         // Cache today's raw API snapshot
@@ -1843,6 +1857,7 @@ const ItemWiseProductionLedger: React.FC = () => {
           // Sequential roll from monthFrom up to endDate
           let previousDayClosings = new Map<string, number>();
           let finalDayRows: ReportRow[] = dayItems;
+          finalOverrides = new Map<string, number>();
 
           for (let i = 0; i < dates.length; i++) {
             const d = dates[i];
@@ -1859,7 +1874,7 @@ const ItemWiseProductionLedger: React.FC = () => {
             // ── UNIVERSAL MATHEMATICAL INVARIANT: Day (D) Opening === Day (D - 1) Closing ──
             if (i > 0 && previousDayClosings.size > 0) {
               itemsForDay.forEach((targetRow) => {
-                const prevClose = previousDayClosings.get(targetRow.itemCode);
+                const prevClose = previousDayClosings.get(`${chainKey}__${targetRow.itemCode}`) ?? previousDayClosings.get(targetRow.itemCode);
                 if (prevClose !== undefined) {
                   targetRow.openingBalance = prevClose;
                 }
@@ -1867,15 +1882,16 @@ const ItemWiseProductionLedger: React.FC = () => {
 
               // Carry forward pseudo stages (such as DP Dispatch Outward stages) so DP opening rolls seamlessly
               previousDayClosings.forEach((prevClose, code) => {
-                if (code.endsWith('-DISP') || !itemsForDay.some((r) => r.itemCode === code)) {
-                  const existing = itemsForDay.find((r) => r.itemCode === code);
+                const cleanCode = code.includes('__') ? code.split('__')[1] : code;
+                if (cleanCode.endsWith('-DISP') || !itemsForDay.some((r) => r.itemCode === cleanCode)) {
+                  const existing = itemsForDay.find((r) => r.itemCode === cleanCode);
                   if (existing) {
                     existing.openingBalance = prevClose;
                   } else {
                     itemsForDay.push({
-                      itemId: code,
-                      itemCode: code,
-                      itemName: `${code} Outward Stage`,
+                      itemId: cleanCode,
+                      itemCode: cleanCode,
+                      itemName: `${cleanCode} Outward Stage`,
                       itemType: 'FINISHED_GOOD',
                       uomCode: 'PCS',
                       openingBalance: prevClose,
@@ -1895,15 +1911,21 @@ const ItemWiseProductionLedger: React.FC = () => {
 
             if (isTargetDay) {
               finalDayRows = itemsForDay;
+              finalOverrides = previousDayClosings;
               break;
             }
 
             // Derive closing pieces for intermediate day d across chains
             const nextClosings = new Map<string, number>();
             currentChains.forEach((c) => {
-              const grid = buildChainGrid(c, itemsForDay, computedMonthScrap, weights, currentNames);
+              const grid = buildChainGrid(c, itemsForDay, computedMonthScrap, weights, currentNames, previousDayClosings);
               grid.rows.forEach((gr) => {
-                nextClosings.set(gr.itemCode, gr.closingPieces);
+                // Key by chain key + item code so shared items across different chains NEVER collide!
+                nextClosings.set(`${c.key}__${gr.itemCode}`, gr.closingPieces);
+                // Active chain takes precedence in the generic fallback
+                if (!nextClosings.has(gr.itemCode) || c.key === chainKey) {
+                  nextClosings.set(gr.itemCode, gr.closingPieces);
+                }
               });
             });
             previousDayClosings = nextClosings;
@@ -1923,9 +1945,11 @@ const ItemWiseProductionLedger: React.FC = () => {
         dayItems: displayRows,
         monthItems,
         monthScrap: computedMonthScrap,
+        chainOpeningOverrides: finalOverrides,
       });
 
       setRows(displayRows);
+      setChainOpeningOverrides(finalOverrides);
       setMonthScrap(computedMonthScrap);
       setLoadStatus('success');
     } catch (e: any) {
@@ -1939,7 +1963,7 @@ const ItemWiseProductionLedger: React.FC = () => {
         setLoading(false);
       }
     }
-  }, [endDate, monthFrom, range]);
+  }, [endDate, monthFrom, range, chainKey]);
 
   useEffect(() => {
     void loadWeights();
@@ -1952,8 +1976,8 @@ const ItemWiseProductionLedger: React.FC = () => {
   /* §5 — one grid for the selected chain, or every registered chain in the selected division. */
   const grids = useMemo<ChainGrid[]>(() => {
     const defs = showAll ? filteredChains : chainDef ? [chainDef] : [];
-    return defs.map((d) => buildChainGrid(d, rows, monthScrap, weightMap, itemNames));
-  }, [showAll, filteredChains, chainDef, rows, monthScrap, weightMap, itemNames]);
+    return defs.map((d) => buildChainGrid(d, rows, monthScrap, weightMap, itemNames, chainOpeningOverrides));
+  }, [showAll, filteredChains, chainDef, rows, monthScrap, weightMap, itemNames, chainOpeningOverrides]);
 
   /** §1 — what the summary, PDF, Excel and printer are allowed to see. */
   const visibleGrids = useMemo<ChainGrid[]>(
