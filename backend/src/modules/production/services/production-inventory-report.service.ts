@@ -311,8 +311,7 @@ export class ProductionInventoryReportService {
               AND (
                 pe_rel.item_id = sl.item_id 
                 OR pei_rel.item_id = sl.item_id
-                OR sl.transaction_type IN ('PRODUCTION_CONSUMPTION', 'PRODUCTION_ISSUE')
-                OR (sl.transaction_type = 'PRODUCTION_REVERSAL' AND sl.direction = 'IN')
+                OR sl.transaction_type IN ('PRODUCTION_CONSUMPTION', 'PRODUCTION_ISSUE', 'PRODUCTION_REVERSAL')
               )
           )
         )
@@ -628,8 +627,7 @@ export class ProductionInventoryReportService {
             AND (
               pe_rel.item_id = sl.item_id 
               OR pei_rel.item_id = sl.item_id
-              OR sl.transaction_type IN ('PRODUCTION_CONSUMPTION', 'PRODUCTION_ISSUE')
-              OR (sl.transaction_type = 'PRODUCTION_REVERSAL' AND sl.direction = 'IN')
+              OR sl.transaction_type IN ('PRODUCTION_CONSUMPTION', 'PRODUCTION_ISSUE', 'PRODUCTION_REVERSAL')
             )
         )
       )

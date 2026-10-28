@@ -3712,11 +3712,35 @@ addToDept(org, {
     );
 
     for (const line of lines) {
-      const component = await this.itemRepo.findOne({ where: { id: line.itemId }, relations: ['baseUom'] });
+      let component = await this.itemRepo.findOne({ where: { id: line.itemId }, relations: ['baseUom'] });
       const isLineNipple = component && (
         (component.itemCode || '').toLowerCase().includes('np') ||
         (component.name || '').toLowerCase().includes('nipple')
       );
+
+      // Automated Defense: Ensure hand packing nipple line matches the FG's explicitly declared specification
+      if (isHandPacking && isLineNipple && product?.name?.includes('__')) {
+        const declaredNippleName = product.name.split('__')[1]?.trim();
+        if (declaredNippleName && component) {
+          const normComp = (component.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+          const normDecl = declaredNippleName.toLowerCase().replace(/[^a-z0-9]/g, '');
+          if (!normComp.includes(normDecl) && !normDecl.includes(normComp)) {
+            // Find the exact declared nipple item in the company
+            const matchedNipple = await this.itemRepo.findOne({
+              where: [
+                { companyId, name: declaredNippleName },
+                { companyId, name: ILike(`%${declaredNippleName}%`) },
+              ],
+              relations: ['baseUom'],
+            });
+            if (matchedNipple && matchedNipple.id !== component.id) {
+              component = matchedNipple;
+              line.itemId = matchedNipple.id;
+            }
+          }
+        }
+      }
+
       const isLineInner = component && (
         (component.itemCode || '').toLowerCase().includes('inn') ||
         (component.name || '').toLowerCase().includes('inner')

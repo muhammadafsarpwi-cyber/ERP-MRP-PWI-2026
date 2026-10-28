@@ -746,6 +746,7 @@ export const buildChainGrid = (
   // ── PASS 1 — independent cells: Opening + Production from the ledger. ──
   const pass1: StagePass[] = declaredRows.map((rowDef) => {
     const isDp = rowDef.stage === 'DP';
+    const dpRowSource = isDp ? rowByCode.get(rowDef.itemCode) : undefined;
     const src = isDp ? fgSrc : rowByCode.get(rowDef.itemCode);
     const multiplier =
       rowDef.stage === 'RM'
@@ -754,7 +755,9 @@ export const buildChainGrid = (
     return {
       def: rowDef,
       src,
-      opBalance: isDp ? 0 : round4(num(src?.openingBalance)),
+      opBalance: isDp
+        ? round4(num(dpRowSource?.openingBalance ?? 0))
+        : round4(num(src?.openingBalance)),
       production: isDp
         ? dpDispatched
         : round4(
@@ -821,6 +824,20 @@ export const buildChainGrid = (
         remarks: val > 0 ? `Issued to DP (${fmtQty(val, p.src?.uomCode ?? 'PCS')})` : '—',
         prodValue: 0,
         returnOutValue: val,
+      };
+    }
+
+    // When real consumption is recorded in the stock ledger (e.g. Hand Packing consuming PL),
+    // strictly use that physical outflow so ledger closing matches warehouse on-hand with 100% precision.
+    if (stage !== 'RM' && actualOut > 0) {
+      const nextStageName = successorOf(stage) || 'Next Stage';
+      return {
+        value: actualOut,
+        rule: `Recorded issues (OUT) — Issued to ${nextStageName}`,
+        driven: false,
+        remarks: `Issued to ${nextStageName} (${fmtQty(actualOut, p.src?.uomCode ?? 'PCS')})`,
+        prodValue: actualOut,
+        returnOutValue: nonProdOut,
       };
     }
 
@@ -1368,6 +1385,8 @@ interface CachedLedgerReport {
   monthScrap: Record<string, number>;
 }
 const ledgerReportCache = new Map<string, CachedLedgerReport>();
+const rawDayItemsReportCache = new Map<string, ReportRow[]>();
+
 
 /* ── Component ────────────────────────────────────────────────────────── */
 
@@ -1704,6 +1723,11 @@ const ItemWiseProductionLedger: React.FC = () => {
     const requestId = ++activeRequestIdRef.current;
     const cacheKey = `${endDate}__${monthFrom}`;
 
+    if (forceRefresh) {
+      rawDayItemsReportCache.clear();
+      ledgerReportCache.clear();
+    }
+
     // §1 Prevent data bleeding: clear old rows and enter loading state immediately
     setRows([]);
     setLoading(true);
@@ -1757,19 +1781,136 @@ const ItemWiseProductionLedger: React.FC = () => {
       // each document's OUTPUT children so multi-item logs stay item-isolated.
       const dailyProdMap = bucketDailyProduction(entriesList);
 
-      // Server-side rolling ledger contract:
-      // The backend /production/inventory-report calculates the exact cumulative opening balance
-      // directly from all stock ledger movements strictly before the selected date.
+      const computedMonthScrap = Object.fromEntries(
+        monthItems.map((r) => [r.itemCode, round4(num(r.scrapOut))]),
+      );
 
-      // In daily ledger mode (single selected day):
-      // Production must strictly be ONLY the entries recorded on that exact date!
-      // If no entry was posted on endDate, production is strictly 0!
+      let displayRows: ReportRow[] = monthItems;
+
       if (!isRange) {
-        const prodForEndDay = dailyProdMap.get(endDate) ?? new Map<string, number>();
-        dayItems.forEach((targetRow) => {
-          const dayProd = prodForEndDay.get(targetRow.itemCode);
-          targetRow.produced = dayProd ?? 0;
-        });
+        // Cache today's raw API snapshot
+        rawDayItemsReportCache.set(
+          endDate,
+          dayItems.map((r) => ({ ...r })),
+        );
+
+        if (endDate === monthFrom) {
+          // Day 1 of the month: baseline opening balances from monthItems are directly valid
+          const prodForEndDay = dailyProdMap.get(endDate) ?? new Map<string, number>();
+          dayItems.forEach((targetRow) => {
+            const dayProd = prodForEndDay.get(targetRow.itemCode);
+            targetRow.produced = dayProd ?? 0;
+          });
+          displayRows = dayItems;
+        } else {
+          // ── SEQUENTIAL DAILY ROLLING CHAIN ──
+          // Universal Mathematical Standard:
+          // Opening Balance (Day D) ≡ Closing Pieces (Day D - 1)
+          // Build chronological list of days from monthFrom to endDate
+          const dates: string[] = [];
+          let cur = dayjs(monthFrom);
+          const endDay = dayjs(endDate);
+          while (!cur.isAfter(endDay, 'day')) {
+            dates.push(cur.format('YYYY-MM-DD'));
+            cur = cur.add(1, 'day');
+          }
+
+          // Fetch any missing intermediate days in parallel
+          const missingDates = dates.filter((d) => d !== endDate && !rawDayItemsReportCache.has(d));
+          if (missingDates.length > 0) {
+            const fetched = await Promise.all(
+              missingDates.map((d) =>
+                apiService
+                  .get<{ data: { items?: ReportRow[] } }>('/production/inventory-report', {
+                    dateFrom: d,
+                    dateTo: d,
+                  })
+                  .catch(() => null),
+              ),
+            );
+            if (activeRequestIdRef.current !== requestId) return;
+            missingDates.forEach((d, idx) => {
+              const res = fetched[idx];
+              if (res?.data?.items) {
+                rawDayItemsReportCache.set(
+                  d,
+                  res.data.items.map((r) => ({ ...r })),
+                );
+              }
+            });
+          }
+
+          // Sequential roll from monthFrom up to endDate
+          let previousDayClosings = new Map<string, number>();
+          let finalDayRows: ReportRow[] = dayItems;
+
+          for (let i = 0; i < dates.length; i++) {
+            const d = dates[i];
+            const isTargetDay = d === endDate;
+            const daySource = isTargetDay ? dayItems : (rawDayItemsReportCache.get(d) ?? []);
+            const itemsForDay: ReportRow[] = daySource.map((r) => ({ ...r }));
+
+            const prodForDay = dailyProdMap.get(d) ?? new Map<string, number>();
+            itemsForDay.forEach((targetRow) => {
+              const dayProd = prodForDay.get(targetRow.itemCode);
+              targetRow.produced = dayProd ?? 0;
+            });
+
+            // ── UNIVERSAL MATHEMATICAL INVARIANT: Day (D) Opening === Day (D - 1) Closing ──
+            if (i > 0 && previousDayClosings.size > 0) {
+              itemsForDay.forEach((targetRow) => {
+                const prevClose = previousDayClosings.get(targetRow.itemCode);
+                if (prevClose !== undefined) {
+                  targetRow.openingBalance = prevClose;
+                }
+              });
+
+              // Carry forward pseudo stages (such as DP Dispatch Outward stages) so DP opening rolls seamlessly
+              previousDayClosings.forEach((prevClose, code) => {
+                if (code.endsWith('-DISP') || !itemsForDay.some((r) => r.itemCode === code)) {
+                  const existing = itemsForDay.find((r) => r.itemCode === code);
+                  if (existing) {
+                    existing.openingBalance = prevClose;
+                  } else {
+                    itemsForDay.push({
+                      itemId: code,
+                      itemCode: code,
+                      itemName: `${code} Outward Stage`,
+                      itemType: 'FINISHED_GOOD',
+                      uomCode: 'PCS',
+                      openingBalance: prevClose,
+                      totalIn: 0,
+                      totalOut: 0,
+                      scrapOut: 0,
+                      consumed: 0,
+                      produced: 0,
+                      closingBalance: prevClose,
+                      onHand: prevClose,
+                      flow: { source: null, consumers: [], flowStatus: 'CHAIN' },
+                    });
+                  }
+                }
+              });
+            }
+
+            if (isTargetDay) {
+              finalDayRows = itemsForDay;
+              break;
+            }
+
+            // Derive closing pieces for intermediate day d across chains
+            const nextClosings = new Map<string, number>();
+            currentChains.forEach((c) => {
+              const grid = buildChainGrid(c, itemsForDay, computedMonthScrap, weights, currentNames);
+              grid.rows.forEach((gr) => {
+                nextClosings.set(gr.itemCode, gr.closingPieces);
+              });
+            });
+            previousDayClosings = nextClosings;
+          }
+
+          displayRows = finalDayRows;
+        }
       }
 
       // Check race condition once more after loop
@@ -1777,15 +1918,9 @@ const ItemWiseProductionLedger: React.FC = () => {
         return;
       }
 
-      const displayRows = isRange ? monthItems : dayItems;
-
-      const computedMonthScrap = Object.fromEntries(
-        monthItems.map((r) => [r.itemCode, round4(num(r.scrapOut))]),
-      );
-
       // In-Memory persistent cache to keep tab solid on switch
       ledgerReportCache.set(cacheKey, {
-        dayItems,
+        dayItems: displayRows,
         monthItems,
         monthScrap: computedMonthScrap,
       });
