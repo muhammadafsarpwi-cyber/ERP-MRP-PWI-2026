@@ -106,38 +106,10 @@ export class ItemService implements OnModuleInit {
   ) {}
 
   async onModuleInit() {
-    setImmediate(async () => {
-      try {
-        // TASK #45: Heal any legacy records where production_in_item_id is set
-        // but production_out_item_id is NULL or out of sync (current item is the output).
-        await this.itemRepository
-          .createQueryBuilder()
-          .update(Item)
-          .set({ productionOutItemId: () => 'id' })
-          .where('production_in_item_id IS NOT NULL')
-          .andWhere('(production_out_item_id IS NULL OR production_out_item_id != id)')
-          .execute();
-        this.logger.log('Production OUT item auto-sync check completed successfully.');
-
-        // Auto-provision production routings for manufacturable items configured with process stages
-        const itemsWithProcesses = await this.itemRepository
-          .createQueryBuilder('item')
-          .where("item.processes IS NOT NULL AND jsonb_typeof(item.processes) = 'array' AND jsonb_array_length(item.processes) > 0")
-          .andWhere('(item.is_manufacturable = true OR item.item_type IN (:...mfgTypes))', {
-            mfgTypes: [ItemType.FINISHED_GOOD, ItemType.SEMI_FINISHED, ItemType.WORK_IN_PROGRESS],
-          })
-          .getMany();
-        
-        let syncCount = 0;
-        for (const itm of itemsWithProcesses) {
-          const res = await this.autoProvisionProductionRouting(itm, itm.processes);
-          if (res) syncCount++;
-        }
-        this.logger.log(`Auto-provisioned production routings for ${syncCount} items on module init.`);
-      } catch (err: any) {
-        this.logger.warn(`Could not run production auto-sync check: ${err?.message}`);
-      }
-    });
+    // Egress & Performance Protection: Bulk row-by-row routing scan on bootstrap
+    // has been permanently removed to eliminate remote database read spikes.
+    // Routing provisioning is strictly event-driven: triggered only when an operator
+    // saves changes to an individual item in Item Master.
   }
 
   /**

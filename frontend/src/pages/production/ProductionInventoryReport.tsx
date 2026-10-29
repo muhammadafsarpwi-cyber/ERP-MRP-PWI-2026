@@ -15,6 +15,7 @@ import {
   BarcodeOutlined,
   BranchesOutlined,
   BuildOutlined,
+  CarOutlined,
   CheckCircleOutlined,
   CheckSquareOutlined,
   ClockCircleOutlined,
@@ -102,6 +103,7 @@ interface ReportRow {
   consumed: number;
   produced: number;
   required: number;
+  dispatched?: number;
   closingBalance: number;
   onHand: number;
   reserved: number;
@@ -129,6 +131,7 @@ interface ReportSummary {
   consumed: number;
   produced: number;
   required: number;
+  dispatched?: number;
   shortItems: number;
   rawMaterialItems?: number;
   wipItems: number;
@@ -218,23 +221,101 @@ const formatGrs = (pcs: number | null | undefined): string => {
   return (Number.isInteger(val) ? val.toLocaleString('en-US') : val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })) + ' GRS';
 };
 
-const renderDualQty = (v: number | null | undefined, r: ReportRow, colorClass: string) => {
-  const isNipple = r.itemCode?.startsWith('FG-NP') || r.uomCode === 'GRS';
+const isSpokeDivision = (r: ReportRow): boolean => {
+  const div = (r.divisionName || '').toUpperCase();
+  const sec = (r.sectionName || '').toUpperCase();
+  const code = (r.itemCode || '').toUpperCase();
+  return (
+    div.includes('SPOKE') ||
+    div.includes('SPD') ||
+    sec.includes('SPOKE') ||
+    sec.includes('PLATING') ||
+    code.startsWith('WIP-SPL') ||
+    code.startsWith('NIP-SPL') ||
+    code.startsWith('FG-NP') ||
+    code.startsWith('SPI-') ||
+    r.uomCode === 'GRS'
+  );
+};
+
+const isLengthBased = (r: ReportRow): boolean => {
+  const div = (r.divisionName || '').toUpperCase();
+  const sec = (r.sectionName || '').toUpperCase();
+  const code = (r.itemCode || '').toUpperCase();
+  const uom = (r.uomCode || '').toUpperCase();
+  return (
+    div.includes('CABLE') ||
+    div.includes('CCD') ||
+    sec.includes('SPIRAL') ||
+    sec.includes('EXTRUSION') ||
+    code.startsWith('CCD') ||
+    code.startsWith('WIP-CCD') ||
+    code.startsWith('WIP-CS') ||
+    code.startsWith('WIP-PVC') ||
+    uom === 'MTR' ||
+    uom === 'M' ||
+    uom === 'METER' ||
+    uom === 'METERS' ||
+    uom === 'KG'
+  );
+};
+
+const renderDynamicUomQty = (
+  v: number | null | undefined,
+  r: ReportRow,
+  colorClass: string,
+  isDemandOrSales: boolean = false,
+) => {
   const num = Number(v) || 0;
-  if (isNipple && Math.abs(num) >= 144) {
+
+  // Determine targeted color for Primary Gross Metric:
+  // IN is Vibrant Green (#10B981), OUT is Vibrant Red (#EF4444), otherwise Sky Blue (#38BDF8)
+  const isInOut = colorClass === 'erp-num--success' || colorClass === 'erp-num--danger';
+  const primaryColor = colorClass === 'erp-num--success'
+    ? '#10B981'
+    : colorClass === 'erp-num--danger'
+    ? '#EF4444'
+    : '#38BDF8';
+
+  // 1. Spoke Division (SPD): Gross (GRS) as primary commercial currency, raw Piece counts in table with erp-table-pcs-subtext
+  if (isSpokeDivision(r)) {
     return (
       <div style={{ textAlign: 'right', lineHeight: 1.25 }}>
-        <div className={colorClass} style={{ fontWeight: 700 }}>
+        <div style={{ fontWeight: 700, fontSize: 13, color: primaryColor, letterSpacing: '0.2px' }}>
           {formatGrs(num)}
         </div>
-        <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #64748b)' }}>
-          {formatInt(num)} PCS
+        <div className="erp-table-pcs-subtext" style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.2px', marginTop: 1 }}>
+          ({formatInt(num)} PCS)
         </div>
       </div>
     );
   }
-  return <span className={colorClass} style={{ whiteSpace: 'nowrap' }}>{formatInt(v)}</span>;
+
+  // 2. Length-based lines (Control Cable Division / CCD): Meters (M) or KG
+  if (isLengthBased(r)) {
+    const rawUom = (r.uomCode || 'M').toUpperCase();
+    const uomDisplay = rawUom === 'MTR' || rawUom === 'METERS' || rawUom === 'METER' ? 'M' : rawUom;
+    return (
+      <div style={{ textAlign: 'right', lineHeight: 1.25 }}>
+        <div className={colorClass} style={{ fontWeight: 700, fontSize: 13 }}>
+          {formatInt(num)} <span style={{ fontSize: 10.5, fontWeight: 600, opacity: 0.85 }}>{uomDisplay}</span>
+        </div>
+      </div>
+    );
+  }
+
+  // 3. General / Other items: Piece/Default
+  return (
+    <div style={{ textAlign: 'right', lineHeight: 1.25 }}>
+      <span className={colorClass} style={{ whiteSpace: 'nowrap', fontSize: 12.5, fontWeight: 600 }}>
+        {formatInt(num)} {r.uomCode && r.uomCode !== 'PCS' ? <span style={{ fontSize: 10.5, opacity: 0.8 }}>{r.uomCode}</span> : null}
+      </span>
+    </div>
+  );
 };
+
+const renderDualQty = (v: number | null | undefined, r: ReportRow, colorClass: string) =>
+  renderDynamicUomQty(v, r, colorClass);
 
 const dateShort = (v?: string | null): string => (v ? new Date(v).toISOString().slice(0, 10) : '-');
 
@@ -289,15 +370,26 @@ const FlowCell: React.FC<{ flow?: ReportRow['flow']; onOpenItem?: (code: string)
   );
 };
 
-/* ── 2027 KPI Card Component with Background Watermark Icon ───────────── */
+/* ── 2027 KPI Card Component with Industrial Orange Accents ───────────── */
 interface KpiCardProps {
   title: string;
   value: number;
   icon: React.ComponentType<{ className?: string }>;
-  variant?: 'primary' | 'success' | 'info' | 'warning' | 'danger' | 'cyan' | 'purple';
+  variant?: 'primary' | 'success' | 'info' | 'warning' | 'danger' | 'cyan' | 'purple' | 'orange';
+  badge?: string;
+  primaryValue?: React.ReactNode;
+  secondaryValue?: React.ReactNode;
 }
 
-const KpiCard: React.FC<KpiCardProps> = ({ title, value, icon: Icon, variant = 'primary' }) => (
+const KpiCard: React.FC<KpiCardProps> = ({
+  title,
+  value,
+  icon: Icon,
+  variant = 'primary',
+  badge,
+  primaryValue,
+  secondaryValue,
+}) => (
   <Card size="small" className={`erp-kpi-card erp-kpi-card--${variant}`}>
     <Icon className="erp-kpi-card__watermark" />
     <div className="erp-kpi-card__header">
@@ -305,10 +397,16 @@ const KpiCard: React.FC<KpiCardProps> = ({ title, value, icon: Icon, variant = '
         <Icon className="erp-kpi-card__icon" />
         {title}
       </span>
+      {badge && <span className="erp-kpi-card__badge">{badge}</span>}
     </div>
     <div className="erp-kpi-card__value">
-      {formatInt(value)}
+      {primaryValue != null ? primaryValue : formatInt(value)}
     </div>
+    {secondaryValue && (
+      <div className="erp-kpi-card__subvalue">
+        {secondaryValue}
+      </div>
+    )}
   </Card>
 );
 
@@ -957,7 +1055,7 @@ const ProductionInventoryReport: React.FC = () => {
     const header = [
       'Item Code', 'Item Name', 'Type', 'UOM', 'Division', 'Department',
       'Opening', 'IN', 'OUT', 'Closing', 'On Hand', 'Available', 'Produced',
-      'Required', 'Consumed', 'Scrap', 'Shortage', 'Status',
+      'Required', 'Dispatched', 'Consumed', 'Scrap', 'Shortage', 'Status',
     ];
     const csvLines = [
       `"${dynamicReportTitle.company}"`,
@@ -982,6 +1080,7 @@ const ProductionInventoryReport: React.FC = () => {
         Math.round(r.available),
         Math.round(r.produced),
         Math.round(r.required),
+        Math.round(r.dispatched || 0),
         Math.round(r.consumed),
         Math.round(r.scrapOut),
         Math.round(r.shortage),
@@ -1017,6 +1116,7 @@ const ProductionInventoryReport: React.FC = () => {
         <td style="border: 1px solid #cbd5e1; padding: 6px 8px; text-align: right;">${formatInt(r.available)}</td>
         <td style="border: 1px solid #cbd5e1; padding: 6px 8px; text-align: right;">${formatInt(r.produced)}</td>
         <td style="border: 1px solid #cbd5e1; padding: 6px 8px; text-align: right;">${formatInt(r.required)}</td>
+        <td style="border: 1px solid #cbd5e1; padding: 6px 8px; text-align: right;">${formatInt(r.dispatched || 0)}</td>
         <td style="border: 1px solid #cbd5e1; padding: 6px 8px; text-align: right;">${formatInt(r.consumed)}</td>
         <td style="border: 1px solid #cbd5e1; padding: 6px 8px; text-align: right;">${formatInt(r.scrapOut)}</td>
         <td style="border: 1px solid #cbd5e1; padding: 6px 8px; text-align: right; ${r.shortage > 0 ? 'color: #dc2626; font-weight: 700;' : ''}">${formatInt(r.shortage)}</td>
@@ -1066,6 +1166,7 @@ const ProductionInventoryReport: React.FC = () => {
                 <th class="num">Available</th>
                 <th class="num">Produced</th>
                 <th class="num">Required</th>
+                <th class="num">Dispatched</th>
                 <th class="num">Consumed</th>
                 <th class="num">Scrap</th>
                 <th class="num">Shortage</th>
@@ -1209,52 +1310,65 @@ const ProductionInventoryReport: React.FC = () => {
     {
       title: (
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-          <BarcodeOutlined className="erp-th-icon" />Item Name & Code
+          <BarcodeOutlined className="erp-th-icon" />Item Details
         </span>
       ),
       key: 'item',
       fixed: 'left',
-      width: 270,
+      width: 285,
       align: 'left',
-      render: (_, r) => (
-        <div style={{ textAlign: 'left', lineHeight: 1.35 }}>
-          <div
-            style={{
-              fontSize: 13,
-              fontWeight: 700,
-              color: 'var(--theme-accent, #38bdf8)',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-              maxWidth: 255,
-              letterSpacing: '0.2px',
-            }}
-            title={r.itemName}
-          >
-            {r.itemName || r.itemCode}
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3, flexWrap: 'nowrap' }}>
-            <span
+      render: (_, r) => {
+        const spec = specLine(r);
+        const typeName = itemTypeLabel(r.itemType);
+        const uomText = r.itemCode?.startsWith('FG-NP') ? 'GRS (144 PCS)' : (r.uomCode || '-');
+        const attributes = [typeName, uomText, spec].filter(Boolean).join(' · ');
+
+        return (
+          <div className="erp-item-cell-stacked" style={{ textAlign: 'left', lineHeight: 1.35, display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {/* Row 1 (Top Anchor): Item Code (Primary high-visibility heavy text weight) */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span className="erp-item-code-anchor">
+                {r.itemCode}
+              </span>
+            </div>
+
+            {/* Row 2 (Middle Anchor): Product Name (Secondary mid-size typography for direct visual recognition) */}
+            <div
+              className="erp-item-name-anchor"
               style={{
-                fontFamily: 'monospace',
-                fontWeight: 700,
-                fontSize: 11,
-                color: 'var(--theme-text-secondary, #94a3b8)',
-                background: 'rgba(148, 163, 184, 0.1)',
-                padding: '1px 5px',
-                borderRadius: 3,
-                border: '1px solid var(--theme-border, rgba(148, 163, 184, 0.2))',
+                fontSize: 12.5,
+                fontWeight: 600,
+                color: 'var(--theme-text, #e2e8f0)',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
                 whiteSpace: 'nowrap',
+                maxWidth: 270,
+                letterSpacing: '0.1px',
               }}
+              title={r.itemName}
             >
-              {r.itemCode}
-            </span>
-            <span style={{ fontSize: 10.5, color: 'var(--theme-text-muted, #64748b)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 165 }}>
-              {itemTypeLabel(r.itemType)} · {r.itemCode?.startsWith('FG-NP') ? 'GRS (144 PCS)' : (r.uomCode || '-')}{specLine(r) ? ` · ${specLine(r)}` : ''}
-            </span>
+              {r.itemName || r.itemCode}
+            </div>
+
+            {/* Row 3 (Bottom Subtext): Product Attribute Specifications */}
+            <div
+              className="erp-item-spec-subtext"
+              style={{
+                fontSize: 11,
+                color: 'var(--theme-text-muted, #94a3b8)',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                maxWidth: 270,
+                letterSpacing: '0.2px',
+              }}
+              title={attributes}
+            >
+              {attributes}
+            </div>
           </div>
-        </div>
-      ),
+        );
+      },
     },
     {
       title: (
@@ -1347,15 +1461,23 @@ const ProductionInventoryReport: React.FC = () => {
       key: 'produced',
       align: 'right',
       width: 120,
-      render: (v: number) => <span className="erp-num--bold" style={{ whiteSpace: 'nowrap' }}>{formatInt(v)}</span>,
+      render: (v: number, r: ReportRow) => renderDynamicUomQty(v, r, 'erp-num--bold'),
     },
     {
       title: <span style={{ whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 4 }}><AimOutlined className="erp-th-icon" />Required</span>,
       dataIndex: 'required',
       key: 'required',
       align: 'right',
-      width: 120,
-      render: (v: number) => <span className="erp-num--bold" style={{ whiteSpace: 'nowrap' }}>{formatInt(v)}</span>,
+      width: 135,
+      render: (v: number, r: ReportRow) => renderDynamicUomQty(v, r, 'erp-num--bold', true),
+    },
+    {
+      title: <span style={{ whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 4 }}><CarOutlined className="erp-th-icon" />Dispatched</span>,
+      dataIndex: 'dispatched',
+      key: 'dispatched',
+      align: 'right',
+      width: 130,
+      render: (v: number, r: ReportRow) => renderDynamicUomQty(v, r, 'erp-num--bold'),
     },
     {
       title: <span style={{ whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 4 }}><ThunderboltOutlined className="erp-th-icon" />Consumed</span>,
@@ -1363,7 +1485,7 @@ const ProductionInventoryReport: React.FC = () => {
       key: 'consumed',
       align: 'right',
       width: 120,
-      render: (v: number) => <span className="erp-num--bold" style={{ whiteSpace: 'nowrap' }}>{formatInt(v)}</span>,
+      render: (v: number, r: ReportRow) => renderDynamicUomQty(v, r, 'erp-num--bold'),
     },
     {
       title: <span style={{ whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 4 }}><DeleteOutlined className="erp-th-icon" />Scrap</span>,
@@ -1931,6 +2053,8 @@ const ProductionInventoryReport: React.FC = () => {
               <Col xs={24} sm={12} md={6} lg={4}>
                 <Text type="secondary" style={{ fontSize: 11 }}>Division</Text>
                 <Select
+                  className="erp-iphone-select"
+                  popupClassName="erp-iphone-dropdown"
                   style={{ width: '100%' }}
                   allowClear
                   placeholder="All Divisions"
@@ -1942,6 +2066,8 @@ const ProductionInventoryReport: React.FC = () => {
               <Col xs={24} sm={12} md={6} lg={4}>
                 <Text type="secondary" style={{ fontSize: 11 }}>Department</Text>
                 <Select
+                  className="erp-iphone-select"
+                  popupClassName="erp-iphone-dropdown"
                   style={{ width: '100%' }}
                   allowClear
                   placeholder="All Departments"
@@ -1953,6 +2079,8 @@ const ProductionInventoryReport: React.FC = () => {
               <Col xs={24} sm={12} md={6} lg={4}>
                 <Text type="secondary" style={{ fontSize: 11 }}>Item</Text>
                 <Select
+                  className="erp-iphone-select"
+                  popupClassName="erp-iphone-dropdown"
                   style={{ width: '100%' }}
                   allowClear
                   showSearch
@@ -1966,6 +2094,8 @@ const ProductionInventoryReport: React.FC = () => {
               <Col xs={24} sm={12} md={6} lg={4}>
                 <Text type="secondary" style={{ fontSize: 11 }}>Item Type</Text>
                 <Select
+                  className="erp-iphone-select"
+                  popupClassName="erp-iphone-dropdown"
                   style={{ width: '100%' }}
                   allowClear
                   placeholder="All Types"
@@ -1977,6 +2107,8 @@ const ProductionInventoryReport: React.FC = () => {
               <Col xs={24} sm={12} md={6} lg={4}>
                 <Text type="secondary" style={{ fontSize: 11 }}>Movement Type</Text>
                 <Select
+                  className="erp-iphone-select"
+                  popupClassName="erp-iphone-dropdown"
                   style={{ width: '100%' }}
                   allowClear
                   placeholder="All Movements"
@@ -1988,6 +2120,8 @@ const ProductionInventoryReport: React.FC = () => {
               <Col xs={24} sm={12} md={6} lg={4}>
                 <Text type="secondary" style={{ fontSize: 11 }}>Date Range</Text>
                 <RangePicker
+                  className="erp-iphone-select"
+                  popupClassName="erp-iphone-dropdown"
                   style={{ width: '100%' }}
                   allowClear
                   value={
@@ -2120,31 +2254,73 @@ const ProductionInventoryReport: React.FC = () => {
         </Row>
       </div>
 
-      {/* ── Inventory Movement & Stock KPI Cards (Zero Decimals) ─────────── */}
-      <Row gutter={[8, 8]} className="erp-pir__cards" style={{ marginTop: 6 }}>
-        <Col xs={12} sm={8} md={6} lg={3}>
-          <KpiCard title="On Hand" value={summary?.onHand ?? 0} icon={DatabaseOutlined} variant="info" />
+      {/* ── 2027 Next-Gen KPI Ribbon (High-Tech Dashboard Capsules) ─────────── */}
+      <Row gutter={[10, 10]} className="erp-pir__cards" style={{ marginTop: 6 }}>
+        <Col xs={12} sm={8} md={4} lg={4}>
+          <KpiCard
+            title="On Hand"
+            value={summary?.onHand ?? 0}
+            primaryValue={<span style={{ color: '#38BDF8', fontWeight: 800 }}>{formatGrs(summary?.onHand ?? 0)}</span>}
+            secondaryValue={<span style={{ color: '#F97316', fontWeight: 600 }}>({formatInt(summary?.onHand ?? 0)} PCS)</span>}
+            icon={DatabaseOutlined}
+            variant="orange"
+            badge="STOCK"
+          />
         </Col>
-        <Col xs={12} sm={8} md={6} lg={3}>
-          <KpiCard title="Available" value={summary?.available ?? 0} icon={CheckCircleOutlined} variant="success" />
+        <Col xs={12} sm={8} md={4} lg={4}>
+          <KpiCard
+            title="Available"
+            value={summary?.available ?? 0}
+            primaryValue={<span style={{ color: '#38BDF8', fontWeight: 800 }}>{formatGrs(summary?.available ?? 0)}</span>}
+            secondaryValue={<span style={{ color: '#F97316', fontWeight: 600 }}>({formatInt(summary?.available ?? 0)} PCS)</span>}
+            icon={CheckCircleOutlined}
+            variant="success"
+            badge="FREE"
+          />
         </Col>
-        <Col xs={12} sm={8} md={6} lg={3}>
-          <KpiCard title="IN (range)" value={summary?.totalIn ?? 0} icon={ArrowDownOutlined} variant="cyan" />
+        <Col xs={12} sm={8} md={4} lg={4}>
+          <KpiCard
+            title="IN (range)"
+            value={summary?.totalIn ?? 0}
+            primaryValue={<span style={{ color: '#10B981', fontWeight: 800 }}>{formatGrs(summary?.totalIn ?? 0)}</span>}
+            secondaryValue={<span style={{ color: '#F97316', fontWeight: 600 }}>({formatInt(summary?.totalIn ?? 0)} PCS)</span>}
+            icon={ArrowDownOutlined}
+            variant="cyan"
+            badge="INBOUND"
+          />
         </Col>
-        <Col xs={12} sm={8} md={6} lg={3}>
-          <KpiCard title="OUT (range)" value={summary?.totalOut ?? 0} icon={ArrowUpOutlined} variant="warning" />
+        <Col xs={12} sm={8} md={4} lg={4}>
+          <KpiCard
+            title="OUT (range)"
+            value={summary?.totalOut ?? 0}
+            primaryValue={<span style={{ color: '#EF4444', fontWeight: 800 }}>{formatGrs(summary?.totalOut ?? 0)}</span>}
+            secondaryValue={<span style={{ color: '#F97316', fontWeight: 600 }}>({formatInt(summary?.totalOut ?? 0)} PCS)</span>}
+            icon={ArrowUpOutlined}
+            variant="danger"
+            badge="OUTBOUND"
+          />
         </Col>
-        <Col xs={12} sm={8} md={6} lg={3}>
-          <KpiCard title="Produced" value={summary?.produced ?? 0} icon={BuildOutlined} variant="success" />
+        <Col xs={12} sm={8} md={4} lg={4}>
+          <KpiCard
+            title="Produced"
+            value={summary?.produced ?? 0}
+            primaryValue={<span style={{ color: '#38BDF8', fontWeight: 800 }}>{formatGrs(summary?.produced ?? 0)}</span>}
+            secondaryValue={<span style={{ color: '#F97316', fontWeight: 600 }}>({formatInt(summary?.produced ?? 0)} PCS)</span>}
+            icon={BuildOutlined}
+            variant="success"
+            badge="FLOOR"
+          />
         </Col>
-        <Col xs={12} sm={8} md={6} lg={3}>
-          <KpiCard title="Required" value={summary?.required ?? 0} icon={AimOutlined} variant="primary" />
-        </Col>
-        <Col xs={12} sm={8} md={6} lg={3}>
-          <KpiCard title="Short Items" value={summary?.shortItems ?? 0} icon={WarningOutlined} variant={summary && summary.shortItems > 0 ? 'danger' : 'primary'} />
-        </Col>
-        <Col xs={12} sm={8} md={6} lg={3}>
-          <KpiCard title="Chain Items" value={summary?.flowChainItems ?? 0} icon={ClusterOutlined} variant="info" />
+        <Col xs={12} sm={8} md={4} lg={4}>
+          <KpiCard
+            title="Required"
+            value={summary?.required ?? 0}
+            primaryValue={<span style={{ color: '#38BDF8', fontWeight: 800 }}>{formatGrs(summary?.required ?? 0)}</span>}
+            secondaryValue={<span style={{ color: '#F97316', fontWeight: 600 }}>({formatInt(summary?.required ?? 0)} PCS)</span>}
+            icon={AimOutlined}
+            variant="orange"
+            badge="SOC DEMAND"
+          />
         </Col>
       </Row>
 

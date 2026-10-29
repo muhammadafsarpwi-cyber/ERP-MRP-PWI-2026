@@ -66,109 +66,167 @@
   }
 }
 
-/* ── 2027 KPI Cards ─────────────────────────────────────────────────────── */
+/* ── 2027 Ultra-Modern KPI Ribbon & Industrial Orange Ecosystem ───────────── */
+:root {
+  --erp-orange-primary: #f97316;
+  --erp-orange-vibrant: #ff6b00;
+  --erp-orange-glow: rgba(249, 115, 22, 0.22);
+  --erp-orange-subtle: rgba(249, 115, 22, 0.1);
+}
+
 .erp-pir__cards {
-  margin-bottom: 2px;
+  margin-bottom: 6px;
 }
 
 .erp-kpi-card {
   position: relative;
   overflow: hidden;
   height: 100%;
-  border-radius: 8px;
+  border-radius: 12px;
   border: 1px solid var(--theme-border, #e2e8f0);
   background: var(--theme-surface, #ffffff);
-  transition: all 0.2s ease;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03), 0 1px 2px rgba(0, 0, 0, 0.02);
 }
 
 .erp-kpi-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
-  border-color: #cbd5e1;
+  transform: translateY(-3px) scale(1.008);
+  box-shadow: 0 10px 28px var(--erp-orange-glow), 0 2px 6px rgba(0, 0, 0, 0.04);
+  border-color: var(--erp-orange-primary) !important;
+}
+
+/* Dark Mode Grid: Crisp graphite surface with neon orange sub-indicators and translucent typography */
+[data-theme='dark'] .erp-kpi-card {
+  background: #111827;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+[data-theme='dark'] .erp-kpi-card .erp-kpi-card__value {
+  color: #f8fafc;
+}
+
+[data-theme='dark'] .erp-kpi-card:hover {
+  background: #1e293b;
+  border-color: var(--erp-orange-vibrant) !important;
+  box-shadow: 0 12px 32px rgba(255, 107, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+/* Light Mode Grid: Glassy porcelain structure with subtle inner shading */
+[data-theme='light'] .erp-kpi-card,
+.erp-kpi-card {
+  background: #ffffff;
+  background-image: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
 }
 
 .erp-kpi-card .ant-card-body {
-  padding: 10px 12px;
+  padding: 12px 14px;
   position: relative;
   z-index: 1;
 }
 
 .erp-kpi-card__watermark {
   position: absolute;
-  right: -6px;
-  bottom: -6px;
-  font-size: 52px;
+  right: -8px;
+  bottom: -8px;
+  font-size: 56px;
   line-height: 1;
   opacity: 0.08;
   pointer-events: none;
   z-index: 0;
-  transition: opacity 0.2s ease, transform 0.2s ease;
+  transition: opacity 0.25s ease, transform 0.25s ease;
 }
 
 .erp-kpi-card:hover .erp-kpi-card__watermark {
-  opacity: 0.15;
-  transform: scale(1.08);
+  opacity: 0.18;
+  transform: scale(1.1) rotate(-4deg);
 }
 
 .erp-kpi-card__header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 4px;
+  margin-bottom: 6px;
 }
 
 .erp-kpi-card__title {
-  font-size: 11.5px;
-  font-weight: 600;
+  font-size: 11px;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.3px;
+  letter-spacing: 0.5px;
   color: var(--theme-text-secondary, #64748b);
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
+}
+
+.erp-kpi-card__badge {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  padding: 2px 7px;
+  border-radius: 9999px;
+  text-transform: uppercase;
+  background: rgba(249, 115, 22, 0.12);
+  color: var(--erp-orange-primary);
+  border: 1px solid rgba(249, 115, 22, 0.25);
 }
 
 .erp-kpi-card__icon {
-  font-size: 13px;
+  font-size: 13.5px;
 }
 
 .erp-kpi-card__value {
-  font-size: 20px;
-  font-weight: 700;
+  font-size: 21px;
+  font-weight: 800;
   color: var(--theme-text, #0f172a);
   font-variant-numeric: tabular-nums;
   line-height: 1.2;
+  letter-spacing: -0.3px;
 }
 
-.erp-kpi-card--primary { border-top: 3px solid #4f46e5; }
+.erp-kpi-card__subvalue {
+  margin-top: 3px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  line-height: 1.25;
+}
+
+/* Card Variations */
+.erp-kpi-card--orange { border-top: 3.5px solid var(--erp-orange-primary); }
+.erp-kpi-card--orange .erp-kpi-card__icon { color: var(--erp-orange-primary); }
+.erp-kpi-card--orange .erp-kpi-card__watermark { color: var(--erp-orange-primary); }
+
+.erp-kpi-card--primary { border-top: 3.5px solid #4f46e5; }
 .erp-kpi-card--primary .erp-kpi-card__icon { color: #4f46e5; }
 .erp-kpi-card--primary .erp-kpi-card__watermark { color: #4f46e5; }
 
-.erp-kpi-card--success { border-top: 3px solid #16a34a; }
-.erp-kpi-card--success .erp-kpi-card__icon { color: #16a34a; }
-.erp-kpi-card--success .erp-kpi-card__watermark { color: #16a34a; }
+.erp-kpi-card--success { border-top: 3.5px solid #10b981; }
+.erp-kpi-card--success .erp-kpi-card__icon { color: #10b981; }
+.erp-kpi-card--success .erp-kpi-card__watermark { color: #10b981; }
 
-.erp-kpi-card--info { border-top: 3px solid #0284c7; }
+.erp-kpi-card--info { border-top: 3.5px solid #0284c7; }
 .erp-kpi-card--info .erp-kpi-card__icon { color: #0284c7; }
 .erp-kpi-card--info .erp-kpi-card__watermark { color: #0284c7; }
 
-.erp-kpi-card--warning { border-top: 3px solid #d97706; }
-.erp-kpi-card--warning .erp-kpi-card__icon { color: #d97706; }
-.erp-kpi-card--warning .erp-kpi-card__watermark { color: #d97706; }
+.erp-kpi-card--warning { border-top: 3.5px solid #f59e0b; }
+.erp-kpi-card--warning .erp-kpi-card__icon { color: #f59e0b; }
+.erp-kpi-card--warning .erp-kpi-card__watermark { color: #f59e0b; }
 
-.erp-kpi-card--danger { border-top: 3px solid #dc2626; }
-.erp-kpi-card--danger .erp-kpi-card__icon { color: #dc2626; }
-.erp-kpi-card--danger .erp-kpi-card__watermark { color: #dc2626; }
-.erp-kpi-card--danger .erp-kpi-card__value { color: #dc2626; }
+.erp-kpi-card--danger { border-top: 3.5px solid #ef4444; }
+.erp-kpi-card--danger .erp-kpi-card__icon { color: #ef4444; }
+.erp-kpi-card--danger .erp-kpi-card__watermark { color: #ef4444; }
 
-.erp-kpi-card--cyan { border-top: 3px solid #0891b2; }
-.erp-kpi-card--cyan .erp-kpi-card__icon { color: #0891b2; }
-.erp-kpi-card--cyan .erp-kpi-card__watermark { color: #0891b2; }
+.erp-kpi-card--cyan { border-top: 3.5px solid #06b6d4; }
+.erp-kpi-card--cyan .erp-kpi-card__icon { color: #06b6d4; }
+.erp-kpi-card--cyan .erp-kpi-card__watermark { color: #06b6d4; }
 
-.erp-kpi-card--purple { border-top: 3px solid #9333ea; }
-.erp-kpi-card--purple .erp-kpi-card__icon { color: #9333ea; }
-.erp-kpi-card--purple .erp-kpi-card__watermark { color: #9333ea; }
+.erp-kpi-card--purple { border-top: 3.5px solid #a855f7; }
+.erp-kpi-card--purple .erp-kpi-card__icon { color: #a855f7; }
+.erp-kpi-card--purple .erp-kpi-card__watermark { color: #a855f7; }
 
 /* ── Number Formatting (Strict 2027 Tabular & No-Wrap) ─────────────────── */
 .erp-num--success {
@@ -215,12 +273,20 @@
   opacity: 0.9;
 }
 
+.erp-pir .ant-table-row {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
 .erp-pir .ant-table-row:hover td {
-  background: var(--theme-surface-subtle, #f0f7ff) !important;
+  background: rgba(249, 115, 22, 0.035) !important;
+  border-top-color: rgba(249, 115, 22, 0.4) !important;
+  border-bottom-color: rgba(249, 115, 22, 0.4) !important;
 }
 
 [data-theme='dark'] .erp-pir .ant-table-row:hover td {
-  background: #1e293b !important;
+  background: rgba(249, 115, 22, 0.075) !important;
+  border-top-color: rgba(255, 107, 0, 0.35) !important;
+  border-bottom-color: rgba(255, 107, 0, 0.35) !important;
 }
 
 /* ── Draggable Modal Handle ────────────────────────────────────────────── */
@@ -268,27 +334,168 @@
 .erp-category-card {
   cursor: pointer;
   user-select: none;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .erp-category-card:hover {
   transform: translateY(-3px);
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
+  border-color: var(--erp-orange-primary) !important;
+  box-shadow: 0 8px 22px var(--erp-orange-glow), 0 2px 6px rgba(0, 0, 0, 0.05) !important;
 }
 
 .erp-category-card--active {
-  box-shadow: 0 0 0 2px #4f46e5, 0 6px 20px rgba(79, 70, 229, 0.25) !important;
-  border-color: #4f46e5 !important;
+  box-shadow: 0 0 0 2px var(--erp-orange-primary), 0 8px 24px var(--erp-orange-glow) !important;
+  border-color: var(--erp-orange-primary) !important;
 }
 
 .erp-category-badge {
   font-size: 10.5px;
   font-weight: 700;
-  padding: 1px 6px;
+  padding: 1px 7px;
   border-radius: 9999px;
-  background: rgba(79, 70, 229, 0.1);
-  color: #4f46e5;
+  background: rgba(249, 115, 22, 0.12);
+  color: var(--erp-orange-primary);
+  border: 1px solid rgba(249, 115, 22, 0.25);
 }
+
+/* ── 3-Row Item Card Stacked Architecture ────────────────────────────── */
+.erp-item-cell-stacked {
+  padding: 2px 0;
+}
+
+.erp-item-code-anchor {
+  display: inline-block;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-weight: 800;
+  font-size: 12px;
+  letter-spacing: 0.4px;
+  color: var(--theme-heading, #0f172a);
+  background: rgba(249, 115, 22, 0.08);
+  border: 1px solid rgba(249, 115, 22, 0.28);
+  padding: 1.5px 7px;
+  border-radius: 5px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+
+[data-theme='dark'] .erp-item-code-anchor {
+  color: #ffffff;
+  background: rgba(249, 115, 22, 0.16);
+  border-color: rgba(249, 115, 22, 0.45);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+}
+
+.erp-item-name-anchor {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--theme-text, #1e293b);
+  line-height: 1.35;
+}
+
+[data-theme='dark'] .erp-item-name-anchor {
+  color: #f1f5f9;
+}
+
+.erp-item-spec-subtext {
+  font-size: 11px;
+  color: var(--theme-text-muted, #64748b);
+  letter-spacing: 0.15px;
+  line-height: 1.25;
+}
+
+[data-theme='dark'] .erp-item-spec-subtext {
+  color: #94a3b8;
+}
+
+/* ── Premium iPhone-Style Floating Selectors & Inputs ────────────────── */
+.erp-iphone-select .ant-select-selector,
+.erp-pir__filter-panel .ant-select .ant-select-selector,
+.erp-pir__filter-panel .ant-picker,
+.erp-pir__quick-search.ant-input-affix-wrapper {
+  background: var(--theme-surface-elevated, #ffffff) !important;
+  backdrop-filter: blur(24px) saturate(140%) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(140%) !important;
+  border-radius: 12px !important;
+  border: 1px solid rgba(71, 85, 105, 0.35) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04), inset 0 1px 0 rgba(255, 255, 255, 0.6) !important;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  min-height: 38px !important;
+  padding: 3px 12px !important;
+}
+
+/* Dark Mode Porcelain & Graphite Glass */
+[data-theme='dark'] .erp-iphone-select .ant-select-selector,
+[data-theme='dark'] .erp-pir__filter-panel .ant-select .ant-select-selector,
+[data-theme='dark'] .erp-pir__filter-panel .ant-picker,
+[data-theme='dark'] .erp-pir__quick-search.ant-input-affix-wrapper {
+  background: rgba(30, 41, 59, 0.85) !important;
+  backdrop-filter: blur(24px) saturate(160%) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(160%) !important;
+  border: 1px solid #475569 !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+}
+
+[data-theme='dark'] .erp-iphone-select .ant-select-selection-item,
+[data-theme='dark'] .erp-pir__filter-panel .ant-select .ant-select-selection-item,
+[data-theme='dark'] .erp-pir__filter-panel .ant-picker-input > input,
+[data-theme='dark'] .erp-pir__quick-search input {
+  color: #f8fafc !important;
+  font-weight: 600 !important;
+}
+
+[data-theme='dark'] .erp-iphone-select .ant-select-selection-placeholder,
+[data-theme='dark'] .erp-pir__filter-panel .ant-select .ant-select-selection-placeholder,
+[data-theme='dark'] .erp-pir__quick-search input::placeholder {
+  color: #94a3b8 !important;
+}
+
+/* Reactive Hover & Focus with Industrial Orange Focus Ring */
+.erp-iphone-select:hover .ant-select-selector,
+.erp-iphone-select.ant-select-focused .ant-select-selector,
+.erp-pir__filter-panel .ant-select:hover .ant-select-selector,
+.erp-pir__filter-panel .ant-select-focused .ant-select-selector,
+.erp-pir__filter-panel .ant-picker:hover,
+.erp-pir__filter-panel .ant-picker-focused,
+.erp-pir__quick-search.ant-input-affix-wrapper:hover,
+.erp-pir__quick-search.ant-input-affix-wrapper-focused {
+  border-color: var(--erp-orange-primary, #f97316) !important;
+  box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.22), 0 4px 16px rgba(249, 115, 22, 0.12) !important;
+  transform: translateY(-1px);
+}
+
+/* Floating Dropdown Menus in iPhone Frosted Glass Style */
+.erp-iphone-dropdown,
+.ant-select-dropdown {
+  backdrop-filter: blur(24px) saturate(160%) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(160%) !important;
+  border-radius: 12px !important;
+  border: 1px solid var(--theme-border, #475569) !important;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.25) !important;
+  padding: 6px !important;
+}
+
+[data-theme='dark'] .ant-select-dropdown {
+  background: rgba(17, 24, 39, 0.94) !important;
+  border: 1px solid #475569 !important;
+}
+
+[data-theme='light'] .ant-select-dropdown,
+.ant-select-dropdown {
+  background: rgba(255, 255, 255, 0.96) !important;
+  border: 1px solid rgba(71, 85, 105, 0.25) !important;
+}
+
+.ant-select-item-option-selected:not(.ant-select-item-option-disabled) {
+  background: rgba(249, 115, 22, 0.15) !important;
+  color: var(--erp-orange-primary, #f97316) !important;
+  font-weight: 700 !important;
+  border-radius: 8px !important;
+}
+
+.ant-select-item-option-active:not(.ant-select-item-option-disabled) {
+  background: rgba(249, 115, 22, 0.08) !important;
+  border-radius: 8px !important;
+}
+
 
 /* ── Floating Batch Selection Action Bar ───────────────────────────────── */
 .erp-batch-bar {
@@ -847,20 +1054,197 @@
   color: #a5b4fc;
 }
 
-/* ── Print Styles ──────────────────────────────────────────────────────── */
+/* ── Table PCS Subtext Breakdown ────────────────────────────────────────── */
+.erp-table-pcs-subtext {
+  color: #000000;
+  transition: color 0.2s ease;
+}
+
+[data-theme='dark'] .erp-table-pcs-subtext {
+  color: #cbd5e1;
+}
+
+/* ── Advanced Print Media Optimization (Executive & Board Standards) ───── */
 @media print {
-  body {
-    background: #ffffff !important;
-    color: #000000 !important;
+  @page {
+    size: A4 landscape;
+    margin: 8mm 10mm;
   }
+
+  /* 1. Pure White Canvas: strip dark mode & custom surface variables */
+  html,
+  body,
+  #root,
+  .erp-app-layout,
+  .erp-main-content,
+  .erp-pir,
+  .ant-card,
+  .ant-card-body,
+  .ant-table,
+  .ant-table-container,
+  .ant-table-content,
+  .ant-table-thead,
+  .ant-table-tbody,
+  .ant-table-row,
+  .ant-table-cell {
+    background: #ffffff !important;
+    background-color: #ffffff !important;
+    background-image: none !important;
+    color: #000000 !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+    filter: none !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+
+  /* Hide non-printable navigation, toolbars, and interaction components */
   .erp-app-header,
   .erp-desktop-sider,
   .erp-workspace-tabstrip-container,
   .erp-pir__toolbar-card,
-  .ant-pagination {
+  .erp-pir__filter-panel,
+  .erp-category-card,
+  .erp-batch-bar,
+  .erp-modal-minimized-dock,
+  .ant-pagination,
+  .ant-modal-root,
+  .ant-alert {
     display: none !important;
   }
+
   .erp-pir {
     padding: 0 !important;
+    margin: 0 !important;
+    gap: 6px !important;
+    width: 100% !important;
+  }
+
+  /* 2. High-Contrast Grid Typography & Dividers */
+  .ant-table {
+    border: 1px solid #cbd5e1 !important;
+    table-layout: auto !important;
+    width: 100% !important;
+  }
+
+  .ant-table-thead > tr > th {
+    background: #f8fafc !important;
+    color: #000000 !important;
+    font-size: 10.5px !important;
+    font-weight: 800 !important;
+    border-bottom: 2px solid #94a3b8 !important;
+    border-right: 1px solid #cbd5e1 !important;
+    padding: 6px 8px !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.3px !important;
+  }
+
+  .ant-table-tbody > tr > td {
+    border-bottom: 1px solid #cbd5e1 !important;
+    border-right: 1px solid #e2e8f0 !important;
+    padding: 5px 8px !important;
+    color: #000000 !important;
+    font-size: 11px !important;
+    vertical-align: middle !important;
+  }
+
+  .erp-item-code-anchor {
+    color: #000000 !important;
+    background: transparent !important;
+    border: 1px solid #94a3b8 !important;
+    font-weight: 800 !important;
+  }
+
+  .erp-item-name-anchor {
+    color: #000000 !important;
+    font-weight: 700 !important;
+  }
+
+  .erp-item-spec-subtext {
+    color: #334155 !important;
+  }
+
+  /* Strict Inbound (#10B981) & Outbound (#EF4444) Print Color Protection */
+  .erp-num--success,
+  td[key="in"] div,
+  td:has(.erp-num--success) {
+    color: #10b981 !important;
+    font-weight: 800 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .erp-num--danger,
+  td[key="out"] div,
+  td:has(.erp-num--danger) {
+    color: #ef4444 !important;
+    font-weight: 800 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Table Pieces Subtext: Absolute Solid Black for Print */
+  .erp-table-pcs-subtext {
+    color: #000000 !important;
+    font-weight: 700 !important;
+  }
+
+  /* 3. Zero Text Clipping & Multi-Page Auto-Scaling */
+  .ant-table-cell,
+  .erp-item-cell-stacked,
+  .erp-item-name-anchor,
+  .erp-item-spec-subtext {
+    white-space: normal !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+    max-width: none !important;
+    word-break: break-word !important;
+  }
+
+  .ant-table-tbody > tr {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  /* KPI Ribbon Print Layout */
+  .erp-pir__cards {
+    margin-bottom: 8px !important;
+  }
+
+  .erp-kpi-card {
+    border: 1px solid #cbd5e1 !important;
+    background: #ffffff !important;
+    box-shadow: none !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  .erp-kpi-card .ant-card-body {
+    padding: 8px 10px !important;
+  }
+
+  .erp-kpi-card__title {
+    color: #000000 !important;
+    font-size: 10px !important;
+    font-weight: 800 !important;
+  }
+
+  .erp-kpi-card__badge {
+    border: 1px solid #94a3b8 !important;
+    color: #000000 !important;
+    background: transparent !important;
+  }
+
+  .erp-kpi-card__value {
+    color: #000000 !important;
+    font-size: 15px !important;
+    font-weight: 800 !important;
+  }
+
+  .erp-kpi-card__subvalue {
+    color: #f97316 !important;
+    font-weight: 700 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
 }

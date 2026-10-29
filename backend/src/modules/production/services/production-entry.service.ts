@@ -3807,6 +3807,13 @@ addToDept(org, {
       if (!effectiveWh && isHandPacking) {
         const lineItem = component || (await this.itemRepo.findOne({ where: { id: line.itemId } }));
         const isLineNipple = lineItem && (lineItem.itemCode?.toLowerCase().includes('np') || lineItem.name?.toLowerCase().includes('nipple'));
+        const isLineSpoke = lineItem && (
+          (lineItem.itemCode || '').toUpperCase().startsWith('WIP-SPL') ||
+          (lineItem.itemCode || '').toUpperCase().startsWith('NIP-SPL') ||
+          (lineItem.name || '').toLowerCase().includes('spoke') ||
+          (lineItem.name || '').toLowerCase().includes('inner') ||
+          (lineItem.name || '').toLowerCase().includes('outer')
+        );
         if (isLineNipple) {
           const nippleWh = await this.warehouseRepo.findOne({
             where: [
@@ -3815,6 +3822,14 @@ addToDept(org, {
             ],
           });
           if (nippleWh) effectiveWh = nippleWh.id;
+        } else if (isLineSpoke) {
+          const platingWh = await this.warehouseRepo.findOne({
+            where: [
+              { warehouseCode: 'SPI-PL-004', companyId },
+              { name: ILike('%Plating%'), companyId },
+            ],
+          });
+          if (platingWh) effectiveWh = platingWh.id;
         }
       }
       if (!effectiveWh) {

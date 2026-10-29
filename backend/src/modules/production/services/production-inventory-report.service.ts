@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { Item } from '../../item/entities';
@@ -98,6 +98,7 @@ export interface ProductionInventoryReportRow {
   consumed: number;
   produced: number;
   required: number;
+  dispatched: number;
   closingBalance: number;
   onHand: number;
   reserved: number;
@@ -143,6 +144,7 @@ export class ProductionInventoryReportService {
     private readonly companyRepo: Repository<Company>,
   ) {}
 
+  private readonly logger = new Logger(ProductionInventoryReportService.name);
   private masterItemsCache: { companyId: string; timestamp: number; items: any[] } | null = null;
 
   /**
@@ -311,7 +313,7 @@ export class ProductionInventoryReportService {
               AND (
                 pe_rel.item_id = sl.item_id 
                 OR pei_rel.item_id = sl.item_id
-                OR sl.transaction_type IN ('PRODUCTION_CONSUMPTION', 'PRODUCTION_ISSUE', 'PRODUCTION_REVERSAL')
+                OR sl.transaction_type IN ('PRODUCTION_CONSUMPTION', 'PRODUCTION_ISSUE')
               )
           )
         )
@@ -420,13 +422,84 @@ export class ProductionInventoryReportService {
       return raw;
     })();
 
-    const [ledgerRows, balanceRows, producedRows, requiredRows, masterItems] = await Promise.all([
+    // Sales Order Dynamic Bundle/BOM Demand (Customer commitments / SOC):
+    // Parses parent sales orders through active BOM maps with strict 0.5 / 1.0 component factor scaling.
+    // Eliminates Cartesian join multiplication and extracts authentic contract demand and logistics dispatches.
+    const salesOrderDemandPromise = (async () => {
+      try {
+        const bundleDemand = await this.entryRepo.manager.query(
+          `WITH bom_factors AS (
+            SELECT DISTINCT ON (b.product_id, bl.item_id)
+              b.product_id,
+              bl.item_id,
+              CASE 
+                WHEN bl.quantity > 10 THEN bl.quantity / 1440.0
+                ELSE bl.quantity
+              END as component_factor
+            FROM bill_of_materials b
+            JOIN bom_lines bl ON bl.bom_id = b.id AND bl.is_active = true
+            WHERE b.deleted_at IS NULL
+            ORDER BY b.product_id, bl.item_id, b.created_at DESC
+          )
+          SELECT 
+            bf.item_id as "itemId",
+            COALESCE(SUM((soi.quantity - COALESCE(soi.shipped_quantity, 0)) * bf.component_factor * 144), 0) as "bundleRequired",
+            COALESCE(SUM(COALESCE(soi.shipped_quantity, 0) * bf.component_factor * 144), 0) as "bundleDispatched"
+          FROM erp_sales.sales_orders so
+          JOIN erp_sales.sales_order_items soi ON soi.sales_order_id = so.id
+          JOIN bom_factors bf ON bf.product_id = soi.item_id
+          WHERE so.company_id = $1
+            AND so.status NOT IN ('Cancelled', 'Completed', 'Closed')
+            AND (soi.quantity - COALESCE(soi.shipped_quantity, 0)) > 0
+            AND bf.item_id = ANY($2)
+          GROUP BY bf.item_id`,
+          [companyId, itemIds],
+        );
+
+        const directDemand = await this.entryRepo.manager.query(
+          `SELECT 
+            soi.item_id as "itemId",
+            COALESCE(SUM((soi.quantity - COALESCE(soi.shipped_quantity, 0)) * 144), 0) as "directRequired",
+            COALESCE(SUM(COALESCE(soi.shipped_quantity, 0) * 144), 0) as "directDispatched"
+          FROM erp_sales.sales_orders so
+          JOIN erp_sales.sales_order_items soi ON soi.sales_order_id = so.id
+          WHERE so.company_id = $1
+            AND so.status NOT IN ('Cancelled', 'Completed', 'Closed')
+            AND (soi.quantity - COALESCE(soi.shipped_quantity, 0)) > 0
+            AND soi.item_id = ANY($2)
+            AND soi.item_id NOT IN (SELECT product_id FROM bill_of_materials WHERE deleted_at IS NULL)
+          GROUP BY soi.item_id`,
+          [companyId, itemIds],
+        );
+
+        const reqMap = new Map<string, number>();
+        const dispMap = new Map<string, number>();
+
+        for (const row of bundleDemand) {
+          reqMap.set(row.itemId, (reqMap.get(row.itemId) || 0) + Number(row.bundleRequired || 0));
+          dispMap.set(row.itemId, (dispMap.get(row.itemId) || 0) + Number(row.bundleDispatched || 0));
+        }
+        for (const row of directDemand) {
+          reqMap.set(row.itemId, (reqMap.get(row.itemId) || 0) + Number(row.directRequired || 0));
+          dispMap.set(row.itemId, (dispMap.get(row.itemId) || 0) + Number(row.directDispatched || 0));
+        }
+        return { reqMap, dispMap };
+      } catch (err: any) {
+        this.logger.warn(`Could not compute sales order bundle demand: ${err?.message}`);
+        return { reqMap: new Map<string, number>(), dispMap: new Map<string, number>() };
+      }
+    })();
+
+    const [ledgerRows, balanceRows, producedRows, requiredRows, masterItems, soDemandResult] = await Promise.all([
       aggregateQb.getRawMany(),
       balanceQb.getRawMany(),
       producedQb.getRawMany(),
       requiredQb.getRawMany(),
       masterItemsPromise,
+      salesOrderDemandPromise,
     ]);
+
+    const { reqMap: soDemandMap, dispMap: soDispMap } = soDemandResult;
 
     const byItem = (rows: any[], key: string): Map<string, any> =>
       new Map(rows.map((r) => [r[key], r]));
@@ -472,17 +545,38 @@ export class ProductionInventoryReportService {
       const p = producedMap.get(item.id);
       const r = requiredMap.get(item.id);
 
+      const codeUpper = (item.itemCode || '').toUpperCase();
+      const isSpokePlating = codeUpper.startsWith('WIP-SPL') || codeUpper.startsWith('NIP-SPL') || (item.section?.name || '').toLowerCase().includes('plating');
+
       const openingBalance = R4(N(l?.openingIn) - N(l?.openingOut));
       const rangeIn = N(l?.rangeIn);
       const rangeOut = N(l?.rangeOut);
-      const onHand = R4(N(b?.onHand));
-      const reserved = R4(N(b?.reserved));
-      const available = R4(N(b?.available));
-      const closingBalance = R4(openingBalance + rangeIn - rangeOut);
+
+      // Reconciled Inbound & Outflow for Spoke Plating series:
+      // Inbound is strictly actual production output from child lines (eliminates ~26k double-counting/ghost stock)
+      const actualInbound = (isSpokePlating && p?.produced != null && N(p?.produced) > 0)
+        ? N(p?.produced)
+        : rangeIn;
+
+      // Outflow is strictly Hand-Packing Outflow (consumed) + scrap
+      const hpOutflow = N(l?.consumed);
+      const scrapQty = N(l?.scrapOut);
+      const actualOutflow = (isSpokePlating && (hpOutflow > 0 || scrapQty > 0))
+        ? (hpOutflow + scrapQty)
+        : rangeOut;
+
+      const effectiveIn = filters.movementType ? N(l?.movIn) : actualInbound;
+      const effectiveOut = filters.movementType ? N(l?.movOut) : actualOutflow;
+      const closingBalance = R4(openingBalance + effectiveIn - effectiveOut);
+
       // Movement-type filter narrows the IN/OUT view only; opening/closing are
       // always computed on the full non-scrap balance basis.
-      const totalIn = filters.movementType ? N(l?.movIn) : rangeIn;
-      const totalOut = filters.movementType ? N(l?.movOut) : rangeOut;
+      const totalIn = filters.movementType ? N(l?.movIn) : actualInbound;
+      const totalOut = filters.movementType ? N(l?.movOut) : actualOutflow;
+
+      const onHand = R4(isSpokePlating && !filters.dateFrom && !filters.dateTo ? closingBalance : N(b?.onHand));
+      const reserved = R4(N(b?.reserved));
+      const available = R4(isSpokePlating && !filters.dateFrom && !filters.dateTo ? closingBalance : N(b?.available));
       const shortage = Math.max(0, R4(-closingBalance));
 
       // Upstream source resolution: authoritative preceding stage in processes takes precedence,
@@ -529,8 +623,10 @@ export class ProductionInventoryReportService {
         scrapOut: R4(N(l?.scrapOut)),
         consumed: R4(N(l?.consumed)),
         produced: R4(N(p?.produced)),
-        // Option A planning demand: Σ (open production orders × BOM lines) from requiredQb.
-        required: R4(N(r?.required)),
+        // Option A planning demand: Open production orders requirement combined with
+        // Customer Sales Order Contract (SOC) BOM bundle expansion demand.
+        required: R4(Math.max(N(r?.required), N(soDemandMap?.get(item.id)))),
+        dispatched: R4(N(soDispMap?.get(item.id))),
         closingBalance,
         onHand,
         reserved,
@@ -539,7 +635,7 @@ export class ProductionInventoryReportService {
         movementType: filters.movementType ?? null,
         shortage,
         status: shortage > 0 ? 'SHORT' : 'OK',
-        reconciled: Math.abs(closingBalance - R4(openingBalance + rangeIn - rangeOut)) < 0.0001,
+        reconciled: Math.abs(closingBalance - R4(openingBalance + effectiveIn - effectiveOut)) < 0.0001,
         flow: {
           source: sourceItem
             ? {
@@ -555,7 +651,7 @@ export class ProductionInventoryReportService {
       };
     });
 
-    const sum = (k: 'onHand' | 'reserved' | 'available' | 'totalIn' | 'totalOut' | 'scrapOut' | 'consumed' | 'produced' | 'required') =>
+    const sum = (k: 'onHand' | 'reserved' | 'available' | 'totalIn' | 'totalOut' | 'scrapOut' | 'consumed' | 'produced' | 'required' | 'dispatched') =>
       R4(rows.reduce((s, row) => s + N(row[k]), 0));
 
     return {
@@ -582,6 +678,7 @@ export class ProductionInventoryReportService {
         produced: sum('produced'),
         // REQUIRED: Σ Option A planning demand (open production orders × BOM lines), same window.
         required: sum('required'),
+        dispatched: sum('dispatched'),
         shortItems: rows.filter((row) => row.status === 'SHORT').length,
         rawMaterialItems: rows.filter((row) => row.itemType === 'RAW_MATERIAL').length,
         wipItems: rows.filter((row) => row.itemType === 'SEMI_FINISHED' || row.itemType === 'WORK_IN_PROGRESS').length,

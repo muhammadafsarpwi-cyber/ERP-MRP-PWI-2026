@@ -488,8 +488,19 @@ export class ReplenishmentService {
     await this.storeService.convertRequestToPr(request.id, userId, companyId, { lineQuantities });
 
     const updated = await this.storeService.findMaterialRequestById(request.id);
-    row.prId = updated.prId;
-    row.prNumber = updated.prNumber;
+    let validPrId = updated.prId;
+    if (validPrId) {
+      const prCheck = await this.dataSource.query<{ id: string }[]>(
+        'SELECT id FROM purchase_requisitions WHERE id = $1 LIMIT 1',
+        [validPrId],
+      );
+      if (!prCheck || prCheck.length === 0) {
+        this.logger.warn(`Newly created PR ${validPrId} not yet committed or visible; skipping pr_id constraint lookup.`);
+        validPrId = null;
+      }
+    }
+    row.prId = validPrId;
+    row.prNumber = validPrId ? updated.prNumber : null;
     row.poId = updated.poId;
     row.poNumber = updated.poNumber;
     row.status = 'PR_PENDING';
@@ -603,6 +614,19 @@ export class ReplenishmentService {
       base.expectedDeliveryDate = pipeline.po.expectedDeliveryDate || base.expectedDeliveryDate;
     }
 
+    // Safety guard: ensure base.prId actually exists in purchase_requisitions before persisting to store_replenishments
+    if (base.prId) {
+      const prCheck = await this.dataSource.query<{ id: string }[]>(
+        'SELECT id FROM purchase_requisitions WHERE id = $1 LIMIT 1',
+        [base.prId],
+      );
+      if (!prCheck || prCheck.length === 0) {
+        this.logger.warn(`Uncommitted or non-existent PR ${base.prId} referenced in MR; omitting prId from store_replenishment row.`);
+        base.prId = null;
+        base.prNumber = null;
+      }
+    }
+
     const status = this.deriveStatus({
       cancelled: existing?.cancelled === true,
       deferredActive,
@@ -705,13 +729,16 @@ export class ReplenishmentService {
     // 2. Active material requests for this store + item
     const activeMrs = await this.dataSource.query<any[]>(
       `SELECT mr.id, mr.request_number AS "requestNumber", mr.status,
-              mr.gm_approved_at AS "gmApprovedAt", mr.pr_id AS "prId",
-              mr.pr_number AS "prNumber", mr.po_id AS "poId", mr.po_number AS "poNumber",
+              mr.gm_approved_at AS "gmApprovedAt",
+              CASE WHEN pr.id IS NOT NULL THEN mr.pr_id ELSE NULL END AS "prId",
+              CASE WHEN pr.id IS NOT NULL THEN mr.pr_number ELSE NULL END AS "prNumber",
+              mr.po_id AS "poId", mr.po_number AS "poNumber",
               mr.expected_delivery_date AS "expectedDeliveryDate",
               COALESCE(mrl.requested_quantity, 0) AS "requestedQuantity",
               COALESCE(mrl.pr_created_qty, 0) AS "prCreatedQty",
               COALESCE(mrl.issued_quantity, 0) AS "issuedQuantity"
          FROM material_requests mr
+         LEFT JOIN purchase_requisitions pr ON pr.id = mr.pr_id
          JOIN material_request_lines mrl ON mrl.request_id = mr.id
         WHERE mr.company_id = $1 AND mr.store_id = $2 AND mrl.item_id = $3
           AND mr.status = ANY($4)
