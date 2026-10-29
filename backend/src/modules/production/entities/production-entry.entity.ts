@@ -269,4 +269,11 @@ export class ProductionEntry extends SoftDeletableEntity {
 
   @Column({ type: 'text', nullable: true })
   remarks: string | null;
+
+  /**
+   * Spoke / Kit Packing Mode ('FULL_SET' | 'INNER_ONLY' | 'OUTER_ONLY' | 'WITHOUT_NIPPLE').
+   * Persisted on the entry and honored during historical views, edits, and stock deductions.
+   */
+  @Column({ name: 'packing_mode', type: 'varchar', length: 50, default: 'FULL_SET', nullable: true })
+  packingMode: string;
 }

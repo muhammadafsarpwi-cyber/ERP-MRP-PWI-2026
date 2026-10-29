@@ -77,6 +77,10 @@ export class ProductionEntryItemDto {
 
   @IsOptional()
   @IsString()
+  packingMode?: string | null;
+
+  @IsOptional()
+  @IsString()
   remarks?: string | null;
 }
 
@@ -244,6 +248,14 @@ export class CreateProductionEntryDto {
   @IsOptional()
   @IsString()
   rejectionRemarks?: string | null;
+
+  /**
+   * Spoke / Kit Packing Mode ('FULL_SET' | 'INNER_ONLY' | 'OUTER_ONLY' | 'WITHOUT_NIPPLE').
+   * Persisted on the entry and honored during historical views and edits.
+   */
+  @IsOptional()
+  @IsString()
+  packingMode?: string;
 
   /**
    * Inventory posting for make-to-stock entries (no production order).
@@ -443,6 +455,10 @@ export class UpdateProductionEntryDto {
   @IsOptional()
   @IsString()
   rejectionRemarks?: string | null;
+
+  @IsOptional()
+  @IsString()
+  packingMode?: string;
 
   /** Warehouse the consumed BOM raw materials are deducted from (postToInventory only). */
   @IsOptional()

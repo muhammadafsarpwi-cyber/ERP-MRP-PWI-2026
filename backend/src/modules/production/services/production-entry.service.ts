@@ -552,6 +552,7 @@ export class ProductionEntryService {
       `SELECT pe.id, pe.entry_number AS "entryNumber", pe.entry_date AS "entryDate", pe.created_at AS "createdAt",
               pe.machine_no AS "machineNo", pe.operator_name AS "operatorName", pe.actual_quantity AS "actualQuantity",
               pe.remarks, pe.company_id AS "companyId", pe.inventory_reference_id AS "inventoryReferenceId",
+              pe.packing_mode AS "packingMode",
               pe.item_id AS "itemId",
               it.item_code AS "itemCode", it.name AS "itemName", it.weight_per_piece AS "itemWeightPerPiece",
               it.selling_price AS "itemSellingPrice", it.cost_price AS "itemCostPrice",
@@ -584,6 +585,7 @@ export class ProductionEntryService {
       operatorName: r.operatorName,
       actualQuantity: Number(r.actualQuantity || 0),
       remarks: r.remarks,
+      packingMode: r.packingMode || 'FULL_SET',
       status: r.inventoryReferenceId ? 'POSTED' : 'COMPLETED',
       itemId: r.itemId,
       item: {
@@ -770,7 +772,7 @@ export class ProductionEntryService {
         this.entryItemRepo.find({
           where: { productionEntryId: id },
           order: { lineNumber: 'ASC' },
-          relations: ['item', 'uom'],
+          relations: ['item', 'uom', 'sourceWarehouse'],
         }),
         this.entryDowntimeRepo.find({
           where: { productionEntryId: id },
@@ -779,6 +781,7 @@ export class ProductionEntryService {
         }),
       ]);
       (entry as any).items = items;
+      (entry as any).componentItems = (items || []).filter((it) => it.entryKind === ProductionEntryItemKind.INPUT);
       (entry as any).downtimes = downtimes;
     } catch { /* child tables may not exist for legacy entries */ }
     // Attach the receipt warehouse from stock ledger when entry posted to inventory
@@ -1877,6 +1880,14 @@ addToDept(org, {
       ? this.round2(Math.max(0, totalPlanned - dto.downtimeHours))
       : dto.runningHours;
 
+    const derivedPackingMode = dto.packingMode || (() => {
+      const remarks = String(dto.remarks || '');
+      if (remarks.includes('ONLY_OUTER') || remarks.includes('Only Outer')) return 'OUTER_ONLY';
+      if (remarks.includes('ONLY_INNER') || remarks.includes('Only Inner')) return 'INNER_ONLY';
+      if (remarks.includes('WITHOUT_NIPPLE') || remarks.includes('Without Nipple')) return 'WITHOUT_NIPPLE';
+      return 'FULL_SET';
+    })();
+
     const entry = this.entryRepo.create({
       companyId,
       entryNumber: await this.generateEntryNumber(companyId),
@@ -1911,6 +1922,7 @@ addToDept(org, {
       downtimeReasonText: dto.downtimeReason ?? null,
       scrapQuantity: dto.scrapQuantity,
       processScrapKg: dto.processScrapKg ?? 0,
+      packingMode: derivedPackingMode,
       remarks: this.withRejectionRemarks(dto.remarks, dto.rejectionRemarks),
       rawMaterialWarehouseId: sourceStoreId,
       warehouseId: resolved.warehouseId ?? dto.warehouseId ?? null,
@@ -2114,6 +2126,7 @@ addToDept(org, {
       achievementPercentage: this.computeAchievement(merged.actualQuantity, merged.targetQuantity),
       efficiencyPercentage: this.computeEfficiency(effectiveRunning, totalPlanned > 0 ? totalPlanned : resolved.plannedHours),
       downtimeReasonText: dto.downtimeReason !== undefined ? (dto.downtimeReason ?? null) : entry.downtimeReasonText,
+      packingMode: dto.packingMode ?? entry.packingMode ?? 'FULL_SET',
       remarks: this.withRejectionRemarks(
         dto.remarks !== undefined ? dto.remarks : entry.remarks,
         dto.rejectionRemarks,
@@ -3698,15 +3711,19 @@ addToDept(org, {
 
     const requirements: Array<{ line: BomLine; required: number; uomCode: string; available: number; warehouseId: string; scrapPcs: number; scrapQty: number; scrapRemarks: string }> = [];
     const entryRemarks = String((entryRef as any)?.remarks || '');
+    const entryPackingMode = String((entryRef as any)?.packingMode || (entryRef as any)?.packing_mode || '');
     const isWithoutNipple = isHandPacking && (
+      entryPackingMode === 'WITHOUT_NIPPLE' ||
       entryRemarks.includes('WITHOUT_NIPPLE') ||
       entryRemarks.includes('Without Nipple')
     );
     const isOnlyInner = isHandPacking && (
+      entryPackingMode === 'INNER_ONLY' ||
       entryRemarks.includes('ONLY_INNER') ||
       entryRemarks.includes('Only Inner')
     );
     const isOnlyOuter = isHandPacking && (
+      entryPackingMode === 'OUTER_ONLY' ||
       entryRemarks.includes('ONLY_OUTER') ||
       entryRemarks.includes('Only Outer')
     );
@@ -3718,24 +3735,40 @@ addToDept(org, {
         (component.name || '').toLowerCase().includes('nipple')
       );
 
-      // Automated Defense: Ensure hand packing nipple line matches the FG's explicitly declared specification
-      if (isHandPacking && isLineNipple && product?.name?.includes('__')) {
-        const declaredNippleName = product.name.split('__')[1]?.trim();
-        if (declaredNippleName && component) {
-          const normComp = (component.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-          const normDecl = declaredNippleName.toLowerCase().replace(/[^a-z0-9]/g, '');
-          if (!normComp.includes(normDecl) && !normDecl.includes(normComp)) {
-            // Find the exact declared nipple item in the company
-            const matchedNipple = await this.itemRepo.findOne({
-              where: [
-                { companyId, name: declaredNippleName },
-                { companyId, name: ILike(`%${declaredNippleName}%`) },
-              ],
-              relations: ['baseUom'],
-            });
-            if (matchedNipple && matchedNipple.id !== component.id) {
-              component = matchedNipple;
-              line.itemId = matchedNipple.id;
+      // Automated Defense: Ensure hand packing nipple line matches the operator's explicitly chosen nipple or declared FG specification
+      if (isHandPacking && isLineNipple) {
+        const chosenNippleMatch = entryRemarks.match(/(?:NippleItem|NippleCode|Pending Nipple|Without Nipple):\s*([^\s(|]+)/i);
+        const chosenNippleCode = chosenNippleMatch ? chosenNippleMatch[1].trim() : null;
+        if (chosenNippleCode) {
+          const matchedChosen = await this.itemRepo.findOne({
+            where: [
+              { companyId, itemCode: chosenNippleCode },
+              { companyId, id: chosenNippleCode },
+            ],
+            relations: ['baseUom'],
+          });
+          if (matchedChosen && matchedChosen.id !== component?.id) {
+            component = matchedChosen;
+            line.itemId = matchedChosen.id;
+          }
+        } else if (product?.name?.includes('__')) {
+          const declaredNippleName = product.name.split('__')[1]?.trim();
+          if (declaredNippleName && component) {
+            const normComp = (component.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+            const normDecl = declaredNippleName.toLowerCase().replace(/[^a-z0-9]/g, '');
+            if (!normComp.includes(normDecl) && !normDecl.includes(normComp)) {
+              // Find the exact declared nipple item in the company
+              const matchedNipple = await this.itemRepo.findOne({
+                where: [
+                  { companyId, name: declaredNippleName },
+                  { companyId, name: ILike(`%${declaredNippleName}%`) },
+                ],
+                relations: ['baseUom'],
+              });
+              if (matchedNipple && matchedNipple.id !== component.id) {
+                component = matchedNipple;
+                line.itemId = matchedNipple.id;
+              }
             }
           }
         }

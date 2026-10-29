@@ -214,6 +214,24 @@ export interface RecentPackingLog {
   pendingNippleGross?: number;
   pendingNipplePcs?: number;
   isOpeningStock?: boolean;
+  packingMode?: 'FULL_SET' | 'INNER_ONLY' | 'OUTER_ONLY' | 'WITHOUT_NIPPLE';
+  componentsDetail?: Array<{
+    key?: string;
+    componentItemId?: string;
+    componentItemCode: string;
+    componentItemName: string;
+    store?: string;
+    grossPerCarton?: number;
+    reqGross: string | number;
+    reqPcs: number;
+    reqKg: number;
+    wpp?: string | number;
+    excluded?: boolean;
+    isNipple?: boolean;
+    isInner?: boolean;
+    isOuter?: boolean;
+    statusTag?: React.ReactNode;
+  }>;
 }
 
 /** Parse a saved Production Entry (hand packing) back into a shift-log row using its structured remarks. */
@@ -256,6 +274,48 @@ const parseHandPackingEntry = (e: any): RecentPackingLog | null => {
   const pendingNippleCode = remarks.match(/Pending Nipple:\s*([^\s(]+)/i)?.[1]?.trim() || remarks.match(/Without Nipple:\s*([^\s(]+)/i)?.[1]?.trim() || '';
   const pendingNippleGross = Number(remarks.match(/Pending Nipple:[^(]+\(([\d.]+)\s*GRS/i)?.[1] || remarks.match(/Without Nipple:[^(]+\(([\d.]+)\s*GRS/i)?.[1]) || 0;
   const pendingNipplePcs = Number(remarks.match(/Pending Nipple:[^/]+\/\s*([\d.]+)\s*PCS/i)?.[1]) || (pendingNippleGross * PCS_PER_GROSS);
+
+  const rawMode = e.packingMode || e.packing_mode || '';
+  const packingMode: 'FULL_SET' | 'INNER_ONLY' | 'OUTER_ONLY' | 'WITHOUT_NIPPLE' = (
+    rawMode === 'OUTER_ONLY' || remarks.includes('ONLY_OUTER') || remarks.includes('Only Outer')
+      ? 'OUTER_ONLY'
+      : (rawMode === 'INNER_ONLY' || remarks.includes('ONLY_INNER') || remarks.includes('Only Inner')
+          ? 'INNER_ONLY'
+          : (rawMode === 'WITHOUT_NIPPLE' || withoutNippleMatch
+              ? 'WITHOUT_NIPPLE'
+              : 'FULL_SET'))
+  );
+
+  let componentsDetail: any[] | undefined = undefined;
+  const rawItems = Array.isArray(e.items) ? e.items : (Array.isArray(e.componentItems) ? e.componentItems : []);
+  const inputItems = rawItems.filter((it: any) => it.entryKind === 'INPUT');
+  if (inputItems.length > 0) {
+    componentsDetail = inputItems.map((it: any) => {
+      const itCode = it.item?.itemCode || it.itemCode || '';
+      const itName = it.item?.name || it.itemName || itCode;
+      const isNip = itCode.toLowerCase().includes('np') || itName.toLowerCase().includes('nipple');
+      const isInn = itCode.toLowerCase().includes('inn') || itName.toLowerCase().includes('inner');
+      const isOut = itCode.toLowerCase().includes('out') || itName.toLowerCase().includes('outer');
+      const pcs = Number(it.actualQuantity || it.targetQuantity || 0);
+      const wpp = Number(it.item?.weightPerPiece || (isNip ? 0.0035 : 0.01049));
+      return {
+        key: `comp-${it.id || itCode}`,
+        componentItemId: it.itemId,
+        componentItemCode: itCode,
+        componentItemName: itName,
+        store: it.sourceWarehouse?.name ? `${it.sourceWarehouse.warehouseCode || ''} — ${it.sourceWarehouse.name}` : (it.sourceWarehouseName || 'Source Store'),
+        grossPerCarton: Math.round((pcs / (cartons || 1) / 144) * 10) / 10,
+        reqGross: `${Math.round(pcs / 144)} GRS`,
+        reqPcs: pcs,
+        reqKg: Math.round(pcs * wpp * 10) / 10,
+        wpp: String(wpp),
+        isNipple: isNip,
+        isInner: isInn,
+        isOuter: isOut,
+        excluded: pcs <= 0,
+      };
+    });
+  }
 
   return {
     id: String(e.id),
@@ -307,6 +367,8 @@ const parseHandPackingEntry = (e: any): RecentPackingLog | null => {
     pendingNippleCode,
     pendingNippleGross,
     pendingNipplePcs,
+    packingMode,
+    componentsDetail,
   };
 };
 
@@ -938,6 +1000,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
   // Edit and View modal states
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
   const [viewModalData, setViewModalData] = useState<RecentPackingLog | null>(null);
+  const [viewLoading, setViewLoading] = useState<boolean>(false);
 
 
 
@@ -1546,7 +1609,8 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
     rowKey: string,
     productId: string,
     targetPcs: number,
-    overrideDefaultWhId?: string
+    overrideDefaultWhId?: string,
+    initialPackingMode?: string
   ) => {
     if (!productId) {
       setMasterItems((prev) =>
@@ -1820,19 +1884,61 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
           if (row.key !== rowKey) return row;
           // Recompute requirements with the LATEST cartons (user may have typed while BOM was loading)
           const ctn = toNum(row.cartons);
+          const isOuterOnly = initialPackingMode === 'OUTER_ONLY';
+          const isInnerOnly = initialPackingMode === 'INNER_ONLY';
+          const isWithoutNipple = initialPackingMode === 'WITHOUT_NIPPLE';
+
           const comps = componentRows.map((c) => {
-            const reqGross = Math.round(c.grossPerCarton * ctn * 100) / 100;
+            const isInner = c.componentItemName?.toLowerCase().includes('inner') || c.componentItemCode?.toLowerCase().includes('inn');
+            const isOuter = c.componentItemName?.toLowerCase().includes('outer') || c.componentItemCode?.toLowerCase().includes('out');
+            const isNipple = c.componentItemName?.toLowerCase().includes('nipple') || c.componentItemCode?.toLowerCase().includes('np');
+
+            if (isOuterOnly && isInner) {
+              return {
+                ...c,
+                excludedFromPacking: true,
+                requiredGross: 0,
+                requiredPcs: 0,
+                requiredQuantity: 0,
+                remainingGross: c.availableGross,
+                remainingPcs: c.availablePcs,
+                remainingStock: c.availableGross,
+                stockStatus: 'AVAILABLE' as const,
+              };
+            }
+            if (isInnerOnly && isOuter) {
+              return {
+                ...c,
+                excludedFromPacking: true,
+                requiredGross: 0,
+                requiredPcs: 0,
+                requiredQuantity: 0,
+                remainingGross: c.availableGross,
+                remainingPcs: c.availablePcs,
+                remainingStock: c.availableGross,
+                stockStatus: 'AVAILABLE' as const,
+              };
+            }
+
+            let gCtn = c.grossPerCarton;
+            if ((isOuterOnly && isOuter) || (isInnerOnly && isInner)) {
+              gCtn = gCtn * 2;
+            }
+
+            const reqGross = Math.round(gCtn * ctn * 100) / 100;
             const reqPcs = Math.round(reqGross * conversionFactors.pcsPerGross);
             const remGross = Math.round((c.availableGross - reqGross) * 10) / 10;
             return {
               ...c,
+              grossPerCarton: gCtn,
+              packWithoutNipple: isWithoutNipple && isNipple ? true : c.packWithoutNipple,
               requiredGross: reqGross,
               requiredPcs: reqPcs,
               requiredQuantity: reqPcs,
               remainingGross: remGross,
               remainingPcs: Math.round(c.availablePcs - reqPcs),
               remainingStock: remGross,
-              stockStatus: (remGross >= 0 ? 'AVAILABLE' : 'INSUFFICIENT') as 'AVAILABLE' | 'INSUFFICIENT',
+              stockStatus: ((isWithoutNipple && isNipple) ? 'AVAILABLE' : (remGross >= 0 ? 'AVAILABLE' : 'INSUFFICIENT')) as 'AVAILABLE' | 'INSUFFICIENT',
             };
           });
           return {
@@ -2943,7 +3049,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
       setInspectedItemId(targetItemId);
 
       if (targetItemId) {
-        expandBomForMasterItem(rowKey, targetItemId, nextPcs);
+        expandBomForMasterItem(rowKey, targetItemId, nextPcs, undefined, r.packingMode);
       }
       window.scrollTo({ top: 0, behavior: 'smooth' });
       message.info(`Editing Packing Entry: ${r.batchNo}. Update details and click 'Update Packing Production Entry'`);
@@ -3898,7 +4004,52 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         ? computedCompsWeightKg
         : computeFgBatchWeightKg(primaryItem.itemCode, primaryItem.itemName, primaryItem.cartons);
 
+      const hasInnerExcluded = primaryItem.components.some((c) => c.excludedFromPacking && (c.componentItemName?.toLowerCase().includes('inner') || c.componentItemCode?.toLowerCase().includes('inn')));
+      const hasOuterExcluded = primaryItem.components.some((c) => c.excludedFromPacking && (c.componentItemName?.toLowerCase().includes('outer') || c.componentItemCode?.toLowerCase().includes('out')));
+      const withoutNippleComps = primaryItem.components.filter((c) => c.packWithoutNipple);
+      const isWithoutNippleBatch = withoutNippleComps.length > 0;
+      const activePackingMode: 'FULL_SET' | 'INNER_ONLY' | 'OUTER_ONLY' | 'WITHOUT_NIPPLE' = (
+        (hasInnerExcluded && !hasOuterExcluded)
+          ? 'OUTER_ONLY'
+          : (hasOuterExcluded && !hasInnerExcluded)
+            ? 'INNER_ONLY'
+            : (isWithoutNippleBatch ? 'WITHOUT_NIPPLE' : 'FULL_SET')
+      );
+
+      const chosenNippleComp = primaryItem.components.find((c) => c.componentItemName?.toLowerCase().includes('nipple') || c.componentItemCode?.toLowerCase().includes('np'));
+      const chosenNippleCode = chosenNippleComp?.componentItemCode || '';
+
+      const compsDetail = primaryItem.components.map((c) => {
+        const isInner = c.componentItemName?.toLowerCase().includes('inner') || c.componentItemCode?.toLowerCase().includes('inn');
+        const isOuter = c.componentItemName?.toLowerCase().includes('outer') || c.componentItemCode?.toLowerCase().includes('out');
+        const isNipple = c.componentItemName?.toLowerCase().includes('nipple') || c.componentItemCode?.toLowerCase().includes('np');
+        const isExcluded = Boolean(c.excludedFromPacking || (activePackingMode === 'OUTER_ONLY' && isInner) || (activePackingMode === 'INNER_ONLY' && isOuter));
+        const pcs = isExcluded ? 0 : (c.requiredPcs || 0);
+        const gross = isExcluded ? '0 GRS' : `${c.requiredGross || 0} GRS`;
+        const r = computeRowRejection(c);
+        const wpp = r.perPieceWeightKg > 0 ? r.perPieceWeightKg : lookupComponentWeightPerPieceKg(c.componentItemCode, c.componentItemName);
+        const kg = Math.round(pcs * wpp * 10) / 10;
+        return {
+          key: c.key,
+          componentItemId: c.componentItemId,
+          componentItemCode: c.componentItemCode,
+          componentItemName: c.componentItemName,
+          store: c.sourceWarehouseId ? (warehouses.find((w: any) => w.id === c.sourceWarehouseId)?.name || 'Source Store') : 'Source Store',
+          grossPerCarton: c.grossPerCarton,
+          reqGross: gross,
+          reqPcs: pcs,
+          reqKg: kg,
+          wpp: String(wpp),
+          excluded: isExcluded,
+          isNipple,
+          isInner,
+          isOuter,
+          packWithoutNipple: Boolean(c.packWithoutNipple),
+        };
+      });
+
       const payload: any = {
+        packingMode: activePackingMode,
         divisionId: resolvedDivisionId,
         sectionId: alignedSectionId,
         departmentId: resolvedDepartmentId,
@@ -3928,19 +4079,16 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
           const activeDivObj = divisions.find((d: any) => d.id === resolvedDivisionId);
           const activeDivName = activeDivObj?.name || 'Spoke Division';
           const activeDivCode = activeDivObj?.divisionCode || 'DIV-SPD';
-          const withoutNippleComps = primaryItem.components.filter((c) => c.packWithoutNipple);
-          const isWithoutNippleBatch = withoutNippleComps.length > 0;
           const withoutNippleRemarks = isWithoutNippleBatch
             ? ` | Status: WITHOUT_NIPPLE | Without Nipple: ${withoutNippleComps.map((c) => `${c.componentItemCode} (${c.requiredGross} GRS)`).join(', ')} | Pending Nipple: ${withoutNippleComps.map((c) => `${c.componentItemCode} (${c.requiredGross} GRS / ${c.requiredPcs} PCS)`).join(', ')}`
             : '';
-          const hasInnerExcluded = primaryItem.components.some((c) => c.excludedFromPacking && (c.componentItemName?.toLowerCase().includes('inner') || c.componentItemCode?.toLowerCase().includes('inn')));
-          const hasOuterExcluded = primaryItem.components.some((c) => c.excludedFromPacking && (c.componentItemName?.toLowerCase().includes('outer') || c.componentItemCode?.toLowerCase().includes('out')));
-          const spokePackingRemark = (hasInnerExcluded && !hasOuterExcluded)
+          const spokePackingRemark = activePackingMode === 'OUTER_ONLY'
             ? ' | ONLY_OUTER'
-            : (hasOuterExcluded && !hasInnerExcluded)
+            : (activePackingMode === 'INNER_ONLY'
               ? ' | ONLY_INNER'
-              : '';
-          return `[HAND PACKING] Batch: ${activeBatchNo} | Division: ${activeDivName} | DivCode: ${activeDivCode} | SOC: ${activeSocNo} | Customer: ${activeCust} | Style: ${activeStyle} | Line: ${selectedLine} | OT: ${overtimeHours}h | Cartons: ${primaryItem.cartons} (${primaryItem.gross} Gross / ${primaryItem.quantityPcs} PCS) | Weight: ${computedBatchWeightKg} KG${componentScrapRemarks}${componentScrapReasonsRemarks}${withoutNippleRemarks}${spokePackingRemark}`.trim();
+              : '');
+          const chosenNippleRemark = chosenNippleCode ? ` | NippleCode: ${chosenNippleCode}` : '';
+          return `[HAND PACKING] Batch: ${activeBatchNo} | Division: ${activeDivName} | DivCode: ${activeDivCode} | SOC: ${activeSocNo} | Customer: ${activeCust} | Style: ${activeStyle} | Line: ${selectedLine} | OT: ${overtimeHours}h | Cartons: ${primaryItem.cartons} (${primaryItem.gross} Gross / ${primaryItem.quantityPcs} PCS) | Weight: ${computedBatchWeightKg} KG | SpokePackingMode: ${activePackingMode}${chosenNippleRemark}${componentScrapRemarks}${componentScrapReasonsRemarks}${withoutNippleRemarks}${spokePackingRemark}`.trim();
         })(),
         items: masterItems.map((it, idx) => {
           const itemScrap = it.components.reduce((s, c) => s + computeRowRejection(c).rejectionPcs, 0);
@@ -4003,8 +4151,6 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
 
       // Optimistically show the new row immediately; the backend re-fetch below replaces it with DB truth
       const savedId = res?.data?.id || res?.id || `saved-${Date.now()}`;
-      const withoutNippleComps = primaryItem.components.filter((c) => c.packWithoutNipple);
-      const isWithoutNippleBatch = withoutNippleComps.length > 0;
       const newSavedLog: RecentPackingLog = {
         id: String(savedId),
         batchNo: activeBatchNo,
@@ -4030,6 +4176,8 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         pendingNippleGross: withoutNippleComps.reduce((s, c) => s + c.requiredGross, 0),
         pendingNipplePcs: withoutNippleComps.reduce((s, c) => s + c.requiredPcs, 0),
         createdAtMs: Date.now(),
+        packingMode: activePackingMode,
+        componentsDetail: compsDetail,
         components: primaryItem.components.map((c) => ({
           code: c.componentItemCode,
           gross: c.requiredGross,
@@ -5704,8 +5852,168 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
     );
   };
 
+  // Open and load full audited historical transactions for the View Modal
+  const handleOpenViewModal = useCallback(async (r: RecentPackingLog) => {
+    setViewModalData(r);
+    setViewLoading(true);
+    try {
+      const res: any = await apiService.get(`/production/entries/${r.id}`);
+      const fullEntry = res?.data || res;
+      if (fullEntry) {
+        const savedPackingMode = fullEntry.packingMode || fullEntry.packing_mode || r.packingMode || 'FULL_SET';
+        const items = fullEntry.componentItems || (fullEntry.items || []).filter((it: any) => it.entryKind === 'INPUT' || it.entry_kind === 'INPUT');
+
+        let parsedComps: any[] = [];
+        if (Array.isArray(items) && items.length > 0) {
+          parsedComps = items.map((it: any) => {
+            const itCode = it.item?.itemCode || it.componentItemCode || it.componentCode || it.itemCode || '';
+            const itName = it.item?.name || it.componentItemName || it.componentName || it.itemName || '';
+            const pcs = Number(it.quantity || it.quantityPcs || 0);
+            const isNip = itName.toLowerCase().includes('nipple') || itCode.toLowerCase().includes('np');
+            const isInn = itName.toLowerCase().includes('inner') || itCode.toLowerCase().includes('inn');
+            const isOut = itName.toLowerCase().includes('outer') || itCode.toLowerCase().includes('out');
+            const wpp = Number(it.item?.weightPerPiece || (isNip ? 0.00167 : (itCode === 'WIP-SPL-017' ? 0.00872 : 0.01049)));
+            const whName = it.sourceWarehouse?.name
+              ? `${it.sourceWarehouse.warehouseCode || ''} — ${it.sourceWarehouse.name}`
+              : (it.sourceWarehouseName || (isInn || isOut ? 'SPI-PL-004 — PL Production Department' : 'WH-002 — SPI Main Warehouse'));
+
+            return {
+              key: `comp-${it.id || itCode}`,
+              componentItemId: it.itemId || it.item?.id,
+              componentItemCode: itCode,
+              componentItemName: itName,
+              store: whName,
+              grossPerCarton: Math.round((pcs / (r.cartons || 1) / 144) * 10) / 10,
+              reqGross: `${Math.round(pcs / 144)} GRS`,
+              reqPcs: pcs,
+              reqKg: Math.round(pcs * wpp * 10) / 10,
+              wpp: String(wpp),
+              isNipple: isNip,
+              isInner: isInn,
+              isOuter: isOut,
+              excluded: pcs <= 0,
+            };
+          });
+        }
+
+        setViewModalData((prev) => {
+          if (!prev || prev.id !== r.id) return prev;
+          return {
+            ...prev,
+            packingMode: savedPackingMode,
+            componentsDetail: parsedComps.length > 0 ? parsedComps : prev.componentsDetail,
+          };
+        });
+      }
+    } catch (err) {
+      console.warn('Failed to load detailed transaction items for packing batch', err);
+    } finally {
+      setViewLoading(false);
+    }
+  }, []);
+
   const renderViewModal = () => {
     if (!viewModalData) return null;
+    const activeMode = viewModalData.packingMode || 'FULL_SET';
+
+    const compDataSource = (() => {
+      if (viewModalData.componentsDetail && viewModalData.componentsDetail.length > 0) {
+        return viewModalData.componentsDetail;
+      }
+      const ctn = viewModalData.cartons || 0;
+      const remarks = String(viewModalData.rawEntry?.remarks || '');
+      const fgCode = (viewModalData.fgItemCode || '').toUpperCase();
+      const fgName = (viewModalData.fgItemName || '').toUpperCase();
+
+      const is300 = fgCode === 'SPI-FG-SPK-007' || fgName.includes('300');
+      const is250Butted = fgCode === 'SPI-FG-SPK-002' || fgName.includes('BUTTED');
+      const is225 = fgCode.includes('SPK-001') || fgName.includes('225') || fgCode.includes('225');
+
+      const spkInWpp = is300 ? 0.01250 : (is250Butted ? 0.00929 : (is225 ? 0.00872 : 0.01049));
+      const spkOutWpp = is300 ? 0.01261 : (is250Butted ? 0.00925 : (is225 ? 0.00872 : 0.01049));
+      const nplWpp = is225 ? 0.00167 : 0.0035;
+
+      const spkInCode = is300 ? 'WIP-SPL-013' : (is250Butted ? 'WIP-SPL-001' : (is225 ? 'WIP-SPL-017' : 'WIP-SPL-005'));
+      const spkInName = is300 ? '125-300*17 Inner Straight' : (is250Butted ? '250X17 Inner Butted' : (is225 ? '225*17 Inner Straight' : '250*17 Inner Straight'));
+      const spkOutCode = is300 ? 'WIP-SPL-014' : (is250Butted ? 'WIP-SPL-002' : (is225 ? 'WIP-SPL-018' : 'WIP-SPL-006'));
+      const spkOutName = is300 ? '125-300*17 Outer Straight' : (is250Butted ? '250X17 Outer Butted' : (is225 ? '225*17 Outer Straight' : '250*17 Outer Straight'));
+
+      const nipMatch = remarks.match(/NippleCode:\s*([^|\s]+)/i);
+      let nplCode = nipMatch ? nipMatch[1] : (is300 ? 'SPI-FG-NP-005' : (is250Butted ? 'SPI-FG-NP-002' : (is225 ? 'FG-NP-001' : 'FG-NP-004')));
+      let nplName = nplCode === 'FG-NP-001' ? '225X17 Front Wheel Nipple' : (is300 ? '125-S9 Nipple' : (is250Butted ? 'CD-250X17 Nipple' : (is225 ? '225X17 Front Wheel Nipple' : 'RM-250*17 Nipple')));
+
+      const isOuterOnly = activeMode === 'OUTER_ONLY' || remarks.includes('ONLY_OUTER');
+      const isInnerOnly = activeMode === 'INNER_ONLY' || remarks.includes('ONLY_INNER');
+      const isWithoutNipple = activeMode === 'WITHOUT_NIPPLE' || viewModalData.withoutNipple || remarks.includes('WITHOUT_NIPPLE');
+
+      const inMultiplier = isOuterOnly ? 0 : (isInnerOnly ? 10 : 5);
+      const outMultiplier = isInnerOnly ? 0 : (isOuterOnly ? 10 : 5);
+      const nplMultiplier = isWithoutNipple ? 0 : 10;
+
+      const spkInPcs = ctn * inMultiplier * 144;
+      const spkOutPcs = ctn * outMultiplier * 144;
+      const nplPcs = ctn * nplMultiplier * 144;
+
+      const spkInKg = Math.round(spkInPcs * spkInWpp * 10) / 10;
+      const spkOutKg = Math.round(spkOutPcs * spkOutWpp * 10) / 10;
+      const nplKg = Math.round(nplPcs * nplWpp * 10) / 10;
+
+      return [
+        {
+          key: 'spk-in',
+          componentItemId: 'comp-spk-in',
+          componentItemCode: spkInCode,
+          componentItemName: spkInName,
+          store: 'SPI-PL-004 — PL Production Department',
+          grossPerCarton: inMultiplier,
+          reqGross: `${Math.round(ctn * inMultiplier)} GRS`,
+          reqPcs: spkInPcs,
+          reqKg: spkInKg,
+          wpp: String(spkInWpp),
+          excluded: isOuterOnly,
+          isInner: true,
+          isOuter: false,
+          isNipple: false,
+        },
+        {
+          key: 'spk-out',
+          componentItemId: 'comp-spk-out',
+          componentItemCode: spkOutCode,
+          componentItemName: spkOutName,
+          store: 'SPI-PL-004 — PL Production Department',
+          grossPerCarton: outMultiplier,
+          reqGross: `${Math.round(ctn * outMultiplier)} GRS`,
+          reqPcs: spkOutPcs,
+          reqKg: spkOutKg,
+          wpp: String(spkOutWpp),
+          excluded: isInnerOnly,
+          isInner: false,
+          isOuter: true,
+          isNipple: false,
+        },
+        {
+          key: 'npl',
+          componentItemId: 'comp-npl',
+          componentItemCode: nplCode,
+          componentItemName: nplName,
+          store: 'WH-002 — SPI Main Warehouse',
+          grossPerCarton: nplMultiplier,
+          reqGross: `${Math.round(ctn * nplMultiplier)} GRS`,
+          reqPcs: nplPcs,
+          reqKg: nplKg,
+          wpp: String(nplWpp),
+          excluded: isWithoutNipple,
+          isInner: false,
+          isOuter: false,
+          isNipple: true,
+        },
+      ];
+    })();
+
+    const totalCompGross = compDataSource.reduce((s, c) => s + (c.excluded ? 0 : (Number(c.reqPcs || 0) / 144)), 0);
+    const totalCompPcs = compDataSource.reduce((s, c) => s + (c.excluded ? 0 : Number(c.reqPcs || 0)), 0);
+    const totalCompKg = Math.round(compDataSource.reduce((s, c) => s + (c.excluded ? 0 : Number(c.reqKg || 0)), 0) * 10) / 10;
+
     return (
       <Modal
         open={!!viewModalData}
@@ -5737,14 +6045,36 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
               <div><Tag color="blue" style={{ fontWeight: 800 }}>{viewModalData.batchNo}</Tag></div>
             </Col>
             <Col span={12}>
+              <Text type="secondary" style={{ color: 'var(--theme-text-muted, #94a3b8)' }}>Spoke Packing Mode:</Text>
+              <div>
+                {activeMode === 'OUTER_ONLY' ? (
+                  <Tag color="purple" style={{ fontWeight: 800, fontSize: 12 }}>
+                    🟣 Outer Spokes Only (+ Nipple)
+                  </Tag>
+                ) : activeMode === 'INNER_ONLY' ? (
+                  <Tag color="blue" style={{ fontWeight: 800, fontSize: 12 }}>
+                    🔵 Inner Spokes Only (+ Nipple)
+                  </Tag>
+                ) : activeMode === 'WITHOUT_NIPPLE' ? (
+                  <Tag color="warning" style={{ fontWeight: 800, fontSize: 12 }}>
+                    ⏳ Without Nipple (Hold in Safety Stock)
+                  </Tag>
+                ) : (
+                  <Tag color="geekblue" style={{ fontWeight: 800, fontSize: 12 }}>
+                    📦 Full Set (Inner + Outer + Nipple)
+                  </Tag>
+                )}
+              </div>
+            </Col>
+            <Col span={12}>
               <Text type="secondary" style={{ color: 'var(--theme-text-muted, #94a3b8)' }}>Date & Time:</Text>
-              <div style={{ fontWeight: 700, color: 'var(--theme-heading, var(--theme-text, #0f172a))' }}>
+              <div style={{ fontWeight: 700, color: 'var(--theme-heading, var(--theme-text))' }}>
                 {viewModalData.entryDate} {viewModalData.entryTime}
               </div>
             </Col>
             <Col span={12}>
               <Text type="secondary" style={{ color: 'var(--theme-text-muted, #94a3b8)' }}>Customer & SOC #:</Text>
-              <div style={{ fontWeight: 700, color: 'var(--theme-heading, var(--theme-text, #0f172a))' }}>
+              <div style={{ fontWeight: 700, color: 'var(--theme-heading, var(--theme-text))' }}>
                 {viewModalData.customerName} | <Tag color="purple">{viewModalData.socNo}</Tag>
               </div>
             </Col>
@@ -5754,12 +6084,19 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                 {viewModalData.packagingStyle || 'OEM Packing'}
               </div>
             </Col>
+            <Col span={12}>
+              <Text type="secondary" style={{ color: 'var(--theme-text-muted, #94a3b8)' }}>Shift & Overtime:</Text>
+              <div style={{ fontWeight: 600, color: 'var(--theme-heading, var(--theme-text))' }}>
+                {viewModalData.shiftName}
+                {viewModalData.overtimeHours > 0 && <Tag color="warning" style={{ marginLeft: 6 }}>+{viewModalData.overtimeHours}h OT</Tag>}
+              </div>
+            </Col>
             <Col span={24}>
-              <Divider style={{ margin: '8px 0', borderColor: 'var(--theme-border, #334155)' }} />
+              <Divider style={{ margin: '8px 0', borderColor: 'var(--theme-border)' }} />
             </Col>
             <Col span={12}>
               <Text type="secondary" style={{ color: 'var(--theme-text-muted, #94a3b8)' }}>Finished Good Item:</Text>
-              <div style={{ fontWeight: 800, color: 'var(--theme-heading, var(--theme-text, #0f172a))', fontSize: 13.5 }}>
+              <div style={{ fontWeight: 800, color: 'var(--theme-heading, var(--theme-text))', fontSize: 13.5 }}>
                 {viewModalData.fgItemName || viewModalData.fgItemCode}
               </div>
               <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', marginTop: 2 }}>{viewModalData.fgItemCode}</div>
@@ -5783,147 +6120,106 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                 </Tag>
               </div>
             </Col>
-            <Col span={12}>
-              <Text type="secondary" style={{ color: 'var(--theme-text-muted, #94a3b8)' }}>Shift & Overtime:</Text>
-              <div style={{ fontWeight: 600, color: 'var(--theme-heading, var(--theme-text, #0f172a))' }}>
-                {viewModalData.shiftName}
-                {viewModalData.overtimeHours > 0 && <Tag color="warning" style={{ marginLeft: 6 }}>+{viewModalData.overtimeHours}h OT</Tag>}
-              </div>
-            </Col>
             <Col span={24}>
-              <Divider style={{ margin: '8px 0', borderColor: 'var(--theme-border, #334155)' }} />
-              <div style={{ fontWeight: 700, color: 'var(--theme-heading, var(--theme-text, #0f172a))', marginBottom: 8, fontSize: 13 }}>
-                📦 3-Component BOM Consumption Deduction:
+              <Divider style={{ margin: '8px 0', borderColor: 'var(--theme-border)' }} />
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                <div style={{ fontWeight: 700, color: 'var(--theme-heading, var(--theme-text))', fontSize: 13 }}>
+                  📦 3-Component BOM Consumption Deduction (Audited Historical Postings):
+                </div>
+                {viewLoading && <Spin size="small" />}
               </div>
-              {(() => {
-                const ctn = viewModalData.cartons || 0;
-                const fgCode = (viewModalData.fgItemCode || '').toUpperCase();
-                const fgName = (viewModalData.fgItemName || '').toUpperCase();
-                const is300 = fgCode === 'SPI-FG-SPK-007' || fgName.includes('300');
-                const is250Butted = fgCode === 'SPI-FG-SPK-002' || fgName.includes('BUTTED');
-
-                const spkInWpp = is300 ? 0.01250 : (is250Butted ? 0.00929 : 0.01049);
-                const spkOutWpp = is300 ? 0.01261 : (is250Butted ? 0.00925 : 0.01049);
-                const nplWpp = 0.0035;
-
-                const spkInCode = is300 ? 'WIP-SPL-013' : (is250Butted ? 'WIP-SPL-001' : 'WIP-SPL-005');
-                const spkInName = is300 ? '125-300*17 Inner Straight' : (is250Butted ? '250X17 Inner Butted' : '250*17 Inner Straight');
-                const spkOutCode = is300 ? 'WIP-SPL-014' : (is250Butted ? 'WIP-SPL-002' : 'WIP-SPL-006');
-                const spkOutName = is300 ? '125-300*17 Outer Straight' : (is250Butted ? '250X17 Outer Butted' : '250*17 Outer Straight');
-                const nplCode = is300 ? 'SPI-FG-NP-005' : (is250Butted ? 'SPI-FG-NP-002' : 'FG-NP-004');
-                const nplName = is300 ? '125-S9 Nipple' : (is250Butted ? 'CD-250X17 Nipple' : 'RM-250*17 Nipple');
-
-                const spkInPcs = ctn * 5 * 144;
-                const spkOutPcs = ctn * 5 * 144;
-                const nplPcs = ctn * 10 * 144;
-                const spkInKg = Math.round(spkInPcs * spkInWpp * 10) / 10;
-                const spkOutKg = Math.round(spkOutPcs * spkOutWpp * 10) / 10;
-                const nplKg = Math.round(nplPcs * nplWpp * 10) / 10;
-                const totalCompGross = Math.round(ctn * 20);
-                const totalCompPcs = totalCompGross * 144;
-                const totalCompKg = Math.round((spkInKg + spkOutKg + nplKg) * 10) / 10;
-
-                const compDataSource = [
+              <Table
+                dataSource={compDataSource}
+                pagination={false}
+                size="small"
+                bordered
+                loading={viewLoading}
+                columns={[
                   {
-                    key: 'spk-in',
-                    itemCode: spkInCode,
-                    itemName: spkInName,
-                    store: 'SPI-PL-004 — PL Production Department',
-                    reqGross: `${Math.round(ctn * 5)} GRS`,
-                    reqPcs: spkInPcs,
-                    reqKg: spkInKg,
-                    wpp: String(spkInWpp),
-                  },
-                  {
-                    key: 'spk-out',
-                    itemCode: spkOutCode,
-                    itemName: spkOutName,
-                    store: 'SPI-PL-004 — PL Production Department',
-                    reqGross: `${Math.round(ctn * 5)} GRS`,
-                    reqPcs: spkOutPcs,
-                    reqKg: spkOutKg,
-                    wpp: String(spkOutWpp),
-                  },
-                  {
-                    key: 'npl',
-                    itemCode: nplCode,
-                    itemName: nplName,
-                    store: 'WH-002 — SPI Main Warehouse',
-                    reqGross: `${Math.round(ctn * 10)} GRS`,
-                    reqPcs: nplPcs,
-                    reqKg: nplKg,
-                    wpp: String(nplWpp),
-                  },
-                ];
-
-                return (
-                  <Table
-                    dataSource={compDataSource}
-                    pagination={false}
-                    size="small"
-                    bordered
-                    columns={[
-                      {
-                        title: 'Component Item & Source Store',
-                        key: 'item',
-                        render: (_: any, r: any) => (
-                          <div>
-                            <div style={{ fontWeight: 800, color: 'var(--theme-heading, var(--theme-text, #0f172a))', fontSize: 13 }}>
-                              {r.itemName}
-                            </div>
-                            <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', marginTop: 1, marginBottom: 4 }}>
-                              {r.itemCode}
-                            </div>
-                            <Tag color="volcano" style={{ fontWeight: 600, fontSize: 11, margin: 0 }}>
-                              📤 {r.store}
+                    title: 'Component Item & Source Store',
+                    key: 'item',
+                    render: (_: any, r: any) => (
+                      <div>
+                        <div style={{ fontWeight: 800, color: 'var(--theme-heading, var(--theme-text))', fontSize: 13 }}>
+                          {r.componentItemName || r.itemName}
+                        </div>
+                        <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', marginTop: 1, marginBottom: 4 }}>
+                          {r.componentItemCode || r.itemCode}
+                        </div>
+                        <Space size={6} wrap>
+                          <Tag color="volcano" style={{ fontWeight: 600, fontSize: 11, margin: 0 }}>
+                            📤 {r.store}
+                          </Tag>
+                          {r.excluded && (
+                            <Tag style={{ fontWeight: 800, fontSize: 11, margin: 0, background: 'rgba(148, 163, 184, 0.15)', color: 'var(--theme-text-muted, #94a3b8)' }}>
+                              ⏭️ EXCLUDED / Not Packed
                             </Tag>
-                          </div>
-                        ),
-                      },
-                      {
-                        title: 'Consumption Required',
-                        key: 'req',
-                        align: 'right' as const,
-                        render: (_: any, r: any) => (
+                          )}
+                          {!r.excluded && r.grossPerCarton && (
+                            <Tag color="purple" style={{ fontWeight: 700, fontSize: 11, margin: 0 }}>
+                              ⚡ {r.grossPerCarton} GRS / CTN
+                            </Tag>
+                          )}
+                        </Space>
+                      </div>
+                    ),
+                  },
+                  {
+                    title: 'Consumption Required',
+                    key: 'req',
+                    align: 'right' as const,
+                    render: (_: any, r: any) => {
+                      if (r.excluded) {
+                        return (
                           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                              <Tag color="blue" style={{ fontWeight: 800, margin: 0 }}>{r.reqGross}</Tag>
-                              <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--theme-text, #cbd5e1)' }}>
-                                ({formatNumber(r.reqPcs, 0)} PCS)
-                              </span>
-                            </div>
-                            <div style={{ fontSize: 12, fontWeight: 800, color: '#10b981', marginTop: 2 }}>
-                              ≈ {formatNumber(r.reqKg, 1)} KG <span style={{ fontSize: 10, color: 'var(--theme-text-muted, #94a3b8)', fontWeight: 500 }}>({r.wpp} KG/pc)</span>
-                            </div>
+                            <Tag style={{ fontWeight: 800, fontSize: 11, margin: 0, background: 'rgba(148, 163, 184, 0.15)', color: 'var(--theme-text-muted, #94a3b8)' }}>
+                              0 GRS (0 PCS)
+                            </Tag>
+                            <span style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', fontWeight: 600 }}>
+                              ≈ 0.0 KG (Stock Protected)
+                            </span>
                           </div>
-                        ),
-                      },
-                    ]}
-                    summary={() => (
-                      <Table.Summary.Row style={{ background: 'var(--theme-surface-alt, #0f172a)' }}>
-                        <Table.Summary.Cell index={0}>
-                          <span style={{ fontWeight: 800, color: 'var(--theme-heading, var(--theme-text, #0f172a))', fontSize: 13 }}>
-                            Total Components Consumption:
+                        );
+                      }
+                      return (
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <Tag color="blue" style={{ fontWeight: 800, margin: 0 }}>{r.reqGross}</Tag>
+                            <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--theme-text)' }}>
+                              ({formatNumber(r.reqPcs, 0)} PCS)
+                            </span>
+                          </div>
+                          <div style={{ fontSize: 12, fontWeight: 800, color: '#10b981', marginTop: 2 }}>
+                            ≈ {formatNumber(r.reqKg, 1)} KG <span style={{ fontSize: 10, color: 'var(--theme-text-muted, #94a3b8)', fontWeight: 500 }}>({r.wpp} KG/pc)</span>
+                          </div>
+                        </div>
+                      );
+                    },
+                  },
+                ]}
+                summary={() => (
+                  <Table.Summary.Row style={{ background: 'var(--theme-surface-alt)' }}>
+                    <Table.Summary.Cell index={0}>
+                      <span style={{ fontWeight: 800, color: 'var(--theme-heading, var(--theme-text))', fontSize: 13 }}>
+                        Total Components Consumption:
+                      </span>
+                    </Table.Summary.Cell>
+                    <Table.Summary.Cell index={1} align="right">
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <Tag color="cyan" style={{ fontWeight: 800, margin: 0 }}>{formatNumber(totalCompGross, 0)} GRS</Tag>
+                          <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--theme-text)' }}>
+                            ({formatNumber(totalCompPcs, 0)} PCS)
                           </span>
-                        </Table.Summary.Cell>
-                        <Table.Summary.Cell index={1} align="right">
-                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                              <Tag color="cyan" style={{ fontWeight: 800, margin: 0 }}>{formatNumber(totalCompGross, 0)} GRS</Tag>
-                              <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--theme-text, #cbd5e1)' }}>
-                                ({formatNumber(totalCompPcs, 0)} PCS)
-                              </span>
-                            </div>
-                            <div style={{ fontSize: 13, fontWeight: 800, color: '#10b981', marginTop: 2 }}>
-                              Total Weight: {formatNumber(totalCompKg, 1)} KG
-                            </div>
-                          </div>
-                        </Table.Summary.Cell>
-                      </Table.Summary.Row>
-                    )}
-                  />
-                );
-              })()}
+                        </div>
+                        <div style={{ fontSize: 13, fontWeight: 800, color: '#10b981', marginTop: 2 }}>
+                          Total Weight: {formatNumber(totalCompKg, 1)} KG
+                        </div>
+                      </div>
+                    </Table.Summary.Cell>
+                  </Table.Summary.Row>
+                )}
+              />
             </Col>
             {viewModalData.rejectionPcs > 0 && (
               <Col span={24}>
@@ -6350,7 +6646,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                 type="text"
                 size="small"
                 icon={<EyeOutlined style={{ color: '#0284c7', fontSize: 15 }} />}
-                onClick={() => setViewModalData(r)}
+                onClick={() => handleOpenViewModal(r)}
               />
             </Tooltip>
             <Tooltip title="Edit Entry (Opens in Modal)">
