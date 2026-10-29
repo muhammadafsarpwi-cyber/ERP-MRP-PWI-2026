@@ -275,13 +275,25 @@ const parseHandPackingEntry = (e: any): RecentPackingLog | null => {
   const pendingNippleGross = Number(remarks.match(/Pending Nipple:[^(]+\(([\d.]+)\s*GRS/i)?.[1] || remarks.match(/Without Nipple:[^(]+\(([\d.]+)\s*GRS/i)?.[1]) || 0;
   const pendingNipplePcs = Number(remarks.match(/Pending Nipple:[^/]+\/\s*([\d.]+)\s*PCS/i)?.[1]) || (pendingNippleGross * PCS_PER_GROSS);
 
-  const rawMode = e.packingMode || e.packing_mode || '';
-  const packingMode: 'FULL_SET' | 'INNER_ONLY' | 'OUTER_ONLY' | 'WITHOUT_NIPPLE' = (
-    rawMode === 'OUTER_ONLY' || remarks.includes('ONLY_OUTER') || remarks.includes('Only Outer')
+  const rawMode = String(e.packingMode || e.packing_mode || '').toUpperCase().trim();
+  const remarksUpper = remarks.toUpperCase();
+  let packingMode: 'FULL_SET' | 'INNER_ONLY' | 'OUTER_ONLY' | 'WITHOUT_NIPPLE' = (
+    rawMode === 'OUTER_ONLY' ||
+    remarksUpper.includes('OUTER_ONLY') ||
+    remarksUpper.includes('ONLY_OUTER') ||
+    remarksUpper.includes('ONLY OUTER') ||
+    remarksUpper.includes('OUTER SPOKES ONLY')
       ? 'OUTER_ONLY'
-      : (rawMode === 'INNER_ONLY' || remarks.includes('ONLY_INNER') || remarks.includes('Only Inner')
+      : (rawMode === 'INNER_ONLY' ||
+         remarksUpper.includes('INNER_ONLY') ||
+         remarksUpper.includes('ONLY_INNER') ||
+         remarksUpper.includes('ONLY INNER') ||
+         remarksUpper.includes('INNER SPOKES ONLY')
           ? 'INNER_ONLY'
-          : (rawMode === 'WITHOUT_NIPPLE' || withoutNippleMatch
+          : (rawMode === 'WITHOUT_NIPPLE' ||
+             withoutNippleMatch ||
+             remarksUpper.includes('WITHOUT_NIPPLE') ||
+             remarksUpper.includes('WITHOUT NIPPLE')
               ? 'WITHOUT_NIPPLE'
               : 'FULL_SET'))
   );
@@ -315,6 +327,16 @@ const parseHandPackingEntry = (e: any): RecentPackingLog | null => {
         excluded: pcs <= 0,
       };
     });
+  }
+
+  if (packingMode === 'FULL_SET' && componentsDetail && componentsDetail.length > 0) {
+    const inn = componentsDetail.find((c: any) => c.isInner);
+    const out = componentsDetail.find((c: any) => c.isOuter);
+    if (inn && inn.excluded && out && !out.excluded) {
+      packingMode = 'OUTER_ONLY';
+    } else if (out && out.excluded && inn && !inn.excluded) {
+      packingMode = 'INNER_ONLY';
+    }
   }
 
   return {
@@ -4105,6 +4127,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
             scrapQuantity: itemScrap > 0 ? itemScrap : 0,
             runningHours: 8 + Number(overtimeHours || 0),
             remarks: `${it.cartons} Cartons (${it.gross} Gross) — Customer: ${activeCust} (SOC: ${activeSocNo}) | OT: ${overtimeHours}h${itemScrap > 0 ? ` | Part Rejection: ${itemScrap} PCS (${itemScrapKg} KG)` : ''}${itSpokeRemark}`,
+            packingMode: activePackingMode,
           };
         }),
       };
@@ -6495,6 +6518,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
       {
         title: <span style={{ fontWeight: 800 }}>Finished Good Item</span>,
         key: 'fgItem',
+        width: 250,
         render: (_: any, r: RecentPackingLog) => {
           const rawName = r.fgItemName || '';
           let spokePart = rawName;
@@ -6534,6 +6558,120 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                   Line: {r.line}
                 </div>
               )}
+            </div>
+          );
+        },
+      },
+      {
+        title: <span style={{ fontWeight: 800 }}>Spoke Packing Mode</span>,
+        key: 'packingMode',
+        width: 240,
+        render: (_: any, r: RecentPackingLog) => {
+          const mode = r.packingMode || 'FULL_SET';
+          const bagOrCtn = r.packagingStyle?.toLowerCase().includes('bag') ? 'Bags' : 'Cartons';
+
+          if (mode === 'OUTER_ONLY') {
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                <Tag
+                  color="purple"
+                  style={{
+                    fontWeight: 800,
+                    fontSize: 11.5,
+                    padding: '2px 8px',
+                    margin: 0,
+                    width: 'fit-content',
+                    borderRadius: 4,
+                  }}
+                >
+                  🟣 Only Outer Packing
+                </Tag>
+                <div style={{ fontSize: 11.5, fontWeight: 700, color: '#a855f7', marginTop: 1 }}>
+                  {r.cartons} {bagOrCtn} ({formatNumber(r.pcs, 0)} PCS)
+                </div>
+                <div style={{ fontSize: 10, color: 'var(--theme-text-muted, #94a3b8)' }}>
+                  Customer Req: Only Outer Spokes (+ Nipple)
+                </div>
+              </div>
+            );
+          }
+
+          if (mode === 'INNER_ONLY') {
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                <Tag
+                  color="blue"
+                  style={{
+                    fontWeight: 800,
+                    fontSize: 11.5,
+                    padding: '2px 8px',
+                    margin: 0,
+                    width: 'fit-content',
+                    borderRadius: 4,
+                  }}
+                >
+                  🔹 Only Inner Packing
+                </Tag>
+                <div style={{ fontSize: 11.5, fontWeight: 700, color: '#0284c7', marginTop: 1 }}>
+                  {r.cartons} {bagOrCtn} ({formatNumber(r.pcs, 0)} PCS)
+                </div>
+                <div style={{ fontSize: 10, color: 'var(--theme-text-muted, #94a3b8)' }}>
+                  Customer Req: Only Inner Spokes (+ Nipple)
+                </div>
+              </div>
+            );
+          }
+
+          if (mode === 'WITHOUT_NIPPLE' || r.withoutNipple || r.status === 'WITHOUT_NIPPLE') {
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                <Tag
+                  color="warning"
+                  icon={<ClockCircleOutlined />}
+                  style={{
+                    fontWeight: 800,
+                    fontSize: 11.5,
+                    padding: '2px 8px',
+                    margin: 0,
+                    width: 'fit-content',
+                    borderRadius: 4,
+                  }}
+                >
+                  Without Nipple (Spokes Only)
+                </Tag>
+                <div style={{ fontSize: 11.5, fontWeight: 700, color: '#d97706', marginTop: 1 }}>
+                  {r.cartons} Bags ({formatNumber(r.pcs, 0)} PCS)
+                </div>
+                <div style={{ fontSize: 10, color: 'var(--theme-text-muted, #94a3b8)' }}>
+                  Pending Nipple: {r.pendingNippleCode || 'Arrival Pending'}
+                </div>
+              </div>
+            );
+          }
+
+          // Default: FULL_SET (Inner + Outer Complete Pack)
+          return (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+              <Tag
+                color="success"
+                icon={<CheckCircleFilled />}
+                style={{
+                  fontWeight: 800,
+                  fontSize: 11.5,
+                  padding: '2px 8px',
+                  margin: 0,
+                  width: 'fit-content',
+                  borderRadius: 4,
+                }}
+              >
+                Inner + Outer Complete Pack
+              </Tag>
+              <div style={{ fontSize: 11.5, fontWeight: 700, color: '#16a34a', marginTop: 1 }}>
+                {r.cartons} Cartons Complete ({formatNumber(r.pcs, 0)} PCS)
+              </div>
+              <div style={{ fontSize: 10, color: 'var(--theme-text-muted, #94a3b8)' }}>
+                Full Set · Inner + Outer + Nipple
+              </div>
             </div>
           );
         },
@@ -7421,6 +7559,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                     size="small"
                     bordered
                     columns={batchColumns}
+                    scroll={{ x: 'max-content' }}
                   />
                 </div>
               ),

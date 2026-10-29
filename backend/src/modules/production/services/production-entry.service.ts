@@ -2096,6 +2096,7 @@ addToDept(org, {
     // one with no extra machinery.
     const prevWarehouseId = entry.warehouseId ?? null;
     const prevRawMaterialWarehouseId = entry.rawMaterialWarehouseId ?? null;
+    const prevPackingMode = (entry as any).packingMode ?? null;
     // INPUT audit lines belong to the posting path, never to the client. They
     // are recognised both by the lineNumber convention and by identity, so a
     // payload that echoes them back without a lineNumber still cannot
@@ -2137,6 +2138,7 @@ addToDept(org, {
     const quantityOrItemChanged = (dto.actualQuantity !== undefined && Number(dto.actualQuantity) !== prevActual)
       || (dto.scrapQuantity !== undefined && Number(dto.scrapQuantity) !== prevScrap)
       || (dto.itemId !== undefined && dto.itemId !== prevItemId)
+      || (dto.packingMode !== undefined && dto.packingMode !== prevPackingMode)
       || (requestedItems !== undefined && requestedItems.length > 0);
     // Moving the receipt store or the consumption store is a stock change even
     // when every quantity is untouched: the postings must follow the document
