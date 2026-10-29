@@ -75,14 +75,20 @@ export function rebalancePair(
 
 /** Derived running used for KPIs (respects the plan; falls back to stored value). */
 export function effectiveRunning(runningHours: number, downtimeHours: number, plannedHours: number, overtimeHours: number = 0): number {
-  const totalAvailable = plannedHours > 0 ? plannedHours + Math.max(0, overtimeHours) : 0;
+  const is12h = plannedHours >= 12;
+  const totalAvailable = is12h
+    ? Math.max(plannedHours, 8 + Math.max(0, overtimeHours))
+    : (plannedHours > 0 ? plannedHours + Math.max(0, overtimeHours) : 0);
   if (totalAvailable > 0) return round2(Math.max(0, Math.min(totalAvailable, totalAvailable - downtimeHours)));
   return runningHours;
 }
 
 /** Derived downtime used for KPIs/display. */
 export function effectiveDowntime(runningHours: number, downtimeHours: number, plannedHours: number, overtimeHours: number = 0): number {
-  const totalAvailable = plannedHours > 0 ? plannedHours + Math.max(0, overtimeHours) : 0;
+  const is12h = plannedHours >= 12;
+  const totalAvailable = is12h
+    ? Math.max(plannedHours, 8 + Math.max(0, overtimeHours))
+    : (plannedHours > 0 ? plannedHours + Math.max(0, overtimeHours) : 0);
   if (totalAvailable > 0) return round2(Math.max(0, totalAvailable - effectiveRunning(runningHours, downtimeHours, plannedHours, overtimeHours)));
   return downtimeHours;
 }

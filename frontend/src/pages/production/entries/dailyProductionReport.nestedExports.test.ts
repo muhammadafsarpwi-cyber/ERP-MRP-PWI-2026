@@ -281,7 +281,7 @@ describe('Multi-item exports — Excel (CSV) flat rows', () => {
     expect(block.map((r) => cell(r, 9))).toEqual([
       '"0.05\n15"', '"0.06\n12"', '"0.07\n7"',
     ]);
-    expect(block.map((r) => cell(r, 12))).toEqual(['PCS', 'PCS', 'PCS']);
+    expect(block.map((r) => cell(r, 13))).toEqual(['PCS', 'PCS', 'PCS']);
   });
 
   it('keeps TARGET on the first row only, so the column still sums correctly', () => {

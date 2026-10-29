@@ -63,6 +63,7 @@ import {
   ShopOutlined,
   TrophyOutlined,
   WhatsAppOutlined,
+  FileTextOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
@@ -879,6 +880,7 @@ const GRID_COLUMN_LABELS: string[] = [
   'Run / Down',
   'OT (h)',
   'Status',
+  'Remarks',
   'Created By',
   'Updated By',
   'Actions',
@@ -1643,7 +1645,8 @@ const EntryList: React.FC = () => {
               ? Number((pad as { left?: number }).left ?? 3) + Number((pad as { right?: number }).right ?? 3)
               : 6;
         const space = Math.max((data.cell.width || 0) - innerPad, 4);
-        doc.text(fitText(sub, space), pos.x, baseline);
+        const halign = styles.halign as 'left' | 'center' | 'right' | undefined;
+        doc.text(fitText(sub, space), pos.x, baseline, halign ? { align: halign } : undefined);
       };
 
       const runTable = (head: string[][], body: any[][], y: number): number => {
@@ -1651,9 +1654,10 @@ const EntryList: React.FC = () => {
           head,
           body,
           startY: y,
+          showHead: 'everyPage',
           margin: { top: marginTop, right: marginRight, bottom: marginBottom, left: marginLeft },
           styles: {
-            fontSize: 9,
+            fontSize: 8.5,
             cellPadding: 3,
             overflow: 'linebreak',
             lineColor: [148, 163, 184],
@@ -1684,7 +1688,7 @@ const EntryList: React.FC = () => {
           ) +
           section.shiftGroups.length +
           1;
-        const estimate = 20 + rowsInTable * 15 + 20;
+        const estimate = 20 + rowsInTable * 23 + 25;
         if (startY > marginTop && !fits(estimate)) {
           doc.addPage();
           startY = marginTop;
@@ -2359,26 +2363,26 @@ const EntryList: React.FC = () => {
           >
             <div
               style={{
-                fontSize: 10,
-                color: 'var(--theme-text-muted, #94a3b8)',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {targetTopText(prorata)}
-            </div>
-            <div
-              style={{
                 fontSize: 12.5,
                 fontWeight: 700,
-                color: 'var(--theme-text, #0f172a)',
+                color: '#dc2626',
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: 4,
                 whiteSpace: 'nowrap',
               }}
             >
-              <AimOutlined style={{ color: '#0284c7', fontSize: 12.5, flexShrink: 0 }} />
+              <AimOutlined style={{ color: '#dc2626', fontSize: 12.5, flexShrink: 0 }} />
               <span>{targetBottomText(prorata, uom)}</span>
+            </div>
+            <div
+              style={{
+                fontSize: 10,
+                color: 'var(--theme-text-muted, #94a3b8)',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {targetTopText(prorata)}
             </div>
           </div>
         );
@@ -2701,6 +2705,24 @@ const EntryList: React.FC = () => {
           </div>
         );
       },
+    },
+    {
+      title: (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+          <FileTextOutlined style={{ color: 'var(--theme-primary, #2563eb)' }} />
+          <span>Remarks</span>
+        </span>
+      ),
+      key: 'remarks',
+      dataIndex: 'remarks',
+      width: 140,
+      ellipsis: true,
+      responsive: ['md'],
+      render: (text: any) => (
+        <span style={{ fontSize: 11.5, color: 'var(--theme-text-secondary, #64748b)' }}>
+          {text || '—'}
+        </span>
+      ),
     },
     {
       title: (

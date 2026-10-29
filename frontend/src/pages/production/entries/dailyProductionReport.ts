@@ -329,7 +329,7 @@ export interface ReportOptions {
  * ------------------------------------------------------------------ */
 export type ReportColumnKey =
   | 'sr' | 'shift' | 'machine' | 'ot' | 'operator' | 'item' | 'target' | 'actual'
-  | 'achievement' | 'weight' | 'status' | 'rejectionScrap' | 'date';
+  | 'achievement' | 'weight' | 'status' | 'rejectionScrap' | 'remarks' | 'date';
 
 export interface ReportColumn {
   key: ReportColumnKey;
@@ -413,33 +413,34 @@ export function tightColumnClass(key: ReportColumnKey): string {
  *    · Status 10 is clamped to 2 lines and carries the runtime summary.
  *  The columns ALWAYS total 100 (asserted by dailyProductionReport.test.ts). */
 const BASE_COLUMNS: ReportColumn[] = [
-  { key: 'sr', label: 'Sr. #', align: 'center', width: 4 },
-  { key: 'shift', label: 'Shift', align: 'left', width: 9 },
-  { key: 'machine', label: 'Machine', align: 'left', width: 5 },
-  { key: 'ot', label: 'OT (H)', align: 'right', width: 5 },
+  { key: 'sr', label: 'Sr. #', align: 'center', width: 3.5 },
+  { key: 'shift', label: 'Shift', align: 'left', width: 8.5 },
+  { key: 'machine', label: 'Machine', align: 'left', width: 4.5 },
+  { key: 'ot', label: 'OT (H)', align: 'right', width: 4 },
   { key: 'operator', label: 'Operator', align: 'left', width: 6 },
-  { key: 'item', label: 'Item / Product', align: 'left', width: 15 },
-  { key: 'target', label: 'Target', align: 'right', width: 11 },
+  { key: 'item', label: 'Item / Product', align: 'left', width: 14 },
+  { key: 'target', label: 'Target', align: 'right', width: 10 },
   { key: 'actual', label: 'Actual', align: 'right', width: 6 },
-  { key: 'achievement', label: 'Achievement %', align: 'right', width: 8 },
-  { key: 'weight', label: 'WEIGHT (KG)', align: 'right', width: 11 },
-  { key: 'status', label: 'Breakdown Reason / Status', align: 'left', width: 10 },
-  { key: 'rejectionScrap', label: 'REJECTION / SCRAP', align: 'right', width: 10 },
+  { key: 'achievement', label: 'Achievement %', align: 'right', width: 7.5 },
+  { key: 'weight', label: 'WEIGHT (KG)', align: 'right', width: 9.5 },
+  { key: 'status', label: 'Breakdown Reason / Status', align: 'left', width: 9 },
+  { key: 'rejectionScrap', label: 'REJECTION / SCRAP', align: 'right', width: 8.5 },
+  { key: 'remarks', label: 'Remarks', align: 'left', width: 9 },
 ];
 
 const DATE_COLUMN: ReportColumn = { key: 'date', label: 'Date', align: 'center', width: 6 };
 
 /** Columns available only when the export spans several days. The Date column
- *  costs 6%, taken from Item (3), Operator (1), Status (1) and
- *  REJECTION / SCRAP (1) so the set still totals 100 — Item keeps 12% rather
- *  than 15% so a product name still reads past its ellipsis. */
+ *  costs 6%, taken from Item (2), Operator (1), Status (1),
+ *  REJECTION / SCRAP (1) and Remarks (1) so the set still totals 100. */
 function buildColumns(showDate: boolean): ReportColumn[] {
   if (!showDate) return BASE_COLUMNS.map((c) => ({ ...c }));
   const narrower: Partial<Record<ReportColumnKey, number>> = {
     item: 12,
     operator: 5,
-    status: 9,
-    rejectionScrap: 9,
+    status: 8,
+    rejectionScrap: 7.5,
+    remarks: 8,
   };
   return [
     ...BASE_COLUMNS.map((c) => (narrower[c.key] != null ? { ...c, width: narrower[c.key]! } : { ...c })),
@@ -512,6 +513,7 @@ export interface ReportLine {
   /** Live runtime summary replacing the static status word —
    *  `11.5 hrs Running (95.8%) / 0.5 hrs Breakdown - Wire jam`. */
   runtime: string;
+  remarks: string;
   uom: string;
   date: string;
 }
@@ -1085,7 +1087,7 @@ export function buildDailyProductionReport(
     const actual = toNum(row.actualQuantity);
     const isPieceUom = !uom || uom.toUpperCase() === 'PCS' || uom.toUpperCase() === 'PC' || uom.toUpperCase() === 'PIECES';
     const rawRejection = toNum(row.scrapQuantity);
-    const rejection = isPieceUom ? Math.round(rawRejection) : rawRejection;
+    const rejection = isPieceUom && rawRejection >= 1 ? Math.round(rawRejection) : rawRejection;
     const processScrapKg = Math.max(0, toNum(row.processScrapKg));
     const nested = buildNestedLines(row, uom);
 
@@ -1161,6 +1163,7 @@ export function buildDailyProductionReport(
       processScrapKg,
       nestedItems: nested,
       runtime: runtimeText(running, downShown, available, blank(row.downtimeReasonText)),
+      remarks: blank(row.remarks) || '—',
       uom,
       date: row.entryDate ? dayjs(row.entryDate).format('YYYY-MM-DD') : '',
     };
@@ -1332,9 +1335,8 @@ export function reportCellText(line: ReportLine, key: ReportColumnKey, mode: Rep
     case 'machine': return line.machine;
     case 'operator': return line.operator;
     case 'item': return line.item;
-    /* Line 1 of TARGET — the hourly baseline plus the runtime it was scaled
-     * over (`1,620 /h (For 7 hrs Run)`), NOT the raw stored number. */
-    case 'target': return targetTopText(lineProRata(line));
+    /* Line 1 of TARGET — the Dynamic Operational Target (prominent in bold red). */
+    case 'target': return targetBottomText(lineProRata(line), line.uom);
     case 'actual': return formatNumber(line.actual, 2);
     /* Line 1 of WEIGHT (KG) — the small, muted per-unit figure. */
     case 'weight': return line.perUnitWeight;
@@ -1351,21 +1353,24 @@ export function reportCellText(line: ReportLine, key: ReportColumnKey, mode: Rep
     case 'shift': return line.shift;
     /* Line 1 of REJECTION / SCRAP — the flat Rejection KG count. */
     case 'rejectionScrap': return formatNumber(line.rejectionKg ?? 0, 2);
+    case 'remarks': return line.remarks || '—';
     case 'date': return line.date || '—';
     default: return '';
   }
 }
 
-/** Line 2 of the fused cells: the Item/WIP code, the shift timing, the bold
- *  Actual KG under the per-unit weight, and the Rejection % under the
- *  Rejection KG. Empty for every single-line column. */
+/** Line 2 of the fused cells: the Item/WIP code, the shift timing, the hourly
+ *  baseline runtime context for target, the bold Actual KG under the per-unit
+ *  weight, and the Rejection % under the Rejection KG. Empty for every
+ *  single-line column. */
 export function reportCellSubText(line: ReportLine, key: ReportColumnKey): string {
   if (key === 'item') return line.itemCode;
   if (key === 'shift') return line.shiftTime;
-  /* Line 2 of TARGET — the bold Dynamic Operational Target + its UOM. */
-  if (key === 'target') return targetBottomText(lineProRata(line), line.uom);
+  /* Line 2 of TARGET — the hourly baseline plus the runtime it was scaled over. */
+  if (key === 'target') return targetTopText(lineProRata(line));
   if (key === 'weight') return line.actualKg == null ? '—' : formatNumber(line.actualKg, 2);
   if (key === 'rejectionScrap') return rejectionPctLabel(line.rejectionPct);
+  if (key === 'remarks') return '';
   return '';
 }
 
@@ -1402,6 +1407,7 @@ export function reportTotalText(
      * with Σ Rejection KG above the pooled Rejection %. */
     case 'weight': return '—';
     case 'rejectionScrap': return formatNumber(totals.rejectionKg, 2);
+    case 'remarks': return '';
     case 'item': return '';
     case 'status': return '';
     case 'shift': return '';
@@ -1417,6 +1423,7 @@ export function reportTotalText(
 export function reportTotalSubText(totals: ReportTotals, key: ReportColumnKey): string {
   if (key === 'weight') return formatNumber(totals.actualKg, 2);
   if (key === 'rejectionScrap') return rejectionPctLabel(totals.rejectionPct);
+  if (key === 'remarks') return '';
   return '';
 }
 
@@ -1459,9 +1466,9 @@ const STACKED_PDF: Record<StackedCellKey, {
   subGap: number;
   mainSize?: number;
 }> = {
-  item: { mainColor: PDF_MAIN_TEXT, mainBold: true, subColor: PDF_SUB_TEXT, subBold: false, subGap: 0 },
+  item: { mainColor: [29, 78, 216], mainBold: true, subColor: [217, 119, 6], subBold: false, subGap: 0 },
   shift: { mainColor: PDF_MAIN_TEXT, mainBold: false, subColor: PDF_SUB_TEXT, subBold: false, subGap: 0 },
-  target: { mainColor: PDF_MUTED_TEXT, mainBold: false, subColor: PDF_MAIN_TEXT, subBold: true, subGap: 0, mainSize: 6.5 },
+  target: { mainColor: [185, 28, 28], mainBold: true, subColor: PDF_MUTED_TEXT, subBold: false, subGap: 0, mainSize: 7.5 },
   weight: { mainColor: PDF_MUTED_TEXT, mainBold: false, subColor: PDF_MAIN_TEXT, subBold: true, subGap: 0 },
   rejectionScrap: { mainColor: PDF_MAIN_TEXT, mainBold: false, subColor: PDF_SUB_TEXT, subBold: false, subGap: -1.5 },
 };
@@ -1660,14 +1667,14 @@ const PRINT_CSS = `
      one. WEIGHT (KG) is inverted on purpose — the small per-unit figure sits
      on top and the Actual KG is the bold, prominent line underneath, which
      is the number the reader is actually looking for. */
-  .rp-item-name { display: block; font-weight: 700; color: #0f172a; }
-  .rp-item-code { display: block; font-weight: 400; color: #94a3b8; }
+  .rp-item-name { display: block; font-weight: 700; color: #1d4ed8; }
+  .rp-item-code { display: block; font-weight: 500; color: #d97706; }
   .rp-shift-name { display: block; font-weight: 400; color: #0f172a; }
   .rp-shift-time { display: block; font-weight: 400; color: #94a3b8; }
   .rp-wt-top { display: block; font-weight: 400; color: #64748b; }
   .rp-wt-bottom { display: block; font-weight: 700; color: #0f172a; }
-  .rp-tg-top { display: block; font-weight: 400; color: #64748b; }
-  .rp-tg-bottom { display: block; font-weight: 700; color: #0f172a; }
+  .rp-tg-top { display: block; font-weight: 700; color: #b91c1c; }
+  .rp-tg-bottom { display: block; font-weight: 400; color: #64748b; }
   .rp-rj-top { display: block; font-weight: 400; color: #0f172a; }
   .rp-rj-bottom { display: block; font-weight: 400; color: #64748b; }
   /* ---- 2-LINE MAXIMUM -------------------------------------------------
@@ -1684,14 +1691,10 @@ const PRINT_CSS = `
   .rp-item-code { font-size: 10px; line-height: 1.2; }
   .rp-shift-name { font-size: 10px; line-height: 1.2; }
   .rp-shift-time { font-size: 9px; line-height: 1.2; }
-  /* TARGET is the only fused cell whose line 1 is a SENTENCE —
-     "1,620 /h (For 7 hrs Run)" — so it runs at 8.5px across an 11% column
-     (the widest of the numeric cells, plus c-tight padding) to stay on ONE
-     physical line. Line 2 is the Dynamic Operational Target and keeps the
-     table's full 11px in bold: the eye lands there first, the per-hour
-     baseline and the runtime are the context underneath. */
-  .rp-tg-top { font-size: 8.5px; line-height: 1.2; }
-  .rp-tg-bottom { font-size: 11px; line-height: 1.2; }
+  /* TARGET is inverted: Line 1 is the bold red Dynamic Operational Target (11px);
+     Line 2 is the hourly rate + runtime context underneath (8.5px). */
+  .rp-tg-top { font-size: 11px; line-height: 1.2; }
+  .rp-tg-bottom { font-size: 8.5px; line-height: 1.2; }
   .rp-wt-top { font-size: 10px; line-height: 1.2; }
   .rp-wt-bottom { font-size: 11px; line-height: 1.2; }
   /* REJECTION / SCRAP runs the tightest rhythm of the fused cells: its
@@ -1822,11 +1825,11 @@ function lineRowHtml(model: DailyProductionReport, line: ReportLine): string {
         text = reportTwoLineHtml(line, c.key);
       } else {
         const value = escapeHtml(reportCellText(line, c.key));
-        // Long free text (operator name, runtime/breakdown reason) is
+        // Long free text (operator name, runtime/breakdown reason, remarks) is
         // hard-capped at 2 lines, so no data row can ever outgrow the rhythm
         // of the fused cells. Numeric cells stay plain — they never need a
         // 3rd line.
-        text = c.key === 'operator' || c.key === 'status' ? `<span class="rp-clamp2">${value}</span>` : value;
+        text = c.key === 'operator' || c.key === 'status' || c.key === 'remarks' ? `<span class="rp-clamp2">${value}</span>` : value;
       }
       return `<td class="${cls}">${text}</td>`;
     })
@@ -2301,6 +2304,7 @@ function csvLineCell(line: ReportLine, key: ReportColumnKey): string {
     case 'shift': return csvQuote(`${line.shift}\n${line.shiftTime}`);
     /* REJECTION / SCRAP — flat Rejection KG on line 1, Rejection % on line 2. */
     case 'rejectionScrap': return csvStacked(csvStackNum(line.rejectionKg), rejectionPctLabel(line.rejectionPct));
+    case 'remarks': return csvQuote(line.remarks || '');
     case 'date': return csvQuote(line.date);
     default: return '';
   }
@@ -2314,7 +2318,7 @@ function csvLineCell(line: ReportLine, key: ReportColumnKey): string {
  * fully-populated rows so management can sort and filter by any single part
  * without a merged cell getting in the way.
  *
- *  · Machine / Operator / Shift / OT / runtime / Date are DUPLICATED verbatim
+ *  · Machine / Operator / Shift / OT / runtime / Date / Remarks are DUPLICATED verbatim
  *    across every row of the block — they describe the document, not a part.
  *  · Item / good pieces / WEIGHT (KG) / REJECTION (SCRAP) are SWAPPED for
  *    this row's own child record.
@@ -2342,6 +2346,7 @@ function csvSubLineRow(
         case 'ot': return csvNum(line.ot);
         case 'status': return csvQuote(line.runtime);
         case 'shift': return csvQuote(`${line.shift}\n${line.shiftTime}`);
+        case 'remarks': return csvQuote(line.remarks || '');
         case 'date': return csvQuote(line.date);
         /* ---- swapped: this row's own part record ---- */
         case 'item': return csvQuote(sub.itemCode ? `${sub.item}\n${sub.itemCode}` : sub.item);
@@ -2374,6 +2379,7 @@ function csvTotalCell(totals: ReportTotals, key: ReportColumnKey): string {
     /* A per-unit weight is never summable → `—` above Σ Actual KG. */
     case 'weight': return csvStacked('—', csvStackNum(totals.actualKg));
     case 'rejectionScrap': return csvStacked(csvStackNum(totals.rejectionKg), rejectionPctLabel(totals.rejectionPct));
+    case 'remarks': return '';
     default: return '';
   }
 }

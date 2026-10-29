@@ -103,7 +103,7 @@ describe('Daily Production Report — columns', () => {
     expect(model().columns.map((c) => c.label)).toEqual([
       'Sr. #', 'Shift', 'Machine', 'OT (H)', 'Operator', 'Item / Product',
       'Target', 'Actual', 'Achievement %', 'WEIGHT (KG)',
-      'Breakdown Reason / Status', 'REJECTION / SCRAP',
+      'Breakdown Reason / Status', 'REJECTION / SCRAP', 'Remarks',
     ]);
   });
 
@@ -115,6 +115,7 @@ describe('Daily Production Report — columns', () => {
     expect(keys.indexOf('achievement')).toBeLessThan(keys.indexOf('weight'));
     expect(keys.indexOf('weight')).toBeLessThan(keys.indexOf('status'));
     expect(keys.indexOf('status')).toBeLessThan(keys.indexOf('rejectionScrap'));
+    expect(keys.indexOf('rejectionScrap')).toBeLessThan(keys.indexOf('remarks'));
   });
 
   it('always totals 100% width and merges the first 5 columns for totals', () => {
@@ -228,17 +229,16 @@ describe('Daily Production Report — compact 2-line layout', () => {
   const width = (key: string) => model().columns.find((c) => c.key === key)!.width;
 
   it('funds the widened pro-rata TARGET stack from Item and still totals 100', () => {
-    expect(width('item')).toBe(15); // 20 → 15; a product name still fits one line
-    expect(width('shift')).toBe(9); // name on line 1, timing on line 2
-    expect(width('machine')).toBe(5);
-    expect(width('ot')).toBe(5); // the injected column
+    expect(width('item')).toBe(14);
+    expect(width('shift')).toBe(8.5);
+    expect(width('machine')).toBe(4.5);
+    expect(width('ot')).toBe(4);
     expect(width('operator')).toBe(6);
-    // TARGET is now a TWO-line cell whose line 1 is a full sentence, so it
-    // doubled from 6 to 11 — the widest numeric column in the table.
-    expect(width('target')).toBe(11);
-    // The two fused columns keep the space their halves used to own.
-    expect(width('weight')).toBe(11); // 5 (per unit) + 6 (actual KG)
-    expect(width('rejectionScrap')).toBe(10);
+    expect(width('target')).toBe(10);
+    expect(width('weight')).toBe(9.5);
+    expect(width('status')).toBe(9);
+    expect(width('rejectionScrap')).toBe(8.5);
+    expect(width('remarks')).toBe(9);
     // and the budget still adds up to exactly 100
     expect(model().columns.reduce((s, c) => s + c.width, 0)).toBe(100);
   });
@@ -250,11 +250,12 @@ describe('Daily Production Report — compact 2-line layout', () => {
     );
     const w = (key: string) => multi.columns.find((c) => c.key === key)!.width;
     expect(w('date')).toBe(6);
-    expect(w('target')).toBe(11); // TARGET never narrows — its line 1 is fixed
-    expect(w('item')).toBe(12); // 15 → 12: Item 3, Operator 1, Status 1 and
-    expect(w('operator')).toBe(5); // REJECTION 1 together fund the date column
-    expect(w('status')).toBe(9);
-    expect(w('rejectionScrap')).toBe(9);
+    expect(w('target')).toBe(10);
+    expect(w('item')).toBe(12);
+    expect(w('operator')).toBe(5);
+    expect(w('status')).toBe(8);
+    expect(w('rejectionScrap')).toBe(7.5);
+    expect(w('remarks')).toBe(8);
     expect(multi.columns.reduce((s, c) => s + c.width, 0)).toBe(100);
   });
 
@@ -678,14 +679,13 @@ describe('Daily Production Report — print layout', () => {
   it('prints Item, Shift, TARGET, WEIGHT (KG) and REJECTION / SCRAP as stacked pairs', () => {
     expect(html).toContain('<span class="rp-item-name">Spoke 40T</span><span class="rp-item-code">SP-40</span>');
     expect(html).toContain('<span class="rp-shift-name">SHIFT-A</span><span class="rp-shift-time">-</span>');
-    expect(html).toContain('.rp-item-name { display: block; font-weight: 700;');
-    expect(html).toContain('.rp-item-code { display: block; font-weight: 400; color: #94a3b8; }');
+    expect(html).toContain('.rp-item-name { display: block; font-weight: 700; color: #1d4ed8; }');
+    expect(html).toContain('.rp-item-code { display: block; font-weight: 500; color: #d97706; }');
     expect(html).toContain('.rp-shift-time { display: block; font-weight: 400; color: #94a3b8; }');
-    // TARGET — the hourly baseline + runtime muted on top, the pro-rated
-    // Dynamic Operational Target in bold underneath.
-    expect(html).toContain('<span class="rp-tg-top">250 /h (Standard 8h basis)</span><span class="rp-tg-bottom">2,000 PCS</span>');
-    expect(html).toContain('.rp-tg-top { display: block; font-weight: 400; color: #64748b; }');
-    expect(html).toContain('.rp-tg-bottom { display: block; font-weight: 700; color: #0f172a; }');
+    // TARGET — the bold red Dynamic Operational Target on top, hourly rate underneath
+    expect(html).toContain('<span class="rp-tg-top">2,000 PCS</span><span class="rp-tg-bottom">250 /h (Standard 8h basis)</span>');
+    expect(html).toContain('.rp-tg-top { display: block; font-weight: 700; color: #b91c1c; }');
+    expect(html).toContain('.rp-tg-bottom { display: block; font-weight: 400; color: #64748b; }');
     // WEIGHT (KG) — per unit on top, the bold Actual KG underneath.
     expect(html).toContain('<span class="rp-wt-top">0.05</span><span class="rp-wt-bottom">100</span>');
     // REJECTION / SCRAP — flat KG on top, the fixed % underneath.
@@ -703,10 +703,10 @@ describe('Daily Production Report — print layout', () => {
     // ONLY those two columns are tightened — verified straight off the headers,
     // where the class sits beside its width and its label.
     expect(html).toContain(
-      '<th class="a-right c-tight" style="width:11%"><span class="rp-clamp2">Target</span></th>',
+      '<th class="a-right c-tight" style="width:10%"><span class="rp-clamp2">Target</span></th>',
     );
     expect(html).toContain(
-      '<th class="a-right c-tight" style="width:11%"><span class="rp-clamp2">WEIGHT (KG)</span></th>',
+      '<th class="a-right c-tight" style="width:9.5%"><span class="rp-clamp2">WEIGHT (KG)</span></th>',
     );
     expect(html).toContain('.rp-table .c-tight { padding-left: 1px; padding-right: 1px; }');
     const keys = model().columns.map((c) => c.key);
@@ -719,10 +719,9 @@ describe('Daily Production Report — print layout', () => {
     expect(html).toContain('.rp-rj-bottom { font-size: 10px; line-height: 1.1; }');
     expect(html).toContain('.rp-wt-top { font-size: 10px; line-height: 1.2; }');
     expect(html).toContain('.rp-wt-bottom { font-size: 11px; line-height: 1.2; }');
-    // TARGET's line 1 is a sentence, so it is the only stack that drops BELOW
-    // the 9px floor; its value still gets the table's full 11px in bold.
-    expect(html).toContain('.rp-tg-top { font-size: 8.5px; line-height: 1.2; }');
-    expect(html).toContain('.rp-tg-bottom { font-size: 11px; line-height: 1.2; }');
+    // TARGET: Line 1 is the bold red dynamic target at 11px, Line 2 is rate at 8.5px
+    expect(html).toContain('.rp-tg-top { font-size: 11px; line-height: 1.2; }');
+    expect(html).toContain('.rp-tg-bottom { font-size: 8.5px; line-height: 1.2; }');
   });
 
   it('has print-safe CSS: 11px data, boxed borders, repeating header, no section splitting', () => {
@@ -873,7 +872,7 @@ describe('Daily Production Report — Excel (CSV) export', () => {
 
   it('uses the same column labels as print/PDF, plus UOM', () => {
     expect(lines[headerIdx]).toBe(
-      'Sr. #,Shift,Machine,OT (H),Operator,Item / Product,Target,Actual,Achievement %,WEIGHT (KG),Breakdown Reason / Status,REJECTION / SCRAP,UOM',
+      'Sr. #,Shift,Machine,OT (H),Operator,Item / Product,Target,Actual,Achievement %,WEIGHT (KG),Breakdown Reason / Status,REJECTION / SCRAP,Remarks,UOM',
     );
   });
 
@@ -1261,10 +1260,10 @@ describe('Daily Production Report — pro-rata TARGET', () => {
     // = 100%, never against the 8-hour master figure (12,960) this run was
     // never scheduled to reach.
     expect(l.achievement).toBe(100);
-    expect(reportCellText(l, 'target')).toBe('1,620 /h (For 7 hrs Run)');
-    expect(reportCellSubText(l, 'target')).toBe('11,340 PCS');
+    expect(reportCellText(l, 'target')).toBe('11,340 PCS');
+    expect(reportCellSubText(l, 'target')).toBe('1,620 /h (For 7 hrs Run)');
     expect(reportTwoLineHtml(l, 'target')).toBe(
-      '<span class="rp-tg-top">1,620 /h (For 7 hrs Run)</span><span class="rp-tg-bottom">11,340 PCS</span>',
+      '<span class="rp-tg-top">11,340 PCS</span><span class="rp-tg-bottom">1,620 /h (For 7 hrs Run)</span>',
     );
     expect(m.grand.target).toBe(11340);
     expect(m.grand.achievement).toBe(100);
@@ -1300,15 +1299,15 @@ describe('Daily Production Report — pro-rata TARGET', () => {
 
   it('shrinks only the PDF data cell — totals stay at the normal table size', () => {
     const m = buildDailyProductionReport(
-      [makeRow({ targetQuantity: 11340, actualQuantity: 11340, shift: { name: 'DAY', shiftCode: 'D', plannedHours: 8 }, downtimeHours: 1 })],
+      [makeRow({ targetQuantity: 11340, actualQuantity: 11340, targetPerHour: 1620, shift: { name: 'DAY', shiftCode: 'D', plannedHours: 8 }, downtimeHours: 1 })],
       opts(),
     );
     const l = m.sections[0].lines[0];
     const targetIdx = m.columns.findIndex((c) => c.key === 'target');
     const dataCell = pdfLineRow(m.columns, l)[targetIdx] as any;
-    expect(dataCell.styles.fontSize).toBe(6.5);
-    expect(dataCell.sub).toBe('11,340 PCS');
-    expect(dataCell.subBold).toBe(true);
+    expect(dataCell.styles.fontSize).toBe(7.5);
+    expect(dataCell.sub).toBe('1,620 /h (For 7 hrs Run)');
+    expect(dataCell.subBold).toBe(false);
     // pdfSummaryRow = [merged label, ...columns.slice(span)] — Σ Target keeps
     // the table's own 9pt and its bold total styling.
     const summary = pdfSummaryRow(m, m.grand, 'GRAND TOTAL', 'grand');
@@ -1414,10 +1413,10 @@ describe('Daily Production Report — locked Target Master rate', () => {
     // 21,000 against the stale 12,960 read 162.04%; against the corrected
     // denominator it reads the honest 69.44%.
     expect(l.achievement).toBe(69.44);
-    expect(reportCellText(l, 'target')).toBe('4,320 /h (For 7 hrs Run)');
-    expect(reportCellSubText(l, 'target')).toBe('30,240 PCS');
+    expect(reportCellText(l, 'target')).toBe('30,240 PCS');
+    expect(reportCellSubText(l, 'target')).toBe('4,320 /h (For 7 hrs Run)');
     expect(reportTwoLineHtml(l, 'target')).toBe(
-      '<span class="rp-tg-top">4,320 /h (For 7 hrs Run)</span><span class="rp-tg-bottom">30,240 PCS</span>',
+      '<span class="rp-tg-top">30,240 PCS</span><span class="rp-tg-bottom">4,320 /h (For 7 hrs Run)</span>',
     );
     expect(m.grand.target).toBe(30240);
     expect(m.grand.achievement).toBe(69.44);
