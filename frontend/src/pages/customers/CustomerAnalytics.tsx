@@ -603,13 +603,6 @@ const CustomerAnalytics: React.FC = () => {
           delivery.soc_no ||
           ''
         );
-
-        let targetSoc = custSocs.find(
-          (s) =>
-            (delivOrderId && s.orderId === delivOrderId) ||
-            (delivSocNo && (normKey(s.socNumber) === normKey(delivSocNo) || normKey(s.socNumber).endsWith(normKey(delivSocNo))))
-        );
-
         const lines = delivery.lines || delivery.items || [];
         for (const line of lines) {
           const lineItemObj = line.item || {};
@@ -625,33 +618,57 @@ const CustomerAnalytics: React.FC = () => {
 
           if (qty <= 0) continue;
 
-          // Check line-level SOC first: e.g. [SOC: SOC-2026-05645]
-          const lineSocMatch = (line.description || '').match(/\[SOC:\s*([^\]]+)\]/i);
-          const lineSocNo = line.salesOrderNumber || line.socNumber || (lineSocMatch ? lineSocMatch[1].trim() : '') || delivSocNo;
-          const lineOrderId = line.salesOrderId || line.orderId || delivOrderId;
+          // Check line-level SOC first: e.g. [SOC: SOC-2026-05814] or line.socNumber / line.salesOrderNumber
+          const lineSocMatch = (line.description || '').match(/\[SOC:\s*([^\]]+)\]/i) || (line.description || '').match(/SOC[:\s]+(SOC-[A-Za-z0-9-]+|[0-9A-Za-z-]+)/i);
+          const lineSocNo = line.socNumber || line.salesOrderNumber || (lineSocMatch ? lineSocMatch[1].trim() : '');
+          const lineOrderId = line.salesOrderId || line.orderId || '';
 
           const nLineSoc = normKey(lineSocNo);
-          let targetSoc = custSocs.find(
-            (s) =>
-              (lineOrderId && s.orderId === lineOrderId) ||
-              (nLineSoc && (normKey(s.socNumber) === nLineSoc || normKey(s.socNumber).endsWith(nLineSoc) || nLineSoc.endsWith(normKey(s.socNumber))))
-          );
+          let targetSoc: SocContractSummary | undefined;
+
+          // Priority 1: Match specifically by line-level SOC number or line-level order ID
+          if (lineOrderId || nLineSoc) {
+            targetSoc = custSocs.find(
+              (s) =>
+                (lineOrderId && s.orderId === lineOrderId) ||
+                (nLineSoc && (normKey(s.socNumber) === nLineSoc || normKey(s.socNumber).endsWith(nLineSoc) || nLineSoc.endsWith(normKey(s.socNumber))))
+            );
+          }
+
+          // Priority 2: Fallback to delivery header SOC number or delivery header order ID
+          if (!targetSoc) {
+            const nDelivSoc = normKey(delivSocNo);
+            targetSoc = custSocs.find(
+              (s) =>
+                (delivOrderId && s.orderId === delivOrderId) ||
+                (nDelivSoc && (normKey(s.socNumber) === nDelivSoc || normKey(s.socNumber).endsWith(nDelivSoc) || nDelivSoc.endsWith(normKey(s.socNumber))))
+            );
+          }
 
           if (targetSoc) {
-            // Strictly match against items already ordered in this SOC
+            // Strictly match against items ordered in this SOC
             const nCode = normKey(code);
             const nName = normKey(name);
-            const socItem = targetSoc.items.find((it) => {
+            let socItem = targetSoc.items.find((it) => {
               const itCode = normKey(it.itemCode);
               const itName = normKey(it.itemName);
               if (nCode && itCode && nCode === itCode) return true;
               if (nName && itName && (nName === itName || itName.includes(nName) || nName.includes(itName))) return true;
               return false;
-            }) || (targetSoc.items.length === 1 ? targetSoc.items[0] : null);
+            });
+
+            // Single-item fallback ONLY if item code matches or is absent
+            if (!socItem && targetSoc.items.length === 1) {
+              const singleIt = targetSoc.items[0];
+              const singleCode = normKey(singleIt.itemCode);
+              if (!nCode || !singleCode || nCode === singleCode) {
+                socItem = singleIt;
+              }
+            }
 
             if (socItem) {
               socItem.dispatchedQty += qty;
-            } else if (!targetSoc.isOfficialOrder) {
+            } else {
               const created = findOrCreateSocItem(targetSoc, code, name);
               created.dispatchedQty += qty;
             }
