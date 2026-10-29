@@ -3740,11 +3740,16 @@ addToDept(org, {
         const chosenNippleMatch = entryRemarks.match(/(?:NippleItem|NippleCode|Pending Nipple|Without Nipple):\s*([^\s(|]+)/i);
         const chosenNippleCode = chosenNippleMatch ? chosenNippleMatch[1].trim() : null;
         if (chosenNippleCode) {
+          // Only match on the UUID primary key when the token IS a UUID — an item
+          // code such as "FG-NP-001" cast to uuid makes Postgres throw (HTTP 500).
+          const chosenIsUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(chosenNippleCode);
           const matchedChosen = await this.itemRepo.findOne({
-            where: [
-              { companyId, itemCode: chosenNippleCode },
-              { companyId, id: chosenNippleCode },
-            ],
+            where: chosenIsUuid
+              ? [
+                  { companyId, itemCode: chosenNippleCode },
+                  { companyId, id: chosenNippleCode },
+                ]
+              : [{ companyId, itemCode: chosenNippleCode }],
             relations: ['baseUom'],
           });
           if (matchedChosen && matchedChosen.id !== component?.id) {
