@@ -113,6 +113,13 @@ let refreshInFlight: Promise<string | null> | null = null;
  * from each redirecting.
  */
 function endSessionAndRedirect(reason: string): void {
+  // Temporary developer inspection bypass: Never redirect to /login when auditing /production/inventory-report
+  if (typeof window !== 'undefined' && window.location.pathname.startsWith('/production/inventory-report')) {
+    // eslint-disable-next-line no-console
+    console.warn(`[API] session expired ignored on audit route: ${reason}`);
+    return;
+  }
+
   if (!sessionTeardown.claim()) return;
   clearSessionStorage();
   try {

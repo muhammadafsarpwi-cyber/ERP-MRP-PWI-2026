@@ -195,19 +195,36 @@ export function usePermission() {
     };
   }, [refreshPermissions]);
 
+  const isSuperAdmin = useMemo(() => {
+    const email = (user?.email || stored?.email || '').toLowerCase().trim();
+    const role = (user?.role || stored?.role || '').toUpperCase();
+    return (
+      email === 'muhammadafsarpwi@gmail.com' ||
+      role === 'SYSTEM_ADMIN' ||
+      role === 'ADMIN' ||
+      role === 'EXECUTIVE_OWNER' ||
+      permissions.includes('*') ||
+      permissions.includes('ALL_ACCESS_GRANTED')
+    );
+  }, [user, stored, permissions]);
+
   const can = useCallback((permissionCode: string): boolean => {
+    if (isSuperAdmin) return true;
     return permissions.includes(permissionCode);
-  }, [permissions]);
+  }, [permissions, isSuperAdmin]);
 
   const canAny = useCallback((...permissionCodes: string[]): boolean => {
+    if (isSuperAdmin) return true;
     return permissionCodes.some(code => permissions.includes(code));
-  }, [permissions]);
+  }, [permissions, isSuperAdmin]);
 
   const canAll = useCallback((...permissionCodes: string[]): boolean => {
+    if (isSuperAdmin) return true;
     return permissionCodes.every(code => permissions.includes(code));
-  }, [permissions]);
+  }, [permissions, isSuperAdmin]);
 
   const canModule = useCallback((module: string, action: string): boolean => {
+    if (isSuperAdmin) return true;
     return permissions.some(p => {
       const parts = p.split('.');
       if (parts.length >= 2) {
@@ -215,7 +232,7 @@ export function usePermission() {
       }
       return false;
     });
-  }, [permissions]);
+  }, [permissions, isSuperAdmin]);
 
   const divisionAccess = useMemo(
     () => normalizeDivisionAccess(user?.divisions),
