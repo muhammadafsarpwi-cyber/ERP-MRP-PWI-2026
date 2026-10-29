@@ -292,6 +292,7 @@ export interface ReportRowSource {
   actualQuantity?: number | string;
   achievementPercentage?: number | string | null;
   scrapQuantity?: number | string;
+  processScrapKg?: number | string | null;
   /** Downtime shown in the runtime column (hours + reason). */
   downtimeHours?: number | string;
   downtimeReasonText?: string | null;
@@ -503,6 +504,8 @@ export interface ReportLine {
    *  formula `aggregateProductionTotals` uses on screen. 0 only when the total
    *  produced KG is zero / unknown. */
   rejectionPct: number;
+  /** Process Cutting Scrap (KG) — reported independently from part scrap. */
+  processScrapKg: number;
   /** OUTPUT child lines — built for EVERY entry, but only ever rendered when
    *  `isMultiItemLine` is true (single-child lines would repeat the parent). */
   nestedItems?: ReportNestedLine[];
@@ -526,6 +529,8 @@ export interface ReportTotals {
   rejectionKg: number;
   /** Σ Rejection KG / (Σ Actual KG + Σ Rejection KG) × 100. */
   rejectionPct: number;
+  /** Cumulative Process Cutting Scrap (KG). */
+  processScrapKg: number;
   /** Weighted achievement: ΣActual / ΣTarget × 100 (null when no target). */
   achievement: number | null;
 }
@@ -652,6 +657,13 @@ export function departmentRank(name: string): number {
     }
   });
   return best >= 0 ? best : DEPARTMENT_ORDER.length;
+}
+
+/** Single bench/station base packing target: 125 Cartons (180,000 PCS) / 8 Hours = 22,500 PCS / hour. */
+export const PACKING_HOURLY_TARGET_PCS = 22500;
+
+export function isPackingDepartment(name: string): boolean {
+  return String(name ?? '').toLowerCase().includes('pack');
 }
 
 /** ▲ when the achievement reaches the threshold, ▼ below it (null when the
@@ -983,6 +995,7 @@ function addLine(acc: { totals: ReportTotals; machines: Set<string> }, line: Rep
   acc.totals.ot += line.ot;
   acc.totals.rejection += line.rejection;
   acc.totals.rejectionKg += line.rejectionKg ?? 0;
+  acc.totals.processScrapKg += line.processScrapKg ?? 0;
   if (line.machine) acc.machines.add(line.machine);
   acc.totals.machines = acc.machines.size;
 }
@@ -990,8 +1003,9 @@ function addLine(acc: { totals: ReportTotals; machines: Set<string> }, line: Rep
 function finishTotals(totals: ReportTotals): ReportTotals {
   totals.actualKg = round4(totals.actualKg);
   totals.ot = round2(totals.ot);
-  totals.rejection = round4(totals.rejection);
+  totals.rejection = Math.round(totals.rejection);
   totals.rejectionKg = round4(totals.rejectionKg);
+  totals.processScrapKg = round4(totals.processScrapKg);
   totals.rejectionPct = rejectionPercent(totals.rejectionKg, totals.actualKg);
   totals.achievement = totals.target > 0 ? round2((totals.actual / totals.target) * 100) : null;
   return totals;
@@ -1000,7 +1014,7 @@ function finishTotals(totals: ReportTotals): ReportTotals {
 function emptyTotals(departments: number): ReportTotals {
   return {
     departments, entries: 0, machines: 0, target: 0, actual: 0, actualKg: 0, ot: 0,
-    rejection: 0, rejectionKg: 0, rejectionPct: 0, achievement: null,
+    rejection: 0, rejectionKg: 0, rejectionPct: 0, processScrapKg: 0, achievement: null,
   };
 }
 
@@ -1069,7 +1083,10 @@ export function buildDailyProductionReport(
     const machine = blank(row.machine?.machineCode) || blank(row.machineNo) || '—';
     const uom = blank(row.uom?.code);
     const actual = toNum(row.actualQuantity);
-    const rejection = toNum(row.scrapQuantity);
+    const isPieceUom = !uom || uom.toUpperCase() === 'PCS' || uom.toUpperCase() === 'PC' || uom.toUpperCase() === 'PIECES';
+    const rawRejection = toNum(row.scrapQuantity);
+    const rejection = isPieceUom ? Math.round(rawRejection) : rawRejection;
+    const processScrapKg = Math.max(0, toNum(row.processScrapKg));
     const nested = buildNestedLines(row, uom);
 
     /* --- WEIGHT (KG) -------------------------------------------------
@@ -1141,6 +1158,7 @@ export function buildDailyProductionReport(
       rejection,
       rejectionKg: rejectionKgRounded,
       rejectionPct: rejectionPercent(rejectionKgRounded, actualKgRounded),
+      processScrapKg,
       nestedItems: nested,
       runtime: runtimeText(running, downShown, available, blank(row.downtimeReasonText)),
       uom,
@@ -1167,6 +1185,32 @@ export function buildDailyProductionReport(
         compareMachineNo(a.date, b.date) ||
         compareMachineNo(a.shift, b.shift),
     );
+
+    const isPacking = isPackingDepartment(name);
+    if (isPacking && lines.length > 0) {
+      for (const kind of ['DAY', 'NIGHT'] as ShiftKind[]) {
+        const groupLines = lines.filter((l) => l.shiftKind === kind);
+        if (groupLines.length === 0) continue;
+        const hasHours = groupLines.some((l) => l.targetHours > 0 || l.ot > 0);
+        const hasBulkTarget = groupLines.some((l) => l.standardTarget >= 50000 || l.target >= 50000);
+        if (hasHours || hasBulkTarget) {
+          const maxShiftHours = Math.max(
+            ...groupLines.map((l) => (l.targetHours > 0 ? l.targetHours : (l.ot > 0 ? 8 + l.ot : 8))),
+            8,
+          );
+          const shiftPackingTarget = Math.round(PACKING_HOURLY_TARGET_PCS * maxShiftHours);
+          const totalActual = groupLines.reduce((sum, l) => sum + l.actual, 0);
+          groupLines.forEach((l) => {
+            const share = totalActual > 0 ? l.actual / totalActual : 1 / groupLines.length;
+            l.target = Math.round(shiftPackingTarget * share);
+            l.standardTarget = shiftPackingTarget;
+            l.targetPerHour = PACKING_HOURLY_TARGET_PCS;
+            l.targetHours = maxShiftHours;
+            l.achievement = l.target > 0 ? round2((l.actual / l.target) * 100) : null;
+          });
+        }
+      }
+    }
 
     const shiftGroups: ReportShiftGroup[] = [];
     for (const kind of ['DAY', 'NIGHT'] as ShiftKind[]) {
@@ -1915,7 +1959,17 @@ export interface ExecutiveKpi {
   tone: AchievementTone | null;
   /** The weighted achievement itself, for callers that need the number. */
   achievementValue: number | null;
-  /** `1.75 KG` — the department's cumulative scrap, in KG. Comes straight
+  /** Formatted Part Rejection piece count (`4 Pcs`). */
+  partRejectPcs: string;
+  /** Formatted Part Rejection weight (`0.25 KG`). */
+  partRejectKg: string;
+  /** Combined Part Rejection label (`4 Pcs (0.25 KG)`). */
+  partRejectText: string;
+  /** Process Cutting Scrap (`6.25 KG` or `0 KG`). */
+  processScrapKg: string;
+  /** True when process cutting scrap was recorded for this department. */
+  hasProcessScrap: boolean;
+  /** `1.75 KG` — the department's cumulative part scrap, in KG. Comes straight
    *  from the Σ Rejection KG the REJECTION / SCRAP total cell prints, so the
    *  card and the table can never show two different figures. */
   rejectionKg: string;
@@ -1934,6 +1988,12 @@ export function executiveKpis(model: DailyProductionReport): ExecutiveKpi[] {
   return model.sections.map((section) => {
     const totals = section.totals;
     const achievementValue = totals.achievement;
+    const partRejectPcs = formatNumber(Math.round(totals.rejection), 0);
+    const partRejectKg = formatNumber(totals.rejectionKg, 2);
+    const processScrapKg = formatNumber(totals.processScrapKg ?? 0, 2);
+    const hasProcessScrap = (totals.processScrapKg ?? 0) > 0;
+    const partRejectText = `${partRejectPcs} Pcs (${partRejectKg} KG)`;
+
     return {
       name: section.name.toUpperCase(),
       target: reportTotalText(totals, 'target'),
@@ -1942,10 +2002,15 @@ export function executiveKpis(model: DailyProductionReport): ExecutiveKpi[] {
       achievementText: reportTotalText(totals, 'achievement', 'pdf'),
       tone: achievementTone(achievementValue),
       achievementValue,
-      // The two rows under Achievement % — the KG reuses the table's own
+      partRejectPcs,
+      partRejectKg: `${partRejectKg} KG`,
+      partRejectText,
+      processScrapKg: `${processScrapKg} KG`,
+      hasProcessScrap,
+      // The rows under Achievement % — the KG reuses the table's own
       // cell renderer so card and table agree; the percentage is deliberately
       // re-formatted at four decimals for the card only.
-      rejectionKg: `${reportTotalText(totals, 'rejectionScrap')} KG`,
+      rejectionKg: `${partRejectKg} KG`,
       rejectionPct: rejectionPct4Label(totals.rejectionKg, totals.actualKg),
       // The nested item footer — pooled from THIS section's lines only.
       items: sectionItemTotals(section),
@@ -2062,7 +2127,7 @@ export function sectionItemTotals(section: ReportSection): ItemTotal[] {
       name: agg.name,
       actualPcs: formatNumber(agg.actualPcs, 2),
       actualKg: formatNumber(agg.actualKg, 2),
-      scrapPcs: formatNumber(agg.scrapPcs, 2),
+      scrapPcs: formatNumber(Math.round(agg.scrapPcs), 0),
       scrapKg: formatNumber(agg.scrapKg, 2),
       hasScrap: agg.scrapPcs !== 0 || agg.scrapKg !== 0,
       actualKgValue: agg.actualKg,
@@ -2114,7 +2179,8 @@ export function executiveSummaryHtml(model: DailyProductionReport): string {
         <div class="rp-kpi-row"><span>Target:</span><b>${escapeHtml(card.target)}</b></div>
         <div class="rp-kpi-row"><span>Actual:</span><b>${escapeHtml(card.actual)}</b></div>
         <div class="rp-kpi-row rp-kpi-ach"><span>Achievement %:</span><b${toneClass}>${escapeHtml(card.achievement)}</b></div>
-        <div class="rp-kpi-row"><span>Total Rejection:</span><b>${escapeHtml(card.rejectionKg)}</b></div>
+        <div class="rp-kpi-row"><span>Part Rejection:</span><b>${escapeHtml(card.partRejectText)}</b></div>
+        <div class="rp-kpi-row"><span>Process Scrap:</span><b>${escapeHtml(card.processScrapKg)}</b></div>
         <div class="rp-kpi-row"><span>Scrap Percentage:</span><b>${escapeHtml(card.rejectionPct)}</b></div>${footer}
       </div>`;
     })

@@ -36,10 +36,12 @@ import {
   targetTopText,
   tightColumnClass,
   TONE_COLOR,
-  type DailyProductionReport,
-  type ItemTotal,
-  type ReportOptions,
-  type ReportRowSource,
+} from './dailyProductionReport';
+import type {
+  DailyProductionReport,
+  ItemTotal,
+  ReportOptions,
+  ReportRowSource,
 } from './dailyProductionReport';
 
 /* ------------------------------------------------------------------ *
@@ -1031,12 +1033,12 @@ describe('Daily Production Report — Executive KPI summary', () => {
 
     // Printed order inside the card: Target → Actual → Achievement → Rejection.
     const achAt = html.indexOf('<span>Achievement %:</span><b class="tone-up">110.0% ▲</b>');
-    const rejAt = html.indexOf('<span>Total Rejection:</span><b>0.25 KG</b>');
+    const rejAt = html.indexOf('<span>Part Rejection:</span><b>5 Pcs (0.25 KG)</b>');
     const pctAt = html.indexOf('<span>Scrap Percentage:</span><b>0.1135%</b>');
     expect(achAt).toBeGreaterThan(-1);
     expect(rejAt).toBeGreaterThan(achAt);
     expect(pctAt).toBeGreaterThan(rejAt);
-    expect(html).toContain('<div class="rp-kpi-row"><span>Total Rejection:</span><b>1.5 KG</b></div>');
+    expect(html).toContain('<div class="rp-kpi-row"><span>Part Rejection:</span><b>30 Pcs (1.5 KG)</b></div>');
     expect(html).toContain('<div class="rp-kpi-row"><span>Scrap Percentage:</span><b>0.6696%</b></div>');
   });
 

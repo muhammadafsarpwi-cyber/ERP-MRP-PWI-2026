@@ -1788,14 +1788,22 @@ const EntryForm: React.FC<EntryFormProps> = ({
         form.setFieldValue('scrapQuantity', undefined);
       }
     } else {
-      const sumKg = rows.reduce((acc, r) => acc + (toNum(r.kg)), 0);
-      const roundedKg = Math.round(sumKg * 10000) / 10000;
-      form.setFieldValue('scrapQuantity', roundedKg);
+      if (isPieceBased) {
+        const sumPcs = rows.reduce((acc, r) => acc + (toNum(r.pcs)), 0);
+        form.setFieldValue('scrapQuantity', Math.round(sumPcs));
+      } else if (isMeterBased) {
+        const sumM = rows.reduce((acc, r) => acc + (toNum(r.pcs)), 0);
+        form.setFieldValue('scrapQuantity', Math.round(sumM * 100) / 100);
+      } else {
+        const sumKg = rows.reduce((acc, r) => acc + (toNum(r.kg)), 0);
+        const roundedKg = Math.round(sumKg * 10000) / 10000;
+        form.setFieldValue('scrapQuantity', roundedKg);
+      }
     }
 
     const reasons = rows.map((r) => r.reason.trim()).filter(Boolean);
     form.setFieldValue('rejectionRemarks', reasons.join(', '));
-  }, [form, isFullDowntime]);
+  }, [form, isFullDowntime, isPieceBased, isMeterBased]);
 
   const handleRowKgChange = useCallback((id: string, val: number | null) => {
     const kg = val === null ? null : Math.max(0, Number(val) || 0);
@@ -2527,8 +2535,8 @@ const EntryForm: React.FC<EntryFormProps> = ({
         receiptWarehouseCode: recWh?.warehouseCode,
         actualQuantity: toNum(goodQty),
         uomCode,
-        scrapQuantityKg: formScrapKg,
-        scrapQuantityPcs: totalRejectionPcs > 0 ? totalRejectionPcs : null,
+        scrapQuantityKg: totalRejectionKg > 0 ? totalRejectionKg : (isPieceBased ? Math.round((toNum(payload.scrapQuantity) * fgMetricFactor) * 1000) / 1000 : formScrapKg),
+        scrapQuantityPcs: isPieceBased ? Math.round(toNum(payload.scrapQuantity) || totalRejectionPcs) : (totalRejectionPcs > 0 ? Math.round(totalRejectionPcs) : null),
         processScrapKg: formProcessScrapKg,
         machineName: String(payload.machineNo ?? ''),
         shiftName: shift?.name,

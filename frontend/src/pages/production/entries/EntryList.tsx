@@ -1748,7 +1748,7 @@ const EntryList: React.FC = () => {
         const gridTop = titleY + 22;
         // The KPI block is a fixed height; the nested footer then adds a
         // rule + column header (30pt) and 26pt per pooled part.
-        const KPI_H = 122;
+        const KPI_H = 136;
         const FOOT_HEAD = 30;
         const ITEM_ROW = 26;
         // The three-column metric grid of the print card, in points:
@@ -1823,18 +1823,20 @@ const EntryList: React.FC = () => {
             else doc.triangle(cx - s, cy - s, cx + s, cy - s, cx, cy + s, 'F');
           }
 
-          // Rows 5 / 6 — the NEW scrap rows, stacked straight under
-          // Achievement % exactly as the print card stacks them.
-          const rejKgY = y + 96;
-          const scrapPctY = y + 110;
+          // Rows 5 / 6 / 7 — the scrap rows: Part Rejection, Process Scrap, Scrap %
+          const partRejY = y + 95;
+          const procScrapY = y + 109;
+          const scrapPctY = y + 123;
           doc.setFont('helvetica', 'normal');
-          doc.setFontSize(9.5);
+          doc.setFontSize(9);
           doc.setTextColor(100, 116, 139);
-          doc.text('Total Rejection:', x + pad, rejKgY);
+          doc.text('Part Rejection:', x + pad, partRejY);
+          doc.text('Process Scrap:', x + pad, procScrapY);
           doc.text('Scrap Percentage:', x + pad, scrapPctY);
           doc.setFont('helvetica', 'bold');
           doc.setTextColor(15, 23, 42);
-          doc.text(card.rejectionKg, valueRight, rejKgY, { align: 'right' });
+          doc.text(card.partRejectText, valueRight, partRejY, { align: 'right' });
+          doc.text(card.processScrapKg, valueRight, procScrapY, { align: 'right' });
           doc.text(card.rejectionPct, valueRight, scrapPctY, { align: 'right' });
 
           if (card.items.length === 0) return;
