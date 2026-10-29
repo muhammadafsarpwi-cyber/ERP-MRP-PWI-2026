@@ -27,6 +27,7 @@ const UnauthorizedPage: React.FC = () => {
 
 const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
   const location = useLocation();
+  const { can, isLoaded } = usePermission();
 
   // ── AUTHORITATIVE ADMINISTRATOR IDENTITY LOCK & ROUTE CLEARANCE ───────────
   // Locks the operational context to the registered root owner muhammadafsarpwi@gmail.com
@@ -77,8 +78,7 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
     return <>{children}</>;
   }
 
-  const token = localStorage.getItem('token');
-  const { can, isLoaded } = usePermission();
+  const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
 
   if (!token) {
     return <Navigate to="/login" state={{ from: location }} replace />;
