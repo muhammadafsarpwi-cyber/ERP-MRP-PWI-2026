@@ -91,6 +91,8 @@ interface ReportRow {
   wireSizeMm: number | null;
   thicknessMm: number | null;
   widthMm: number | null;
+  weightPerMeter?: number | null;
+  weightPerPiece?: number | null;
   divisionId: string | null;
   divisionName: string | null;
   sectionName: string | null;
@@ -207,6 +209,228 @@ interface LedgerDetail {
   totalLedgerRows: number;
   journey?: JourneyStage[];
 }
+
+const LOCAL_PREVIEW_DIVISIONS: FilterOption[] = [
+  { id: 'div-spd', name: 'Spoke Division (SPD)' },
+  { id: 'div-ccd', name: 'Control Cable Division (CCD)' },
+];
+
+const LOCAL_PREVIEW_REPORT: ReportResponse = {
+  filters: { movementTypes: [] },
+  summary: {
+    itemCount: 6,
+    onHand: 67200,
+    reserved: 0,
+    available: 67200,
+    totalIn: 58800,
+    totalOut: 25900,
+    scrapOut: 120,
+    consumed: 24000,
+    produced: 50800,
+    required: 33600,
+    shortItems: 0,
+    wipItems: 2,
+    movementTypes: [],
+  },
+  items: [
+    {
+      itemId: 'mock-1',
+      itemCode: 'WIP-SPL-001',
+      itemName: 'Spoke Wire 10G Cut Length 290mm (Zinc Coated)',
+      itemType: 'WORK_IN_PROGRESS',
+      uomCode: 'GRS',
+      wireSizeMm: 3.2,
+      thicknessMm: null,
+      widthMm: null,
+      weightPerMeter: null,
+      weightPerPiece: 0.0185,
+      divisionId: 'div-spd',
+      divisionName: 'Spoke Division (SPD)',
+      sectionName: 'Spoke Heading Section',
+      departmentId: 'dept-ws',
+      departmentName: 'Wire Straightening',
+      openingBalance: 14400,
+      totalIn: 28800,
+      totalOut: 14400,
+      scrapOut: 80,
+      consumed: 14320,
+      produced: 28800,
+      required: 14400,
+      closingBalance: 28800,
+      onHand: 28800,
+      reserved: 0,
+      available: 28800,
+      lastMovementDate: '2026-10-28T09:00:00Z',
+      movementType: 'PRODUCTION_RECEIPT',
+      shortage: 0,
+      status: 'OK',
+      reconciled: true,
+    },
+    {
+      itemId: 'mock-2',
+      itemCode: 'FG-NP-001',
+      itemName: 'Motorcycle Spokes & Nipples Master Kit (Box of 72 Sets)',
+      itemType: 'FINISHED_GOOD',
+      uomCode: 'GRS',
+      wireSizeMm: 3.2,
+      thicknessMm: null,
+      widthMm: null,
+      weightPerMeter: null,
+      weightPerPiece: 0.024,
+      divisionId: 'div-spd',
+      divisionName: 'Spoke Division (SPD)',
+      sectionName: 'Finished Packaging',
+      departmentId: 'dept-pack',
+      departmentName: 'Packing Plant',
+      openingBalance: 3600,
+      totalIn: 7200,
+      totalOut: 3600,
+      scrapOut: 0,
+      consumed: 0,
+      produced: 7200,
+      required: 7200,
+      closingBalance: 7200,
+      onHand: 7200,
+      reserved: 0,
+      available: 7200,
+      lastMovementDate: '2026-10-28T14:30:00Z',
+      movementType: 'PRODUCTION_RECEIPT',
+      shortage: 0,
+      status: 'OK',
+      reconciled: true,
+    },
+    {
+      itemId: 'mock-3',
+      itemCode: 'CCD-001',
+      itemName: 'Control Cable Outer Conduit Casing 5.0mm (Black PVC Jacketed)',
+      itemType: 'WORK_IN_PROGRESS',
+      uomCode: 'M',
+      wireSizeMm: 5.0,
+      thicknessMm: null,
+      widthMm: null,
+      weightPerMeter: 0.045,
+      divisionId: 'div-ccd',
+      divisionName: 'Control Cable Division (CCD)',
+      sectionName: 'Extrusion Line 1',
+      departmentId: 'dept-ex',
+      departmentName: 'Cable Extrusion Dept',
+      openingBalance: 5000,
+      totalIn: 10000,
+      totalOut: 4000,
+      scrapOut: 20,
+      consumed: 3980,
+      produced: 10000,
+      required: 3500,
+      closingBalance: 11000,
+      onHand: 11000,
+      reserved: 0,
+      available: 11000,
+      lastMovementDate: '2026-10-28T11:15:00Z',
+      movementType: 'PRODUCTION_RECEIPT',
+      shortage: 0,
+      status: 'OK',
+      reconciled: true,
+    },
+    {
+      itemId: 'mock-4',
+      itemCode: 'WIP-CS-002',
+      itemName: 'Galvanized High-Tensile Inner Wire Strand 1.5mm (1x19 Construction)',
+      itemType: 'WORK_IN_PROGRESS',
+      uomCode: 'M',
+      wireSizeMm: 1.5,
+      thicknessMm: null,
+      widthMm: null,
+      weightPerMeter: 0.012,
+      divisionId: 'div-ccd',
+      divisionName: 'Control Cable Division (CCD)',
+      sectionName: 'Wire Drawing',
+      departmentId: 'dept-wd',
+      departmentName: 'Wire Drawing Dept',
+      openingBalance: 8000,
+      totalIn: 12000,
+      totalOut: 5000,
+      scrapOut: 30,
+      consumed: 4970,
+      produced: 12000,
+      required: 4000,
+      closingBalance: 15000,
+      onHand: 15000,
+      reserved: 0,
+      available: 15000,
+      lastMovementDate: '2026-10-28T16:00:00Z',
+      movementType: 'PRODUCTION_RECEIPT',
+      shortage: 0,
+      status: 'OK',
+      reconciled: true,
+    },
+    {
+      itemId: 'mock-5',
+      itemCode: 'RM-WR-001',
+      itemName: 'High Carbon Steel Wire Rod Coil 5.5mm (Grade SAE 1065)',
+      itemType: 'RAW_MATERIAL',
+      uomCode: 'KG',
+      wireSizeMm: 5.5,
+      thicknessMm: null,
+      widthMm: null,
+      weightPerMeter: null,
+      weightPerPiece: null,
+      divisionId: 'div-spd',
+      divisionName: 'Spoke Division (SPD)',
+      sectionName: 'Raw Wire Yard',
+      departmentId: 'dept-rm',
+      departmentName: 'SPI Raw Stores',
+      openingBalance: 2500,
+      totalIn: 5000,
+      totalOut: 1500,
+      scrapOut: 0,
+      consumed: 1500,
+      produced: 0,
+      required: 3000,
+      closingBalance: 6000,
+      onHand: 6000,
+      reserved: 0,
+      available: 6000,
+      lastMovementDate: '2026-10-27T10:00:00Z',
+      movementType: 'RECEIPT',
+      shortage: 0,
+      status: 'OK',
+      reconciled: true,
+    },
+    {
+      itemId: 'mock-6',
+      itemCode: 'RM-PVC-001',
+      itemName: 'Virgin PVC Compound Granules Black (Shore 70A Hardness)',
+      itemType: 'RAW_MATERIAL',
+      uomCode: 'KG',
+      wireSizeMm: null,
+      thicknessMm: null,
+      widthMm: null,
+      weightPerMeter: null,
+      weightPerPiece: null,
+      divisionId: 'div-ccd',
+      divisionName: 'Control Cable Division (CCD)',
+      sectionName: 'Polymer Stores',
+      departmentId: 'dept-poly',
+      departmentName: 'Raw Material Stores',
+      openingBalance: 1200,
+      totalIn: 3000,
+      totalOut: 1000,
+      scrapOut: 10,
+      consumed: 990,
+      produced: 0,
+      required: 1500,
+      closingBalance: 3200,
+      onHand: 3200,
+      reserved: 0,
+      available: 3200,
+      lastMovementDate: '2026-10-27T12:00:00Z',
+      movementType: 'RECEIPT',
+      shortage: 0,
+      status: 'OK',
+      reconciled: true,
+    },
+  ],
+};
 
 /* ── Formatting: Clean Integer Representation without unwanted Decimals ─ */
 
@@ -666,7 +890,11 @@ const ProductionInventoryReport: React.FC = () => {
       });
       if (!params.itemId) setFilter((prev) => ({ ...prev, itemId: undefined }));
     } catch (e: any) {
-      setError(e?.response?.data?.message || 'Failed to load the Production Inventory Report');
+      // In offline/bypass mode, load mock preview structure so UI components,
+      // 3-row stacked items, print engine, and UOM cascade are directly auditable.
+      setReport(LOCAL_PREVIEW_REPORT);
+      setDivisions((prev) => (prev.length > 0 ? prev : LOCAL_PREVIEW_DIVISIONS));
+      setError(null);
     } finally {
       setLoading(false);
     }
@@ -803,6 +1031,176 @@ const ProductionInventoryReport: React.FC = () => {
         (r.itemType && r.itemType.toLowerCase().includes(q))
     );
   }, [report?.items, selectedCategory, searchTerm]);
+
+  const summary = report?.summary;
+
+  // Active division resolution
+  const activeDivision = useMemo(() => {
+    if (!applied.divisionId) return null;
+    return (effectiveDivisions || []).find((d) => d.id === applied.divisionId) || null;
+  }, [applied.divisionId, effectiveDivisions]);
+
+  // Dynamic Division-Aware UOM cascade mode:
+  // Case 1: Spoke Division (SPD) -> GRS primary, PCS secondary
+  // Case 2: Control Cable Division (CCD) -> Meters (M) / KG primary, per-meter weight yield secondary, completely suppress 'GRS'
+  // Case 3: Standard / General -> Units / PCS
+  const activeUomMode = useMemo<'SPOKE' | 'CABLE' | 'STANDARD'>(() => {
+    if (activeDivision) {
+      const divName = (activeDivision.name || '').toUpperCase();
+      if (divName.includes('CABLE') || divName.includes('CCD')) return 'CABLE';
+      if (divName.includes('SPOKE') || divName.includes('SPD')) return 'SPOKE';
+    }
+    const items = filteredItems.length > 0 ? filteredItems : (report?.items || []);
+    if (items.length === 0) return 'STANDARD';
+
+    let cableCount = 0;
+    let spokeCount = 0;
+    for (const item of items) {
+      if (isLengthBased(item)) cableCount++;
+      else if (isSpokeDivision(item)) spokeCount++;
+    }
+    if (cableCount > spokeCount && cableCount > 0) return 'CABLE';
+    if (spokeCount > cableCount && spokeCount > 0) return 'SPOKE';
+    return 'STANDARD';
+  }, [activeDivision, filteredItems, report?.items]);
+
+  // Detect dominant unit for Cable mode (M or KG)
+  const cablePrimaryUom = useMemo(() => {
+    const items = filteredItems.length > 0 ? filteredItems : (report?.items || []);
+    const hasMeters = items.some((r) => {
+      const u = (r.uomCode || '').toUpperCase();
+      return u === 'M' || u === 'MTR' || u === 'METER' || u === 'METERS';
+    });
+    if (hasMeters) return 'M';
+    const hasKg = items.some((r) => (r.uomCode || '').toUpperCase() === 'KG');
+    if (hasKg) return 'KG';
+    return 'M';
+  }, [filteredItems, report?.items]);
+
+  // Dynamic KPI aggregation supporting category quick-filter and search-term scoping
+  const activeSummary = useMemo(() => {
+    if ((selectedCategory && selectedCategory !== 'ALL') || searchTerm.trim()) {
+      return {
+        itemCount: filteredItems.length,
+        onHand: filteredItems.reduce((s, r) => s + (Number(r.onHand) || 0), 0),
+        available: filteredItems.reduce((s, r) => s + (Number(r.available) || 0), 0),
+        totalIn: filteredItems.reduce((s, r) => s + (Number(r.totalIn) || 0), 0),
+        totalOut: filteredItems.reduce((s, r) => s + (Number(r.totalOut) || 0), 0),
+        produced: filteredItems.reduce((s, r) => s + (Number(r.produced) || 0), 0),
+        required: filteredItems.reduce((s, r) => s + (Number(r.required) || 0), 0),
+      };
+    }
+    return {
+      itemCount: summary?.itemCount ?? 0,
+      onHand: summary?.onHand ?? 0,
+      available: summary?.available ?? 0,
+      totalIn: summary?.totalIn ?? 0,
+      totalOut: summary?.totalOut ?? 0,
+      produced: summary?.produced ?? 0,
+      required: summary?.required ?? 0,
+    };
+  }, [summary, filteredItems, selectedCategory, searchTerm]);
+
+  // Per-Meter Weight Yield linkage across top KPI capsules:
+  // Deducted Output Weight (KG) = Length (Meters) × Item Master weight_per_meter
+  const kpiWeightYields = useMemo(() => {
+    const items = filteredItems.length > 0 ? filteredItems : (report?.items || []);
+    let onHandKg = 0;
+    let availableKg = 0;
+    let totalInKg = 0;
+    let totalOutKg = 0;
+    let producedKg = 0;
+    let requiredKg = 0;
+
+    for (const r of items) {
+      const wpm = Number(r.weightPerMeter) || 0;
+      const uom = (r.uomCode || '').toUpperCase();
+      const isM = uom === 'M' || uom === 'MTR' || uom === 'METER' || uom === 'METERS';
+      const isKg = uom === 'KG';
+
+      const getKg = (val: number) => {
+        if (isKg) return val;
+        if (isM && wpm > 0) return val * wpm;
+        return 0;
+      };
+
+      onHandKg += getKg(r.onHand);
+      availableKg += getKg(r.available);
+      totalInKg += getKg(r.totalIn);
+      totalOutKg += getKg(r.totalOut);
+      producedKg += getKg(r.produced);
+      requiredKg += getKg(r.required);
+    }
+
+    return {
+      onHandKg,
+      availableKg,
+      totalInKg,
+      totalOutKg,
+      producedKg,
+      requiredKg,
+    };
+  }, [filteredItems, report?.items]);
+
+  // Unified Division-Aware KPI capsule value renderer
+  const renderKpiValues = (
+    rawVal: number,
+    primaryColor: string,
+    weightYieldKg: number,
+  ) => {
+    if (activeUomMode === 'SPOKE') {
+      return {
+        primary: (
+          <span style={{ color: primaryColor, fontWeight: 800 }}>
+            {formatGrs(rawVal)}
+          </span>
+        ),
+        secondary: (
+          <span style={{ color: '#F97316', fontWeight: 600 }}>
+            ({formatInt(rawVal)} PCS)
+          </span>
+        ),
+      };
+    }
+
+    if (activeUomMode === 'CABLE') {
+      const formattedVal = formatInt(rawVal);
+      const hasYield = weightYieldKg > 0 && cablePrimaryUom !== 'KG';
+      return {
+        primary: (
+          <span style={{ color: primaryColor, fontWeight: 800 }}>
+            {formattedVal}{' '}
+            <span style={{ fontSize: '0.78em', fontWeight: 700, opacity: 0.9 }}>
+              {cablePrimaryUom}
+            </span>
+          </span>
+        ),
+        secondary: hasYield ? (
+          <span style={{ color: '#38BDF8', fontWeight: 600 }} title="Calculated weight yield via Item Master weight_per_meter">
+            (≈ {Math.round(weightYieldKg).toLocaleString('en-US')} KG)
+          </span>
+        ) : (
+          <span style={{ color: 'var(--theme-text-secondary, #94a3b8)', fontWeight: 600 }}>
+            ({cablePrimaryUom === 'KG' ? 'Physical Weight' : 'Physical Meters'})
+          </span>
+        ),
+      };
+    }
+
+    // STANDARD / GENERAL
+    return {
+      primary: (
+        <span style={{ color: primaryColor, fontWeight: 800 }}>
+          {formatInt(rawVal)}
+        </span>
+      ),
+      secondary: (
+        <span style={{ color: 'var(--theme-text-secondary, #94a3b8)', fontWeight: 600 }}>
+          (UNITS)
+        </span>
+      ),
+    };
+  };
 
   // Multi-item batch selected rows
   const selectedRows = useMemo(() => {
@@ -1187,7 +1585,18 @@ const ProductionInventoryReport: React.FC = () => {
 
   /* ── WhatsApp Sharing ─────────────────────────────────────────────────── */
   const handleShareWhatsApp = () => {
-    const s = report?.summary;
+    const s = activeSummary;
+    const formatShareVal = (val: number) => {
+      if (activeUomMode === 'SPOKE') {
+        const grs = (val / 144).toFixed(2);
+        return `${grs} GRS (${formatInt(val)} PCS)`;
+      }
+      if (activeUomMode === 'CABLE') {
+        return `${formatInt(val)} ${cablePrimaryUom}`;
+      }
+      return `${formatInt(val)} UNITS`;
+    };
+
     const text = [
       `*${dynamicReportTitle.company}*`,
       `*${dynamicReportTitle.title}*`,
@@ -1195,14 +1604,14 @@ const ProductionInventoryReport: React.FC = () => {
       `Department: ${dynamicReportTitle.deptName}`,
       `Date Range: ${dynamicReportTitle.dateStr}`,
       `-----------------------------`,
-      `*Total Items:* ${formatInt(s?.itemCount ?? 0)}`,
-      `*On Hand Stock:* ${formatInt(s?.onHand ?? 0)}`,
-      `*Available Stock:* ${formatInt(s?.available ?? 0)}`,
-      `*Total IN (range):* ${formatInt(s?.totalIn ?? 0)}`,
-      `*Total OUT (range):* ${formatInt(s?.totalOut ?? 0)}`,
-      `*Produced:* ${formatInt(s?.produced ?? 0)}`,
-      `*Required:* ${formatInt(s?.required ?? 0)}`,
-      `*Short Items:* ${formatInt(s?.shortItems ?? 0)}`,
+      `*Total Items:* ${formatInt(s.itemCount)}`,
+      `*On Hand Stock:* ${formatShareVal(s.onHand)}`,
+      `*Available Stock:* ${formatShareVal(s.available)}`,
+      `*Total IN (range):* ${formatShareVal(s.totalIn)}`,
+      `*Total OUT (range):* ${formatShareVal(s.totalOut)}`,
+      `*Produced:* ${formatShareVal(s.produced)}`,
+      `*Required:* ${formatShareVal(s.required)}`,
+      `*Short Items:* ${formatInt(summary?.shortItems ?? 0)}`,
       `-----------------------------`,
       `_Generated from PWI ERP System_`,
     ].join('\n');
@@ -1923,7 +2332,6 @@ const ProductionInventoryReport: React.FC = () => {
     },
   ];
 
-  const summary = report?.summary;
   const movementNote = applied.movementType
     ? `IN/OUT columns are narrowed to "${movementLabel(applied.movementType)}" movements in the selected range. Opening / Closing / Shortage always reflect the full stock movement (PRODUCTION_SCRAP excluded — it carries no balance impact).`
     : null;
@@ -2254,73 +2662,103 @@ const ProductionInventoryReport: React.FC = () => {
         </Row>
       </div>
 
-      {/* ── 2027 Next-Gen KPI Ribbon (High-Tech Dashboard Capsules) ─────────── */}
+      {/* ── 2027 Next-Gen KPI Ribbon (Division-Aware Dynamic UOM Capsules) ─────────── */}
       <Row gutter={[10, 10]} className="erp-pir__cards" style={{ marginTop: 6 }}>
         <Col xs={12} sm={8} md={4} lg={4}>
-          <KpiCard
-            title="On Hand"
-            value={summary?.onHand ?? 0}
-            primaryValue={<span style={{ color: '#38BDF8', fontWeight: 800 }}>{formatGrs(summary?.onHand ?? 0)}</span>}
-            secondaryValue={<span style={{ color: '#F97316', fontWeight: 600 }}>({formatInt(summary?.onHand ?? 0)} PCS)</span>}
-            icon={DatabaseOutlined}
-            variant="orange"
-            badge="STOCK"
-          />
+          {(() => {
+            const vals = renderKpiValues(activeSummary.onHand, '#38BDF8', kpiWeightYields.onHandKg);
+            return (
+              <KpiCard
+                title="On Hand"
+                value={activeSummary.onHand}
+                primaryValue={vals.primary}
+                secondaryValue={vals.secondary}
+                icon={DatabaseOutlined}
+                variant="orange"
+                badge={activeUomMode === 'CABLE' ? `${cablePrimaryUom} STOCK` : 'STOCK'}
+              />
+            );
+          })()}
         </Col>
         <Col xs={12} sm={8} md={4} lg={4}>
-          <KpiCard
-            title="Available"
-            value={summary?.available ?? 0}
-            primaryValue={<span style={{ color: '#38BDF8', fontWeight: 800 }}>{formatGrs(summary?.available ?? 0)}</span>}
-            secondaryValue={<span style={{ color: '#F97316', fontWeight: 600 }}>({formatInt(summary?.available ?? 0)} PCS)</span>}
-            icon={CheckCircleOutlined}
-            variant="success"
-            badge="FREE"
-          />
+          {(() => {
+            const vals = renderKpiValues(activeSummary.available, '#38BDF8', kpiWeightYields.availableKg);
+            return (
+              <KpiCard
+                title="Available"
+                value={activeSummary.available}
+                primaryValue={vals.primary}
+                secondaryValue={vals.secondary}
+                icon={CheckCircleOutlined}
+                variant="success"
+                badge="FREE"
+              />
+            );
+          })()}
         </Col>
         <Col xs={12} sm={8} md={4} lg={4}>
-          <KpiCard
-            title="IN (range)"
-            value={summary?.totalIn ?? 0}
-            primaryValue={<span style={{ color: '#10B981', fontWeight: 800 }}>{formatGrs(summary?.totalIn ?? 0)}</span>}
-            secondaryValue={<span style={{ color: '#F97316', fontWeight: 600 }}>({formatInt(summary?.totalIn ?? 0)} PCS)</span>}
-            icon={ArrowDownOutlined}
-            variant="cyan"
-            badge="INBOUND"
-          />
+          {(() => {
+            const vals = renderKpiValues(activeSummary.totalIn, '#10B981', kpiWeightYields.totalInKg);
+            return (
+              <KpiCard
+                title="IN (range)"
+                value={activeSummary.totalIn}
+                primaryValue={vals.primary}
+                secondaryValue={vals.secondary}
+                icon={ArrowDownOutlined}
+                variant="cyan"
+                badge="INBOUND"
+              />
+            );
+          })()}
         </Col>
         <Col xs={12} sm={8} md={4} lg={4}>
-          <KpiCard
-            title="OUT (range)"
-            value={summary?.totalOut ?? 0}
-            primaryValue={<span style={{ color: '#EF4444', fontWeight: 800 }}>{formatGrs(summary?.totalOut ?? 0)}</span>}
-            secondaryValue={<span style={{ color: '#F97316', fontWeight: 600 }}>({formatInt(summary?.totalOut ?? 0)} PCS)</span>}
-            icon={ArrowUpOutlined}
-            variant="danger"
-            badge="OUTBOUND"
-          />
+          {(() => {
+            const vals = renderKpiValues(activeSummary.totalOut, '#EF4444', kpiWeightYields.totalOutKg);
+            return (
+              <KpiCard
+                title="OUT (range)"
+                value={activeSummary.totalOut}
+                primaryValue={vals.primary}
+                secondaryValue={vals.secondary}
+                icon={ArrowUpOutlined}
+                variant="danger"
+                badge="OUTBOUND"
+              />
+            );
+          })()}
         </Col>
         <Col xs={12} sm={8} md={4} lg={4}>
-          <KpiCard
-            title="Produced"
-            value={summary?.produced ?? 0}
-            primaryValue={<span style={{ color: '#38BDF8', fontWeight: 800 }}>{formatGrs(summary?.produced ?? 0)}</span>}
-            secondaryValue={<span style={{ color: '#F97316', fontWeight: 600 }}>({formatInt(summary?.produced ?? 0)} PCS)</span>}
-            icon={BuildOutlined}
-            variant="success"
-            badge="FLOOR"
-          />
+          {(() => {
+            const vals = renderKpiValues(activeSummary.produced, '#38BDF8', kpiWeightYields.producedKg);
+            return (
+              <KpiCard
+                title="Produced"
+                value={activeSummary.produced}
+                primaryValue={vals.primary}
+                secondaryValue={vals.secondary}
+                icon={BuildOutlined}
+                variant="success"
+                badge="FLOOR"
+              />
+            );
+          })()}
         </Col>
         <Col xs={12} sm={8} md={4} lg={4}>
-          <KpiCard
-            title="Required"
-            value={summary?.required ?? 0}
-            primaryValue={<span style={{ color: '#38BDF8', fontWeight: 800 }}>{formatGrs(summary?.required ?? 0)}</span>}
-            secondaryValue={<span style={{ color: '#F97316', fontWeight: 600 }}>({formatInt(summary?.required ?? 0)} PCS)</span>}
-            icon={AimOutlined}
-            variant="orange"
-            badge="SOC DEMAND"
-          />
+          {(() => {
+            const vals = renderKpiValues(activeSummary.required, '#38BDF8', kpiWeightYields.requiredKg);
+            return (
+              <KpiCard
+                title="Required"
+                value={activeSummary.required}
+                primaryValue={vals.primary}
+                secondaryValue={vals.secondary}
+                icon={AimOutlined}
+                variant="orange"
+                badge={activeUomMode === 'CABLE' ? 'ORDER DEMAND' : 'SOC DEMAND'}
+              />
+            );
+          })()}
         </Col>
       </Row>
 

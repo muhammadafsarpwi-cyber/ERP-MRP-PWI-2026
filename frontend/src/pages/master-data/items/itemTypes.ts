@@ -145,6 +145,9 @@ export interface Item {
   updatedByName?: string | null;
   barcodes?: Array<{ id: string; barcodeType?: string; barcode?: string; status?: string }>;
   // TASK #33: Production Flow Mapping
+  sourceItemId?: string | null;
+  sourceItem?: { id: string; itemCode: string; name: string; wireSizeMm?: number | null; diameterMm?: number | null; lengthPerPiece?: number | null; departmentId?: string | null; itemType?: string; baseUomName?: string | null } | null;
+  operationalSequenceMask?: string[] | null;
   productionInItemId?: string | null;
   productionInItemId2?: string | null;
   productionInItemId3?: string | null;

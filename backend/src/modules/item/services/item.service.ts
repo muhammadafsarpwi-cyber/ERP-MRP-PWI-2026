@@ -106,10 +106,61 @@ export class ItemService implements OnModuleInit {
   ) {}
 
   async onModuleInit() {
-    // Egress & Performance Protection: Bulk row-by-row routing scan on bootstrap
-    // has been permanently removed to eliminate remote database read spikes.
-    // Routing provisioning is strictly event-driven: triggered only when an operator
-    // saves changes to an individual item in Item Master.
+    try {
+      await this.dataSource.query(`
+        ALTER TABLE items ADD COLUMN IF NOT EXISTS source_item_id UUID;
+        ALTER TABLE items ADD COLUMN IF NOT EXISTS operational_sequence_mask JSONB DEFAULT '[]'::jsonb;
+        UPDATE items SET source_item_id = production_in_item_id WHERE source_item_id IS NULL AND production_in_item_id IS NOT NULL;
+      `);
+    } catch (err: any) {
+      this.logger.warn(`Notice during items schema ensure: ${err?.message}`);
+    }
+  }
+
+  /**
+   * Upserts or updates the active Bill of Materials (BOM) recipe and component lines
+   * for a product directly from the Item Master Wizard (Tier 1 Finished Goods profile).
+   */
+  async upsertBomRecipe(productId: string, companyId: string, bomLines?: any[], userId?: string): Promise<void> {
+    if (!Array.isArray(bomLines) || bomLines.length === 0) return;
+    try {
+      const existingBoms = await this.dataSource.query(
+        `SELECT id FROM bill_of_materials WHERE product_id = $1 AND company_id = $2 AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 1`,
+        [productId, companyId]
+      );
+      let bomId = existingBoms?.[0]?.id;
+      if (!bomId) {
+        const itemRows = await this.dataSource.query(`SELECT item_code, name FROM items WHERE id = $1`, [productId]);
+        const itemCode = itemRows?.[0]?.item_code || 'ITEM';
+        const bomCode = `BOM-${itemCode}`;
+        const newBom = await this.dataSource.query(
+          `INSERT INTO bill_of_materials (id, company_id, bom_code, name, status, base_quantity, product_id, is_active, created_by)
+           VALUES (gen_random_uuid(), $1, $2, $3, 'ACTIVE', 1, $4, true, $5)
+           RETURNING id`,
+          [companyId, bomCode, `${itemCode} BOM Recipe`, productId, userId || null]
+        );
+        bomId = newBom?.[0]?.id;
+      }
+      if (bomId) {
+        await this.dataSource.query(`DELETE FROM bom_lines WHERE bom_id = $1`, [bomId]);
+        for (let idx = 0; idx < bomLines.length; idx++) {
+          const l = bomLines[idx];
+          if (!l.itemId || !l.quantity) continue;
+          let uomId = l.uomId;
+          if (!uomId) {
+            const uomRows = await this.dataSource.query(`SELECT base_uom_id FROM items WHERE id = $1`, [l.itemId]);
+            uomId = uomRows?.[0]?.base_uom_id;
+          }
+          await this.dataSource.query(
+            `INSERT INTO bom_lines (id, bom_id, line_number, item_id, quantity, uom_id, remarks, is_active)
+             VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, true)`,
+            [bomId, idx + 1, l.itemId, Number(l.quantity), uomId, l.remarks || null]
+          );
+        }
+      }
+    } catch (err: any) {
+      this.logger.warn(`Could not sync BOM recipe for item ${productId}: ${err?.message}`);
+    }
   }
 
   /**
@@ -552,13 +603,23 @@ export class ItemService implements OnModuleInit {
       });
     }
 
-    this.cleanProcessAliases(cleanDto);
+    const sourceItemId = isRawMaterial
+      ? null
+      : (dto.sourceItemId || (dto as any).source_item_id || effectiveInItemId || null);
+    const operationalSequenceMask = Array.isArray(dto.operationalSequenceMask)
+      ? dto.operationalSequenceMask
+      : Array.isArray((dto as any).operational_sequence_mask)
+      ? (dto as any).operational_sequence_mask
+      : [];
 
     const item = this.itemRepository.create({
       ...cleanDto,
       id: newItemId,
       sku,
       barcode,
+      sourceItemId,
+      operationalSequenceMask,
+      productionInItemId: sourceItemId || effectiveInItemId || null,
       productionOutItemId: syncedOut,
       routeTypeId: rt.routeTypeId,
       routeType: rt.routeTypeCode,
@@ -569,6 +630,11 @@ export class ItemService implements OnModuleInit {
     });
     const saved = await this.itemRepository.save(item);
     this.ensureProcessesArray(saved);
+
+    // Save embedded BOM recipe if provided (Tier 1 Finished Goods Profile)
+    if (Array.isArray(dto.bomLines) && dto.bomLines.length > 0) {
+      await this.upsertBomRecipe(saved.id, saved.companyId, dto.bomLines, userId);
+    }
 
     // Auto-create centralized barcode registry entry
     try {
@@ -698,7 +764,9 @@ export class ItemService implements OnModuleInit {
           i.production_in_item_id AS "productionInItemId",
           i.production_in_item_id_2 AS "productionInItemId2",
           i.production_in_item_id_3 AS "productionInItemId3",
-          i.production_out_item_id AS "productionOutItemId"
+          i.production_out_item_id AS "productionOutItemId",
+          i.source_item_id AS "sourceItemId",
+          i.operational_sequence_mask AS "operationalSequenceMask"
         FROM items i
         LEFT JOIN uoms u ON u.id = i.base_uom_id
         LEFT JOIN uoms su ON su.id = i.sales_uom_id
@@ -1143,6 +1211,24 @@ export class ItemService implements OnModuleInit {
       scalarUpdate.productionInItemId3 = null;
     }
 
+    // Sync sourceItemId and operationalSequenceMask
+    const isUpdatingRaw = isRawMaterial;
+    if (dto.sourceItemId !== undefined || (dto as any).source_item_id !== undefined) {
+      const resolvedSourceId = isUpdatingRaw ? null : (dto.sourceItemId || (dto as any).source_item_id || null);
+      scalarUpdate.sourceItemId = resolvedSourceId;
+      scalarUpdate.productionInItemId = resolvedSourceId;
+    } else if (dto.productionInItemId !== undefined) {
+      scalarUpdate.sourceItemId = isUpdatingRaw ? null : (dto.productionInItemId || null);
+    }
+
+    if (dto.operationalSequenceMask !== undefined || (dto as any).operational_sequence_mask !== undefined) {
+      scalarUpdate.operationalSequenceMask = Array.isArray(dto.operationalSequenceMask)
+        ? dto.operationalSequenceMask
+        : Array.isArray((dto as any).operational_sequence_mask)
+        ? (dto as any).operational_sequence_mask
+        : [];
+    }
+
     // TASK 15: validate the configured Production Route rows (DEPARTMENT + ITEM
     // per stage) before persist. Each stage is independently configurable; no row
     // is forced to the current Item.
@@ -1155,6 +1241,11 @@ export class ItemService implements OnModuleInit {
         },
       );
       scalarUpdate.processes = validatedRoutes.length ? validatedRoutes : null;
+    }
+
+    // Upsert embedded BOM recipe lines if provided (Tier 1 Finished Goods Profile)
+    if (dto.bomLines !== undefined) {
+      await this.upsertBomRecipe(id, item.companyId, dto.bomLines, userId);
     }
 
     await this.itemRepository.update(id, scalarUpdate);

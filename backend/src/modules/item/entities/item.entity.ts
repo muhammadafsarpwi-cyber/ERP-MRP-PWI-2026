@@ -277,7 +277,23 @@ export class Item extends BaseEntity {
   lengthPerPiece: number | null;
 
   // ── TASK #33: Production Flow Mapping ──────────────────────────────────────
-  /** The raw-material / intermediate item consumed when producing this item. */
+  // ── Unified Routing & Source Material (Multi-Level BOM Cascade) ───────────
+  /** Immediate upstream raw material / source item consumed when producing this item (Tier 2 WIP link). */
+  @Column({ name: 'source_item_id', type: 'uuid', nullable: true })
+  sourceItemId?: string | null;
+
+  @ManyToOne(() => Item, { nullable: true })
+  @JoinColumn({ name: 'source_item_id' })
+  sourceItem?: Item;
+
+  /**
+   * Operational sequence station flags (e.g. ['RM_STORES', 'WIRE_STRAIGHTENING', 'SPOKE_HEADING', 'PLATING_PLANT']).
+   * Enables plant manager to toggle active processing stations and bypass triggers (e.g. Swaging bypass).
+   */
+  @Column({ name: 'operational_sequence_mask', type: 'jsonb', nullable: true, default: () => "'[]'::jsonb" })
+  operationalSequenceMask?: string[] | null;
+
+  /** The raw-material / intermediate item consumed when producing this item. (mirrored with source_item_id) */
   @Column({ name: 'production_in_item_id', type: 'uuid', nullable: true })
   productionInItemId: string | null;
 

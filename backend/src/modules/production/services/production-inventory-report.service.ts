@@ -86,6 +86,8 @@ export interface ProductionInventoryReportRow {
   wireSizeMm: number | null;
   thicknessMm: number | null;
   widthMm: number | null;
+  weightPerMeter?: number | null;
+  weightPerPiece?: number | null;
   divisionId: string | null;
   divisionName: string | null;
   sectionName: string | null;
@@ -415,7 +417,7 @@ export class ProductionInventoryReportService {
       }
       const raw = await this.itemRepo
         .createQueryBuilder('m')
-        .select(['m.id', 'm.itemCode', 'm.name', 'm.itemType', 'm.productionInItemId', 'm.productionInItemId2', 'm.productionInItemId3', 'm.processes'])
+        .select(['m.id', 'm.itemCode', 'm.name', 'm.itemType', 'm.productionInItemId', 'm.productionInItemId2', 'm.productionInItemId3', 'm.sourceItemId', 'm.operationalSequenceMask', 'm.processes'])
         .where('m.companyId = :companyId', { companyId })
         .getMany();
       this.masterItemsCache = { companyId, timestamp: Date.now(), items: raw };
@@ -424,7 +426,8 @@ export class ProductionInventoryReportService {
 
     // Sales Order Dynamic Bundle/BOM Demand (Customer commitments / SOC):
     // Parses parent sales orders through active BOM maps with strict 0.5 / 1.0 component factor scaling.
-    // Eliminates Cartesian join multiplication and extracts authentic contract demand and logistics dispatches.
+    // Automatically performs reverse-lookup across all parent FG kits sharing identical WIP components
+    // (e.g. WIP-SPL-001 / WIP-SPL-002) and cascades demand upstream to wire straightening benches.
     const salesOrderDemandPromise = (async () => {
       try {
         const bundleDemand = await this.entryRepo.manager.query(
@@ -443,26 +446,77 @@ export class ProductionInventoryReportService {
           )
           SELECT 
             bf.item_id as "itemId",
-            COALESCE(SUM((soi.quantity - COALESCE(soi.shipped_quantity, 0)) * bf.component_factor * 144), 0) as "bundleRequired",
-            COALESCE(SUM(COALESCE(soi.shipped_quantity, 0) * bf.component_factor * 144), 0) as "bundleDispatched"
+            COALESCE(SUM(
+              (soi.quantity - COALESCE(soi.shipped_quantity, 0)) * bf.component_factor *
+              CASE 
+                -- Per-Meter Weight Yield Sales Linkage:
+                -- When parent product is length-based or sold in meters, and component is in KG, multiply by weight_per_meter
+                WHEN (UPPER(COALESCE(comp_uom.code, '')) = 'KG' OR UPPER(COALESCE(parent_div.name, '')) LIKE '%CABLE%')
+                     AND COALESCE(comp.weight_per_meter, parent.weight_per_meter, 0) > 0
+                  THEN COALESCE(comp.weight_per_meter, parent.weight_per_meter)
+                -- Spoke Division: Sales registered in Gross (GRS) -> 144 PCS per Gross
+                WHEN UPPER(COALESCE(parent_div.name, '')) LIKE '%SPOKE%' 
+                     OR UPPER(COALESCE(soi_uom.code, parent_uom.code, '')) IN ('GRS', 'GROSS')
+                  THEN 144
+                -- Standard linear / unit demand
+                ELSE 1
+              END
+            ), 0) as "bundleRequired",
+            COALESCE(SUM(
+              COALESCE(soi.shipped_quantity, 0) * bf.component_factor *
+              CASE 
+                WHEN (UPPER(COALESCE(comp_uom.code, '')) = 'KG' OR UPPER(COALESCE(parent_div.name, '')) LIKE '%CABLE%')
+                     AND COALESCE(comp.weight_per_meter, parent.weight_per_meter, 0) > 0
+                  THEN COALESCE(comp.weight_per_meter, parent.weight_per_meter)
+                WHEN UPPER(COALESCE(parent_div.name, '')) LIKE '%SPOKE%' 
+                     OR UPPER(COALESCE(soi_uom.code, parent_uom.code, '')) IN ('GRS', 'GROSS')
+                  THEN 144
+                ELSE 1
+              END
+            ), 0) as "bundleDispatched"
           FROM erp_sales.sales_orders so
           JOIN erp_sales.sales_order_items soi ON soi.sales_order_id = so.id
           JOIN bom_factors bf ON bf.product_id = soi.item_id
+          JOIN items comp ON comp.id = bf.item_id
+          LEFT JOIN uoms comp_uom ON comp_uom.id = comp.uom_id
+          JOIN items parent ON parent.id = soi.item_id
+          LEFT JOIN uoms parent_uom ON parent_uom.id = parent.uom_id
+          LEFT JOIN uoms soi_uom ON soi_uom.id = soi.uom_id
+          LEFT JOIN divisions parent_div ON parent_div.id = parent.division_id
           WHERE so.company_id = $1
             AND so.status NOT IN ('Cancelled', 'Completed', 'Closed')
             AND (soi.quantity - COALESCE(soi.shipped_quantity, 0)) > 0
-            AND bf.item_id = ANY($2)
           GROUP BY bf.item_id`,
-          [companyId, itemIds],
+          [companyId],
         );
 
         const directDemand = await this.entryRepo.manager.query(
           `SELECT 
             soi.item_id as "itemId",
-            COALESCE(SUM((soi.quantity - COALESCE(soi.shipped_quantity, 0)) * 144), 0) as "directRequired",
-            COALESCE(SUM(COALESCE(soi.shipped_quantity, 0) * 144), 0) as "directDispatched"
+            COALESCE(SUM(
+              (soi.quantity - COALESCE(soi.shipped_quantity, 0)) *
+              CASE 
+                WHEN UPPER(COALESCE(soi_uom.code, item_uom.code, '')) IN ('GRS', 'GROSS') 
+                     OR UPPER(COALESCE(item_div.name, '')) LIKE '%SPOKE%' 
+                  THEN 144
+                ELSE 1
+              END
+            ), 0) as "directRequired",
+            COALESCE(SUM(
+              COALESCE(soi.shipped_quantity, 0) *
+              CASE 
+                WHEN UPPER(COALESCE(soi_uom.code, item_uom.code, '')) IN ('GRS', 'GROSS') 
+                     OR UPPER(COALESCE(item_div.name, '')) LIKE '%SPOKE%' 
+                  THEN 144
+                ELSE 1
+              END
+            ), 0) as "directDispatched"
           FROM erp_sales.sales_orders so
           JOIN erp_sales.sales_order_items soi ON soi.sales_order_id = so.id
+          JOIN items i ON i.id = soi.item_id
+          LEFT JOIN uoms item_uom ON item_uom.id = i.uom_id
+          LEFT JOIN uoms soi_uom ON soi_uom.id = soi.uom_id
+          LEFT JOIN divisions item_div ON item_div.id = i.division_id
           WHERE so.company_id = $1
             AND so.status NOT IN ('Cancelled', 'Completed', 'Closed')
             AND (soi.quantity - COALESCE(soi.shipped_quantity, 0)) > 0
@@ -603,6 +657,25 @@ export class ProductionInventoryReportService {
         inScope: scopeItemIds.has(c.id),
       }));
 
+      // Reverse-Lookup Backlog Aggregation (Multi-Level BOM Cascade):
+      // 1. Direct demand for this component across all uncompleted parent FG sales orders.
+      // 2. Upstream cascade demand: If this item feeds downstream WIP components (via source_item_id or productionInItemId),
+      //    aggregate the demand of all shared child components (e.g. Wire Straightening bench from WIP-SPL-001 + WIP-SPL-002).
+      const directSocDemand = N(soDemandMap?.get(item.id));
+      let upstreamCascadeDemand = 0;
+      let upstreamCascadeDispatched = 0;
+      const downstreamWipChildren = (masterItems as any[]).filter(
+        (m) => (m.sourceItemId === item.id || m.productionInItemId === item.id) && m.id !== item.id,
+      );
+      if (downstreamWipChildren.length > 0) {
+        for (const child of downstreamWipChildren) {
+          upstreamCascadeDemand += N(soDemandMap?.get(child.id));
+          upstreamCascadeDispatched += N(soDispMap?.get(child.id));
+        }
+      }
+      const effectiveSocDemand = Math.max(directSocDemand, upstreamCascadeDemand);
+      const effectiveSocDispatched = Math.max(N(soDispMap?.get(item.id)), upstreamCascadeDispatched);
+
       return {
         itemId: item.id,
         itemCode: item.itemCode,
@@ -612,6 +685,8 @@ export class ProductionInventoryReportService {
         wireSizeMm: item.wireSizeMm != null ? Number(item.wireSizeMm) : null,
         thicknessMm: item.thicknessMm != null ? Number(item.thicknessMm) : null,
         widthMm: item.widthMm != null ? Number(item.widthMm) : null,
+        weightPerMeter: item.weightPerMeter != null ? Number(item.weightPerMeter) : null,
+        weightPerPiece: item.weightPerPiece != null ? Number(item.weightPerPiece) : null,
         divisionId: item.divisionId ?? null,
         divisionName: item.division?.name ?? null,
         sectionName: item.section?.name ?? null,
@@ -623,10 +698,8 @@ export class ProductionInventoryReportService {
         scrapOut: R4(N(l?.scrapOut)),
         consumed: R4(N(l?.consumed)),
         produced: R4(N(p?.produced)),
-        // Option A planning demand: Open production orders requirement combined with
-        // Customer Sales Order Contract (SOC) BOM bundle expansion demand.
-        required: R4(Math.max(N(r?.required), N(soDemandMap?.get(item.id)))),
-        dispatched: R4(N(soDispMap?.get(item.id))),
+        required: R4(Math.max(N(r?.required), effectiveSocDemand)),
+        dispatched: R4(effectiveSocDispatched),
         closingBalance,
         onHand,
         reserved,

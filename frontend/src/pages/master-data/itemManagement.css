@@ -815,5 +815,56 @@
   opacity: 0;
 }
 
+/* =====================================================================
+   Item Master Form Wizard Tabs & Multi-Level BOM Cascade Matrix
+   ===================================================================== */
+.erp-item-wizard-tabs .ant-tabs-nav {
+  margin-bottom: 16px !important;
+}
+
+.erp-item-wizard-tabs .ant-tabs-tab {
+  border-radius: 8px 8px 0 0 !important;
+  font-weight: 600 !important;
+  padding: 8px 16px !important;
+  transition: all 0.2s ease !important;
+}
+
+.erp-item-wizard-tabs .ant-tabs-tab-active {
+  border-bottom-color: transparent !important;
+}
+
+.routing-sequence-card {
+  border-radius: 10px;
+  border: 1px solid var(--theme-border, #e2e8f0);
+  background: var(--theme-surface-alt, rgba(248, 250, 252, 0.5));
+  padding: 14px;
+  margin-bottom: 16px;
+}
+
+.routing-step-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--theme-border, #cbd5e1);
+  font-size: 12px;
+  font-weight: 600;
+  transition: all 0.2s;
+}
+
+.routing-step-badge.active {
+  border-color: var(--theme-primary, #0284c7);
+  background: rgba(2, 132, 199, 0.1);
+  color: var(--theme-primary, #0284c7);
+}
+
+.routing-step-badge.bypassed {
+  opacity: 0.55;
+  text-decoration: line-through;
+  background: transparent;
+}
+
+
 
 

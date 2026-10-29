@@ -488,6 +488,37 @@ export class CreateItemDto {
   @IsOptional()
   length_per_piece?: number;
 
+  // ── Unified Routing & Source Material (Multi-Level BOM Cascade) ───────────
+  @ApiPropertyOptional({ description: 'Immediate upstream raw material code (Tier 2 WIP link)' })
+  @IsUUID('loose')
+  @IsOptional()
+  sourceItemId?: string;
+
+  @ApiPropertyOptional({ description: 'Immediate upstream raw material code alias' })
+  @IsUUID('loose')
+  @IsOptional()
+  source_item_id?: string;
+
+  @ApiPropertyOptional({ description: 'Operational sequence mask station flags' })
+  @IsArray()
+  @IsOptional()
+  operationalSequenceMask?: string[];
+
+  @ApiPropertyOptional({ description: 'Operational sequence mask station flags alias' })
+  @IsArray()
+  @IsOptional()
+  operational_sequence_mask?: string[];
+
+  @ApiPropertyOptional({ description: 'Embedded Bill of Materials (BOM) recipe component lines' })
+  @IsArray()
+  @IsOptional()
+  bomLines?: Array<{
+    itemId: string;
+    quantity: number;
+    uomId?: string;
+    remarks?: string;
+  }>;
+
   // ── TASK #33: Production Flow Mapping ──────────────────────────────────────
   @ApiPropertyOptional({ description: 'Production IN Item ID — the primary raw material/component consumed to produce this item' })
   @IsUUID('loose')
@@ -976,6 +1007,37 @@ export class UpdateItemDto {
   @Min(0)
   @IsOptional()
   length_per_piece?: number;
+
+  // ── Unified Routing & Source Material (Multi-Level BOM Cascade) ───────────
+  @ApiPropertyOptional({ description: 'Immediate upstream raw material code (Tier 2 WIP link)' })
+  @IsUUID('loose')
+  @IsOptional()
+  sourceItemId?: string;
+
+  @ApiPropertyOptional({ description: 'Immediate upstream raw material code alias' })
+  @IsUUID('loose')
+  @IsOptional()
+  source_item_id?: string;
+
+  @ApiPropertyOptional({ description: 'Operational sequence mask station flags' })
+  @IsArray()
+  @IsOptional()
+  operationalSequenceMask?: string[];
+
+  @ApiPropertyOptional({ description: 'Operational sequence mask station flags alias' })
+  @IsArray()
+  @IsOptional()
+  operational_sequence_mask?: string[];
+
+  @ApiPropertyOptional({ description: 'Embedded Bill of Materials (BOM) recipe component lines' })
+  @IsArray()
+  @IsOptional()
+  bomLines?: Array<{
+    itemId: string;
+    quantity: number;
+    uomId?: string;
+    remarks?: string;
+  }>;
 
   // ── TASK #33: Production Flow Mapping ──────────────────────────────────────
   @ApiPropertyOptional({ description: 'Production IN Item ID — the primary raw material/component consumed to produce this item' })

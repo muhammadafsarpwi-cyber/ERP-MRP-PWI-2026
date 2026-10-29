@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useLocation } from 'react-router-dom';
 import {
   Alert, App, Badge, Button, Card, Checkbox, Col, Descriptions, Dropdown, Form, Grid, Input,
-  InputNumber, Modal, Popconfirm, Progress, Row, Segmented, Select, Space, Switch, Table, Tabs, Tag, Tooltip, Typography, Upload,
+  InputNumber, Modal, Popconfirm, Progress, Row, Segmented, Select, Space, Switch, Table, Tabs, Tag, Tooltip, Typography, Upload, theme,
 } from 'antd';
 import type { MenuProps } from 'antd';
 import {
@@ -13,7 +13,7 @@ import {
   BankOutlined, BuildOutlined, CheckCircleOutlined, CustomerServiceOutlined, FolderOutlined, SettingOutlined, ToolOutlined,
   MinusOutlined, WarningOutlined, TagOutlined, TagsOutlined, SyncOutlined, UploadOutlined, FileTextOutlined,
   BulbOutlined, ThunderboltOutlined, CheckOutlined, CloseOutlined, ClockCircleOutlined,
-  CopyOutlined,
+  CopyOutlined, BranchesOutlined, ExperimentOutlined, PartitionOutlined, NodeIndexOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType, TablePaginationConfig } from 'antd/es/table';
 import { jsPDF } from 'jspdf';
@@ -857,11 +857,14 @@ const ItemManagement: React.FC = () => {
   }, [masterItemTypes]);
   const typeName = useCallback((code?: string | null) => (code ? typeLabelMap.get(code) ?? code : '—'), [typeLabelMap]);
 
+  const { token } = theme.useToken();
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Item | null>(null);
   const [isCloning, setIsCloning] = useState(false);
   const [saving, setSaving] = useState(false);
   const [autoFillMaterialRole, setAutoFillMaterialRole] = useState(true);
+  const [formWizardTab, setFormWizardTab] = useState<'profile' | 'routing' | 'bom'>('profile');
+  const [currentBomId, setCurrentBomId] = useState<string | null>(null);
 
   // SaveResultDialog states matching Machine Master
   const [resultOpen, setResultOpen] = useState(false);
@@ -1679,7 +1682,10 @@ const ItemManagement: React.FC = () => {
     setIsCloning(false);
     setSelectedInputDetail(null);
     setSelectedInputDetail2(null);
+    setSelectedInputDetail3(null);
     setRouteItemDetails({});
+    setFormWizardTab('profile');
+    setCurrentBomId(null);
     form.resetFields();
     form.setFieldsValue({
       itemType: 'FINISHED_GOOD',
@@ -1691,12 +1697,10 @@ const ItemManagement: React.FC = () => {
       isSellable: true,
       isManufacturable: false,
       isStockItem: true,
-      // TASK 15: no forced Raw Material row — the first stage the user adds IS
-      // the starting stage (e.g. Store + RM item). Empty route falls back to the
-      // TASK 14 legacy preview until stages are configured.
       processes: [],
-      // TASK #34C: stock-level / lead-time numeric inputs start BLANK (no '0').
-      // The database defaults to 0 when left unset on create.
+      sourceItemId: undefined,
+      operationalSequenceMask: ['RM_STORES', 'WIRE_STRAIGHTENING', 'SPOKE_HEADING', 'PLATING_PLANT'],
+      bomLines: [],
     });
     setAutoFillMaterialRole(true);
     setFormOpen(true);
@@ -1768,6 +1772,28 @@ const ItemManagement: React.FC = () => {
         }))
       : [];
 
+    const initialSourceItemId = (record as any).sourceItemId ?? record.productionInItemId ?? undefined;
+    const initialOperationalMask = Array.isArray((record as any).operationalSequenceMask)
+      ? (record as any).operationalSequenceMask
+      : ['RM_STORES', 'WIRE_STRAIGHTENING', 'SPOKE_HEADING', 'PLATING_PLANT'];
+    setFormWizardTab('profile');
+    setCurrentBomId(null);
+
+    // Fetch existing BOM recipe for the item
+    apiService.get<{ data: any }>(`/bom/product/${record.id}`).then((res) => {
+      if (res?.data) {
+        setCurrentBomId(res.data.id);
+        if (Array.isArray(res.data.lines) && res.data.lines.length > 0) {
+          form.setFieldValue('bomLines', res.data.lines.map((l: any) => ({
+            itemId: l.itemId,
+            quantity: Number(l.quantity),
+            uomId: l.uomId,
+            remarks: l.remarks,
+          })));
+        }
+      }
+    }).catch(() => {});
+
     form.setFieldsValue({
       itemCode: record.itemCode,
       sku: record.sku ?? undefined,
@@ -1827,6 +1853,9 @@ const ItemManagement: React.FC = () => {
       productionInItemId: record.productionInItemId ?? undefined,
       productionInItemId2: record.productionInItemId2 ?? undefined,
       productionInItemId3: record.productionInItemId3 ?? undefined,
+      sourceItemId: initialSourceItemId,
+      operationalSequenceMask: initialOperationalMask,
+      bomLines: [],
       materialRoleUsage: record.materialRoleUsage ?? (((record.itemType === 'RAW_MATERIAL' || (record.itemType || '').toUpperCase().includes('RAW'))) ? 'Process Component Materials' : undefined),
     });
     const isRaw = record.itemType === 'RAW_MATERIAL' || String(record.itemType || '').toUpperCase().includes('RAW');
@@ -1890,6 +1919,24 @@ const ItemManagement: React.FC = () => {
       suggestedCode = `${prefix}${nextNum}`;
     }
 
+    const initialSourceItemId = (record as any).sourceItemId ?? record.productionInItemId ?? undefined;
+    const initialOperationalMask = Array.isArray((record as any).operationalSequenceMask)
+      ? (record as any).operationalSequenceMask
+      : ['RM_STORES', 'WIRE_STRAIGHTENING', 'SPOKE_HEADING', 'PLATING_PLANT'];
+    setFormWizardTab('profile');
+    setCurrentBomId(null);
+
+    apiService.get<{ data: any }>(`/bom/product/${record.id}`).then((res) => {
+      if (res?.data && Array.isArray(res.data.lines) && res.data.lines.length > 0) {
+        form.setFieldValue('bomLines', res.data.lines.map((l: any) => ({
+          itemId: l.itemId,
+          quantity: Number(l.quantity),
+          uomId: l.uomId,
+          remarks: l.remarks,
+        })));
+      }
+    }).catch(() => {});
+
     form.resetFields();
     form.setFieldsValue({
       itemCode: suggestedCode,
@@ -1950,6 +1997,9 @@ const ItemManagement: React.FC = () => {
       productionInItemId: record.productionInItemId ?? undefined,
       productionInItemId2: record.productionInItemId2 ?? undefined,
       productionInItemId3: record.productionInItemId3 ?? undefined,
+      sourceItemId: initialSourceItemId,
+      operationalSequenceMask: initialOperationalMask,
+      bomLines: [],
       materialRoleUsage: record.materialRoleUsage ?? (((record.itemType === 'RAW_MATERIAL' || (record.itemType || '').toUpperCase().includes('RAW'))) ? 'Process Component Materials' : undefined),
     });
     const isRaw = record.itemType === 'RAW_MATERIAL' || String(record.itemType || '').toUpperCase().includes('RAW');
@@ -1985,6 +2035,9 @@ const ItemManagement: React.FC = () => {
         'productionInItemId',
         'productionInItemId2',
         'productionInItemId3',
+        'sourceItemId',
+        'operationalSequenceMask',
+        'bomLines',
         'finalProduct',
         'packingNextStep',
         'packagingType',
@@ -2042,6 +2095,23 @@ const ItemManagement: React.FC = () => {
         }
       });
 
+      // Synchronize sourceItemId and productionInItemId
+      if (values.sourceItemId) {
+        payload.sourceItemId = values.sourceItemId;
+        payload.productionInItemId = values.sourceItemId;
+      } else if (values.productionInItemId) {
+        payload.sourceItemId = values.productionInItemId;
+        payload.productionInItemId = values.productionInItemId;
+      }
+
+      if (values.operationalSequenceMask) {
+        payload.operationalSequenceMask = values.operationalSequenceMask;
+      }
+
+      if (Array.isArray(values.bomLines)) {
+        payload.bomLines = values.bomLines.filter((l: any) => l && l.itemId && Number(l.quantity) > 0);
+      }
+
       // When editing an existing item, any clearable field that is empty in the form
       // must be explicitly sent as null to persist the clearance in the database.
       if (editing) {
@@ -2058,6 +2128,9 @@ const ItemManagement: React.FC = () => {
         // If routeTypeId was cleared to null, ensure routeType legacy code is also nullified
         if (payload.routeTypeId === null) {
           payload.routeType = null;
+        }
+        if (payload.sourceItemId === null) {
+          payload.productionInItemId = null;
         }
       }
 
@@ -5133,7 +5206,23 @@ const ItemManagement: React.FC = () => {
         <Form form={form} layout="vertical" requiredMark="optional">
           <div className={`erp-item-split-layout ${showLivePreview && screens.lg ? 'with-preview' : 'form-only'}`}>
             <div className="erp-item-form-pane">
-              {/* SECTION 1 — ORGANIZATION (TOP) */}
+              <Tabs
+                activeKey={formWizardTab}
+                onChange={(key) => setFormWizardTab(key as any)}
+                type="card"
+                className="erp-item-wizard-tabs"
+                items={[
+                  {
+                    key: 'profile',
+                    label: (
+                      <Space>
+                        <AppstoreOutlined />
+                        <span>1. Basic Profile & Specs</span>
+                      </Space>
+                    ),
+                    children: (
+                      <div>
+                        {/* SECTION 1 — ORGANIZATION (TOP) */}
               <Card
                 size="small"
                 title={
@@ -5525,10 +5614,228 @@ const ItemManagement: React.FC = () => {
                 </Form.Item>
               </div>
             </div>
+          </Card>
 
-            <div style={{ height: 1, background: 'var(--theme-border, rgba(255, 255, 255, 0.08))', margin: '12px 0' }} />
+          {/* SECTION 6 — ADDITIONAL */}
+          <Card size="small" title="Additional" style={{ marginBottom: 12, borderRadius: 8 }}>
+            <div className="erp-form-responsive-grid">
+              <Form.Item name="sku" label="SKU" extra={editing ? 'SKU cannot be changed' : 'Auto-generated if left empty'}>
+                <Input disabled={!!editing} placeholder={editing ? 'Auto-generated' : 'Auto-generated on create'} />
+              </Form.Item>
+              <Form.Item name="barcode" label="Barcode" extra={editing ? 'Barcode cannot be changed' : 'Auto-generated if left empty'}>
+                <Input disabled={!!editing} placeholder={editing ? 'Auto-generated' : 'Auto-generated on create'} />
+              </Form.Item>
+              <Form.Item name="manufacturerPartNumber" label="Manufacturer Part No."><Input maxLength={255} placeholder="Optional" /></Form.Item>
+              <Form.Item name="brand" label="Brand"><Input maxLength={255} placeholder="Optional" /></Form.Item>
+              <Form.Item name="model" label="Model"><Input maxLength={255} placeholder="Optional" /></Form.Item>
+              <Form.Item name="costPrice" label="Cost Price" extra="Standard cost (Item Master)">
+                <InputNumber min={0} step={0.01} style={{ width: '100%' }} placeholder="Optional (e.g. 125.00)" />
+              </Form.Item>
+              <Form.Item name="sellingPrice" label="Selling Price" extra="Default selling price (Item Master)">
+                <InputNumber min={0} step={0.01} style={{ width: '100%' }} placeholder="Optional (e.g. 180.00)" />
+              </Form.Item>
+            </div>
+            <Row gutter={[12, 8]} style={{ marginTop: 8 }}>
+              {TRACKING_SWITCHES.map((s) => (
+                <Col key={s.name} xs={12} sm={8} md={6}>
+                  <Form.Item name={s.name} label={s.label} valuePropName="checked" style={{ marginBottom: 4 }}>
+                    <Switch size="small" />
+                  </Form.Item>
+                </Col>
+              ))}
+            </Row>
+            <div className="erp-form-responsive-grid" style={{ marginTop: 8 }}>
+              <Form.Item name="minimumStockLevel" label="Min Stock Level"><InputNumber min={0} style={{ width: '100%' }} placeholder="0" /></Form.Item>
+              <Form.Item name="maximumStockLevel" label="Max Stock Level"><InputNumber min={0} style={{ width: '100%' }} placeholder="0" /></Form.Item>
+              <Form.Item name="reorderLevel" label="Reorder Level"><InputNumber min={0} style={{ width: '100%' }} placeholder="0" /></Form.Item>
+              <Form.Item name="safetyStockLevel" label="Safety Stock Level"><InputNumber min={0} style={{ width: '100%' }} placeholder="0" /></Form.Item>
+              <Form.Item name="leadTimeDays" label="Lead Time (Days)"><InputNumber min={0} precision={0} style={{ width: '100%' }} placeholder="0" /></Form.Item>
+            </div>
+            {editing && (
+              <Form.Item label="Status" style={{ marginBottom: 8, marginTop: 8 }}>
+                <StatusBadge status={editing.status} colorMap={statusColorMap} style={{ marginRight: 8 }} />
+                <Text type="secondary" style={{ fontSize: 12 }}>Manage via Activate / Deactivate row actions</Text>
+              </Form.Item>
+            )}
+            <Form.Item name="notes" label="Remarks" style={{ marginBottom: 8 }}>
+              <Input.TextArea rows={2} maxLength={2000} placeholder="Optional note" />
+            </Form.Item>
+          </Card>
+        </div>
+      ),
+    },
+    {
+      key: 'routing',
+      label: (
+        <Space>
+          <BranchesOutlined />
+          <span>2. Process Flow & Departmental Routing</span>
+          <Tag color="cyan" style={{ fontSize: 10, margin: 0 }}>Tier 2 WIP</Tag>
+        </Space>
+      ),
+      children: (
+        <div>
+          {/* TIER 2: SEMI-FINISHED WIP COMPONENT PROFILE CARD */}
+          <Card
+            size="small"
+            style={{
+              marginBottom: 16,
+              borderRadius: 10,
+              border: '1px solid var(--theme-border, #e2e8f0)',
+              background: 'var(--theme-surface-alt, rgba(248, 250, 252, 0.6))',
+            }}
+            title={
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', flexWrap: 'wrap', gap: 8 }}>
+                <Space>
+                  <BranchesOutlined style={{ color: 'var(--theme-primary, #0284c7)' }} />
+                  <span style={{ fontWeight: 700, color: 'var(--theme-text, #0f172a)' }}>
+                    Tier 2: Semi-Finished WIP Component Profile (e.g. WIP-SPL-001 / 002)
+                  </span>
+                </Space>
+                <Tag color="blue" style={{ fontWeight: 600 }}>Auto-Routing Cascades</Tag>
+              </div>
+            }
+          >
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginBottom: 16, borderRadius: 8 }}
+              message="Upstream Material Linkage & Operational Sequence Matrix"
+              description="Explicitly link the immediate upstream raw material code (e.g. Wire Rod Coil) and configure active production desks. Toggling stations (e.g. Bypassing Swaging) dynamically routes the backward scheduling demand targets across factory floors."
+            />
 
-            {/* 5B: PRODUCTION ROUTE / PROCESS */}
+            <Row gutter={[16, 16]}>
+              <Col xs={24} lg={12}>
+                <Form.Item
+                  name="sourceItemId"
+                  label={
+                    <Space>
+                      <span style={{ fontWeight: 600 }}>source_item_id (Immediate Upstream Raw Material)</span>
+                      <Tag color="blue" style={{ fontSize: 10 }}>Upstream Material</Tag>
+                    </Space>
+                  }
+                  extra="Explicitly links the immediate upstream raw material code (e.g. Wire Rod Coil 3.14mm). Consumed directly by this WIP component."
+                >
+                  <InputMaterialSelect
+                    excludeItemId={editing?.id ?? null}
+                    departments={departments}
+                    uoms={uoms}
+                    initialItemCode={editing?.sourceItem?.itemCode || editing?.productionInItem?.itemCode}
+                    initialItemName={editing?.sourceItem?.name || editing?.productionInItem?.name}
+                    initialDepartmentId={editing?.sourceItem?.departmentId || editing?.productionInItem?.departmentId}
+                    onSelectDetail={(detail) => {
+                      setSelectedInputDetail(detail);
+                      form.setFieldValue('sourceItemId', detail?.id ?? null);
+                      form.setFieldValue('productionInItemId', detail?.id ?? null);
+                    }}
+                    placeholder="Select Upstream Raw Material (e.g. Wire Rod Coil)..."
+                  />
+                </Form.Item>
+              </Col>
+
+              <Col xs={24} lg={12}>
+                <Form.Item
+                  name="operationalSequenceMask"
+                  label={
+                    <Space>
+                      <span style={{ fontWeight: 600 }}>operational_sequence_mask (Active Station Flags)</span>
+                      <Tag color="purple" style={{ fontSize: 10 }}>Multi-Select Flags</Tag>
+                    </Space>
+                  }
+                  extra="Toggle active workstations. Bypassing a station (e.g. Swaging) immediately reroutes backward backlog demand."
+                >
+                  <Checkbox.Group style={{ width: '100%' }}>
+                    <Row gutter={[8, 8]}>
+                      <Col span={24}>
+                        <Checkbox value="RM_STORES">
+                          <strong>Position 1: RM Stores</strong> <span style={{ color: 'var(--theme-text-secondary, #64748b)', fontSize: 11 }}>(Raw Material Release)</span>
+                        </Checkbox>
+                      </Col>
+                      <Col span={24}>
+                        <Checkbox value="WIRE_STRAIGHTENING">
+                          <strong>Position 2: Wire Straightening</strong> <span style={{ color: 'var(--theme-text-secondary, #64748b)', fontSize: 11 }}>(Straightening Bench)</span>
+                        </Checkbox>
+                      </Col>
+                      <Col span={24}>
+                        <Checkbox value="SWAGING">
+                          <strong>Position 3: Swaging Section</strong> <Tag color="orange" style={{ fontSize: 10, marginLeft: 4 }}>Bypass Trigger</Tag>
+                        </Checkbox>
+                      </Col>
+                      <Col span={24}>
+                        <Checkbox value="SPOKE_HEADING">
+                          <strong>Position 4: Spoke Heading</strong> <span style={{ color: 'var(--theme-text-secondary, #64748b)', fontSize: 11 }}>(Heading & Threading Machine)</span>
+                        </Checkbox>
+                      </Col>
+                      <Col span={24}>
+                        <Checkbox value="PLATING_PLANT">
+                          <strong>Position 5: Plating Plant</strong> <span style={{ color: 'var(--theme-text-secondary, #64748b)', fontSize: 11 }}>(Surface Treatment / Zinc / Nickel)</span>
+                        </Checkbox>
+                      </Col>
+                    </Row>
+                  </Checkbox.Group>
+                </Form.Item>
+              </Col>
+            </Row>
+
+            {/* Active Routing Path Visualizer */}
+            <Form.Item noStyle shouldUpdate={(p, c) => p.operationalSequenceMask !== c.operationalSequenceMask}>
+              {({ getFieldValue }) => {
+                const mask: string[] = getFieldValue('operationalSequenceMask') || [];
+                const stations = [
+                  { key: 'RM_STORES', label: '1. RM Stores', desc: 'Raw Stores' },
+                  { key: 'WIRE_STRAIGHTENING', label: '2. Straightening', desc: 'Wire Draw' },
+                  { key: 'SWAGING', label: '3. Swaging', desc: 'Butting (Bypassable)', isBypassable: true },
+                  { key: 'SPOKE_HEADING', label: '4. Spoke Heading', desc: 'Heading' },
+                  { key: 'PLATING_PLANT', label: '5. Plating Plant', desc: 'Plating' },
+                ];
+                return (
+                  <div style={{ marginTop: 8, padding: '10px 14px', borderRadius: 8, background: 'var(--theme-surface, rgba(255, 255, 255, 0.8))', border: '1px solid var(--theme-border, #cbd5e1)' }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: 'var(--theme-accent, #0284c7)', marginBottom: 8, letterSpacing: 0.5 }}>
+                      Operational Routing Path (Live Floor Propagation)
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      {stations.map((st, idx) => {
+                        const isActive = mask.includes(st.key);
+                        return (
+                          <React.Fragment key={st.key}>
+                            <div
+                              style={{
+                                padding: '4px 10px',
+                                borderRadius: 6,
+                                fontSize: 11,
+                                fontWeight: 600,
+                                border: isActive ? '1px solid #0284c7' : '1px dashed #94a3b8',
+                                background: isActive ? 'rgba(2, 132, 199, 0.12)' : 'transparent',
+                                color: isActive ? '#0284c7' : '#94a3b8',
+                                textDecoration: !isActive ? 'line-through' : 'none',
+                              }}
+                            >
+                              {isActive ? '✓ ' : '✕ '} {st.label} {!isActive && st.isBypassable ? '(Bypassed)' : ''}
+                            </div>
+                            {idx < stations.length - 1 && (
+                              <ArrowRightOutlined style={{ color: '#94a3b8', fontSize: 12 }} />
+                            )}
+                          </React.Fragment>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              }}
+            </Form.Item>
+          </Card>
+
+          {/* 5B: PRODUCTION ROUTE / PROCESS */}
+          <Card
+            size="small"
+            title={
+              <Space>
+                <AppstoreOutlined style={{ color: '#10b981' }} />
+                <span style={{ fontWeight: 600 }}>Production Route & Operational Processes</span>
+              </Space>
+            }
+            style={{ marginBottom: 12, borderRadius: 8 }}
+          >
             <div style={{ marginBottom: 16 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 6 }}>
                 <Text strong style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--theme-accent, #0284c7)' }}>
@@ -6558,52 +6865,236 @@ const ItemManagement: React.FC = () => {
             })()}
           </Card>
 
-          {/* SECTION 6 — ADDITIONAL */}
-          <Card size="small" title="Additional" style={{ marginBottom: 12, borderRadius: 8 }}>
-            <div className="erp-form-responsive-grid">
-              <Form.Item name="sku" label="SKU" extra={editing ? 'SKU cannot be changed' : 'Auto-generated if left empty'}>
-                <Input disabled={!!editing} placeholder={editing ? 'Auto-generated' : 'Auto-generated on create'} />
-              </Form.Item>
-              <Form.Item name="barcode" label="Barcode" extra={editing ? 'Barcode cannot be changed' : 'Auto-generated if left empty'}>
-                <Input disabled={!!editing} placeholder={editing ? 'Auto-generated' : 'Auto-generated on create'} />
-              </Form.Item>
-              <Form.Item name="manufacturerPartNumber" label="Manufacturer Part No."><Input maxLength={255} placeholder="Optional" /></Form.Item>
-              <Form.Item name="brand" label="Brand"><Input maxLength={255} placeholder="Optional" /></Form.Item>
-              <Form.Item name="model" label="Model"><Input maxLength={255} placeholder="Optional" /></Form.Item>
-              <Form.Item name="costPrice" label="Cost Price" extra="Standard cost (Item Master)">
-                <InputNumber min={0} step={0.01} style={{ width: '100%' }} placeholder="Optional (e.g. 125.00)" />
-              </Form.Item>
-              <Form.Item name="sellingPrice" label="Selling Price" extra="Default selling price (Item Master)">
-                <InputNumber min={0} step={0.01} style={{ width: '100%' }} placeholder="Optional (e.g. 180.00)" />
-              </Form.Item>
-            </div>
-            <Row gutter={[12, 8]} style={{ marginTop: 8 }}>
-              {TRACKING_SWITCHES.map((s) => (
-                <Col key={s.name} xs={12} sm={8} md={6}>
-                  <Form.Item name={s.name} label={s.label} valuePropName="checked" style={{ marginBottom: 4 }}>
-                    <Switch size="small" />
-                  </Form.Item>
-                </Col>
-              ))}
-            </Row>
-            <div className="erp-form-responsive-grid" style={{ marginTop: 8 }}>
-              <Form.Item name="minimumStockLevel" label="Min Stock Level"><InputNumber min={0} style={{ width: '100%' }} placeholder="0" /></Form.Item>
-              <Form.Item name="maximumStockLevel" label="Max Stock Level"><InputNumber min={0} style={{ width: '100%' }} placeholder="0" /></Form.Item>
-              <Form.Item name="reorderLevel" label="Reorder Level"><InputNumber min={0} style={{ width: '100%' }} placeholder="0" /></Form.Item>
-              <Form.Item name="safetyStockLevel" label="Safety Stock Level"><InputNumber min={0} style={{ width: '100%' }} placeholder="0" /></Form.Item>
-              <Form.Item name="leadTimeDays" label="Lead Time (Days)"><InputNumber min={0} precision={0} style={{ width: '100%' }} placeholder="0" /></Form.Item>
-            </div>
-            {editing && (
-              <Form.Item label="Status" style={{ marginBottom: 8, marginTop: 8 }}>
-                <StatusBadge status={editing.status} colorMap={statusColorMap} style={{ marginRight: 8 }} />
-                <Text type="secondary" style={{ fontSize: 12 }}>Manage via Activate / Deactivate row actions</Text>
-              </Form.Item>
-            )}
-            <Form.Item name="notes" label="Remarks" style={{ marginBottom: 8 }}>
-              <Input.TextArea rows={2} maxLength={2000} placeholder="Optional note" />
-            </Form.Item>
-          </Card>
-        </div>
+          </div>
+        ),
+      },
+      {
+        key: 'bom',
+        label: (
+          <Space>
+            <ExperimentOutlined />
+            <span>3. Bill of Materials (BOM) Recipe</span>
+            <Tag color="orange" style={{ fontSize: 10, margin: 0 }}>Tier 1 FG Kit</Tag>
+          </Space>
+        ),
+        children: (
+          <div>
+            {/* TIER 1: FINISHED GOODS KIT PROFILE CARD */}
+            <Card
+              size="small"
+              style={{
+                marginBottom: 16,
+                borderRadius: 10,
+                border: '1px solid var(--theme-border, #e2e8f0)',
+                background: 'var(--theme-surface-alt, rgba(248, 250, 252, 0.6))',
+              }}
+              title={
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', flexWrap: 'wrap', gap: 8 }}>
+                  <Space>
+                    <ExperimentOutlined style={{ color: '#f97316' }} />
+                    <span style={{ fontWeight: 700, color: 'var(--theme-text, #0f172a)' }}>
+                      Tier 1: Finished Goods Kit Profile (e.g. SPI-FG-SPK-001 / 002)
+                    </span>
+                  </Space>
+                  <Tag color="orange" style={{ fontWeight: 600 }}>Multi-Level BOM Recipe</Tag>
+                </div>
+              }
+            >
+              <Alert
+                type="info"
+                showIcon
+                style={{ marginBottom: 16, borderRadius: 8 }}
+                message="Multi-Level Bill of Materials (BOM) & Demand Cascade Engine"
+                description="Link underlying WIP components and purchased parts with exact usage factors per ordered unit. When Sales Orders are placed for this kit, demand propagates upward and downward across all shared WIP components."
+              />
+
+              {/* Quick Preset Buttons */}
+              <div style={{ marginBottom: 16, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                <Text strong style={{ fontSize: 12, color: 'var(--theme-text-secondary, #64748b)' }}>Quick Recipe Presets:</Text>
+                <Button
+                  size="small"
+                  type="dashed"
+                  onClick={() => {
+                    const cur = form.getFieldValue('bomLines') || [];
+                    form.setFieldValue('bomLines', [
+                      ...cur,
+                      { quantity: 720, remarks: 'Inner Spoke Component (720 PCS)' },
+                      { quantity: 720, remarks: 'Outer Spoke Component (720 PCS)' },
+                      { quantity: 1440, remarks: 'Nipple Set Component (1,440 PCS)' },
+                    ]);
+                    message.success('Added Spoke Kit (720 Inner + 720 Outer + 1,440 Nipple) recipe lines');
+                  }}
+                >
+                  + Spoke Kit Preset (720 + 720 + 1,440)
+                </Button>
+                <Button
+                  size="small"
+                  type="dashed"
+                  onClick={() => {
+                    const cur = form.getFieldValue('bomLines') || [];
+                    form.setFieldValue('bomLines', [
+                      ...cur,
+                      { quantity: 1, remarks: 'Assembly Component (1:1)' },
+                      { quantity: 1, remarks: 'Assembly Component (1:1)' },
+                    ]);
+                    message.success('Added 1:1 Dual Component recipe lines');
+                  }}
+                >
+                  + 1:1 Dual Component Preset
+                </Button>
+              </div>
+
+              <Form.List name="bomLines">
+                {(fields, { add, remove }) => {
+                  return (
+                    <div>
+                      <div style={{ overflowX: 'auto', marginBottom: 12 }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                          <thead>
+                            <tr style={{ background: 'var(--theme-surface, rgba(255,255,255,0.7))', borderBottom: '1px solid var(--theme-border, #cbd5e1)' }}>
+                              <th style={{ padding: '8px 10px', textAlign: 'left', width: 40 }}>#</th>
+                              <th style={{ padding: '8px 10px', textAlign: 'left', minWidth: 260 }}>Component Item</th>
+                              <th style={{ padding: '8px 10px', textAlign: 'right', width: 140 }}>Usage Factor (Qty)</th>
+                              <th style={{ padding: '8px 10px', textAlign: 'left', width: 120 }}>UOM</th>
+                              <th style={{ padding: '8px 10px', textAlign: 'left', minWidth: 160 }}>Remarks / Specs</th>
+                              <th style={{ padding: '8px 10px', textAlign: 'center', width: 60 }}>Action</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {fields.length === 0 ? (
+                              <tr>
+                                <td colSpan={6} style={{ padding: '24px 12px', textAlign: 'center', color: 'var(--theme-text-secondary, #64748b)' }}>
+                                  No BOM recipe lines defined. Click "+ Add Component Line" or select a preset above.
+                                </td>
+                              </tr>
+                            ) : (
+                              fields.map((field, index) => {
+                                return (
+                                  <tr key={field.key} style={{ borderBottom: '1px solid var(--theme-border, #f1f5f9)' }}>
+                                    <td style={{ padding: '8px 10px', fontWeight: 600, color: 'var(--theme-text-secondary, #64748b)' }}>
+                                      {index + 1}
+                                    </td>
+                                    <td style={{ padding: '8px 10px' }}>
+                                      <Form.Item
+                                        {...field}
+                                        name={[field.name, 'itemId']}
+                                        rules={[{ required: true, message: 'Select component' }]}
+                                        style={{ margin: 0 }}
+                                      >
+                                        <Select
+                                          showSearch
+                                          allowClear
+                                          optionFilterProp="label"
+                                          placeholder="Select WIP or Purchased Component (e.g. WIP-SPL-001, FG-NP-001)..."
+                                          options={(() => {
+                                            const allLookupItems = getLookupsSnapshot().items || [];
+                                            const combined = [...items, ...allLookupItems];
+                                            const uniqueItems = toUnique(combined, (i) => i.id);
+                                            return uniqueItems.map((it: any) => ({
+                                              value: it.id,
+                                              label: `${it.itemCode} — ${it.name} (${it.baseUomName || it.baseUom?.code || 'PCS'})`,
+                                            }));
+                                          })()}
+                                          onChange={(val) => {
+                                            const found = (getLookupsSnapshot().items || []).find((x: any) => x.id === val) || items.find((x) => x.id === val);
+                                            if (found?.baseUomId) {
+                                              form.setFieldValue(['bomLines', index, 'uomId'], found.baseUomId);
+                                            }
+                                          }}
+                                        />
+                                      </Form.Item>
+                                    </td>
+                                    <td style={{ padding: '8px 10px' }}>
+                                      <Form.Item
+                                        {...field}
+                                        name={[field.name, 'quantity']}
+                                        rules={[{ required: true, message: 'Qty required' }]}
+                                        style={{ margin: 0 }}
+                                      >
+                                        <InputNumber
+                                          min={0.0001}
+                                          step={1}
+                                          style={{ width: '100%' }}
+                                          placeholder="e.g. 720"
+                                        />
+                                      </Form.Item>
+                                    </td>
+                                    <td style={{ padding: '8px 10px' }}>
+                                      <Form.Item
+                                        {...field}
+                                        name={[field.name, 'uomId']}
+                                        style={{ margin: 0 }}
+                                      >
+                                        <Select
+                                          allowClear
+                                          showSearch
+                                          optionFilterProp="label"
+                                          placeholder="UOM"
+                                          options={uoms.map((u) => ({ value: u.id, label: u.code || u.name }))}
+                                        />
+                                      </Form.Item>
+                                    </td>
+                                    <td style={{ padding: '8px 10px' }}>
+                                      <Form.Item
+                                        {...field}
+                                        name={[field.name, 'remarks']}
+                                        style={{ margin: 0 }}
+                                      >
+                                        <Input placeholder="e.g. CD-250*17 Inner Butted Spoke" />
+                                      </Form.Item>
+                                    </td>
+                                    <td style={{ padding: '8px 10px', textAlign: 'center' }}>
+                                      <Button
+                                        type="text"
+                                        danger
+                                        size="small"
+                                        icon={<DeleteOutlined />}
+                                        onClick={() => remove(field.name)}
+                                      />
+                                    </td>
+                                  </tr>
+                                );
+                              })
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      <Button
+                        type="dashed"
+                        onClick={() => add({ quantity: 720 })}
+                        icon={<PlusOutlined />}
+                        style={{ width: '100%', marginBottom: 16 }}
+                      >
+                        Add Component Line
+                      </Button>
+                    </div>
+                  );
+                }}
+              </Form.List>
+
+              {/* Dynamic Backlog Aggregation Formula Card */}
+              <div style={{ padding: '12px 16px', borderRadius: 8, background: 'var(--theme-surface, rgba(255,255,255,0.8))', border: '1px solid var(--theme-border, #cbd5e1)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                  <ThunderboltOutlined style={{ color: '#f59e0b' }} />
+                  <span style={{ fontWeight: 700, fontSize: 12, color: 'var(--theme-text, #0f172a)' }}>
+                    Dynamic Backlog Demand Aggregation Logic
+                  </span>
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--theme-text-secondary, #475569)', lineHeight: 1.6 }}>
+                  <div style={{ fontFamily: 'monospace', fontWeight: 700, padding: '4px 0', color: 'var(--theme-primary, #0284c7)' }}>
+                    {'Total Row Demand = ∑ (Outstanding Sales Orders of ALL Parent FG Kits Sharing This WIP Component × BOM Factor)'}
+                  </div>
+                  Changing the nipple type (e.g. <code>FG-NP-001</code> vs <code>FG-NP-002</code>) or switching shared WIP spokes on the final kit automatically recalculates and balances backward scheduling demand across all early-stage production desks (Straightener, Swaging, Heading, Plating).
+                </div>
+              </div>
+            </Card>
+          </div>
+        ),
+      },
+    ]}
+  />
+</div>
 
         {/* RIGHT SIDE: LIVE ITEM DETAIL SHEET (ONLY ON DESKTOP WHEN ENABLED) */}
         {showLivePreview && screens.lg && (
