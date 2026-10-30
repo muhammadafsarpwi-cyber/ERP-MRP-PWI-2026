@@ -4257,6 +4257,33 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         errMsg = err.message;
       }
       message.error(errMsg);
+      Modal.error({
+        title: 'Packing Production Entry Save Failed',
+        centered: true,
+        width: 540,
+        content: (
+          <div style={{ marginTop: 12 }}>
+            <div
+              style={{
+                background: 'rgba(239, 68, 68, 0.08)',
+                border: '1px solid rgba(239, 68, 68, 0.3)',
+                borderRadius: 8,
+                padding: '12px 16px',
+                color: '#ef4444',
+                fontWeight: 600,
+                fontSize: 14,
+                wordBreak: 'break-word',
+              }}
+            >
+              {errMsg}
+            </div>
+            <p style={{ marginTop: 12, marginBottom: 0, fontSize: 13, color: 'var(--theme-text-secondary)' }}>
+              Please review the details above and check the required fields, stock availability, or connection before retrying.
+            </p>
+          </div>
+        ),
+        okText: 'Close',
+      });
     } finally {
       setSaving(false);
       setSaveReviewModalVisible(false);

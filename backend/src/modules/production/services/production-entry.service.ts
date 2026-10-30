@@ -3917,20 +3917,13 @@ addToDept(org, {
       const compUom = (component?.baseUom?.code || '').toUpperCase();
       const productBaseUomId = product?.baseUomId ?? output.uomId;
       const goodQty = Number(output.actualQuantity);
-      const scrapKg = Number(output.scrapQuantity || 0);
+      const scrapQty = Number(output.scrapQuantity || 0);
+      const totalProdQty = goodQty + scrapQty;
       const qtyInBase = output.uomId === productBaseUomId
-        ? goodQty
-        : await this.convertQty(output.uomId, productBaseUomId, goodQty);
+        ? totalProdQty
+        : await this.convertQty(output.uomId, productBaseUomId, totalProdQty);
       const units = qtyInBase / Number(bom?.baseQuantity || 1);
-      const convertedGood = await this.convertProductQtyToComponentUom(product, component, units);
-      const scrapInComp = (compUom === 'KG' || compUom === 'KILOGRAM')
-        ? scrapKg
-        : await this.convertProductQtyToComponentUom(
-            { baseUom: { code: 'KG', uomType: 'WEIGHT' }, weightPerPiece: product?.weightPerPiece } as Item,
-            component,
-            scrapKg,
-          );
-      const convertedRequired = convertedGood + scrapInComp;
+      const convertedRequired = await this.convertProductQtyToComponentUom(product, component, units);
       const uomId = component?.baseUomId ?? output.uomId;
       const uomCode = component?.baseUom?.code ?? '';
       const effectiveInWh = compWarehouseMap.get(authoritativeInItemId) || sourceStoreId;
@@ -4068,14 +4061,13 @@ addToDept(org, {
       const product = await this.itemRepo.findOne({ where: { id: output.itemId }, relations: ['baseUom'] });
       const compUom = (component?.baseUom?.code || '').toUpperCase();
       const goodQty = Number(output.actualQuantity);
-      const scrapKg = Number(output.scrapQuantity || 0);
+      const scrapQty = Number(output.scrapQuantity || 0);
+      const totalProdQty = goodQty + scrapQty;
       let required: number;
       if (Number(inp.quantity || 1) === 1) {
-        const goodReq = await this.convertProductQtyToComponentUom(product, component, goodQty);
-        const scrapInComp = (compUom === 'KG' || compUom === 'KILOGRAM') ? scrapKg : 0;
-        required = this.round4(goodReq + scrapInComp);
+        required = this.round4(await this.convertProductQtyToComponentUom(product, component, totalProdQty));
       } else {
-        required = this.round4(Number(inp.quantity || 1) * goodQty + scrapKg);
+        required = this.round4(Number(inp.quantity || 1) * totalProdQty);
       }
       const uomCode = component?.baseUom?.code ?? '';
       const available = await this.inventoryBalanceService.getAvailableStock(
@@ -4254,31 +4246,22 @@ addToDept(org, {
     const product = await this.itemRepo.findOne({ where: { id: output.itemId }, relations: ['baseUom'] });
     const productBaseUomId = product?.baseUomId ?? output.uomId;
     const goodQty = output.actualQuantity !== undefined ? Number(output.actualQuantity) : productionQty;
-    const scrapKg = Number(output.scrapQuantity || 0);
+    const scrapQty = Number(output.scrapQuantity || 0);
+    const totalProdQty = goodQty + scrapQty;
     const qtyInBase = output.uomId === productBaseUomId
-      ? goodQty
-      : await this.convertQty(output.uomId, productBaseUomId, goodQty);
+      ? totalProdQty
+      : await this.convertQty(output.uomId, productBaseUomId, totalProdQty);
     const units = qtyInBase / Number(bom.baseQuantity || 1);
     const component = await this.itemRepo.findOne({ where: { id: line.itemId }, relations: ['baseUom'] });
     const compUom = (component?.baseUom?.code || '').toUpperCase();
     let req: number;
     if (Number(line.quantity || 1) === 1 && line.uomId === component?.baseUomId) {
-      const convertedGood = await this.convertProductQtyToComponentUom(product, component, units);
-      const scrapInComp = (compUom === 'KG' || compUom === 'KILOGRAM')
-        ? scrapKg
-        : await this.convertProductQtyToComponentUom(
-            { baseUom: { code: 'KG', uomType: 'WEIGHT' }, weightPerPiece: product?.weightPerPiece } as Item,
-            component,
-            scrapKg,
-          );
-      req = (convertedGood + scrapInComp) * (1 + Number(line.scrapFactor || 0)) / (Number(line.yieldPercentage || 100) / 100);
+      const convertedTotal = await this.convertProductQtyToComponentUom(product, component, units);
+      req = convertedTotal * (1 + Number(line.scrapFactor || 0)) / (Number(line.yieldPercentage || 100) / 100);
     } else {
       req = units * Number(line.quantity) * (1 + Number(line.scrapFactor || 0)) / (Number(line.yieldPercentage || 100) / 100);
       if (component?.baseUomId && component.baseUomId !== line.uomId) {
         req = await this.convertQty(line.uomId, component.baseUomId, req);
-      }
-      if (compUom === 'KG' || compUom === 'KILOGRAM') {
-        req += scrapKg;
       }
     }
     return this.round4(req);
