@@ -46,5 +46,8 @@ USER nestjs
 # Expose port
 EXPOSE 3001
 
+# Verify critical runtime dependencies are present
+RUN node -e "require('express'); require('dotenv'); require('jsonwebtoken')"
+
 # Start application
 CMD ["node", "dist/main"]
