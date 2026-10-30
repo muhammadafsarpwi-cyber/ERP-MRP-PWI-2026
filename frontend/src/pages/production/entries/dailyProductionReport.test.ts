@@ -101,28 +101,27 @@ const model = () => buildDailyProductionReport(rows, opts());
 describe('Daily Production Report — columns', () => {
   it('uses the specified order: Shift + Machine + OT lead, REJECTION / SCRAP last', () => {
     expect(model().columns.map((c) => c.label)).toEqual([
-      'Sr. #', 'Shift', 'Machine', 'OT (H)', 'Operator', 'Item / Product',
+      'Sr. #', 'Machine', 'OT (H)', 'Operator', 'Item / Product',
       'Target', 'Actual', 'Achievement %', 'WEIGHT (KG)',
       'Breakdown Reason / Status', 'REJECTION / SCRAP', 'Remarks',
     ]);
   });
 
-  it('keeps Shift 2nd, OT beside the machine params, and Achievement before the fused columns', () => {
+  it('keeps Machine 2nd, OT beside the machine params, and Achievement before the fused columns', () => {
     const keys = model().columns.map((c) => c.key);
-    expect(keys[1]).toBe('shift');
-    expect(keys[2]).toBe('machine');
-    expect(keys[3]).toBe('ot'); // OT (H) audits the extra hours right after Machine
+    expect(keys[1]).toBe('machine');
+    expect(keys[2]).toBe('ot'); // OT (H) audits the extra hours right after Machine
     expect(keys.indexOf('achievement')).toBeLessThan(keys.indexOf('weight'));
     expect(keys.indexOf('weight')).toBeLessThan(keys.indexOf('status'));
     expect(keys.indexOf('status')).toBeLessThan(keys.indexOf('rejectionScrap'));
     expect(keys.indexOf('rejectionScrap')).toBeLessThan(keys.indexOf('remarks'));
   });
 
-  it('always totals 100% width and merges the first 5 columns for totals', () => {
+  it('always totals 100% width and merges the first 4 columns for totals', () => {
     const m = model();
     expect(m.columns.reduce((s, c) => s + c.width, 0)).toBe(100);
-    // Sr. # + Shift + Machine + OT + Operator
-    expect(reportLabelSpan(m.columns)).toBe(5);
+    // Sr. # + Machine + OT + Operator
+    expect(reportLabelSpan(m.columns)).toBe(4);
   });
 
   it('adds a Date column only when the export spans more than one day', () => {
@@ -134,7 +133,7 @@ describe('Daily Production Report — columns', () => {
     expect(multi.showDate).toBe(true);
     expect(multi.columns.map((c) => c.label)).toContain('Date');
     expect(multi.columns.reduce((s, c) => s + c.width, 0)).toBe(100);
-    expect(reportLabelSpan(multi.columns)).toBe(5);
+    expect(reportLabelSpan(multi.columns)).toBe(4);
   });
 });
 
@@ -228,9 +227,8 @@ describe('Daily Production Report — Phase 7 cell cleanup', () => {
 describe('Daily Production Report — compact 2-line layout', () => {
   const width = (key: string) => model().columns.find((c) => c.key === key)!.width;
 
-  it('funds the widened pro-rata TARGET stack from Item and still totals 100', () => {
+  it('funds the widened pro-rata TARGET stack and Remarks column and still totals 100', () => {
     expect(width('item')).toBe(14);
-    expect(width('shift')).toBe(8.5);
     expect(width('machine')).toBe(4.5);
     expect(width('ot')).toBe(4);
     expect(width('operator')).toBe(6);
@@ -238,7 +236,7 @@ describe('Daily Production Report — compact 2-line layout', () => {
     expect(width('weight')).toBe(9.5);
     expect(width('status')).toBe(9);
     expect(width('rejectionScrap')).toBe(8.5);
-    expect(width('remarks')).toBe(9);
+    expect(width('remarks')).toBe(17.5);
     // and the budget still adds up to exactly 100
     expect(model().columns.reduce((s, c) => s + c.width, 0)).toBe(100);
   });
@@ -251,11 +249,11 @@ describe('Daily Production Report — compact 2-line layout', () => {
     const w = (key: string) => multi.columns.find((c) => c.key === key)!.width;
     expect(w('date')).toBe(6);
     expect(w('target')).toBe(10);
-    expect(w('item')).toBe(12);
+    expect(w('item')).toBe(13);
     expect(w('operator')).toBe(5);
     expect(w('status')).toBe(8);
-    expect(w('rejectionScrap')).toBe(7.5);
-    expect(w('remarks')).toBe(8);
+    expect(w('rejectionScrap')).toBe(8);
+    expect(w('remarks')).toBe(15);
     expect(multi.columns.reduce((s, c) => s + c.width, 0)).toBe(100);
   });
 
@@ -396,15 +394,9 @@ describe('Daily Production Report — shift grouping & machine order', () => {
 
   it('exposes Day / Night / Department blocks for the three export surfaces', () => {
     expect(sectionBlocks(spoke).map((b) => b.label)).toEqual([
-      'DAY SHIFT TOTAL — Spoke',
-      'NIGHT SHIFT TOTAL — Spoke',
+      'DAY SHIFT TOTAL (SHIFT-A) — Spoke',
+      'NIGHT SHIFT TOTAL (Shift C (Night)) — Spoke',
       'DEPARTMENT GRAND TOTAL — Spoke',
-    ]);
-    expect(sectionBlocks(spoke)[0].kind).toBe('shift');
-    expect(sectionBlocks(spoke)[2].lines).toHaveLength(0);
-    expect(sectionBlocks(model().sections[5]).map((b) => b.label)).toEqual([
-      'DAY SHIFT TOTAL — Flattening',
-      'DEPARTMENT GRAND TOTAL — Flattening',
     ]);
   });
 });
@@ -585,22 +577,14 @@ describe('Daily Production Report — header', () => {
     const stampAt = html.indexOf('<div class="rp-meta-stamp">');
     expect(leftAt).toBeGreaterThan(-1);
     expect(stampAt).toBeGreaterThan(leftAt);
-    // The two "corner" strings live in the stamp…
     const stampBlock = html.slice(stampAt, html.indexOf('</div>', stampAt));
-    expect(stampBlock).toContain('<span>Date: 2026-10-02</span>');
-    expect(stampBlock).toContain('<span>Generated: 02 Oct 2026, 06:00</span>');
-    // …and are absent from the left-hand run.
+    expect(stampBlock).toContain('<span class="rp-stamp-date">Date: 2026-10-02</span>');
+    expect(stampBlock).toContain('<span class="rp-stamp-gen">Generated: 02 Oct 2026, 06:00</span>');
     const leftBlock = html.slice(leftAt, stampAt);
     expect(leftBlock).toContain('<span>10 entries · 6 departments</span>');
     expect(leftBlock).not.toContain('Date:');
     expect(leftBlock).not.toContain('Generated:');
-    // Right-anchored: space-between for the row, margin-left:auto + right
-    // alignment for the stamp itself (so it hugs the rule even when the left
-    // run is short).
-    expect(html).toContain(
-      '.rp-meta-stamp { display: flex; gap: 14px; margin-left: auto; text-align: right;',
-    );
-    expect(html).toContain('flex-wrap: wrap; justify-content: space-between; align-items: baseline;');
+    expect(html).toContain('.rp-meta-stamp { display: flex; flex-direction: column; align-items: flex-end;');
   });
 });
 
@@ -641,15 +625,14 @@ describe('Daily Production Report — print layout', () => {
   });
 
   it('adds Day Shift / Night Shift sub-totals and a department grand total', () => {
-    expect(html).toContain('DAY SHIFT TOTAL — Spoke');
-    expect(html).toContain('NIGHT SHIFT TOTAL — Spoke');
+    expect(html).toContain('DAY SHIFT TOTAL (SHIFT-A) — Spoke');
+    expect(html).toContain('NIGHT SHIFT TOTAL (Shift C (Night)) — Spoke');
     expect(html).toContain('DEPARTMENT GRAND TOTAL — Spoke');
     expect(html).toContain('GRAND TOTAL — 6 departments');
     expect(html).not.toContain('NIGHT SHIFT TOTAL — Flattening'); // no night entries
     const at = [
-      html.indexOf('SPK-10'),
-      html.indexOf('DAY SHIFT TOTAL — Spoke'),
-      html.indexOf('NIGHT SHIFT TOTAL — Spoke'),
+      html.indexOf('DAY SHIFT TOTAL (SHIFT-A) — Spoke'),
+      html.indexOf('NIGHT SHIFT TOTAL (Shift C (Night)) — Spoke'),
       html.indexOf('DEPARTMENT GRAND TOTAL — Spoke'),
       html.indexOf('GRAND TOTAL — 6 departments'),
     ];
@@ -676,12 +659,10 @@ describe('Daily Production Report — print layout', () => {
     expect(html).not.toContain('>COMPLETED<');
   });
 
-  it('prints Item, Shift, TARGET, WEIGHT (KG) and REJECTION / SCRAP as stacked pairs', () => {
+  it('prints Item, TARGET, WEIGHT (KG) and REJECTION / SCRAP as stacked pairs', () => {
     expect(html).toContain('<span class="rp-item-name">Spoke 40T</span><span class="rp-item-code">SP-40</span>');
-    expect(html).toContain('<span class="rp-shift-name">SHIFT-A</span><span class="rp-shift-time">-</span>');
     expect(html).toContain('.rp-item-name { display: block; font-weight: 700; color: #1d4ed8; }');
     expect(html).toContain('.rp-item-code { display: block; font-weight: 500; color: #d97706; }');
-    expect(html).toContain('.rp-shift-time { display: block; font-weight: 400; color: #94a3b8; }');
     // TARGET — the bold red Dynamic Operational Target on top, hourly rate underneath
     expect(html).toContain('<span class="rp-tg-top">2,000 PCS</span><span class="rp-tg-bottom">250 /h (Standard 8h basis)</span>');
     expect(html).toContain('.rp-tg-top { display: block; font-weight: 700; color: #b91c1c; }');
@@ -760,7 +741,7 @@ describe('Daily Production Report — PDF rows', () => {
     const low = spoke.lines.find((l) => l.machine === 'SPK-02')!;
     const row = pdfLineRow(m.columns, low);
     expect(row).toHaveLength(m.columns.length);
-    expect(row[2]).toBe('SPK-02'); // Machine is the 3rd column
+    expect(row[1]).toBe('SPK-02'); // Machine is the 2nd column
     expect(row[m.columns.findIndex((c) => c.key === 'ot')]).toBe('—');
     expect(row[achIdx]).toEqual({
       content: '50.0%',
@@ -771,18 +752,12 @@ describe('Daily Production Report — PDF rows', () => {
     expect(row[m.columns.findIndex((c) => c.key === 'status')]).toBe('—');
   });
 
-  it('emits the five fused cells as two-line cells for didDrawCell', () => {
+  it('emits the four fused cells as two-line cells for didDrawCell', () => {
     const low = spoke.lines.find((l) => l.machine === 'SPK-02')!;
     const row = pdfLineRow(m.columns, low);
-    const shift = row[1];
     const item = row[m.columns.findIndex((c) => c.key === 'item')];
     const weight = row[m.columns.findIndex((c) => c.key === 'weight')];
     const scrap = row[m.columns.findIndex((c) => c.key === 'rejectionScrap')];
-    // line 1 is drawn by autoTable, line 2 by EntryList's didDrawCell
-    expect(shift.content).toBe('SHIFT-A\n\u00A0');
-    expect(shift.sub).toBe('-');
-    expect(shift.subColor).toEqual(PDF_SUB_TEXT);
-    expect(shift.styles).toEqual({ halign: 'left', textColor: PDF_MAIN_TEXT });
     expect(item.content).toBe('Spoke 40T\n\u00A0');
     expect(item.sub).toBe('SP-40');
     expect(item.styles.fontStyle).toBe('bold');
@@ -810,17 +785,17 @@ describe('Daily Production Report — PDF rows', () => {
       subGap: -1.5,
       styles: { halign: 'right', textColor: PDF_MAIN_TEXT },
     });
-    expect([item, shift, weight, scrap].map((c: any) => c.subGap)).toEqual([0, 0, 0, -1.5]);
+    expect([item, weight, scrap].map((c: any) => c.subGap)).toEqual([0, 0, -1.5]);
   });
 
-  it('spans the label over 5 columns and shades shift totals lighter', () => {
+  it('spans the label over 4 columns and shades shift totals lighter', () => {
     const day = pdfSummaryRow(m, spoke.shiftGroups[0].totals, 'DAY SHIFT TOTAL — Spoke', 'shift');
     expect(day[0]).toEqual(
-      expect.objectContaining({ content: 'DAY SHIFT TOTAL — Spoke', colSpan: 5 }),
+      expect.objectContaining({ content: 'DAY SHIFT TOTAL — Spoke', colSpan: 4 }),
     );
     expect(day[0].styles.fillColor).toEqual([232, 237, 243]);
-    // columns 5..n start at array index 1 → achievement sits at 1 + (achIdx - 5)
-    expect(day[1 + (achIdx - 5)]).toEqual(
+    // columns 4..n start at array index 1 → achievement sits at 1 + (achIdx - 4)
+    expect(day[1 + (achIdx - 4)]).toEqual(
       expect.objectContaining({
         content: '98.6%', // totals show one decimal, like the print output
         styles: expect.objectContaining({ textColor: TONE_COLOR.up }),
@@ -828,15 +803,15 @@ describe('Daily Production Report — PDF rows', () => {
     );
     const dept = pdfSummaryRow(m, spoke.totals, 'DEPARTMENT GRAND TOTAL — Spoke', 'department');
     expect(dept[0].styles.fillColor).toEqual([226, 232, 240]);
-    expect(dept[1 + (achIdx - 5)]).toEqual(
+    expect(dept[1 + (achIdx - 4)]).toEqual(
       expect.objectContaining({ content: '80.9%', styles: expect.objectContaining({ textColor: TONE_COLOR.up }) }),
     );
   });
 
   it('keeps BOTH lines of the fused columns in the total rows too', () => {
     const day = pdfSummaryRow(m, spoke.shiftGroups[0].totals, 'DAY SHIFT TOTAL — Spoke', 'shift');
-    const weight = day[1 + (m.columns.findIndex((c) => c.key === 'weight') - 5)];
-    const scrap = day[1 + (m.columns.findIndex((c) => c.key === 'rejectionScrap') - 5)];
+    const weight = day[1 + (m.columns.findIndex((c) => c.key === 'weight') - 4)];
+    const scrap = day[1 + (m.columns.findIndex((c) => c.key === 'rejectionScrap') - 4)];
     // Σ Actual KG rides under a `—`, because a per-unit weight is not summable.
     expect(weight).toEqual(expect.objectContaining({
       content: '—\n\u00A0',
@@ -872,7 +847,7 @@ describe('Daily Production Report — Excel (CSV) export', () => {
 
   it('uses the same column labels as print/PDF, plus UOM', () => {
     expect(lines[headerIdx]).toBe(
-      'Sr. #,Shift,Machine,OT (H),Operator,Item / Product,Target,Actual,Achievement %,WEIGHT (KG),Breakdown Reason / Status,REJECTION / SCRAP,Remarks,UOM',
+      'Sr. #,Machine,OT (H),Operator,Item / Product,Target,Actual,Achievement %,WEIGHT (KG),Breakdown Reason / Status,REJECTION / SCRAP,Remarks,UOM',
     );
   });
 
@@ -884,72 +859,68 @@ describe('Daily Production Report — Excel (CSV) export', () => {
     ]);
     const spokeIdx = lines.indexOf('DEPARTMENT — Spoke');
     const cells = (i: number) => lines[i].split(',');
-    expect(cells(spokeIdx + 1)[2]).toBe('SPK-01');
-    expect(cells(spokeIdx + 2)[2]).toBe('SPK-02');
-    expect(cells(spokeIdx + 3)[2]).toBe('SPK-10');
-    expect(cells(spokeIdx + 4)[0]).toBe('DAY SHIFT TOTAL — Spoke');
-    expect(cells(spokeIdx + 5)[1]).toContain('Night');
-    expect(cells(spokeIdx + 5)[2]).toBe('SPK-01');
-    expect(cells(spokeIdx + 6)[2]).toBe('SPK-03');
-    expect(cells(spokeIdx + 7)[0]).toBe('NIGHT SHIFT TOTAL — Spoke');
+    expect(cells(spokeIdx + 1)[1]).toBe('SPK-01');
+    expect(cells(spokeIdx + 2)[1]).toBe('SPK-02');
+    expect(cells(spokeIdx + 3)[1]).toBe('SPK-10');
+    expect(cells(spokeIdx + 4)[0]).toBe('DAY SHIFT TOTAL (SHIFT-A) — Spoke');
+    expect(cells(spokeIdx + 5)[1]).toBe('SPK-01');
+    expect(cells(spokeIdx + 6)[1]).toBe('SPK-03');
+    expect(cells(spokeIdx + 7)[0]).toBe('NIGHT SHIFT TOTAL (Shift C (Night)) — Spoke');
     expect(cells(spokeIdx + 8)[0]).toBe('DEPARTMENT GRAND TOTAL — Spoke');
   });
 
   it('writes Day / Night / department totals as numeric cells with the arrow', () => {
     const spokeIdx = lines.indexOf('DEPARTMENT — Spoke');
     const day = lines[spokeIdx + 4].split(',');
-    expect(day[0]).toBe('DAY SHIFT TOTAL — Spoke');
-    expect(day[6]).toBe('3500'); // Σ Target — unquoted number for Excel
-    expect(day[7]).toBe('3450'); // Σ Actual
-    expect(day[8]).toBe('98.57 ▲'); // weighted achievement + indicator
-    expect(day[3]).toBe(''); // OT — nothing to sum on these fixtures
-    // WEIGHT (KG): `—` (per-unit is not summable) over Σ Actual KG.
-    expect(day[9]).toBe('"—\n172.5"');
-    // REJECTION / SCRAP: Σ Rejection KG over the POOLED percentage.
-    expect(day[11]).toBe('"1.5\n0.86%"');
+    expect(day[0]).toBe('DAY SHIFT TOTAL (SHIFT-A) — Spoke');
+    expect(day[5]).toBe('3500'); // Σ Target — unquoted number for Excel
+    expect(day[6]).toBe('3450'); // Σ Actual
+    expect(day[7]).toBe('98.57 ▲'); // weighted achievement + indicator
+    expect(day[2]).toBe(''); // OT — nothing to sum on these fixtures
+    expect(day[8]).toBe('"—\n172.5"');
+    expect(day[10]).toBe('"1.5\n0.86%"');
 
     const night = lines[spokeIdx + 7].split(',');
-    expect(night[6]).toBe('2000');
-    expect(night[7]).toBe('1000');
-    expect(night[8]).toBe('50 ▼');
+    expect(night[5]).toBe('2000');
+    expect(night[6]).toBe('1000');
+    expect(night[7]).toBe('50 ▼');
 
     const dept = lines[spokeIdx + 8].split(',');
-    expect(dept[6]).toBe('5500');
-    expect(dept[7]).toBe('4450');
-    expect(dept[8]).toBe('80.91 ▲');
-    expect(dept[9]).toBe('"—\n222.5"');
+    expect(dept[5]).toBe('5500');
+    expect(dept[6]).toBe('4450');
+    expect(dept[7]).toBe('80.91 ▲');
+    expect(dept[8]).toBe('"—\n222.5"');
 
     const grand = lines.find((l) => l.startsWith('GRAND TOTAL'))!.split(',');
-    expect(grand[6]).toBe('15500');
-    expect(grand[7]).toBe('12850');
-    expect(grand[8]).toBe('82.9 ▲');
-    expect(grand[9]).toBe('"—\n642.5"');
-    expect(grand[11]).toBe('"1.75\n0.27%"'); // 1.75 / (642.5 + 1.75)
+    expect(grand[5]).toBe('15500');
+    expect(grand[6]).toBe('12850');
+    expect(grand[7]).toBe('82.9 ▲');
+    expect(grand[8]).toBe('"—\n642.5"');
+    expect(grand[10]).toBe('"1.75\n0.27%"'); // 1.75 / (642.5 + 1.75)
   });
 
   it('keeps quantity cells numeric and carries the runtime reason', () => {
     const first = lines[headerIdx + 3]; // DEPARTMENT — Straightener is +2
     const cells = first.split(',');
-    expect(Number.isFinite(Number(cells[6]))).toBe(true); // Target
-    expect(Number.isFinite(Number(cells[7]))).toBe(true); // Actual
-    expect(cells[8]).toBe('110 ▲');
+    expect(Number.isFinite(Number(cells[5]))).toBe(true); // Target
+    expect(Number.isFinite(Number(cells[6]))).toBe(true); // Actual
+    expect(cells[7]).toBe('110 ▲');
     expect(first.endsWith(',PCS')).toBe(true); // UOM column last
 
     const flatIdx = lines.indexOf('DEPARTMENT — Flattening');
     const flat = lines[flatIdx + 1].split(',');
-    expect(flat[10]).toBe('0 hrs Running (0%) / 8 hrs Breakdown - Wire jam');
-    expect(flat[8]).toBe('50 ▼');
-    expect(flat[3]).toBe('0'); // OT (H) — still a plain numeric cell
+    expect(flat[9]).toBe('0 hrs Running (0%) / 8 hrs Breakdown - Wire jam');
+    expect(flat[7]).toBe('50 ▼');
+    expect(flat[2]).toBe('0'); // OT (H) — still a plain numeric cell
   });
 
-  it('writes Item, Shift and the two fused columns as stacked pairs', () => {
+  it('writes Item and the two fused columns as stacked pairs', () => {
     const first = lines[headerIdx + 3].split(',');
-    expect(first[5]).toBe('"Spoke 40T\nSP-40"'); // name, then code — no "Name (CODE)"
-    expect(first[1]).toBe('"SHIFT-A\n-"'); // shift name, then its timing
+    expect(first[4]).toBe('"Spoke 40T\nSP-40"'); // name, then code — no "Name (CODE)"
     // ST-01: 0.25 KG rejected of 220.25 KG produced → 0.11%
-    expect(first[11]).toBe('"0.25\n0.11%"');
+    expect(first[10]).toBe('"0.25\n0.11%"');
     // ST-01: per-unit 0.05 over Σ 220 KG actual.
-    expect(first[9]).toBe('"0.05\n220"');
+    expect(first[8]).toBe('"0.05\n220"');
     expect(lines.join('\r\n')).not.toContain('Rejection (KG)');
   });
 });

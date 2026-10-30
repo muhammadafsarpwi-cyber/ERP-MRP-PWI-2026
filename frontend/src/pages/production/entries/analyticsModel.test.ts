@@ -326,11 +326,31 @@ describe('scrapTotals / unweightedEntryCount', () => {
     expect(totals).toEqual({
       entries: 2,
       actualKg: 100,
+      actualUnits: 100,
       partRejectKg: 10,
+      partRejectUnits: 10,
+      dominantUom: 'KG',
       processScrapKg: 0,
       scrapKg: 10,
       wastagePct: 10,
     });
+  });
+
+  it('converts PCS to KG properly using weightPerPiece and does not treat PCS as KG', () => {
+    const totals = scrapTotals([
+      row({
+        id: 'spk-1',
+        uom: { id: 'u-pcs', code: 'PCS', symbol: 'pcs' },
+        item: { id: 'item-1', name: 'Spoke', itemCode: 'SPK-01', weightPerPiece: 0.01 },
+        actualQuantity: 1000,
+        scrapQuantity: 10,
+      }),
+    ]);
+    expect(totals.actualKg).toBe(10);
+    expect(totals.actualUnits).toBe(1000);
+    expect(totals.partRejectKg).toBe(0.1);
+    expect(totals.partRejectUnits).toBe(10);
+    expect(totals.dominantUom).toBe('PCS');
   });
 
   it('counts rows whose UOM cannot become KG', () => {

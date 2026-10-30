@@ -1532,33 +1532,37 @@ const EntryList: React.FC = () => {
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(16);
         doc.setTextColor(15, 23, 42);
-        doc.text(model.title, marginLeft, 30);
+        doc.text(model.title, marginLeft, 28);
         doc.setFontSize(11);
         doc.setTextColor(29, 78, 216);
-        doc.text(model.divisionLabel, marginLeft, 45);
+        doc.text(model.divisionLabel, marginLeft, 43);
 
-        // FAR RIGHT first: the stamp must always fit, so the left run yields
-        // the shift before the entry counts if the two would collide.
-        const stamp = [model.dateLabel, model.generatedLabel].filter(Boolean).join('   ·   ');
-        const stampW = stamp ? doc.getTextWidth(stamp) : 0;
-        let bits = [model.shiftLabel, model.metaLine].filter(Boolean) as string[];
-        if (stamp) {
-          const leftW = () => doc.getTextWidth(bits.join('   ·   '));
-          while (bits.length > 1 && leftW() + 14 + stampW > contentWidth) bits = bits.slice(1);
-        }
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(9);
         doc.setTextColor(71, 85, 105);
-        if (bits.length) doc.text(bits.join('   ·   '), marginLeft, 60);
-        if (stamp) {
+        if (model.metaLine) doc.text(model.metaLine, marginLeft, 58);
+
+        // TOP RIGHT: Date on top, Shift in middle, Generated timestamp below
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9.5);
+        doc.setTextColor(15, 23, 42);
+        if (model.dateLabel) doc.text(model.dateLabel, pageWidth - marginRight, 28, { align: 'right' });
+
+        if (model.shiftLabel) {
           doc.setFont('helvetica', 'bold');
-          doc.setTextColor(15, 23, 42);
-          doc.text(stamp, pageWidth - marginRight, 60, { align: 'right' });
+          doc.setFontSize(9);
+          doc.setTextColor(29, 78, 216);
+          doc.text(model.shiftLabel, pageWidth - marginRight, 43, { align: 'right' });
         }
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8.5);
+        doc.setTextColor(71, 85, 105);
+        if (model.generatedLabel) doc.text(model.generatedLabel, pageWidth - marginRight, 58, { align: 'right' });
 
         doc.setDrawColor(15, 23, 42);
         doc.setLineWidth(0.8);
-        doc.line(marginLeft, 70, pageWidth - marginRight, 70);
+        doc.line(marginLeft, 68, pageWidth - marginRight, 68);
       };
 
       const head = [model.columns.map((c) => c.label)];

@@ -144,14 +144,14 @@ const RejectionScrapDetails: React.FC<RejectionScrapDetailsProps> = ({ seed, bui
           testId="scrap-produced"
           label="Actual Produced"
           value={`${kgFixed(totals.actualKg)} KG`}
-          hint={`${formatNumber(totals.entries, 0)} entries`}
+          hint={`${formatNumber(totals.actualUnits, 0)} ${totals.dominantUom || 'PCS'} · ${formatNumber(totals.entries, 0)} entries`}
         />
         <MetricTile
           testId="part-reject"
           label="Part Reject"
           value={`${kgFixed(totals.partRejectKg)} KG`}
           tone={totals.partRejectKg > 0 ? '#f43f5e' : undefined}
-          hint="Product Rejection Pieces"
+          hint={`${formatNumber(totals.partRejectUnits, 0)} ${totals.dominantUom || 'PCS'} Rejection Parts`}
         />
         <MetricTile
           testId="process-scrap"
@@ -172,7 +172,7 @@ const RejectionScrapDetails: React.FC<RejectionScrapDetailsProps> = ({ seed, bui
           label="Top Defect Reason"
           value={topDefect ? topDefect.reason : 'None'}
           tone="#a855f7"
-          hint={topDefect ? `${topDefect.pct}% of total scrap (${kgFixed(topDefect.scrapKg)} KG)` : (unweighted > 0 ? `${unweighted} rows excluded` : 'Zero defect recorded')}
+          hint={topDefect ? `${topDefect.pct}% of total scrap (${kgFixed(topDefect.scrapKg)} KG · ${formatNumber(topDefect.units, 0)} ${totals.dominantUom || 'PCS'})` : (unweighted > 0 ? `${unweighted} rows excluded` : 'Zero defect recorded')}
         />
       </div>
 
@@ -229,7 +229,17 @@ const RejectionScrapDetails: React.FC<RejectionScrapDetailsProps> = ({ seed, bui
                       stroke="var(--theme-border, #cbd5e1)"
                     />
                     <ChartTooltip
-                      formatter={(val: unknown, name: unknown) => [`${kgFixed(Number(val))} KG`, String(name)]}
+                      formatter={(val: unknown, name: unknown, item: any) => {
+                        const payload = item?.payload || {};
+                        const n = String(name);
+                        if (n.includes('Actual Produced')) {
+                          return [`${kgFixed(Number(val))} KG (${formatNumber(payload.actualUnits || 0, 0)} Units)`, n];
+                        }
+                        if (n.includes('Part Reject')) {
+                          return [`${kgFixed(Number(val))} KG (${formatNumber(payload.partRejectUnits || 0, 0)} Units)`, n];
+                        }
+                        return [`${kgFixed(Number(val))} KG`, n];
+                      }}
                       contentStyle={{
                         background: 'var(--theme-surface, #1e293b)',
                         borderColor: 'var(--theme-border, #334155)',
@@ -393,7 +403,8 @@ const RejectionScrapDetails: React.FC<RejectionScrapDetailsProps> = ({ seed, bui
                     formatter={(val: unknown, name: unknown, item: any) => {
                       const payload = item?.payload || {};
                       const label = name === 'partRejectKg' ? 'Part Reject' : (name === 'processScrapKg' ? 'Process Scrap' : String(name));
-                      return [`${kgFixed(Number(val))} KG (Total: ${kgFixed(payload.scrapKg || 0)} KG | ${formatNumber(payload.wastagePct || 0, 2)}%)`, label];
+                      const units = name === 'partRejectKg' ? ` (${formatNumber(payload.partRejectUnits || 0, 0)} ${payload.primaryUom || 'Units'})` : '';
+                      return [`${kgFixed(Number(val))} KG${units} (Total: ${kgFixed(payload.scrapKg || 0)} KG | ${formatNumber(payload.wastagePct || 0, 2)}%)`, label];
                     }}
                     contentStyle={{
                       background: 'var(--theme-surface, #1e293b)',
@@ -444,7 +455,8 @@ const RejectionScrapDetails: React.FC<RejectionScrapDetailsProps> = ({ seed, bui
                     formatter={(val: unknown, name: unknown, item: any) => {
                       const payload = item?.payload || {};
                       const label = name === 'partRejectKg' ? 'Part Reject' : (name === 'processScrapKg' ? 'Process Scrap' : 'Total Scrap');
-                      return [`${kgFixed(Number(val))} KG (Total: ${kgFixed(payload.scrapKg || 0)} KG)`, label];
+                      const units = name === 'partRejectKg' ? ` (${formatNumber(payload.partRejectUnits || 0, 0)} ${payload.primaryUom || 'PCS'})` : '';
+                      return [`${kgFixed(Number(val))} KG${units} (Total: ${kgFixed(payload.scrapKg || 0)} KG)`, label];
                     }}
                     contentStyle={{
                       background: 'var(--theme-surface, #1e293b)',
@@ -476,11 +488,11 @@ const RejectionScrapDetails: React.FC<RejectionScrapDetailsProps> = ({ seed, bui
             <thead>
               <tr>
                 <th style={{ ...thHead, textAlign: 'left', width: '22%' }}>Machine / Product</th>
-                <th style={{ ...thHead, textAlign: 'left', width: '13%' }}>Department</th>
-                <th style={{ ...thHead, textAlign: 'right', width: '13%' }}>Output (KG)</th>
-                <th style={{ ...thHead, textAlign: 'right', width: '13%', color: '#f43f5e' }}>Part Reject (KG)</th>
-                <th style={{ ...thHead, textAlign: 'right', width: '13%', color: '#0ea5e9' }}>Process Scrap (KG)</th>
-                <th style={{ ...thHead, textAlign: 'right', width: '13%' }}>Total Scrap (KG)</th>
+                <th style={{ ...thHead, textAlign: 'left', width: '12%' }}>Department</th>
+                <th style={{ ...thHead, textAlign: 'right', width: '14%' }}>Output (KG &amp; Units)</th>
+                <th style={{ ...thHead, textAlign: 'right', width: '14%', color: '#f43f5e' }}>Part Reject</th>
+                <th style={{ ...thHead, textAlign: 'right', width: '12%', color: '#0ea5e9' }}>Process Scrap</th>
+                <th style={{ ...thHead, textAlign: 'right', width: '13%' }}>Total Scrap</th>
                 <th style={{ ...thHead, textAlign: 'left', width: '13%' }}>Defect Reason</th>
               </tr>
             </thead>
@@ -501,12 +513,20 @@ const RejectionScrapDetails: React.FC<RejectionScrapDetailsProps> = ({ seed, bui
                     <td style={labelCellStyle}>
                       <Tag color="cyan" style={{ fontSize: 10.5, margin: 0 }}>{m.department}</Tag>
                     </td>
-                    <td style={{ ...numCellStyle, textAlign: 'right' }}>{kgFixed(m.actualKg)}</td>
+                    <td style={{ ...numCellStyle, textAlign: 'right' }}>
+                      <div>{kgFixed(m.actualKg)} KG</div>
+                      <div style={{ fontSize: 10.5, color: 'var(--theme-text-muted, #94a3b8)' }}>
+                        {formatNumber(m.actualUnits, 0)} {m.uomCode}
+                      </div>
+                    </td>
                     <td style={{ ...numCellStyle, textAlign: 'right', color: m.partRejectKg > 0 ? '#f43f5e' : 'var(--theme-text-muted, #94a3b8)', fontWeight: m.partRejectKg > 0 ? 600 : 400 }}>
-                      {kgFixed(m.partRejectKg)}
+                      <div>{kgFixed(m.partRejectKg)} KG</div>
+                      <div style={{ fontSize: 10.5, opacity: 0.9 }}>
+                        {formatNumber(m.partRejectUnits, 0)} {m.uomCode}
+                      </div>
                     </td>
                     <td style={{ ...numCellStyle, textAlign: 'right', color: m.processScrapKg > 0 ? '#0ea5e9' : 'var(--theme-text-muted, #94a3b8)', fontWeight: m.processScrapKg > 0 ? 600 : 400 }}>
-                      {kgFixed(m.processScrapKg)}
+                      {kgFixed(m.processScrapKg)} KG
                     </td>
                     <td
                       style={{
@@ -516,7 +536,7 @@ const RejectionScrapDetails: React.FC<RejectionScrapDetailsProps> = ({ seed, bui
                         fontWeight: 700,
                       }}
                     >
-                      {kgFixed(m.scrapKg)}
+                      {kgFixed(m.scrapKg)} KG
                       <div
                         style={{
                           fontSize: 10.5,
@@ -555,7 +575,7 @@ const RejectionScrapDetails: React.FC<RejectionScrapDetailsProps> = ({ seed, bui
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
             <thead>
               <tr>
-                {['Department', 'Entries', 'Produced KG', 'Part Reject (KG)', 'Process Scrap (KG)', 'Total Scrap (KG)', 'Wastage Rate', 'Downtime'].map((h, i) => (
+                {['Department', 'Entries', 'Produced (KG & Units)', 'Part Reject', 'Process Scrap', 'Total Scrap', 'Wastage Rate', 'Downtime'].map((h, i) => (
                   <th
                     key={h}
                     style={{
@@ -597,12 +617,20 @@ const RejectionScrapDetails: React.FC<RejectionScrapDetailsProps> = ({ seed, bui
                       <b style={{ color: 'var(--theme-text, #f1f5f9)' }}>{d.department}</b>
                     </td>
                     <td style={{ ...numCellStyle, textAlign: 'right' }}>{formatNumber(d.entries, 0)}</td>
-                    <td style={{ ...numCellStyle, textAlign: 'right' }}>{kgFixed(d.actualKg)}</td>
+                    <td style={{ ...numCellStyle, textAlign: 'right' }}>
+                      <div>{kgFixed(d.actualKg)} KG</div>
+                      <div style={{ fontSize: 10.5, color: 'var(--theme-text-muted, #94a3b8)' }}>
+                        {formatNumber(d.actualUnits, 0)} {d.primaryUom}
+                      </div>
+                    </td>
                     <td style={{ ...numCellStyle, textAlign: 'right', color: d.partRejectKg > 0 ? '#f43f5e' : 'var(--theme-text-muted, #94a3b8)', fontWeight: d.partRejectKg > 0 ? 600 : 400 }}>
-                      {kgFixed(d.partRejectKg)}
+                      <div>{kgFixed(d.partRejectKg)} KG</div>
+                      <div style={{ fontSize: 10.5, opacity: 0.9 }}>
+                        {formatNumber(d.partRejectUnits, 0)} {d.primaryUom}
+                      </div>
                     </td>
                     <td style={{ ...numCellStyle, textAlign: 'right', color: d.processScrapKg > 0 ? '#0ea5e9' : 'var(--theme-text-muted, #94a3b8)', fontWeight: d.processScrapKg > 0 ? 600 : 400 }}>
-                      {kgFixed(d.processScrapKg)}
+                      {kgFixed(d.processScrapKg)} KG
                     </td>
                     <td
                       style={{
@@ -612,13 +640,14 @@ const RejectionScrapDetails: React.FC<RejectionScrapDetailsProps> = ({ seed, bui
                         color: d.scrapKg > 0 ? 'var(--theme-danger, #ef4444)' : 'var(--theme-text-muted, #94a3b8)',
                       }}
                     >
-                      {kgFixed(d.scrapKg)}
+                      {kgFixed(d.scrapKg)} KG
                     </td>
                     <td
                       style={{
                         ...numCellStyle,
                         textAlign: 'right',
                         color: d.wastagePct > 0 ? 'var(--theme-warning, #f59e0b)' : 'var(--theme-text-muted, #94a3b8)',
+                        fontWeight: 600,
                       }}
                     >
                       {formatNumber(d.wastagePct, 2)}%

@@ -263,64 +263,63 @@ describe('Multi-item exports — Excel (CSV) flat rows', () => {
   // REPLACED, never emitted alongside its children.
   it('turns one 3-item entry into 3 independent consecutive rows', () => {
     expect(dataRows).toHaveLength(6);
-    expect(dataRows.slice(2, 5).map((r) => cell(r, 5).replace(/\n/g, ' ')))
+    expect(dataRows.slice(2, 5).map((r) => cell(r, 4).replace(/\n/g, ' ')))
       .toEqual(['"Spoke 40T SP-40"', '"Spoke 50T SP-50"', '"Spoke 60T SP-60"']);
   });
 
-  it('duplicates machine, operator, shift and runtime across every row', () => {
+  it('duplicates machine, operator and runtime across every row', () => {
     const block = dataRows.slice(2, 5);
-    expect(block.map((r) => cell(r, 2))).toEqual(['SPK-02', 'SPK-02', 'SPK-02']);
-    expect(block.map((r) => cell(r, 4))).toEqual(['OP-1', 'OP-1', 'OP-1']);
-    expect(block.map((r) => cell(r, 1))).toEqual(block.map(() => cell(block[0], 1)));
-    expect(block.map((r) => cell(r, 10))).toEqual(block.map(() => cell(block[0], 10)));
+    expect(block.map((r) => cell(r, 1))).toEqual(['SPK-02', 'SPK-02', 'SPK-02']);
+    expect(block.map((r) => cell(r, 3))).toEqual(['OP-1', 'OP-1', 'OP-1']);
+    expect(block.map((r) => cell(r, 9))).toEqual(block.map(() => cell(block[0], 9)));
   });
 
   it('swaps the per-part pieces, weight and UOM row by row', () => {
     const block = dataRows.slice(2, 5);
-    expect(block.map((r) => cell(r, 7))).toEqual(['300', '200', '100']);
-    expect(block.map((r) => cell(r, 9))).toEqual([
+    expect(block.map((r) => cell(r, 6))).toEqual(['300', '200', '100']);
+    expect(block.map((r) => cell(r, 8))).toEqual([
       '"0.05\n15"', '"0.06\n12"', '"0.07\n7"',
     ]);
-    expect(block.map((r) => cell(r, 13))).toEqual(['PCS', 'PCS', 'PCS']);
+    expect(block.map((r) => cell(r, 12))).toEqual(['PCS', 'PCS', 'PCS']);
   });
 
   it('keeps TARGET on the first row only, so the column still sums correctly', () => {
     const block = dataRows.slice(2, 5);
-    expect(block.map((r) => cell(r, 6))).toEqual(['1000', '', '']);
-    expect(block.reduce((sum, r) => sum + Number(cell(r, 6) || 0), 0)).toBe(1000);
+    expect(block.map((r) => cell(r, 5))).toEqual(['1000', '', '']);
+    expect(block.reduce((sum, r) => sum + Number(cell(r, 5) || 0), 0)).toBe(1000);
   });
 
   it('carries the ENTRY scrap on the lead row so no rejected stock is lost', () => {
     const lead = dataRows[2];
-    expect(cell(lead, 11)).toContain('0.6'); // 12 PCS × 0.05
+    expect(cell(lead, 10)).toContain('0.6'); // 12 PCS × 0.05
     const twoItemLead = dataRows[0];
-    expect(cell(twoItemLead, 11)).toContain('0.0044'); // 0.4182 × 0.01049
+    expect(cell(twoItemLead, 10)).toContain('0.0044'); // 0.4182 × 0.01049
   });
 
   it('sums back to the document totals (no double counting, nothing dropped)', () => {
-    const sumActual = dataRows.reduce((s, r) => s + Number(cell(r, 7)), 0);
-    const sumTarget = dataRows.reduce((s, r) => s + Number(cell(r, 6) || 0), 0);
+    const sumActual = dataRows.reduce((s, r) => s + Number(cell(r, 6)), 0);
+    const sumTarget = dataRows.reduce((s, r) => s + Number(cell(r, 5) || 0), 0);
     expect(sumActual).toBe(25400 + 600 + 1000);
     expect(sumTarget).toBe(30240 + 1000 + 1000);
   });
 
   it('emits exactly ONE row for a single-item document', () => {
-    const single = dataRows.filter((r) => cell(r, 2) === 'SPK-03');
+    const single = dataRows.filter((r) => cell(r, 1) === 'SPK-03');
     expect(single).toHaveLength(1);
-    expect(cell(single[0], 7)).toBe('1000');
+    expect(cell(single[0], 6)).toBe('1000');
   });
 
   it('keeps the department total rows unchanged by the expansion', () => {
     // One shift total + one department grand total per department — the
     // expansion adds DATA rows, never extra totals.
-    expect(lines.filter((l) => l.includes('TOTAL — Straightener'))).toHaveLength(2);
-    expect(lines.filter((l) => l.includes('TOTAL — Spoke'))).toHaveLength(2);
+    expect(lines.filter((l) => l.includes('TOTAL') && l.includes('Straightener'))).toHaveLength(2);
+    expect(lines.filter((l) => l.includes('TOTAL') && l.includes('Spoke'))).toHaveLength(2);
 
     // …and each total still counts the document ONCE, not once per part.
-    const dayTotal = lines.find((l) => l.startsWith('DAY SHIFT TOTAL — Straightener'))!;
-    expect(cell(dayTotal, 6)).toBe('30240'); // Σ Target, not 2 × 30,240
-    expect(cell(dayTotal, 7)).toBe('25400'); // Σ Actual, not 2 rows summed
-    expect(cell(dayTotal, 9)).toContain('257.918'); // the rolled-up KG
+    const dayTotal = lines.find((l) => l.startsWith('DAY SHIFT TOTAL') && l.includes('Straightener'))!;
+    expect(cell(dayTotal, 5)).toBe('30240'); // Σ Target, not 2 × 30,240
+    expect(cell(dayTotal, 6)).toBe('25400'); // Σ Actual, not 2 rows summed
+    expect(cell(dayTotal, 8)).toContain('257.918'); // the rolled-up KG
   });
 });
 

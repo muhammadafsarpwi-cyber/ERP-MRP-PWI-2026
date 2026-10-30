@@ -335,6 +335,7 @@ const EntryForm: React.FC<EntryFormProps> = ({
   // When KG is active, KG is editable and Pieces is read-only.
   // When PCS is active, Pieces is editable and KG is read-only.
   const [rejectionUnit, setRejectionUnit] = useState<'KG' | 'PCS' | 'M'>('KG');
+  const userSelectedRejectionUnitRef = useRef(false);
   const [rejectionRows, setRejectionRows] = useState<Array<{ id: string; kg: number | null; pcs: number | null; reason: string }>>([
     { id: 'rej-1', kg: null, pcs: null, reason: '' },
   ]);
@@ -978,17 +979,55 @@ const EntryForm: React.FC<EntryFormProps> = ({
         const loadedScrap = toNum(e.scrapQuantity);
         const loadedReason = extractRejectionRemarks(e.remarks) || '';
         if (loadedScrap > 0 || loadedReason) {
-          const itemW = toNum((e as any).item?.weightPerPiece);
-          const effW = itemW > 0 ? itemW : 1.0;
-          const calcPcs = Math.round((loadedScrap / effW) * 100) / 100;
-          setRejectionRows([
-            {
-              id: 'rej-init',
-              kg: loadedScrap > 0 ? loadedScrap : null,
-              pcs: calcPcs > 0 ? calcPcs : null,
-              reason: loadedReason,
-            },
-          ]);
+          const itmObj = (e as any).item || lookups.items.find((i) => i.id === e.itemId);
+          const uomObj = (e as any).uom || lookups.uoms.find((u) => u.id === e.uomId) || itmObj?.baseUom;
+          const uCode = (uomObj?.code || '').toUpperCase().trim();
+          const uType = (uomObj?.type || uomObj?.uomType || '').toUpperCase().trim();
+          const itmWpm = toNum(itmObj?.weightPerMeter);
+          const itmWpp = toNum(itmObj?.weightPerPiece);
+          const itmPpk = toNum(itmObj?.piecesPerKg);
+
+          const isM = itmWpm > 0 || uType === 'LENGTH' || ['M', 'METER', 'METERS', 'MTR'].includes(uCode);
+          const isPcs = !isM && (itmWpp > 0 || itmPpk > 0 || uType === 'COUNT' || ['PCS', 'PC', 'EA', 'NOS'].includes(uCode));
+
+          if (isPcs) {
+            setRejectionUnit('PCS');
+            userSelectedRejectionUnitRef.current = true;
+            const piecesVal = Math.round(loadedScrap);
+            const wpp = itmWpp > 0 ? itmWpp : (itmPpk > 0 ? 1 / itmPpk : 0);
+            const kgVal = wpp > 0 ? Math.round(piecesVal * wpp * 10000) / 10000 : null;
+            setRejectionRows([
+              {
+                id: 'rej-init',
+                kg: kgVal,
+                pcs: piecesVal > 0 ? piecesVal : null,
+                reason: loadedReason,
+              },
+            ]);
+          } else if (isM) {
+            setRejectionUnit('M');
+            userSelectedRejectionUnitRef.current = true;
+            const kgVal = itmWpm > 0 ? Math.round(loadedScrap * itmWpm * 10000) / 10000 : null;
+            setRejectionRows([
+              {
+                id: 'rej-init',
+                kg: kgVal,
+                pcs: loadedScrap > 0 ? loadedScrap : null,
+                reason: loadedReason,
+              },
+            ]);
+          } else {
+            setRejectionUnit('KG');
+            userSelectedRejectionUnitRef.current = true;
+            setRejectionRows([
+              {
+                id: 'rej-init',
+                kg: loadedScrap > 0 ? loadedScrap : null,
+                pcs: null,
+                reason: loadedReason,
+              },
+            ]);
+          }
         }
       } catch (err) {
         console.error('ENTRY_LOAD_ERROR:', err);
@@ -1775,8 +1814,8 @@ const EntryForm: React.FC<EntryFormProps> = ({
 
   const totalRejectionPcs = useMemo(() => {
     const sum = rejectionRows.reduce((acc, r) => acc + (toNum(r.pcs)), 0);
-    return Math.round(sum * 100) / 100;
-  }, [rejectionRows]);
+    return isMeterBased ? Math.round(sum * 100) / 100 : Math.round(sum);
+  }, [rejectionRows, isMeterBased]);
 
   // Sync canonical AntD form fields whenever rejection rows change
   const syncFormRejection = useCallback((rows: Array<{ id: string; kg: number | null; pcs: number | null; reason: string }>) => {
@@ -1821,40 +1860,21 @@ const EntryForm: React.FC<EntryFormProps> = ({
   }, [fgMetricFactor, isMeterBased, syncFormRejection]);
 
   const handleRowPcsChange = useCallback((id: string, val: number | null) => {
-    const pcs = val === null ? null : Math.max(0, Number(val) || 0);
+    const rawVal = val === null ? null : Math.max(0, Number(val) || 0);
+    const pcs = rawVal === null ? null : (isMeterBased ? Math.round(rawVal * 100) / 100 : Math.round(rawVal));
     setRejectionRows((prev) => {
       const updated = prev.map((r) => {
         if (r.id !== id) return r;
         const derivedKg = (pcs !== null && fgMetricFactor > 0)
-          ? (Math.round(pcs * fgMetricFactor * 1000) / 1000)
+          ? (Math.round(pcs * fgMetricFactor * 10000) / 10000)
           : null;
         return { ...r, pcs, kg: derivedKg };
       });
       syncFormRejection(updated);
       return updated;
     });
-  }, [fgMetricFactor, syncFormRejection]);
+  }, [fgMetricFactor, isMeterBased, syncFormRejection]);
 
-  // Auto-recalculate bracketed secondary unit yield if item conversion metric factor updates
-  useEffect(() => {
-    if (fgMetricFactor > 0) {
-      setRejectionRows((prev) => {
-        let changed = false;
-        const updated = prev.map((r) => {
-          if (r.kg === null || r.kg === undefined) return r;
-          const derivedSec = isMeterBased
-            ? Math.round((r.kg / fgMetricFactor) * 100) / 100
-            : Math.round(r.kg / fgMetricFactor);
-          if (r.pcs !== derivedSec) {
-            changed = true;
-            return { ...r, pcs: derivedSec };
-          }
-          return r;
-        });
-        return changed ? updated : prev;
-      });
-    }
-  }, [fgMetricFactor, isMeterBased]);
 
   const handleRowReasonChange = useCallback((id: string, reason: string) => {
     setRejectionRows((prev) => {
@@ -1886,45 +1906,67 @@ const EntryForm: React.FC<EntryFormProps> = ({
   }, [syncFormRejection]);
 
   const handleRejectionUnitToggle = useCallback((next: 'KG' | 'PCS' | 'M') => {
+    userSelectedRejectionUnitRef.current = true;
     setRejectionUnit(next);
     setRejectionRows((prev) => {
       const updated = prev.map((r) => {
-        if (next === 'KG' && r.pcs !== null && r.pcs > 0 && (r.kg === null || r.kg === 0)) {
-          return { ...r, kg: Math.round(r.pcs * fgMetricFactor * 10000) / 10000 };
-        }
-        if (next !== 'KG' && r.kg !== null && r.kg > 0 && (r.pcs === null || r.pcs === 0)) {
-          return { ...r, pcs: Math.round((r.kg / fgMetricFactor) * 100) / 100 };
+        if (next === 'KG') {
+          if (r.pcs !== null && r.pcs > 0) {
+            return { ...r, kg: Math.round(r.pcs * fgMetricFactor * 10000) / 10000 };
+          }
+        } else {
+          if (r.kg !== null && r.kg > 0) {
+            const derivedPcs = isMeterBased
+              ? Math.round((r.kg / fgMetricFactor) * 100) / 100
+              : Math.round(r.kg / fgMetricFactor);
+            return { ...r, pcs: derivedPcs };
+          }
         }
         return r;
       });
       syncFormRejection(updated);
       return updated;
     });
-  }, [fgMetricFactor, syncFormRejection]);
+  }, [fgMetricFactor, isMeterBased, syncFormRejection]);
 
-  // Keep rejection unit aligned if item unit switches
+  // Keep rejection unit aligned if item unit switches and operator hasn't explicitly chosen one
   useEffect(() => {
-    if (rejectionUnit !== 'KG') {
-      setRejectionUnit(isMeterBased ? 'M' : 'PCS');
+    if (!userSelectedRejectionUnitRef.current) {
+      if (isMeterBased) setRejectionUnit('M');
+      else if (isPieceBased) setRejectionUnit('PCS');
+      else setRejectionUnit('KG');
     }
-  }, [isMeterBased]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isMeterBased, isPieceBased]);
 
   // If item master per-piece or per-meter weight changes, re-derive peer unit values
   useEffect(() => {
-    setRejectionRows((prev) => {
-      const updated = prev.map((r) => {
-        if (rejectionUnit === 'KG' && r.kg !== null && r.kg > 0) {
-          return { ...r, pcs: Math.round((r.kg / fgMetricFactor) * 100) / 100 };
-        }
-        if (rejectionUnit !== 'KG' && r.pcs !== null && r.pcs > 0) {
-          return { ...r, kg: Math.round(r.pcs * fgMetricFactor * 10000) / 10000 };
-        }
-        return r;
+    if (fgMetricFactor > 0) {
+      setRejectionRows((prev) => {
+        let changed = false;
+        const updated = prev.map((r) => {
+          if (rejectionUnit === 'KG') {
+            if (r.kg === null || r.kg === undefined) return r;
+            const derivedSec = isMeterBased
+              ? Math.round((r.kg / fgMetricFactor) * 100) / 100
+              : Math.round(r.kg / fgMetricFactor);
+            if (r.pcs !== derivedSec) {
+              changed = true;
+              return { ...r, pcs: derivedSec };
+            }
+          } else {
+            if (r.pcs === null || r.pcs === undefined) return r;
+            const derivedKg = Math.round(r.pcs * fgMetricFactor * 10000) / 10000;
+            if (r.kg !== derivedKg) {
+              changed = true;
+              return { ...r, kg: derivedKg };
+            }
+          }
+          return r;
+        });
+        return changed ? updated : prev;
       });
-      syncFormRejection(updated);
-      return updated;
-    });
-  }, [fgMetricFactor]); // eslint-disable-line react-hooks/exhaustive-deps
+    }
+  }, [fgMetricFactor, isMeterBased, rejectionUnit]);
 
   const rejectionHint = `1 ${secondaryUnitLabel} = ${formatNumber(fgMetricFactor, 4)} KG — ${
     rejectionUnit === 'KG'
@@ -3894,6 +3936,7 @@ const EntryForm: React.FC<EntryFormProps> = ({
                                   controls={false}
                                   style={{ width: '100%', height: 38, fontWeight: 700 }}
                                   min={0}
+                                  precision={isMeterBased ? 2 : 0}
                                   step={isMeterBased ? 0.1 : 1}
                                   placeholder="0"
                                   addonAfter={secondaryUnitLabel}

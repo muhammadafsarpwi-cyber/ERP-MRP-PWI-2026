@@ -414,7 +414,6 @@ export function tightColumnClass(key: ReportColumnKey): string {
  *  The columns ALWAYS total 100 (asserted by dailyProductionReport.test.ts). */
 const BASE_COLUMNS: ReportColumn[] = [
   { key: 'sr', label: 'Sr. #', align: 'center', width: 3.5 },
-  { key: 'shift', label: 'Shift', align: 'left', width: 8.5 },
   { key: 'machine', label: 'Machine', align: 'left', width: 4.5 },
   { key: 'ot', label: 'OT (H)', align: 'right', width: 4 },
   { key: 'operator', label: 'Operator', align: 'left', width: 6 },
@@ -425,7 +424,7 @@ const BASE_COLUMNS: ReportColumn[] = [
   { key: 'weight', label: 'WEIGHT (KG)', align: 'right', width: 9.5 },
   { key: 'status', label: 'Breakdown Reason / Status', align: 'left', width: 9 },
   { key: 'rejectionScrap', label: 'REJECTION / SCRAP', align: 'right', width: 8.5 },
-  { key: 'remarks', label: 'Remarks', align: 'left', width: 9 },
+  { key: 'remarks', label: 'Remarks', align: 'left', width: 17.5 },
 ];
 
 const DATE_COLUMN: ReportColumn = { key: 'date', label: 'Date', align: 'center', width: 6 };
@@ -436,11 +435,11 @@ const DATE_COLUMN: ReportColumn = { key: 'date', label: 'Date', align: 'center',
 function buildColumns(showDate: boolean): ReportColumn[] {
   if (!showDate) return BASE_COLUMNS.map((c) => ({ ...c }));
   const narrower: Partial<Record<ReportColumnKey, number>> = {
-    item: 12,
+    item: 13,
     operator: 5,
     status: 8,
-    rejectionScrap: 7.5,
-    remarks: 8,
+    rejectionScrap: 8,
+    remarks: 15,
   };
   return [
     ...BASE_COLUMNS.map((c) => (narrower[c.key] != null ? { ...c, width: narrower[c.key]! } : { ...c })),
@@ -1287,8 +1286,9 @@ function resolveDateLabel(opts: ReportOptions, dates: string[]): string {
 /* ------------------------------------------------------------------ *
  * Summary labels + blocks (identical wording on print / PDF / Excel)
  * ------------------------------------------------------------------ */
-export function shiftTotalLabel(kind: ShiftKind, department: string): string {
-  return `${kind === 'DAY' ? 'DAY' : 'NIGHT'} SHIFT TOTAL — ${department}`;
+export function shiftTotalLabel(kind: ShiftKind, department: string, shiftName?: string): string {
+  const shiftPart = shiftName ? ` (${shiftName})` : '';
+  return `${kind === 'DAY' ? 'DAY' : 'NIGHT'} SHIFT TOTAL${shiftPart} — ${department}`;
 }
 
 export function departmentTotalLabel(department: string): string {
@@ -1306,12 +1306,16 @@ export function grandTotalLabel(sectionCount: number): string {
  */
 export function sectionBlocks(section: ReportSection): ReportBlock[] {
   return [
-    ...section.shiftGroups.map((group) => ({
-      kind: 'shift' as const,
-      label: shiftTotalLabel(group.kind, section.name),
-      lines: group.lines,
-      totals: group.totals,
-    })),
+    ...section.shiftGroups.map((group) => {
+      const shiftNames = [...new Set(group.lines.map((l) => l.shift).filter((s) => s && s !== '-'))];
+      const shiftName = shiftNames.length > 0 ? shiftNames.join(', ') : '';
+      return {
+        kind: 'shift' as const,
+        label: shiftTotalLabel(group.kind, section.name, shiftName),
+        lines: group.lines,
+        totals: group.totals,
+      };
+    }),
     {
       kind: 'department' as const,
       label: departmentTotalLabel(section.name),
@@ -1634,8 +1638,10 @@ const PRINT_CSS = `
   .rp-meta { font-size: 11px; color: #475569; margin-top: 4px; display: flex; gap: 16px;
              flex-wrap: wrap; justify-content: space-between; align-items: baseline; }
   .rp-meta-left { display: flex; gap: 16px; flex-wrap: wrap; }
-  .rp-meta-stamp { display: flex; gap: 14px; margin-left: auto; text-align: right;
-                   font-weight: 600; color: #0f172a; }
+  .rp-meta-stamp { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; margin-left: auto; text-align: right; }
+  .rp-stamp-date { font-weight: 700; color: #0f172a; font-size: 11px; white-space: nowrap; }
+  .rp-stamp-shift { font-weight: 700; color: #1e40af; font-size: 11px; white-space: nowrap; }
+  .rp-stamp-gen { font-weight: 500; color: #64748b; font-size: 10px; white-space: nowrap; }
   .rp-meta span { white-space: nowrap; }
   .rp-dept { break-inside: avoid; page-break-inside: avoid; margin-bottom: 12px; }
   .rp-dept-head { display: flex; justify-content: space-between; gap: 12px;
@@ -2241,12 +2247,12 @@ export function buildPrintHtml(model: DailyProductionReport): string {
     <div class="rp-division">${escapeHtml(model.divisionLabel)}</div>
     <div class="rp-meta">
       <div class="rp-meta-left">
-        ${model.shiftLabel ? `<span>${escapeHtml(model.shiftLabel)}</span>` : ''}
         <span>${escapeHtml(model.metaLine)}</span>
       </div>
       <div class="rp-meta-stamp">
-        <span>${escapeHtml(model.dateLabel)}</span>
-        <span>${escapeHtml(model.generatedLabel)}</span>
+        <span class="rp-stamp-date">${escapeHtml(model.dateLabel)}</span>
+        ${model.shiftLabel ? `<span class="rp-stamp-shift">${escapeHtml(model.shiftLabel)}</span>` : ''}
+        <span class="rp-stamp-gen">${escapeHtml(model.generatedLabel)}</span>
       </div>
     </div>
   </header>

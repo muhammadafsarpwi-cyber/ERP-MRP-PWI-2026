@@ -600,32 +600,14 @@ export const EntryDetail: React.FC<EntryDetailProps> = ({
   if (outputItemLines.length > 0) {
     for (const line of outputItemLines) {
       const lineItem = line.item || entry.item;
-      const lUom = line.uom?.code || entry.uom?.code || '';
       const lGood = toNum(line.actualQuantity);
       const lScrap = toNum(line.scrapQuantity);
-      if (rawUom === 'KG') {
-        const kgGood = calcActualKg(lUom, lGood, lineItem?.weightPerPiece, lineItem?.weightPerMeter);
-        calculatedRawDemand += (kgGood ?? lGood) + lScrap;
-      } else {
-        // Raw material is in PCS / other discrete units
-        const pcsScrap = (rawUom === 'PCS' && lineItem?.weightPerPiece && lineItem.weightPerPiece > 0)
-          ? Math.round((lScrap / lineItem.weightPerPiece) * 100) / 100
-          : 0;
-        calculatedRawDemand += lGood + pcsScrap;
-      }
+      const totalUnits = lGood + lScrap;
+      calculatedRawDemand += convertProductToComponentQty(totalUnits, lineItem, rawUom);
     }
   }
   if (calculatedRawDemand <= 0) {
-    const entryUom = entry.uom?.code || '';
-    if (rawUom === 'KG') {
-      const kgGood = calcActualKg(entryUom, goodQty, entry.item?.weightPerPiece, entry.item?.weightPerMeter);
-      calculatedRawDemand = (kgGood ?? goodQty) + scrapQty;
-    } else {
-      const pcsScrap = (rawUom === 'PCS' && entry.item?.weightPerPiece && entry.item.weightPerPiece > 0)
-        ? Math.round((scrapQty / entry.item.weightPerPiece) * 100) / 100
-        : 0;
-      calculatedRawDemand = goodQty + pcsScrap;
-    }
+    calculatedRawDemand = convertProductToComponentQty(goodQty + scrapQty, entry.item, rawUom);
   }
   calculatedRawDemand = Math.round(calculatedRawDemand * 10000) / 10000;
 
@@ -803,8 +785,17 @@ export const EntryDetail: React.FC<EntryDetailProps> = ({
       <Descriptions.Item label="Target Production">{formatNumber(entry.targetQuantity, 3)}</Descriptions.Item>
       <Descriptions.Item label="UOM">{entry.uom?.code}{entry.uom?.symbol ? ` (${entry.uom.symbol})` : ''}</Descriptions.Item>
       <Descriptions.Item label="Base UOM">{entry.item?.baseUom?.code ?? '—'}</Descriptions.Item>
-      <Descriptions.Item label="Actual Good Production"><Text strong>{formatNumber(entry.actualQuantity, 3)}</Text></Descriptions.Item>
-      <Descriptions.Item label="Product Rejection (KG)">{formatNumber(entry.scrapQuantity, 3)} KG</Descriptions.Item>
+      <Descriptions.Item label="Actual Good Production"><Text strong>{formatNumber(entry.actualQuantity, (entry.uom?.code === 'PCS' || entry.item?.baseUom?.code === 'PCS') ? 0 : 3)} {entry.uom?.code || ''}</Text></Descriptions.Item>
+      <Descriptions.Item label={`Product Rejection (${(entry.uom?.code === 'PCS' || entry.item?.baseUom?.code === 'PCS') ? 'PCS' : (entry.uom?.code === 'M' || entry.item?.baseUom?.code === 'M') ? 'M' : 'KG'})`}>
+        <Text strong>
+          {formatNumber(entry.scrapQuantity, (entry.uom?.code === 'PCS' || entry.item?.baseUom?.code === 'PCS') ? 0 : 3)} {(entry.uom?.code === 'PCS' || entry.item?.baseUom?.code === 'PCS') ? 'PCS' : (entry.uom?.code === 'M' || entry.item?.baseUom?.code === 'M') ? 'M' : 'KG'}
+        </Text>
+        {(entry.uom?.code === 'PCS' || entry.item?.baseUom?.code === 'PCS') && toNum(entry.item?.weightPerPiece) > 0 && toNum(entry.scrapQuantity) > 0 && (
+          <Text type="secondary" style={{ marginLeft: 6 }}>
+            ({formatNumber(toNum(entry.scrapQuantity) * toNum(entry.item?.weightPerPiece), 3)} KG)
+          </Text>
+        )}
+      </Descriptions.Item>
       <Descriptions.Item label="Process Cutting Scrap (KG)">{formatNumber(entry.processScrapKg ?? 0, 3)} KG</Descriptions.Item>
       <Descriptions.Item label="Running Hours">{formatNumber(effectiveRunning, 2)}h</Descriptions.Item>
       <Descriptions.Item label="Overtime Hours">{formatNumber(ot, 2)}h</Descriptions.Item>
@@ -1308,7 +1299,22 @@ export const EntryDetail: React.FC<EntryDetailProps> = ({
       <Row gutter={[8, 8]} style={{ marginBottom: 4 }}>
         <KpiCell label="Target" value={formatNumber(entry.targetQuantity, 3)} sub={entry.uom?.code} icon={<AimOutlined />} />
         <KpiCell label="Actual Good" value={formatNumber(entry.actualQuantity, 3)} sub={entry.uom?.code} icon={<AppstoreFilled />} />
-        <KpiCell label="Scrap" value={formatNumber(entry.scrapQuantity, 3)} sub="KG" accent={toNum(entry.scrapQuantity) > 0 ? 'warn' : undefined} icon={<DeleteFilled />} />
+        <KpiCell
+          label="Scrap"
+          value={formatNumber(entry.scrapQuantity, (entry.uom?.code === 'PCS' || entry.item?.baseUom?.code === 'PCS') ? 0 : 3)}
+          sub={(() => {
+            const isPcs = (entry.uom?.code === 'PCS' || entry.item?.baseUom?.code === 'PCS');
+            const isM = (entry.uom?.code === 'M' || entry.item?.baseUom?.code === 'M');
+            const sUom = isPcs ? 'PCS' : (isM ? 'M' : (entry.uom?.code || 'KG'));
+            const wpp = toNum(entry.item?.weightPerPiece);
+            if (isPcs && wpp > 0 && toNum(entry.scrapQuantity) > 0) {
+              return `${sUom} (${formatNumber(toNum(entry.scrapQuantity) * wpp, 3)} KG)`;
+            }
+            return sUom;
+          })()}
+          accent={toNum(entry.scrapQuantity) > 0 ? 'warn' : undefined}
+          icon={<DeleteFilled />}
+        />
         <KpiCell label="Achievement" value={<KpiPercentage value={ach} fontSize={16} fontWeight={700} />} sub="% of target" icon={<TrophyFilled />} />
         <KpiCell label="Efficiency" value={<KpiPercentage value={eff} fontSize={16} fontWeight={700} />} sub="% of shift" icon={<ThunderboltFilled />} />
         <KpiCell label="Running" value={`${formatNumber(effectiveRunning, 2)}h`} sub={planned != null ? `of ${formatNumber(planned, 2)}h` : undefined} icon={<ClockCircleFilled />} />
