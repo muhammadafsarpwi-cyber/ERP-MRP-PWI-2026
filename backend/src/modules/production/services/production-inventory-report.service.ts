@@ -544,13 +544,185 @@ export class ProductionInventoryReportService {
       }
     })();
 
-    const [ledgerRows, balanceRows, producedRows, requiredRows, masterItems, soDemandResult] = await Promise.all([
+    // Daily breakdown for multi-day rolling ledger windows ([dateFrom, dateTo]):
+    // Computes per-day stock_ledger and production_entry_items aggregates in a single
+    // database pass so the Item-Wise Production Ledger never truncates at 1,000 rows
+    // or drops intermediate days across 30 parallel requests.
+    const dailyBreakdownPromise = (async () => {
+      if (!start || !end || !filters.dateFrom || !filters.dateTo) return undefined;
+      try {
+        const [dailyLedgerRows, dailyProducedRows] = await Promise.all([
+          this.entryRepo.manager.query(
+            `SELECT
+              TO_CHAR(sl.transaction_date AT TIME ZONE $4, 'YYYY-MM-DD') as "day",
+              sl.item_id as "itemId",
+              COALESCE(SUM(CASE WHEN sl.direction = 'IN' AND sl.transaction_type <> 'PRODUCTION_SCRAP' THEN sl.quantity ELSE 0 END), 0) as "rangeIn",
+              COALESCE(SUM(CASE WHEN sl.direction = 'OUT' AND sl.transaction_type <> 'PRODUCTION_SCRAP' THEN sl.quantity ELSE 0 END), 0) as "rangeOut",
+              COALESCE(SUM(CASE WHEN sl.direction = 'OUT' AND sl.transaction_type IN ('PRODUCTION_CONSUMPTION', 'PRODUCTION_ISSUE') THEN sl.quantity ELSE 0 END), 0) as "consumed",
+              COALESCE(SUM(CASE WHEN sl.transaction_type = 'PRODUCTION_SCRAP' THEN sl.quantity ELSE 0 END), 0) as "scrapOut"
+            FROM stock_ledger sl
+            WHERE sl.company_id = $1
+              AND sl.item_id = ANY($2)
+              AND sl.transaction_date >= $3
+              AND sl.transaction_date < $5
+              AND (
+                UPPER(COALESCE(sl.reference_type, '')) <> 'PRODUCTION_ENTRY'
+                OR sl.reference_id IS NULL
+                OR (
+                  NOT EXISTS (
+                    SELECT 1 FROM production_entries pe_chk
+                    WHERE pe_chk.id = sl.reference_id
+                      AND (pe_chk.is_active = false OR pe_chk.deleted_at IS NOT NULL)
+                  )
+                  AND EXISTS (
+                    SELECT 1 FROM production_entries pe_rel
+                    LEFT JOIN production_entry_items pei_rel ON pei_rel.production_entry_id = pe_rel.id
+                    WHERE pe_rel.id = sl.reference_id
+                      AND (
+                        pe_rel.item_id = sl.item_id
+                        OR pei_rel.item_id = sl.item_id
+                        OR sl.transaction_type IN ('PRODUCTION_CONSUMPTION', 'PRODUCTION_ISSUE')
+                      )
+                  )
+                )
+              )
+            GROUP BY TO_CHAR(sl.transaction_date AT TIME ZONE $4, 'YYYY-MM-DD'), sl.item_id`,
+            [companyId, itemIds, start, timeZone, end],
+          ),
+          this.entryRepo.manager.query(
+            `SELECT
+              u."day" as "day",
+              u."itemId" as "itemId",
+              COALESCE(SUM(u."qty"), 0) as "produced"
+            FROM (
+              SELECT
+                pe.entry_date::text as "day",
+                pei.item_id as "itemId",
+                pei.actual_quantity as "qty"
+              FROM production_entries pe
+              INNER JOIN production_entry_items pei ON pei.production_entry_id = pe.id
+              WHERE pe.company_id = $1
+                AND pe.is_active = true
+                AND pe.deleted_at IS NULL
+                AND pei.company_id = $1
+                AND pei.entry_kind = $4
+                AND pei.item_id IS NOT NULL
+                AND pei.item_id = ANY($2)
+                AND pe.entry_date >= $3::date
+                AND pe.entry_date <= $5::date
+              UNION ALL
+              SELECT
+                pe.entry_date::text as "day",
+                pe.item_id as "itemId",
+                pe.actual_quantity as "qty"
+              FROM production_entries pe
+              WHERE pe.company_id = $1
+                AND pe.is_active = true
+                AND pe.deleted_at IS NULL
+                AND pe.item_id IS NOT NULL
+                AND pe.item_id = ANY($2)
+                AND pe.entry_date >= $3::date
+                AND pe.entry_date <= $5::date
+                AND NOT EXISTS (
+                  SELECT 1 FROM production_entry_items pei2
+                  WHERE pei2.production_entry_id = pe.id
+                    AND pei2.company_id = $1
+                    AND pei2.entry_kind = $4
+                )
+            ) u
+            GROUP BY u."day", u."itemId"`,
+            [companyId, itemIds, filters.dateFrom, ProductionEntryItemKind.OUTPUT, filters.dateTo],
+          ),
+        ]);
+        if (!Array.isArray(dailyLedgerRows) || !Array.isArray(dailyProducedRows)) return undefined;
+
+        const itemById = new Map(items.map((it) => [it.id, it]));
+        const slByDayItem = new Map<string, any>();
+        const daysSet = new Set<string>();
+        for (const r of dailyLedgerRows) {
+          if (r?.day && r?.itemId) {
+            daysSet.add(String(r.day));
+            slByDayItem.set(`${r.day}__${r.itemId}`, r);
+          }
+        }
+        const prodByDayItem = new Map<string, number>();
+        for (const r of dailyProducedRows) {
+          if (r?.day && r?.itemId) {
+            daysSet.add(String(r.day));
+            prodByDayItem.set(`${r.day}__${r.itemId}`, N(r.produced));
+          }
+        }
+
+        const breakdown: Record<
+          string,
+          Record<
+            string,
+            {
+              totalIn: number;
+              totalOut: number;
+              consumed: number;
+              scrapOut: number;
+              produced: number;
+            }
+          >
+        > = {};
+
+        for (const day of daysSet) {
+          const dayMap: Record<
+            string,
+            {
+              totalIn: number;
+              totalOut: number;
+              consumed: number;
+              scrapOut: number;
+              produced: number;
+            }
+          > = {};
+          for (const [id, item] of itemById.entries()) {
+            const sl = slByDayItem.get(`${day}__${id}`);
+            const prod = prodByDayItem.get(`${day}__${id}`);
+            if (!sl && prod === undefined) continue;
+
+            const codeUpper = (item.itemCode || '').toUpperCase();
+            const isSpokePlating =
+              codeUpper.startsWith('WIP-SPL') ||
+              codeUpper.startsWith('NIP-SPL') ||
+              (item.section?.name || '').toLowerCase().includes('plating');
+
+            const rangeIn = N(sl?.rangeIn);
+            const rangeOut = N(sl?.rangeOut);
+            const hpOutflow = N(sl?.consumed);
+            const scrapQty = N(sl?.scrapOut);
+            const producedQty = N(prod);
+
+            const actualInbound = isSpokePlating && producedQty > 0 ? producedQty : rangeIn;
+            const actualOutflow =
+              isSpokePlating && (hpOutflow > 0 || scrapQty > 0) ? hpOutflow + scrapQty : rangeOut;
+
+            dayMap[item.itemCode] = {
+              totalIn: R4(actualInbound),
+              totalOut: R4(actualOutflow),
+              consumed: R4(hpOutflow),
+              scrapOut: R4(scrapQty),
+              produced: R4(producedQty),
+            };
+          }
+          breakdown[day] = dayMap;
+        }
+        return breakdown;
+      } catch {
+        return undefined;
+      }
+    })();
+
+    const [ledgerRows, balanceRows, producedRows, requiredRows, masterItems, soDemandResult, dailyBreakdown] = await Promise.all([
       aggregateQb.getRawMany(),
       balanceQb.getRawMany(),
       producedQb.getRawMany(),
       requiredQb.getRawMany(),
       masterItemsPromise,
       salesOrderDemandPromise,
+      dailyBreakdownPromise,
     ]);
 
     const { reqMap: soDemandMap, dispMap: soDispMap } = soDemandResult;
@@ -619,12 +791,11 @@ export class ProductionInventoryReportService {
         ? (hpOutflow + scrapQty)
         : rangeOut;
 
-      const effectiveIn = filters.movementType ? N(l?.movIn) : actualInbound;
-      const effectiveOut = filters.movementType ? N(l?.movOut) : actualOutflow;
-      const closingBalance = R4(openingBalance + effectiveIn - effectiveOut);
-
       // Movement-type filter narrows the IN/OUT view only; opening/closing are
       // always computed on the full non-scrap balance basis.
+      const effectiveIn = actualInbound;
+      const effectiveOut = actualOutflow;
+      const closingBalance = R4(openingBalance + effectiveIn - effectiveOut);
       const totalIn = filters.movementType ? N(l?.movIn) : actualInbound;
       const totalOut = filters.movementType ? N(l?.movOut) : actualOutflow;
 
@@ -765,6 +936,7 @@ export class ProductionInventoryReportService {
         movementTypes: PRODUCTION_MOVEMENT_TYPES,
       },
       items: rows,
+      ...(dailyBreakdown ? { dailyBreakdown } : {}),
     };
   }
 

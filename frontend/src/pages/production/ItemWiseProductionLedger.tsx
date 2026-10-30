@@ -553,7 +553,7 @@ export const STANDARD_ITEM_WEIGHTS: Record<string, number> = {
   'WIP-SW-005': 0.01197,
   'WIP-SW-006': 0.01197,
 
-  // Spoke WIP
+  // Spoke WIP (both WIP-SP-* and WIP-SPK-* codes for full master-data & test compatibility)
   'WIP-SP-001': 0.00929,
   'WIP-SP-002': 0.00925,
   'WIP-SP-003': 0.00993,
@@ -572,6 +572,24 @@ export const STANDARD_ITEM_WEIGHTS: Record<string, number> = {
   'WIP-SP-016': 0.01053,
   'WIP-SP-017': 0.00872,
   'WIP-SP-018': 0.01119,
+  'WIP-SPK-001': 0.00929,
+  'WIP-SPK-002': 0.00925,
+  'WIP-SPK-003': 0.00993,
+  'WIP-SPK-004': 0.00981,
+  'WIP-SPK-005': 0.01053,
+  'WIP-SPK-006': 0.01049,
+  'WIP-SPK-007': 0.01129,
+  'WIP-SPK-008': 0.01119,
+  'WIP-SPK-009': 0.01126,
+  'WIP-SPK-010': 0.01097,
+  'WIP-SPK-011': 0.01181,
+  'WIP-SPK-012': 0.01175,
+  'WIP-SPK-013': 0.01250,
+  'WIP-SPK-014': 0.01261,
+  'WIP-SPK-015': 0.01365,
+  'WIP-SPK-016': 0.01053,
+  'WIP-SPK-017': 0.00850,
+  'WIP-SPK-018': 0.00840,
 
   // Plating WIP
   'WIP-SPL-001': 0.00929,
@@ -755,15 +773,18 @@ export const buildChainGrid = (
         : resolveWeight(src?.uomCode, weightMap[rowDef.itemCode] ?? weightMap[fgItemCode], rowDef.itemCode);
 
     // Chain-isolated override ensures shared items (e.g. WIP-ST-001) in multiple chains never clobber each other
+    const chainOrderOverride = openingBalanceOverrides?.get(`${def.key}__${rowDef.order}__${rowDef.itemCode}`);
     const chainKeyOverride = openingBalanceOverrides?.get(`${def.key}__${rowDef.itemCode}`);
     const genericOverride = openingBalanceOverrides?.get(rowDef.itemCode);
-    const resolvedOp = chainKeyOverride !== undefined
-      ? chainKeyOverride
-      : genericOverride !== undefined
-        ? genericOverride
-        : isDp
-          ? round4(num(dpRowSource?.openingBalance ?? 0))
-          : round4(num(src?.openingBalance));
+    const resolvedOp = chainOrderOverride !== undefined
+      ? chainOrderOverride
+      : chainKeyOverride !== undefined
+        ? chainKeyOverride
+        : genericOverride !== undefined
+          ? genericOverride
+          : isDp
+            ? round4(num(dpRowSource?.openingBalance ?? 0))
+            : round4(num(src?.openingBalance));
 
     return {
       def: rowDef,
@@ -777,7 +798,7 @@ export const buildChainGrid = (
               : num(src?.produced !== undefined ? src.produced : src?.totalIn),
           ),
       multiplier,
-      found: isDp ? Boolean(fgSrc) : Boolean(src),
+      found: isDp ? Boolean(dpRowSource) : Boolean(src),
     };
   });
 
@@ -793,8 +814,8 @@ export const buildChainGrid = (
     const recordedOut = round4(num(p.src?.totalOut));
     const recordedConsumed = p.src?.consumed !== undefined ? round4(num(p.src?.consumed)) : 0;
     const actualOut = round4(Math.max(recordedOut, recordedConsumed));
-    // Outflows from vendor returns — ONLY RAW MATERIAL (RM) can ever have return outflows!
-    const nonProdOut = stage === 'RM' && p.src?.consumed !== undefined
+    // Outflows from vendor returns or non-production store transfers
+    const nonProdOut = p.src?.consumed !== undefined
       ? Math.max(0, round4(recordedOut - recordedConsumed))
       : 0;
 
@@ -838,20 +859,6 @@ export const buildChainGrid = (
       };
     }
 
-    // When real consumption is recorded in the stock ledger (e.g. Hand Packing consuming PL),
-    // strictly use that physical outflow so ledger closing matches warehouse on-hand with 100% precision.
-    if (stage !== 'RM' && actualOut > 0) {
-      const nextStageName = successorOf(stage) || 'Next Stage';
-      return {
-        value: actualOut,
-        rule: `Recorded issues (OUT) — Issued to ${nextStageName}`,
-        driven: false,
-        remarks: `Issued to ${nextStageName} (${fmtQty(actualOut, p.src?.uomCode ?? 'PCS')})`,
-        prodValue: actualOut,
-        returnOutValue: nonProdOut,
-      };
-    }
-
     const nextStage = successorOf(stage);
     if (!nextStage) return ledger('Recorded issues (OUT) — no successor stage');
 
@@ -867,7 +874,7 @@ export const buildChainGrid = (
     const downstreamLive = downstreamRows.some(
       (c) => Math.abs(c.opBalance) > 1e-9 || Math.abs(c.production) > 1e-9,
     );
-    if (!downstreamLive && actualOut <= 0) {
+    if (!downstreamLive) {
       return {
         value: 0,
         rule: `${nextStage} holds no material — issuance suppressed (no downstream receipt)`,
@@ -889,7 +896,7 @@ export const buildChainGrid = (
     };
 
     if (matched.length > 0) {
-      if (!matched.every((c) => c.found) && actualOut <= 0) {
+      if (!matched.every((c) => c.found)) {
         return ledger(`Recorded issues (OUT) — ${nextStage} driver unavailable`);
       }
       const parts = matched.map(convert);
@@ -924,7 +931,7 @@ export const buildChainGrid = (
 
     // No shared side ⇒ my stage rows share the successor pool equally.
     // (PL Inner + PL Outer each take half of the single FG bundle.)
-    if (!consumers.every((c) => c.found) && actualOut <= 0) {
+    if (!consumers.every((c) => c.found)) {
       return ledger(`Recorded issues (OUT) — ${nextStage} driver unavailable`);
     }
     const parts = consumers.map(convert);
@@ -1537,6 +1544,9 @@ const ItemWiseProductionLedger: React.FC = () => {
    */
   const loadWeights = useCallback(async (force = false) => {
     if (!force && cachedAllChainsList && Object.keys(cachedWeightMapData).length > 0) {
+      allChainsRef.current = cachedAllChainsList;
+      itemNamesRef.current = cachedItemNamesData;
+      weightMapRef.current = cachedWeightMapData;
       setAllChains(cachedAllChainsList);
       setItemNames(cachedItemNamesData);
       setWeightMap(cachedWeightMapData);
@@ -1700,8 +1710,18 @@ const ItemWiseProductionLedger: React.FC = () => {
         .filter((c) => !dynamicFgCodes.has(c.fgItemCode))
         .map((c) => {
           const item = byCode.get(c.fgItemCode);
+          const normalizedRows = c.rows.map((r) => {
+            if (!byCode.has(r.itemCode) && r.itemCode.startsWith('WIP-SP-')) {
+              const spkCode = r.itemCode.replace('WIP-SP-', 'WIP-SPK-');
+              if (byCode.has(spkCode)) {
+                return { ...r, itemCode: spkCode };
+              }
+            }
+            return r;
+          });
           return {
             ...c,
+            rows: normalizedRows,
             label: item?.name ? `${item.name} — ${c.fgItemCode}` : c.label,
             // NEVER fabricate a division. The old fallback stamped every chain
             // whose item could not be resolved with the Spoke Division id and
@@ -1718,7 +1738,18 @@ const ItemWiseProductionLedger: React.FC = () => {
       dynamicChains.sort((a, b) => a.fgItemCode.localeCompare(b.fgItemCode));
       const fullChains = [...dynamicChains, ...enrichedRegistry];
       cachedAllChainsList = fullChains;
+      allChainsRef.current = fullChains;
+      itemNamesRef.current = cachedItemNamesData;
       setAllChains(fullChains);
+
+      fullChains.forEach((c) => {
+        c.rows.forEach((r) => {
+          const code = r.itemCode.trim();
+          if (code && !(code in found) && STANDARD_ITEM_WEIGHTS[code] != null) {
+            found[code] = STANDARD_ITEM_WEIGHTS[code];
+          }
+        });
+      });
     } catch {
       /* fall through */
     }
@@ -1729,6 +1760,7 @@ const ItemWiseProductionLedger: React.FC = () => {
       }
     });
     cachedWeightMapData = { ...STANDARD_ITEM_WEIGHTS, ...cachedWeightMapData, ...found };
+    weightMapRef.current = cachedWeightMapData;
     setWeightMap(cachedWeightMapData);
   }, []);
 
@@ -1749,31 +1781,42 @@ const ItemWiseProductionLedger: React.FC = () => {
 
     try {
       // 1) Day window ⇒ inventory report for the selected endDate
-      const dayReq = apiService.get<{ data: { items?: ReportRow[] } }>(
-        '/production/inventory-report',
-        { dateFrom: endDate, dateTo: endDate },
-      );
-      // 2) Month window ⇒ cumulative scrap from the month baseline up to endDate.
+      const dayReq = apiService.get<{
+        data: {
+          items?: ReportRow[];
+          dailyBreakdown?: Record<
+            string,
+            Record<string, { totalIn: number; totalOut: number; consumed: number; scrapOut: number; produced: number }>
+          >;
+        };
+      }>('/production/inventory-report', { dateFrom: endDate, dateTo: endDate });
+      // 2) Month window ⇒ baseline opening at monthFrom, cumulative scrap, and per-day breakdown across [monthFrom, endDate]
       const monthReq =
         monthFrom === endDate
           ? Promise.resolve(null)
-          : apiService.get<{ data: { items?: ReportRow[] } }>(
-              '/production/inventory-report',
-              { dateFrom: monthFrom, dateTo: endDate },
-            );
-      // 3) All Daily Production Entries across [monthFrom, endDate]
+          : apiService.get<{
+              data: {
+                items?: ReportRow[];
+                dailyBreakdown?: Record<
+                  string,
+                  Record<string, { totalIn: number; totalOut: number; consumed: number; scrapOut: number; produced: number }>
+                >;
+              };
+            }>('/production/inventory-report', { dateFrom: monthFrom, dateTo: endDate });
+      // 3) All Daily Production Entries across [monthFrom, endDate] (with 10,000 limit so full month is never truncated)
       // Buffer dateFrom by 1 day earlier to avoid UTC/PKT timezone offset dropping 19:00 UTC entries!
       const queryDateFrom = dayjs(monthFrom).subtract(1, 'day').format('YYYY-MM-DD');
       const queryDateTo = dayjs(endDate).add(1, 'day').format('YYYY-MM-DD');
       const entriesReq = apiService.get<{ data?: any[] }>(
         '/production/entries',
-        { dateFrom: queryDateFrom, dateTo: queryDateTo, limit: 1000 },
+        { dateFrom: queryDateFrom, dateTo: queryDateTo, limit: 10000 },
       );
 
       const [dayRes, monthRes, entriesRes] = await Promise.all([
         dayReq,
         monthReq,
         entriesReq,
+        loadWeights(forceRefresh),
       ]);
 
       // If another date was selected while in-flight, discard stale response
@@ -1783,12 +1826,81 @@ const ItemWiseProductionLedger: React.FC = () => {
 
       const dayItems: ReportRow[] = (dayRes?.data?.items ?? []).map((r) => ({ ...r }));
       const monthItems = (monthRes?.data?.items ?? dayItems).map((r) => ({ ...r }));
+      const dailyBreakdown = monthRes?.data?.dailyBreakdown ?? dayRes?.data?.dailyBreakdown ?? null;
       const entriesList = Array.isArray(entriesRes?.data) ? entriesRes.data : [];
 
       const weights = { ...STANDARD_ITEM_WEIGHTS, ...weightMapRef.current };
       const currentChains = allChainsRef.current.length > 0 ? allChainsRef.current : CHAIN_REGISTRY;
       const currentNames = itemNamesRef.current;
       const isRange = viewMode === 'range' && range[0].format('YYYY-MM-DD') !== range[1].format('YYYY-MM-DD');
+
+      // Ensure every chain item has a baseline template row so no item is missing on Day 1 vs Day 2+
+      const masterByCode = new Map<string, any>(
+        (cachedMasterItems ?? []).map((m: any) => [m?.itemCode, m]),
+      );
+      const baselineByCode = new Map<string, ReportRow>();
+      monthItems.forEach((r) => baselineByCode.set(r.itemCode, { ...r }));
+      dayItems.forEach((r) => {
+        if (!baselineByCode.has(r.itemCode)) {
+          baselineByCode.set(r.itemCode, {
+            ...r,
+            openingBalance: 0,
+            totalIn: 0,
+            totalOut: 0,
+            scrapOut: 0,
+            consumed: 0,
+            produced: 0,
+            closingBalance: 0,
+            onHand: 0,
+          });
+        }
+      });
+      currentChains.forEach((c) => {
+        c.rows.forEach((rDef) => {
+          if (rDef.stage === 'DP') return;
+          if (!baselineByCode.has(rDef.itemCode)) {
+            const m = masterByCode.get(rDef.itemCode);
+            baselineByCode.set(rDef.itemCode, {
+              itemId: m?.id ?? rDef.itemCode,
+              itemCode: rDef.itemCode,
+              itemName: m?.name ?? currentNames[rDef.itemCode] ?? rDef.itemLabel ?? rDef.itemCode,
+              itemType: m?.itemType ?? (rDef.stage === 'RM' ? 'RAW_MATERIAL' : rDef.stage === 'FG' ? 'FINISHED_GOOD' : 'WIP'),
+              uomCode: m?.uom?.code ?? m?.uomCode ?? (rDef.stage === 'RM' ? 'KG' : 'PCS'),
+              openingBalance: 0,
+              totalIn: 0,
+              totalOut: 0,
+              scrapOut: 0,
+              consumed: 0,
+              produced: 0,
+              closingBalance: 0,
+              onHand: 0,
+              flow: { source: null, consumers: [], flowStatus: 'CHAIN' },
+            });
+          }
+        });
+      });
+
+      const ensureAllBaselineItems = (targetList: ReportRow[], useMonthBaselineOpening: boolean): ReportRow[] => {
+        const present = new Set(targetList.map((r) => r.itemCode));
+        const copy = targetList.map((r) => ({ ...r }));
+        baselineByCode.forEach((baseRow, code) => {
+          if (!present.has(code)) {
+            const op = useMonthBaselineOpening ? round4(num(baseRow.openingBalance)) : 0;
+            copy.push({
+              ...baseRow,
+              openingBalance: op,
+              totalIn: 0,
+              totalOut: 0,
+              scrapOut: 0,
+              consumed: 0,
+              produced: 0,
+              closingBalance: op,
+              onHand: op,
+            });
+          }
+        });
+        return copy;
+      };
 
       // Group entries by PKT YYYY-MM-DD -> itemCode -> pieces, split across
       // each document's OUTPUT children so multi-item logs stay item-isolated.
@@ -1802,20 +1914,21 @@ const ItemWiseProductionLedger: React.FC = () => {
       let finalOverrides = new Map<string, number>();
 
       if (!isRange) {
+        const seededDayItems = ensureAllBaselineItems(dayItems, endDate === monthFrom);
         // Cache today's raw API snapshot
         rawDayItemsReportCache.set(
           endDate,
-          dayItems.map((r) => ({ ...r })),
+          seededDayItems.map((r) => ({ ...r })),
         );
 
         if (endDate === monthFrom) {
           // Day 1 of the month: baseline opening balances from monthItems are directly valid
           const prodForEndDay = dailyProdMap.get(endDate) ?? new Map<string, number>();
-          dayItems.forEach((targetRow) => {
+          seededDayItems.forEach((targetRow) => {
             const dayProd = prodForEndDay.get(targetRow.itemCode);
-            targetRow.produced = dayProd ?? 0;
+            targetRow.produced = dayProd !== undefined ? dayProd : round4(num(targetRow.produced ?? 0));
           });
-          displayRows = dayItems;
+          displayRows = seededDayItems;
         } else {
           // ── SEQUENTIAL DAILY ROLLING CHAIN ──
           // Universal Mathematical Standard:
@@ -1829,69 +1942,107 @@ const ItemWiseProductionLedger: React.FC = () => {
             cur = cur.add(1, 'day');
           }
 
-          // Fetch any missing intermediate days in parallel
-          const missingDates = dates.filter((d) => d !== endDate && !rawDayItemsReportCache.has(d));
-          if (missingDates.length > 0) {
-            const fetched = await Promise.all(
-              missingDates.map((d) =>
-                apiService
-                  .get<{ data: { items?: ReportRow[] } }>('/production/inventory-report', {
-                    dateFrom: d,
-                    dateTo: d,
-                  })
-                  .catch(() => null),
-              ),
-            );
-            if (activeRequestIdRef.current !== requestId) return;
-            missingDates.forEach((d, idx) => {
-              const res = fetched[idx];
-              if (res?.data?.items) {
-                rawDayItemsReportCache.set(
-                  d,
-                  res.data.items.map((r) => ({ ...r })),
-                );
-              }
+          // If backend returned dailyBreakdown in the single monthRes query, populate rawDayItemsReportCache
+          // deterministically without firing 29 parallel HTTP requests!
+          if (dailyBreakdown) {
+            dates.forEach((d, idx) => {
+              if (d === endDate) return;
+              const dayMetricsByCode = dailyBreakdown[d] ?? {};
+              const constructed: ReportRow[] = [];
+              baselineByCode.forEach((baseRow, code) => {
+                const m = dayMetricsByCode[code];
+                const op = idx === 0 ? round4(num(baseRow.openingBalance)) : 0;
+                const totalIn = round4(num(m?.totalIn ?? 0));
+                const totalOut = round4(num(m?.totalOut ?? 0));
+                const consumed = round4(num(m?.consumed ?? 0));
+                const scrapOut = round4(num(m?.scrapOut ?? 0));
+                const produced = round4(num(m?.produced ?? 0));
+                const close = round4(op + totalIn - totalOut);
+                constructed.push({
+                  ...baseRow,
+                  openingBalance: op,
+                  totalIn,
+                  totalOut,
+                  consumed,
+                  scrapOut,
+                  produced,
+                  closingBalance: close,
+                  onHand: close,
+                });
+              });
+              rawDayItemsReportCache.set(d, constructed);
             });
+          } else {
+            // Fallback: fetch any missing intermediate days in small batches of 5 to avoid DB connection pool exhaustion
+            const missingDates = dates.filter((d) => d !== endDate && !rawDayItemsReportCache.has(d));
+            const batchSize = 5;
+            for (let b = 0; b < missingDates.length; b += batchSize) {
+              const batch = missingDates.slice(b, b + batchSize);
+              const fetched = await Promise.all(
+                batch.map((d) =>
+                  apiService
+                    .get<{ data: { items?: ReportRow[] } }>('/production/inventory-report', {
+                      dateFrom: d,
+                      dateTo: d,
+                    })
+                    .catch(() => null),
+                ),
+              );
+              if (activeRequestIdRef.current !== requestId) return;
+              batch.forEach((d, idx) => {
+                const res = fetched[idx];
+                if (res?.data?.items) {
+                  rawDayItemsReportCache.set(
+                    d,
+                    ensureAllBaselineItems(res.data.items, d === monthFrom),
+                  );
+                }
+              });
+            }
           }
 
           // Sequential roll from monthFrom up to endDate
           let previousDayClosings = new Map<string, number>();
-          let finalDayRows: ReportRow[] = dayItems;
+          let finalDayRows: ReportRow[] = seededDayItems;
           finalOverrides = new Map<string, number>();
 
           for (let i = 0; i < dates.length; i++) {
             const d = dates[i];
             const isTargetDay = d === endDate;
-            const daySource = isTargetDay ? dayItems : (rawDayItemsReportCache.get(d) ?? []);
+            const daySource = isTargetDay
+              ? seededDayItems
+              : (rawDayItemsReportCache.get(d) ?? ensureAllBaselineItems([], i === 0));
             const itemsForDay: ReportRow[] = daySource.map((r) => ({ ...r }));
 
             const prodForDay = dailyProdMap.get(d) ?? new Map<string, number>();
             itemsForDay.forEach((targetRow) => {
               const dayProd = prodForDay.get(targetRow.itemCode);
-              targetRow.produced = dayProd ?? 0;
+              targetRow.produced = dayProd !== undefined ? dayProd : round4(num(targetRow.produced ?? 0));
             });
 
             // ── UNIVERSAL MATHEMATICAL INVARIANT: Day (D) Opening === Day (D - 1) Closing ──
             if (i > 0 && previousDayClosings.size > 0) {
               itemsForDay.forEach((targetRow) => {
-                const prevClose = previousDayClosings.get(`${chainKey}__${targetRow.itemCode}`) ?? previousDayClosings.get(targetRow.itemCode);
+                const prevClose =
+                  previousDayClosings.get(`${chainKey}__${targetRow.itemCode}`) ??
+                  previousDayClosings.get(targetRow.itemCode);
                 if (prevClose !== undefined) {
                   targetRow.openingBalance = prevClose;
                 }
               });
 
-              // Carry forward pseudo stages (such as DP Dispatch Outward stages) so DP opening rolls seamlessly
+              // Carry forward DP Dispatch Outward pseudo stages so DP opening rolls seamlessly
               previousDayClosings.forEach((prevClose, code) => {
-                const cleanCode = code.includes('__') ? code.split('__')[1] : code;
-                if (cleanCode.endsWith('-DISP') || !itemsForDay.some((r) => r.itemCode === cleanCode)) {
-                  const existing = itemsForDay.find((r) => r.itemCode === cleanCode);
+                if (code.includes('__')) return;
+                if (code.endsWith('-DISP')) {
+                  const existing = itemsForDay.find((r) => r.itemCode === code);
                   if (existing) {
                     existing.openingBalance = prevClose;
                   } else {
                     itemsForDay.push({
-                      itemId: cleanCode,
-                      itemCode: cleanCode,
-                      itemName: `${cleanCode} Outward Stage`,
+                      itemId: code,
+                      itemCode: code,
+                      itemName: `${code} Outward Stage`,
                       itemType: 'FINISHED_GOOD',
                       uomCode: 'PCS',
                       openingBalance: prevClose,
@@ -1915,12 +2066,13 @@ const ItemWiseProductionLedger: React.FC = () => {
               break;
             }
 
-            // Derive closing pieces for intermediate day d across chains
+            // Derive closing pieces for intermediate day d across all chains
             const nextClosings = new Map<string, number>();
             currentChains.forEach((c) => {
               const grid = buildChainGrid(c, itemsForDay, computedMonthScrap, weights, currentNames, previousDayClosings);
               grid.rows.forEach((gr) => {
-                // Key by chain key + item code so shared items across different chains NEVER collide!
+                // Key by chain key + order + item code AND chain key + item code so shared items NEVER collide!
+                nextClosings.set(`${c.key}__${gr.order}__${gr.itemCode}`, gr.closingPieces);
                 nextClosings.set(`${c.key}__${gr.itemCode}`, gr.closingPieces);
                 // Active chain takes precedence in the generic fallback
                 if (!nextClosings.has(gr.itemCode) || c.key === chainKey) {
@@ -1963,7 +2115,7 @@ const ItemWiseProductionLedger: React.FC = () => {
         setLoading(false);
       }
     }
-  }, [endDate, monthFrom, range, chainKey]);
+  }, [endDate, monthFrom, range, chainKey, viewMode, loadWeights]);
 
   useEffect(() => {
     void loadWeights();
