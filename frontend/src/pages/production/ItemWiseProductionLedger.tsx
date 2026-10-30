@@ -433,11 +433,35 @@ export const fmtQty = (v: number | null | undefined, uom: string | null | undefi
   return trimZeros(v.toFixed(2));
 };
 
+/**
+ * Format quantity with thousand comma separators for UI display (e.g. 75,684, 152,135).
+ * PCS/GRS format as integer with commas; KG/other format up to 2 decimal places with commas.
+ */
+export const fmtDisplayQty = (v: number | null | undefined, uom?: string | null): string => {
+  if (v === null || v === undefined || Number.isNaN(v)) return '—';
+  if (isCountUnit(uom)) {
+    const rounded = Math.round(v);
+    return rounded.toLocaleString('en-US');
+  }
+  if (v === 0) return '0';
+  const parts = trimZeros(v.toFixed(2)).split('.');
+  parts[0] = Number(parts[0]).toLocaleString('en-US');
+  return parts.join('.');
+};
+
 /** Weight columns — whole number when the fraction is zero, else ≤ 2 decimals. */
 export const fmtKg = (v: number | null | undefined): string => {
   if (v === null || v === undefined || Number.isNaN(v)) return '—';
   if (v === 0) return '0';
   return trimZeros(v.toFixed(2));
+};
+
+export const fmtDisplayKg = (v: number | null | undefined): string => {
+  if (v === null || v === undefined || Number.isNaN(v)) return '—';
+  if (v === 0) return '0';
+  const parts = trimZeros(v.toFixed(2)).split('.');
+  parts[0] = Number(parts[0]).toLocaleString('en-US');
+  return parts.join('.');
 };
 
 /**
@@ -906,16 +930,28 @@ export const buildChainGrid = (
 
       let remarks = '—';
       if (stage === 'RM') {
+        const nextProdQty = matched[0]?.production ?? consumers[0]?.production ?? 0;
         if (prodValue > 0 && nonProdOut > 0) {
-          remarks = `Prod: ${fmtQty(prodValue, 'KG')} KG | Return Out: ${fmtQty(nonProdOut, 'KG')} KG`;
+          remarks = `Prod: ${fmtDisplayKg(prodValue)} KG (Next: ${fmtDisplayQty(nextProdQty, 'PCS')} PCS) | Return: ${fmtDisplayKg(nonProdOut)} KG`;
         } else if (nonProdOut > 0) {
-          remarks = `Return Out: ${fmtQty(nonProdOut, 'KG')} KG`;
+          remarks = `Return Out: ${fmtDisplayKg(nonProdOut)} KG`;
         } else if (totalValue > 0) {
-          remarks = `Prod Consumed: ${fmtQty(totalValue, 'KG')} KG`;
+          remarks = `Prod Consumed: ${fmtDisplayKg(totalValue)} KG (Next Stage Prod: ${fmtDisplayQty(nextProdQty, 'PCS')} PCS)`;
         }
       } else {
-        if (totalValue > 0) {
-          remarks = `Issued to ${nextStage}`;
+        const targetDept = DEPARTMENT_NAME[nextStage] || nextStage;
+        if (prodValue > 0 && nonProdOut > 0) {
+          remarks = `Issued to ${targetDept} (Next Stage Prod: ${fmtDisplayQty(prodValue, p.src?.uomCode)}) | Return Out: ${fmtDisplayQty(nonProdOut, p.src?.uomCode)}`;
+        } else if (nonProdOut > 0) {
+          remarks = `Return Out: ${fmtDisplayQty(nonProdOut, p.src?.uomCode)}`;
+        } else if (prodValue > 0) {
+          remarks = `Issued to ${targetDept} (Next Stage Prod: ${fmtDisplayQty(prodValue, p.src?.uomCode)})`;
+        } else if (totalValue > 0) {
+          remarks = `Issued to ${targetDept} (${fmtDisplayQty(totalValue, p.src?.uomCode)})`;
+        } else if (nextStage === 'FG') {
+          remarks = 'No Hand Packing / FG (Next Stage Prod: 0)';
+        } else {
+          remarks = `No ${targetDept} Production (0)`;
         }
       }
 
@@ -942,16 +978,28 @@ export const buildChainGrid = (
 
     let remarks = '—';
     if (stage === 'RM') {
+      const nextProdQty = consumers[0]?.production ?? 0;
       if (prodValue > 0 && nonProdOut > 0) {
-        remarks = `Prod: ${fmtQty(prodValue, 'KG')} KG | Return Out: ${fmtQty(nonProdOut, 'KG')} KG`;
+        remarks = `Prod: ${fmtDisplayKg(prodValue)} KG (Next: ${fmtDisplayQty(nextProdQty, 'PCS')} PCS) | Return: ${fmtDisplayKg(nonProdOut)} KG`;
       } else if (nonProdOut > 0) {
-        remarks = `Return Out: ${fmtQty(nonProdOut, 'KG')} KG`;
+        remarks = `Return Out: ${fmtDisplayKg(nonProdOut)} KG`;
       } else if (totalValue > 0) {
-        remarks = `Prod Consumed: ${fmtQty(totalValue, 'KG')} KG`;
+        remarks = `Prod Consumed: ${fmtDisplayKg(totalValue)} KG (Next Stage Prod: ${fmtDisplayQty(nextProdQty, 'PCS')} PCS)`;
       }
     } else {
-      if (totalValue > 0) {
-        remarks = `Issued to ${nextStage}`;
+      const targetDept = DEPARTMENT_NAME[nextStage] || nextStage;
+      if (prodValue > 0 && nonProdOut > 0) {
+        remarks = `Issued to ${targetDept} (Next Stage Prod: ${fmtDisplayQty(prodValue, p.src?.uomCode)}) | Return Out: ${fmtDisplayQty(nonProdOut, p.src?.uomCode)}`;
+      } else if (nonProdOut > 0) {
+        remarks = `Return Out: ${fmtDisplayQty(nonProdOut, p.src?.uomCode)}`;
+      } else if (prodValue > 0) {
+        remarks = `Issued to ${targetDept} (Next Stage Prod: ${fmtDisplayQty(prodValue, p.src?.uomCode)})`;
+      } else if (totalValue > 0) {
+        remarks = `Issued to ${targetDept} (${fmtDisplayQty(totalValue, p.src?.uomCode)})`;
+      } else if (nextStage === 'FG') {
+        remarks = 'No Hand Packing / FG (Next Stage Prod: 0)';
+      } else {
+        remarks = `No ${targetDept} Production (0)`;
       }
     }
 
@@ -2248,12 +2296,22 @@ const ItemWiseProductionLedger: React.FC = () => {
         dataIndex: 'opBalance',
         key: 'opBalance',
         align: 'center' as const,
-        width: 110,
+        width: 120,
         onHeaderCell: () => ({ className: 'iwl-cell-op-head' }),
         onCell: () => ({ className: 'iwl-cell-op iwl-cell-num' }),
         render: (v: number, row: LedgerMetrics) => (
           <Tooltip title="Net closing of every day BEFORE the End Date">
-            <span>{fmtQty(v, row.uomCode)}</span>
+            <span
+              className="iwl-val-op"
+              style={{
+                fontWeight: 800,
+                fontSize: 14.5,
+                letterSpacing: '0.2px',
+                color: '#ea580c',
+              }}
+            >
+              {fmtDisplayQty(v, row.uomCode)}
+            </span>
           </Tooltip>
         ),
       },
@@ -2262,7 +2320,7 @@ const ItemWiseProductionLedger: React.FC = () => {
         dataIndex: 'production',
         key: 'production',
         align: 'center' as const,
-        width: 140,
+        width: 135,
         onHeaderCell: () => ({ className: 'iwl-cell-num' }),
         onCell: () => ({ className: 'iwl-cell-prod iwl-cell-num' }),
         render: (v: number, row: LedgerMetrics) => (
@@ -2273,7 +2331,17 @@ const ItemWiseProductionLedger: React.FC = () => {
                 : 'Additions (IN) recorded on the End Date only'
             }
           >
-            <span>{fmtQty(v, row.uomCode)}</span>
+            <span
+              className="iwl-val-prod"
+              style={{
+                fontWeight: 800,
+                fontSize: 14.5,
+                letterSpacing: '0.2px',
+                color: '#059669',
+              }}
+            >
+              {fmtDisplayQty(v, row.uomCode)}
+            </span>
           </Tooltip>
         ),
       },
@@ -2285,7 +2353,9 @@ const ItemWiseProductionLedger: React.FC = () => {
         width: 130,
         onCell: () => ({ className: 'iwl-cell-num' }),
         render: (v: number, row: LedgerMetrics) => (
-          <Text strong>{fmtQty(v, row.uomCode)}</Text>
+          <span style={{ fontWeight: 800, fontSize: 14.5, color: '#1e293b' }}>
+            {fmtDisplayQty(v, row.uomCode)}
+          </span>
         ),
       },
       {
@@ -2293,47 +2363,49 @@ const ItemWiseProductionLedger: React.FC = () => {
         dataIndex: 'issuance',
         key: 'issuance',
         align: 'center' as const,
-        width: 135,
+        width: 140,
         onCell: () => ({ className: 'iwl-cell-num' }),
         render: (v: number, row: LedgerMetrics) => (
           <div>
             <div>
               {row.suppressed ? (
                 <Tooltip title={row.issuanceRule}>
-                  <Text type="secondary">—</Text>
-                </Tooltip>
-              ) : row.issuanceDriven ? (
-                <Tooltip title={`Driven by the next stage: ${row.issuanceRule}`}>
-                  <Text type={row.returnOutValue > 0 ? 'danger' : 'warning'} strong={v > 0}>
-                    {fmtQty(v, row.uomCode)}
-                  </Text>
+                  <Text type="secondary" style={{ fontWeight: 700, fontSize: 14.5 }}>—</Text>
                 </Tooltip>
               ) : (
-                <Tooltip title={row.issuanceRule}>
-                  <span style={{ color: row.returnOutValue > 0 ? '#cf1322' : undefined, fontWeight: v > 0 ? 600 : undefined }}>
-                    {fmtQty(v, row.uomCode)}
+                <Tooltip title={row.issuanceDriven ? `Driven by the next stage: ${row.issuanceRule}` : row.issuanceRule}>
+                  <span
+                    className="iwl-val-issuance"
+                    style={{
+                      fontWeight: 800,
+                      fontSize: 14.5,
+                      letterSpacing: '0.2px',
+                      color: row.returnOutValue > 0 ? '#dc2626' : '#2563eb',
+                    }}
+                  >
+                    {fmtDisplayQty(v, row.uomCode)}
                   </span>
                 </Tooltip>
               )}
             </div>
             {row.stage === 'RM' && row.returnOutValue > 0 && row.prodValue > 0 ? (
-              <div style={{ marginTop: 2, display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'center' }}>
-                <Tag color="cyan" style={{ fontSize: 10, margin: 0, padding: '0 4px', lineHeight: '16px' }}>
-                  Prod: {fmtQty(row.prodValue, row.uomCode)}
+              <div style={{ marginTop: 3, display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'center' }}>
+                <Tag color="cyan" style={{ fontSize: 10.5, margin: 0, padding: '0 6px', lineHeight: '18px', fontWeight: 600 }}>
+                  Prod: {fmtDisplayQty(row.prodValue, row.uomCode)}
                 </Tag>
-                <Tag color="error" style={{ fontSize: 10, margin: 0, padding: '0 4px', lineHeight: '16px' }}>
-                  Return Out: -{fmtQty(row.returnOutValue, row.uomCode)}
+                <Tag color="error" style={{ fontSize: 10.5, margin: 0, padding: '0 6px', lineHeight: '18px', fontWeight: 600 }}>
+                  Return Out: -{fmtDisplayQty(row.returnOutValue, row.uomCode)}
                 </Tag>
               </div>
             ) : row.stage === 'RM' && row.returnOutValue > 0 ? (
-              <div style={{ marginTop: 2 }}>
-                <Tag color="error" style={{ fontSize: 10, margin: 0, padding: '0 4px', lineHeight: '16px' }}>
+              <div style={{ marginTop: 3 }}>
+                <Tag color="error" style={{ fontSize: 10.5, margin: 0, padding: '0 6px', lineHeight: '18px', fontWeight: 600 }}>
                   Return Out
                 </Tag>
               </div>
             ) : row.prodValue > 0 ? (
-              <div style={{ marginTop: 2 }}>
-                <Tag color={row.stage === 'RM' ? 'cyan' : 'default'} style={{ fontSize: 10, margin: 0, padding: '0 4px', lineHeight: '16px' }}>
+              <div style={{ marginTop: 3 }}>
+                <Tag color={row.stage === 'RM' ? 'cyan' : 'blue'} style={{ fontSize: 10.5, margin: 0, padding: '0 6px', lineHeight: '18px', fontWeight: 600 }}>
                   {row.stage === 'RM' ? 'Prod Consumed' : 'Next Stage'}
                 </Tag>
               </div>
@@ -2359,18 +2431,23 @@ const ItemWiseProductionLedger: React.FC = () => {
                   color: '#dc2626',
                   fontWeight: 800,
                   fontSize: 14.5,
-                  display: 'inline-block',
-                  padding: '2px 8px',
-                  background: '#fee2e2',
-                  borderRadius: 4,
-                  border: '1px solid #f87171',
-                  boxShadow: '0 0 6px rgba(220, 38, 38, 0.25)',
+                  letterSpacing: '0.2px',
                 }}
               >
-                {fmtQty(v, row.uomCode)}
+                {fmtDisplayQty(v, row.uomCode)}
               </span>
             ) : (
-              <span style={{ fontWeight: 700, fontSize: 12.5 }}>{fmtQty(v, row.uomCode)}</span>
+              <span
+                className="iwl-val-close"
+                style={{
+                  fontWeight: 800,
+                  fontSize: 14.5,
+                  letterSpacing: '0.2px',
+                  color: '#7c3aed',
+                }}
+              >
+                {fmtDisplayQty(v, row.uomCode)}
+              </span>
             )}
           </Tooltip>
         ),
@@ -2382,15 +2459,19 @@ const ItemWiseProductionLedger: React.FC = () => {
         dataIndex: 'uomCode',
         key: 'uomCode',
         align: 'center' as const,
-        width: 52,
-        render: (v: string | null) => v ?? '—',
+        width: 72,
+        render: (v: string | null) => (
+          <span style={{ fontWeight: 700, fontSize: 12.5, whiteSpace: 'nowrap', color: '#475569' }}>
+            {v ?? '—'}
+          </span>
+        ),
       },
       {
         title: 'Total Weight',
         dataIndex: 'totalWeight',
         key: 'totalWeight',
         align: 'center' as const,
-        width: 125,
+        width: 130,
         onHeaderCell: () => ({ className: 'iwl-cell-weight-head' }),
         onCell: () => ({ className: 'iwl-cell-weight iwl-cell-num' }),
         render: (v: number | null, row: LedgerMetrics) => {
@@ -2398,8 +2479,8 @@ const ItemWiseProductionLedger: React.FC = () => {
           const uom = (row.uomCode ?? '').toUpperCase();
           const tip =
             row.stage === 'RM'
-              ? `Total Weight: ${fmtKg(v)} KG (RM closing balance is already KG)`
-              : `Total Weight: ${fmtKg(v)} KG\nPer Piece Weight: ${fmtPpw(ppw)} KG (${isCountUnit(uom) ? 'Closing Pieces × Weight' : 'Multiplier 1'})`;
+              ? `Total Weight: ${fmtDisplayKg(v)} KG (RM closing balance is already KG)`
+              : `Total Weight: ${fmtDisplayKg(v)} KG\nPer Piece Weight: ${fmtPpw(ppw)} KG (${isCountUnit(uom) ? 'Closing Pieces × Weight' : 'Multiplier 1'})`;
           const isNeg = v !== null && v < 0;
           return (
             <Tooltip title={<span style={{ whiteSpace: 'pre-line' }}>{tip}</span>}>
@@ -2419,9 +2500,9 @@ const ItemWiseProductionLedger: React.FC = () => {
               >
                 <span
                   className="iwl-weight-total"
-                  style={isNeg ? { color: '#dc2626', fontWeight: 800, fontSize: 13.5 } : undefined}
+                  style={isNeg ? { color: '#dc2626', fontWeight: 800, fontSize: 13.5 } : { fontWeight: 800, fontSize: 13.5 }}
                 >
-                  {fmtKg(v)}
+                  {fmtDisplayKg(v)}
                 </span>
                 <span className="iwl-weight-ppw">{fmtPpw(ppw)}</span>
               </div>
@@ -2445,14 +2526,14 @@ const ItemWiseProductionLedger: React.FC = () => {
             dataIndex: 'scrapToday',
             key: 'scrapToday',
             align: 'center' as const,
-            width: 70,
+            width: 72,
             // §3 — the whole column is forced crimson, zeros included.
             onCell: () => ({ className: 'iwl-cell-scrap iwl-cell-num' }),
             // §12 — a bare, centre-aligned crimson figure; the parent band
             // already reads `SCRAP — KG`, so no suffix is repeated here.
             render: (v: number, row: LedgerMetrics) => (
               <Tooltip title={`Rejections recorded on ${endDate}`}>
-                <span>{fmtQty(v, row.uomCode)}</span>
+                <span style={{ fontWeight: 700, fontSize: 13 }}>{fmtDisplayQty(v, row.uomCode)}</span>
               </Tooltip>
             ),
           },
@@ -2461,11 +2542,11 @@ const ItemWiseProductionLedger: React.FC = () => {
             dataIndex: 'scrapMonth',
             key: 'scrapMonth',
             align: 'center' as const,
-            width: 68,
+            width: 72,
             onCell: () => ({ className: 'iwl-cell-scrap iwl-cell-num' }),
             render: (v: number, row: LedgerMetrics) => (
               <Tooltip title={`Cumulative from ${monthFrom} to ${endDate}`}>
-                <span>{fmtQty(v, row.uomCode)}</span>
+                <span style={{ fontWeight: 700, fontSize: 13 }}>{fmtDisplayQty(v, row.uomCode)}</span>
               </Tooltip>
             ),
           },
@@ -2476,33 +2557,40 @@ const ItemWiseProductionLedger: React.FC = () => {
         dataIndex: 'remarks',
         key: 'remarks',
         align: 'left' as const,
-        width: 175,
+        width: 250,
         render: (v: string, row: LedgerMetrics) => {
           if (!v || v === '—') {
             return <span style={{ color: '#94a3b8' }}>—</span>;
           }
           if (row.returnOutValue > 0 && row.prodValue > 0) {
             return (
-              <span style={{ fontSize: 11, fontWeight: 600, color: '#b45309' }}>
+              <span style={{ fontSize: 11.5, fontWeight: 700, color: '#b45309' }}>
                 {v}
               </span>
             );
           }
           if (row.returnOutValue > 0) {
             return (
-              <span style={{ fontSize: 11, fontWeight: 700, color: '#dc2626' }}>
+              <span style={{ fontSize: 11.5, fontWeight: 700, color: '#dc2626' }}>
                 {v}
               </span>
             );
           }
           if (row.prodValue > 0 && row.stage === 'RM') {
             return (
-              <span style={{ fontSize: 11, fontWeight: 600, color: '#0284c7' }}>
+              <span style={{ fontSize: 11.5, fontWeight: 700, color: '#0284c7' }}>
                 {v}
               </span>
             );
           }
-          return <span style={{ fontSize: 11, color: '#475569' }}>{v}</span>;
+          if (v.startsWith('Issued to')) {
+            return (
+              <span style={{ fontSize: 11.5, fontWeight: 700, color: '#059669' }}>
+                {v}
+              </span>
+            );
+          }
+          return <span style={{ fontSize: 11.5, fontWeight: 600, color: '#64748b' }}>{v}</span>;
         },
       },
     ],
@@ -3647,26 +3735,28 @@ const ItemWiseProductionLedger: React.FC = () => {
         /* Department chips scale with the matrix instead of sitting a notch under it */
         .iwl-grid .ant-tag { font-size: inherit; line-height: 1.35; }
 
-        /* ── §3 colour pathways — a light pair and a dark pair ────────── */
+        /* ── §3 colour pathways — transparent routine table cells, crisp ink colors ── */
         .iwl-cell-prod {
-          background: rgba(16, 185, 129, 0.16) !important;
-          color: #047857 !important; font-weight: 800 !important;
+          background: transparent !important;
+          color: #059669 !important;
+          font-weight: 800 !important;
         }
         .iwl-cell-close {
-          background: rgba(245, 158, 11, 0.20) !important;
-          color: #b45309 !important; font-weight: 700 !important;
+          background: transparent !important;
+          color: #7c3aed !important;
+          font-weight: 800 !important;
         }
         .iwl-cell-close--negative {
-          background: rgba(254, 226, 226, 0.85) !important;
+          background: transparent !important;
           color: #dc2626 !important;
           font-weight: 800 !important;
-          font-size: 14px !important;
+          font-size: 14.5px !important;
         }
         [data-theme='dark'] .iwl-cell-close--negative {
-          background: rgba(220, 38, 38, 0.3) !important;
-          color: #fca5a5 !important;
+          background: transparent !important;
+          color: #f87171 !important;
           font-weight: 800 !important;
-          font-size: 14px !important;
+          font-size: 14.5px !important;
         }
         .iwl-cell-scrap { color: #ff4d4f !important; font-weight: 700 !important; }
 
@@ -3683,9 +3773,21 @@ const ItemWiseProductionLedger: React.FC = () => {
         [data-theme='dark'] .iwl-item-name--active { color: #60a5fa !important; }
         [data-theme='dark'] .iwl-item-name--inactive { color: #f59e0b !important; }
         [data-theme='dark'] .iwl-grid--off .iwl-grid-title { color: #55606f; }
-        [data-theme='dark'] .iwl-cell-prod { background: rgba(16, 185, 129, 0.20) !important; color: #34d399 !important; }
-        [data-theme='dark'] .iwl-cell-close { background: rgba(245, 158, 11, 0.18) !important; color: #fbbf24 !important; }
+        [data-theme='dark'] .iwl-cell-prod { background: transparent !important; color: #10b981 !important; }
+        [data-theme='dark'] .iwl-cell-close { background: transparent !important; color: #a78bfa !important; }
         [data-theme='dark'] .iwl-shimmer-track { background: #1e293b; }
+        [data-theme='dark'] .iwl-val-op {
+          color: #fb923c !important;
+        }
+        [data-theme='dark'] .iwl-val-prod {
+          color: #10b981 !important;
+        }
+        [data-theme='dark'] .iwl-val-issuance {
+          color: #60a5fa !important;
+        }
+        [data-theme='dark'] .iwl-val-close {
+          color: #a78bfa !important;
+        }
         [data-theme='dark'] .iwl-status-badge--loading {
           background: #082f49;
           border-color: #0369a1;
