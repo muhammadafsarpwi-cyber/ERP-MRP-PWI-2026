@@ -2075,46 +2075,80 @@ const EntryForm: React.FC<EntryFormProps> = ({
     return !!t && t > 0 ? Math.round((a / t) * 10000) / 100 : null;
   }, [machineLinked, displayTarget, targetQty, effectiveActualQty]);
 
-  // Combined scrap weight: prefer direct scrapQty (entered in KG), else line-aggregated scrap KG
+  // Authoritative Rejection Mass (KG):
+  // 1. If rejection breakdown table has rows with KG, totalRejectionKg is authoritative.
+  // 2. If multi-item production aggregate has totalRejectionKg, use it.
+  // 3. Otherwise convert scrapQty (which is in the primary UOM) via lineToKg.
+  // 4. If item is natively WEIGHT/KG, scrapQty is already in KG.
   const effectiveScrapWeightKg = useMemo(() => {
-    const rawVal = Math.max(0, toNum(scrapQty));
-    if (rawVal > 0) return rawVal;
+    if (totalRejectionKg > 0) return totalRejectionKg;
     if (multiItemAggregate && multiItemAggregate.totalRejectionKg > 0) {
       return multiItemAggregate.totalRejectionKg;
     }
+    const uomType = lookups.uoms.find((u) => u.id === uomId)?.uomType ?? null;
+    const convertedKg = lineToKg(scrapQty, { ...effectivePrimaryItem, uomType });
+    if (convertedKg !== null && convertedKg > 0) {
+      return convertedKg;
+    }
+    if (primaryUomType === 'WEIGHT' || effectivePrimaryItem?.baseUom?.code === 'KG') {
+      return Math.max(0, toNum(scrapQty));
+    }
     return 0;
-  }, [scrapQty, multiItemAggregate]);
+  }, [totalRejectionKg, multiItemAggregate, scrapQty, lookups.uoms, uomId, effectivePrimaryItem, primaryUomType]);
+
+  // Authoritative Rejection Units (PCS / Secondary UOM):
+  const effectiveScrapQtyPcs = useMemo(() => {
+    if (totalRejectionPcs > 0) return totalRejectionPcs;
+    if (isPieceBased || isMeterBased) {
+      return Math.max(0, toNum(scrapQty));
+    }
+    if (fgMetricFactor > 0 && effectiveScrapWeightKg > 0) {
+      return isMeterBased
+        ? Math.round((effectiveScrapWeightKg / fgMetricFactor) * 100) / 100
+        : Math.round(effectiveScrapWeightKg / fgMetricFactor);
+    }
+    return 0;
+  }, [totalRejectionPcs, isPieceBased, isMeterBased, scrapQty, fgMetricFactor, effectiveScrapWeightKg]);
 
   // Single-item KG conversion (legacy single-item fields), family-aware.
   const singleItemKg = useMemo(() => {
     if (!effectivePrimaryItem) return null;
     const uomType = lookups.uoms.find((u) => u.id === uomId)?.uomType ?? null;
     const act = Math.max(0, effectiveActualQty);
-    const rej = Math.max(0, toNum(scrapQty));
+    const rej = effectiveScrapQtyPcs;
     const kg = lineToKg(act, { ...effectivePrimaryItem, uomType });
     const rejKg = effectiveScrapWeightKg;
     const total = act + rej;
     const rejPct = total > 0 ? Math.round((rej / total) * 10000) / 100 : 0;
     if (kg === null && rejKg === null) return null;
     return { kg: kg ?? 0, rejKg: rejKg ?? 0, rejPct };
-  }, [effectivePrimaryItem, effectiveActualQty, scrapQty, uomId, effectiveScrapWeightKg, lookups.uoms]);
+  }, [effectivePrimaryItem, effectiveActualQty, effectiveScrapQtyPcs, uomId, effectiveScrapWeightKg, lookups.uoms]);
 
   // Unified Rejection %:
-  // Derived from Production Weight (KG) and Rejection Weight (KG).
-  // When item is in METERS or PIECES, converting both to KG provides true like-for-like comparison.
-  // Rejection % = Rejection Weight (KG) ÷ (Production Weight (KG) + Rejection Weight (KG)) × 100.
-  const rejectionPct = useMemo(() => {
+  // KG-wise Rejection %: Rejection Weight (KG) ÷ (Good Weight (KG) + Rejection Weight (KG)) × 100
+  const rejectionPctKg = useMemo(() => {
     const prodKg = multiItemAggregate?.totalKg ?? singleItemKg?.kg ?? 0;
     const rejKg = effectiveScrapWeightKg;
     const totalKg = prodKg + rejKg;
     if (totalKg > 0) {
       return Math.round((rejKg / totalKg) * 10000) / 100;
     }
-    const good = Math.max(0, toNum(effectiveActualQty));
-    const rej = Math.max(0, toNum(scrapQty));
-    const total = good + rej;
-    return total > 0 ? Math.round((rej / total) * 10000) / 100 : 0;
-  }, [effectiveActualQty, scrapQty, multiItemAggregate, singleItemKg, effectiveScrapWeightKg]);
+    return 0;
+  }, [multiItemAggregate, singleItemKg, effectiveScrapWeightKg]);
+
+  // PCS-wise Rejection %: Rejection (PCS) ÷ (Good Output (PCS) + Rejection (PCS)) × 100
+  const rejectionPctPcs = useMemo(() => {
+    const prodPcs = effectiveActualQty;
+    const rejPcs = effectiveScrapQtyPcs;
+    const totalPcs = prodPcs + rejPcs;
+    if (totalPcs > 0) {
+      return Math.round((rejPcs / totalPcs) * 10000) / 100;
+    }
+    return 0;
+  }, [effectiveActualQty, effectiveScrapQtyPcs]);
+
+  // Backwards compatibility alias
+  const rejectionPct = rejectionPctKg;
 
   // ── Step-by-Step Completion Status (Reordered per user direction) ──────────
   // Step 1: Operator
@@ -3996,6 +4030,78 @@ const EntryForm: React.FC<EntryFormProps> = ({
                       })}
                     </div>
 
+                    {/* Rejection Summary / Totals Footer Row */}
+                    <div
+                      className="rej-row-footer-grid"
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'minmax(140px, 175px) minmax(140px, 175px) 1fr 34px',
+                        gap: 8,
+                        marginTop: 10,
+                        paddingTop: 8,
+                        borderTop: '1px solid var(--theme-border-secondary, rgba(148, 163, 184, 0.2))',
+                        alignItems: 'center',
+                      }}
+                    >
+                      {/* Total Rejection Mass (KG) */}
+                      <div
+                        style={{
+                          background: 'var(--theme-surface-alt, rgba(30, 41, 59, 0.4))',
+                          border: '1.5px solid #10b981',
+                          borderRadius: 6,
+                          padding: '6px 10px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        <span style={{ fontSize: 9.5, textTransform: 'uppercase', color: 'var(--theme-text-muted, #94a3b8)', fontWeight: 700 }}>
+                          Total Rejection (KG)
+                        </span>
+                        <span style={{ fontSize: 13, fontWeight: 800, color: '#10b981' }}>
+                          {formatNumber(totalRejectionKg, 3)} KG
+                        </span>
+                      </div>
+
+                      {/* Total Rejection Count (PCS / Secondary) */}
+                      <div
+                        style={{
+                          background: 'var(--theme-surface-alt, rgba(30, 41, 59, 0.4))',
+                          border: '1.5px solid #3b82f6',
+                          borderRadius: 6,
+                          padding: '6px 10px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        <span style={{ fontSize: 9.5, textTransform: 'uppercase', color: 'var(--theme-text-muted, #94a3b8)', fontWeight: 700 }}>
+                          Total Rejection ({secondaryUnitLabel})
+                        </span>
+                        <span style={{ fontSize: 13, fontWeight: 800, color: '#3b82f6' }}>
+                          {formatNumber(totalRejectionPcs, isMeterBased ? 2 : 0)} {secondaryUnitLabel}
+                        </span>
+                      </div>
+
+                      {/* Rejection summary rate */}
+                      <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', paddingLeft: 6 }}>
+                        <span>
+                          {rejectionRows.length} Defect Line{rejectionRows.length !== 1 ? 's' : ''} •{' '}
+                          {rejectionPctKg > 0 ? (
+                            <strong style={{ color: '#10b981' }}>
+                              {formatNumber(rejectionPctKg, 2)}% by KG
+                            </strong>
+                          ) : null}
+                          {!isWeightBased && rejectionPctPcs > 0 ? (
+                            <strong style={{ color: '#3b82f6', marginLeft: 6 }}>
+                              • {formatNumber(rejectionPctPcs, 2)}% by {secondaryUnitLabel}
+                            </strong>
+                          ) : null}
+                        </span>
+                      </div>
+                      <div />
+                    </div>
+
                     {/* Hidden AntD form fields to satisfy form validation & onFinish payload contract */}
                     <Form.Item
                       name="scrapQuantity"
@@ -4430,9 +4536,9 @@ const EntryForm: React.FC<EntryFormProps> = ({
                     </div>
                   </div>
 
-                  {/* Secondary KPI Row: Rejection % Ring & Weights */}
+                  {/* Secondary KPI Row: Rejection % Ring & Weights (KG Perspective) */}
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 }}>
-                    {/* Rejection Gauge Tile */}
+                    {/* Rejection Gauge Tile (KG) */}
                     <div
                       style={{
                         background: 'var(--theme-surface-alt, rgba(255, 255, 255, 0.04))',
@@ -4446,25 +4552,25 @@ const EntryForm: React.FC<EntryFormProps> = ({
                     >
                       <Progress
                         type="dashboard"
-                        percent={Math.min(100, Math.max(0, rejectionPct ?? 0))}
+                        percent={Math.min(100, Math.max(0, rejectionPctKg ?? 0))}
                         gapDegree={70}
                         size={64}
-                        strokeColor={(rejectionPct ?? 0) > 3 ? '#ef4444' : '#f59e0b'}
+                        strokeColor={(rejectionPctKg ?? 0) > 3 ? '#ef4444' : '#f59e0b'}
                         format={() => (
                           <span style={{ fontSize: 11, fontWeight: 800, color: 'var(--theme-text, #ffffff)' }}>
-                            {formatNumber(rejectionPct ?? 0, 0)}%
+                            {formatNumber(rejectionPctKg ?? 0, (rejectionPctKg ?? 0) > 0 && (rejectionPctKg ?? 0) < 1 ? 2 : 1)}%
                           </span>
                         )}
                       />
                       <div>
-                        <span style={{ fontSize: 10, textTransform: 'uppercase', color: 'var(--theme-text-muted, #94a3b8)', fontWeight: 700, display: 'block' }}>Rejection</span>
+                        <span style={{ fontSize: 10, textTransform: 'uppercase', color: 'var(--theme-text-muted, #94a3b8)', fontWeight: 700, display: 'block' }}>Rejection (KG)</span>
                         <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--theme-text, #ffffff)' }}>
-                          {formatNumber(effectiveScrapWeightKg, 2)} KG
+                          {formatNumber(effectiveScrapWeightKg, 3)} KG
                         </span>
                       </div>
                     </div>
 
-                    {/* Production Output Weight Tile */}
+                    {/* Production Output Weight Tile (KG) */}
                     <div
                       style={{
                         background: 'var(--theme-surface-alt, rgba(255, 255, 255, 0.04))',
@@ -4485,6 +4591,64 @@ const EntryForm: React.FC<EntryFormProps> = ({
                       <span style={{ fontSize: 9.5, color: 'var(--theme-text-muted, #94a3b8)' }}>Output to Finished Goods</span>
                     </div>
                   </div>
+
+                  {/* Secondary Unit (PCS / METER) KPI Row */}
+                  {!isWeightBased && (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8, marginTop: 8 }}>
+                      {/* Rejection PCS Gauge Tile */}
+                      <div
+                        style={{
+                          background: 'var(--theme-surface-alt, rgba(255, 255, 255, 0.04))',
+                          borderRadius: 10,
+                          border: '1px solid var(--theme-border, rgba(148, 163, 184, 0.2))',
+                          padding: '10px 12px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 10,
+                        }}
+                      >
+                        <Progress
+                          type="dashboard"
+                          percent={Math.min(100, Math.max(0, rejectionPctPcs ?? 0))}
+                          gapDegree={70}
+                          size={64}
+                          strokeColor={(rejectionPctPcs ?? 0) > 3 ? '#ef4444' : '#3b82f6'}
+                          format={() => (
+                            <span style={{ fontSize: 11, fontWeight: 800, color: 'var(--theme-text, #ffffff)' }}>
+                              {formatNumber(rejectionPctPcs ?? 0, (rejectionPctPcs ?? 0) > 0 && (rejectionPctPcs ?? 0) < 1 ? 2 : 1)}%
+                            </span>
+                          )}
+                        />
+                        <div>
+                          <span style={{ fontSize: 10, textTransform: 'uppercase', color: 'var(--theme-text-muted, #94a3b8)', fontWeight: 700, display: 'block' }}>Rejection ({secondaryUnitLabel})</span>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--theme-text, #ffffff)' }}>
+                            {formatNumber(effectiveScrapQtyPcs, isMeterBased ? 2 : 0)} {secondaryUnitLabel}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Production Good Count Tile */}
+                      <div
+                        style={{
+                          background: 'var(--theme-surface-alt, rgba(255, 255, 255, 0.04))',
+                          borderRadius: 10,
+                          border: '1px solid var(--theme-border, rgba(148, 163, 184, 0.2))',
+                          padding: '10px 12px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        <span style={{ fontSize: 10, textTransform: 'uppercase', color: '#3b82f6', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <AppstoreOutlined /> Good {secondaryUnitLabel}
+                        </span>
+                        <span style={{ fontSize: 15, fontWeight: 800, color: 'var(--theme-text, #ffffff)', marginTop: 2 }}>
+                          {formatNumber(effectiveActualQty, isMeterBased ? 2 : 0)} {secondaryUnitLabel}
+                        </span>
+                        <span style={{ fontSize: 9.5, color: 'var(--theme-text-muted, #94a3b8)' }}>Total Finished Output</span>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* ── 8-STEP WORKFLOW GUIDE WITH LIVE GREEN PROGRESS LINE ── */}

@@ -278,11 +278,11 @@ export function aggregateProductionTotals(
 
     // Produced good quantity converted to KG (or direct if already KG)
     const actKg = line.item ? lineToKg(act, line.item) : null;
-    // For COUNT items (e.g. spokes), scrap is entered directly in KG by operator policy.
-    // For other items, convert via lineToKg or take direct KG.
-    const rejKg = isCountItem
-      ? rej
-      : (line.item ? lineToKg(rej, line.item) : (family === 'WEIGHT' || uomCode === 'KG' ? rej : null));
+    // Convert rejection quantity to KG via lineToKg; if item is already WEIGHT or KG, take direct.
+    // When line.item is COUNT (e.g. Spokes PCS) or LENGTH (Meters), lineToKg uses weightPerPiece or weightPerMeter.
+    const rejKg = line.item
+      ? lineToKg(rej, line.item)
+      : (family === 'WEIGHT' || uomCode === 'KG' ? rej : null);
 
     if (actKg !== null) totalKg += actKg;
     if (rejKg !== null) totalRejectionKg += rejKg;
