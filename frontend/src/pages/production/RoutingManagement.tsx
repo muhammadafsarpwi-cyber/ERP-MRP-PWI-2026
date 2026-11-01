@@ -922,14 +922,20 @@ const RoutingManagement: React.FC = () => {
               </Popconfirm>
             )}
             {selectedRouting.status === 'ACTIVE' && (
-              <>
-                <Popconfirm title="Mark as Obsolete?" onConfirm={() => handleStatusChange(selectedRouting.id, 'OBSOLETE')}>
-                  <Button danger>Mark Obsolete</Button>
-                </Popconfirm>
+              <Space wrap align="center" size={10} style={{ padding: '8px 0' }}>
+                <Tag color="success" style={{ padding: '4px 14px', fontSize: 13, fontWeight: 700, borderRadius: 6 }}>
+                  ✔ Routing is ACTIVE & Production-Ready
+                </Tag>
+                <Button type="primary" onClick={() => setDetailVisible(false)} style={{ fontWeight: 600 }}>
+                  Done — Back to List
+                </Button>
                 <Popconfirm title="Revert to Draft for revisions?" onConfirm={() => handleStatusChange(selectedRouting.id, 'DRAFT')}>
-                  <Button>Revert to Draft</Button>
+                  <Button size="small">Revert to Draft</Button>
                 </Popconfirm>
-              </>
+                <Popconfirm title="Mark as Obsolete?" onConfirm={() => handleStatusChange(selectedRouting.id, 'OBSOLETE')}>
+                  <Button danger size="small">Mark Obsolete</Button>
+                </Popconfirm>
+              </Space>
             )}
             {selectedRouting.status === 'OBSOLETE' && (
               <Popconfirm title="Restore back to Draft?" onConfirm={() => handleStatusChange(selectedRouting.id, 'DRAFT')}>

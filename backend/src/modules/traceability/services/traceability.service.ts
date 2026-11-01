@@ -280,39 +280,68 @@ export class TraceabilityService {
       relations: ['product', 'operations', 'operations.inputItem', 'operations.outputItem', 'operations.division', 'operations.section', 'operations.department', 'operations.uom'],
     });
 
-    const matchingRouting = routings.find((r) => {
-      if (r.productId === itemId) return true;
-      return r.operations?.some((op) => op.inputItemId === itemId || op.outputItemId === itemId);
-    });
+    // Prioritize: 1. Default routing for this product, 2. Any routing for this product, 3. Default routing producing item, 4. Any producing routing, 5. Input consuming routing
+    const matchingRouting =
+      routings.find((r) => r.productId === itemId && r.isDefault) ||
+      routings.find((r) => r.productId === itemId) ||
+      routings.find((r) => r.isDefault && r.operations?.some((op) => op.outputItemId === itemId && op.isActive !== false && op.status === 'ACTIVE')) ||
+      routings.find((r) => r.operations?.some((op) => op.outputItemId === itemId && op.isActive !== false && op.status === 'ACTIVE')) ||
+      routings.find((r) => r.operations?.some((op) => op.inputItemId === itemId && op.isActive !== false && op.status === 'ACTIVE'));
 
     if (!matchingRouting) {
       return { item: this.itemSummary(item), hasRouting: false, nodes: [], previousProcess: null, nextProcess: null, routing: null };
     }
 
-    const ops = (matchingRouting.operations || []).sort((a, b) => a.sequenceNo - b.sequenceNo);
-    // Build chain: start with the first operation's input item (or the routing's product)
-    const startItem = ops[0]?.inputItem || matchingRouting.product;
+    const ops = (matchingRouting.operations || [])
+      .filter((op) => op.isActive !== false && op.status === 'ACTIVE')
+      .sort((a, b) => a.sequenceNo - b.sequenceNo);
     const nodes: any[] = [];
-    if (startItem) {
-      nodes.push({ type: 'item', item: this.itemSummary(startItem), step: 0 });
+
+    // Identify the true raw material / starting input item
+    if (ops[0]?.inputItem) {
+      nodes.push({ type: 'item', item: this.itemSummary(ops[0].inputItem), step: 0 });
+    } else if (ops[0]?.outputItem) {
+      // Store issuance: input is raw material from store
+      nodes.push({ type: 'item', item: this.itemSummary(ops[0].outputItem), step: 0 });
+    } else if (matchingRouting.product) {
+      nodes.push({ type: 'item', item: this.itemSummary(matchingRouting.product), step: 0 });
     }
-    for (const op of ops) {
+
+    for (let i = 0; i < ops.length; i++) {
+      const op = ops[i];
+      // Skip duplicating the store output item if it was already used as the starting item
+      if (i === 0 && !op.inputItem && op.outputItem?.id === nodes[0]?.item?.id) {
+        continue;
+      }
       nodes.push({ type: 'process', step: nodes.length, operation: this.opSummary(op) });
       if (op.outputItem) {
         nodes.push({ type: 'item', step: nodes.length, item: this.itemSummary(op.outputItem) });
       }
     }
 
+    // Ensure the finished product is at the end of the chain
+    if (matchingRouting.product) {
+      const lastNode = nodes[nodes.length - 1];
+      if (!lastNode || lastNode.item?.id !== matchingRouting.product.id) {
+        nodes.push({
+          type: 'item',
+          step: nodes.length,
+          item: this.itemSummary(matchingRouting.product),
+          isFinal: true,
+        });
+      }
+    }
+
     // Additional inputs from BOM (for each process node, find BOM of output item for extra components)
-    const outputItemIds = ops.filter((o) => o.outputItemId).map((o) => o.outputItemId);
+    const outputItemIds = [...new Set(ops.filter((o) => o.outputItemId).map((o) => o.outputItemId))];
     if (outputItemIds.length > 0) {
-      const boms = await this.bomRepo.find({ where: { productId: outputItemIds as any, companyId, status: BomStatus.ACTIVE, isActive: true }, relations: ['lines', 'lines.item'] });
+      const boms = await this.bomRepo.find({ where: { productId: In(outputItemIds), companyId, status: BomStatus.ACTIVE, isActive: true }, relations: ['lines', 'lines.item'] });
       for (const node of nodes) {
         if (node.type === 'process' && node.operation?.outputItem?.id) {
           const bom = boms.find((b) => b.productId === node.operation.outputItem.id);
           if (bom) {
             const opInputId = node.operation.inputItem?.id;
-            const additional = bom.lines
+            const additional = (bom.lines || [])
               .filter((l) => l.itemId !== opInputId && l.item)
               .map((l) => ({ itemId: l.itemId, itemCode: l.item?.itemCode, itemName: l.item?.name, quantity: n(l.quantity), uom: l.uomId }));
             if (additional.length > 0) node.operation.additionalInputs = additional;
@@ -691,6 +720,8 @@ export class TraceabilityService {
       if (filter.itemType && item.itemType !== filter.itemType) return false;
       return true;
     });
+
+    if (!filtered.length) return { data: [] };
 
     // Aggregate produced/consumed/scrap from ledger per item within date range
     const prodConsScrapQb = this.ledgerRepo.createQueryBuilder('ledger')

@@ -1,11 +1,11 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import {
-  Modal, Form, Input, Select, App, Card, InputNumber, Row, Col, Checkbox, Space, Button, Table, Tooltip, Tag, Typography,
+  Modal, Form, Input, Select, App, Card, InputNumber, Row, Col, Checkbox, Space, Button, Table, Tooltip, Tag, Typography, theme,
 } from 'antd';
 import {
   PlusOutlined, DeleteOutlined,
   MinusOutlined, FullscreenOutlined, FullscreenExitOutlined, DragOutlined, CloseOutlined,
-  ApartmentOutlined, StarFilled,
+  ApartmentOutlined, StarFilled, CheckOutlined, SaveOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import apiService, { describeRequestError } from '../../services/api';
@@ -217,6 +217,8 @@ const fmtDate = (iso?: string): string => {
   return d.isValid() ? d.format('DD-MMM-YYYY') : iso;
 };
 
+const COMMON_UOM_CODES = ['PCS', 'KG', 'M', 'METER', 'ROLL', 'SET', 'BAG', 'BOX', 'PKT', 'PAIR', 'COIL', 'CS', 'CTN', 'LTR'];
+
 const OperationEditor: React.FC<OperationEditorProps> = ({
   open,
   routing,
@@ -226,6 +228,7 @@ const OperationEditor: React.FC<OperationEditorProps> = ({
   onSaved,
 }) => {
   const { message } = App.useApp();
+  const { token } = theme.useToken();
   const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
   const [resultOpen, setResultOpen] = useState(false);
@@ -465,22 +468,39 @@ const OperationEditor: React.FC<OperationEditorProps> = ({
         laborRequired: operation.laborRequired,
         machineRequired: operation.machineRequired,
         machineId: operation.machineId,
-        inputs: (operation.inputs || []).map(i => ({
-          itemId: i.itemId,
-          quantity: i.quantity,
-          uomId: i.uomId,
-          sourceWarehouseId: i.sourceWarehouseId,
-          scrapBasis: i.scrapBasis || 'WITH_SCRAP',
-          isPrimary: i.isPrimary,
-        })),
-        outputs: (operation.outputs || []).map(o => ({
-          itemId: o.itemId,
-          quantity: o.quantity,
-          uomId: o.uomId,
-          outputType: o.outputType || 'MAIN',
-          yieldPercentage: o.yieldPercentage,
-          isPrimary: o.isPrimary,
-        })),
+        inputs: (operation.inputs && operation.inputs.length > 0)
+          ? operation.inputs.map(i => ({
+              itemId: i.itemId,
+              quantity: i.quantity,
+              uomId: i.uomId,
+              sourceWarehouseId: i.sourceWarehouseId,
+              scrapBasis: i.scrapBasis || 'WITH_SCRAP',
+              isPrimary: i.isPrimary,
+            }))
+          : (operation.inputItemId ? [{
+              itemId: operation.inputItemId,
+              quantity: operation.inputQuantity || 1,
+              uomId: operation.uomId,
+              scrapBasis: 'WITH_SCRAP',
+              isPrimary: true,
+            }] : []),
+        outputs: (operation.outputs && operation.outputs.length > 0)
+          ? operation.outputs.map(o => ({
+              itemId: o.itemId,
+              quantity: o.quantity,
+              uomId: o.uomId,
+              outputType: o.outputType || 'MAIN',
+              yieldPercentage: o.yieldPercentage,
+              isPrimary: o.isPrimary,
+            }))
+          : (operation.outputItemId ? [{
+              itemId: operation.outputItemId,
+              quantity: operation.outputQuantity || 1,
+              uomId: operation.uomId,
+              outputType: 'MAIN',
+              yieldPercentage: 100,
+              isPrimary: true,
+            }] : []),
         scrapPercentage: operation.scrapPercentage,
         setupScrapPercentage: operation.setupScrapPercentage,
         status: operation.status,
@@ -670,17 +690,38 @@ const OperationEditor: React.FC<OperationEditorProps> = ({
     return lookups.machines;
   }, [machineFilterScope, matchingMachineIds, departmentMachines, lookups.machines]);
 
+  const resolveItemUomId = useCallback((it: any): string | undefined => {
+    if (!it) return undefined;
+    return it.uomId || it.baseUomId || it.baseUom?.id || it.base_uom_id;
+  }, []);
+
+  const sortedUoms = React.useMemo(() => {
+    const list = [...(lookups.uoms || [])];
+    return list.sort((a, b) => {
+      const aCode = (a.code || '').toUpperCase();
+      const bCode = (b.code || '').toUpperCase();
+      const aIdx = COMMON_UOM_CODES.indexOf(aCode);
+      const bIdx = COMMON_UOM_CODES.indexOf(bCode);
+      if (aIdx !== -1 && bIdx !== -1) return aIdx - bIdx;
+      if (aIdx !== -1) return -1;
+      if (bIdx !== -1) return 1;
+      return aCode.localeCompare(bCode);
+    });
+  }, [lookups.uoms]);
+
   const handleInputItemChange = (rowIndex: number, itemId: string) => {
-    const it = deptItems.find(i => i.id === itemId) || allItems.find(i => i.id === itemId);
-    if (it?.uomId) {
-      form.setFieldValue(['inputs', rowIndex, 'uomId'], it.uomId);
+    const it = deptItems.find(i => i.id === itemId) || allItems.find(i => i.id === itemId) || lookups.items.find(i => i.id === itemId);
+    const uomId = resolveItemUomId(it);
+    if (uomId) {
+      form.setFieldValue(['inputs', rowIndex, 'uomId'], uomId);
     }
   };
 
   const handleOutputItemChange = (rowIndex: number, itemId: string) => {
-    const it = displayedOutputItems.find(i => i.id === itemId) || allItems.find(i => i.id === itemId);
-    if (it?.uomId) {
-      form.setFieldValue(['outputs', rowIndex, 'uomId'], it.uomId);
+    const it = displayedOutputItems.find(i => i.id === itemId) || allItems.find(i => i.id === itemId) || lookups.items.find(i => i.id === itemId);
+    const uomId = resolveItemUomId(it);
+    if (uomId) {
+      form.setFieldValue(['outputs', rowIndex, 'uomId'], uomId);
     }
     if (rowIndex === 0 && itemId) {
       setTargetItemId(itemId);
@@ -811,8 +852,8 @@ const OperationEditor: React.FC<OperationEditorProps> = ({
     const rawOutputs = values.outputs || [];
     const inputs = (rawInputs as Record<string, unknown>[]).filter(r => r && r.itemId);
     const outputs = (rawOutputs as Record<string, unknown>[]).filter(r => r && r.itemId);
-    const primaryIn = inputs[0];
-    const primaryOut = outputs[0];
+    const primaryIn = inputs.find(r => r.isPrimary) || inputs[0];
+    const primaryOut = outputs.find(r => r.isPrimary) || outputs[0];
 
     const payload: Record<string, unknown> = {};
     for (const key of DTO_PAYLOAD_FIELDS) {
@@ -823,10 +864,24 @@ const OperationEditor: React.FC<OperationEditorProps> = ({
     payload.inputQuantity = primaryIn?.quantity ?? values.inputQuantity ?? 1;
     payload.outputItemId = primaryOut?.itemId ?? values.outputItemId ?? null;
     payload.outputQuantity = primaryOut?.quantity ?? values.outputQuantity ?? 1;
-    payload.uomId = primaryIn?.uomId ?? values.uomId ?? null;
+    payload.uomId = primaryIn?.uomId ?? primaryOut?.uomId ?? values.uomId ?? null;
 
-    payload.inputs = inputs.map(r => pickFields(r, INPUT_MATERIAL_FIELDS));
-    payload.outputs = outputs.map(r => pickFields(r, OUTPUT_PRODUCT_FIELDS));
+    payload.inputs = inputs.map((r, idx) => {
+      const row: any = pickFields(r, INPUT_MATERIAL_FIELDS);
+      if (typeof row.uomId === 'string' && !row.uomId.trim()) delete row.uomId;
+      if (typeof row.sourceWarehouseId === 'string' && !row.sourceWarehouseId.trim()) delete row.sourceWarehouseId;
+      if (row.lineNumber === undefined) row.lineNumber = (idx + 1) * 10;
+      if (row.isPrimary === undefined) row.isPrimary = (idx === 0);
+      return row;
+    });
+
+    payload.outputs = outputs.map((r, idx) => {
+      const row: any = pickFields(r, OUTPUT_PRODUCT_FIELDS);
+      if (typeof row.uomId === 'string' && !row.uomId.trim()) delete row.uomId;
+      if (row.lineNumber === undefined) row.lineNumber = (idx + 1) * 10;
+      if (row.isPrimary === undefined) row.isPrimary = (idx === 0);
+      return row;
+    });
 
     setSaving(true);
     setResultPhase('loading');
@@ -900,19 +955,36 @@ const OperationEditor: React.FC<OperationEditorProps> = ({
             }}
           >
             <Space align="center">
-              {!isMaximized && <DragOutlined style={{ color: '#94a3b8', fontSize: 14 }} />}
+              {!isMaximized && <DragOutlined style={{ color: token.colorTextTertiary, fontSize: 14 }} />}
               <span style={{ fontWeight: 700, fontSize: 16 }}>
                 {operation ? `Edit Operation — ${operation.operationCode}` : 'Add New Operation'}
               </span>
             </Space>
-            <Space size={4} onClick={e => e.stopPropagation()}>
+            <Space size={8} onClick={e => e.stopPropagation()} align="center">
+              {/* Sticky Top-Right Quick Save Button so user never needs to scroll to the bottom */}
+              <Button
+                type="primary"
+                icon={<SaveOutlined />}
+                onClick={handleSave}
+                loading={saving}
+                disabled={saving}
+                style={{
+                  fontWeight: 600,
+                  borderRadius: 6,
+                  height: 30,
+                  padding: '0 12px',
+                  boxShadow: '0 2px 6px rgba(14, 165, 233, 0.35)',
+                }}
+              >
+                Save Operation
+              </Button>
               <Tooltip title="Minimize to bottom dock">
                 <Button
                   size="small"
                   type="text"
                   icon={<MinusOutlined />}
                   onClick={() => setIsMinimized(true)}
-                  style={{ color: '#64748b', width: 28, height: 28 }}
+                  style={{ color: token.colorTextSecondary, width: 28, height: 28 }}
                 />
               </Tooltip>
               <Tooltip title={isMaximized ? "Restore size" : "Maximize (Full Screen)"}>
@@ -924,7 +996,7 @@ const OperationEditor: React.FC<OperationEditorProps> = ({
                     setIsMaximized(!isMaximized);
                     if (!isMaximized) setDragPosition({ x: 0, y: 0 });
                   }}
-                  style={{ color: '#64748b', width: 28, height: 28 }}
+                  style={{ color: token.colorTextSecondary, width: 28, height: 28 }}
                 />
               </Tooltip>
               <Tooltip title="Close">
@@ -933,7 +1005,7 @@ const OperationEditor: React.FC<OperationEditorProps> = ({
                   type="text"
                   icon={<CloseOutlined />}
                   onClick={onClose}
-                  style={{ color: '#64748b', width: 28, height: 28 }}
+                  style={{ color: token.colorTextSecondary, width: 28, height: 28 }}
                 />
               </Tooltip>
             </Space>
@@ -1156,6 +1228,21 @@ const OperationEditor: React.FC<OperationEditorProps> = ({
                 </Space>
               </div>
             }
+            extra={
+              <Space size={8}>
+                <Button
+                  size="small"
+                  type="primary"
+                  ghost
+                  icon={<SaveOutlined />}
+                  onClick={handleSave}
+                  loading={saving}
+                  style={{ fontWeight: 600, borderRadius: 4 }}
+                >
+                  Quick Save
+                </Button>
+              </Space>
+            }
             style={{ marginBottom: 14 }}
           >
             <Form.List name="inputs">
@@ -1164,168 +1251,204 @@ const OperationEditor: React.FC<OperationEditorProps> = ({
                   {fields.map(({ key, name, ...restField }, idx) => {
                     const rowItemId = watchedInputs[idx]?.itemId;
                     const rowItem = deptItems.find(i => i.id === rowItemId) || allItems.find(i => i.id === rowItemId);
-                    const rowUomId = watchedInputs[idx]?.uomId || rowItem?.uomId;
+                    const rowUomId = watchedInputs[idx]?.uomId || (rowItem ? resolveItemUomId(rowItem) : undefined);
                     const rowUomObj = lookups.uoms.find(u => u.id === rowUomId);
-                    const rowUomCode = rowUomObj?.code || (rowItem ? 'KG' : 'Unit');
+                    const rowUomCode = rowUomObj?.code || (rowItem ? 'PCS' : 'Unit');
 
                     return (
-                      <div
+                      <Card
                         key={key}
+                        size="small"
+                        type="inner"
                         style={{
-                          display: 'flex',
-                          gap: 10,
-                          alignItems: 'flex-start',
-                          flexWrap: 'wrap',
-                          padding: '10px 12px',
-                          background: idx % 2 === 0 ? '#f8fafc' : '#ffffff',
-                          border: '1px solid #e2e8f0',
-                          borderRadius: 6,
-                          marginBottom: 8,
+                          marginBottom: 10,
+                          borderRadius: 8,
+                          border: `1px solid ${token.colorBorderSecondary}`,
+                          background: token.colorFillAlter,
                         }}
+                        title={
+                          <Space size={8}>
+                            <Tag color="cyan" style={{ margin: 0, fontWeight: 700, fontSize: 11, borderRadius: 4 }}>
+                              Material #{idx + 1}
+                            </Tag>
+                            {watchedInputs[idx]?.isPrimary && (
+                              <Tag color="green" style={{ margin: 0, fontSize: 11, fontWeight: 600, borderRadius: 4 }}>
+                                Primary Material
+                              </Tag>
+                            )}
+                            <Tag color="blue" style={{ margin: 0, fontWeight: 600, fontSize: 11 }}>
+                              Unit: {rowUomCode}
+                            </Tag>
+                          </Space>
+                        }
+                        extra={
+                          <Space size={8}>
+                            <Button
+                              type="text"
+                              danger
+                              size="small"
+                              icon={<DeleteOutlined />}
+                              onClick={() => remove(name)}
+                              title="Remove Material"
+                            >
+                              Remove
+                            </Button>
+                          </Space>
+                        }
                       >
-                        {/* Material Item with strictly department-scoped items and role badges */}
-                        <Form.Item
-                          {...restField}
-                          name={[name, 'itemId']}
-                          label={
-                            idx === 0 ? (
-                              <Space size={4}>
-                                <span>Material Item (Department Scope)</span>
-                                {materialRoleFilter === 'PRIMARY' && (
-                                  <Tag color="green" style={{ margin: 0, fontSize: 11 }}>Primary Materials Only</Tag>
-                                )}
-                              </Space>
-                            ) : undefined
-                          }
-                          rules={[{ required: true, message: 'Select material item' }]}
-                          style={{ flex: '1 1 340px', minWidth: 260, marginBottom: 0 }}
-                        >
-                          <Select
-                            showSearch
-                            placeholder="Type code or name to search material item..."
-                            onSearch={searchItemsRemote}
-                            filterOption={(input, option: any) => {
-                              const query = (input || '').toLowerCase();
-                              const searchtext = String(option?.searchtext || option?.label || option?.value || '').toLowerCase();
-                              return searchtext.includes(query);
-                            }}
-                            loading={deptItemsLoading || searchingItems}
-                            onChange={(val) => handleInputItemChange(name, val)}
-                          >
-                            {displayedMaterials.map(i => {
-                              const isPrimary = i.materialRoleUsage === 'Primary Production Materials' || (i.itemType === 'RAW_MATERIAL' && i.materialRoleUsage !== 'Process Component Materials');
-                              const isComponent = i.materialRoleUsage === 'Process Component Materials';
-                              return (
-                                <Select.Option
-                                  key={i.id}
-                                  value={i.id}
-                                  searchtext={`${i.itemCode} ${i.name} ${i.materialRoleUsage || ''}`}
-                                  style={isPrimary ? { background: '#f0fdf4' } : undefined}
-                                >
-                                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '2px 0' }}>
-                                    <div>
-                                      <span style={{ fontWeight: 600 }}>{i.name}</span>
-                                      <Typography.Text type="secondary" style={{ marginLeft: 6 }}>({i.itemCode})</Typography.Text>
-                                    </div>
-                                    {isPrimary ? (
-                                      <Tag color="green" style={{ margin: 0, fontSize: 11, fontWeight: 600, borderRadius: 4 }}>
-                                        Primary Material
-                                      </Tag>
-                                    ) : isComponent ? (
-                                      <Tag color="blue" style={{ margin: 0, fontSize: 11, fontWeight: 500, borderRadius: 4 }}>
-                                        Process Component
-                                      </Tag>
-                                    ) : null}
-                                  </div>
-                                </Select.Option>
-                              );
-                            })}
-                          </Select>
-                        </Form.Item>
+                        <Row gutter={[12, 10]}>
+                          {/* Row 1: Material Item (wide, clear search) */}
+                          <Col xs={24} md={15}>
+                            <Form.Item
+                              {...restField}
+                              name={[name, 'itemId']}
+                              label="Material Item (Department Scope)"
+                              rules={[{ required: true, message: 'Please select material item' }]}
+                              style={{ marginBottom: 0 }}
+                            >
+                              <Select
+                                showSearch
+                                placeholder="Type code or name to search material item..."
+                                onSearch={searchItemsRemote}
+                                filterOption={(input, option: any) => {
+                                  const query = (input || '').toLowerCase();
+                                  const searchtext = String(option?.searchtext || option?.label || option?.value || '').toLowerCase();
+                                  return searchtext.includes(query);
+                                }}
+                                loading={deptItemsLoading || searchingItems}
+                                onChange={(val) => handleInputItemChange(name, val)}
+                              >
+                                {displayedMaterials.map(i => {
+                                  const isPrimary = i.materialRoleUsage === 'Primary Production Materials' || (i.itemType === 'RAW_MATERIAL' && i.materialRoleUsage !== 'Process Component Materials');
+                                  const isComponent = i.materialRoleUsage === 'Process Component Materials';
+                                  return (
+                                    <Select.Option
+                                      key={i.id}
+                                      value={i.id}
+                                      searchtext={`${i.itemCode} ${i.name} ${i.materialRoleUsage || ''}`}
+                                    >
+                                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '2px 0' }}>
+                                        <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                          <span style={{ fontWeight: 600 }}>{i.name}</span>
+                                          <Typography.Text type="secondary" style={{ marginLeft: 6 }}>({i.itemCode})</Typography.Text>
+                                        </div>
+                                        {isPrimary ? (
+                                          <Tag color="green" style={{ margin: 0, fontSize: 11, fontWeight: 600, borderRadius: 4, whiteSpace: 'nowrap' }}>
+                                            Primary Material
+                                          </Tag>
+                                        ) : isComponent ? (
+                                          <Tag color="blue" style={{ margin: 0, fontSize: 11, fontWeight: 500, borderRadius: 4, whiteSpace: 'nowrap' }}>
+                                            Component
+                                          </Tag>
+                                        ) : null}
+                                      </div>
+                                    </Select.Option>
+                                  );
+                                })}
+                              </Select>
+                            </Form.Item>
+                          </Col>
 
-                        {/* Quantity with UOM addon */}
-                        <Form.Item
-                          {...restField}
-                          name={[name, 'quantity']}
-                          label={
-                            idx === 0 ? (
-                              <Space size={4}>
-                                <span>Qty / Unit</span>
-                                <Tag color="blue" style={{ margin: 0, fontWeight: 600, fontSize: 11 }}>{rowUomCode}</Tag>
-                              </Space>
-                            ) : undefined
-                          }
-                          tooltip={idx === 0 ? `Standard consumption quantity per unit of operation output (e.g. in ${rowUomCode})` : undefined}
-                          style={{ width: 140, marginBottom: 0 }}
-                        >
-                          <InputNumber
-                            min={0.000001}
-                            placeholder="1.0"
-                            addonAfter={rowUomCode}
-                            style={{ width: '100%' }}
-                          />
-                        </Form.Item>
+                          {/* Scrap Basis */}
+                          <Col xs={12} md={9}>
+                            <Form.Item
+                              {...restField}
+                              name={[name, 'scrapBasis']}
+                              label="Scrap Basis"
+                              initialValue="WITH_SCRAP"
+                              style={{ marginBottom: 0 }}
+                            >
+                              <Select style={{ width: '100%' }}>
+                                <Select.Option value="WITH_SCRAP">WITH_SCRAP (Includes normal scrap)</Select.Option>
+                                <Select.Option value="GOOD_ONLY">GOOD_ONLY (Net finished only)</Select.Option>
+                              </Select>
+                            </Form.Item>
+                          </Col>
 
-                        {/* UOM */}
-                        <Form.Item
-                          {...restField}
-                          name={[name, 'uomId']}
-                          label={idx === 0 ? "UOM" : undefined}
-                          style={{ width: 100, marginBottom: 0 }}
-                        >
-                          <Select allowClear placeholder="UOM" optionFilterProp="children">
-                            {lookups.uoms.map(u => <Select.Option key={u.id} value={u.id}>{u.code}</Select.Option>)}
-                          </Select>
-                        </Form.Item>
+                          {/* Row 2: Quantity */}
+                          <Col xs={12} sm={6} md={6}>
+                            <Form.Item
+                              {...restField}
+                              name={[name, 'quantity']}
+                              label="Consumption Qty / Unit"
+                              rules={[{ required: true, message: 'Qty required' }]}
+                              style={{ marginBottom: 0 }}
+                            >
+                              <InputNumber
+                                min={0.000001}
+                                placeholder="1.0"
+                                style={{ width: '100%' }}
+                              />
+                            </Form.Item>
+                          </Col>
 
-                        {/* Warehouse */}
-                        <Form.Item
-                          {...restField}
-                          name={[name, 'sourceWarehouseId']}
-                          label={idx === 0 ? "Source Wh" : undefined}
-                          style={{ width: 140, marginBottom: 0 }}
-                        >
-                          <Select allowClear showSearch optionFilterProp="children" placeholder="Warehouse">
-                            {lookups.warehouses.map(w => <Select.Option key={w.id} value={w.id}>{w.warehouseCode || w.name}</Select.Option>)}
-                          </Select>
-                        </Form.Item>
+                          {/* UOM - Fully Searchable with PCS, KG on top */}
+                          <Col xs={12} sm={6} md={6}>
+                            <Form.Item
+                              {...restField}
+                              name={[name, 'uomId']}
+                              label="Unit of Measurement (UOM)"
+                              rules={[{ required: true, message: 'UOM required' }]}
+                              style={{ marginBottom: 0 }}
+                            >
+                              <Select
+                                showSearch
+                                allowClear
+                                placeholder="Type to search (e.g. PCS, KG)..."
+                                optionFilterProp="children"
+                                filterOption={(input, option: any) => {
+                                  const q = (input || '').toLowerCase();
+                                  const text = String(option?.children || option?.value || '').toLowerCase();
+                                  return text.includes(q);
+                                }}
+                                style={{ width: '100%' }}
+                              >
+                                {sortedUoms.map(u => (
+                                  <Select.Option key={u.id} value={u.id}>
+                                    {u.code} {u.name && u.name !== u.code ? `— ${u.name}` : ''}
+                                  </Select.Option>
+                                ))}
+                              </Select>
+                            </Form.Item>
+                          </Col>
 
-                        {/* Scrap Basis */}
-                        <Form.Item
-                          {...restField}
-                          name={[name, 'scrapBasis']}
-                          label={idx === 0 ? "Scrap Basis" : undefined}
-                          style={{ width: 130, marginBottom: 0 }}
-                          initialValue="WITH_SCRAP"
-                        >
-                          <Select>
-                            <Select.Option value="WITH_SCRAP">WITH_SCRAP</Select.Option>
-                            <Select.Option value="GOOD_ONLY">GOOD_ONLY</Select.Option>
-                          </Select>
-                        </Form.Item>
+                          {/* Source Warehouse */}
+                          <Col xs={12} sm={8} md={8}>
+                            <Form.Item
+                              {...restField}
+                              name={[name, 'sourceWarehouseId']}
+                              label="Source Store / Warehouse"
+                              style={{ marginBottom: 0 }}
+                            >
+                              <Select
+                                allowClear
+                                showSearch
+                                optionFilterProp="children"
+                                placeholder="Select source warehouse..."
+                                style={{ width: '100%' }}
+                              >
+                                {lookups.warehouses.map(w => (
+                                  <Select.Option key={w.id} value={w.id}>
+                                    {w.warehouseCode || w.name}
+                                  </Select.Option>
+                                ))}
+                              </Select>
+                            </Form.Item>
+                          </Col>
 
-                        {/* Primary */}
-                        <Form.Item
-                          {...restField}
-                          name={[name, 'isPrimary']}
-                          valuePropName="checked"
-                          label={idx === 0 ? "Primary" : undefined}
-                          style={{ marginBottom: 0, paddingTop: idx === 0 ? 4 : 4 }}
-                        >
-                          <Checkbox>Primary</Checkbox>
-                        </Form.Item>
-
-                        {/* Remove Button */}
-                        <div style={{ paddingTop: idx === 0 ? 30 : 4 }}>
-                          <Button
-                            type="text"
-                            danger
-                            icon={<DeleteOutlined />}
-                            onClick={() => remove(name)}
-                            title="Remove Material"
-                          />
-                        </div>
-                      </div>
+                          {/* Primary Material Checkbox */}
+                          <Col xs={12} sm={4} md={4} style={{ display: 'flex', alignItems: 'center', paddingTop: 24 }}>
+                            <Form.Item
+                              {...restField}
+                              name={[name, 'isPrimary']}
+                              valuePropName="checked"
+                              style={{ marginBottom: 0 }}
+                            >
+                              <Checkbox style={{ whiteSpace: 'nowrap', fontWeight: 500 }}>Primary</Checkbox>
+                            </Form.Item>
+                          </Col>
+                        </Row>
+                      </Card>
                     );
                   })}
 
@@ -1334,7 +1457,7 @@ const OperationEditor: React.FC<OperationEditorProps> = ({
                     onClick={() => add({ scrapBasis: 'WITH_SCRAP', isPrimary: fields.length === 0 })}
                     block
                     icon={<PlusOutlined />}
-                    style={{ marginTop: 4, height: 36, fontWeight: 500 }}
+                    style={{ marginTop: 6, height: 38, fontWeight: 600, borderRadius: 6 }}
                   >
                     + Add Input Material
                   </Button>
@@ -1416,6 +1539,21 @@ const OperationEditor: React.FC<OperationEditorProps> = ({
                 </Space>
               </div>
             }
+            extra={
+              <Space size={8}>
+                <Button
+                  size="small"
+                  type="primary"
+                  ghost
+                  icon={<SaveOutlined />}
+                  onClick={handleSave}
+                  loading={saving}
+                  style={{ fontWeight: 600, borderRadius: 4 }}
+                >
+                  Quick Save
+                </Button>
+              </Space>
+            }
             style={{ marginBottom: 14 }}
           >
             <Form.List name="outputs">
@@ -1424,154 +1562,203 @@ const OperationEditor: React.FC<OperationEditorProps> = ({
                   {fields.map(({ key, name, ...restField }, idx) => {
                     const rowItemId = watchedOutputs[idx]?.itemId;
                     const rowItem = displayedOutputItems.find(i => i.id === rowItemId) || allItems.find(i => i.id === rowItemId);
-                    const rowUomId = watchedOutputs[idx]?.uomId || rowItem?.uomId;
+                    const rowUomId = watchedOutputs[idx]?.uomId || (rowItem ? resolveItemUomId(rowItem) : undefined);
                     const rowUomObj = lookups.uoms.find(u => u.id === rowUomId);
-                    const rowUomCode = rowUomObj?.code || (rowItem ? 'Unit' : 'Unit');
+                    const rowUomCode = rowUomObj?.code || (rowItem ? 'PCS' : 'Unit');
 
                     return (
-                      <div
+                      <Card
                         key={key}
+                        size="small"
+                        type="inner"
                         style={{
-                          display: 'flex',
-                          gap: 10,
-                          alignItems: 'flex-start',
-                          flexWrap: 'wrap',
-                          padding: '10px 12px',
-                          background: idx % 2 === 0 ? '#fffbeb' : '#ffffff',
-                          border: '1px solid #fed7aa',
-                          borderRadius: 6,
-                          marginBottom: 8,
+                          marginBottom: 10,
+                          borderRadius: 8,
+                          border: `1px solid ${token.colorBorderSecondary}`,
+                          background: token.colorFillAlter,
                         }}
+                        title={
+                          <Space size={8}>
+                            <Tag color="purple" style={{ margin: 0, fontWeight: 700, fontSize: 11, borderRadius: 4 }}>
+                              Output Product #{idx + 1}
+                            </Tag>
+                            {watchedOutputs[idx]?.isPrimary && (
+                              <Tag color="green" style={{ margin: 0, fontSize: 11, fontWeight: 600, borderRadius: 4 }}>
+                                Primary Output
+                              </Tag>
+                            )}
+                            <Tag color="blue" style={{ margin: 0, fontWeight: 600, fontSize: 11 }}>
+                              Unit: {rowUomCode}
+                            </Tag>
+                          </Space>
+                        }
+                        extra={
+                          <Space size={8}>
+                            <Button
+                              type="text"
+                              danger
+                              size="small"
+                              icon={<DeleteOutlined />}
+                              onClick={() => remove(name)}
+                              title="Remove Output Product"
+                            >
+                              Remove
+                            </Button>
+                          </Space>
+                        }
                       >
-                        <Form.Item
-                          {...restField}
-                          name={[name, 'itemId']}
-                          label={
-                            idx === 0 ? (
-                              <Space size={4}>
-                                <span>Output Product Item (Department Filtered)</span>
-                                {outputFilterScope === 'DEPT' && (
-                                  <Tag color="orange" style={{ margin: 0, fontSize: 11 }}>Dept Scoped</Tag>
-                                )}
-                              </Space>
-                            ) : undefined
-                          }
-                          rules={[{ required: true, message: 'Select product item' }]}
-                          style={{ flex: '1 1 340px', minWidth: 260, marginBottom: 0 }}
-                        >
-                          <Select
-                            showSearch
-                            placeholder="Type code or name to search output product..."
-                            filterOption={(input, option: any) => {
-                              const query = (input || '').toLowerCase();
-                              const searchtext = String(option?.searchtext || option?.label || option?.value || '').toLowerCase();
-                              return searchtext.includes(query);
-                            }}
-                            onSearch={searchItemsRemote}
-                            loading={outputDeptLoading || searchingItems}
-                            onChange={(val) => handleOutputItemChange(name, val)}
-                          >
-                            {displayedOutputItems.map(i => {
-                              const isFG = i.itemType === 'FINISHED_GOODS';
-                              const isWIP = i.itemType === 'WIP' || (i as any).materialRoleUsage === 'Process Component Materials';
-                              return (
-                                <Select.Option
-                                  key={i.id}
-                                  value={i.id}
-                                  searchtext={`${i.itemCode} ${i.name} ${i.itemType || ''}`}
-                                  style={isFG ? { background: '#f5f3ff' } : isWIP ? { background: '#ecfeff' } : undefined}
-                                >
-                                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '2px 0' }}>
-                                    <div>
-                                      <span style={{ fontWeight: 600 }}>{i.name}</span>
-                                      <Typography.Text type="secondary" style={{ marginLeft: 6 }}>({i.itemCode})</Typography.Text>
-                                    </div>
-                                    {isFG ? (
-                                      <Tag color="purple" style={{ margin: 0, fontSize: 11, fontWeight: 600, borderRadius: 4 }}>
-                                        Finished Good
-                                      </Tag>
-                                    ) : isWIP ? (
-                                      <Tag color="cyan" style={{ margin: 0, fontSize: 11, fontWeight: 500, borderRadius: 4 }}>
-                                        WIP / Sub-Assembly
-                                      </Tag>
-                                    ) : (
-                                      <Tag color="default" style={{ margin: 0, fontSize: 11, borderRadius: 4 }}>
-                                        {i.itemType || 'Item'}
-                                      </Tag>
-                                    )}
-                                  </div>
-                                </Select.Option>
-                              );
-                            })}
-                          </Select>
-                        </Form.Item>
+                        <Row gutter={[12, 10]}>
+                          {/* Row 1: Output Product Item */}
+                          <Col xs={24} md={15}>
+                            <Form.Item
+                              {...restField}
+                              name={[name, 'itemId']}
+                              label="Output Product Item (Department Filtered)"
+                              rules={[{ required: true, message: 'Please select output product item' }]}
+                              style={{ marginBottom: 0 }}
+                            >
+                              <Select
+                                showSearch
+                                placeholder="Type code or name to search output product..."
+                                filterOption={(input, option: any) => {
+                                  const query = (input || '').toLowerCase();
+                                  const searchtext = String(option?.searchtext || option?.label || option?.value || '').toLowerCase();
+                                  return searchtext.includes(query);
+                                }}
+                                onSearch={searchItemsRemote}
+                                loading={outputDeptLoading || searchingItems}
+                                onChange={(val) => handleOutputItemChange(name, val)}
+                              >
+                                {displayedOutputItems.map(i => {
+                                  const isFG = i.itemType === 'FINISHED_GOODS';
+                                  const isWIP = i.itemType === 'WIP' || (i as any).materialRoleUsage === 'Process Component Materials';
+                                  return (
+                                    <Select.Option
+                                      key={i.id}
+                                      value={i.id}
+                                      searchtext={`${i.itemCode} ${i.name} ${i.itemType || ''}`}
+                                    >
+                                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '2px 0' }}>
+                                        <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                          <span style={{ fontWeight: 600 }}>{i.name}</span>
+                                          <Typography.Text type="secondary" style={{ marginLeft: 6 }}>({i.itemCode})</Typography.Text>
+                                        </div>
+                                        {isFG ? (
+                                          <Tag color="purple" style={{ margin: 0, fontSize: 11, fontWeight: 600, borderRadius: 4, whiteSpace: 'nowrap' }}>
+                                            Finished Good
+                                          </Tag>
+                                        ) : isWIP ? (
+                                          <Tag color="cyan" style={{ margin: 0, fontSize: 11, fontWeight: 500, borderRadius: 4, whiteSpace: 'nowrap' }}>
+                                            WIP Component
+                                          </Tag>
+                                        ) : (
+                                          <Tag color="default" style={{ margin: 0, fontSize: 11, borderRadius: 4, whiteSpace: 'nowrap' }}>
+                                            {i.itemType || 'Item'}
+                                          </Tag>
+                                        )}
+                                      </div>
+                                    </Select.Option>
+                                  );
+                                })}
+                              </Select>
+                            </Form.Item>
+                          </Col>
 
-                        <Form.Item
-                          {...restField}
-                          name={[name, 'quantity']}
-                          label={
-                            idx === 0 ? (
-                              <Space size={4}>
-                                <span>Output Qty</span>
-                                <Tag color="blue" style={{ margin: 0, fontWeight: 600, fontSize: 11 }}>{rowUomCode}</Tag>
-                              </Space>
-                            ) : undefined
-                          }
-                          style={{ width: 140, marginBottom: 0 }}
-                        >
-                          <InputNumber
-                            min={0.000001}
-                            placeholder="1.0"
-                            addonAfter={rowUomCode}
-                            style={{ width: '100%' }}
-                          />
-                        </Form.Item>
+                          {/* Output Type */}
+                          <Col xs={12} md={9}>
+                            <Form.Item
+                              {...restField}
+                              name={[name, 'outputType']}
+                              label="Output Type / Nature"
+                              initialValue="MAIN"
+                              style={{ marginBottom: 0 }}
+                            >
+                              <Select style={{ width: '100%' }}>
+                                <Select.Option value="MAIN">MAIN (Primary Finished / Semi-Finished)</Select.Option>
+                                <Select.Option value="CO_PRODUCT">CO_PRODUCT (Simultaneous product)</Select.Option>
+                                <Select.Option value="BY_PRODUCT">BY_PRODUCT (Incidental output)</Select.Option>
+                              </Select>
+                            </Form.Item>
+                          </Col>
 
-                        <Form.Item
-                          {...restField}
-                          name={[name, 'uomId']}
-                          label={idx === 0 ? "UOM" : undefined}
-                          style={{ width: 100, marginBottom: 0 }}
-                        >
-                          <Select allowClear placeholder="UOM" optionFilterProp="children">
-                            {lookups.uoms.map(u => <Select.Option key={u.id} value={u.id}>{u.code}</Select.Option>)}
-                          </Select>
-                        </Form.Item>
+                          {/* Output Quantity */}
+                          <Col xs={12} sm={6} md={6}>
+                            <Form.Item
+                              {...restField}
+                              name={[name, 'quantity']}
+                              label="Output Quantity Produced"
+                              rules={[{ required: true, message: 'Qty required' }]}
+                              style={{ marginBottom: 0 }}
+                            >
+                              <InputNumber
+                                min={0.000001}
+                                placeholder="1.0"
+                                style={{ width: '100%' }}
+                              />
+                            </Form.Item>
+                          </Col>
 
-                        <Form.Item
-                          {...restField}
-                          name={[name, 'outputType']}
-                          label={idx === 0 ? "Type" : undefined}
-                          style={{ width: 130, marginBottom: 0 }}
-                          initialValue="MAIN"
-                        >
-                          <Select>
-                            <Select.Option value="MAIN">MAIN</Select.Option>
-                            <Select.Option value="CO_PRODUCT">CO_PRODUCT</Select.Option>
-                            <Select.Option value="BY_PRODUCT">BY_PRODUCT</Select.Option>
-                          </Select>
-                        </Form.Item>
+                          {/* UOM - Searchable with PCS, KG on top */}
+                          <Col xs={12} sm={6} md={6}>
+                            <Form.Item
+                              {...restField}
+                              name={[name, 'uomId']}
+                              label="Unit of Measurement (UOM)"
+                              rules={[{ required: true, message: 'UOM required' }]}
+                              style={{ marginBottom: 0 }}
+                            >
+                              <Select
+                                showSearch
+                                allowClear
+                                placeholder="Type to search (e.g. PCS, KG)..."
+                                optionFilterProp="children"
+                                filterOption={(input, option: any) => {
+                                  const q = (input || '').toLowerCase();
+                                  const text = String(option?.children || option?.value || '').toLowerCase();
+                                  return text.includes(q);
+                                }}
+                                style={{ width: '100%' }}
+                              >
+                                {sortedUoms.map(u => (
+                                  <Select.Option key={u.id} value={u.id}>
+                                    {u.code} {u.name && u.name !== u.code ? `— ${u.name}` : ''}
+                                  </Select.Option>
+                                ))}
+                              </Select>
+                            </Form.Item>
+                          </Col>
 
-                        <Form.Item
-                          {...restField}
-                          name={[name, 'isPrimary']}
-                          valuePropName="checked"
-                          label={idx === 0 ? "Primary" : undefined}
-                          style={{ marginBottom: 0, paddingTop: idx === 0 ? 4 : 4 }}
-                        >
-                          <Checkbox>Primary</Checkbox>
-                        </Form.Item>
+                          {/* Yield Percentage */}
+                          <Col xs={12} sm={8} md={8}>
+                            <Form.Item
+                              {...restField}
+                              name={[name, 'yieldPercentage']}
+                              label="Yield Percentage (%)"
+                              initialValue={100}
+                              style={{ marginBottom: 0 }}
+                            >
+                              <InputNumber
+                                min={0}
+                                max={100}
+                                placeholder="100"
+                                style={{ width: '100%' }}
+                              />
+                            </Form.Item>
+                          </Col>
 
-                        <div style={{ paddingTop: idx === 0 ? 30 : 4 }}>
-                          <Button
-                            type="text"
-                            danger
-                            icon={<DeleteOutlined />}
-                            onClick={() => remove(name)}
-                            title="Remove Output"
-                          />
-                        </div>
-                      </div>
+                          {/* Primary Output Checkbox */}
+                          <Col xs={12} sm={4} md={4} style={{ display: 'flex', alignItems: 'center', paddingTop: 24 }}>
+                            <Form.Item
+                              {...restField}
+                              name={[name, 'isPrimary']}
+                              valuePropName="checked"
+                              style={{ marginBottom: 0 }}
+                            >
+                              <Checkbox style={{ whiteSpace: 'nowrap', fontWeight: 500 }}>Primary</Checkbox>
+                            </Form.Item>
+                          </Col>
+                        </Row>
+                      </Card>
                     );
                   })}
 
@@ -1580,7 +1767,7 @@ const OperationEditor: React.FC<OperationEditorProps> = ({
                     onClick={() => add({ outputType: 'MAIN', isPrimary: fields.length === 0 })}
                     block
                     icon={<PlusOutlined />}
-                    style={{ marginTop: 4, height: 36, fontWeight: 500 }}
+                    style={{ marginTop: 6, height: 38, fontWeight: 600, borderRadius: 6 }}
                   >
                     + Add Output Product
                   </Button>
@@ -1802,9 +1989,9 @@ const OperationEditor: React.FC<OperationEditorProps> = ({
             bottom: 24,
             right: 24,
             zIndex: 1100,
-            background: '#0d1322',
-            border: '1px solid #38bdf8',
-            boxShadow: '0 8px 30px rgba(0, 0, 0, 0.55)',
+            background: token.colorBgElevated,
+            border: `1px solid ${token.colorPrimary}`,
+            boxShadow: '0 8px 30px rgba(0, 0, 0, 0.4)',
             borderRadius: 24,
             padding: '8px 18px',
             display: 'flex',
@@ -1813,12 +2000,12 @@ const OperationEditor: React.FC<OperationEditorProps> = ({
             animation: 'fadeIn 0.2s ease-out',
           }}
         >
-          <ApartmentOutlined style={{ color: '#38bdf8', fontSize: 18 }} />
+          <ApartmentOutlined style={{ color: token.colorPrimary, fontSize: 18 }} />
           <div style={{ display: 'flex', flexDirection: 'column', minWidth: 120 }}>
-            <span style={{ color: '#ffffff', fontWeight: 600, fontSize: 13, lineHeight: 1.2 }}>
+            <span style={{ color: token.colorText, fontWeight: 600, fontSize: 13, lineHeight: 1.2 }}>
               {operation ? `Edit Op: ${operation.operationCode || ''}` : 'Add Operation'}
             </span>
-            <span style={{ color: '#94a3b8', fontSize: 11, lineHeight: 1.2, marginTop: 2 }}>
+            <span style={{ color: token.colorTextSecondary, fontSize: 11, lineHeight: 1.2, marginTop: 2 }}>
               {form.getFieldValue('operationName') || form.getFieldValue('operationCode') || 'Minimised — In Progress'}
             </span>
           </div>

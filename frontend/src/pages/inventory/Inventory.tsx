@@ -602,9 +602,16 @@ const Inventory: React.FC = () => {
 
               if (isZero) {
                 return (
-                  <span style={{ color: isDark ? '#64748b' : '#94a3b8', fontWeight: 700, fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
-                    0
-                  </span>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
+                    <span style={{ color: isDark ? '#64748b' : '#94a3b8', fontWeight: 700, fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
+                      0
+                    </span>
+                    {Number(r.onHand || 0) > 0 && (
+                      <span style={{ fontSize: 10, fontWeight: 700, color: isDark ? '#f59e0b' : '#d97706', letterSpacing: '0.3px' }}>
+                        100% Reserved
+                      </span>
+                    )}
+                  </div>
                 );
               }
 
@@ -670,16 +677,90 @@ const Inventory: React.FC = () => {
             },
           },
           {
-            title: 'Reserved',
+            title: (
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ color: isDark ? '#fbbf24' : '#d97706', fontSize: 11, fontWeight: 700, letterSpacing: '0.4px' }}>
+                  RESERVED
+                </div>
+                <div style={{ color: isDark ? '#94a3b8' : '#64748b', fontSize: 10, fontWeight: 600 }}>
+                  GROSS · CARTON · PCS
+                </div>
+              </div>
+            ),
             dataIndex: 'reserved',
             key: 'reserved',
-            width: 110,
+            width: 170,
             align: 'right' as const,
-            render: (v: unknown) => (
-              <span style={{ fontVariantNumeric: 'tabular-nums', color: Number(v) > 0 ? 'var(--theme-warning)' : 'var(--theme-text-muted, #64748b)' }}>
-                {formatNumber(v, 0)}
-              </span>
-            ),
+            sorter: (a, b) => Number(a.reserved || 0) - Number(b.reserved || 0),
+            render: (v: unknown, r) => {
+              const num = Number(v || 0);
+              const isZero = Math.abs(num) <= 0.0001;
+
+              if (isZero) {
+                return (
+                  <span style={{ color: isDark ? '#64748b' : '#94a3b8', fontWeight: 700, fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
+                    0
+                  </span>
+                );
+              }
+
+              const conv = getPcsGrossCarton(
+                num,
+                r.uom?.code || r.uomCode || r.item?.uom?.code,
+                r.item?.itemType || (r as any).itemType,
+                r.item?.itemCode || (r as any).itemCode
+              );
+
+              if (!conv) {
+                return (
+                  <span
+                    style={{
+                      fontWeight: 700,
+                      fontSize: 13,
+                      fontVariantNumeric: 'tabular-nums',
+                      color: isDark ? '#fbbf24' : '#d97706',
+                    }}
+                  >
+                    {formatNumber(num, 0)} {r.uom?.code || r.uomCode || 'PCS'}
+                  </span>
+                );
+              }
+
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2, lineHeight: 1.35 }}>
+                  <span
+                    style={{
+                      fontWeight: 800,
+                      fontSize: 13,
+                      color: isDark ? '#fbbf24' : '#d97706',
+                      fontVariantNumeric: 'tabular-nums',
+                    }}
+                  >
+                    {formatNumber(conv.gross, conv.gross % 1 === 0 ? 0 : 2)} GR
+                  </span>
+                  <span
+                    style={{
+                      fontWeight: 700,
+                      fontSize: 12,
+                      color: isDark ? '#38bdf8' : '#0284c7',
+                      fontVariantNumeric: 'tabular-nums',
+                    }}
+                  >
+                    {formatNumber(conv.ctn, 0)} CTN
+                  </span>
+                  <span
+                    style={{
+                      fontWeight: 600,
+                      fontSize: 11,
+                      color: isDark ? '#fcd34d' : '#b45309',
+                      fontVariantNumeric: 'tabular-nums',
+                    }}
+                  >
+                    {formatNumber(conv.pcs, 0)} PCS
+                  </span>
+                </div>
+              );
+            },
           },
           {
             title: (

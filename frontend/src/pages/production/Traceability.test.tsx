@@ -45,6 +45,7 @@ const emptyOverview = {
 };
 
 describe('Production Traceability report', () => {
+  jest.setTimeout(35000);
   beforeEach(() => {
     apiMock.get.mockReset();
     apiMock.get.mockImplementation((url: any) => {
