@@ -221,25 +221,60 @@ export class FinishedGoodsInventoryService {
       physicalMap.set(r.itemId, Number(r.totalOnHand || 0));
     });
 
-    // 3. Aggregate Open Sales Order Commitments in ONE query
-    // Open orders: Draft, Confirmed, Processing
-    const rawCommitments = await this.soItemRepo
-      .createQueryBuilder('soi')
-      .innerJoin('soi.order', 'so')
-      .select('soi.itemId', 'itemId')
-      .addSelect('SUM(GREATEST(0, soi.quantity - COALESCE(soi.shippedQuantity, 0)))', 'openQty')
-      .where('so.companyId = :companyId', { companyId })
-      .andWhere('soi.itemId IN (:...itemIds)', { itemIds })
-      .andWhere('so.status IN (:...openStatuses)', {
-        openStatuses: ['Draft', 'Confirmed', 'Processing', 'DRAFT', 'CONFIRMED', 'PROCESSING'],
-      })
-      .groupBy('soi.itemId')
-      .getRawMany();
+    // 3. Aggregate Open Sales Order Commitments (accounting for multi-SOC confirmed Delivery Notes)
+    const dnShippedRows: Array<{
+      item_id: string;
+      quantity: string | number;
+      description: string | null;
+      header_soc: string | null;
+    }> = await this.soItemRepo.manager.query(
+      `SELECT sdl.item_id, sdl.quantity, sdl.description, so.order_number AS header_soc
+       FROM erp_sales.sales_delivery_lines sdl
+       JOIN erp_sales.sales_deliveries sd ON sd.id = sdl.delivery_id
+       LEFT JOIN erp_sales.sales_orders so ON so.id = sd.sales_order_id
+       WHERE sd.deleted_at IS NULL
+         AND UPPER(sd.status) IN ('CONFIRMED', 'DELIVERED', 'SHIPPED')
+         AND sdl.item_id = ANY($1)`,
+      [itemIds],
+    );
+    const dnDeliveredMap = new Map<string, number>();
+    for (const r of dnShippedRows) {
+      const socMatch = r.description?.match(/SOC[:\s]+(SOC-[A-Za-z0-9-]+|[0-9A-Za-z-]+)/i);
+      const soc = (socMatch ? socMatch[1] : r.header_soc || '').trim();
+      if (!soc) continue;
+      const key = `${soc}_${r.item_id}`;
+      dnDeliveredMap.set(key, (dnDeliveredMap.get(key) || 0) + Number(r.quantity || 0));
+    }
+
+    const rawOpenSoItems: Array<{
+      item_id: string;
+      quantity: string | number;
+      shipped_quantity: string | number;
+      order_number: string | null;
+    }> = await this.soItemRepo.manager.query(
+      `SELECT soi.item_id, soi.quantity, COALESCE(soi.shipped_quantity, 0) AS shipped_quantity,
+              so.order_number
+       FROM erp_sales.sales_order_items soi
+       JOIN erp_sales.sales_orders so ON so.id = soi.sales_order_id
+       WHERE so.company_id = $1
+         AND so.deleted_at IS NULL
+         AND soi.item_id = ANY($2)
+         AND UPPER(so.status) NOT IN ('DELIVERED', 'CLOSED', 'CANCELLED')
+         AND UPPER(COALESCE(soi.status, '')) != 'DELIVERED'`,
+      [companyId, itemIds],
+    );
 
     const commitmentMap = new Map<string, number>();
-    rawCommitments.forEach((r) => {
-      commitmentMap.set(r.itemId, Number(r.openQty || 0));
-    });
+    for (const r of rawOpenSoItems) {
+      const soc = (r.order_number || '').trim();
+      const orderQty = Number(r.quantity || 0);
+      const shippedAttr = Number(r.shipped_quantity || 0);
+      const shippedDn = soc ? dnDeliveredMap.get(`${soc}_${r.item_id}`) || 0 : 0;
+      const openQty = Math.max(0, orderQty - Math.max(shippedAttr, shippedDn));
+      if (openQty > 0) {
+        commitmentMap.set(r.item_id, (commitmentMap.get(r.item_id) || 0) + openQty);
+      }
+    }
 
     // 4. Aggregate Active Production Orders in ONE query
     const rawProduction = await this.poRepo
@@ -598,22 +633,54 @@ export class FinishedGoodsInventoryService {
     }
 
     // Existing commitments from other open sales orders (excluding current order being edited)
-    const commitQb = this.soItemRepo
-      .createQueryBuilder('soi')
-      .innerJoin('soi.order', 'so')
-      .select('SUM(GREATEST(0, soi.quantity - COALESCE(soi.shippedQuantity, 0)))', 'openQty')
-      .where('so.companyId = :companyId', { companyId })
-      .andWhere('soi.itemId = :itemId', { itemId })
-      .andWhere('so.status IN (:...openStatuses)', {
-        openStatuses: ['Draft', 'Confirmed', 'Processing', 'DRAFT', 'CONFIRMED', 'PROCESSING'],
-      });
-
-    if (orderId) {
-      commitQb.andWhere('so.id != :orderId', { orderId });
+    const dnShippedSingle: Array<{
+      quantity: string | number;
+      description: string | null;
+      header_soc: string | null;
+    }> = await this.soItemRepo.manager.query(
+      `SELECT sdl.quantity, sdl.description, so.order_number AS header_soc
+       FROM erp_sales.sales_delivery_lines sdl
+       JOIN erp_sales.sales_deliveries sd ON sd.id = sdl.delivery_id
+       LEFT JOIN erp_sales.sales_orders so ON so.id = sd.sales_order_id
+       WHERE sd.deleted_at IS NULL
+         AND UPPER(sd.status) IN ('CONFIRMED', 'DELIVERED', 'SHIPPED')
+         AND sdl.item_id = $1`,
+      [itemId],
+    );
+    const dnSingleBySoc = new Map<string, number>();
+    for (const r of dnShippedSingle) {
+      const socMatch = r.description?.match(/SOC[:\s]+(SOC-[A-Za-z0-9-]+|[0-9A-Za-z-]+)/i);
+      const soc = (socMatch ? socMatch[1] : r.header_soc || '').trim();
+      if (!soc) continue;
+      dnSingleBySoc.set(soc, (dnSingleBySoc.get(soc) || 0) + Number(r.quantity || 0));
     }
 
-    const rawCommitment = await commitQb.getRawOne();
-    const committedStock = Number(rawCommitment?.openQty || 0);
+    const openSoSingle: Array<{
+      so_id: string;
+      order_number: string | null;
+      quantity: string | number;
+      shipped_quantity: string | number;
+    }> = await this.soItemRepo.manager.query(
+      `SELECT so.id AS so_id, so.order_number, soi.quantity, COALESCE(soi.shipped_quantity, 0) AS shipped_quantity
+       FROM erp_sales.sales_order_items soi
+       JOIN erp_sales.sales_orders so ON so.id = soi.sales_order_id
+       WHERE so.company_id = $1
+         AND so.deleted_at IS NULL
+         AND soi.item_id = $2
+         AND UPPER(so.status) NOT IN ('DELIVERED', 'CLOSED', 'CANCELLED')
+         AND UPPER(COALESCE(soi.status, '')) != 'DELIVERED'`,
+      [companyId, itemId],
+    );
+
+    let committedStock = 0;
+    for (const r of openSoSingle) {
+      if (orderId && r.so_id === orderId) continue;
+      const soc = (r.order_number || '').trim();
+      const orderQty = Number(r.quantity || 0);
+      const shippedAttr = Number(r.shipped_quantity || 0);
+      const shippedDn = soc ? dnSingleBySoc.get(soc) || 0 : 0;
+      committedStock += Math.max(0, orderQty - Math.max(shippedAttr, shippedDn));
+    }
 
     const availableStock = Math.max(0, physicalStock - committedStock);
     const aboveSafetyStock = Math.max(0, availableStock - safetyStock);

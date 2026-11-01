@@ -51,7 +51,7 @@ export class InventoryBalanceService {
     const warehouseIds = [...new Set(pairs.map((p) => p.warehouseId).filter(Boolean))];
     if (!itemIds.length || !warehouseIds.length) return [];
 
-    return this.repo.find({
+    const balances = await this.repo.find({
       where: {
         companyId,
         status: 'ACTIVE',
@@ -60,6 +60,7 @@ export class InventoryBalanceService {
       },
       relations: ['item', 'warehouse', 'uom'],
     });
+    return this.enrichDynamicReservations(balances, companyId);
   }
 
   async findAll(filter: {
@@ -90,7 +91,8 @@ export class InventoryBalanceService {
     qb.skip((page - 1) * limit).take(limit);
 
     const [data, total] = await qb.getManyAndCount();
-    return { data, total };
+    const enriched = await this.enrichDynamicReservations(data, companyId);
+    return { data: enriched, total };
   }
 
   async findOne(id: string): Promise<InventoryBalance> {
@@ -99,7 +101,240 @@ export class InventoryBalanceService {
       relations: ['item', 'warehouse', 'location', 'batch', 'uom', 'company'],
     });
     if (!balance) throw new NotFoundException(`Inventory balance with ID '${id}' not found`);
-    return balance;
+    const [enriched] = await this.enrichDynamicReservations([balance], balance.companyId);
+    return enriched;
+  }
+
+  /**
+   * Dynamically computes accurate RESERVED and AVAILABLE quantities from pending
+   * Sales Orders, Delivery Orders, and active Inventory Reservations, while respecting
+   * unreserved Safety Stock and distributing across batch rows without inflation.
+   */
+  private async enrichDynamicReservations(
+    balances: InventoryBalance[],
+    companyId?: string,
+  ): Promise<InventoryBalance[]> {
+    if (!balances || balances.length === 0) return balances;
+
+    try {
+      const fgBalances = balances.filter((b) => {
+        const iType = (b.item?.itemType || '').toUpperCase();
+        const iCode = (b.item?.itemCode || '').toUpperCase();
+        return iType === 'FINISHED_GOOD' || iCode.includes('-FG-');
+      });
+
+      // Normalize non-FG rows so reserved never exceeds onHand and available = onHand - reserved
+      for (const b of balances) {
+        const iType = (b.item?.itemType || '').toUpperCase();
+        const iCode = (b.item?.itemCode || '').toUpperCase();
+        const isFg = iType === 'FINISHED_GOOD' || iCode.includes('-FG-');
+        if (!isFg) {
+          const onHand = Number(b.onHand || 0);
+          const reserved = Math.min(Math.max(0, onHand), Math.max(0, Number(b.reserved || 0)));
+          b.reserved = Number(reserved.toFixed(4));
+          b.available = Number((onHand - reserved).toFixed(4));
+        }
+      }
+
+      if (fgBalances.length === 0) return balances;
+
+      const fgItemIds = Array.from(new Set(fgBalances.map((b) => b.itemId).filter(Boolean)));
+      const fgWarehouseIds = Array.from(new Set(fgBalances.map((b) => b.warehouseId).filter(Boolean)));
+      if (fgItemIds.length === 0 || fgWarehouseIds.length === 0) return balances;
+
+      // 1. Fetch confirmed/shipped/delivered Delivery Note lines for these FG items
+      //    and resolve multi-SOC tags ([SOC: SOC-...]) in line descriptions
+      const dnRows: Array<{
+        item_id: string;
+        quantity: string | number;
+        description: string | null;
+        header_soc: string | null;
+        uom_code: string | null;
+      }> = await this.repo.manager.query(
+        `SELECT sdl.item_id, sdl.quantity, sdl.description, so.order_number AS header_soc,
+                u.code AS uom_code
+         FROM erp_sales.sales_delivery_lines sdl
+         JOIN erp_sales.sales_deliveries sd ON sd.id = sdl.delivery_id
+         LEFT JOIN erp_sales.sales_orders so ON so.id = sd.sales_order_id
+         LEFT JOIN public.uoms u ON u.id = sdl.uom_id
+         WHERE sd.deleted_at IS NULL
+           AND UPPER(sd.status) IN ('CONFIRMED', 'DELIVERED', 'SHIPPED')
+           AND sdl.item_id = ANY($1)`,
+        [fgItemIds],
+      );
+
+      const deliveredBySocAndItem = new Map<string, number>();
+      for (const r of dnRows) {
+        const socMatch = r.description?.match(/SOC[:\s]+(SOC-[A-Za-z0-9-]+|[0-9A-Za-z-]+)/i);
+        const soc = (socMatch ? socMatch[1] : r.header_soc || '').trim();
+        if (!soc) continue;
+        const key = `${soc}_${r.item_id}`;
+        const qty = Number(r.quantity || 0);
+        deliveredBySocAndItem.set(key, (deliveredBySocAndItem.get(key) || 0) + qty);
+      }
+
+      // 2. Fetch open Sales Order items for these FG items
+      const openSoRows: Array<{
+        item_id: string;
+        quantity: string | number;
+        shipped_quantity: string | number;
+        order_number: string | null;
+        uom_code: string | null;
+        base_uom_code: string | null;
+      }> = await this.repo.manager.query(
+        `SELECT soi.item_id, soi.quantity, COALESCE(soi.shipped_quantity, 0) AS shipped_quantity,
+                so.order_number, u.code AS uom_code, bu.code AS base_uom_code
+         FROM erp_sales.sales_order_items soi
+         JOIN erp_sales.sales_orders so ON so.id = soi.sales_order_id
+         LEFT JOIN public.uoms u ON u.id = soi.uom_id
+         LEFT JOIN public.items i ON i.id = soi.item_id
+         LEFT JOIN public.uoms bu ON bu.id = i.base_uom_id
+         WHERE so.deleted_at IS NULL
+           AND UPPER(so.status) NOT IN ('DELIVERED', 'CLOSED', 'CANCELLED')
+           AND UPPER(COALESCE(soi.status, '')) != 'DELIVERED'
+           AND soi.item_id = ANY($1)
+           ${companyId ? 'AND so.company_id = $2' : ''}`,
+        companyId ? [fgItemIds, companyId] : [fgItemIds],
+      );
+
+      const openOrderDemandPcsByItem = new Map<string, number>();
+      const openSocNumbers = new Set<string>();
+
+      for (const r of openSoRows) {
+        const soc = (r.order_number || '').trim();
+        if (soc) openSocNumbers.add(soc);
+        const orderQty = Number(r.quantity || 0);
+        const shippedCol = Number(r.shipped_quantity || 0);
+        const deliveredDn = soc ? deliveredBySocAndItem.get(`${soc}_${r.item_id}`) || 0 : 0;
+        const effectiveShipped = Math.max(shippedCol, deliveredDn);
+        const remQty = Math.max(0, orderQty - effectiveShipped);
+        if (remQty <= 0) continue;
+
+        const uomCode = (r.uom_code || 'GRS').toUpperCase();
+        const baseUomCode = (r.base_uom_code || 'PCS').toUpperCase();
+        const remPcs = uomCode === 'GRS' && baseUomCode === 'PCS' ? remQty * 144 : remQty;
+        openOrderDemandPcsByItem.set(r.item_id, (openOrderDemandPcsByItem.get(r.item_id) || 0) + remPcs);
+      }
+
+      // 3. Also check standalone DRAFT Delivery Orders not already tied to an open Sales Order
+      const draftDnRows: Array<{
+        item_id: string;
+        warehouse_id: string | null;
+        quantity: string | number;
+        description: string | null;
+        header_soc: string | null;
+        uom_code: string | null;
+      }> = await this.repo.manager.query(
+        `SELECT sdl.item_id, COALESCE(sdl.warehouse_id, sd.warehouse_id) AS warehouse_id,
+                sdl.quantity, sdl.description, so.order_number AS header_soc, u.code AS uom_code
+         FROM erp_sales.sales_delivery_lines sdl
+         JOIN erp_sales.sales_deliveries sd ON sd.id = sdl.delivery_id
+         LEFT JOIN erp_sales.sales_orders so ON so.id = sd.sales_order_id
+         LEFT JOIN public.uoms u ON u.id = sdl.uom_id
+         WHERE sd.deleted_at IS NULL
+           AND UPPER(sd.status) = 'DRAFT'
+           AND sdl.item_id = ANY($1)`,
+        [fgItemIds],
+      );
+
+      for (const r of draftDnRows) {
+        const socMatch = r.description?.match(/SOC[:\s]+(SOC-[A-Za-z0-9-]+|[0-9A-Za-z-]+)/i);
+        const soc = (socMatch ? socMatch[1] : r.header_soc || '').trim();
+        // Skip if already counted via open Sales Order demand
+        if (soc && openSocNumbers.has(soc)) continue;
+        const qty = Number(r.quantity || 0);
+        if (qty <= 0) continue;
+        const uomCode = (r.uom_code || 'GRS').toUpperCase();
+        const qtyPcs = uomCode === 'GRS' ? qty * 144 : qty;
+        openOrderDemandPcsByItem.set(r.item_id, (openOrderDemandPcsByItem.get(r.item_id) || 0) + qtyPcs);
+      }
+
+      // 4. Fetch unreserved Safety Stock produced for SAFETY-STOCK (excluding stock shifted to a customer SOC)
+      const safetyRows: Array<{
+        item_id: string;
+        warehouse_id: string;
+        safety_pcs: string | number;
+      }> = await this.repo.manager.query(
+        `SELECT sl.item_id, sl.warehouse_id,
+                COALESCE(SUM(CASE WHEN sl.direction = 'IN' THEN sl.quantity ELSE -sl.quantity END), 0) AS safety_pcs
+         FROM public.stock_ledger sl
+         LEFT JOIN public.production_entries pe
+           ON pe.id = sl.reference_id AND sl.reference_type = 'PRODUCTION_ENTRY'
+         WHERE sl.item_id = ANY($1)
+           AND sl.warehouse_id = ANY($2)
+           AND (
+             sl.notes ~* 'SOC:\\s*(SAFETY-STOCK|SAFETY)'
+             OR pe.remarks ~* 'SOC:\\s*(SAFETY-STOCK|SAFETY)'
+           )
+           AND COALESCE(sl.notes, '') NOT ILIKE '%SHIFTED FROM SAFETY STOCK%'
+         GROUP BY sl.item_id, sl.warehouse_id`,
+        [fgItemIds, fgWarehouseIds],
+      );
+
+      const safetyByItemWh = new Map<string, number>();
+      for (const r of safetyRows) {
+        const key = `${r.item_id}_${r.warehouse_id}`;
+        safetyByItemWh.set(key, Math.max(0, Number(r.safety_pcs || 0)));
+      }
+
+      // 5. Group FG balance rows by (itemId, warehouseId) so batch rows never duplicate reservations
+      const groupMap = new Map<string, InventoryBalance[]>();
+      for (const b of fgBalances) {
+        const key = `${b.itemId}_${b.warehouseId}`;
+        const list = groupMap.get(key) || [];
+        list.push(b);
+        groupMap.set(key, list);
+      }
+
+      // Group keys by itemId so demand is allocated cleanly across warehouses without double-counting
+      const groupsByItem = new Map<string, Array<{ key: string; rows: InventoryBalance[]; totalOnHand: number }>>();
+      for (const [key, rows] of groupMap.entries()) {
+        const itemId = rows[0].itemId;
+        const totalOnHand = rows.reduce((sum, r) => sum + Math.max(0, Number(r.onHand || 0)), 0);
+        const itemGroups = groupsByItem.get(itemId) || [];
+        itemGroups.push({ key, rows, totalOnHand });
+        groupsByItem.set(itemId, itemGroups);
+      }
+
+      for (const [itemId, itemGroups] of groupsByItem.entries()) {
+        // Sort warehouse groups by highest onHand first
+        itemGroups.sort((a, b) => b.totalOnHand - a.totalOnHand);
+        let remainingItemDemandPcs = openOrderDemandPcsByItem.get(itemId) || 0;
+
+        for (const grp of itemGroups) {
+          const safetyPcs = safetyByItemWh.get(grp.key) || 0;
+          const customerAllocatablePcs = Math.max(0, grp.totalOnHand - safetyPcs);
+          const groupReservedPcs = Math.min(grp.totalOnHand, Math.min(customerAllocatablePcs, remainingItemDemandPcs));
+          remainingItemDemandPcs = Math.max(0, remainingItemDemandPcs - groupReservedPcs);
+
+          // Distribute groupReservedPcs across individual batch/unbatched balance rows
+          // Prefer unbatched row first, then batched rows descending by onHand
+          const sortedRows = [...grp.rows].sort((a, b) => {
+            if (a.batchId == null && b.batchId != null) return -1;
+            if (a.batchId != null && b.batchId == null) return 1;
+            return Number(b.onHand || 0) - Number(a.onHand || 0);
+          });
+
+          let remRowReserve = groupReservedPcs;
+          for (const row of sortedRows) {
+            const rowOnHand = Number(row.onHand || 0);
+            if (rowOnHand > 0 && remRowReserve > 0) {
+              const rQty = Math.min(rowOnHand, remRowReserve);
+              row.reserved = Number(rQty.toFixed(4));
+              row.available = Number((rowOnHand - rQty).toFixed(4));
+              remRowReserve = Math.max(0, Number((remRowReserve - rQty).toFixed(4)));
+            } else {
+              row.reserved = 0;
+              row.available = Number(rowOnHand.toFixed(4));
+            }
+          }
+        }
+      }
+    } catch (err: any) {
+      this.logger.warn(`Failed to enrich dynamic reservations: ${err?.message || err}`);
+    }
+
+    return balances;
   }
 
   async getAvailableStock(
@@ -200,16 +435,14 @@ export class InventoryBalanceService {
       });
 
       const totalOnHand = rows.reduce((s, r) => s + Number(r.onHand), 0);
-      const totalReserved = rows.reduce((s, r) => s + Number(r.reserved), 0);
-      const totalAvailable = totalOnHand - totalReserved;
 
-      if (totalAvailable < quantityChange && !allowNegative) {
+      if (totalOnHand < quantityChange && !allowNegative) {
         const policy = await policyRepo.findOne({
           where: { companyId, itemId, warehouseId },
         });
         if (!policy || !policy.allowNegativeStock) {
           throw new BadRequestException(
-            `Insufficient stock. Available: ${totalAvailable}, requested: ${quantityChange}`,
+            `Insufficient stock. On hand: ${totalOnHand}, requested: ${quantityChange}`,
           );
         }
       }
@@ -232,8 +465,11 @@ export class InventoryBalanceService {
         const currentOnHand = Number(b.onHand);
         if (currentOnHand > 0) {
           const deduct = Math.min(currentOnHand, remaining);
-          b.onHand = Number((Number(b.onHand) - deduct).toFixed(4));
-          b.available = Number((Number(b.available) - deduct).toFixed(4));
+          const nextOnHand = Number((currentOnHand - deduct).toFixed(4));
+          const nextReserved = Math.min(nextOnHand, Math.max(0, Number(b.reserved || 0)));
+          b.onHand = nextOnHand;
+          b.reserved = Number(nextReserved.toFixed(4));
+          b.available = Number((nextOnHand - nextReserved).toFixed(4));
           remaining = Number((remaining - deduct).toFixed(4));
           const saved = await repo.save(b);
           if (!primaryBalance) primaryBalance = saved;
@@ -258,7 +494,8 @@ export class InventoryBalanceService {
           });
         }
         target.onHand = Number((Number(target.onHand) - remaining).toFixed(4));
-        target.available = Number((Number(target.available) - remaining).toFixed(4));
+        target.reserved = Math.max(0, Math.min(Math.max(0, target.onHand), Number(target.reserved || 0)));
+        target.available = Number((target.onHand - target.reserved).toFixed(4));
         const saved = await repo.save(target);
         if (!primaryBalance) primaryBalance = saved;
       }
@@ -302,11 +539,10 @@ export class InventoryBalanceService {
     }
 
     if (direction === 'IN') {
-      balance.onHand = Number(balance.onHand) + quantityChange;
-      balance.available = Number(balance.available) + quantityChange;
+      balance.onHand = Number((Number(balance.onHand) + quantityChange).toFixed(4));
+      balance.available = Number((balance.onHand - Number(balance.reserved || 0)).toFixed(4));
     } else {
-      const newOnHand = Number(balance.onHand) - quantityChange;
-      const newAvailable = Number(balance.available) - quantityChange;
+      const newOnHand = Number((Number(balance.onHand) - quantityChange).toFixed(4));
 
       if (newOnHand < 0 && !allowNegative) {
         const policy = await policyRepo.findOne({
@@ -320,7 +556,8 @@ export class InventoryBalanceService {
       }
 
       balance.onHand = newOnHand;
-      balance.available = newAvailable;
+      balance.reserved = Math.max(0, Math.min(Math.max(0, newOnHand), Number(balance.reserved || 0)));
+      balance.available = Number((newOnHand - balance.reserved).toFixed(4));
     }
 
     return repo.save(balance);

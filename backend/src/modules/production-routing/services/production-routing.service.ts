@@ -139,7 +139,7 @@ export class ProductionRoutingService {
   async findAll(companyId: string): Promise<ProductionRouting[]> {
     const routings = await this.routingRepo.find({
       where: { companyId, isActive: true },
-      relations: ['routeType', 'product', 'bom', 'operations'],
+      relations: RELATIONS,
       order: { routingCode: 'ASC' },
     });
     routings.forEach((r) => this.sortOperations(r));
@@ -376,6 +376,11 @@ export class ProductionRoutingService {
     userId?: string,
   ): Promise<ProductionRouting> {
     const routing = await this.findOne(id, companyId);
+
+    // Idempotent: if already in requested status, return cleanly without throwing error
+    if (routing.status === dto.status) {
+      return routing;
+    }
 
     const allowed = VALID_TRANSITIONS[routing.status] || [];
     if (!allowed.includes(dto.status)) {

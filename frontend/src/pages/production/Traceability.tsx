@@ -122,7 +122,15 @@ interface DeptRow {
   produced: number; consumed: number; scrap: number;
 }
 
-interface ItemOption { id: string; itemCode: string; name: string; itemType: string; baseUomName?: string | null; }
+interface ItemOption {
+  id: string;
+  itemCode: string;
+  name: string;
+  itemType: string;
+  baseUomName?: string | null;
+  divisionId?: string | null;
+  division?: { id: string; name: string } | null;
+}
 
 const itemTypeLabel = (v?: string) => ITEM_TYPES.find((t) => t.value === v)?.label || v || '-';
 const num = (v: unknown) => (v === null || v === undefined ? '-' : formatDecimal(v));
@@ -158,10 +166,21 @@ const Traceability: React.FC = () => {
   const [wipSummary, setWipSummary] = useState<{ totalWipQuantity: number; wipItemCount: number; wipWarehouseCount: number; departmentCount: number; activeRecordCount: number } | null>(null);
   const [wipContext, setWipContext] = useState<{ wipWarehousesFound: number; wipWarehouses: Array<{ id: string; warehouseCode: string; name: string }> } | null>(null);
   const [dept, setDept] = useState<DeptRow[]>([]);
+  const [divisions, setDivisions] = useState<Array<{ id: string; name: string }>>([]);
+  const [selectedDivisionId, setSelectedDivisionId] = useState<string | undefined>();
 
   const [dateFrom, setDateFrom] = useState<string | undefined>();
   const [dateTo, setDateTo] = useState<string | undefined>();
   const [activeTab, setActiveTab] = useState('overview');
+
+  const loadDivisions = useCallback(async () => {
+    try {
+      const res = await apiService.get<{ data: Array<{ id: string; name: string }> }>('/divisions', { limit: 200 });
+      setDivisions(res.data || []);
+    } catch { setDivisions([]); }
+  }, []);
+
+  useEffect(() => { loadDivisions(); }, [loadDivisions]);
 
   const loadItems = useCallback(async (q?: string) => {
     try {
@@ -213,15 +232,21 @@ const Traceability: React.FC = () => {
   const applyFilters = () => { if (selected) void loadAll(selected); };
 
   const filteredItems = useMemo(() => {
+    let result = items;
+    if (selectedDivisionId) {
+      result = result.filter(
+        (i) => i.divisionId === selectedDivisionId || (i as any).division?.id === selectedDivisionId,
+      );
+    }
     const q = itemSearch.trim().toLowerCase();
-    if (!q) return items;
-    return items.filter(
+    if (!q) return result;
+    return result.filter(
       (i) =>
         (i.itemCode ? String(i.itemCode).toLowerCase().includes(q) : false) ||
         (i.name ? String(i.name).toLowerCase().includes(q) : false) ||
         (i.itemType ? String(i.itemType).toLowerCase().includes(q) : false),
     );
-  }, [items, itemSearch]);
+  }, [items, itemSearch, selectedDivisionId]);
 
   // ── Tables ─────────────────────────────────────────────────────────────
 
@@ -391,14 +416,14 @@ const Traceability: React.FC = () => {
         styles={{ body: { padding: '12px 16px' } }}
       >
         <Row gutter={[12, 12]} align="middle">
-          <Col xs={24} sm={24} md={10} lg={11}>
+          <Col xs={24} sm={24} md={8} lg={8}>
             <Space style={{ width: '100%' }}>
               <Tag color="cyan" style={{ borderRadius: 6, fontWeight: 600 }}>Item</Tag>
               <Select
                 showSearch
                 allowClear
-                placeholder="Search and select finished good, WIP or raw material..."
-                style={{ width: '100%', minWidth: 280 }}
+                placeholder="Search finished good, WIP or raw material..."
+                style={{ width: '100%', minWidth: 240 }}
                 value={selected?.id}
                 onChange={selectItem}
                 filterOption={(input, option) => String(option?.label ?? '').toLowerCase().includes((input || '').toLowerCase())}
@@ -406,11 +431,32 @@ const Traceability: React.FC = () => {
                   value: i.id,
                   label: `${i.itemCode} - ${i.name} (${itemTypeLabel(i.itemType)})`,
                 }))}
-                notFoundContent={items.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No items" /> : 'No matching item'}
+                notFoundContent={filteredItems.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No items found" /> : 'No matching item'}
               />
             </Space>
           </Col>
-          <Col xs={12} sm={8} md={5} lg={4}>
+          <Col xs={24} sm={12} md={5} lg={5}>
+            <Space style={{ width: '100%' }}>
+              <Tag color="blue" style={{ borderRadius: 6, fontWeight: 600 }}>Division</Tag>
+              <Select
+                allowClear
+                placeholder="All Divisions"
+                style={{ width: '100%', minWidth: 150 }}
+                value={selectedDivisionId}
+                onChange={(val) => {
+                  setSelectedDivisionId(val);
+                  if (val && selected && selected.divisionId && selected.divisionId !== val) {
+                    setSelected(null);
+                  }
+                }}
+                options={divisions.map((d) => ({
+                  value: d.id,
+                  label: d.name,
+                }))}
+              />
+            </Space>
+          </Col>
+          <Col xs={12} sm={6} md={3} lg={3}>
             <Input
               type="date"
               value={dateFrom}
@@ -420,7 +466,7 @@ const Traceability: React.FC = () => {
               style={{ borderRadius: 8 }}
             />
           </Col>
-          <Col xs={12} sm={8} md={5} lg={4}>
+          <Col xs={12} sm={6} md={3} lg={3}>
             <Input
               type="date"
               value={dateTo}
@@ -430,7 +476,7 @@ const Traceability: React.FC = () => {
               style={{ borderRadius: 8 }}
             />
           </Col>
-          <Col xs={24} sm={8} md={4} lg={5} style={{ textAlign: 'right' }}>
+          <Col xs={24} sm={24} md={5} lg={5} style={{ textAlign: 'right' }}>
             <Button
               type="primary"
               icon={<SearchOutlined />}
@@ -1137,51 +1183,122 @@ const ManufacturingProcessFlowchart: React.FC<{
   const nodes = chain?.nodes || [];
   const hasRouting = chain?.hasRouting && nodes.length > 0;
 
-  // Detect Fork-Join (Dual Branch / Parallel Streams like Inner vs Outer spoke)
-  const isForkJoin = useMemo(() => {
-    if (!hasRouting) return false;
-    const hasInner = nodes.some((n) => {
-      const code = n.item?.itemCode || n.operation?.operationCode || '';
-      const name = n.item?.name || n.operation?.operationName || '';
-      return /inner|inn|st-010|spk-005|spl-005|020|040|060/i.test(`${code} ${name}`);
-    });
-    const hasOuter = nodes.some((n) => {
-      const code = n.item?.itemCode || n.operation?.operationCode || '';
-      const name = n.item?.name || n.operation?.operationName || '';
-      return /outer|out|st-011|spk-006|spl-006|030|050|070/i.test(`${code} ${name}`);
-    });
-    return hasInner && hasOuter;
-  }, [hasRouting, nodes]);
+  // Dynamic topology analysis for ANY routing without hardcoded sequence regex or assumptions
+  const topology = useMemo(() => {
+    if (!hasRouting || nodes.length === 0) return null;
 
-  // Partition nodes for Fork-Join
-  const partitioned = useMemo(() => {
-    if (!isForkJoin) return null;
-
+    // 1. Starting raw material
     const rawNode = nodes.find(
       (n) => n.type === 'item' && (n.item?.itemType === 'RAW_MATERIAL' || /wire|coil|rm-/i.test(n.item?.itemCode || ''))
     ) || nodes[0];
 
+    // 2. Final finished good
     const finalNode = nodes.slice().reverse().find(
       (n) => n.type === 'item' && (n.item?.id === chain?.item?.id || /fg-|finished/i.test(n.item?.itemCode || ''))
     ) || { type: 'item', item: chain?.item, isFinal: true };
 
+    const getNodeText = (n: ChainNode) => {
+      if (n.type === 'item' && n.item) {
+        return `${n.item.itemCode || ''} ${n.item.name || ''}`;
+      }
+      if (n.type === 'process' && n.operation) {
+        return `${n.operation.operationCode || ''} ${n.operation.operationName || ''} ${n.operation.inputItem?.itemCode || ''} ${n.operation.inputItem?.name || ''} ${n.operation.outputItem?.itemCode || ''} ${n.operation.outputItem?.name || ''}`;
+      }
+      return '';
+    };
+
+    // Clean branch classifier: matches "inner" / "inn" or "outer" / "out" dynamically from item or operation I/O
+    const isInnerNode = (n: ChainNode) => {
+      if (n === rawNode || n.item?.id === rawNode?.item?.id) return false;
+      if (n.item?.id === finalNode?.item?.id) return false;
+      const text = getNodeText(n);
+      const isCombined = /inn\s*\/\s*out/i.test(text);
+      const hasInner = /\b(inner|inn)\b|[-_\s](inner|inn)[-_\s]/i.test(text);
+      return hasInner && !isCombined && !/finished|fg-/i.test(n.item?.itemCode || '');
+    };
+
+    const isOuterNode = (n: ChainNode) => {
+      if (n === rawNode || n.item?.id === rawNode?.item?.id) return false;
+      if (n.item?.id === finalNode?.item?.id) return false;
+      const text = getNodeText(n);
+      const isCombined = /inn\s*\/\s*out/i.test(text);
+      const hasOuter = /\b(outer|out)\b|[-_\s](outer|out)[-_\s]/i.test(text);
+      return hasOuter && !isCombined && !/finished|fg-/i.test(n.item?.itemCode || '');
+    };
+
+    const hasInner = nodes.some(isInnerNode);
+    const hasOuter = nodes.some(isOuterNode);
+    const hasBranching = hasInner && hasOuter;
+
+    if (!hasBranching) {
+      return {
+        hasBranching: false,
+        rawNode,
+        preSplitNodes: [] as ChainNode[],
+        streamInner: [] as ChainNode[],
+        streamOuter: [] as ChainNode[],
+        postMergeNodes: [] as ChainNode[],
+        finalNode,
+      };
+    }
+
+    // Branching exists: find first branched node
+    const firstBranchIdx = nodes.findIndex((n) => isInnerNode(n) || isOuterNode(n));
+
+    // Common pre-split operations (e.g. Straightener, Swagging before Spoke machine)
+    const preSplitNodes: ChainNode[] = [];
+    for (let i = 0; i < firstBranchIdx; i++) {
+      const n = nodes[i];
+      if (n === rawNode || n.item?.id === rawNode?.item?.id) continue;
+      preSplitNodes.push(n);
+    }
+
     const streamInner: ChainNode[] = [];
     const streamOuter: ChainNode[] = [];
+    const postMergeNodes: ChainNode[] = [];
 
-    nodes.forEach((n) => {
-      if (n === rawNode || n.item?.id === rawNode.item?.id) return;
-      if (n.item?.id === finalNode.item?.id) return;
-
-      const text = `${n.item?.itemCode || ''} ${n.item?.name || ''} ${n.operation?.operationCode || ''} ${n.operation?.operationName || ''}`;
-      if (/inner|inn|st-010|spk-005|spl-005|020|040|060/i.test(text)) {
-        streamInner.push(n);
-      } else if (/outer|out|st-011|spk-006|spl-006|030|050|070/i.test(text)) {
-        streamOuter.push(n);
+    const isPackingNode = (n: ChainNode) => {
+      if (n.type === 'process') {
+        const text = `${n.operation?.operationCode || ''} ${n.operation?.operationName || ''}`;
+        return /pack|assembly|spokepac/i.test(text);
       }
-    });
+      return false;
+    };
 
-    return { rawNode, streamInner, streamOuter, finalNode };
-  }, [isForkJoin, nodes, chain]);
+    for (let i = firstBranchIdx; i < nodes.length; i++) {
+      const n = nodes[i];
+      if (n.item?.id === finalNode?.item?.id) continue;
+
+      if (isPackingNode(n)) {
+        postMergeNodes.push(n);
+        continue;
+      }
+
+      if (isInnerNode(n)) {
+        streamInner.push(n);
+      } else if (isOuterNode(n)) {
+        streamOuter.push(n);
+      } else {
+        if (postMergeNodes.length > 0) {
+          postMergeNodes.push(n);
+        } else if (streamInner.length > 0 && streamOuter.length === 0) {
+          streamInner.push(n);
+        } else {
+          postMergeNodes.push(n);
+        }
+      }
+    }
+
+    return {
+      hasBranching: true,
+      rawNode,
+      preSplitNodes,
+      streamInner,
+      streamOuter,
+      postMergeNodes,
+      finalNode,
+    };
+  }, [hasRouting, nodes, chain]);
 
   return (
     <div
@@ -1209,9 +1326,11 @@ const ManufacturingProcessFlowchart: React.FC<{
           </Text>
         </Space>
         <Space size={6}>
-          {isForkJoin && (
+          {topology?.hasBranching && (
             <Tag color="cyan" style={{ borderRadius: 12, padding: '1px 8px', fontSize: 11, fontWeight: 600 }}>
-              Fork-Join: 2 Streams (Inner & Outer)
+              {topology.preSplitNodes.length > 0
+                ? `Common Process ➔ 2 Parallel Streams`
+                : `Fork-Join: 2 Streams (Inner & Outer)`}
             </Tag>
           )}
           <Tag
@@ -1231,9 +1350,9 @@ const ManufacturingProcessFlowchart: React.FC<{
         </Space>
       </div>
 
-      {partitioned ? (
+      {topology?.hasBranching ? (
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, overflowX: 'auto', padding: '12px 4px', scrollbarWidth: 'thin' }}>
-          {/* 1. START NODE: Store Raw Material (3.14 mm Wire Coil) */}
+          {/* 1. START NODE: Store Raw Material */}
           <div
             style={{
               minWidth: 170,
@@ -1251,18 +1370,28 @@ const ManufacturingProcessFlowchart: React.FC<{
               </Text>
             </div>
             <Text strong style={{ fontSize: 13, display: 'block', color: token.colorPrimary }}>
-              {partitioned.rawNode?.item?.itemCode || 'RM-WIRE-010'}
+              {topology.rawNode?.item?.itemCode || 'RM-WIRE'}
             </Text>
             <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 4 }}>
-              {partitioned.rawNode?.item?.name || 'Steel Wire Coil 3.14 mm SR'}
+              {topology.rawNode?.item?.name || 'Raw Material Coil'}
             </Text>
             <Space size={4} wrap>
               <Tag color="cyan" style={{ fontSize: 10, borderRadius: 4, fontWeight: 700 }}>
-                {partitioned.rawNode?.item?.wireSizeMm ? `${formatDimension(partitioned.rawNode.item.wireSizeMm)} mm` : '3.14 mm'}
+                {topology.rawNode?.item?.wireSizeMm ? `${formatDimension(topology.rawNode.item.wireSizeMm)} mm` : 'Raw Material'}
               </Tag>
               <Tag color="purple" style={{ fontSize: 10, borderRadius: 4 }}>SPI Stores</Tag>
             </Space>
           </div>
+
+          {/* 1.5 COMMON PRE-SPLIT PROCESSES (e.g. Straightener, Swagging before Spoke split) */}
+          {topology.preSplitNodes.map((n, i) => (
+            <React.Fragment key={`presplit-${i}`}>
+              <div style={{ color: '#06b6d4', display: 'flex', alignItems: 'center' }}>
+                <ArrowRightOutlined style={{ fontSize: 14 }} />
+              </div>
+              <NodeBox node={n} selectedItemId={selectedItemId} onSelect={onSelect} token={token} accentColor="#0ea5e9" />
+            </React.Fragment>
+          ))}
 
           {/* 2. FORK CONNECTOR (SVG Branching Pipe) */}
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minWidth: 36 }}>
@@ -1300,10 +1429,10 @@ const ManufacturingProcessFlowchart: React.FC<{
                 </Text>
               </div>
               <ArrowRightOutlined style={{ color: '#06b6d4', fontSize: 12 }} />
-              {partitioned.streamInner.map((n, i) => (
+              {topology.streamInner.map((n, i) => (
                 <React.Fragment key={`inner-${i}`}>
                   <NodeBox node={n} selectedItemId={selectedItemId} onSelect={onSelect} token={token} accentColor="#06b6d4" />
-                  {i < partitioned.streamInner.length - 1 && (
+                  {i < topology.streamInner.length - 1 && (
                     <ArrowRightOutlined style={{ color: '#06b6d4', fontSize: 12 }} />
                   )}
                 </React.Fragment>
@@ -1331,10 +1460,10 @@ const ManufacturingProcessFlowchart: React.FC<{
                 </Text>
               </div>
               <ArrowRightOutlined style={{ color: '#10b981', fontSize: 12 }} />
-              {partitioned.streamOuter.map((n, i) => (
+              {topology.streamOuter.map((n, i) => (
                 <React.Fragment key={`outer-${i}`}>
                   <NodeBox node={n} selectedItemId={selectedItemId} onSelect={onSelect} token={token} accentColor="#10b981" />
-                  {i < partitioned.streamOuter.length - 1 && (
+                  {i < topology.streamOuter.length - 1 && (
                     <ArrowRightOutlined style={{ color: '#10b981', fontSize: 12 }} />
                   )}
                 </React.Fragment>
@@ -1354,7 +1483,17 @@ const ManufacturingProcessFlowchart: React.FC<{
             </Text>
           </div>
 
-          {/* 5. FINISHED GOOD: Assembly & Packing Node */}
+          {/* 4.5 POST-MERGE PROCESSES (e.g. Assembly / Packing process) */}
+          {topology.postMergeNodes.map((n, i) => (
+            <React.Fragment key={`postmerge-${i}`}>
+              <NodeBox node={n} selectedItemId={selectedItemId} onSelect={onSelect} token={token} accentColor="#10b981" />
+              <div style={{ color: '#10b981', display: 'flex', alignItems: 'center' }}>
+                <ArrowRightOutlined style={{ fontSize: 14 }} />
+              </div>
+            </React.Fragment>
+          ))}
+
+          {/* 5. FINISHED GOOD */}
           <div
             style={{
               minWidth: 175,
@@ -1368,18 +1507,20 @@ const ManufacturingProcessFlowchart: React.FC<{
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
               <CheckCircleFilled style={{ fontSize: 13, color: '#10b981' }} />
               <Text strong style={{ fontSize: 10, color: '#10b981', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                Assembly & Packing
+                Finished Product
               </Text>
             </div>
             <Text strong style={{ fontSize: 13, display: 'block', color: token.colorSuccess }}>
-              {partitioned.finalNode?.item?.itemCode || 'SPI-FG-SPK-012'}
+              {topology.finalNode?.item?.itemCode || chain?.item?.itemCode || 'Finished Good'}
             </Text>
-            <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 4, maxWidth: 165 }} ellipsis={{ tooltip: partitioned.finalNode?.item?.name }}>
-              {partitioned.finalNode?.item?.name || 'RM Inn / Out Spoke Straight CS'}
+            <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 4, maxWidth: 165 }} ellipsis={{ tooltip: topology.finalNode?.item?.name || chain?.item?.name }}>
+              {topology.finalNode?.item?.name || chain?.item?.name || 'Finished Product'}
             </Text>
             <Space size={4} wrap>
               <Tag color="green" style={{ fontSize: 10, borderRadius: 4, fontWeight: 700 }}>Finished Good</Tag>
-              <Tag color="blue" style={{ fontSize: 10, borderRadius: 4 }}>SPD Packing</Tag>
+              <Tag color="blue" style={{ fontSize: 10, borderRadius: 4 }}>
+                {topology.finalNode?.item?.division?.name || 'SPD Packing'}
+              </Tag>
             </Space>
           </div>
 

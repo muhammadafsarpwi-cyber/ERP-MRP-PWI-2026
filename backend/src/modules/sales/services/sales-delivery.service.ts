@@ -586,26 +586,48 @@ export class SalesDeliveryService {
     delivery.status = 'CONFIRMED';
     delivery.updatedBy = safeUserId;
 
-    // Update parent Sales Order line items shipped quantities
-    if (delivery.salesOrderId) {
-      try {
-        const orderItems = await this.orderItemRepo.find({ where: { salesOrderId: delivery.salesOrderId } });
-        for (const line of lines) {
-          const matched = orderItems.find((oi) => oi.itemId === line.itemId);
-          if (matched) {
-            matched.shippedQuantity = Number(matched.shippedQuantity || 0) + Number(line.quantity);
-            await this.orderItemRepo.save(matched);
+    // Update parent Sales Order(s) line items shipped quantities (supports multi-SOC lines via [SOC: ...])
+    try {
+      const affectedOrderIds = new Set<string>();
+      if (delivery.salesOrderId) affectedOrderIds.add(delivery.salesOrderId);
+
+      for (const line of lines) {
+        let targetOrderId = delivery.salesOrderId;
+        const socMatch = line.description?.match(/SOC[:\s]+(SOC-[A-Za-z0-9-]+|[0-9A-Za-z-]+)/i);
+        if (socMatch) {
+          const lineSoc = socMatch[1].trim();
+          const lineOrder = await this.orderRepo.findOne({
+            where: { orderNumber: lineSoc, companyId: delivery.companyId },
+          });
+          if (lineOrder) {
+            targetOrderId = lineOrder.id;
           }
         }
-        const parentOrder = await this.orderRepo.findOne({ where: { id: delivery.salesOrderId } });
-        if (parentOrder && parentOrder.status !== 'Closed') {
+        if (!targetOrderId) continue;
+        affectedOrderIds.add(targetOrderId);
+
+        const orderItems = await this.orderItemRepo.find({ where: { salesOrderId: targetOrderId } });
+        const matched = orderItems.find((oi) => oi.itemId === line.itemId);
+        if (matched) {
+          matched.shippedQuantity = Number(matched.shippedQuantity || 0) + Number(line.quantity);
+          if (matched.shippedQuantity >= Number(matched.quantity)) {
+            matched.status = 'Delivered';
+          }
+          await this.orderItemRepo.save(matched);
+        }
+      }
+
+      for (const orderId of affectedOrderIds) {
+        const orderItems = await this.orderItemRepo.find({ where: { salesOrderId: orderId } });
+        const parentOrder = await this.orderRepo.findOne({ where: { id: orderId } });
+        if (parentOrder && parentOrder.status !== 'Closed' && orderItems.length > 0) {
           const allDelivered = orderItems.every((oi) => Number(oi.shippedQuantity || 0) >= Number(oi.quantity));
           parentOrder.status = allDelivered ? 'Delivered' : 'Processing';
           await this.orderRepo.save(parentOrder);
         }
-      } catch (err: any) {
-        this.logger.warn(`Failed to update sales order shipment tracking: ${err.message}`);
       }
+    } catch (err: any) {
+      this.logger.warn(`Failed to update sales order shipment tracking: ${err.message}`);
     }
 
     return delivery;

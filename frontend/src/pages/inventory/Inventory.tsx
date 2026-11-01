@@ -153,7 +153,17 @@ const Inventory: React.FC = () => {
           existing.available += Number(r.available || 0);
         }
       }
-      const aggregatedRecords = Array.from(map.values());
+      const aggregatedRecords = Array.from(map.values()).map((rec) => {
+        const onHand = Number(rec.onHand || 0);
+        const reserved = Math.min(Math.max(0, onHand), Math.max(0, Number(rec.reserved || 0)));
+        const available = onHand > 0 ? Math.max(0, Number((onHand - reserved).toFixed(4))) : onHand;
+        return {
+          ...rec,
+          onHand,
+          reserved,
+          available,
+        };
+      });
       aggregatedRecords.sort((a, b) => {
         const codeA = (a.item?.itemCode || (a as any).itemCode || '').trim();
         const codeB = (b.item?.itemCode || (b as any).itemCode || '').trim();

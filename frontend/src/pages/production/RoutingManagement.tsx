@@ -434,6 +434,7 @@ const RoutingManagement: React.FC = () => {
   const handleViewDetail = (routing: Routing) => {
     setSelectedRouting(routing);
     setDetailVisible(true);
+    refreshDetail(routing.id);
   };
 
   const handleCopyRouting = (id: string, code?: string) => {
