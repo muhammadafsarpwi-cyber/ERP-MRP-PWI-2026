@@ -351,8 +351,17 @@ const parseHandPackingEntry = (e: any): RecentPackingLog | null => {
     socNo: pick('SOC') || '—',
     packagingStyle: pick('Style') || 'OEM Packing',
     line: pick('Line') || 'Spoke Boxing & Nipple Station A',
-    targetCartons: Math.round((toNum(e.targetQuantity ?? e.target_quantity) / PCS_PER_CARTON) * 100) / 100 || cartons,
-    targetPcs: toNum(e.targetQuantity ?? e.target_quantity) || packedPcs,
+    targetCartons: (() => {
+      const rawTargetQty = toNum(e.targetQuantity ?? e.target_quantity);
+      const otHrs = toNum(e.overtimeHours ?? e.overtime_hours);
+      const baseTargetCartonsCalculated = rawTargetQty > 0
+        ? Math.round(((rawTargetQty / PCS_PER_CARTON) / (1 + (otHrs > 0 ? otHrs / 8 : 0))) * 10) / 10
+        : (getSavedPackingTargetConfig().baseCartons || 125);
+      return (baseTargetCartonsCalculated === 100 || !baseTargetCartonsCalculated)
+        ? (getSavedPackingTargetConfig().baseCartons || 125)
+        : baseTargetCartonsCalculated;
+    })(),
+    targetPcs: toNum(e.targetQuantity ?? e.target_quantity) || (125 * PCS_PER_CARTON),
     fgItemId: e.itemId || e.item_id || e.item?.id || '',
     fgItemCode: e.item?.itemCode || '',
     fgItemName: e.item?.name || '',
@@ -813,7 +822,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
     }
   }, [departments, selectedDivisionId, selectedPackingDeptId, form]);
 
-  // Daily packing target state (Cartons drives all conversions) - Authoritative default = 100 CTN
+  // Daily packing target state (Cartons drives all conversions) - Authoritative default = 125 CTN
   const [targetCartons, setTargetCartons] = useState<number>(() => getSavedPackingTargetConfig().baseCartons);
   const [targetUnit, setTargetUnit] = useState<'CTN' | 'GRS' | 'PCS'>('CTN');
 
@@ -1479,7 +1488,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
     setSelectedBagStyle(undefined);
     setSelectedLine(undefined);
     setOvertimeHours(0);
-    const stdTarget = getSavedPackingTargetConfig().baseCartons || 100;
+    const stdTarget = getSavedPackingTargetConfig().baseCartons || 125;
     setTargetCartons(stdTarget);
 
     // Auto-select active division's packing department
@@ -2044,7 +2053,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         }));
         setMasterItems(sanitized);
         setExpandedKeys(existingDraft.expandedKeys || [sanitized[0].key]);
-        setTargetCartons(existingDraft.targetCartons || getSavedPackingTargetConfig().baseCartons || 100);
+        setTargetCartons((existingDraft.targetCartons && existingDraft.targetCartons !== 100) ? existingDraft.targetCartons : (getSavedPackingTargetConfig().baseCartons || 125));
         setTargetUnit(existingDraft.targetUnit || 'CTN');
         if (existingDraft.inspectedItemId) setInspectedItemId(existingDraft.inspectedItemId);
         const hdr = existingDraft.header;
@@ -2386,7 +2395,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
             cartons: 50,
             gross: 500,
             quantityPcs: 72000,
-            targetCartons: getSavedPackingTargetConfig().baseCartons || 100,
+            targetCartons: getSavedPackingTargetConfig().baseCartons || 125,
             status: 'IN_PROGRESS',
             bom: null,
             bomLoading: true,
@@ -3029,7 +3038,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         setSelectedPackingDeptId(rawDeptId);
         form.setFieldValue('departmentId', rawDeptId);
       }
-      const editTarget = r.targetCartons || 100;
+      const editTarget = (r.targetCartons && r.targetCartons !== 100) ? r.targetCartons : (getSavedPackingTargetConfig().baseCartons || 125);
       setTargetCartons(editTarget);
       form.setFieldsValue({
         packingNo: r.batchNo,
@@ -3277,7 +3286,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
       quantityPcs: defaultPcs,
       gross: defaultGross,
       cartons: defaultCartons,
-      targetCartons: targetCartons || getSavedPackingTargetConfig().baseCartons || 100,
+      targetCartons: targetCartons || getSavedPackingTargetConfig().baseCartons || 125,
       status: 'IN_PROGRESS',
       bom: null,
       bomLoading: true,
@@ -4084,7 +4093,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         supervisorName: formValues.supervisorName || currentUserName,
         itemId: primaryItem.itemId,
         uomId: pcsUom?.id,
-        targetQuantity: (targetCartons || primaryItem.targetCartons || 100) * conversionFactors.pcsPerCarton,
+        targetQuantity: targetInPcs || ((targetCartons || primaryItem.targetCartons || 125) * conversionFactors.pcsPerCarton),
         // Full packed quantity: component-wise rejection never reduces the FG output.
         actualQuantity: primaryItem.quantityPcs,
         // Part Rejection quantity in PCS (rejected parts during packing inspection)
@@ -4122,7 +4131,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
             lineNumber: idx + 1,
             itemId: it.itemId,
             uomId: pcsUom?.id,
-            targetQuantity: (targetCartons || it.targetCartons || 100) * conversionFactors.pcsPerCarton,
+            targetQuantity: targetInPcs || ((targetCartons || it.targetCartons || 125) * conversionFactors.pcsPerCarton),
             actualQuantity: it.quantityPcs,
             scrapQuantity: itemScrap > 0 ? itemScrap : 0,
             runningHours: 8 + Number(overtimeHours || 0),
@@ -6361,7 +6370,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
       itemOptions.unshift({ value: primaryItem.itemId, label });
     }
 
-    const FIXED_DAILY_TARGET_CARTONS = 100; // 8h Shift Fixed Target
+    const FIXED_DAILY_TARGET_CARTONS = getSavedPackingTargetConfig().baseCartons || 125; // 8h Shift Fixed Target (125 CTN = 1,250 GRS = 180,000 PCS)
 
     // Group recent entries by Date
     const dateGroupedEntries = (() => {
@@ -6442,7 +6451,9 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
 
         // Linear Overtime scaling: 8 hours base -> each OT hour adds (base / 8) cartons to target
         const dayOtHours = Math.max(0, ...items.map((r) => r.overtimeHours || 0));
-        const baseTarget = items[0]?.targetCartons || FIXED_DAILY_TARGET_CARTONS;
+        const activeBase = getSavedPackingTargetConfig().baseCartons || 125;
+        const rawTarget = items[0]?.targetCartons;
+        const baseTarget = (rawTarget && rawTarget !== 100) ? rawTarget : activeBase;
         const otTarget = dayOtHours > 0 ? (dayOtHours * (baseTarget / 8)) : 0;
         const effectiveTargetCartons = Math.round((baseTarget + otTarget) * 10) / 10;
         const achievementPct = effectiveTargetCartons > 0 ? Math.min(100, Math.round((totalCartons / effectiveTargetCartons) * 1000) / 10) : 0;
@@ -7120,9 +7131,9 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                 setSelectedDivisionId(r.divisionId);
                 form.setFieldValue('divisionId', r.divisionId);
               }
-              if (r.baseTargetCartons) {
-                setTargetCartons(r.baseTargetCartons);
-              }
+              const activeStd = getSavedPackingTargetConfig().baseCartons || 125;
+              const sessionBaseTarget = (r.baseTargetCartons && r.baseTargetCartons !== 100) ? r.baseTargetCartons : activeStd;
+              setTargetCartons(sessionBaseTarget);
               setLockedSession({
                 isLocked: true,
                 dateKey: r.dateKey,
@@ -7133,7 +7144,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                 overtimeHours: r.dayOtHours,
                 divisionId: r.divisionId,
                 divisionName: r.divisionName,
-                targetCartons: r.baseTargetCartons,
+                targetCartons: sessionBaseTarget,
               });
               setEntryModalOpen(true);
               setIsModalMinimized(false);
@@ -8046,7 +8057,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                       disabled={!!lockedSession?.isLocked}
                       value={targetCartons}
                       onChange={(val) => {
-                        const newTarget = val ? Number(val) : (getSavedPackingTargetConfig().baseCartons || 100);
+                        const newTarget = val ? Number(val) : (getSavedPackingTargetConfig().baseCartons || 125);
                         setTargetCartons(newTarget);
                         setMasterItems((prev) =>
                           prev.map((r) => ({

@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { Tooltip, Spin } from 'antd';
 import { ArrowUpOutlined, RiseOutlined, CheckCircleOutlined } from '@ant-design/icons';
 import type { ProductionTrendDay, DashboardFilters } from '../../services/dashboardService';
@@ -60,13 +60,18 @@ export const DepartmentTrendChart: React.FC<DepartmentTrendChartProps> = ({
     return floorDeptList.find((d) => d.id === selectedDeptId) || null;
   }, [selectedDeptId, floorDeptList]);
 
+  // Always keep a ref to the latest filters to avoid stale closure in async callbacks
+  const filtersRef = useRef(filters);
+  filtersRef.current = filters;
+
   // Fetch department trend if not in cache
-  const fetchDeptTrend = useRef(async (deptId: string) => {
-    if (deptId === 'ALL' || deptTrendCache[deptId]) return;
+  const fetchDeptTrend = useCallback(async (deptId: string) => {
+    if (deptId === 'ALL') return;
     setDeptLoading(true);
     try {
+      const activeFilters = filtersRef.current;
       const res = await dashboardService.getProductionTrend(31, {
-        ...filters,
+        ...activeFilters,
         departmentId: deptId,
       });
       if (res.success && res.data) {
@@ -77,19 +82,19 @@ export const DepartmentTrendChart: React.FC<DepartmentTrendChartProps> = ({
     } finally {
       setDeptLoading(false);
     }
-  });
+  }, []);
 
-  // When selectedDeptId changes, fetch if needed
+  // When selectedDeptId changes OR when cache is empty for selected department, fetch
   useEffect(() => {
     if (selectedDeptId !== 'ALL' && !deptTrendCache[selectedDeptId]) {
-      void fetchDeptTrend.current(selectedDeptId);
+      void fetchDeptTrend(selectedDeptId);
     }
-  }, [selectedDeptId, deptTrendCache]);
+  }, [selectedDeptId, deptTrendCache, fetchDeptTrend]);
 
-  // Clear cache if filters (like division/date range) change significantly
+  // Clear cache if filters (like division/date range) change significantly so fresh trend is fetched
   useEffect(() => {
     setDeptTrendCache({});
-  }, [filters?.divisionId, filters?.dateFrom, filters?.dateTo]);
+  }, [filters?.divisionId, filters?.dateFrom, filters?.dateTo, filters?.sectionId]);
 
   // Active trend data depending on selected department
   const activeTrendData: ProductionTrendDay[] = useMemo(() => {
@@ -118,7 +123,8 @@ export const DepartmentTrendChart: React.FC<DepartmentTrendChartProps> = ({
 
       const target = Number(t.targetQuantity || 0);
       const actual = Number(t.actualQuantity || 0);
-      const scrap = Number(t.scrapQuantity || 0);
+      const scrapPieces = Number(t.scrapPieces ?? t.scrapQuantity ?? 0);
+      const scrapKg = Number(t.scrapKg ?? (scrapPieces * 0.008));
       const ach = target > 0 ? Number(((actual / target) * 100).toFixed(1)) : 0;
       const isSelected = t.date === selectedDate;
 
@@ -130,7 +136,9 @@ export const DepartmentTrendChart: React.FC<DepartmentTrendChartProps> = ({
         dayLong,
         target,
         actual,
-        scrap,
+        scrap: scrapPieces,
+        scrapPieces,
+        scrapKg,
         ach,
         entryCount: t.entryCount || 0,
         isSelected,
@@ -139,10 +147,22 @@ export const DepartmentTrendChart: React.FC<DepartmentTrendChartProps> = ({
   }, [activeTrendData, selectedDate]);
 
   // Summary statistics for the selected department / month
-  const { totalActual, totalTarget, overallAch, maxVal, topPoint } = useMemo(() => {
+  const {
+    totalActual,
+    totalTarget,
+    overallAch,
+    maxVal,
+    topPoint,
+    avgDailyActual,
+    totalScrapPieces,
+    totalScrapKg,
+  } = useMemo(() => {
     const tActual = chartPoints.reduce((acc, p) => acc + p.actual, 0);
     const tTarget = chartPoints.reduce((acc, p) => acc + p.target, 0);
+    const tScrapPieces = chartPoints.reduce((acc, p) => acc + p.scrapPieces, 0);
+    const tScrapKg = chartPoints.reduce((acc, p) => acc + p.scrapKg, 0);
     const ach = tTarget > 0 ? Number(((tActual / tTarget) * 100).toFixed(1)) : chartPoints.length > 0 ? 82.5 : 0;
+    const avgDaily = chartPoints.length > 0 ? Math.round(tActual / chartPoints.length) : 0;
 
     let peak = chartPoints[0];
     let highest = 100;
@@ -160,6 +180,9 @@ export const DepartmentTrendChart: React.FC<DepartmentTrendChartProps> = ({
       overallAch: ach,
       maxVal: highest,
       topPoint: peak && peak.actual > 0 ? peak : null,
+      avgDailyActual: avgDaily,
+      totalScrapPieces: tScrapPieces,
+      totalScrapKg: tScrapKg,
     };
   }, [chartPoints]);
 
@@ -236,6 +259,46 @@ export const DepartmentTrendChart: React.FC<DepartmentTrendChartProps> = ({
                 </strong>
                 {totalTarget > 0 ? ` of ${totalTarget.toLocaleString()} target` : ' recorded'}
               </span>
+
+              {/* 30-Day Daily Average Metric Badge */}
+              {avgDailyActual > 0 && (
+                <span
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 3,
+                    fontSize: 11,
+                    fontWeight: 600,
+                    color: '#b45309',
+                    background: '#fef3c7',
+                    border: '1px solid #fde68a',
+                    padding: '1px 6px',
+                    borderRadius: 4,
+                  }}
+                >
+                  <span>Avg: <strong>{avgDailyActual.toLocaleString()} pcs/day</strong></span>
+                </span>
+              )}
+
+              {/* MTD Scrap Metric Badge: Pieces & Kg */}
+              {(totalScrapPieces > 0 || totalScrapKg > 0) && (
+                <span
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    fontSize: 11,
+                    fontWeight: 600,
+                    color: '#b91c1c',
+                    background: '#fee2e2',
+                    border: '1px solid #fecaca',
+                    padding: '1px 6px',
+                    borderRadius: 4,
+                  }}
+                >
+                  <span>Scrap: <strong>{totalScrapPieces.toLocaleString()} Pcs</strong> ({totalScrapKg > 0 ? `${totalScrapKg.toFixed(1)} Kg` : `${(totalScrapPieces * 0.008).toFixed(1)} Kg`})</span>
+                </span>
+              )}
             </div>
           </div>
 
@@ -372,6 +435,42 @@ export const DepartmentTrendChart: React.FC<DepartmentTrendChartProps> = ({
             }}
           />
 
+          {/* 30-Day Daily Average Reference Line */}
+          {avgDailyActual > 0 && maxVal > 0 && (
+            <div
+              style={{
+                position: 'absolute',
+                bottom: 30 + Math.min(105, Math.max(4, Math.round((avgDailyActual / maxVal) * 105))),
+                left: 0,
+                right: 0,
+                borderBottom: '2px dashed #f59e0b',
+                zIndex: 2,
+                pointerEvents: 'none',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'flex-end',
+              }}
+            >
+              <span
+                style={{
+                  background: '#f59e0b',
+                  color: '#ffffff',
+                  fontSize: 8.5,
+                  fontWeight: 700,
+                  padding: '1px 5px',
+                  borderRadius: 3,
+                  boxShadow: '0 1px 3px rgba(245, 158, 11, 0.4)',
+                  transform: 'translateY(50%)',
+                  marginRight: 6,
+                  whiteSpace: 'nowrap',
+                  letterSpacing: '0.2px',
+                }}
+              >
+                Avg: {avgDailyActual >= 1000 ? `${(avgDailyActual / 1000).toFixed(1)}k` : avgDailyActual.toLocaleString()}
+              </span>
+            </div>
+          )}
+
           {/* Daily Trend Bars */}
           <div
             style={{
@@ -394,6 +493,11 @@ export const DepartmentTrendChart: React.FC<DepartmentTrendChartProps> = ({
               const actualHeightPx = maxVal > 0 && p.actual > 0
                 ? Math.max(6, Math.round((p.actual / maxVal) * maxBarHeightPx))
                 : 2;
+
+              // Rule: Bars below 30-day average are highlighted in RED (#ef4444)
+              // Bars meeting or exceeding the average use the department's dedicated theme color
+              const isBelowAvg = avgDailyActual > 0 && p.actual < avgDailyActual;
+              const actualBarColor = isBelowAvg ? '#ef4444' : deptColor.bar;
 
               const isBarSelected = p.isSelected;
 
@@ -419,13 +523,37 @@ export const DepartmentTrendChart: React.FC<DepartmentTrendChartProps> = ({
                     <strong>{p.target.toLocaleString()} Pcs</strong>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-                    <span style={{ color: deptColor.bar }}>Actual:</span>
-                    <strong style={{ color: deptColor.bar }}>{p.actual.toLocaleString()} Pcs</strong>
+                    <span style={{ color: actualBarColor }}>Actual:</span>
+                    <strong style={{ color: actualBarColor }}>
+                      {p.actual.toLocaleString()} Pcs {isBelowAvg ? '🔻 (Below Avg)' : '🔺 (≥ Avg)'}
+                    </strong>
                   </div>
-                  {p.scrap > 0 && (
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, color: '#f43f5e' }}>
-                      <span>Scrap:</span>
-                      <strong>{p.scrap.toFixed(1)} Kg</strong>
+                  {avgDailyActual > 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                      <span style={{ color: 'var(--theme-text-muted, #64748b)' }}>30D Daily Avg:</span>
+                      <strong style={{ color: '#b45309' }}>{avgDailyActual.toLocaleString()} Pcs</strong>
+                    </div>
+                  )}
+                  {(p.scrapPieces > 0 || p.scrapKg > 0) && (
+                    <div
+                      style={{
+                        margin: '4px 0',
+                        padding: '4px 0',
+                        borderTop: '1px dashed var(--theme-border, #e2e8f0)',
+                        borderBottom: '1px dashed var(--theme-border, #e2e8f0)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 2,
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, color: '#f43f5e' }}>
+                        <span>Scrap (Rejection):</span>
+                        <strong>{p.scrapPieces.toLocaleString()} Pcs</strong>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, color: '#e11d48' }}>
+                        <span>Scrap Weight:</span>
+                        <strong>{p.scrapKg > 0 ? `${p.scrapKg.toFixed(2)} Kg` : `${(p.scrapPieces * 0.008).toFixed(2)} Kg`}</strong>
+                      </div>
                     </div>
                   )}
                   <div
@@ -492,13 +620,13 @@ export const DepartmentTrendChart: React.FC<DepartmentTrendChartProps> = ({
                         style={{
                           position: 'absolute',
                           top: -42,
-                          background: deptColor.bar,
+                          background: actualBarColor,
                           color: '#ffffff',
                           borderRadius: 8,
                           padding: '3px 8px',
                           fontSize: 10,
                           fontWeight: 700,
-                          boxShadow: `0 4px 10px ${deptColor.bar}55`,
+                          boxShadow: `0 4px 10px ${actualBarColor}55`,
                           display: 'flex',
                           flexDirection: 'column',
                           alignItems: 'center',
@@ -520,7 +648,7 @@ export const DepartmentTrendChart: React.FC<DepartmentTrendChartProps> = ({
                             height: 0,
                             borderLeft: '4px solid transparent',
                             borderRight: '4px solid transparent',
-                            borderTop: `4px solid ${deptColor.bar}`,
+                            borderTop: `4px solid ${actualBarColor}`,
                           }}
                         />
                       </div>
@@ -553,10 +681,10 @@ export const DepartmentTrendChart: React.FC<DepartmentTrendChartProps> = ({
                         style={{
                           width: chartPoints.length > 20 ? 7 : 10,
                           height: `${actualHeightPx}px`,
-                          background: p.ach >= 80 ? deptColor.bar : p.ach >= 70 ? '#f59e0b' : '#ef4444',
+                          background: actualBarColor,
                           borderRadius: '2px 2px 0 0',
                           transition: 'all 0.3s ease',
-                          boxShadow: isBarSelected ? `0 0 0 2px ${deptColor.bar}` : 'none',
+                          boxShadow: isBarSelected ? `0 0 0 2px ${actualBarColor}` : 'none',
                         }}
                       />
                     </div>
@@ -576,7 +704,7 @@ export const DepartmentTrendChart: React.FC<DepartmentTrendChartProps> = ({
                           fontSize: chartPoints.length > 20 ? 8 : 9,
                           fontWeight: isPeak || isBarSelected ? 700 : 500,
                           color: isBarSelected
-                            ? deptColor.bar
+                            ? actualBarColor
                             : isPeak
                               ? 'var(--theme-heading, #0f172a)'
                               : 'var(--theme-text-muted, #64748b)',
@@ -603,17 +731,29 @@ export const DepartmentTrendChart: React.FC<DepartmentTrendChartProps> = ({
               borderTop: '1px dashed var(--theme-border, #f1f5f9)',
               fontSize: 10,
               color: 'var(--theme-text-muted, #64748b)',
+              flexWrap: 'wrap',
+              gap: 8,
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                 <div style={{ width: 8, height: 8, borderRadius: 2, background: 'var(--theme-border-strong, #cbd5e1)' }} />
                 <span>Target</span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                 <div style={{ width: 8, height: 8, borderRadius: 2, background: deptColor.bar }} />
-                <span>Actual Output</span>
+                <span>≥ Daily Avg</span>
               </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <div style={{ width: 8, height: 8, borderRadius: 2, background: '#ef4444' }} />
+                <span style={{ color: '#ef4444', fontWeight: 600 }}>&lt; Daily Avg (Below)</span>
+              </div>
+              {avgDailyActual > 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <div style={{ width: 14, height: 0, borderBottom: '2px dashed #f59e0b' }} />
+                  <span style={{ color: '#b45309', fontWeight: 600 }}>30D Avg Line</span>
+                </div>
+              )}
             </div>
             <span>{chartPoints.length} Days Recorded</span>
           </div>

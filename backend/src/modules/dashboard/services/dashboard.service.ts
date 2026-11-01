@@ -800,6 +800,15 @@ export class DashboardService {
         // Packing and Plating departments have NO process cutting scrap — all scrap is Product Rejection (Part Reject)
         const scrapQuantity = isNoCuttingDept ? rawScrap + rawProcScrap : rawScrap;
         const processScrapKg = isNoCuttingDept ? 0 : rawProcScrap;
+        const repUom = ((r as any).reportingUom || (r as any).reporting_uom || 'PCS').toUpperCase();
+        const isWeightBased = repUom === 'KG';
+        const productRejectionPieces = isWeightBased ? 0 : scrapQuantity;
+        const productRejectionKg = isWeightBased
+          ? scrapQuantity
+          : round2(scrapQuantity * (num((r as any).avgWeightPerPiece) || 0.008));
+        const processCuttingScrap = isNoCuttingDept || isWeightBased ? 0 : rawProcScrap;
+        const totalScrapKg = isWeightBased ? scrapQuantity : round2(processCuttingScrap + productRejectionKg);
+
         return {
           departmentId: r.departmentId,
           departmentName: r.departmentName ?? 'Unknown',
@@ -815,8 +824,11 @@ export class DashboardService {
           actualQuantity,
           scrapQuantity,
           processScrapKg,
-          productRejection: scrapQuantity,
-          processCuttingScrap: processScrapKg,
+          productRejection: productRejectionPieces,
+          productRejectionPieces,
+          productRejectionKg,
+          processCuttingScrap,
+          totalScrapKg,
           runningHours: num(r.runningHours),
           downtimeHours: num(r.downtimeHours),
           overtimeHours: round2(num(r.overtimeHours)),
@@ -831,21 +843,36 @@ export class DashboardService {
       (d) => d.departmentName,
     );
 
+    const totalProductRejectionKg = round2(
+      departments.reduce((acc, d: any) => acc + (d.productRejectionKg || 0), 0)
+    );
+
     return {
       dateRange: { dateFrom: filters?.dateFrom ?? null, dateTo: filters?.dateTo ?? null },
       totalEntries: num(totals?.entryCount),
       summary: {
-        totalTarget: round4(totalTarget),
+        totalTarget: round4(
+          normalizedDeptRows.length > 0
+            ? normalizedDeptRows.reduce((acc, d) => acc + num(d.targetQuantity), 0)
+            : totalTarget
+        ),
         totalActual: round4(totalActual),
         totalScrap: round4(totalScrap),
         productRejection: round4(totalScrap),
+        productRejectionPieces: round4(totalScrap),
+        productRejectionKg: totalProductRejectionKg,
         processCuttingScrap: round4(totalProcessScrap),
         totalRunningHours: round2(totalRunningHours),
         totalDowntimeHours: round2(totalDowntimeHours),
         totalOvertimeHours: round2(totalOvertimeHours),
         // Overall achievement = Actual ÷ Target × 100 with a
         // division-by-zero guard (no target ⇒ 0%, never Infinity/NaN).
-        achievementPercentage: totalTarget > 0 ? round2((totalActual / totalTarget) * 100) : 0,
+        achievementPercentage: (() => {
+          const effectiveTarget = normalizedDeptRows.length > 0
+            ? normalizedDeptRows.reduce((acc, d) => acc + num(d.targetQuantity), 0)
+            : totalTarget;
+          return effectiveTarget > 0 ? round2((totalActual / effectiveTarget) * 100) : 0;
+        })(),
         efficiencyPercentage: (totalRunningHours + totalDowntimeHours) > 0
           ? round2((totalRunningHours / (totalRunningHours + totalDowntimeHours)) * 100)
           : 0,
@@ -855,61 +882,133 @@ export class DashboardService {
   }
 
   async getProductionTrend(companyId: string, days: number = 31, filters?: DashboardFilters) {
-    const qb = this.entryRepo
-      .createQueryBuilder('pe')
-      .innerJoin(Department, 'depTrend', "depTrend.id = pe.department_id AND depTrend.is_active = true AND depTrend.status = 'ACTIVE'")
-      .select("TO_CHAR(pe.entry_date, 'YYYY-MM-DD')", 'date')
-      .addSelect('COUNT(*)', 'entryCount')
-      .addSelect('COALESCE(SUM(pe.target_quantity), 0)', 'target')
-      .addSelect('COALESCE(SUM(pe.actual_quantity), 0)', 'actual')
-      .addSelect('COALESCE(SUM(pe.scrap_quantity), 0)', 'scrap')
-      .addSelect('COALESCE(SUM(pe.running_hours), 0)', 'runningHours')
-      .addSelect('COALESCE(SUM(pe.downtime_hours), 0)', 'downtimeHours')
-      .where('pe.company_id = :companyId', { companyId })
-      .andWhere('pe.is_active = true');
+    let effectiveDateFrom = filters?.dateFrom;
+    let effectiveDateTo = filters?.dateTo;
 
-    if (filters?.dateFrom) {
-      qb.andWhere('pe.entry_date >= :dateFrom', { dateFrom: filters.dateFrom });
-    } else {
-      // By default, show all days from the 1st of the current month (or at least `days` days ago)
+    // If dateFrom and dateTo are identical (e.g. single-day KPI preset: today / yesterday / lastEntry),
+    // a 31-day / MTD trend chart must show the full month (MTD) rather than collapsing to a single bar.
+    if (effectiveDateFrom && effectiveDateTo && effectiveDateFrom === effectiveDateTo) {
+      const targetDate = new Date(`${effectiveDateTo}T12:00:00`);
+      if (!Number.isNaN(targetDate.getTime())) {
+        const y = targetDate.getFullYear();
+        const m = String(targetDate.getMonth() + 1).padStart(2, '0');
+        effectiveDateFrom = `${y}-${m}-01`;
+        const lastDayOfMonth = new Date(y, targetDate.getMonth() + 1, 0).getDate();
+        effectiveDateTo = `${y}-${m}-${String(lastDayOfMonth).padStart(2, '0')}`;
+      }
+    }
+
+    if (!effectiveDateFrom) {
       const now = new Date();
       const firstOfMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
       const dateLimit = new Date();
       dateLimit.setDate(dateLimit.getDate() - days);
       const limitStr = dateLimit.toISOString().slice(0, 10);
-      const effectiveDateFrom = firstOfMonth < limitStr ? firstOfMonth : limitStr;
-      qb.andWhere('pe.entry_date >= :effectiveDateFrom', { effectiveDateFrom });
+      effectiveDateFrom = firstOfMonth < limitStr ? firstOfMonth : limitStr;
     }
 
-    if (filters?.dateTo) {
-      qb.andWhere('pe.entry_date <= :dateTo', { dateTo: filters.dateTo });
+    // Authoritative Packing Shift Target Calculation:
+    // In Packing, work is organized by daily shift/line, NOT by individual machines.
+    // If a day has 4 entries (for 4 different parts packed), the shift target is applied ONCE
+    // for that day/shift (including overtime if logged), NOT duplicated 4 times!
+    // All actual production quantities across all parts are fully summed.
+    const params: any[] = [companyId];
+    let paramIdx = 2;
+
+    let dateWhere = `AND pe.entry_date >= $${paramIdx++}`;
+    params.push(effectiveDateFrom);
+    if (effectiveDateTo) {
+      dateWhere += ` AND pe.entry_date <= $${paramIdx++}`;
+      params.push(effectiveDateTo);
     }
 
-    if (filters?.departmentId) qb.andWhere('pe.department_id = :departmentId', { departmentId: filters.departmentId });
-    if (filters?.shiftId) qb.andWhere('pe.shift_id = :shiftId', { shiftId: filters.shiftId });
-    if (filters?.machineId) qb.andWhere('pe.machine_no = :machineId', { machineId: filters.machineId });
-    if (filters?.itemId) qb.andWhere('pe.item_id = :itemId', { itemId: filters.itemId });
+    let filterWheres = '';
+    if (filters?.departmentId) {
+      filterWheres += ` AND pe.department_id = $${paramIdx++}`;
+      params.push(filters.departmentId);
+    }
+    if (filters?.shiftId) {
+      filterWheres += ` AND pe.shift_id = $${paramIdx++}`;
+      params.push(filters.shiftId);
+    }
+    if (filters?.machineId) {
+      filterWheres += ` AND pe.machine_no = $${paramIdx++}`;
+      params.push(filters.machineId);
+    }
+    if (filters?.itemId) {
+      filterWheres += ` AND pe.item_id = $${paramIdx++}`;
+      params.push(filters.itemId);
+    }
     if (filters?.sectionId) {
-      qb.innerJoin(Department, 'd', 'd.id = pe.department_id')
-        .andWhere('d.section_id = :sectionId', { sectionId: filters.sectionId });
+      filterWheres += ` AND depTrend.section_id = $${paramIdx++}`;
+      params.push(filters.sectionId);
     }
     if (filters?.divisionId) {
-      qb.innerJoin(Department, 'd2', 'd2.id = pe.department_id')
-        .innerJoin(Division, 'div', 'div.id = d2.division_id')
-        .andWhere('d2.division_id = :divisionId', { divisionId: filters.divisionId });
+      filterWheres += ` AND depTrend.division_id = $${paramIdx++}`;
+      params.push(filters.divisionId);
     }
-    applyDivisionScopeFilter(qb, 'pe.divisionId', filters?.allowedDivisionIds);
+    if (filters?.allowedDivisionIds && filters.allowedDivisionIds.length > 0) {
+      filterWheres += ` AND pe.division_id = ANY($${paramIdx++}::uuid[])`;
+      params.push(filters.allowedDivisionIds);
+    }
 
-    qb.groupBy('pe.entry_date').orderBy('pe.entry_date', 'ASC');
+    const sql = `
+      WITH daily_dept_shift AS (
+        SELECT 
+          pe.entry_date,
+          pe.department_id,
+          pe.shift_id,
+          CASE 
+            WHEN depTrend.name ILIKE '%pack%' OR pe.department_id = 'd3000000-0000-0000-0000-000000000008' THEN
+              -- Packing: target is per shift/day, NOT multiplied per part entry
+              MAX(COALESCE(pe.target_quantity, 0))
+            ELSE
+              -- Non-packing: sum across machines/lines
+              SUM(COALESCE(pe.target_quantity, 0))
+          END AS target_qty,
+          SUM(COALESCE(pe.actual_quantity, 0)) AS actual_qty,
+          SUM(COALESCE(pe.scrap_quantity, 0)) AS scrap_qty_pcs,
+          SUM(
+            COALESCE(pe.process_scrap_kg, 0) + 
+            (COALESCE(pe.scrap_quantity, 0) * COALESCE(itm.weight_per_piece, CASE WHEN itm.pieces_per_kg > 0 THEN 1.0 / itm.pieces_per_kg ELSE 0.008 END))
+          ) AS scrap_weight_kg,
+          COUNT(*) AS entry_count,
+          SUM(COALESCE(pe.running_hours, 0)) AS running_hours,
+          SUM(COALESCE(pe.downtime_hours, 0)) AS downtime_hours
+        FROM production_entries pe
+        INNER JOIN departments depTrend ON depTrend.id = pe.department_id AND depTrend.is_active = true AND depTrend.status = 'ACTIVE'
+        LEFT JOIN items itm ON itm.id = pe.item_id
+        WHERE pe.is_active = true
+          AND (pe.company_id = $1 OR pe.company_id IS NULL)
+          ${dateWhere}
+          ${filterWheres}
+        GROUP BY pe.entry_date, pe.department_id, pe.shift_id, depTrend.name
+      )
+      SELECT 
+        TO_CHAR(entry_date, 'YYYY-MM-DD') AS date,
+        SUM(entry_count) AS "entryCount",
+        COALESCE(SUM(target_qty), 0) AS target,
+        COALESCE(SUM(actual_qty), 0) AS actual,
+        COALESCE(SUM(scrap_qty_pcs), 0) AS scrap,
+        COALESCE(SUM(scrap_qty_pcs), 0) AS "scrapPieces",
+        COALESCE(SUM(scrap_weight_kg), 0) AS "scrapKg",
+        COALESCE(SUM(running_hours), 0) AS "runningHours",
+        COALESCE(SUM(downtime_hours), 0) AS "downtimeHours"
+      FROM daily_dept_shift
+      GROUP BY entry_date
+      ORDER BY entry_date ASC
+    `;
 
-    const entries = await qb.getRawMany();
+    const entries = await this.entryRepo.query(sql, params);
 
-    return entries.map(e => ({
+    return entries.map((e: any) => ({
       date: e.date,
       entryCount: parseInt(e.entryCount, 10),
       targetQuantity: Math.round(Number(e.target) * 100) / 100,
       actualQuantity: Math.round(Number(e.actual) * 100) / 100,
       scrapQuantity: Math.round(Number(e.scrap) * 100) / 100,
+      scrapPieces: Math.round(Number(e.scrapPieces ?? e.scrap) * 100) / 100,
+      scrapKg: Math.round(Number(e.scrapKg || 0) * 100) / 100,
       runningHours: Math.round(Number(e.runningHours) * 100) / 100,
       downtimeHours: Math.round(Number(e.downtimeHours) * 100) / 100,
       achievementPercentage: Number(e.target) > 0 ? Math.round((Number(e.actual) / Number(e.target)) * 100 * 100) / 100 : 0,

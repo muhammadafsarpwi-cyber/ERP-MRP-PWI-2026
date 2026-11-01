@@ -31,6 +31,8 @@ export interface ProductionSummary {
     totalActual: number;
     totalScrap: number;
     productRejection?: number;
+    productRejectionPieces?: number;
+    productRejectionKg?: number;
     processCuttingScrap?: number;
     totalRunningHours: number;
     totalDowntimeHours: number;
@@ -46,7 +48,10 @@ export interface ProductionSummary {
     scrapQuantity: number;
     processScrapKg?: number;
     productRejection?: number;
+    productRejectionPieces?: number;
+    productRejectionKg?: number;
     processCuttingScrap?: number;
+    totalScrapKg?: number;
     runningHours: number;
     downtimeHours: number;
     overtimeHours?: number;
@@ -67,6 +72,8 @@ export interface ProductionTrendDay {
   targetQuantity: number;
   actualQuantity: number;
   scrapQuantity: number;
+  scrapPieces?: number;
+  scrapKg?: number;
   runningHours: number;
   downtimeHours: number;
   achievementPercentage: number;

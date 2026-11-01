@@ -50,9 +50,9 @@ export const PackingShiftTargetSetup: React.FC<PackingShiftTargetSetupProps> = (
   }, []);
 
   // Live conversions based on the current cartons input
-  const currentCartons = Number(cartonsInput) > 0 ? Number(cartonsInput) : 100;
+  const currentCartons = Number(cartonsInput) > 0 ? Number(cartonsInput) : 125;
   const currentGross = currentCartons * GROSS_PER_CARTON; // 10 GRS / CTN
-  const currentPcs = currentGross * PCS_PER_GROSS; // 144 PCS / GRS -> 144,000 PCS for 100 CTN
+  const currentPcs = currentGross * PCS_PER_GROSS; // 144 PCS / GRS -> 180,000 PCS for 125 CTN
   const currentHours = Number(shiftHoursInput) > 0 ? Number(shiftHoursInput) : 8;
 
   // Hourly Productivity Rate
@@ -96,14 +96,14 @@ export const PackingShiftTargetSetup: React.FC<PackingShiftTargetSetupProps> = (
     setCartonsInput(ctn);
   };
 
-  // Reset to default 100 Cartons
+  // Reset to default 125 Cartons
   const handleResetToStandard = () => {
-    setCartonsInput(100);
+    setCartonsInput(125);
     setShiftHoursInput(8);
     setShiftNameInput('General (8:30 AM - 5:30 PM)');
     setNotesInput('Standard 8-Hour Packing Line Authoritative Shift Target');
     const standard: PackingShiftTargetConfig = {
-      baseCartons: 100,
+      baseCartons: 125,
       shiftHours: 8,
       shiftName: 'General (8:30 AM - 5:30 PM)',
       notes: 'Standard 8-Hour Packing Line Authoritative Shift Target',
@@ -113,7 +113,7 @@ export const PackingShiftTargetSetup: React.FC<PackingShiftTargetSetupProps> = (
     savePackingTargetConfig(standard);
     setTargetConfig(standard);
     setSavedSuccess(true);
-    message.info('Reset to Standard: 100 Cartons (1,000 Gross / 144,000 PCS)');
+    message.info('Reset to Standard: 125 Cartons (1,250 Gross / 180,000 PCS)');
     setTimeout(() => setSavedSuccess(false), 4000);
   };
 
@@ -296,9 +296,17 @@ export const PackingShiftTargetSetup: React.FC<PackingShiftTargetSetupProps> = (
                   size="middle"
                   onClick={() => applyPreset(100)}
                   type={cartonsInput === 100 ? 'primary' : 'default'}
-                  style={{ fontWeight: 800, borderRadius: 6, background: cartonsInput === 100 ? '#059669' : undefined, borderColor: '#059669' }}
+                  style={{ fontWeight: 700, borderRadius: 6 }}
                 >
-                  🎯 100 Cartons (Standard Baseline)
+                  100 Cartons (1,000 GRS)
+                </Button>
+                <Button
+                  size="middle"
+                  onClick={() => applyPreset(125)}
+                  type={cartonsInput === 125 ? 'primary' : 'default'}
+                  style={{ fontWeight: 800, borderRadius: 6, background: cartonsInput === 125 ? '#059669' : undefined, borderColor: '#059669' }}
+                >
+                  🎯 125 Cartons (Standard Baseline)
                 </Button>
                 <Button
                   size="middle"
@@ -391,7 +399,7 @@ export const PackingShiftTargetSetup: React.FC<PackingShiftTargetSetupProps> = (
                 onClick={handleResetToStandard}
                 style={{ fontWeight: 600 }}
               >
-                Reset to Standard 100 Cartons
+                Reset to Standard 125 Cartons
               </Button>
 
               <Button

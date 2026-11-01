@@ -1,11 +1,12 @@
 /**
  * PWI ERP SYSTEM - PACKING SHIFT TARGET CONFIGURATION
  * Authoritative Factory Target Definition & Persistent Store
- * Standard: 100 Cartons = 1,000 Gross = 144,000 Pieces (8-Hour General Shift)
+ * Standard: 125 Cartons = 1,250 Gross = 180,000 Pieces (8-Hour General Shift)
+ * Pro-rata Hourly Rate: 15.625 Cartons/hr = 156.25 Gross/hr = 22,500 Pieces/hr
  */
 
 export interface PackingShiftTargetConfig {
-  baseCartons: number; // e.g. 100, 200
+  baseCartons: number; // e.g. 125, 200
   shiftHours: number; // e.g. 8
   shiftName: string; // e.g. 'General Shift (8:30 AM - 5:30 PM)'
   notes?: string;
@@ -24,7 +25,7 @@ export const GROSS_PER_CARTON = 10;
 export const PCS_PER_CARTON = 1440;
 
 export const DEFAULT_PACKING_TARGET: PackingShiftTargetConfig = {
-  baseCartons: 100, // 100 Cartons = 1,000 Gross = 144,000 PCS
+  baseCartons: 125, // 125 Cartons = 1,250 Gross = 180,000 PCS (8-Hour Shift)
   shiftHours: 8,
   shiftName: 'General (8:30 AM - 5:30 PM)',
   notes: 'Standard 8-Hour Packing Line Authoritative Shift Target',
@@ -38,8 +39,10 @@ export const getSavedPackingTargetConfig = (): PackingShiftTargetConfig => {
     if (raw) {
       const parsed = JSON.parse(raw);
       if (parsed && typeof parsed.baseCartons === 'number' && parsed.baseCartons > 0) {
+        // Automatically migrate legacy default 100 CTN to the authoritative 125 CTN standard
+        const baseCartons = parsed.baseCartons === 100 ? 125 : Number(parsed.baseCartons);
         return {
-          baseCartons: Number(parsed.baseCartons),
+          baseCartons,
           shiftHours: Number(parsed.shiftHours) || 8,
           shiftName: String(parsed.shiftName || 'General (8:30 AM - 5:30 PM)'),
           notes: String(parsed.notes || ''),
@@ -57,7 +60,7 @@ export const getSavedPackingTargetConfig = (): PackingShiftTargetConfig => {
 export const savePackingTargetConfig = (config: PackingShiftTargetConfig): void => {
   try {
     const payload: PackingShiftTargetConfig = {
-      baseCartons: Number(config.baseCartons) || 100,
+      baseCartons: Number(config.baseCartons) || 125,
       shiftHours: Number(config.shiftHours) || 8,
       shiftName: config.shiftName || 'General (8:30 AM - 5:30 PM)',
       notes: config.notes || '',

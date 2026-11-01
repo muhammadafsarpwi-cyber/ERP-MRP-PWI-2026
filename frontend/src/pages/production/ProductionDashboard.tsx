@@ -974,9 +974,12 @@ export const ProductionDashboard: React.FC = () => {
           const avgWeightPerMeter = Number((d as any).avgWeightPerMeter) || Number((deptObj as any)?.avgWeightPerMeter) || 0.035;
           const avgWeightPerPiece = Number((d as any).avgWeightPerPiece) || Number((deptObj as any)?.avgWeightPerPiece) || 0.008;
 
-          // Dynamic produced weight in KG
+          const isWeightBased = reportingUom.toUpperCase() === 'KG';
+
+          // Dynamic produced weight in KG & pieces
+          const actualPcs = isWeightBased ? 0 : actual;
           let producedKg = 0;
-          if (reportingUom === 'KG') {
+          if (isWeightBased) {
             producedKg = Math.round(actual * 10) / 10;
           } else if (reportingUom === 'MTR' || reportingUom === 'METER') {
             producedKg = Math.round(actual * avgWeightPerMeter * 10) / 10;
@@ -985,12 +988,32 @@ export const ProductionDashboard: React.FC = () => {
           }
 
           const isNoCuttingDept = deptLower.includes('pack') || deptLower.includes('plat');
-          const rawPart = Math.round(Number(d.scrapQuantity || 0) * 10) / 10;
-          const rawProc = Math.round(Number((d as any).processScrapKg || (d as any).processCuttingScrap || 0) * 10) / 10;
-          const partRejectKg = isNoCuttingDept ? Math.round((rawPart + rawProc) * 10) / 10 : rawPart;
-          const processScrapKg = isNoCuttingDept ? 0 : rawProc;
-          const scrapKg = Math.round((partRejectKg + processScrapKg) * 10) / 10;
-          const scrapPct = producedKg > 0 ? Math.round((scrapKg / producedKg) * 10000) / 100 : 0.0;
+
+          // Part rejection in PCS
+          const scrapPcs = isWeightBased
+            ? 0
+            : Math.round(Number((d as any).productRejectionPieces ?? (d as any).productRejection ?? d.scrapQuantity ?? 0));
+          const scrapPcsPct = actualPcs > 0 ? Math.round((scrapPcs / actualPcs) * 10000) / 100 : 0.0;
+
+          // Rejection & Process Scrap in KG
+          let partRejectKg = 0;
+          let processScrapKg = 0;
+          let scrapKg = 0;
+
+          if (isWeightBased) {
+            scrapKg = Math.round(Number(d.scrapQuantity || 0) * 10) / 10;
+            partRejectKg = scrapKg;
+            processScrapKg = 0;
+          } else {
+            const rawProc = Math.round(Number((d as any).processScrapKg || (d as any).processCuttingScrap || 0) * 10) / 10;
+            processScrapKg = isNoCuttingDept ? 0 : rawProc;
+            partRejectKg = Number((d as any).productRejectionKg ?? Math.round(scrapPcs * avgWeightPerPiece * 10) / 10);
+            scrapKg = Math.round((partRejectKg + processScrapKg) * 10) / 10;
+          }
+
+          const scrapKgPct = producedKg > 0 ? Math.round((scrapKg / producedKg) * 10000) / 100 : 0.0;
+          const scrapPct = isWeightBased ? scrapKgPct : scrapPcsPct;
+
           const runningHours = Math.round(Number(d.runningHours || 0) * 10) / 10;
           const downHours = Math.round(Number(d.downtimeHours || 0) * 10) / 10;
           const totalHours = Math.round((runningHours + downHours) * 10) / 10;
@@ -1021,10 +1044,15 @@ export const ProductionDashboard: React.FC = () => {
             avgWeightPerPiece,
             target,
             actual,
+            actualPcs,
+            actualKg: producedKg,
             producedKg,
+            scrapPcs,
+            scrapPcsPct,
             partRejectKg,
             processScrapKg,
             scrapKg,
+            scrapKgPct,
             scrapPct,
             runningHours,
             downHours,
@@ -2707,7 +2735,7 @@ export const ProductionDashboard: React.FC = () => {
                     <ThunderboltOutlined className="th-icon" style={{ color: '#3b82f6' }} /> Plant Efficiency (OEE)
                   </th>
                   <th style={{ textAlign: 'right' }}>
-                    <DeleteOutlined className="th-icon" style={{ color: '#ef4444' }} /> Scrap (KG / %)
+                    <DeleteOutlined className="th-icon" style={{ color: '#ef4444' }} /> Scrap (PCS & KG / %)
                   </th>
                   <th style={{ textAlign: 'right' }}>
                     <ClockCircleOutlined className="th-icon" style={{ color: '#f59e0b' }} /> Plant Time (Running vs Down)
@@ -2812,18 +2840,60 @@ export const ProductionDashboard: React.FC = () => {
                         />
                       </div>
                     </td>
+                    {/* SCRAP CELL (DUAL: PCS & KG with SEPARATE PERCENTAGES) */}
                     <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', minWidth: 145 }}>
-                      <div style={{ color: '#ef4444', fontWeight: 700, fontSize: 13 }}>
-                        {formatNumber(d.scrapKg, 1)} KG
-                      </div>
-                      <div style={{ fontSize: 10, fontWeight: 600, display: 'flex', justifyContent: 'flex-end', gap: 4, marginTop: 1 }}>
-                        <span style={{ color: '#f43f5e' }}>Part: {formatNumber(d.partRejectKg, 1)}</span>
-                        <span style={{ color: 'var(--theme-text-muted, #94a3b8)' }}>·</span>
-                        <span style={{ color: '#0ea5e9' }}>Scrap: {formatNumber(d.processScrapKg, 1)}</span>
-                      </div>
-                      <div style={{ fontSize: 11, fontWeight: 600, color: '#ef4444', marginTop: 1 }}>
-                        {d.scrapPct.toFixed(2)}% Rejection
-                      </div>
+                      {d.reportingUom.toUpperCase() === 'KG' ? (
+                        <div>
+                          <div style={{ color: d.scrapKg > 0 ? '#ef4444' : 'var(--theme-text-muted, #94a3b8)', fontWeight: 700, fontSize: 13 }}>
+                            {formatNumber(d.scrapKg, 1)} KG
+                          </div>
+                          <div
+                            style={{ fontSize: 11, fontWeight: 600, color: (d as any).scrapKgPct > 0 ? '#ef4444' : 'var(--theme-text-muted, #94a3b8)' }}
+                            title={d.scrapKg > 0 ? `${formatNumber(d.scrapKg, 1)} KG returned to supplier due to Quality Problem (Head creak problem)` : undefined}
+                          >
+                            {((d as any).scrapKgPct || 0).toFixed(2)}% Return (Quality Problem)
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
+                          {/* 1. PCS Rejection & PCS % strictly from production PCS */}
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6 }}>
+                            <span style={{ fontWeight: 700, fontSize: 13, color: (d as any).scrapPcs > 0 ? '#ef4444' : 'var(--theme-text-muted, #94a3b8)' }}>
+                              {formatNumber((d as any).scrapPcs, 0)} PCS
+                            </span>
+                            <span
+                              style={{
+                                fontSize: 10.5,
+                                fontWeight: 700,
+                                color: (d as any).scrapPcsPct > 0 ? '#ef4444' : 'var(--theme-text-muted, #94a3b8)',
+                                background: (d as any).scrapPcsPct > 0 ? 'rgba(239, 68, 68, 0.12)' : 'transparent',
+                                padding: '1px 5px',
+                                borderRadius: 4,
+                              }}
+                            >
+                              {((d as any).scrapPcsPct || 0).toFixed(2)}%
+                            </span>
+                          </div>
+                          {/* 2. KG Scrap & KG % strictly from production KG */}
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6 }}>
+                            <span style={{ fontWeight: 600, fontSize: 11.5, color: d.scrapKg > 0 ? '#d97706' : 'var(--theme-text-muted, #94a3b8)' }}>
+                              {formatNumber(d.scrapKg, 1)} KG
+                            </span>
+                            <span
+                              style={{
+                                fontSize: 10,
+                                fontWeight: 600,
+                                color: (d as any).scrapKgPct > 0 ? '#d97706' : 'var(--theme-text-muted, #94a3b8)',
+                                background: (d as any).scrapKgPct > 0 ? 'rgba(217, 119, 6, 0.12)' : 'transparent',
+                                padding: '0px 4px',
+                                borderRadius: 4,
+                              }}
+                            >
+                              {((d as any).scrapKgPct || 0).toFixed(2)}%
+                            </span>
+                          </div>
+                        </div>
+                      )}
                     </td>
                     <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', minWidth: 185 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, fontWeight: 600, gap: 8 }}>

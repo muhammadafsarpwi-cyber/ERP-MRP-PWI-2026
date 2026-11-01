@@ -32,13 +32,16 @@ const DEPT_COLORS: Record<string, DeptColorToken> = {
   spoke: { bar: '#0d9488', target: '#99f6e4', lightBg: '#f0fdfa' },               // Deep Teal
   'spoke plating': { bar: '#8b5cf6', target: '#ddd6fe', lightBg: '#f5f3ff' },     // Royal Violet
   plating: { bar: '#8b5cf6', target: '#ddd6fe', lightBg: '#f5f3ff' },             // Royal Violet
-  packing: { bar: '#f43f5e', target: '#fecdd3', lightBg: '#fff1f2' },             // Coral Rose
-  'spoke packing': { bar: '#f43f5e', target: '#fecdd3', lightBg: '#fff1f2' },     // Coral Rose
-  'nipple packing': { bar: '#ec4899', target: '#fbcfe8', lightBg: '#fdf2f8' },    // Magenta Pink
+  packing: { bar: '#6366f1', target: '#c7d2fe', lightBg: '#eef2ff' },             // Royal Indigo
+  'spoke packing': { bar: '#6366f1', target: '#c7d2fe', lightBg: '#eef2ff' },     // Royal Indigo
+  'nipple packing': { bar: '#0ea5e9', target: '#bae6fd', lightBg: '#f0f9ff' },    // Sky Cyan
   dispatch: { bar: '#0284c7', target: '#bae6fd', lightBg: '#f0f9ff' },            // Sky Cyan
   flattening: { bar: '#16a34a', target: '#bbf7d0', lightBg: '#f0fdf4' },          // Emerald Green
   spiral: { bar: '#d946ef', target: '#f5d0fe', lightBg: '#fdf4ff' },              // Bright Fuchsia
   pvc: { bar: '#475569', target: '#cbd5e1', lightBg: '#f8fafc' },                 // Modern Slate
+  'raw material': { bar: '#059669', target: '#a7f3d0', lightBg: '#ecfdf5' },      // Forest Emerald
+  'raw material (rm)': { bar: '#059669', target: '#a7f3d0', lightBg: '#ecfdf5' }, // Forest Emerald
+  rm: { bar: '#059669', target: '#a7f3d0', lightBg: '#ecfdf5' },                  // Forest Emerald
 };
 
 const FALLBACK_PALETTE: DeptColorToken[] = [
@@ -86,9 +89,11 @@ export const ProductionPerformance: React.FC<ProductionPerformanceProps> = ({
       return sortDepartmentsFloorWise(filtered).map((d, idx) => {
         const target = Math.round(d.targetQuantity || 0);
         const actual = Math.round(d.actualQuantity || 0);
-        const productRejection = Number((d.productRejection ?? d.scrapQuantity ?? 0).toFixed(1));
+        const productRejectionPieces = Math.round(d.productRejectionPieces ?? d.productRejection ?? d.scrapQuantity ?? 0);
+        const unitWeight = Number((d as any).avgWeightPerPiece) > 0 ? Number((d as any).avgWeightPerPiece) : 0.008;
+        const productRejectionKg = Number((d.productRejectionKg ?? (productRejectionPieces * unitWeight)).toFixed(1));
         const processCuttingScrap = Number((d.processCuttingScrap ?? d.processScrapKg ?? 0).toFixed(1));
-        const totalScrap = Number((productRejection + processCuttingScrap).toFixed(1));
+        const totalScrapKg = Number((productRejectionKg + processCuttingScrap).toFixed(1));
         const achievement = Number((d.achievementPercentage || 0).toFixed(1));
         const deptName = d.departmentName || 'Unknown';
         const colorToken = getDepartmentColor(deptName, idx);
@@ -98,10 +103,13 @@ export const ProductionPerformance: React.FC<ProductionPerformanceProps> = ({
           shortName: deptName.length > 14 ? `${deptName.slice(0, 13)}…` : deptName,
           target,
           actual,
-          scrap: productRejection,
-          productRejection,
+          scrap: productRejectionKg,
+          productRejection: productRejectionKg,
+          productRejectionPieces,
+          productRejectionKg,
           processCuttingScrap,
-          totalScrap,
+          totalScrap: totalScrapKg,
+          totalScrapKg,
           achievement,
           runningHours: Number((d.runningHours || 0).toFixed(1)),
           downtimeHours: Number((d.downtimeHours || 0).toFixed(1)),
@@ -140,6 +148,8 @@ export const ProductionPerformance: React.FC<ProductionPerformanceProps> = ({
           packingStage.scrapQuantity = (packingStage.scrapQuantity || 0) + (d.scrapQuantity || 0);
           packingStage.processScrapKg = (packingStage.processScrapKg || 0) + (d.processScrapKg || 0);
           packingStage.productRejection = (packingStage.productRejection || 0) + (d.productRejection || 0);
+          packingStage.productRejectionPieces = (packingStage.productRejectionPieces || 0) + (d.productRejectionPieces || d.productRejection || d.scrapQuantity || 0);
+          packingStage.productRejectionKg = (packingStage.productRejectionKg || 0) + (d.productRejectionKg || 0);
           packingStage.processCuttingScrap = (packingStage.processCuttingScrap || 0) + (d.processCuttingScrap || 0);
           packingStage.entryCount = (packingStage.entryCount || 0) + (d.entryCount || 0);
         }
@@ -183,9 +193,11 @@ export const ProductionPerformance: React.FC<ProductionPerformanceProps> = ({
     return sortDepartmentsFloorWise(consolidatedDepts).map((d, idx) => {
       const target = Math.round(d.targetQuantity || 0);
       const actual = Math.round(d.actualQuantity || 0);
-      const productRejection = Number((d.productRejection ?? d.scrapQuantity ?? 0).toFixed(1));
+      const productRejectionPieces = Math.round(d.productRejectionPieces ?? d.productRejection ?? d.scrapQuantity ?? 0);
+      const unitWeight = Number((d as any).avgWeightPerPiece) > 0 ? Number((d as any).avgWeightPerPiece) : 0.008;
+      const productRejectionKg = Number((d.productRejectionKg ?? (productRejectionPieces * unitWeight)).toFixed(1));
       const processCuttingScrap = Number((d.processCuttingScrap ?? d.processScrapKg ?? 0).toFixed(1));
-      const totalScrap = Number((productRejection + processCuttingScrap).toFixed(1));
+      const totalScrapKg = Number((productRejectionKg + processCuttingScrap).toFixed(1));
       const achievement = Number((d.achievementPercentage || 0).toFixed(1));
       const colorToken = getDepartmentColor(d.departmentName, idx);
 
@@ -195,10 +207,13 @@ export const ProductionPerformance: React.FC<ProductionPerformanceProps> = ({
         shortName: d.departmentName.length > 14 ? `${d.departmentName.slice(0, 13)}…` : d.departmentName,
         target,
         actual,
-        scrap: productRejection,
-        productRejection,
+        scrap: productRejectionKg,
+        productRejection: productRejectionKg,
+        productRejectionPieces,
+        productRejectionKg,
         processCuttingScrap,
-        totalScrap,
+        totalScrap: totalScrapKg,
+        totalScrapKg,
         achievement,
         entryCount: d.entryCount || 0,
         colorToken,
@@ -211,8 +226,11 @@ export const ProductionPerformance: React.FC<ProductionPerformanceProps> = ({
     totalTarget,
     totalActual,
     totalProductRejection,
+    totalProductRejectionPieces,
+    totalProductRejectionKg,
     totalCuttingScrap,
     totalCombinedScrap,
+    totalCombinedScrapKg,
     overallAch,
     maxVal,
     maxScrap,
@@ -221,13 +239,24 @@ export const ProductionPerformance: React.FC<ProductionPerformanceProps> = ({
   } = useMemo(() => {
     const tTarget = Math.round(data?.summary?.totalTarget ?? departments.reduce((acc, curr) => acc + curr.target, 0));
     const tActual = Math.round(data?.summary?.totalActual ?? departments.reduce((acc, curr) => acc + curr.actual, 0));
-    const tRejection = Number(data?.summary?.productRejection ?? data?.summary?.totalScrap ?? 0);
-    const tCutting = Number(data?.summary?.processCuttingScrap ?? 0);
-    const tCombined = tRejection + tCutting;
+    const tRejectionPieces = Math.round(
+      data?.summary?.productRejectionPieces ??
+      data?.summary?.productRejection ??
+      departments.reduce((acc, curr) => acc + curr.productRejectionPieces, 0)
+    );
+    const tRejectionKg = Number(
+      (data?.summary?.productRejectionKg ??
+      departments.reduce((acc, curr) => acc + curr.productRejectionKg, 0)).toFixed(1)
+    );
+    const tCutting = Number(
+      (data?.summary?.processCuttingScrap ??
+      departments.reduce((acc, curr) => acc + curr.processCuttingScrap, 0)).toFixed(1)
+    );
+    const tCombinedKg = Number((tRejectionKg + tCutting).toFixed(1));
 
     const highestVal = Math.max(...departments.map((d) => Math.max(d.target, d.actual)), 100);
     const highestScrap = Math.max(
-      ...departments.map((d) => Math.max(d.productRejection, d.processCuttingScrap)),
+      ...departments.map((d) => Math.max(d.productRejectionKg, d.processCuttingScrap)),
       5,
     );
 
@@ -242,20 +271,23 @@ export const ProductionPerformance: React.FC<ProductionPerformanceProps> = ({
 
     let topScrap = departments[0];
     for (const d of departments) {
-      if (d.totalScrap > (topScrap?.totalScrap || 0)) {
+      if (d.totalScrapKg > (topScrap?.totalScrapKg || 0)) {
         topScrap = d;
       }
     }
 
     const topOutputDept = (topOut && topOut.actual > 0) ? topOut : undefined;
-    const topScrapDept = (topScrap && topScrap.totalScrap > 0) ? topScrap : undefined;
+    const topScrapDept = (topScrap && topScrap.totalScrapKg > 0) ? topScrap : undefined;
 
     return {
       totalTarget: tTarget,
       totalActual: tActual,
-      totalProductRejection: tRejection,
+      totalProductRejection: tRejectionKg,
+      totalProductRejectionPieces: tRejectionPieces,
+      totalProductRejectionKg: tRejectionKg,
       totalCuttingScrap: tCutting,
-      totalCombinedScrap: tCombined,
+      totalCombinedScrap: tCombinedKg,
+      totalCombinedScrapKg: tCombinedKg,
       overallAch: Number(ach.toFixed(1)),
       maxVal: highestVal,
       maxScrap: highestScrap,
@@ -327,9 +359,9 @@ export const ProductionPerformance: React.FC<ProductionPerformanceProps> = ({
             <td style="text-align: right; font-weight: 700; padding: 7px 10px; border: 1px solid #cbd5e1;">${d.actual.toLocaleString()}</td>
             <td style="text-align: right; color: ${varColor}; font-weight: 600; padding: 7px 10px; border: 1px solid #cbd5e1;">${varSign}</td>
             <td style="text-align: right; font-weight: 700; color: ${achColor}; padding: 7px 10px; border: 1px solid #cbd5e1;">${d.achievement}%</td>
-            <td style="text-align: right; padding: 7px 10px; border: 1px solid #cbd5e1;">${(d.productRejection || 0).toFixed(1)}</td>
-            <td style="text-align: right; padding: 7px 10px; border: 1px solid #cbd5e1;">${(d.processCuttingScrap || 0).toFixed(1)}</td>
-            <td style="text-align: right; font-weight: 600; padding: 7px 10px; border: 1px solid #cbd5e1;">${(d.totalScrap || 0).toFixed(1)}</td>
+            <td style="text-align: right; padding: 7px 10px; border: 1px solid #cbd5e1;">${d.productRejectionPieces.toLocaleString()} pcs (${d.productRejectionKg.toFixed(1)} kg)</td>
+            <td style="text-align: right; padding: 7px 10px; border: 1px solid #cbd5e1;">${(d.processCuttingScrap || 0).toFixed(1)} kg</td>
+            <td style="text-align: right; font-weight: 600; padding: 7px 10px; border: 1px solid #cbd5e1;">${(d.totalScrapKg || 0).toFixed(1)} kg</td>
             <td style="text-align: center; padding: 7px 8px; border: 1px solid #cbd5e1;">
               <span style="display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 10.5px; font-weight: 700; background: ${statusBg}; color: ${achColor};">
                 ${statusText}
@@ -632,7 +664,9 @@ export const ProductionPerformance: React.FC<ProductionPerformanceProps> = ({
                 </>
               ) : metricMode === 'scrap' ? (
                 <>
-                  <strong style={{ color: '#f43f5e' }}>{totalProductRejection.toFixed(1)} kg Rejection</strong>
+                  <strong style={{ color: '#f43f5e' }}>
+                    {totalProductRejectionPieces.toLocaleString()} Pcs ({totalProductRejectionKg.toFixed(1)} kg) Rejection
+                  </strong>
                   {totalCuttingScrap > 0 && (
                     <>
                       {' + '}
@@ -640,7 +674,7 @@ export const ProductionPerformance: React.FC<ProductionPerformanceProps> = ({
                     </>
                   )}
                   {' (Total: '}
-                  <strong style={{ color: 'var(--theme-heading, #0f172a)' }}>{totalCombinedScrap.toFixed(1)} kg</strong>
+                  <strong style={{ color: 'var(--theme-heading, #0f172a)' }}>{totalCombinedScrapKg.toFixed(1)} kg</strong>
                   {')'}
                 </>
               ) : (
@@ -1058,16 +1092,16 @@ export const ProductionPerformance: React.FC<ProductionPerformanceProps> = ({
                   </div>
                   <div style={{ marginTop: 4, paddingTop: 4, borderTop: '1px solid var(--theme-border, #e2e8f0)' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, color: '#f43f5e' }}>
-                      <span>Product Rejection:</span>
-                      <strong>{d.productRejection.toFixed(1)} Kg</strong>
+                      <span>Part Rejection:</span>
+                      <strong>{d.productRejectionPieces.toLocaleString()} Pcs ({d.productRejectionKg.toFixed(1)} Kg)</strong>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, color: '#d97706' }}>
                       <span>Cutting Scrap:</span>
                       <strong>{d.processCuttingScrap.toFixed(1)} Kg</strong>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontWeight: 700, marginTop: 2 }}>
-                      <span>Total Scrap:</span>
-                      <strong>{d.totalScrap.toFixed(1)} Kg</strong>
+                      <span>Total Scrap Weight:</span>
+                      <strong>{d.totalScrapKg.toFixed(1)} Kg</strong>
                     </div>
                   </div>
                   <div style={{ marginTop: 4, paddingTop: 4, borderTop: '1px solid var(--theme-border, #e2e8f0)', display: 'flex', justifyContent: 'space-between' }}>
@@ -1131,12 +1165,12 @@ export const ProductionPerformance: React.FC<ProductionPerformanceProps> = ({
                       ) : (
                         <>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <span style={{ color: '#fda4af' }}>{d.productRejection.toFixed(1)} Rej</span>
+                            <span style={{ color: '#fda4af' }}>{d.productRejectionPieces.toLocaleString()} Pcs ({d.productRejectionKg.toFixed(1)} Kg) Rej</span>
                             <span style={{ opacity: 0.6 }}>|</span>
                             <span style={{ color: '#fcd34d' }}>{d.processCuttingScrap.toFixed(1)} Cut</span>
                           </div>
                           <span style={{ fontSize: 8.5, opacity: 0.9, fontWeight: 500 }}>
-                            {d.shortName} · Total {d.totalScrap.toFixed(1)} Kg
+                            {d.shortName} · Total {d.totalScrapKg.toFixed(1)} Kg
                           </span>
                         </>
                       )}
@@ -1225,12 +1259,12 @@ export const ProductionPerformance: React.FC<ProductionPerformanceProps> = ({
                             style={{
                               width: 16,
                               height: `${rejectionHeightPx}px`,
-                              background: d.productRejection > 0 ? '#f43f5e' : 'var(--theme-surface-alt, #fecdd3)',
+                              background: d.productRejectionKg > 0 ? '#f43f5e' : 'var(--theme-surface-alt, #fecdd3)',
                               borderRadius: '5px 5px 0 0',
                               transition: 'all 0.3s ease',
-                              boxShadow: d.productRejection > 0 ? '0 2px 6px rgba(244, 63, 94, 0.3)' : 'none',
+                              boxShadow: d.productRejectionKg > 0 ? '0 2px 6px rgba(244, 63, 94, 0.3)' : 'none',
                             }}
-                            title={`Product Rejection: ${d.productRejection} Kg`}
+                            title={`Part Rejection: ${d.productRejectionPieces.toLocaleString()} Pcs (${d.productRejectionKg.toFixed(1)} Kg)`}
                           />
 
                           {/* Process Cutting Scrap Bar (Amber / Gold) */}
@@ -1315,11 +1349,11 @@ export const ProductionPerformance: React.FC<ProductionPerformanceProps> = ({
                 <>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                     <div style={{ width: 10, height: 10, borderRadius: 2, background: '#f43f5e' }} />
-                    <span>Product Rejection</span>
+                    <span>Part Rejection (Pcs / Kg)</span>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                     <div style={{ width: 10, height: 10, borderRadius: 2, background: '#f59e0b' }} />
-                    <span>Cutting Scrap</span>
+                    <span>Cutting Scrap (Kg)</span>
                   </div>
                 </>
               )}
