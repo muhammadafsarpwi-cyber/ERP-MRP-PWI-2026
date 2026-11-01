@@ -3413,23 +3413,7 @@ addToDept(org, {
         companyId, output.itemId, warehouseId, null, null, output.uomId, output.actualQuantity, 'IN', manager,
       );
 
-      if (output.scrapQuantity > 0) {
-        await this.stockLedgerService.create({
-          companyId,
-          transactionType: 'PRODUCTION_SCRAP',
-          transactionDate: this.resolveBusinessTransactionDate(entry.entryDate),
-          itemId: output.itemId,
-          warehouseId,
-          quantity: output.scrapQuantity,
-          uomId: output.uomId,
-          direction: 'OUT',
-          referenceType: ENTRY_REFERENCE_TYPE,
-          referenceId: entry.id,
-          referenceNumber: entry.entryNumber || undefined,
-          notes: `Scrap/rejection recorded for daily production entry (audit trail; no balance impact)`,
-          createdBy: userId ?? undefined,
-        }, manager);
-      }
+      // Destination warehouse receives net good pieces; output scrap is audited on production entries.
     }
 
     // Audit the exact configured inputs that were consumed as INPUT-kind entry

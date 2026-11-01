@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, EntityManager, In } from 'typeorm';
+import { Repository, EntityManager, In, IsNull } from 'typeorm';
 import { InventoryBalance, InventoryPolicy } from '../entities';
 
 @Injectable()
@@ -19,14 +19,20 @@ export class InventoryBalanceService {
     itemId: string,
     warehouseId: string,
     locationId?: string,
-    batchId?: string,
+    batchId?: string | null,
     manager?: EntityManager,
   ): Promise<InventoryBalance | null> {
     const repo = manager ? manager.getRepository(InventoryBalance) : this.repo;
     const where: Record<string, any> = { companyId, itemId, warehouseId };
     if (locationId) where.locationId = locationId;
-    if (batchId) where.batchId = batchId;
-    return repo.findOne({ where, relations: ['item', 'warehouse', 'location', 'batch', 'uom'] });
+    if (batchId !== undefined) {
+      where.batchId = batchId === null ? IsNull() : batchId;
+    }
+    return repo.findOne({
+      where,
+      relations: ['item', 'warehouse', 'location', 'batch', 'uom'],
+      order: { onHand: 'DESC' },
+    });
   }
 
   /**
@@ -179,7 +185,106 @@ export class InventoryBalanceService {
   ): Promise<InventoryBalance> {
     const repo = manager ? manager.getRepository(InventoryBalance) : this.repo;
     const policyRepo = manager ? manager.getRepository(InventoryPolicy) : this.policyRepo;
-    let balance = await this.findByItemWarehouse(companyId, itemId, warehouseId, locationId || undefined, batchId || undefined, manager);
+
+    // Handle general (unbatched) warehouse consumption across all active balance rows in that warehouse
+    if (direction === 'OUT' && !batchId) {
+      const rows = await repo.find({
+        where: {
+          companyId,
+          itemId,
+          warehouseId,
+          ...(locationId ? { locationId } : {}),
+          status: 'ACTIVE',
+        },
+        order: { onHand: 'DESC' },
+      });
+
+      const totalOnHand = rows.reduce((s, r) => s + Number(r.onHand), 0);
+      const totalReserved = rows.reduce((s, r) => s + Number(r.reserved), 0);
+      const totalAvailable = totalOnHand - totalReserved;
+
+      if (totalAvailable < quantityChange && !allowNegative) {
+        const policy = await policyRepo.findOne({
+          where: { companyId, itemId, warehouseId },
+        });
+        if (!policy || !policy.allowNegativeStock) {
+          throw new BadRequestException(
+            `Insufficient stock. Available: ${totalAvailable}, requested: ${quantityChange}`,
+          );
+        }
+      }
+
+      let remaining = quantityChange;
+      let primaryBalance: InventoryBalance | null = null;
+
+      // Prefer unbatched row if it has positive stock, then positive batched rows
+      const unbatchedRow = rows.find((r) => r.batchId == null);
+      const batchedRows = rows.filter((r) => r.batchId != null);
+      const candidates = [
+        ...(unbatchedRow && Number(unbatchedRow.onHand) > 0 ? [unbatchedRow] : []),
+        ...batchedRows.filter((r) => Number(r.onHand) > 0),
+        ...(unbatchedRow && Number(unbatchedRow.onHand) <= 0 ? [unbatchedRow] : []),
+        ...batchedRows.filter((r) => Number(r.onHand) <= 0),
+      ];
+
+      for (const b of candidates) {
+        if (remaining <= 0) break;
+        const currentOnHand = Number(b.onHand);
+        if (currentOnHand > 0) {
+          const deduct = Math.min(currentOnHand, remaining);
+          b.onHand = Number((Number(b.onHand) - deduct).toFixed(4));
+          b.available = Number((Number(b.available) - deduct).toFixed(4));
+          remaining = Number((remaining - deduct).toFixed(4));
+          const saved = await repo.save(b);
+          if (!primaryBalance) primaryBalance = saved;
+        }
+      }
+
+      // If any remaining (e.g. when allowNegative is enabled or rows had 0/negative balance)
+      if (remaining > 0) {
+        let target = unbatchedRow || rows[0];
+        if (!target) {
+          target = repo.create({
+            companyId,
+            itemId,
+            warehouseId,
+            locationId: locationId || null,
+            batchId: null,
+            uomId,
+            onHand: 0,
+            reserved: 0,
+            available: 0,
+            status: 'ACTIVE',
+          });
+        }
+        target.onHand = Number((Number(target.onHand) - remaining).toFixed(4));
+        target.available = Number((Number(target.available) - remaining).toFixed(4));
+        const saved = await repo.save(target);
+        if (!primaryBalance) primaryBalance = saved;
+      }
+
+      return primaryBalance || rows[0] || repo.create({
+        companyId,
+        itemId,
+        warehouseId,
+        locationId: locationId || null,
+        batchId: null,
+        uomId,
+        onHand: 0,
+        reserved: 0,
+        available: 0,
+        status: 'ACTIVE',
+      });
+    }
+
+    let balance = await this.findByItemWarehouse(
+      companyId,
+      itemId,
+      warehouseId,
+      locationId || undefined,
+      batchId !== undefined ? batchId : undefined,
+      manager,
+    );
 
     if (!balance) {
       balance = repo.create({

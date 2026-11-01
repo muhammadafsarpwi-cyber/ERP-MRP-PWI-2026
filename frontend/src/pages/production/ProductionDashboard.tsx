@@ -23,6 +23,7 @@ import {
   CheckOutlined,
   HomeOutlined,
   UserOutlined,
+  InboxOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import {
@@ -196,6 +197,30 @@ export function getDepartmentAbbr(name: string, code?: string): string {
   }
   return (name || '').trim().slice(0, 3).toUpperCase();
 }
+
+/**
+ * Exact and safe department matching helper that prevents 'spoke' from matching
+ * 'spoke plating' or 'spoke packing', or 'nipple' matching 'nipple plating'.
+ */
+export function isExactDeptMatch(
+  sourceDeptId?: string | null,
+  sourceDeptName?: string | null,
+  targetDeptId?: string | null,
+  targetDeptName?: string | null,
+): boolean {
+  if (sourceDeptId && targetDeptId && sourceDeptId === targetDeptId) {
+    return true;
+  }
+  const sName = (sourceDeptName || '').trim().toLowerCase();
+  const tName = (targetDeptName || '').trim().toLowerCase();
+  if (!sName || !tName) return false;
+  if (sName === tName) return true;
+
+  const sAbbr = getDepartmentAbbr(sName);
+  const tAbbr = getDepartmentAbbr(tName);
+  return sAbbr === tAbbr;
+}
+
 
 export const EmptyProductionState: React.FC<{ message?: string; subtext?: string; minHeight?: number }> = ({
   message = 'No Active Production Data Registered',
@@ -900,18 +925,14 @@ export const ProductionDashboard: React.FC = () => {
       if (sec === 'all') {
         return divisionScopedMachines;
       }
+      const targetDept = departments.find((d) => d.id === sec);
       return divisionScopedMachines.filter((m) => {
-        if ((m as any).departmentId && (m as any).departmentId === sec) return true;
-        const targetDept = departments.find((d) => d.id === sec);
-        if (targetDept) {
-          const mDept = (m.departmentName || '').toLowerCase().trim();
-          const tName = targetDept.name.toLowerCase().trim();
-          if (mDept === tName) return true;
-        }
-        const mCode = (m.machineCode || '').toLowerCase().trim();
-        const mName = (m.machineName || '').toLowerCase().trim();
-        const secLower = sec.toLowerCase().trim();
-        return mCode.includes(secLower) || mName.includes(secLower);
+        return isExactDeptMatch(
+          (m as any).departmentId,
+          m.departmentName,
+          sec,
+          targetDept?.name,
+        );
       });
     },
     [machines, departments, filters.divisionId, isActiveDepartment],
@@ -1152,14 +1173,8 @@ export const ProductionDashboard: React.FC = () => {
       const dept = entryDepartmentLabel(e);
       if (!isActiveDepartment(rowDeptId, dept, e.department)) return false;
       if (selectedScrapSection === 'all') return true;
-      if (rowDeptId && rowDeptId === selectedScrapSection) return true;
-      const deptLower = dept.toLowerCase().trim();
       const targetDept = departments.find((d) => d.id === selectedScrapSection);
-      if (targetDept) {
-        const tName = targetDept.name.toLowerCase().trim();
-        if (deptLower === tName) return true;
-      }
-      return false;
+      return isExactDeptMatch(rowDeptId, dept, selectedScrapSection, targetDept?.name);
     });
   }, [scrapEntries, selectedScrapSection, departments, isActiveDepartment]);
 
@@ -1474,10 +1489,7 @@ export const ProductionDashboard: React.FC = () => {
 
     const matchOtDept = (deptName: string, sec: string, rowDeptId?: string) => {
       if (sec === 'all') return true;
-      if (rowDeptId && rowDeptId === sec) return true;
-      const d = (deptName || '').toLowerCase().trim();
-      if (targetName && (d === targetName || d.includes(targetName) || targetName.includes(d))) return true;
-      return false;
+      return isExactDeptMatch(rowDeptId, deptName, sec, targetName);
     };
 
     if (otViewMode === 'operator') {
@@ -1597,8 +1609,15 @@ export const ProductionDashboard: React.FC = () => {
         dept: m.departmentName || '',
       };
     });
-    extra.forEach((v, code) => list.push({ name: code, fullName: code, hours: Math.round(v.hours * 10) / 10, dept: v.dept }));
-    return list.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+    // Only append extra machines if they strictly belong to the active department
+    extra.forEach((v, code) => {
+      if (isExactDeptMatch(null, v.dept, selectedOtSection, targetName)) {
+        list.push({ name: code, fullName: code, hours: Math.round(v.hours * 10) / 10, dept: v.dept });
+      }
+    });
+    // When a specific department like Spoke (SPK) is chosen, display all machines belonging to that department
+    // (e.g. SPK-01 to SPK-06) with their exact logged overtime hours
+    return list.sort((a, b) => b.hours - a.hours || a.name.localeCompare(b.name));
   }, [otViewMode, activeOtEntries, selectedOtSection, filterMachinesBySection, departments]);
 
   // Section summary helper for TOT = [ Target | Actual | Ach % ] badge requested by user
@@ -1613,10 +1632,7 @@ export const ProductionDashboard: React.FC = () => {
     const targetDept = departments.find((d) => d.id === selectedSection);
     const targetName = targetDept?.name.toLowerCase().trim();
     const deptMatch = deptMatrix.find((d) => {
-      if (d.id && d.id === selectedSection) return true;
-      const name = d.name.toLowerCase().trim();
-      if (targetName && (name === targetName || name.includes(targetName) || targetName.includes(name))) return true;
-      return false;
+      return isExactDeptMatch(d.id, d.name, selectedSection, targetName);
     });
     if (deptMatch) {
       return {
@@ -2839,33 +2855,61 @@ export const ProductionDashboard: React.FC = () => {
                     </td>
                     <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
                       <Space size={6}>
-                        <span
-                          className="pwi-action-badge pwi-action-badge--logs"
-                          title={`Open ${d.name} Production Logs`}
-                          onClick={() => {
-                            if (d.name.toLowerCase().includes('pack')) {
-                              navigate('/production/packing-entries');
-                            } else {
-                              navigate('/production/entries', { state: { departmentId: d.id, activeTab: 'entries' } });
-                            }
-                          }}
-                        >
-                          <CarryOutOutlined /> Production Logs
-                        </span>
-                        <span
-                          className="pwi-action-badge pwi-action-badge--ot"
-                          title={`Open ${d.name} Overtime Analytics`}
-                          onClick={() => navigate('/production/entries', { state: { departmentId: d.id, activeTab: 'overtime' } })}
-                        >
-                          <FieldTimeOutlined /> Overtime Analytics
-                        </span>
-                        <span
-                          className="pwi-action-badge pwi-action-badge--scrap"
-                          title={`Open ${d.name} Rejection & Scrap Details`}
-                          onClick={() => navigate('/production/entries', { state: { departmentId: d.id, activeTab: 'scrap' } })}
-                        >
-                          <DeleteOutlined /> Rejection Sheet
-                        </span>
+                        {d.name.toLowerCase().includes('raw') || d.name.toLowerCase().includes('rm') || d.id === 'f8312f0c-ba1e-401a-80cd-43d6b5cc8c05' ? (
+                          <>
+                            <span
+                              className="pwi-action-badge pwi-action-badge--logs"
+                              title="Open Raw Material Receiving Logs"
+                              onClick={() => navigate('/production/receiving')}
+                            >
+                              <InboxOutlined /> Receiving Logs
+                            </span>
+                            <span
+                              className="pwi-action-badge pwi-action-badge--ot"
+                              title="Open Raw Material Receiving & Return Report"
+                              onClick={() => navigate('/production/receiving-report')}
+                            >
+                              <BarChartOutlined /> Receiving Report
+                            </span>
+                            <span
+                              className="pwi-action-badge pwi-action-badge--scrap"
+                              title="Open Raw Material Return"
+                              onClick={() => navigate('/production/returns')}
+                            >
+                              <DeleteOutlined /> Return / Rejection
+                            </span>
+                          </>
+                        ) : (
+                          <>
+                            <span
+                              className="pwi-action-badge pwi-action-badge--logs"
+                              title={`Open ${d.name} Production Logs`}
+                              onClick={() => {
+                                if (d.name.toLowerCase().includes('pack')) {
+                                  navigate('/production/packing-entries');
+                                } else {
+                                  navigate('/production/entries', { state: { departmentId: d.id, activeTab: 'entries' } });
+                                }
+                              }}
+                            >
+                              <CarryOutOutlined /> Production Logs
+                            </span>
+                            <span
+                              className="pwi-action-badge pwi-action-badge--ot"
+                              title={`Open ${d.name} Overtime Analytics`}
+                              onClick={() => navigate('/production/entries', { state: { departmentId: d.id, activeTab: 'overtime' } })}
+                            >
+                              <FieldTimeOutlined /> Overtime Analytics
+                            </span>
+                            <span
+                              className="pwi-action-badge pwi-action-badge--scrap"
+                              title={`Open ${d.name} Rejection & Scrap Details`}
+                              onClick={() => navigate('/production/entries', { state: { departmentId: d.id, activeTab: 'scrap' } })}
+                            >
+                              <DeleteOutlined /> Rejection Sheet
+                            </span>
+                          </>
+                        )}
                       </Space>
                     </td>
                   </tr>

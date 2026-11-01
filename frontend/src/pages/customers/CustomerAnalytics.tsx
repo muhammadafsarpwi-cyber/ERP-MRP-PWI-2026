@@ -81,20 +81,77 @@ export interface ItemCustomerRef {
   customerCode?: string;
 }
 
+export const STANDARD_FG_CATALOG = [
+  { itemCode: 'SPI-FG-SPK-001', name: '250X17 INN / OUT Spoke Butted__225X17 Nipple', packagingSize: 10 },
+  { itemCode: 'SPI-FG-SPK-002', name: '250X17 Inn / Out Spoke Butted__CD-250X17 Nipple', packagingSize: 10 },
+  { itemCode: 'SPI-FG-SPK-003', name: '250X18 Inn / Out Spoke Butted__CD-250X17 Nipple', packagingSize: 10 },
+  { itemCode: 'SPI-FG-SPK-004', name: '250*17 Inn / Out Spoke Straight__RM-250*17 Nipple', packagingSize: 10 },
+  { itemCode: 'SPI-FG-SPK-005', name: '250*18 Inn / Out Spoke Straight__RM-250*17 Nipple', packagingSize: 10 },
+  { itemCode: 'SPI-FG-SPK-006', name: '300X17 S9 Inn / Out Spoke Straight__125-S9 Nipple', packagingSize: 10 },
+  { itemCode: 'SPI-FG-SPK-007', name: '300X18 S9 Inn / Out Spoke Straight__125-S9 Nipple', packagingSize: 10 },
+  { itemCode: 'SPI-FG-SPK-008', name: '125-300X17 Inn / Out Spoke Butted__125 - 300X17 Nipple', packagingSize: 10 },
+  { itemCode: 'SPI-FG-SPK-009', name: '125-300X18 Inn / Out Spoke Butted__125 - 300X17 Nipple', packagingSize: 10 },
+  { itemCode: 'SPI-FG-SPK-010', name: 'DS Front Inn / Out Spoke Straight__225X17 Nipple', packagingSize: 10 },
+  { itemCode: 'SPI-FG-SPK-011', name: '300X17 S9 Inn / Out Spoke Straight (CS)__125-S9 Nipple (CS)', packagingSize: 10.556 },
+  { itemCode: 'SPI-FG-SPK-012', name: 'RM Inn / Out Spoke Straight (CS)__RM-250*17 Nipple', packagingSize: 10.556 },
+];
+
+export const normKey = (s: string) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+export const resolveFgItem = (
+  rawCode: string,
+  rawName: string
+): { code: string; name: string; packagingSize?: number } => {
+  const nc = normKey(rawCode);
+  const nn = normKey(rawName);
+
+  // Exact code match first
+  if (nc) {
+    const byCode = STANDARD_FG_CATALOG.find((std) => normKey(std.itemCode) === nc);
+    if (byCode) return { code: byCode.itemCode, name: byCode.name, packagingSize: byCode.packagingSize };
+  }
+
+  // Name match with CS sensitivity
+  const isCS =
+    (rawCode + ' ' + rawName).toUpperCase().includes('(CS)') ||
+    (rawCode + ' ' + rawName).toUpperCase().includes(' CS') ||
+    nc.includes('011') ||
+    nc.includes('012');
+
+  for (const std of STANDARD_FG_CATALOG) {
+    const stdIsCS = std.name.includes('(CS)');
+    if (isCS !== stdIsCS) continue;
+
+    const sn = normKey(std.name);
+    if (nn && (nn === sn || nn.includes(sn) || sn.includes(nn))) {
+      return { code: std.itemCode, name: std.name, packagingSize: std.packagingSize };
+    }
+  }
+
+  return { code: rawCode || rawName, name: rawName || rawCode };
+};
+
 interface ItemStat {
   itemCode: string;
   itemName: string;
   totalGross: number;
+  totalPieces: number;
   totalCartons: number;
   totalOrderedKgs: number;
   readyFgrGross: number;
+  readyFgrPieces: number;
   readyFgrCartons: number;
   readyFgrKgs: number;
   balancePendingGross: number;
+  balancePendingPieces: number;
   balancePendingCartons: number;
   balancePendingKgs: number;
   totalDispatchedGross?: number;
   totalDispatchedCartons?: number;
+  undispatchedGross: number;
+  undispatchedPieces: number;
+  undispatchedCartons: number;
+  undispatchedKgs: number;
   weightPerPiece: number;
   grossPerCarton: number;
   customerCount: number;
@@ -146,6 +203,7 @@ const ActionKpiCard: React.FC<ActionKpiCardProps> = ({
 const COLORS = [
   '#6366f1', '#22d3ee', '#f59e0b', '#10b981', '#f43f5e',
   '#8b5cf6', '#0ea5e9', '#84cc16', '#fb923c', '#e879f9',
+  '#06b6d4', '#14b8a6',
 ];
 
 export const getFulfillmentColor = (pct: number) => {
@@ -202,6 +260,17 @@ function parsePackingEntry(e: any): PackedEntryInfo | null {
     socNo = 'SAFETY_STOCK';
   }
 
+  const itemObj = e.item || (Array.isArray(e.items) && e.items[0]) || {};
+  let rawCode = itemObj.itemCode || itemObj.item_code || e.itemCode || e.item_code || '';
+  let rawName = itemObj.name || itemObj.itemName || itemObj.item_name || e.itemName || e.item_name || '';
+
+  if (!rawCode) {
+    const codeMatch = rem.match(/SPI-FG-[A-Z0-9-]+/i) || rem.match(/FG-[A-Z0-9-]+/i);
+    if (codeMatch) rawCode = codeMatch[0];
+  }
+
+  const resolved = resolveFgItem(rawCode, rawName);
+
   return {
     id: String(e.id),
     customerName: custName,
@@ -209,8 +278,8 @@ function parsePackingEntry(e: any): PackedEntryInfo | null {
     cartons,
     gross,
     pcs,
-    fgItemName: e.item?.name || '',
-    fgItemCode: e.item?.itemCode || '',
+    fgItemName: resolved.name || rawName,
+    fgItemCode: resolved.code || rawCode,
     date: e.entryDate || e.entry_date || e.createdAt,
     isSafetyStock,
   };
@@ -242,6 +311,10 @@ function parseOpenStockEntry(os: any): PackedEntryInfo | null {
     socNo = 'SAFETY_STOCK';
   }
 
+  const rawCode = os.itemCode || os.item?.itemCode || '';
+  const rawName = os.itemName || os.item?.name || '';
+  const resolved = resolveFgItem(rawCode, rawName);
+
   return {
     id: String(os.id),
     customerName: custName,
@@ -249,8 +322,8 @@ function parseOpenStockEntry(os: any): PackedEntryInfo | null {
     cartons,
     gross,
     pcs,
-    fgItemName: os.itemName || os.item?.name || '',
-    fgItemCode: os.itemCode || os.item?.itemCode || '',
+    fgItemName: resolved.name || rawName,
+    fgItemCode: resolved.code || rawCode,
     date: os.transactionDate || os.createdAt,
     isSafetyStock,
   };
@@ -428,23 +501,18 @@ const CustomerAnalytics: React.FC = () => {
       const custMap = new Map<string, CustomerStat>();
       const custSocMap = new Map<string, SocContractSummary[]>();
 
-      const normKey = (s: string) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-
       const findOrCreateSocItem = (soc: SocContractSummary, code: string, name: string): SocItemDetail => {
-        const nCode = normKey(code);
-        const nName = normKey(name);
+        const resolved = resolveFgItem(code, name);
+        const nResolvedCode = normKey(resolved.code);
         let found = soc.items.find((it) => {
-          const itCode = normKey(it.itemCode);
-          const itName = normKey(it.itemName);
-          if (nCode && itCode && nCode === itCode) return true;
-          if (nName && itName && (nName === itName || itName.includes(nName) || nName.includes(itName))) return true;
-          return false;
+          const itRes = resolveFgItem(it.itemCode, it.itemName);
+          return normKey(itRes.code) === nResolvedCode;
         });
         if (!found) {
           found = {
-            key: `${soc.socNumber}-${code || name || soc.items.length + 1}`,
-            itemCode: code || 'FG-ITEM',
-            itemName: name || code || 'Finished Goods Item',
+            key: `${soc.socNumber}-${resolved.code || resolved.name || soc.items.length + 1}`,
+            itemCode: resolved.code || 'FG-ITEM',
+            itemName: resolved.name || resolved.code || 'Finished Goods Item',
             orderedQty: 0,
             packedQty: 0,
             dispatchedQty: 0,
@@ -618,26 +686,71 @@ const CustomerAnalytics: React.FC = () => {
 
           if (qty <= 0) continue;
 
+          const resolved = resolveFgItem(code, name);
+          const nResolvedCode = normKey(resolved.code);
+
           // Check line-level SOC first: e.g. [SOC: SOC-2026-05814] or line.socNumber / line.salesOrderNumber
           const lineSocMatch = (line.description || '').match(/\[SOC:\s*([^\]]+)\]/i) || (line.description || '').match(/SOC[:\s]+(SOC-[A-Za-z0-9-]+|[0-9A-Za-z-]+)/i);
           const lineSocNo = line.socNumber || line.salesOrderNumber || (lineSocMatch ? lineSocMatch[1].trim() : '');
           const lineOrderId = line.salesOrderId || line.orderId || '';
 
           const nLineSoc = normKey(lineSocNo);
+          const nDelivSoc = normKey(delivSocNo);
           let targetSoc: SocContractSummary | undefined;
 
-          // Priority 1: Match specifically by line-level SOC number or line-level order ID
-          if (lineOrderId || nLineSoc) {
+          // Priority 1: Match explicit Line-Level SOC first (e.g. [SOC: SOC-2026-05645] in line.description or line.socNumber)
+          // Crucial for multi-SOC gate passes where different lines belong to different contracts
+          if (nLineSoc) {
             targetSoc = custSocs.find(
               (s) =>
-                (lineOrderId && s.orderId === lineOrderId) ||
-                (nLineSoc && (normKey(s.socNumber) === nLineSoc || normKey(s.socNumber).endsWith(nLineSoc) || nLineSoc.endsWith(normKey(s.socNumber))))
+                (normKey(s.socNumber) === nLineSoc ||
+                 normKey(s.socNumber).endsWith(nLineSoc) ||
+                 nLineSoc.endsWith(normKey(s.socNumber))) &&
+                s.items.some((it) => normKey(resolveFgItem(it.itemCode, it.itemName).code) === nResolvedCode)
+            );
+            if (!targetSoc) {
+              targetSoc = custSocs.find(
+                (s) =>
+                  normKey(s.socNumber) === nLineSoc ||
+                  normKey(s.socNumber).endsWith(nLineSoc) ||
+                  nLineSoc.endsWith(normKey(s.socNumber))
+              );
+            }
+          }
+
+          // Priority 2: Match line-level salesOrderId
+          if (!targetSoc && lineOrderId) {
+            targetSoc = custSocs.find(
+              (s) =>
+                s.orderId === lineOrderId &&
+                s.items.some((it) => normKey(resolveFgItem(it.itemCode, it.itemName).code) === nResolvedCode)
             );
           }
 
-          // Priority 2: Fallback to delivery header SOC number or delivery header order ID
+          // Priority 3: Match delivery-level order ID or SOC against active open contracts
+          if (!targetSoc && (delivOrderId || nDelivSoc)) {
+            targetSoc = custSocs.find(
+              (s) =>
+                ((delivOrderId && s.orderId === delivOrderId) ||
+                 (nDelivSoc && (normKey(s.socNumber) === nDelivSoc || normKey(s.socNumber).endsWith(nDelivSoc) || nDelivSoc.endsWith(normKey(s.socNumber))))) &&
+                String(s.status).toUpperCase() !== 'DELIVERED' &&
+                String(s.status).toUpperCase() !== 'CLOSED' &&
+                s.items.some((it) => normKey(resolveFgItem(it.itemCode, it.itemName).code) === nResolvedCode)
+            );
+          }
+
+          // Priority 4: Fallback to any active/open SOC for this customer that has this ordered item
           if (!targetSoc) {
-            const nDelivSoc = normKey(delivSocNo);
+            targetSoc = custSocs.find(
+              (s) =>
+                String(s.status).toUpperCase() !== 'DELIVERED' &&
+                String(s.status).toUpperCase() !== 'CLOSED' &&
+                s.items.some((it) => normKey(resolveFgItem(it.itemCode, it.itemName).code) === nResolvedCode)
+            );
+          }
+
+          // Priority 5: Fallback to delivery-level order ID / SOC on delivered/closed contracts
+          if (!targetSoc && (delivOrderId || nDelivSoc)) {
             targetSoc = custSocs.find(
               (s) =>
                 (delivOrderId && s.orderId === delivOrderId) ||
@@ -646,44 +759,46 @@ const CustomerAnalytics: React.FC = () => {
           }
 
           if (targetSoc) {
-            // Strictly match against items ordered in this SOC
-            const nCode = normKey(code);
-            const nName = normKey(name);
+            // Strictly match against items ordered in this SOC by resolved standard FG code
             let socItem = targetSoc.items.find((it) => {
-              const itCode = normKey(it.itemCode);
-              const itName = normKey(it.itemName);
-              if (nCode && itCode && nCode === itCode) return true;
-              if (nName && itName && (nName === itName || itName.includes(nName) || nName.includes(itName))) return true;
-              return false;
+              const itRes = resolveFgItem(it.itemCode, it.itemName);
+              return normKey(itRes.code) === nResolvedCode;
             });
 
             // Single-item fallback ONLY if item code matches or is absent
             if (!socItem && targetSoc.items.length === 1) {
               const singleIt = targetSoc.items[0];
-              const singleCode = normKey(singleIt.itemCode);
-              if (!nCode || !singleCode || nCode === singleCode) {
+              const singleRes = resolveFgItem(singleIt.itemCode, singleIt.itemName);
+              if (!nResolvedCode || normKey(singleRes.code) === nResolvedCode) {
                 socItem = singleIt;
               }
             }
 
             if (socItem) {
               socItem.dispatchedQty += qty;
+            } else if (targetSoc.isOfficialOrder) {
+              // Item was not ordered in targetSoc, check other customer SOCs that ordered this item
+              const altSoc = custSocs.find((s) => s.items.some((it) => it.isOrderItem && normKey(resolveFgItem(it.itemCode, it.itemName).code) === nResolvedCode));
+              if (altSoc) {
+                const altItem = findOrCreateSocItem(altSoc, resolved.code, resolved.name);
+                altItem.dispatchedQty += qty;
+              } else {
+                const created = findOrCreateSocItem(targetSoc, resolved.code, resolved.name);
+                created.dispatchedQty += qty;
+              }
             } else {
-              const created = findOrCreateSocItem(targetSoc, code, name);
+              const created = findOrCreateSocItem(targetSoc, resolved.code, resolved.name);
               created.dispatchedQty += qty;
             }
           } else if (custSocs.length > 0) {
             // Allocate FIFO strictly across customer's SOCs that ALREADY have this ordered item
             let remainingToAllocate = qty;
-            const nCode = normKey(code);
-            const nName = normKey(name);
             const matchingItems: SocItemDetail[] = [];
 
             for (const s of custSocs) {
               for (const it of s.items) {
-                const itCode = normKey(it.itemCode);
-                const itName = normKey(it.itemName);
-                if ((nCode && itCode && nCode === itCode) || (nName && itName && (nName === itName || itName.includes(nName) || nName.includes(itName)))) {
+                const itRes = resolveFgItem(it.itemCode, it.itemName);
+                if (normKey(itRes.code) === nResolvedCode) {
                   matchingItems.push(it);
                 }
               }
@@ -775,7 +890,32 @@ const CustomerAnalytics: React.FC = () => {
           continue;
         }
 
-        const matchedCustId = findMatchingCustomerId(entry.customerName);
+        const rawSoc = String(entry.socNo || '').trim();
+        const nEntrySoc = normKey(rawSoc);
+
+        // Find customer and SOC: first check if rawSoc matches ANY customer's SOC contract directly
+        let matchedCustId: string | null = null;
+        let matchedSoc: SocContractSummary | undefined;
+
+        if (nEntrySoc && rawSoc !== '—') {
+          for (const [cId, socList] of custSocMap.entries()) {
+            const found = socList.find((s) => {
+              const nSoc = normKey(s.socNumber);
+              return nSoc === nEntrySoc || nSoc.endsWith(nEntrySoc) || nEntrySoc.endsWith(nSoc);
+            });
+            if (found) {
+              matchedCustId = cId;
+              matchedSoc = found;
+              break;
+            }
+          }
+        }
+
+        // Fallback to customer name matching if not already found via SOC number
+        if (!matchedCustId) {
+          matchedCustId = findMatchingCustomerId(entry.customerName);
+        }
+
         if (matchedCustId) {
           const prev = custPackedMap.get(matchedCustId) || { gross: 0, cartons: 0, topItem: '' };
           custPackedMap.set(matchedCustId, {
@@ -788,48 +928,40 @@ const CustomerAnalytics: React.FC = () => {
             custSocMap.set(matchedCustId, []);
           }
           const custSocs = custSocMap.get(matchedCustId)!;
-          const rawSoc = String(entry.socNo || '').trim();
-          const nEntrySoc = normKey(rawSoc);
 
-          let matchedSoc = nEntrySoc && rawSoc !== '—'
-            ? custSocs.find((s) => {
-                const nSoc = normKey(s.socNumber);
-                return nSoc === nEntrySoc || nSoc.endsWith(nEntrySoc) || nEntrySoc.endsWith(nSoc);
-              })
-            : undefined;
+          if (!matchedSoc && nEntrySoc && rawSoc !== '—') {
+            matchedSoc = custSocs.find((s) => {
+              const nSoc = normKey(s.socNumber);
+              return nSoc === nEntrySoc || nSoc.endsWith(nEntrySoc) || nEntrySoc.endsWith(nSoc);
+            });
+          }
 
           const pCode = entry.fgItemCode || '';
           const pName = entry.fgItemName || '';
+          const resolved = resolveFgItem(pCode, pName);
+          const nResolvedCode = normKey(resolved.code);
 
           if (matchedSoc) {
-            const nCode = normKey(pCode);
-            const nName = normKey(pName);
-            const socItem = matchedSoc.items.find((it) => {
-              const itCode = normKey(it.itemCode);
-              const itName = normKey(it.itemName);
-              if (nCode && itCode && nCode === itCode) return true;
-              if (nName && itName && (nName === itName || itName.includes(nName) || nName.includes(itName))) return true;
-              return false;
+            let socItem = matchedSoc.items.find((it) => {
+              const itRes = resolveFgItem(it.itemCode, it.itemName);
+              return normKey(itRes.code) === nResolvedCode;
             }) || (matchedSoc.items.length === 1 ? matchedSoc.items[0] : null);
 
             if (socItem) {
               socItem.packedQty += entry.gross;
             } else if (!matchedSoc.isOfficialOrder) {
-              const created = findOrCreateSocItem(matchedSoc, pCode, pName);
+              const created = findOrCreateSocItem(matchedSoc, resolved.code, resolved.name);
               created.packedQty += entry.gross;
             }
           } else if (custSocs.length > 0) {
             // Match by item across customer's SOCs in FIFO order
             let remPacked = entry.gross;
-            const nCode = normKey(pCode);
-            const nName = normKey(pName);
             const candidateItems: SocItemDetail[] = [];
 
             for (const s of custSocs) {
               for (const it of s.items) {
-                const itCode = normKey(it.itemCode);
-                const itName = normKey(it.itemName);
-                if ((nCode && itCode && nCode === itCode) || (nName && itName && (nName === itName || itName.includes(nName) || nName.includes(itName)))) {
+                const itRes = resolveFgItem(it.itemCode, it.itemName);
+                if (normKey(itRes.code) === nResolvedCode) {
                   candidateItems.push(it);
                 }
               }
@@ -870,6 +1002,78 @@ const CustomerAnalytics: React.FC = () => {
         }
       }
 
+      // Build item metadata lookup (weightPerPiece, packagingSize, FGR warehouse ready stock) early so SOC details can access it
+      const itemMetaMap = new Map<
+        string,
+        {
+          weightPerPiece: number;
+          packagingSize: number;
+          matrixFgrGross: number;
+          matrixFgrCartons: number;
+          matrixFgrKgs: number;
+        }
+      >();
+
+      const registerItemMeta = (
+        rawCode: string,
+        rawName: string,
+        wpp: number,
+        pkg: number,
+        fgrGross = 0,
+        fgrCartons = 0,
+        fgrKgs = 0
+      ) => {
+        const keys = [normKey(rawCode), normKey(rawName)].filter(Boolean);
+        for (const k of keys) {
+          const prev = itemMetaMap.get(k) || {
+            weightPerPiece: 0,
+            packagingSize: 0,
+            matrixFgrGross: 0,
+            matrixFgrCartons: 0,
+            matrixFgrKgs: 0,
+          };
+          itemMetaMap.set(k, {
+            weightPerPiece: wpp > 0 ? wpp : prev.weightPerPiece,
+            packagingSize: pkg > 0 ? pkg : prev.packagingSize,
+            matrixFgrGross: prev.matrixFgrGross + fgrGross,
+            matrixFgrCartons: prev.matrixFgrCartons + fgrCartons,
+            matrixFgrKgs: prev.matrixFgrKgs + fgrKgs,
+          });
+        }
+      };
+
+      for (const pIt of prodItemsList) {
+        const wpp =
+          Number(pIt.weightPerPiece) > 0
+            ? Number(pIt.weightPerPiece)
+            : Number(pIt.piecesPerKg) > 0
+            ? 1 / Number(pIt.piecesPerKg)
+            : 0;
+        const pkg = Number(pIt.packagingSize) || 0;
+        registerItemMeta(pIt.itemCode || '', pIt.name || pIt.itemName || '', wpp, pkg);
+      }
+
+      for (const whRow of matrixRows) {
+        const isFgrWh = Boolean(
+          whRow.isFgWarehouse ||
+          String(whRow.warehouseCode || '').toUpperCase().includes('FGDW') ||
+          String(whRow.warehouseName || '').toUpperCase().includes('DISPATCH') ||
+          String(whRow.warehouseName || '').toUpperCase().includes('FG')
+        );
+        const mItems: any[] = whRow.items || [];
+        for (const mIt of mItems) {
+          const wpp = Number(mIt.weightPerPiece) || 0;
+          const pkg = Number(mIt.packagingSize || mIt.grossPerCarton) || 0;
+          const isFgItem = isFgrWh || mIt.itemType === 'FINISHED_GOOD';
+          const fgrGrs = isFgItem
+            ? Number(mIt.convertedGross || (Number(mIt.convertedPieces) > 0 ? Number(mIt.convertedPieces) / 144 : 0))
+            : 0;
+          const fgrCtn = isFgItem ? Number(mIt.convertedCartons || 0) : 0;
+          const fgrKg = isFgItem ? Number(mIt.convertedWeightKg || 0) : 0;
+          registerItemMeta(mIt.itemCode || '', mIt.itemName || '', wpp, pkg, fgrGrs, fgrCtn, fgrKg);
+        }
+      }
+
       // Calculate fulfillment %, totalPacked, readyToDispatch, and finalized SOC contracts for regular customers
       const result: CustomerStat[] = Array.from(custMap.values()).map((c) => {
         const packed = custPackedMap.get(c.id) || { gross: 0, cartons: 0, topItem: '' };
@@ -892,16 +1096,26 @@ const CustomerAnalytics: React.FC = () => {
 
           const finalizedItems: SocItemDetail[] = itemsToProcess.map((it) => {
             const orderedQty = Math.round(it.orderedQty * 100) / 100;
-            const packedQty = Math.round(it.packedQty * 100) / 100;
             let dispatchedQty = Math.round(it.dispatchedQty * 100) / 100;
-            let remainingPendingQty = Math.max(0, Math.round((orderedQty - dispatchedQty) * 100) / 100);
-
-            // THE ULTIMATE RULE:
-            // If Order Status = Delivered, then DELIVERED quantity must equal ORDERED quantity,
-            // and REMAINING must automatically reduce to 0.
+            let packedQty = Math.round(it.packedQty * 100) / 100;
             if (isDelivered) {
-              dispatchedQty = orderedQty;
-              remainingPendingQty = 0;
+              dispatchedQty = Math.max(dispatchedQty, orderedQty);
+              packedQty = Math.max(packedQty, orderedQty);
+            }
+            const remainingPendingQty = isDelivered ? 0 : Math.max(0, Math.round((orderedQty - dispatchedQty) * 100) / 100);
+
+            // Compute true packed quantity based on physical stock and dispatches:
+            // What was dispatched + what is currently sitting ready in FGR warehouse cannot exceed total packed
+            const resItem = resolveFgItem(it.itemCode, it.itemName);
+            const meta = itemMetaMap.get(normKey(resItem.code)) || itemMetaMap.get(normKey(resItem.name));
+            const matrixStock = meta?.matrixFgrGross || 0;
+            // Clean, automatic business formula: Packed quantity cannot be less than what was already dispatched
+            // plus physical stock sitting ready in FGR warehouse (capped at ordered quantity).
+            if (!isDelivered && matrixStock > 0) {
+              const potentialPacked = Math.round((dispatchedQty + matrixStock) * 100) / 100;
+              packedQty = Math.min(orderedQty, Math.max(packedQty, potentialPacked));
+            } else if (packedQty < dispatchedQty) {
+              packedQty = dispatchedQty;
             }
 
             const itemPct =
@@ -920,13 +1134,8 @@ const CustomerAnalytics: React.FC = () => {
 
           const totalOrderedQty = Math.round(finalizedItems.reduce((s, i) => s + i.orderedQty, 0) * 100) / 100;
           const totalPackedQty = Math.round(finalizedItems.reduce((s, i) => s + i.packedQty, 0) * 100) / 100;
-          let totalDispatchedQty = Math.round(finalizedItems.reduce((s, i) => s + i.dispatchedQty, 0) * 100) / 100;
-          let totalPendingQty = Math.max(0, Math.round((totalOrderedQty - totalDispatchedQty) * 100) / 100);
-
-          if (isDelivered) {
-            totalDispatchedQty = totalOrderedQty;
-            totalPendingQty = 0;
-          }
+          const totalDispatchedQty = Math.round(finalizedItems.reduce((s, i) => s + i.dispatchedQty, 0) * 100) / 100;
+          const totalPendingQty = isDelivered ? 0 : Math.max(0, Math.round((totalOrderedQty - totalDispatchedQty) * 100) / 100);
 
           const socPct =
             isDelivered
@@ -949,13 +1158,11 @@ const CustomerAnalytics: React.FC = () => {
         // Sort SOCs so contracts with pending quantities appear first
         finalizedSocs.sort((a, b) => b.totalPendingQty - a.totalPendingQty);
 
-        // System-wide strict sync: Customer Card figures MUST match the exact sum of verified SOC contracts
+        // System-wide strict sync: Customer Card figures MUST match actual genuine deliveries
         const totalOrderedGross = finalizedSocs.length > 0
           ? Math.round(finalizedSocs.reduce((s, x) => s + x.totalOrderedQty, 0) * 100) / 100
           : Math.round(c.totalOrderedGross * 100) / 100;
-        const totalDispatchedGross = finalizedSocs.length > 0
-          ? Math.round(finalizedSocs.reduce((s, x) => s + x.totalDispatchedQty, 0) * 100) / 100
-          : Math.round(c.totalDispatchedGross * 100) / 100;
+        const totalDispatchedGross = Math.round(c.totalDispatchedGross * 100) / 100;
         const pendingGross = Math.max(0, Math.round((totalOrderedGross - totalDispatchedGross) * 100) / 100);
         const totalOrders = finalizedSocs.length > 0 ? finalizedSocs.length : c.totalOrders;
 
@@ -1038,78 +1245,6 @@ const CustomerAnalytics: React.FC = () => {
 
       setCustomers(result);
 
-      // Build item metadata lookup (weightPerPiece, packagingSize, FGR warehouse ready stock)
-      const itemMetaMap = new Map<
-        string,
-        {
-          weightPerPiece: number;
-          packagingSize: number;
-          matrixFgrGross: number;
-          matrixFgrCartons: number;
-          matrixFgrKgs: number;
-        }
-      >();
-
-      const registerItemMeta = (
-        rawCode: string,
-        rawName: string,
-        wpp: number,
-        pkg: number,
-        fgrGross = 0,
-        fgrCartons = 0,
-        fgrKgs = 0
-      ) => {
-        const keys = [normKey(rawCode), normKey(rawName)].filter(Boolean);
-        for (const k of keys) {
-          const prev = itemMetaMap.get(k) || {
-            weightPerPiece: 0,
-            packagingSize: 0,
-            matrixFgrGross: 0,
-            matrixFgrCartons: 0,
-            matrixFgrKgs: 0,
-          };
-          itemMetaMap.set(k, {
-            weightPerPiece: wpp > 0 ? wpp : prev.weightPerPiece,
-            packagingSize: pkg > 0 ? pkg : prev.packagingSize,
-            matrixFgrGross: prev.matrixFgrGross + fgrGross,
-            matrixFgrCartons: prev.matrixFgrCartons + fgrCartons,
-            matrixFgrKgs: prev.matrixFgrKgs + fgrKgs,
-          });
-        }
-      };
-
-      for (const pIt of prodItemsList) {
-        const wpp =
-          Number(pIt.weightPerPiece) > 0
-            ? Number(pIt.weightPerPiece)
-            : Number(pIt.piecesPerKg) > 0
-            ? 1 / Number(pIt.piecesPerKg)
-            : 0;
-        const pkg = Number(pIt.packagingSize) || 0;
-        registerItemMeta(pIt.itemCode || '', pIt.name || pIt.itemName || '', wpp, pkg);
-      }
-
-      for (const whRow of matrixRows) {
-        const isFgrWh = Boolean(
-          whRow.isFgWarehouse ||
-          String(whRow.warehouseCode || '').toUpperCase().includes('FGDW') ||
-          String(whRow.warehouseName || '').toUpperCase().includes('DISPATCH') ||
-          String(whRow.warehouseName || '').toUpperCase().includes('FG')
-        );
-        const mItems: any[] = whRow.items || [];
-        for (const mIt of mItems) {
-          const wpp = Number(mIt.weightPerPiece) || 0;
-          const pkg = Number(mIt.packagingSize || mIt.grossPerCarton) || 0;
-          const isFgItem = isFgrWh || mIt.itemType === 'FINISHED_GOOD';
-          const fgrGrs = isFgItem
-            ? Number(mIt.convertedGross || (Number(mIt.convertedPieces) > 0 ? Number(mIt.convertedPieces) / 144 : 0))
-            : 0;
-          const fgrCtn = isFgItem ? Number(mIt.convertedCartons || 0) : 0;
-          const fgrKg = isFgItem ? Number(mIt.convertedWeightKg || 0) : 0;
-          registerItemMeta(mIt.itemCode || '', mIt.itemName || '', wpp, pkg, fgrGrs, fgrCtn, fgrKg);
-        }
-      }
-
       const inferDefaultWeightPerPiece = (code: string, name: string): number => {
         const combined = `${code} ${name}`.toUpperCase();
         if (combined.includes('8G') || combined.includes('4.0MM')) return 0.0185;
@@ -1129,8 +1264,41 @@ const CustomerAnalytics: React.FC = () => {
         return isCS ? 10.555556 : 10;
       };
 
-      // Build item stats from orders
+      // Build item stats pre-seeded with all 12 standard Finished Goods catalog items
       const itemMap = new Map<string, ItemStat>();
+      for (const std of STANDARD_FG_CATALOG) {
+        const wpp = inferDefaultWeightPerPiece(std.itemCode, std.name);
+        const grossPerCarton = std.packagingSize || computeGrossPerCarton(std.itemCode, std.name, 0);
+        itemMap.set(std.itemCode, {
+          itemCode: std.itemCode,
+          itemName: std.name,
+          totalGross: 0,
+          totalPieces: 0,
+          totalCartons: 0,
+          totalOrderedKgs: 0,
+          readyFgrGross: 0,
+          readyFgrPieces: 0,
+          readyFgrCartons: 0,
+          readyFgrKgs: 0,
+          balancePendingGross: 0,
+          balancePendingPieces: 0,
+          balancePendingCartons: 0,
+          balancePendingKgs: 0,
+          totalDispatchedGross: 0,
+          totalDispatchedCartons: 0,
+          undispatchedGross: 0,
+          undispatchedPieces: 0,
+          undispatchedCartons: 0,
+          undispatchedKgs: 0,
+          weightPerPiece: wpp,
+          grossPerCarton,
+          customerCount: 0,
+          customerNames: [],
+          customers: [],
+        });
+      }
+
+      // Aggregate all committed customer order requirements
       for (const order of orders) {
         const custId = String(order.customerId || order.customer_id || order.customer?.id || '');
         const custInfo = customerDirectory.get(custId);
@@ -1139,37 +1307,48 @@ const CustomerAnalytics: React.FC = () => {
         const items = order.items || order.orderItems || order.lines || [];
         for (const item of items) {
           const itemObj = item.item || {};
-          const code = itemObj.itemCode || item.itemCode || item.item_code || '';
-          const name = itemObj.name || item.description || item.itemName || item.item_name || code || 'Item';
+          const rawCode = itemObj.itemCode || item.itemCode || item.item_code || '';
+          const rawName = itemObj.name || item.description || item.itemName || item.item_name || rawCode || 'Item';
           const qty = Number(item.quantity || item.qty || 0);
-          const meta = itemMetaMap.get(normKey(code)) || itemMetaMap.get(normKey(name));
-          const rawPkgSize = Number(itemObj.packagingSize || item.packageQuantity || item.packagingSize || meta?.packagingSize || 0);
-          const grossPerCarton = computeGrossPerCarton(code, name, rawPkgSize);
+
+          if (!rawCode && !rawName) continue;
+          const resolved = resolveFgItem(rawCode, rawName);
+          const key = resolved.code;
+          const meta = itemMetaMap.get(normKey(key)) || itemMetaMap.get(normKey(rawCode)) || itemMetaMap.get(normKey(rawName));
+          const rawPkgSize = Number(
+            itemObj.packagingSize || item.packageQuantity || item.packagingSize || resolved.packagingSize || meta?.packagingSize || 0
+          );
+          const grossPerCarton = computeGrossPerCarton(resolved.code, resolved.name, rawPkgSize);
           const rawWpp =
             Number(itemObj.weightPerPiece) > 0
               ? Number(itemObj.weightPerPiece)
               : Number(itemObj.piecesPerKg) > 0
               ? 1 / Number(itemObj.piecesPerKg)
               : meta?.weightPerPiece || 0;
-          const weightPerPiece = rawWpp > 0 ? rawWpp : inferDefaultWeightPerPiece(code, name);
+          const weightPerPiece = rawWpp > 0 ? rawWpp : inferDefaultWeightPerPiece(resolved.code, resolved.name);
 
-          if (!code && !name) continue;
-          const key = code || name;
           if (!itemMap.has(key)) {
             itemMap.set(key, {
-              itemCode: code || key,
-              itemName: name,
+              itemCode: resolved.code,
+              itemName: resolved.name,
               totalGross: 0,
+              totalPieces: 0,
               totalCartons: 0,
               totalOrderedKgs: 0,
               readyFgrGross: 0,
+              readyFgrPieces: 0,
               readyFgrCartons: 0,
               readyFgrKgs: 0,
               balancePendingGross: 0,
+              balancePendingPieces: 0,
               balancePendingCartons: 0,
               balancePendingKgs: 0,
               totalDispatchedGross: 0,
               totalDispatchedCartons: 0,
+              undispatchedGross: 0,
+              undispatchedPieces: 0,
+              undispatchedCartons: 0,
+              undispatchedKgs: 0,
               weightPerPiece,
               grossPerCarton,
               customerCount: 0,
@@ -1194,52 +1373,26 @@ const CustomerAnalytics: React.FC = () => {
         }
       }
 
-      // Add dispatched quantities to items from deliveries
+      // Add dispatched quantities to items from genuine delivery documents
       for (const delivery of deliveries) {
         if (String(delivery.status || '').toUpperCase() === 'CANCELLED') continue;
         const lines = delivery.lines || delivery.items || [];
         for (const line of lines) {
           const lineItemObj = line.item || {};
-          const code = lineItemObj.itemCode || line.itemCode || line.item_code || '';
-          const name = lineItemObj.name || line.description || line.itemName || line.item_name || code || 'Item';
+          const rawCode = lineItemObj.itemCode || line.itemCode || line.item_code || '';
+          const rawName = lineItemObj.name || line.description || line.itemName || line.item_name || rawCode || 'Item';
           const qty = Number(line.quantity || line.qty || 0);
-          const meta = itemMetaMap.get(normKey(code)) || itemMetaMap.get(normKey(name));
-          const rawPkgSize = Number(lineItemObj.packagingSize || line.packageQuantity || line.packagingSize || meta?.packagingSize || 0);
-          const grossPerCarton = computeGrossPerCarton(code, name, rawPkgSize);
-          const rawWpp =
-            Number(lineItemObj.weightPerPiece) > 0
-              ? Number(lineItemObj.weightPerPiece)
-              : meta?.weightPerPiece || 0;
-          const weightPerPiece = rawWpp > 0 ? rawWpp : inferDefaultWeightPerPiece(code, name);
 
-          if (!code && !name) continue;
-          const key = code || name;
-          if (!itemMap.has(key)) {
-            itemMap.set(key, {
-              itemCode: code || key,
-              itemName: name,
-              totalGross: 0,
-              totalCartons: 0,
-              totalOrderedKgs: 0,
-              readyFgrGross: 0,
-              readyFgrCartons: 0,
-              readyFgrKgs: 0,
-              balancePendingGross: 0,
-              balancePendingCartons: 0,
-              balancePendingKgs: 0,
-              totalDispatchedGross: 0,
-              totalDispatchedCartons: 0,
-              weightPerPiece,
-              grossPerCarton,
-              customerCount: 0,
-              customerNames: [],
-              customers: [],
-            });
+          if (!rawCode && !rawName) continue;
+          if (qty <= 0) continue;
+
+          const resolved = resolveFgItem(rawCode, rawName);
+          const s = itemMap.get(resolved.code);
+          if (s) {
+            s.totalDispatchedGross = (s.totalDispatchedGross || 0) + qty;
+            s.totalDispatchedCartons =
+              (s.totalDispatchedCartons || 0) + (qty > 0 && s.grossPerCarton > 0 ? qty / s.grossPerCarton : 0);
           }
-          const s = itemMap.get(key)!;
-          s.totalDispatchedGross = (s.totalDispatchedGross || 0) + qty;
-          s.totalDispatchedCartons =
-            (s.totalDispatchedCartons || 0) + (qty > 0 && s.grossPerCarton > 0 ? qty / s.grossPerCarton : 0);
         }
       }
 
@@ -1248,8 +1401,9 @@ const CustomerAnalytics: React.FC = () => {
       for (const cust of result) {
         if (cust.isSafetyStock) {
           for (const sItem of cust.safetyItems || []) {
-            const kCode = normKey(sItem.itemCode);
-            const kName = normKey(sItem.itemName);
+            const resolved = resolveFgItem(sItem.itemCode, sItem.itemName);
+            const kCode = normKey(resolved.code);
+            const kName = normKey(resolved.name);
             if (kCode) itemPackedReadyMap.set(kCode, (itemPackedReadyMap.get(kCode) || 0) + sItem.gross);
             if (kName && kName !== kCode) itemPackedReadyMap.set(kName, (itemPackedReadyMap.get(kName) || 0) + sItem.gross);
           }
@@ -1259,8 +1413,9 @@ const CustomerAnalytics: React.FC = () => {
           for (const socIt of soc.items) {
             const netReadyGross = Math.max(0, socIt.packedQty - socIt.dispatchedQty);
             if (netReadyGross > 0) {
-              const kCode = normKey(socIt.itemCode);
-              const kName = normKey(socIt.itemName);
+              const resolved = resolveFgItem(socIt.itemCode, socIt.itemName);
+              const kCode = normKey(resolved.code);
+              const kName = normKey(resolved.name);
               if (kCode) itemPackedReadyMap.set(kCode, (itemPackedReadyMap.get(kCode) || 0) + netReadyGross);
               if (kName && kName !== kCode) itemPackedReadyMap.set(kName, (itemPackedReadyMap.get(kName) || 0) + netReadyGross);
             }
@@ -1277,8 +1432,11 @@ const CustomerAnalytics: React.FC = () => {
           const matrixFgrGross = meta?.matrixFgrGross || 0;
 
           const totalGross = Math.round(it.totalGross * 100) / 100;
+          const totalPieces = Math.round(totalGross * 144);
           const totalDispatchedGross = Math.round((it.totalDispatchedGross || 0) * 100) / 100;
-          const readyFgrGross = Math.round(Math.max(packedReadyGross, matrixFgrGross) * 100) / 100;
+          // FGR Ready Stock is strictly the physical inventory on hand in Finished Goods Warehouse (SPI-FGDW-001)
+          const readyFgrGross = Math.round((meta?.matrixFgrGross || 0) * 100) / 100;
+          const readyFgrPieces = Math.round(readyFgrGross * 144);
           const grossPerCarton = it.grossPerCarton > 0 ? it.grossPerCarton : 10;
           const weightPerPiece = it.weightPerPiece > 0 ? it.weightPerPiece : inferDefaultWeightPerPiece(it.itemCode, it.itemName);
 
@@ -1286,37 +1444,53 @@ const CustomerAnalytics: React.FC = () => {
           const totalOrderedKgs = Math.round(totalGross * 144 * weightPerPiece * 10) / 10;
 
           const readyFgrCartons =
-            meta?.matrixFgrCartons && matrixFgrGross > packedReadyGross
+            meta?.matrixFgrCartons !== undefined && meta.matrixFgrCartons >= 0 && readyFgrGross > 0
               ? Math.round(meta.matrixFgrCartons * 10) / 10
               : Math.round((readyFgrGross / grossPerCarton) * 10) / 10;
 
           const readyFgrKgs =
-            meta?.matrixFgrKgs && matrixFgrGross > packedReadyGross
+            meta?.matrixFgrKgs !== undefined && meta.matrixFgrKgs >= 0 && readyFgrGross > 0
               ? Math.round(meta.matrixFgrKgs * 10) / 10
               : Math.round(readyFgrGross * 144 * weightPerPiece * 10) / 10;
 
-          const balancePendingGross = Math.max(0, Math.round((totalGross - readyFgrGross) * 100) / 100);
-          const balancePendingCartons = Math.max(0, Math.round((totalCartons - readyFgrCartons) * 10) / 10);
-          const balancePendingKgs = Math.max(0, Math.round((totalOrderedKgs - readyFgrKgs) * 10) / 10);
+          // B. Pending Dispatch (To Ship): Total Ordered (A) - Total Dispatched
+          const undispatchedGross = Math.max(0, Math.round((totalGross - totalDispatchedGross) * 100) / 100);
+          const undispatchedPieces = Math.round(undispatchedGross * 144);
+          const undispatchedCartons = Math.max(0, Math.round((undispatchedGross / grossPerCarton) * 10) / 10);
+          const undispatchedKgs = Math.max(0, Math.round(undispatchedGross * 144 * weightPerPiece * 10) / 10);
+
+          // D. Pending Production (To Produce): Core business formula: D = B - C
+          // Pending Dispatch (B) - Ready in Stock FGR (C) = Net remaining quantity to produce
+          const balancePendingGross = Math.max(0, Math.round((undispatchedGross - readyFgrGross) * 100) / 100);
+          const balancePendingPieces = Math.round(balancePendingGross * 144);
+          const balancePendingCartons = Math.max(0, Math.round((balancePendingGross / grossPerCarton) * 10) / 10);
+          const balancePendingKgs = Math.max(0, Math.round(balancePendingGross * 144 * weightPerPiece * 10) / 10);
 
           return {
             ...it,
             totalGross,
+            totalPieces,
             totalDispatchedGross,
             totalCartons,
             totalOrderedKgs,
             readyFgrGross,
+            readyFgrPieces,
             readyFgrCartons,
             readyFgrKgs,
             balancePendingGross,
+            balancePendingPieces,
             balancePendingCartons,
             balancePendingKgs,
+            undispatchedGross,
+            undispatchedPieces,
+            undispatchedCartons,
+            undispatchedKgs,
             totalDispatchedCartons: Math.round((totalDispatchedGross / grossPerCarton) * 10) / 10,
             weightPerPiece,
             grossPerCarton,
           };
         })
-        .sort((a, b) => b.totalGross - a.totalGross);
+        .sort((a, b) => a.itemCode.localeCompare(b.itemCode, undefined, { numeric: true }));
 
       setItemStats(itemResult);
     } catch (err) {
@@ -1579,37 +1753,64 @@ const CustomerAnalytics: React.FC = () => {
       ),
     },
     {
-      title: 'TOTAL ORDERED (KGS / CTN)',
+      title: 'TOTAL ORDERED',
       key: 'ordered',
       align: 'right' as const,
       render: (_: any, it: ItemStat) => (
         <div>
           <div style={{ fontWeight: 800, color: 'var(--theme-heading, #1e293b)', fontSize: 13 }}>
-            {fmtNum(it.totalOrderedKgs, 1)} KGS
+            {fmtNum(it.totalOrderedKgs, 1)} KGS • {fmtNum(it.totalCartons, 1)} CTN
           </div>
           <div style={{ fontSize: 11, color: '#6366f1', fontWeight: 700 }}>
-            {fmtNum(it.totalCartons, 1)} Cartons ({fmtNum(it.totalGross, 0)} GRS)
+            {fmtNum(it.totalGross, 0)} GRS • {fmtNum(it.totalPieces, 0)} PCS
           </div>
         </div>
       ),
     },
     {
-      title: 'READY IN FGR (KGS / CTN)',
+      title: 'READY IN FGR',
       key: 'readyFgr',
       align: 'right' as const,
       render: (_: any, it: ItemStat) => (
         <div>
           <div style={{ fontWeight: 800, color: '#10b981', fontSize: 13 }}>
-            {fmtNum(it.readyFgrKgs, 1)} KGS
+            {fmtNum(it.readyFgrKgs, 1)} KGS • {fmtNum(it.readyFgrCartons, 1)} CTN
           </div>
           <div style={{ fontSize: 11, color: '#0d9488', fontWeight: 700 }}>
-            {fmtNum(it.readyFgrCartons, 1)} Cartons
+            {fmtNum(it.readyFgrGross, 0)} GRS • {fmtNum(it.readyFgrPieces, 0)} PCS
           </div>
         </div>
       ),
     },
     {
-      title: 'BALANCE PENDING (KGS / CTN)',
+      title: 'PENDING DISPATCH',
+      key: 'undispatched',
+      align: 'right' as const,
+      render: (_: any, it: ItemStat) => (
+        <div>
+          <div
+            style={{
+              fontWeight: 800,
+              color: it.undispatchedGross > 0 ? '#3b82f6' : '#10b981',
+              fontSize: 13,
+            }}
+          >
+            {fmtNum(it.undispatchedGross, 0)} GRS • {fmtNum(it.undispatchedPieces, 0)} PCS
+          </div>
+          <div
+            style={{
+              fontSize: 11,
+              color: it.undispatchedCartons > 0 ? '#2563eb' : '#10b981',
+              fontWeight: 700,
+            }}
+          >
+            {fmtNum(it.undispatchedCartons, 1)} CTN • {fmtNum(it.undispatchedKgs, 1)} KGS
+          </div>
+        </div>
+      ),
+    },
+    {
+      title: 'PENDING PRODUCTION',
       key: 'balancePending',
       align: 'right' as const,
       render: (_: any, it: ItemStat) => (
@@ -1617,11 +1818,11 @@ const CustomerAnalytics: React.FC = () => {
           <div
             style={{
               fontWeight: 800,
-              color: it.balancePendingKgs > 0 ? '#f59e0b' : '#10b981',
+              color: it.balancePendingGross > 0 ? '#f59e0b' : '#10b981',
               fontSize: 13,
             }}
           >
-            {fmtNum(it.balancePendingKgs, 1)} KGS
+            {fmtNum(it.balancePendingGross, 0)} GRS • {fmtNum(it.balancePendingPieces, 0)} PCS
           </div>
           <div
             style={{
@@ -1630,7 +1831,7 @@ const CustomerAnalytics: React.FC = () => {
               fontWeight: 700,
             }}
           >
-            {fmtNum(it.balancePendingCartons, 1)} Cartons
+            {fmtNum(it.balancePendingCartons, 1)} CTN • {fmtNum(it.balancePendingKgs, 1)} KGS
           </div>
         </div>
       ),
@@ -1887,9 +2088,9 @@ const CustomerAnalytics: React.FC = () => {
           </div>
         ) : (
           <div className="ca-dual-chart">
-            {itemStats.slice(0, 10).map((it, i) => {
+            {itemStats.map((it, i) => {
               const maxVol = Math.max(
-                ...itemStats.slice(0, 10).map((x) => Math.max(x.totalGross, x.totalDispatchedGross || 0)),
+                ...itemStats.map((x) => Math.max(x.totalGross, x.totalDispatchedGross || 0)),
                 1
               );
               const orderedWidth = Math.min(100, Math.max(3, (it.totalGross / maxVol) * 100));
@@ -2391,7 +2592,7 @@ const CustomerAnalytics: React.FC = () => {
                               className="ca-item-pro-rank"
                               style={{ color: accentClr, borderColor: `${accentClr}44`, background: `${accentClr}14` }}
                             >
-                              {i === 0 ? '🥇 #1' : i === 1 ? '🥈 #2' : i === 2 ? '🥉 #3' : `#${i + 1}`}
+                              #{i + 1}
                             </span>
                             <span className="ca-item-pro-grs-pill">
                               {fmtNum(it.totalGross, 0)} GRS Demand
@@ -2452,7 +2653,7 @@ const CustomerAnalytics: React.FC = () => {
                           />
                         </div>
 
-                        {/* ── 3-Segment Structured Inventory Matrix (KGS & CARTONS) ── */}
+                        {/* ── 4-Segment Structured Inventory Matrix (A, B, C, D) ── */}
                         <div className="ca-item-matrix">
                           {/* Segment A: Total Order Requirements */}
                           <div className="ca-matrix-segment ca-matrix-seg-ordered">
@@ -2461,72 +2662,192 @@ const CustomerAnalytics: React.FC = () => {
                               <span className="ca-matrix-seg-title">A. Total Order Requirements</span>
                             </div>
                             <div className="ca-matrix-cells">
-                              <div className="ca-matrix-cell">
-                                <span className="ca-matrix-cell-label">Total Ordered (KGS)</span>
-                                <span className="ca-matrix-cell-val ca-val-primary">
-                                  {fmtNum(it.totalOrderedKgs, 1)} <small>KGS</small>
-                                </span>
+                              {/* Left Column: Weight & Cartons stacked */}
+                              <div className="ca-matrix-col">
+                                <div className="ca-matrix-subrow">
+                                  <span className="ca-matrix-cell-label">Total Weight</span>
+                                  <span className="ca-matrix-cell-val ca-val-primary">
+                                    {fmtNum(it.totalOrderedKgs, 1)} <small>KGS</small>
+                                  </span>
+                                </div>
+                                <div className="ca-matrix-subrow">
+                                  <span className="ca-matrix-cell-label">Total Cartons</span>
+                                  <span className="ca-matrix-cell-val ca-val-indigo">
+                                    {fmtNum(it.totalCartons, 1)} <small>CTN</small>
+                                  </span>
+                                </div>
                               </div>
-                              <div className="ca-matrix-cell">
-                                <span className="ca-matrix-cell-label">Total Ordered (Cartons)</span>
-                                <span className="ca-matrix-cell-val ca-val-indigo">
-                                  {fmtNum(it.totalCartons, 1)} <small>CTN</small>
-                                </span>
+                              {/* Right Column: Gross & Pieces stacked */}
+                              <div className="ca-matrix-col">
+                                <div className="ca-matrix-subrow">
+                                  <span className="ca-matrix-cell-label">Total Gross</span>
+                                  <span className="ca-matrix-cell-val ca-val-primary">
+                                    {fmtNum(it.totalGross, 0)} <small>GRS</small>
+                                  </span>
+                                </div>
+                                <div className="ca-matrix-subrow">
+                                  <span className="ca-matrix-cell-label">Total Pieces</span>
+                                  <span className="ca-matrix-cell-val ca-val-teal">
+                                    {fmtNum(it.totalPieces, 0)} <small>PCS</small>
+                                  </span>
+                                </div>
                               </div>
                             </div>
                           </div>
 
-                          {/* Segment B: Current Inventory & Ready Stock (FGR) */}
+                          {/* Segment B: Pending Dispatch (To Ship) [Formula: A - Dispatched] */}
+                          <div className="ca-matrix-segment ca-matrix-seg-dispatch">
+                            <div className="ca-matrix-seg-header">
+                              <span className="ca-matrix-seg-dot" style={{ background: '#f59e0b' }} />
+                              <span className="ca-matrix-seg-title">B. Pending Dispatch (To Ship)</span>
+                            </div>
+                            <div className="ca-matrix-cells">
+                              {/* Left Column: Bal. Weight & Cartons stacked */}
+                              <div className="ca-matrix-col">
+                                <div className="ca-matrix-subrow">
+                                  <span className="ca-matrix-cell-label">Bal. Weight</span>
+                                  <span
+                                    className={`ca-matrix-cell-val ${
+                                      it.undispatchedKgs > 0 ? 'ca-val-amber' : 'ca-val-emerald'
+                                    }`}
+                                  >
+                                    {fmtNum(it.undispatchedKgs, 1)} <small>KGS</small>
+                                  </span>
+                                </div>
+                                <div className="ca-matrix-subrow">
+                                  <span className="ca-matrix-cell-label">Bal. Cartons</span>
+                                  <span
+                                    className={`ca-matrix-cell-val ${
+                                      it.undispatchedCartons > 0 ? 'ca-val-amber' : 'ca-val-emerald'
+                                    }`}
+                                  >
+                                    {fmtNum(it.undispatchedCartons, 1)} <small>CTN</small>
+                                  </span>
+                                </div>
+                              </div>
+                              {/* Right Column: Bal. Gross & Pieces stacked */}
+                              <div className="ca-matrix-col">
+                                <div className="ca-matrix-subrow">
+                                  <span className="ca-matrix-cell-label">Bal. Gross</span>
+                                  <span
+                                    className={`ca-matrix-cell-val ${
+                                      it.undispatchedGross > 0 ? 'ca-val-amber' : 'ca-val-emerald'
+                                    }`}
+                                  >
+                                    {fmtNum(it.undispatchedGross, 0)} <small>GRS</small>
+                                  </span>
+                                </div>
+                                <div className="ca-matrix-subrow">
+                                  <span className="ca-matrix-cell-label">Bal. Pieces</span>
+                                  <span
+                                    className={`ca-matrix-cell-val ${
+                                      it.undispatchedPieces > 0 ? 'ca-val-amber' : 'ca-val-emerald'
+                                    }`}
+                                  >
+                                    {fmtNum(it.undispatchedPieces, 0)} <small>PCS</small>
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Segment C: Current Inventory & Ready Stock (FGR) */}
                           <div className="ca-matrix-segment ca-matrix-seg-fgr">
                             <div className="ca-matrix-seg-header">
                               <span className="ca-matrix-seg-dot" style={{ background: '#10b981' }} />
-                              <span className="ca-matrix-seg-title">B. Current Inventory &amp; Ready Stock (FGR)</span>
+                              <span className="ca-matrix-seg-title">C. Current Inventory &amp; Ready Stock (FGR)</span>
                             </div>
                             <div className="ca-matrix-cells">
-                              <div className="ca-matrix-cell">
-                                <span className="ca-matrix-cell-label">Ready in FGR (KGS)</span>
-                                <span className="ca-matrix-cell-val ca-val-emerald">
-                                  {fmtNum(it.readyFgrKgs, 1)} <small>KGS</small>
-                                </span>
+                              {/* Left Column: Ready Weight & Cartons stacked */}
+                              <div className="ca-matrix-col">
+                                <div className="ca-matrix-subrow">
+                                  <span className="ca-matrix-cell-label">Ready Weight</span>
+                                  <span className="ca-matrix-cell-val ca-val-emerald">
+                                    {fmtNum(it.readyFgrKgs, 1)} <small>KGS</small>
+                                  </span>
+                                </div>
+                                <div className="ca-matrix-subrow">
+                                  <span className="ca-matrix-cell-label">Ready Cartons</span>
+                                  <span className="ca-matrix-cell-val ca-val-teal">
+                                    {fmtNum(it.readyFgrCartons, 1)} <small>CTN</small>
+                                  </span>
+                                </div>
                               </div>
-                              <div className="ca-matrix-cell">
-                                <span className="ca-matrix-cell-label">Ready in FGR (Cartons)</span>
-                                <span className="ca-matrix-cell-val ca-val-teal">
-                                  {fmtNum(it.readyFgrCartons, 1)} <small>CTN</small>
-                                </span>
+                              {/* Right Column: Ready Gross & Pieces stacked */}
+                              <div className="ca-matrix-col">
+                                <div className="ca-matrix-subrow">
+                                  <span className="ca-matrix-cell-label">Ready Gross</span>
+                                  <span className="ca-matrix-cell-val ca-val-emerald">
+                                    {fmtNum(it.readyFgrGross, 0)} <small>GRS</small>
+                                  </span>
+                                </div>
+                                <div className="ca-matrix-subrow">
+                                  <span className="ca-matrix-cell-label">Ready Pieces</span>
+                                  <span className="ca-matrix-cell-val ca-val-teal">
+                                    {fmtNum(it.readyFgrPieces, 0)} <small>PCS</small>
+                                  </span>
+                                </div>
                               </div>
                             </div>
                           </div>
 
-                          {/* Segment C: Remaining Balance Tracking */}
-                          <div className="ca-matrix-segment ca-matrix-seg-balance">
+                          {/* Segment D: Pending Production (To Produce) [Formula: D = B - C] */}
+                          <div className="ca-matrix-segment ca-matrix-seg-production">
                             <div className="ca-matrix-seg-header">
                               <span
                                 className="ca-matrix-seg-dot"
-                                style={{ background: it.balancePendingKgs > 0 ? '#f59e0b' : '#10b981' }}
+                                style={{
+                                  background: it.balancePendingGross > 0 ? '#ef4444' : '#10b981',
+                                }}
                               />
-                              <span className="ca-matrix-seg-title">C. Remaining Balance Tracking</span>
+                              <span className="ca-matrix-seg-title">D. Pending Production (To Produce)</span>
                             </div>
                             <div className="ca-matrix-cells">
-                              <div className="ca-matrix-cell">
-                                <span className="ca-matrix-cell-label">Balance Pending (KGS)</span>
-                                <span
-                                  className={`ca-matrix-cell-val ${
-                                    it.balancePendingKgs > 0 ? 'ca-val-amber' : 'ca-val-emerald'
-                                  }`}
-                                >
-                                  {fmtNum(it.balancePendingKgs, 1)} <small>KGS</small>
-                                </span>
+                              {/* Left Column: Prod. Weight & Cartons stacked */}
+                              <div className="ca-matrix-col">
+                                <div className="ca-matrix-subrow">
+                                  <span className="ca-matrix-cell-label">Prod. Weight</span>
+                                  <span
+                                    className={`ca-matrix-cell-val ${
+                                      it.balancePendingKgs > 0 ? 'ca-val-rose' : 'ca-val-emerald'
+                                    }`}
+                                  >
+                                    {fmtNum(it.balancePendingKgs, 1)} <small>KGS</small>
+                                  </span>
+                                </div>
+                                <div className="ca-matrix-subrow">
+                                  <span className="ca-matrix-cell-label">Prod. Cartons</span>
+                                  <span
+                                    className={`ca-matrix-cell-val ${
+                                      it.balancePendingCartons > 0 ? 'ca-val-rose' : 'ca-val-emerald'
+                                    }`}
+                                  >
+                                    {fmtNum(it.balancePendingCartons, 1)} <small>CTN</small>
+                                  </span>
+                                </div>
                               </div>
-                              <div className="ca-matrix-cell">
-                                <span className="ca-matrix-cell-label">Balance Pending (Cartons)</span>
-                                <span
-                                  className={`ca-matrix-cell-val ${
-                                    it.balancePendingCartons > 0 ? 'ca-val-amber' : 'ca-val-emerald'
-                                  }`}
-                                >
-                                  {fmtNum(it.balancePendingCartons, 1)} <small>CTN</small>
-                                </span>
+                              {/* Right Column: Prod. Gross & Pieces stacked */}
+                              <div className="ca-matrix-col">
+                                <div className="ca-matrix-subrow">
+                                  <span className="ca-matrix-cell-label">Prod. Gross</span>
+                                  <span
+                                    className={`ca-matrix-cell-val ${
+                                      it.balancePendingGross > 0 ? 'ca-val-rose' : 'ca-val-emerald'
+                                    }`}
+                                  >
+                                    {fmtNum(it.balancePendingGross, 0)} <small>GRS</small>
+                                  </span>
+                                </div>
+                                <div className="ca-matrix-subrow">
+                                  <span className="ca-matrix-cell-label">Prod. Pieces</span>
+                                  <span
+                                    className={`ca-matrix-cell-val ${
+                                      it.balancePendingPieces > 0 ? 'ca-val-rose' : 'ca-val-emerald'
+                                    }`}
+                                  >
+                                    {fmtNum(it.balancePendingPieces, 0)} <small>PCS</small>
+                                  </span>
+                                </div>
                               </div>
                             </div>
                           </div>

@@ -708,17 +708,18 @@ const SalesDeliveryManagement: React.FC = () => {
     // Populate balance lines from ALL selected SOCs, strictly accounting for prior dispatches
     const allPendingLines: ERPLine[] = [];
     selectedOrders.forEach((order: any) => {
-      // Find all existing deliveries in state for this sales order to account for partial shipments
-      const orderDeliveries = data.filter((d: any) => 
-        (d.salesOrderId === order.id || d.salesOrderNumber === order.orderNumber) &&
-        (d.status || '').toUpperCase() !== 'CANCELLED' &&
-        (!editingItem || d.id !== editingItem.id)
-      );
-
-      // Map already dispatched quantities per item from prior deliveries
+      // Map already dispatched quantities per item from prior deliveries strictly for THIS specific SOC
+      // Accounting for multi-SOC deliveries where each line carries its own SOC in [SOC: ...]
       const itemDispatchedMap: Record<string, number> = {};
-      orderDeliveries.forEach((del: any) => {
+      data.forEach((del: any) => {
+        if ((del.status || '').toUpperCase() === 'CANCELLED') return;
+        if (editingItem && del.id === editingItem.id) return;
+
         (del.lines || []).forEach((l: any) => {
+          const lSoc = l.socNumber || l.salesOrderNumber || (l.description?.match(/\[SOC:\s*([^\]]+)\]/i)?.[1]?.trim()) || (l.description?.match(/SOC[:\s]+(SOC-[A-Za-z0-9-]+|[0-9A-Za-z-]+)/i)?.[1]?.trim());
+          const matchesThisOrder = lSoc ? (lSoc === order.orderNumber) : (del.salesOrderId === order.id || del.salesOrderNumber === order.orderNumber);
+          if (!matchesThisOrder) return;
+
           const keyById = String(l.itemId || l.item_id || '');
           const keyByCode = String(l.itemCode || '');
           const qty = Number(l.quantity) || 0;
