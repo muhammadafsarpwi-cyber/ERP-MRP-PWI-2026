@@ -1,11 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Alert, Button, Card, Checkbox, Col, DatePicker, Empty, Row, Segmented, Select, Space, Spin, Table, Tag, Tooltip,
-  Typography, message,
+  Alert, Button, Card, Checkbox, Col, DatePicker, Divider, Empty, Modal, Popconfirm, Row, Segmented, Select, Space, Spin, Table, Tag, Tooltip,
+  Typography, message, theme,
 } from 'antd';
 import {
-  CheckCircleFilled, FileExcelOutlined, FilePdfOutlined, LeftOutlined, PrinterOutlined,
-  ReloadOutlined, RightOutlined, SyncOutlined,
+  CheckCircleFilled, DeleteOutlined, FileExcelOutlined, FilePdfOutlined, LeftOutlined, LinkOutlined, PlusOutlined, PrinterOutlined,
+  ReloadOutlined, RightOutlined, SettingOutlined, SyncOutlined,
 } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
 import { jsPDF } from 'jspdf';
@@ -105,6 +105,8 @@ interface ChainDef {
   label: string;
   /** Item whose Production on the As-On date is the "Total Packed Pieces". */
   fgItemCode: string;
+  /** When multiple Finished Goods sharing the same upstream/Plating are merged into one ledger. */
+  mergedFgCodes?: string[];
   divisionId?: string | null;
   divisionName?: string | null;
   rows: ChainRowDef[];
@@ -297,6 +299,38 @@ export const CHAIN_REGISTRY: ChainDef[] = [
       dpRow(9, 'SPI-FG-SPK-010', '225X17 Dispatch Outward Stage'),
     ],
   },
+  {
+    key: 'SPI-FG-SPK-011',
+    label: '300X17 S9 Inn / Out Spoke Straight (CS) — SPI-FG-SPK-011',
+    fgItemCode: 'SPI-FG-SPK-011',
+    rows: [
+      { order: 1, stage: 'RM', stageLabel: 'RM Stage', itemCode: 'RM-WIRE-012', itemLabel: 'Steel Wire Coil 3.45mm SR' },
+      { order: 2, stage: 'ST', stageLabel: 'ST Stage', itemCode: 'WIP-ST-003', splitSide: 'INNER', itemLabel: 'S9-300*17 Inner Straight' },
+      { order: 3, stage: 'ST', stageLabel: 'ST Stage', itemCode: 'WIP-ST-004', splitSide: 'OUTER', itemLabel: 'S9-300*17 Outer Straight' },
+      { order: 4, stage: 'SP', stageLabel: 'SP Stage', itemCode: 'WIP-SP-013', splitSide: 'INNER', itemLabel: 'S9-300*17 Inner Straight' },
+      { order: 5, stage: 'SP', stageLabel: 'SP Stage', itemCode: 'WIP-SP-014', splitSide: 'OUTER', itemLabel: 'S9-300*17 Outer Straight' },
+      { order: 6, stage: 'PL', stageLabel: 'PL Stage', itemCode: 'WIP-SPL-013', splitSide: 'INNER', itemLabel: 'S9-300*17 Inner Straight' },
+      { order: 7, stage: 'PL', stageLabel: 'PL Stage', itemCode: 'WIP-SPL-014', splitSide: 'OUTER', itemLabel: 'S9-300*17 Outer Straight' },
+      { order: 8, stage: 'FG', stageLabel: 'FG / Packing', itemCode: 'SPI-FG-SPK-011', itemLabel: '300X17 S9 Inn / Out Spoke Straight (CS)__125-S9 Nipple (CS)' },
+      dpRow(9, 'SPI-FG-SPK-011', '300X17 Straight (CS) Dispatch Outward Stage'),
+    ],
+  },
+  {
+    key: 'SPI-FG-SPK-012',
+    label: 'RM Inn / Out Spoke Straight (CS)__RM-250*17 Nipple — SPI-FG-SPK-012',
+    fgItemCode: 'SPI-FG-SPK-012',
+    rows: [
+      { order: 1, stage: 'RM', stageLabel: 'RM Stage', itemCode: 'RM-WIRE-010', itemLabel: 'Steel Wire Coil 3.14 mm SR' },
+      { order: 2, stage: 'ST', stageLabel: 'ST Stage', itemCode: 'WIP-ST-010', splitSide: 'INNER', itemLabel: '250*17 Inner Straight' },
+      { order: 3, stage: 'ST', stageLabel: 'ST Stage', itemCode: 'WIP-ST-011', splitSide: 'OUTER', itemLabel: '250*17 Outer Straight' },
+      { order: 4, stage: 'SP', stageLabel: 'SP Stage', itemCode: 'WIP-SP-005', splitSide: 'INNER', itemLabel: 'RM-250*17 Inner Straight' },
+      { order: 5, stage: 'SP', stageLabel: 'SP Stage', itemCode: 'WIP-SP-006', splitSide: 'OUTER', itemLabel: 'RM-250*17 Outer Straight' },
+      { order: 6, stage: 'PL', stageLabel: 'PL Stage', itemCode: 'WIP-SPL-005', splitSide: 'INNER', itemLabel: 'RM-250*17 Inner Straight' },
+      { order: 7, stage: 'PL', stageLabel: 'PL Stage', itemCode: 'WIP-SPL-006', splitSide: 'OUTER', itemLabel: 'RM-250*17 Outer Straight' },
+      { order: 8, stage: 'FG', stageLabel: 'FG / Packing', itemCode: 'SPI-FG-SPK-012', itemLabel: 'RM Inn / Out Spoke Straight (CS)__RM-250*17 Nipple' },
+      dpRow(9, 'SPI-FG-SPK-012', 'RM Inn / Out Spoke Straight (CS)__RM-250*17 Nipple Dispatch Outward Stage'),
+    ],
+  },
 ];
 
 /** Stages with no successor — their Issuance is the recorded outward count. */
@@ -322,6 +356,11 @@ interface ReportRow {
   consumed?: number;
   scrapOut: number;
   produced?: number;
+  /** Inner vs Outer packed pieces derived from Hand Packing production entries */
+  innerPacked?: number;
+  outerPacked?: number;
+  hasExplicitSplit?: boolean;
+  packingModeSummary?: string;
   closingBalance: number;
   onHand: number;
   flow?: {
@@ -646,6 +685,8 @@ export const STANDARD_ITEM_WEIGHTS: Record<string, number> = {
   'SPI-FG-SPK-008': 0.01126,
   'SPI-FG-SPK-009': 0.01097,
   'SPI-FG-SPK-010': 0.01181,
+  'SPI-FG-SPK-011': 0.0162,
+  'SPI-FG-SPK-012': 0.0172,
 };
 
 /** Rows 2-8: PCS/GRS multiply by weight; KG and unknown units pass through. */
@@ -738,6 +779,333 @@ export const bucketDailyProduction = (
   return buckets;
 };
 
+export type SpokePackingSplitMode = 'INNER_ONLY' | 'OUTER_ONLY' | 'FULL_SET';
+
+export interface DailyPackingSplit {
+  innerPacked: number;
+  outerPacked: number;
+  hasExplicitSplit: boolean;
+  modeLabels: string[];
+}
+
+/**
+ * Inspects a Hand Packing entry (and optional child line) to determine whether
+ * the packed pieces were Inner Spoke Only (100% PL Inner, 0% PL Outer),
+ * Outer Spoke Only (0% PL Inner, 100% PL Outer), or Full Set (50% PL Inner, 50% PL Outer).
+ */
+export const detectPackingSplitForLine = (entry: any, child?: any): { mode: SpokePackingSplitMode; explicit: boolean } => {
+  const childMode = String(child?.packingMode ?? child?.packing_mode ?? '').trim().toUpperCase();
+  const childRem = String(child?.remarks ?? '').toUpperCase();
+
+  if (
+    childMode === 'INNER_ONLY' ||
+    childMode === 'ONLY_INNER' ||
+    childRem.includes('SPOKEPACKINGMODE: INNER_ONLY') ||
+    childRem.includes('INNER_ONLY') ||
+    childRem.includes('ONLY_INNER') ||
+    childRem.includes('INNER SPOKE ONLY')
+  ) {
+    return { mode: 'INNER_ONLY', explicit: true };
+  }
+  if (
+    childMode === 'OUTER_ONLY' ||
+    childMode === 'ONLY_OUTER' ||
+    childRem.includes('SPOKEPACKINGMODE: OUTER_ONLY') ||
+    childRem.includes('OUTER_ONLY') ||
+    childRem.includes('ONLY_OUTER') ||
+    childRem.includes('OUTER SPOKE ONLY')
+  ) {
+    return { mode: 'OUTER_ONLY', explicit: true };
+  }
+  if (
+    childMode === 'FULL_SET' ||
+    childMode === 'WITHOUT_NIPPLE' ||
+    childRem.includes('SPOKEPACKINGMODE: FULL_SET') ||
+    childRem.includes('SPOKEPACKINGMODE: WITHOUT_NIPPLE')
+  ) {
+    return { mode: 'FULL_SET', explicit: true };
+  }
+
+  const parentMode = String(entry?.packingMode ?? entry?.packing_mode ?? '').trim().toUpperCase();
+  const parentRem = String(entry?.remarks ?? '').toUpperCase();
+
+  if (
+    parentMode === 'INNER_ONLY' ||
+    parentMode === 'ONLY_INNER' ||
+    parentRem.includes('SPOKEPACKINGMODE: INNER_ONLY') ||
+    parentRem.includes('INNER_ONLY') ||
+    parentRem.includes('ONLY_INNER') ||
+    parentRem.includes('INNER SPOKE ONLY')
+  ) {
+    return { mode: 'INNER_ONLY', explicit: true };
+  }
+  if (
+    parentMode === 'OUTER_ONLY' ||
+    parentMode === 'ONLY_OUTER' ||
+    parentRem.includes('SPOKEPACKINGMODE: OUTER_ONLY') ||
+    parentRem.includes('OUTER_ONLY') ||
+    parentRem.includes('ONLY_OUTER') ||
+    parentRem.includes('OUTER SPOKE ONLY')
+  ) {
+    return { mode: 'OUTER_ONLY', explicit: true };
+  }
+  if (
+    parentMode === 'FULL_SET' ||
+    parentMode === 'WITHOUT_NIPPLE' ||
+    parentRem.includes('SPOKEPACKINGMODE: FULL_SET') ||
+    parentRem.includes('SPOKEPACKINGMODE: WITHOUT_NIPPLE')
+  ) {
+    return { mode: 'FULL_SET', explicit: true };
+  }
+
+  return { mode: 'FULL_SET', explicit: false };
+};
+
+/**
+ * Groups Hand Packing / FG entries by PKT business day -> itemCode -> { innerPacked, outerPacked }
+ * so PL Inner and PL Outer deduct the exact Inner vs Outer packed quantities instead of blindly dividing by 2.
+ */
+export const bucketDailyPackingSplit = (
+  entries: readonly any[],
+): Map<string, Map<string, DailyPackingSplit>> => {
+  const buckets = new Map<string, Map<string, DailyPackingSplit>>();
+
+  const dayOf = (rawDate: unknown): string => {
+    if (!rawDate) return '';
+    if (typeof rawDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(rawDate.trim())) {
+      return rawDate.trim();
+    }
+    const dt = new Date(rawDate as any);
+    if (!isNaN(dt.getTime())) {
+      const pkt = new Date(dt.getTime() + 5 * 3600 * 1000);
+      return pkt.toISOString().slice(0, 10);
+    }
+    return dayjs(rawDate as any).format('YYYY-MM-DD');
+  };
+
+  const addSplit = (day: string, code: string, qty: number, mode: SpokePackingSplitMode, explicit: boolean): void => {
+    let dayBucket = buckets.get(day);
+    if (!dayBucket) {
+      dayBucket = new Map<string, DailyPackingSplit>();
+      buckets.set(day, dayBucket);
+    }
+    const existing = dayBucket.get(code) ?? {
+      innerPacked: 0,
+      outerPacked: 0,
+      hasExplicitSplit: false,
+      modeLabels: [],
+    };
+    const innerDelta = mode === 'INNER_ONLY' ? qty : mode === 'OUTER_ONLY' ? 0 : round4(qty / 2);
+    const outerDelta = mode === 'OUTER_ONLY' ? qty : mode === 'INNER_ONLY' ? 0 : round4(qty / 2);
+    const label = mode === 'INNER_ONLY' ? 'Inner Only' : mode === 'OUTER_ONLY' ? 'Outer Only' : 'Full Set';
+
+    existing.innerPacked = round4(existing.innerPacked + innerDelta);
+    existing.outerPacked = round4(existing.outerPacked + outerDelta);
+    if (explicit || mode === 'INNER_ONLY' || mode === 'OUTER_ONLY') {
+      existing.hasExplicitSplit = true;
+    }
+    if (!existing.modeLabels.includes(label)) {
+      existing.modeLabels.push(label);
+    }
+    dayBucket.set(code, existing);
+  };
+
+  for (const entry of entries) {
+    if (entry?.isActive === false) continue;
+    const day = dayOf(entry?.entryDate);
+    if (!day) continue;
+
+    const children = Array.isArray(entry?.nestedItems) ? entry.nestedItems : [];
+    if (children.length > 0) {
+      for (const child of children) {
+        const code = String(child?.itemCode ?? '').trim();
+        const qty = num(child?.actualQuantity);
+        if (!code || qty <= 0) continue;
+        const { mode, explicit } = detectPackingSplitForLine(entry, child);
+        addSplit(day, code, qty, mode, explicit);
+      }
+      continue;
+    }
+
+    const code = String(entry?.item?.itemCode ?? entry?.itemCode ?? '').trim();
+    const qty = num(entry?.actualQuantity);
+    if (code && qty > 0) {
+      const { mode, explicit } = detectPackingSplitForLine(entry);
+      addSplit(day, code, qty, mode, explicit);
+    }
+  }
+
+  return buckets;
+};
+
+/**
+ * Default Merged Finished Good Groups:
+ * SPI-FG-SPK-001 and SPI-FG-SPK-002 share the exact same upstream stages (RM-WIRE-009 → WIP-ST-001 →
+ * WIP-SW-001 → WIP-SPK-001/002 → WIP-SPL-001/002). Merging them into one ledger ensures Plating Inner
+ * and Plating Outer deduct the packing of both 001 and 002 in a single unified table.
+ */
+export const DEFAULT_MERGED_FG_GROUPS: string[][] = [
+  ['SPI-FG-SPK-001', 'SPI-FG-SPK-002'],
+  ['SPI-FG-SPK-004', 'SPI-FG-SPK-012'],
+  ['SPI-FG-SPK-006', 'SPI-FG-SPK-011'],
+];
+
+const MERGED_FG_GROUPS_STORAGE_KEY = 'pwi_iwl_merged_fg_groups_v2';
+
+export const loadMergedFgGroups = (): string[][] => {
+  try {
+    const raw = localStorage.getItem(MERGED_FG_GROUPS_STORAGE_KEY);
+    if (!raw) return DEFAULT_MERGED_FG_GROUPS;
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      const valid = parsed
+        .filter((g): g is string[] => Array.isArray(g) && g.length >= 2)
+        .map((g) => Array.from(new Set(g.map((c) => String(c).trim()).filter(Boolean))))
+        .filter((g) => g.length >= 2);
+      // Ensure any newly defined default merge groups are also present unless already covered
+      const covered = new Set(valid.flat());
+      const missingDefaults = DEFAULT_MERGED_FG_GROUPS.filter((defGrp) =>
+        defGrp.every((code) => !covered.has(code)),
+      );
+      return [...valid, ...missingDefaults];
+    }
+  } catch {
+    /* ignore storage parse error */
+  }
+  return DEFAULT_MERGED_FG_GROUPS;
+};
+
+export const saveMergedFgGroups = (groups: string[][]): void => {
+  try {
+    localStorage.setItem(MERGED_FG_GROUPS_STORAGE_KEY, JSON.stringify(groups));
+  } catch {
+    /* ignore storage error */
+  }
+};
+
+/**
+ * Merges chains whose FG item codes belong to the same configured group into a single unified ChainDef:
+ *  - Upstream stages (RM, ST, SW, SP, PL) appear once.
+ *  - Each FG item in the group appears as its own FG (Hand Packing) row.
+ *  - Each DP item in the group appears as its own DP (Dispatch) row.
+ */
+export const mergeChainsByGroups = (rawChains: readonly ChainDef[], groups: readonly string[][]): ChainDef[] => {
+  if (!groups || groups.length === 0) return [...rawChains];
+
+  const byFgCode = new Map<string, ChainDef>();
+  rawChains.forEach((c) => {
+    const code = (c.fgItemCode || c.key).trim();
+    if (code && !byFgCode.has(code)) {
+      byFgCode.set(code, c);
+    }
+  });
+
+  const absorbedSecondaries = new Set<string>();
+  const mergedByLeadKey = new Map<string, ChainDef>();
+
+  groups.forEach((grp) => {
+    const uniqueCodes = Array.from(new Set(grp.map((c) => c.trim()).filter(Boolean)));
+    const matched = uniqueCodes.map((code) => byFgCode.get(code)).filter((c): c is ChainDef => Boolean(c));
+    if (matched.length < 2) return;
+
+    const lead = matched[0];
+    matched.slice(1).forEach((m) => absorbedSecondaries.add(m.key));
+
+    const upstreamRows = lead.rows.filter((r) => r.stage !== 'FG' && r.stage !== 'DP');
+    const fgRows: ChainRowDef[] = [];
+    const dpRows: ChainRowDef[] = [];
+    const seenFg = new Set<string>();
+    const seenDp = new Set<string>();
+
+    matched.forEach((mc) => {
+      mc.rows
+        .filter((r) => r.stage === 'FG')
+        .forEach((r) => {
+          if (!seenFg.has(r.itemCode)) {
+            seenFg.add(r.itemCode);
+            fgRows.push({ ...r });
+          }
+        });
+      mc.rows
+        .filter((r) => r.stage === 'DP')
+        .forEach((r) => {
+          if (!seenDp.has(r.itemCode)) {
+            seenDp.add(r.itemCode);
+            dpRows.push({ ...r });
+          }
+        });
+    });
+
+    let nextOrder = 1;
+    const combinedRows: ChainRowDef[] = [...upstreamRows, ...fgRows, ...dpRows].map((r) => ({
+      ...r,
+      order: nextOrder++,
+    }));
+
+    const mergedCodes = matched.map((m) => m.fgItemCode || m.key);
+    const nameParts = Array.from(
+      new Set(
+        matched.map((m) => {
+          const clean = m.label.split('—')[0]?.trim() || m.fgItemCode;
+          return clean;
+        }),
+      ),
+    );
+    const combinedLabel = `${nameParts.join(' + ')} — ${mergedCodes.join(' + ')}`;
+
+    mergedByLeadKey.set(lead.key, {
+      ...lead,
+      key: lead.key,
+      label: combinedLabel,
+      fgItemCode: mergedCodes.join(' + '),
+      mergedFgCodes: mergedCodes,
+      rows: combinedRows,
+    });
+  });
+
+  const result: ChainDef[] = [];
+  rawChains.forEach((c) => {
+    if (absorbedSecondaries.has(c.key)) return;
+    const merged = mergedByLeadKey.get(c.key);
+    result.push(merged ?? c);
+  });
+
+  return result;
+};
+
+/**
+ * Automatically detects sets of 2+ Finished Good chains that share the exact same Plating (PL)
+ * or upstream WIP items so the operator can merge them with a single click.
+ */
+export const detectSharedUpstreamCandidates = (
+  rawChains: readonly ChainDef[],
+): Array<{ signature: string; plCodes: string[]; upstreamCodes: string[]; chains: ChainDef[] }> => {
+  const byPlSig = new Map<string, { plCodes: string[]; upstreamCodes: string[]; chains: ChainDef[] }>();
+
+  rawChains.forEach((c) => {
+    const plCodes = c.rows
+      .filter((r) => r.stage === 'PL' && r.itemCode.trim())
+      .map((r) => r.itemCode.trim());
+    const upstreamCodes = c.rows
+      .filter((r) => r.stage !== 'FG' && r.stage !== 'DP' && r.itemCode.trim())
+      .map((r) => r.itemCode.trim());
+    const sig = plCodes.length > 0 ? plCodes.join('|') : upstreamCodes.join('|');
+    if (!sig) return;
+
+    const bucket = byPlSig.get(sig) ?? { plCodes, upstreamCodes, chains: [] };
+    bucket.chains.push(c);
+    byPlSig.set(sig, bucket);
+  });
+
+  const out: Array<{ signature: string; plCodes: string[]; upstreamCodes: string[]; chains: ChainDef[] }> = [];
+  byPlSig.forEach((val, signature) => {
+    if (val.chains.length >= 2) {
+      out.push({ signature, ...val });
+    }
+  });
+  return out;
+};
+
 /**
  * §3 — the semantic colour pathways (Production / Closing / Rejection) live
  * in CSS, not here, so they can key off `[data-theme='dark']` and off the
@@ -782,19 +1150,26 @@ export const buildChainGrid = (
     return i >= 0 && i + 1 < stageOrder.length ? stageOrder[i + 1] : undefined;
   };
 
-  const fgItemCode = def.fgItemCode || def.key;
+  const fgItemCode = def.mergedFgCodes?.[0] || def.fgItemCode || def.key;
   const fgSrc = rowByCode.get(fgItemCode);
   const dpDispatched = round4(num(fgSrc?.totalOut));
 
   // ── PASS 1 — independent cells: Opening + Production from the ledger. ──
   const pass1: StagePass[] = declaredRows.map((rowDef) => {
     const isDp = rowDef.stage === 'DP';
+    const dpParentFgCode = isDp ? (rowDef.itemCode.replace(/-DISP$/, '') || fgItemCode) : fgItemCode;
+    const dpParentFgSrc = isDp ? (rowByCode.get(dpParentFgCode) ?? fgSrc) : undefined;
+    const rowDpDispatched = isDp ? round4(num(dpParentFgSrc?.totalOut)) : dpDispatched;
     const dpRowSource = isDp ? rowByCode.get(rowDef.itemCode) : undefined;
-    const src = isDp ? fgSrc : rowByCode.get(rowDef.itemCode);
+    const src = isDp ? dpParentFgSrc : rowByCode.get(rowDef.itemCode);
     const multiplier =
       rowDef.stage === 'RM'
         ? 1
-        : resolveWeight(src?.uomCode, weightMap[rowDef.itemCode] ?? weightMap[fgItemCode], rowDef.itemCode);
+        : resolveWeight(
+            src?.uomCode,
+            weightMap[rowDef.itemCode] ?? weightMap[dpParentFgCode] ?? weightMap[fgItemCode],
+            isDp ? dpParentFgCode : rowDef.itemCode,
+          );
 
     // Chain-isolated override ensures shared items (e.g. WIP-ST-001) in multiple chains never clobber each other
     const chainOrderOverride = openingBalanceOverrides?.get(`${def.key}__${rowDef.order}__${rowDef.itemCode}`);
@@ -815,7 +1190,7 @@ export const buildChainGrid = (
       src,
       opBalance: round4(num(resolvedOp)),
       production: isDp
-        ? dpDispatched
+        ? rowDpDispatched
         : round4(
             rowDef.stage === 'RM'
               ? num(src?.totalIn)
@@ -860,7 +1235,7 @@ export const buildChainGrid = (
     };
 
     if (stage === 'DP') {
-      const val = dpDispatched;
+      const val = p.production;
       return {
         value: 0,
         rule: 'Terminal Dispatch Stage — Dispatched Quantity in Closing',
@@ -965,16 +1340,68 @@ export const buildChainGrid = (
       };
     }
 
-    // No shared side ⇒ my stage rows share the successor pool equally.
-    // (PL Inner + PL Outer each take half of the single FG bundle.)
-    if (!consumers.every((c) => c.found)) {
+    // ── PLATING (PL Inner / PL Outer) → HAND PACKING (FG) EXACT SPLIT RESOLUTION ──
+    // Respects Inner-Only (100% PL Inner, 0% PL Outer), Outer-Only (0% PL Inner, 100% PL Outer),
+    // and Full Set (50% PL Inner, 50% PL Outer), summed across all merged FG items in this chain.
+    const hasFoundConsumer = consumers.length > 1 ? consumers.some((c) => c.found) : consumers.every((c) => c.found);
+    if (!hasFoundConsumer) {
       return ledger(`Recorded issues (OUT) — ${nextStage} driver unavailable`);
     }
-    const parts = consumers.map(convert);
-    const pool = parts.some((v) => v === null) ? 0 : round4(parts.reduce<number>((s, v) => s + (v ?? 0), 0));
+
     const shareCount = byStage(stage).length || 1;
-    const prodValue = round4(pool / shareCount);
+    let prodValue = 0;
+    let rule = `${nextStage} Production ${shareCount > 1 ? `÷ ${shareCount}` : ''} (shared)`;
+    const fgBreakdowns: string[] = [];
+    let anyExplicitSplit = false;
+
+    if (stage === 'PL' && nextStage === 'FG' && (p.def.splitSide === 'INNER' || p.def.splitSide === 'OUTER')) {
+      const side = p.def.splitSide;
+      const contribList: number[] = [];
+
+      consumers.forEach((c) => {
+        const fgProd = round4(c.production);
+        let sideQty = round4(fgProd / shareCount);
+
+        if (c.src && (c.src.innerPacked !== undefined || c.src.outerPacked !== undefined)) {
+          const inn = round4(num(c.src.innerPacked));
+          const out = round4(num(c.src.outerPacked));
+          const splitSum = round4(inn + out);
+          if (c.src.hasExplicitSplit) {
+            anyExplicitSplit = true;
+          }
+          if (Math.abs(splitSum - fgProd) <= 0.01) {
+            sideQty = side === 'INNER' ? inn : out;
+          } else if (fgProd > splitSum) {
+            const remainder = round4(fgProd - splitSum);
+            sideQty = round4((side === 'INNER' ? inn : out) + remainder / shareCount);
+          } else if (splitSum > 0) {
+            const ratio = fgProd / splitSum;
+            sideQty = round4((side === 'INNER' ? inn : out) * ratio);
+          }
+        }
+
+        contribList.push(sideQty);
+        if (sideQty > 0) {
+          const modeTag = c.src?.hasExplicitSplit && c.src?.packingModeSummary
+            ? ` [${c.src.packingModeSummary}]`
+            : '';
+          fgBreakdowns.push(`${c.def.itemCode}: ${fmtDisplayQty(sideQty, p.src?.uomCode)}${modeTag}`);
+        }
+      });
+
+      prodValue = round4(contribList.reduce((s, v) => s + v, 0));
+      const fgLabel = consumers.map((c) => c.def.itemCode).join(' + ');
+      rule = anyExplicitSplit
+        ? `${fgLabel} Packing (${side === 'INNER' ? 'Inner' : 'Outer'} Split)`
+        : `${fgLabel} Production ${shareCount > 1 ? `÷ ${shareCount}` : ''} (shared)`;
+    } else {
+      const parts = consumers.map(convert);
+      const pool = parts.some((v) => v === null) ? 0 : round4(parts.reduce<number>((s, v) => s + (v ?? 0), 0));
+      prodValue = round4(pool / shareCount);
+    }
+
     const totalValue = round4(prodValue + nonProdOut);
+    const totalFgProd = round4(consumers.reduce((s, c) => s + c.production, 0));
 
     let remarks = '—';
     if (stage === 'RM') {
@@ -988,16 +1415,27 @@ export const buildChainGrid = (
       }
     } else {
       const targetDept = DEPARTMENT_NAME[nextStage] || nextStage;
+      const breakdownSuffix =
+        stage === 'PL' && nextStage === 'FG' && (consumers.length > 1 || anyExplicitSplit) && fgBreakdowns.length > 0
+          ? ` (${fgBreakdowns.join(' + ')}${fgBreakdowns.length > 1 ? ` = ${fmtDisplayQty(prodValue, p.src?.uomCode)}` : ''})`
+          : ` (Next Stage Prod: ${fmtDisplayQty(prodValue, p.src?.uomCode)})`;
+
       if (prodValue > 0 && nonProdOut > 0) {
-        remarks = `Issued to ${targetDept} (Next Stage Prod: ${fmtDisplayQty(prodValue, p.src?.uomCode)}) | Return Out: ${fmtDisplayQty(nonProdOut, p.src?.uomCode)}`;
+        remarks = `Issued to ${targetDept}${breakdownSuffix} | Return Out: ${fmtDisplayQty(nonProdOut, p.src?.uomCode)}`;
       } else if (nonProdOut > 0) {
         remarks = `Return Out: ${fmtDisplayQty(nonProdOut, p.src?.uomCode)}`;
       } else if (prodValue > 0) {
-        remarks = `Issued to ${targetDept} (Next Stage Prod: ${fmtDisplayQty(prodValue, p.src?.uomCode)})`;
+        remarks = `Issued to ${targetDept}${breakdownSuffix}`;
       } else if (totalValue > 0) {
         remarks = `Issued to ${targetDept} (${fmtDisplayQty(totalValue, p.src?.uomCode)})`;
       } else if (nextStage === 'FG') {
-        remarks = 'No Hand Packing / FG (Next Stage Prod: 0)';
+        if (totalFgProd > 0 && (p.def.splitSide === 'INNER' || p.def.splitSide === 'OUTER')) {
+          const thisSideLabel = p.def.splitSide === 'INNER' ? 'Inner' : 'Outer';
+          const otherSideLabel = p.def.splitSide === 'INNER' ? 'Outer Only' : 'Inner Only';
+          remarks = `No ${thisSideLabel} Packed (${otherSideLabel} Packed: ${fmtDisplayQty(totalFgProd, p.src?.uomCode)})`;
+        } else {
+          remarks = 'No Hand Packing / FG (Next Stage Prod: 0)';
+        }
       } else {
         remarks = `No ${targetDept} Production (0)`;
       }
@@ -1005,7 +1443,7 @@ export const buildChainGrid = (
 
     return {
       value: totalValue,
-      rule: `${nextStage} Production ${shareCount > 1 ? `÷ ${shareCount}` : ''} (shared)`,
+      rule,
       driven: true,
       remarks,
       prodValue,
@@ -1020,6 +1458,8 @@ export const buildChainGrid = (
     const subTotal = round4(p.opBalance + p.production);
     const closingPieces = round4(subTotal - iss.value);
     const totalWeight = p.multiplier === null ? null : round4(closingPieces * p.multiplier);
+    const dpParentFgCode = p.def.stage === 'DP' ? (p.def.itemCode.replace(/-DISP$/, '') || fgItemCode) : fgItemCode;
+    const dpParentFgSrc = p.def.stage === 'DP' ? (rowByCode.get(dpParentFgCode) ?? fgSrc) : fgSrc;
 
     return {
       key: `${p.def.stage}-${p.def.itemCode}${p.def.splitSide ?? ''}`,
@@ -1028,10 +1468,10 @@ export const buildChainGrid = (
       stageLabel: p.def.stageLabel,
       itemCode: p.def.itemCode,
       itemName: p.def.stage === 'DP'
-        ? (p.def.itemLabel ?? `${fgSrc?.itemName ?? def.label} — Outward Dispatch Stage`)
+        ? (p.def.itemLabel ?? `${dpParentFgSrc?.itemName ?? def.label} — Outward Dispatch Stage`)
         : (p.src?.itemName ?? (itemNames && itemNames[p.def.itemCode]) ?? p.def.itemLabel ?? '—'),
       splitSide: p.def.splitSide,
-      uomCode: p.src?.uomCode ?? (p.def.stage === 'DP' ? (fgSrc?.uomCode ?? 'PCS') : null),
+      uomCode: p.src?.uomCode ?? (p.def.stage === 'DP' ? (dpParentFgSrc?.uomCode ?? 'PCS') : null),
       opBalance: p.opBalance,
       production: p.production,
       subTotal,
@@ -1053,7 +1493,8 @@ export const buildChainGrid = (
 
   const found = rows.filter((r) => r.found).length;
   const missingCodes = Array.from(new Set(rows.filter((r) => !r.found).map((r) => r.itemCode)));
-  const fg = rows.find((r) => r.stage === 'FG');
+  const fgRows = rows.filter((r) => r.stage === 'FG');
+  const totalPacked = round4(fgRows.reduce((sum, r) => sum + r.production, 0));
   const summary: ChainSummary = {
     found,
     total: rows.length,
@@ -1065,7 +1506,7 @@ export const buildChainGrid = (
     undriven: rows
       .filter((r) => !r.issuanceDriven && !r.suppressed && !TERMINAL_STAGES.has(r.stage))
       .map((r) => r.stage),
-    totalPacked: fg?.production ?? 0,
+    totalPacked,
   };
 
   return { def, rows, summary };
@@ -1443,6 +1884,7 @@ export const buildXlsx = (matrix: SheetCell[][], sheetName: string): Uint8Array 
 let cachedMasterItems: any[] | null = null;
 let cachedWeightMapData: Record<string, number | null> = { ...STANDARD_ITEM_WEIGHTS };
 let cachedItemNamesData: Record<string, string> = {};
+let cachedRawChainsList: ChainDef[] | null = null;
 let cachedAllChainsList: ChainDef[] | null = null;
 
 interface CachedLedgerReport {
@@ -1458,6 +1900,7 @@ const rawDayItemsReportCache = new Map<string, ReportRow[]>();
 /* ── Component ────────────────────────────────────────────────────────── */
 
 const ItemWiseProductionLedger: React.FC = () => {
+  const { token } = theme.useToken();
   // Tab id of this route — the key the shared global header is registered
   // under (MainLayout opens a workspace tab keyed by `location.pathname`).
   const { pathname: routePath } = useLocation();
@@ -1468,6 +1911,12 @@ const ItemWiseProductionLedger: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const activeRequestIdRef = useRef<number>(0);
 
+  const [mergedFgGroups, setMergedFgGroups] = useState<string[][]>(() => loadMergedFgGroups());
+  const mergedFgGroupsRef = useRef<string[][]>(mergedFgGroups);
+  mergedFgGroupsRef.current = mergedFgGroups;
+  const [mergeModalOpen, setMergeModalOpen] = useState(false);
+  const [customMergeSelection, setCustomMergeSelection] = useState<string[]>([]);
+
   const [rows, setRows] = useState<ReportRow[]>([]);
   const [chainOpeningOverrides, setChainOpeningOverrides] = useState<Map<string, number>>(new Map());
   const [monthScrap, setMonthScrap] = useState<Record<string, number>>({});
@@ -1476,7 +1925,10 @@ const ItemWiseProductionLedger: React.FC = () => {
     ...cachedWeightMapData,
   }));
   const [itemNames, setItemNames] = useState<Record<string, string>>(() => cachedItemNamesData);
-  const [allChains, setAllChains] = useState<ChainDef[]>(() => cachedAllChainsList ?? CHAIN_REGISTRY);
+  const [rawChains, setRawChains] = useState<ChainDef[]>(() => cachedRawChainsList ?? CHAIN_REGISTRY);
+  const [allChains, setAllChains] = useState<ChainDef[]>(
+    () => cachedAllChainsList ?? mergeChainsByGroups(CHAIN_REGISTRY, loadMergedFgGroups()),
+  );
   const [chainKey, setChainKey] = useState<string>(CHAIN_REGISTRY[0]?.key ?? '');
   const [showAll, setShowAll] = useState(false);
 
@@ -1591,11 +2043,14 @@ const ItemWiseProductionLedger: React.FC = () => {
    * ZERO dependency infinite loop risk — uses stable refs and in-memory caches.
    */
   const loadWeights = useCallback(async (force = false) => {
-    if (!force && cachedAllChainsList && Object.keys(cachedWeightMapData).length > 0) {
-      allChainsRef.current = cachedAllChainsList;
+    if (!force && cachedRawChainsList && Object.keys(cachedWeightMapData).length > 0) {
+      const merged = mergeChainsByGroups(cachedRawChainsList, mergedFgGroupsRef.current);
+      cachedAllChainsList = merged;
+      allChainsRef.current = merged;
       itemNamesRef.current = cachedItemNamesData;
       weightMapRef.current = cachedWeightMapData;
-      setAllChains(cachedAllChainsList);
+      setRawChains(cachedRawChainsList);
+      setAllChains(merged);
       setItemNames(cachedItemNamesData);
       setWeightMap(cachedWeightMapData);
       return;
@@ -1784,13 +2239,17 @@ const ItemWiseProductionLedger: React.FC = () => {
         });
 
       dynamicChains.sort((a, b) => a.fgItemCode.localeCompare(b.fgItemCode));
-      const fullChains = [...dynamicChains, ...enrichedRegistry];
+      const unmergedFullChains = [...dynamicChains, ...enrichedRegistry];
+      cachedRawChainsList = unmergedFullChains;
+      setRawChains(unmergedFullChains);
+
+      const fullChains = mergeChainsByGroups(unmergedFullChains, mergedFgGroupsRef.current);
       cachedAllChainsList = fullChains;
       allChainsRef.current = fullChains;
       itemNamesRef.current = cachedItemNamesData;
       setAllChains(fullChains);
 
-      fullChains.forEach((c) => {
+      unmergedFullChains.forEach((c) => {
         c.rows.forEach((r) => {
           const code = r.itemCode.trim();
           if (code && !(code in found) && STANDARD_ITEM_WEIGHTS[code] != null) {
@@ -1953,6 +2412,39 @@ const ItemWiseProductionLedger: React.FC = () => {
       // Group entries by PKT YYYY-MM-DD -> itemCode -> pieces, split across
       // each document's OUTPUT children so multi-item logs stay item-isolated.
       const dailyProdMap = bucketDailyProduction(entriesList);
+      // Group Hand Packing entries by PKT YYYY-MM-DD -> itemCode -> { innerPacked, outerPacked }
+      // so Inner Only, Outer Only, and Full Set packing deduct from the exact PL Inner / PL Outer row.
+      const dailySplitMap = bucketDailyPackingSplit(entriesList);
+
+      // Aggregate range-wide packing splits for Date Range view
+      const rangeSplitByCode = new Map<string, DailyPackingSplit>();
+      dailySplitMap.forEach((dayBucket, d) => {
+        if (d < monthFrom || d > endDate) return;
+        dayBucket.forEach((split, code) => {
+          const curSplit = rangeSplitByCode.get(code) ?? {
+            innerPacked: 0,
+            outerPacked: 0,
+            hasExplicitSplit: false,
+            modeLabels: [],
+          };
+          curSplit.innerPacked = round4(curSplit.innerPacked + split.innerPacked);
+          curSplit.outerPacked = round4(curSplit.outerPacked + split.outerPacked);
+          if (split.hasExplicitSplit) curSplit.hasExplicitSplit = true;
+          split.modeLabels.forEach((lbl) => {
+            if (!curSplit.modeLabels.includes(lbl)) curSplit.modeLabels.push(lbl);
+          });
+          rangeSplitByCode.set(code, curSplit);
+        });
+      });
+      monthItems.forEach((targetRow) => {
+        const split = rangeSplitByCode.get(targetRow.itemCode);
+        if (split) {
+          targetRow.innerPacked = split.innerPacked;
+          targetRow.outerPacked = split.outerPacked;
+          targetRow.hasExplicitSplit = split.hasExplicitSplit;
+          targetRow.packingModeSummary = split.modeLabels.join(', ');
+        }
+      });
 
       const computedMonthScrap = Object.fromEntries(
         monthItems.map((r) => [r.itemCode, round4(num(r.scrapOut))]),
@@ -1972,9 +2464,22 @@ const ItemWiseProductionLedger: React.FC = () => {
         if (endDate === monthFrom) {
           // Day 1 of the month: baseline opening balances from monthItems are directly valid
           const prodForEndDay = dailyProdMap.get(endDate) ?? new Map<string, number>();
+          const splitForEndDay = dailySplitMap.get(endDate) ?? new Map<string, DailyPackingSplit>();
           seededDayItems.forEach((targetRow) => {
             const dayProd = prodForEndDay.get(targetRow.itemCode);
             targetRow.produced = dayProd !== undefined ? dayProd : round4(num(targetRow.produced ?? 0));
+            const daySplit = splitForEndDay.get(targetRow.itemCode);
+            if (daySplit) {
+              targetRow.innerPacked = daySplit.innerPacked;
+              targetRow.outerPacked = daySplit.outerPacked;
+              targetRow.hasExplicitSplit = daySplit.hasExplicitSplit;
+              targetRow.packingModeSummary = daySplit.modeLabels.join(', ');
+            } else {
+              targetRow.innerPacked = undefined;
+              targetRow.outerPacked = undefined;
+              targetRow.hasExplicitSplit = false;
+              targetRow.packingModeSummary = undefined;
+            }
           });
           displayRows = seededDayItems;
         } else {
@@ -2063,9 +2568,22 @@ const ItemWiseProductionLedger: React.FC = () => {
             const itemsForDay: ReportRow[] = daySource.map((r) => ({ ...r }));
 
             const prodForDay = dailyProdMap.get(d) ?? new Map<string, number>();
+            const splitForDay = dailySplitMap.get(d) ?? new Map<string, DailyPackingSplit>();
             itemsForDay.forEach((targetRow) => {
               const dayProd = prodForDay.get(targetRow.itemCode);
               targetRow.produced = dayProd !== undefined ? dayProd : round4(num(targetRow.produced ?? 0));
+              const daySplit = splitForDay.get(targetRow.itemCode);
+              if (daySplit) {
+                targetRow.innerPacked = daySplit.innerPacked;
+                targetRow.outerPacked = daySplit.outerPacked;
+                targetRow.hasExplicitSplit = daySplit.hasExplicitSplit;
+                targetRow.packingModeSummary = daySplit.modeLabels.join(', ');
+              } else {
+                targetRow.innerPacked = undefined;
+                targetRow.outerPacked = undefined;
+                targetRow.hasExplicitSplit = false;
+                targetRow.packingModeSummary = undefined;
+              }
             });
 
             // ── UNIVERSAL MATHEMATICAL INVARIANT: Day (D) Opening === Day (D - 1) Closing ──
@@ -2601,9 +3119,58 @@ const ItemWiseProductionLedger: React.FC = () => {
     return filteredChains.map((c) => ({
       value: c.key,
       label: c.label,
-      filterText: `${c.label} ${c.fgItemCode}`,
+      filterText: `${c.label} ${c.fgItemCode} ${(c.mergedFgCodes ?? []).join(' ')}`,
     }));
   }, [filteredChains]);
+
+  const sharedUpstreamCandidates = useMemo(
+    () => detectSharedUpstreamCandidates(rawChains),
+    [rawChains],
+  );
+
+  const applyMergeGroupsUpdate = useCallback((nextGroups: string[][]) => {
+    saveMergedFgGroups(nextGroups);
+    mergedFgGroupsRef.current = nextGroups;
+    setMergedFgGroups(nextGroups);
+    const sourceRaw = cachedRawChainsList ?? rawChains;
+    const merged = mergeChainsByGroups(sourceRaw, nextGroups);
+    cachedAllChainsList = merged;
+    allChainsRef.current = merged;
+    setAllChains(merged);
+    rawDayItemsReportCache.clear();
+    ledgerReportCache.clear();
+    setTick((t) => t + 1);
+  }, [rawChains]);
+
+  const handleAddMergeGroup = useCallback((codesToMerge: string[]) => {
+    const clean = Array.from(new Set(codesToMerge.map((c) => c.trim()).filter(Boolean)));
+    if (clean.length < 2) {
+      message.warning('Select at least 2 Finished Good items to merge into one ledger');
+      return;
+    }
+    const cleanSet = new Set(clean);
+    // Remove any existing group that overlaps with the newly merged items
+    const filteredExisting = mergedFgGroupsRef.current
+      .map((grp) => grp.filter((c) => !cleanSet.has(c)))
+      .filter((grp) => grp.length >= 2);
+    const nextGroups = [...filteredExisting, clean];
+    applyMergeGroupsUpdate(nextGroups);
+    setChainKey(clean[0]);
+    setCustomMergeSelection([]);
+    message.success(`Merged ${clean.join(' + ')} into one unified ledger`);
+  }, [applyMergeGroupsUpdate]);
+
+  const handleRemoveMergeGroup = useCallback((groupIndex: number) => {
+    const nextGroups = mergedFgGroupsRef.current.filter((_, idx) => idx !== groupIndex);
+    applyMergeGroupsUpdate(nextGroups);
+    message.success('Separated FG items back into individual ledgers');
+  }, [applyMergeGroupsUpdate]);
+
+  const handleResetDefaultMergeGroups = useCallback(() => {
+    applyMergeGroupsUpdate(DEFAULT_MERGED_FG_GROUPS);
+    setChainKey(DEFAULT_MERGED_FG_GROUPS[0]?.[0] ?? CHAIN_REGISTRY[0]?.key ?? '');
+    message.success('Restored default merged FG ledger (SPI-FG-SPK-001 + SPI-FG-SPK-002)');
+  }, [applyMergeGroupsUpdate]);
 
   /* ── §4 export actions ─────────────────────────────────────────────── */
 
@@ -4487,6 +5054,14 @@ const ItemWiseProductionLedger: React.FC = () => {
             <Checkbox checked={showAll} onChange={(e) => setShowAll(e.target.checked)}>
               Show All Item Chains on One Page
             </Checkbox>
+            <Tooltip title="Merge FG items that share the same Plating / upstream stages (e.g. SPI-FG-SPK-001 + SPI-FG-SPK-002) into a single ledger">
+              <Button
+                icon={<LinkOutlined />}
+                onClick={() => setMergeModalOpen(true)}
+              >
+                Merge FG Items ({mergedFgGroups.length})
+              </Button>
+            </Tooltip>
             <Segmented
               value={viewMode}
               onChange={(val) => {
@@ -4714,7 +5289,8 @@ const ItemWiseProductionLedger: React.FC = () => {
                 <em>Production</em> this day only — so advancing the End Date rolls <em>Closing</em> into the
                 next day&rsquo;s <em>Opening</em>. <strong>Issuance is driven by the next stage:</strong> RM ←
                 ST Production × weight (KG) · ST ← SW · SW ← SP Inner + SP Outer · SP ← matching PL branch ·
-                PL Inner/Outer ← FG Packed ({fmtQty(summary.totalPacked, 'PCS')}) ÷ 2.{' '}
+                PL Inner/Outer ← FG Packed ({fmtQty(summary.totalPacked, 'PCS')}) (Inner Only → 100% PL Inner,
+                Outer Only → 100% PL Outer, Full Set → ÷ 2 across all merged FG items).{' '}
                 <strong>Closing = (Op + Production) − Issuance</strong>. Piece units (PCS / GRS) render as
                 whole integers; KG and weight columns use up to 2 decimals. Scrap is tracked twice: today only
                 vs. cumulative from {monthFrom}.
@@ -4762,6 +5338,211 @@ const ItemWiseProductionLedger: React.FC = () => {
             2 decimals.
           </Text>
         </div>
+
+        {/* ── MERGE SHARED-UPSTREAM FINISHED GOODS SETUP MODAL ─────────── */}
+        <Modal
+          title={
+            <Space>
+              <LinkOutlined style={{ color: token.colorPrimary }} />
+              <span>Merge Shared-Upstream Finished Goods (Plating → Packing Setup)</span>
+            </Space>
+          }
+          open={mergeModalOpen}
+          onCancel={() => setMergeModalOpen(false)}
+          width={760}
+          footer={[
+            <Button key="reset" onClick={handleResetDefaultMergeGroups}>
+              Restore Default (001 + 002)
+            </Button>,
+            <Button key="close" type="primary" onClick={() => setMergeModalOpen(false)}>
+              Done
+            </Button>,
+          ]}
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <Alert
+              type="info"
+              showIcon
+              message="How Merged FG Ledgers Work"
+              description="When two or more Finished Goods share the exact same Raw Material, Straightening, Swaging, Spoke, and Plating (WIP-SPL) items, merging them puts both FG items and both Dispatch rows into a single table so Plating Inner and Plating Outer deduct the packing of all merged FG items together."
+            />
+
+            {/* 1. Active Merged Groups */}
+            <div>
+              <Text strong style={{ fontSize: 13.5, display: 'block', marginBottom: 8 }}>
+                1. Currently Merged FG Groups ({mergedFgGroups.length})
+              </Text>
+              {mergedFgGroups.length === 0 ? (
+                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No FG items are currently merged" />
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {mergedFgGroups.map((grp, idx) => (
+                    <div
+                      key={grp.join('+')}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '10px 12px',
+                        borderRadius: 6,
+                        background: token.colorFillAlter,
+                        border: `1px solid ${token.colorBorderSecondary}`,
+                      }}
+                    >
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        <Space wrap>
+                          {grp.map((code) => (
+                            <Tag key={code} color="blue" style={{ fontWeight: 700, margin: 0 }}>
+                              {code}
+                            </Tag>
+                          ))}
+                        </Space>
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          {grp
+                            .map((code) => {
+                              const foundChain = rawChains.find((rc) => rc.fgItemCode === code || rc.key === code);
+                              return foundChain ? foundChain.label.split('—')[0]?.trim() : itemNames[code] || code;
+                            })
+                            .join('  +  ')}
+                        </Text>
+                      </div>
+                      <Space>
+                        <Button
+                          size="small"
+                          type="link"
+                          onClick={() => {
+                            setChainKey(grp[0]);
+                            setMergeModalOpen(false);
+                          }}
+                        >
+                          View Ledger
+                        </Button>
+                        <Popconfirm
+                          title="Separate these FG items back into individual ledgers?"
+                          onConfirm={() => handleRemoveMergeGroup(idx)}
+                        >
+                          <Button size="small" danger icon={<DeleteOutlined />}>
+                            Unmerge
+                          </Button>
+                        </Popconfirm>
+                      </Space>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <Divider style={{ margin: '4px 0' }} />
+
+            {/* 2. Auto-Detected Shared Plating Candidates */}
+            <div>
+              <Text strong style={{ fontSize: 13.5, display: 'block', marginBottom: 4 }}>
+                2. Auto-Detected FG Items Sharing the Same Plating (WIP-SPL) Stages
+              </Text>
+              <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>
+                These Finished Goods use the exact same Plating Inner / Outer items. Click &ldquo;Merge Group&rdquo; to combine any pair into one ledger:
+              </Text>
+              {sharedUpstreamCandidates.length === 0 ? (
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  No shared-plating FG pairs detected in current master list.
+                </Text>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {sharedUpstreamCandidates.map((cand) => {
+                    const candCodes = cand.chains.map((c) => c.fgItemCode || c.key);
+                    const isAlreadyMerged = mergedFgGroups.some(
+                      (grp) =>
+                        grp.length === candCodes.length &&
+                        candCodes.every((code) => grp.includes(code)),
+                    );
+                    return (
+                      <div
+                        key={cand.signature}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          padding: '10px 12px',
+                          borderRadius: 6,
+                          background: token.colorBgContainer,
+                          border: `1px solid ${token.colorBorderSecondary}`,
+                        }}
+                      >
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          <Space wrap>
+                            {candCodes.map((code) => (
+                              <Tag key={code} color={isAlreadyMerged ? 'success' : 'processing'} style={{ fontWeight: 700, margin: 0 }}>
+                                {code}
+                              </Tag>
+                            ))}
+                            <Text type="secondary" style={{ fontSize: 11.5 }}>
+                              Shared Plating: {cand.plCodes.join(', ') || cand.upstreamCodes.join(', ')}
+                            </Text>
+                          </Space>
+                          <Text type="secondary" style={{ fontSize: 12 }}>
+                            {cand.chains.map((c) => c.label.split('—')[0]?.trim()).join('  +  ')}
+                          </Text>
+                        </div>
+                        {isAlreadyMerged ? (
+                          <Tag color="success" icon={<CheckCircleFilled />}>
+                            Merged ✓
+                          </Tag>
+                        ) : (
+                          <Button
+                            size="small"
+                            type="primary"
+                            icon={<LinkOutlined />}
+                            onClick={() => handleAddMergeGroup(candCodes)}
+                          >
+                            Merge Group
+                          </Button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <Divider style={{ margin: '4px 0' }} />
+
+            {/* 3. Custom Manual Merge Builder */}
+            <div>
+              <Text strong style={{ fontSize: 13.5, display: 'block', marginBottom: 4 }}>
+                3. Manually Merge Any 2 or More Finished Good Items
+              </Text>
+              <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>
+                Select the Finished Good items that share the same Plating stock to combine them into one ledger:
+              </Text>
+              <Space.Compact style={{ width: '100%' }}>
+                <Select
+                  mode="multiple"
+                  style={{ width: '100%' }}
+                  placeholder="Select 2 or more FG items (e.g. SPI-FG-SPK-001, SPI-FG-SPK-002...)"
+                  value={customMergeSelection}
+                  onChange={(vals) => setCustomMergeSelection(vals)}
+                  optionFilterProp="label"
+                  options={rawChains.map((rc) => {
+                    const code = rc.fgItemCode || rc.key;
+                    const name = rc.label.split('—')[0]?.trim() || code;
+                    return {
+                      value: code,
+                      label: `${code} — ${name}`,
+                    };
+                  })}
+                />
+                <Button
+                  type="primary"
+                  icon={<PlusOutlined />}
+                  disabled={customMergeSelection.length < 2}
+                  onClick={() => handleAddMergeGroup(customMergeSelection)}
+                >
+                  Merge Selected
+                </Button>
+              </Space.Compact>
+            </div>
+          </div>
+        </Modal>
       </Card>
     </div>
   );

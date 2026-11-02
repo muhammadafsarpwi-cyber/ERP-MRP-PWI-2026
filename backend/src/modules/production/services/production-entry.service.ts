@@ -703,6 +703,7 @@ export class ProductionEntryService {
           // shared productionWeight helper, so grid and report agree.
           weightPerPiece: row.item?.weightPerPiece ?? null,
           weightPerMeter: row.item?.weightPerMeter ?? null,
+          remarks: row.remarks ?? null,
         });
         byEntry.set(row.productionEntryId, list);
       }

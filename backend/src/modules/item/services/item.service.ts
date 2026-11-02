@@ -1247,6 +1247,7 @@ export class ItemService implements OnModuleInit {
     if (dto.bomLines !== undefined) {
       await this.upsertBomRecipe(id, item.companyId, dto.bomLines, userId);
     }
+    delete scalarUpdate.bomLines;
 
     await this.itemRepository.update(id, scalarUpdate);
 
@@ -2338,6 +2339,8 @@ export class ItemService implements OnModuleInit {
       'process 6', 'Process 6', 'process_6',
       'diameter', 'Diameter', 'diameter_mm',
       'length', 'Length', 'length_per_piece',
+      'source_item_id', 'operational_sequence_mask',
+      'bomLines',
     ];
     for (const a of aliases) {
       delete target[a];

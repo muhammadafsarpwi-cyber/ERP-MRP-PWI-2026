@@ -39,6 +39,8 @@ export interface ProductionEntryNestedItem {
   /** Item Master weight data — the client derives KG with the shared helper. */
   weightPerPiece: number | null;
   weightPerMeter: number | null;
+  remarks?: string | null;
+  packingMode?: string | null;
 }
 
 @Entity('production_entries')

@@ -2037,7 +2037,6 @@ const ItemManagement: React.FC = () => {
         'productionInItemId3',
         'sourceItemId',
         'operationalSequenceMask',
-        'bomLines',
         'finalProduct',
         'packingNextStep',
         'packagingType',
@@ -2109,7 +2108,10 @@ const ItemManagement: React.FC = () => {
       }
 
       if (Array.isArray(values.bomLines)) {
-        payload.bomLines = values.bomLines.filter((l: any) => l && l.itemId && Number(l.quantity) > 0);
+        const validBomLines = values.bomLines.filter((l: any) => l && l.itemId && Number(l.quantity) > 0);
+        if (validBomLines.length > 0) {
+          payload.bomLines = validBomLines;
+        }
       }
 
       // When editing an existing item, any clearable field that is empty in the form

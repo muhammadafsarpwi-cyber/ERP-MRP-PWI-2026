@@ -3,6 +3,9 @@ import {
   CHAIN_REGISTRY,
   buildChainGrid,
   bucketDailyProduction,
+  bucketDailyPackingSplit,
+  mergeChainsByGroups,
+  DEFAULT_MERGED_FG_GROUPS,
   crc32,
   fmtKg,
   fmtQty,
@@ -456,5 +459,193 @@ describe('ItemWiseProductionLedger — multi-item row isolation (§item-lots)', 
 
     expect(bucket.get('WIP-SP-002')).toBe(64.455);
     expect(bucket.get('WIP-SP-001')).toBe(1.0001);
+  });
+});
+
+describe('ItemWiseProductionLedger — Inner-Only / Outer-Only Packing Split & Merged FG Chains', () => {
+  const weights: Record<string, number | null> = {
+    'WIP-ST-001': 0.00967,
+    'WIP-SPL-001': 0.00929,
+    'WIP-SPL-002': 0.00925,
+    'SPI-FG-SPK-001': 0.0111,
+    'SPI-FG-SPK-002': 0.0118,
+  };
+
+  it('deducts 100% from PL Inner (and 0 from PL Outer) when INNER_ONLY is packed', () => {
+    const splitMap = bucketDailyPackingSplit([
+      {
+        isActive: true,
+        entryDate: '2026-10-31',
+        packingMode: 'INNER_ONLY',
+        remarks: 'SpokePackingMode: INNER_ONLY | ONLY_INNER',
+        nestedItems: [{ itemCode: 'SPI-FG-SPK-002', actualQuantity: 3000 }],
+      },
+    ]);
+    const split = splitMap.get('2026-10-31')?.get('SPI-FG-SPK-002');
+    expect(split).toBeDefined();
+    expect(split?.innerPacked).toBe(3000);
+    expect(split?.outerPacked).toBe(0);
+    expect(split?.hasExplicitSplit).toBe(true);
+
+    const grid = buildChainGrid(
+      butted,
+      [
+        reportRow('RM-WIRE-009', 'KG', 1000, 0),
+        reportRow('WIP-ST-001', 'PCS', 10000, 0),
+        reportRow('WIP-SW-001', 'PCS', 10000, 0),
+        reportRow('WIP-SP-001', 'PCS', 10000, 0),
+        reportRow('WIP-SP-002', 'PCS', 10000, 0),
+        reportRow('WIP-SPL-001', 'PCS', 20000, 0),
+        reportRow('WIP-SPL-002', 'PCS', 15000, 0),
+        {
+          ...reportRow('SPI-FG-SPK-002', 'PCS', 0, 3000),
+          innerPacked: split!.innerPacked,
+          outerPacked: split!.outerPacked,
+          hasExplicitSplit: split!.hasExplicitSplit,
+          packingModeSummary: split!.modeLabels.join(', '),
+        },
+      ] as any,
+      {},
+      weights,
+    );
+
+    const at = (code: string) => grid.rows.find((r) => r.itemCode === code)!;
+    expect(at('WIP-SPL-001').issuance).toBe(3000);
+    expect(at('WIP-SPL-001').closingPieces).toBe(20000 - 3000);
+    expect(at('WIP-SPL-002').issuance).toBe(0);
+    expect(at('WIP-SPL-002').closingPieces).toBe(15000);
+    expect(grid.summary.balanced).toBe(true);
+  });
+
+  it('deducts 100% from PL Outer (and 0 from PL Inner) when OUTER_ONLY is packed', () => {
+    const splitMap = bucketDailyPackingSplit([
+      {
+        isActive: true,
+        entryDate: '2026-10-31',
+        packingMode: 'OUTER_ONLY',
+        remarks: 'SpokePackingMode: OUTER_ONLY | ONLY_OUTER',
+        nestedItems: [{ itemCode: 'SPI-FG-SPK-002', actualQuantity: 3000 }],
+      },
+    ]);
+    const split = splitMap.get('2026-10-31')?.get('SPI-FG-SPK-002')!;
+    expect(split.innerPacked).toBe(0);
+    expect(split.outerPacked).toBe(3000);
+
+    const grid = buildChainGrid(
+      butted,
+      [
+        reportRow('RM-WIRE-009', 'KG', 1000, 0),
+        reportRow('WIP-ST-001', 'PCS', 10000, 0),
+        reportRow('WIP-SW-001', 'PCS', 10000, 0),
+        reportRow('WIP-SP-001', 'PCS', 10000, 0),
+        reportRow('WIP-SP-002', 'PCS', 10000, 0),
+        reportRow('WIP-SPL-001', 'PCS', 20000, 0),
+        reportRow('WIP-SPL-002', 'PCS', 15000, 0),
+        {
+          ...reportRow('SPI-FG-SPK-002', 'PCS', 0, 3000),
+          innerPacked: split.innerPacked,
+          outerPacked: split.outerPacked,
+          hasExplicitSplit: split.hasExplicitSplit,
+          packingModeSummary: split.modeLabels.join(', '),
+        },
+      ] as any,
+      {},
+      weights,
+    );
+
+    const at = (code: string) => grid.rows.find((r) => r.itemCode === code)!;
+    expect(at('WIP-SPL-001').issuance).toBe(0);
+    expect(at('WIP-SPL-001').closingPieces).toBe(20000);
+    expect(at('WIP-SPL-002').issuance).toBe(3000);
+    expect(at('WIP-SPL-002').closingPieces).toBe(15000 - 3000);
+    expect(grid.summary.balanced).toBe(true);
+  });
+
+  it('merges SPI-FG-SPK-001 and SPI-FG-SPK-002 into one unified ledger where PL deducts both FGs and each DP row stays separate', () => {
+    const mergedList = mergeChainsByGroups(CHAIN_REGISTRY, DEFAULT_MERGED_FG_GROUPS);
+    const mergedChain = mergedList.find((c) => c.key === 'SPI-FG-SPK-001')!;
+    expect(mergedChain).toBeDefined();
+    expect(mergedList.some((c) => c.key === 'SPI-FG-SPK-002')).toBe(false);
+    // 7 shared upstream stages + 2 FG rows + 2 DP rows = 11 rows
+    expect(mergedChain.rows).toHaveLength(11);
+
+    const grid = buildChainGrid(
+      mergedChain,
+      [
+        reportRow('RM-WIRE-009', 'KG', 16645.62, 0),
+        reportRow('WIP-ST-001', 'PCS', 39004, 50000),
+        reportRow('WIP-SW-001', 'PCS', 99584, 34874),
+        reportRow('WIP-SP-001', 'PCS', 203245, 28000),
+        reportRow('WIP-SP-002', 'PCS', 110582, 0),
+        reportRow('WIP-SPL-001', 'PCS', 189862, 0),
+        reportRow('WIP-SPL-002', 'PCS', 163053, 0),
+        // FG 001 packs 4,000 Full Set (2,000 Inner + 2,000 Outer) and dispatches 10,000
+        {
+          ...reportRow('SPI-FG-SPK-001', 'PCS', 86400, 4000, 10000),
+          innerPacked: 2000,
+          outerPacked: 2000,
+          hasExplicitSplit: true,
+        },
+        // FG 002 packs 3,000 Inner Only (3,000 Inner + 0 Outer) and dispatches 5,000
+        {
+          ...reportRow('SPI-FG-SPK-002', 'PCS', 31680, 3000, 5000),
+          innerPacked: 3000,
+          outerPacked: 0,
+          hasExplicitSplit: true,
+        },
+        reportRow('SPI-FG-SPK-001-DISP', 'PCS', 1224000, 0),
+        reportRow('SPI-FG-SPK-002-DISP', 'PCS', 396000, 0),
+      ] as any,
+      {},
+      weights,
+    );
+
+    const at = (code: string) => grid.rows.find((r) => r.itemCode === code)!;
+    // PL Inner deducts 2,000 (from 001) + 3,000 (from 002) = 5,000
+    expect(at('WIP-SPL-001').issuance).toBe(5000);
+    expect(at('WIP-SPL-001').closingPieces).toBe(189862 - 5000);
+    // PL Outer deducts 2,000 (from 001) + 0 (from 002) = 2,000
+    expect(at('WIP-SPL-002').issuance).toBe(2000);
+    expect(at('WIP-SPL-002').closingPieces).toBe(163053 - 2000);
+
+    // FG 001 & 002 keep separate rows and balances
+    expect(at('SPI-FG-SPK-001').production).toBe(4000);
+    expect(at('SPI-FG-SPK-001').issuance).toBe(10000);
+    expect(at('SPI-FG-SPK-001').closingPieces).toBe(86400 + 4000 - 10000);
+
+    expect(at('SPI-FG-SPK-002').production).toBe(3000);
+    expect(at('SPI-FG-SPK-002').issuance).toBe(5000);
+    expect(at('SPI-FG-SPK-002').closingPieces).toBe(31680 + 3000 - 5000);
+
+    // DP 001 & 002 keep separate dispatch rows
+    expect(at('SPI-FG-SPK-001-DISP').opBalance).toBe(1224000);
+    expect(at('SPI-FG-SPK-001-DISP').production).toBe(10000);
+    expect(at('SPI-FG-SPK-001-DISP').closingPieces).toBe(1234000);
+
+    expect(at('SPI-FG-SPK-002-DISP').opBalance).toBe(396000);
+    expect(at('SPI-FG-SPK-002-DISP').production).toBe(5000);
+    expect(at('SPI-FG-SPK-002-DISP').closingPieces).toBe(401000);
+
+    // Total packed is 4,000 + 3,000 = 7,000
+    expect(grid.summary.totalPacked).toBe(7000);
+    expect(grid.summary.balanced).toBe(true);
+  });
+
+  it('merges SPI-FG-SPK-006 and SPI-FG-SPK-011 into one unified ledger (11 rows)', () => {
+    const mergedList = mergeChainsByGroups(CHAIN_REGISTRY, DEFAULT_MERGED_FG_GROUPS);
+    const merged006 = mergedList.find((c) => c.key === 'SPI-FG-SPK-006')!;
+    expect(merged006).toBeDefined();
+    expect(mergedList.some((c) => c.key === 'SPI-FG-SPK-011')).toBe(false);
+    expect(merged006.mergedFgCodes).toEqual(['SPI-FG-SPK-006', 'SPI-FG-SPK-011']);
+    expect(merged006.rows).toHaveLength(11);
+  });
+
+  it('merges SPI-FG-SPK-004 and SPI-FG-SPK-012 into one unified ledger (11 rows)', () => {
+    const mergedList = mergeChainsByGroups(CHAIN_REGISTRY, DEFAULT_MERGED_FG_GROUPS);
+    const merged004 = mergedList.find((c) => c.key === 'SPI-FG-SPK-004')!;
+    expect(merged004).toBeDefined();
+    expect(mergedList.some((c) => c.key === 'SPI-FG-SPK-012')).toBe(false);
+    expect(merged004.mergedFgCodes).toEqual(['SPI-FG-SPK-004', 'SPI-FG-SPK-012']);
+    expect(merged004.rows).toHaveLength(11);
   });
 });

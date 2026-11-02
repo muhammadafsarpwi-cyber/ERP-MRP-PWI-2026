@@ -172,7 +172,7 @@ $frontendPid = $null
 # --- Backend ---
 if (-not $SkipBackend) {
     $backendPid = Start-Backend
-    if ($backendPid) {
+    if ($null -ne $backendPid) {
         $backendReady = Wait-ForPort -Port 3001 -TimeoutSec $TimeoutSec -ServiceName "Backend"
         if ($backendReady) {
             Start-Sleep -Seconds 3
@@ -210,7 +210,7 @@ if ($results.Backend -eq "PASS") {
 # --- Frontend ---
 if (-not $SkipFrontend) {
     $frontendPid = Start-Frontend
-    if ($frontendPid) {
+    if ($null -ne $frontendPid) {
         $frontendReady = Wait-ForPort -Port 3000 -TimeoutSec $TimeoutSec -ServiceName "Frontend"
         if ($frontendReady) {
             Write-Host "[WAIT] Verifying frontend HTTP response (waiting for webpack compilation)..." -ForegroundColor DarkYellow
