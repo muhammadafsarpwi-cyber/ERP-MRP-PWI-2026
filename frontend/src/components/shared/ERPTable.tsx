@@ -9,6 +9,7 @@ import {
   EyeOutlined,
   EditOutlined,
   DeleteOutlined,
+  PrinterOutlined,
   LoadingOutlined,
 } from '@ant-design/icons';
 import EmptyState from './EmptyState';
@@ -138,23 +139,42 @@ export function ERPTable<T extends object = any>({
   }, [scroll, scrollY]);
 
   // Enhance columns to guarantee header background and text color on all columns (especially fixed ones)
+  // and tag any Actions column with `.erp-col-actions` for unified action button styling.
   const resolvedColumns = React.useMemo(() => {
     if (!restProps.columns) return restProps.columns;
-    return restProps.columns.map((col: any) => ({
-      ...col,
-      onHeaderCell: (column: any) => {
-        const existing = col.onHeaderCell ? col.onHeaderCell(column) : {};
-        return {
-          ...existing,
-          style: {
-            backgroundColor: 'var(--theme-table-header-bg, var(--ui-table-header-bg, #f1f5f9))',
-            color: 'var(--theme-table-header-color, var(--ui-table-header-text, #0f172a))',
-            ...(existing?.style || {}),
-          },
-          className: `${existing?.className || ''} erp-th-navy erp-th-2027`.trim(),
-        };
-      },
-    }));
+    return restProps.columns.map((col: any) => {
+      const colKeyStr = String(col.key ?? col.dataIndex ?? '').trim().toLowerCase();
+      const colTitleStr = typeof col.title === 'string' ? col.title.trim().toLowerCase() : '';
+      const isActionsCol =
+        colKeyStr === 'actions' ||
+        colKeyStr === 'action' ||
+        colTitleStr === 'actions' ||
+        colTitleStr === 'action';
+
+      return {
+        ...col,
+        onHeaderCell: (column: any) => {
+          const existing = col.onHeaderCell ? col.onHeaderCell(column) : {};
+          return {
+            ...existing,
+            style: {
+              backgroundColor: 'var(--theme-table-header-bg, var(--ui-table-header-bg, #f1f5f9))',
+              color: 'var(--theme-table-header-color, var(--ui-table-header-text, #0f172a))',
+              ...(existing?.style || {}),
+            },
+            className: `${existing?.className || ''} erp-th-navy erp-th-2027 ${isActionsCol ? 'erp-th-actions' : ''}`.trim(),
+          };
+        },
+        onCell: (record: T, rowIndex?: number) => {
+          const existing = col.onCell ? col.onCell(record, rowIndex) : {};
+          const mergedClass = `${existing?.className || ''} ${isActionsCol ? 'erp-col-actions' : ''}`.trim();
+          return {
+            ...existing,
+            ...(mergedClass ? { className: mergedClass } : {}),
+          };
+        },
+      };
+    });
   }, [restProps.columns]);
 
   // Prominent circular rotating loading spinner positioned directly in foreground
@@ -453,7 +473,7 @@ export const TableActions: React.FC<TableActionsProps> = ({
           const actionClass = act.className || (
             act.key === 'view' || act.label?.toLowerCase().includes('view') ? 'act-view' :
             act.key === 'edit' || act.label?.toLowerCase().includes('edit') ? 'act-edit' :
-            (act.key === 'delete' || act.danger || act.label?.toLowerCase().includes('delete')) ? 'act-delete' : ''
+            (act.key === 'delete' || act.danger || act.label?.toLowerCase().includes('delete')) ? 'act-delete' : 'act-default'
           );
 
           const btn = (
@@ -466,7 +486,7 @@ export const TableActions: React.FC<TableActionsProps> = ({
               icon={act.icon}
               onClick={handleClick}
               aria-label={act.label}
-              className={actionClass}
+              className={`erp-action-btn ${actionClass}`.trim()}
               style={act.style}
             />
           );
@@ -494,6 +514,107 @@ export const TableActions: React.FC<TableActionsProps> = ({
       {children}
     </div>
   );
+};
+
+export type ActionButtonVariant =
+  | 'edit'
+  | 'delete'
+  | 'view'
+  | 'print'
+  | 'whatsapp'
+  | 'approve'
+  | 'activate'
+  | 'deactivate'
+  | 'warning'
+  | 'copy'
+  | 'default';
+
+export interface ActionButtonProps {
+  variant?: ActionButtonVariant;
+  icon?: React.ReactNode;
+  tooltip?: string;
+  label?: string;
+  onClick?: (e: React.MouseEvent<HTMLElement>) => void;
+  disabled?: boolean;
+  loading?: boolean;
+  danger?: boolean;
+  className?: string;
+  style?: React.CSSProperties;
+  'data-testid'?: string;
+  'aria-label'?: string;
+}
+
+/**
+ * Centralized single Action Icon Button for all ERP table `Actions` columns.
+ * Renders an outlined square icon button at rest that fills solid on hover with a white icon.
+ */
+export const ActionButton: React.FC<ActionButtonProps> = ({
+  variant = 'default',
+  icon,
+  tooltip,
+  label,
+  onClick,
+  disabled,
+  loading,
+  danger,
+  className = '',
+  style,
+  'data-testid': dataTestId,
+  'aria-label': ariaLabel,
+}) => {
+  const isDanger = danger || variant === 'delete';
+  const resolvedIcon =
+    icon ??
+    (variant === 'edit' ? (
+      <EditOutlined />
+    ) : variant === 'delete' ? (
+      <DeleteOutlined />
+    ) : variant === 'view' ? (
+      <EyeOutlined />
+    ) : variant === 'print' ? (
+      <PrinterOutlined />
+    ) : undefined);
+
+  const variantClass =
+    variant === 'delete' || isDanger
+      ? 'act-delete erp-action-btn--delete'
+      : variant === 'edit'
+        ? 'act-edit erp-action-btn--edit'
+        : variant === 'view'
+          ? 'act-view erp-action-btn--view'
+          : variant === 'print'
+            ? 'act-print erp-action-btn--print'
+            : variant === 'whatsapp'
+              ? 'act-whatsapp'
+              : variant === 'approve' || variant === 'activate'
+                ? 'erp-action-btn--activate'
+                : variant === 'deactivate' || variant === 'warning'
+                  ? 'erp-action-btn--deactivate'
+                  : variant === 'copy'
+                    ? 'erp-action-btn--copy'
+                    : 'act-default';
+
+  const resolvedTooltip = tooltip ?? label;
+  const buttonNode = (
+    <Button
+      type="text"
+      size="small"
+      danger={isDanger}
+      disabled={disabled}
+      loading={loading}
+      icon={resolvedIcon}
+      onClick={onClick}
+      aria-label={ariaLabel || label || tooltip}
+      data-testid={dataTestId}
+      className={`erp-action-btn ${variantClass} ${className}`.trim()}
+      style={style}
+    />
+  );
+
+  if (resolvedTooltip) {
+    return <Tooltip title={resolvedTooltip}>{buttonNode}</Tooltip>;
+  }
+  return buttonNode;
 };
 
 export interface TableFilterConfig {

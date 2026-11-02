@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   Card, Table, Button, Space, Modal, Form, Input, Select, Tag, App, DatePicker, Row, Col, Tabs, Drawer, Descriptions, Typography,
 } from 'antd';
-import { PlusOutlined, ExportOutlined, EyeOutlined } from '@ant-design/icons';
+import { PlusOutlined, ExportOutlined, EyeOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import apiService from '../../services/api';
@@ -244,16 +244,16 @@ const MaterialIssueManagement: React.FC = () => {
     {
       title: 'Actions', key: 'actions', width: 220, fixed: 'right',
       render: (_, record) => (
-        <Space wrap size={4}>
-          <Button size="small" icon={<EyeOutlined />} onClick={() => openDetail(record)}>View</Button>
+        <Space wrap size={6}>
+          <Button size="small" className="erp-action-btn act-view" icon={<EyeOutlined />} aria-label="View" onClick={() => openDetail(record)} />
           {record.status === 'DRAFT' && canCreate && (
-            <Button size="small" onClick={() => handleEdit(record)}>Edit</Button>
+            <Button size="small" className="erp-action-btn act-edit" icon={<EditOutlined />} aria-label="Edit" onClick={() => handleEdit(record)} />
           )}
           {record.status === 'DRAFT' && canPost && (
             <Button size="small" type="primary" onClick={() => handlePost(record.id)}>Post</Button>
           )}
           {record.status === 'DRAFT' && canCreate && (
-            <Button size="small" type="text" danger onClick={() => handleCancel(record.id)}>Cancel</Button>
+            <Button size="small" danger className="erp-action-btn act-delete" icon={<DeleteOutlined />} aria-label="Cancel" onClick={() => handleCancel(record.id)} />
           )}
         </Space>
       ),

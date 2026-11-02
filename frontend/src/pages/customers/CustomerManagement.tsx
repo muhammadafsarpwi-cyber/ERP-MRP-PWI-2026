@@ -1132,7 +1132,6 @@ const CustomerManagement: React.FC = () => {
           <Tooltip title="Print Barcode">
             <button
               className="action-btn-square"
-              style={{ backgroundColor: '#475569', color: '#fff' }}
               onClick={() => setPrintModal({ visible: true, customer: record })}
             >
               <PrinterOutlined />

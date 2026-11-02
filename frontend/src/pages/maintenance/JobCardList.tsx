@@ -753,22 +753,9 @@ export const JobCardList: React.FC = () => {
   const viewActionBtn = (r: JobCard) => (
     <Tooltip title="View Job Card" placement="top">
       <Button
-        className="jc-view-btn"
-        icon={<EyeOutlined style={{ fontSize: 13, color: 'var(--maint-info-fg)' }} />}
+        className="erp-action-btn act-view jc-view-btn"
+        icon={<EyeOutlined style={{ fontSize: 13 }} />}
         aria-label={`View Job Card ${r.jobCardNo || ''}`}
-        style={{
-          color: 'var(--maint-info-fg)',
-          borderColor: 'var(--maint-info-border)',
-          backgroundColor: 'var(--maint-info-bg)',
-          width: 28,
-          minWidth: 28,
-          height: 28,
-          padding: 0,
-          borderRadius: 6,
-          display: 'inline-flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
         onClick={(e) => {
           e.stopPropagation();
           openViewModal(r);
@@ -777,44 +764,24 @@ export const JobCardList: React.FC = () => {
     </Tooltip>
   );
 
-  const actionBtnStyle = (endpoint: string) => {
-    switch (endpoint) {
-      case 'start':
-        return { backgroundColor: '#2563eb', borderColor: '#1d4ed8', color: '#ffffff' };
-      case 'complete':
-        return { backgroundColor: '#059669', borderColor: '#047857', color: '#ffffff' };
-      case 'verify':
-      case 'approve':
-        return { backgroundColor: '#7c3aed', borderColor: '#6d28d9', color: '#ffffff' };
-      case 'reject':
-      case 'resume':
-      case 'submit-for-verification':
-        return { backgroundColor: '#d97706', borderColor: '#b45309', color: '#ffffff' };
-      case 'assign':
-        return { backgroundColor: '#0284c7', borderColor: '#0369a1', color: '#ffffff' };
-      default:
-        return { backgroundColor: '#2563eb', borderColor: '#1d4ed8', color: '#ffffff' };
-    }
-  };
-
   const actionIcon = (endpoint: string) => {
     switch (endpoint) {
       case 'assign':
-        return <TeamOutlined style={{ fontSize: 13, color: '#ffffff' }} />;
+        return <TeamOutlined style={{ fontSize: 13 }} />;
       case 'start':
       case 'resume':
-        return <PlayCircleOutlined style={{ fontSize: 13, color: '#ffffff' }} />;
+        return <PlayCircleOutlined style={{ fontSize: 13 }} />;
       case 'complete':
-        return <CheckCircleOutlined style={{ fontSize: 13, color: '#ffffff' }} />;
+        return <CheckCircleOutlined style={{ fontSize: 13 }} />;
       case 'verify':
       case 'approve':
-        return <AuditOutlined style={{ fontSize: 13, color: '#ffffff' }} />;
+        return <AuditOutlined style={{ fontSize: 13 }} />;
       case 'reject':
-        return <RollbackOutlined style={{ fontSize: 13, color: '#ffffff' }} />;
+        return <RollbackOutlined style={{ fontSize: 13 }} />;
       case 'submit-for-verification':
-        return <PlayCircleOutlined style={{ fontSize: 13, color: '#ffffff' }} />;
+        return <PlayCircleOutlined style={{ fontSize: 13 }} />;
       default:
-        return <PlayCircleOutlined style={{ fontSize: 13, color: '#ffffff' }} />;
+        return <PlayCircleOutlined style={{ fontSize: 13 }} />;
     }
   };
 
@@ -823,21 +790,9 @@ export const JobCardList: React.FC = () => {
       <Tooltip title="Edit Job Card" placement="top">
         <Button
           size="small"
-          icon={<EditOutlined style={{ fontSize: 13, color: 'var(--maint-info-fg)' }} />}
+          className="erp-action-btn act-edit"
+          icon={<EditOutlined style={{ fontSize: 13 }} />}
           aria-label={`Edit Job Card ${r.jobCardNo || ''}`}
-          style={{
-            borderColor: 'var(--maint-info-border)',
-            backgroundColor: 'var(--maint-info-bg)',
-            color: 'var(--maint-info-fg)',
-            width: 28,
-            minWidth: 28,
-            height: 28,
-            padding: 0,
-            borderRadius: 6,
-            display: 'inline-flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
           onClick={(e) => {
             e.stopPropagation();
             setEditModalCard(r);
@@ -852,21 +807,9 @@ export const JobCardList: React.FC = () => {
         <Button
           danger
           size="small"
+          className="erp-action-btn act-delete"
           icon={<DeleteOutlined style={{ fontSize: 13 }} />}
           aria-label={`Delete Job Card ${r.jobCardNo || ''}`}
-          style={{
-            borderColor: 'var(--maint-danger-border)',
-            backgroundColor: 'var(--maint-danger-bg)',
-            color: 'var(--maint-danger-fg)',
-            width: 28,
-            minWidth: 28,
-            height: 28,
-            padding: 0,
-            borderRadius: 6,
-            display: 'inline-flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
           onClick={(e) => {
             e.stopPropagation();
             Modal.confirm({
@@ -898,24 +841,11 @@ export const JobCardList: React.FC = () => {
         {action && (
           <Tooltip title={`${action.label} Job Card`} placement="top">
             <Button
-              className={`jc-action-primary jc-btn-${action.endpoint}`}
+              className={`erp-action-btn jc-action-primary jc-btn-${action.endpoint}`}
               size="small"
-              type="primary"
               loading={actionInProgressId === r.id}
               icon={actionIcon(action.endpoint)}
               aria-label={`${action.label} Job Card ${r.jobCardNo || ''}`}
-              style={{
-                ...actionBtnStyle(action.endpoint),
-                width: 28,
-                minWidth: 28,
-                height: 28,
-                padding: 0,
-                borderRadius: 6,
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.25)',
-              }}
               onClick={(e) => {
                 e.stopPropagation();
                 runQuick(r, action);

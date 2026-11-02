@@ -1244,8 +1244,8 @@
    This page-scoped override restores 7×24px + 6×2px = 180px ≤ 183px
    available — global untouched. ── */
 .user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-actions-group {
-  column-gap: 2px !important;
-  row-gap: 2px !important;
+  column-gap: 3px !important;
+  row-gap: 3px !important;
 }
 
 .user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-actions-group > .ant-space-item {
@@ -1253,9 +1253,10 @@
   padding: 0 !important;
 }
 .user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn {
-  border: 1px solid var(--theme-border, #e2e8f0) !important;
+  border: 1px solid #93c5fd !important;
   border-radius: 6px !important;
   background: transparent !important;
+  color: #0284c7 !important;
   width: 24px !important;
   min-width: 24px !important;
   height: 24px !important;
@@ -1268,46 +1269,94 @@
   transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease !important;
 }
 
-.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="view"] { color: #0ea5e9 !important; }
-.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="photo"] { color: #6366f1 !important; }
-.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="edit"] { color: var(--theme-accent, #4f46e5) !important; }
-.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="roles"] { color: #8b5cf6 !important; }
-.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="division"] { color: #0d9488 !important; }
-.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="reset"] { color: #d97706 !important; }
-.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="deactivate"] { color: #ef4444 !important; }
-.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="activate"] { color: #22c55e !important; }
+/* 1. View (Blue) */
+.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="view"] {
+  border-color: #93c5fd !important; color: #0284c7 !important;
+}
+.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="view"]:hover {
+  background: #0284c7 !important; border-color: #0284c7 !important; color: #ffffff !important;
+}
 
-.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="view"]:hover,
-.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="view"]:focus-visible {
-  background: #0ea5e9 !important; border-color: #0ea5e9 !important; color: #ffffff !important;
+/* 2. Edit (Amber) */
+.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="edit"] {
+  border-color: #fde68a !important; color: #d97706 !important;
 }
-.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="photo"]:hover,
-.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="photo"]:focus-visible {
-  background: #6366f1 !important; border-color: #6366f1 !important; color: #ffffff !important;
-}
-.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="edit"]:hover,
-.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="edit"]:focus-visible {
-  background: var(--theme-accent, #4f46e5) !important; border-color: var(--theme-accent, #4f46e5) !important; color: #ffffff !important;
-}
-.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="roles"]:hover,
-.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="roles"]:focus-visible {
-  background: #8b5cf6 !important; border-color: #8b5cf6 !important; color: #ffffff !important;
-}
-.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="division"]:hover,
-.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="division"]:focus-visible {
-  background: #0d9488 !important; border-color: #0d9488 !important; color: #ffffff !important;
-}
-.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="reset"]:hover,
-.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="reset"]:focus-visible {
+.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="edit"]:hover {
   background: #d97706 !important; border-color: #d97706 !important; color: #ffffff !important;
 }
-.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="deactivate"]:hover,
-.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="deactivate"]:focus-visible {
-  background: #ef4444 !important; border-color: #ef4444 !important; color: #ffffff !important;
+
+/* 3. Photo (Indigo) */
+.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="photo"] {
+  border-color: #c7d2fe !important; color: #4f46e5 !important;
 }
-.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="activate"]:hover,
-.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="activate"]:focus-visible {
-  background: #22c55e !important; border-color: #22c55e !important; color: #ffffff !important;
+.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="photo"]:hover {
+  background: #4f46e5 !important; border-color: #4f46e5 !important; color: #ffffff !important;
+}
+
+/* 4. Roles (Purple) */
+.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="roles"] {
+  border-color: #ddd6fe !important; color: #7c3aed !important;
+}
+.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="roles"]:hover {
+  background: #7c3aed !important; border-color: #7c3aed !important; color: #ffffff !important;
+}
+
+/* 5. Division (Teal) */
+.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="division"] {
+  border-color: #99f6e4 !important; color: #0d9488 !important;
+}
+.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="division"]:hover {
+  background: #0d9488 !important; border-color: #0d9488 !important; color: #ffffff !important;
+}
+
+/* 6. Reset (Orange) */
+.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="reset"] {
+  border-color: #fed7aa !important; color: #ea580c !important;
+}
+.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="reset"]:hover {
+  background: #ea580c !important; border-color: #ea580c !important; color: #ffffff !important;
+}
+
+/* 7. Deactivate (Red) */
+.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="deactivate"] {
+  border-color: #fca5a5 !important; color: #dc2626 !important;
+}
+.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="deactivate"]:hover {
+  background: #dc2626 !important; border-color: #dc2626 !important; color: #ffffff !important;
+}
+
+/* 8. Activate (Green) */
+.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="activate"] {
+  border-color: #86efac !important; color: #16a34a !important;
+}
+.user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="activate"]:hover {
+  background: #16a34a !important; border-color: #16a34a !important; color: #ffffff !important;
+}
+
+/* Dark mode overrides for UM buttons */
+[data-theme="dark"] .user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="view"] {
+  border-color: rgba(56, 189, 248, 0.45) !important; color: #38bdf8 !important;
+}
+[data-theme="dark"] .user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="edit"] {
+  border-color: rgba(251, 191, 36, 0.45) !important; color: #fbbf24 !important;
+}
+[data-theme="dark"] .user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="photo"] {
+  border-color: rgba(129, 140, 248, 0.45) !important; color: #818cf8 !important;
+}
+[data-theme="dark"] .user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="roles"] {
+  border-color: rgba(167, 139, 250, 0.45) !important; color: #a78bfa !important;
+}
+[data-theme="dark"] .user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="division"] {
+  border-color: rgba(45, 212, 191, 0.45) !important; color: #2dd4bf !important;
+}
+[data-theme="dark"] .user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="reset"] {
+  border-color: rgba(251, 146, 60, 0.45) !important; color: #fb923c !important;
+}
+[data-theme="dark"] .user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="deactivate"] {
+  border-color: rgba(248, 113, 113, 0.45) !important; color: #f87171 !important;
+}
+[data-theme="dark"] .user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn[data-action="activate"] {
+  border-color: rgba(74, 222, 128, 0.45) !important; color: #4ade80 !important;
 }
 
 .user-management-container .crystal-table-card .ant-table tbody tr td.ant-table-cell-fix-right .um-action-btn:disabled,

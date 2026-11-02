@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Alert, App as AntApp, Button, Card, Col, Descriptions, Form, Input, Modal, Row, Space, Table, Tabs, Tag, Typography } from 'antd';
-import { PlusOutlined, ReloadOutlined, TeamOutlined, DeleteOutlined, EditOutlined, ToolOutlined } from '@ant-design/icons';
+import { PlusOutlined, ReloadOutlined, TeamOutlined, DeleteOutlined, EditOutlined, EyeOutlined, ToolOutlined } from '@ant-design/icons';
 import apiService from '../../services/api';
 import { EmptyState, LoadingState } from '../../components/shared';
 import { usePermission } from '../../hooks/usePermission';
@@ -149,9 +149,9 @@ export const TeamsList: React.FC = () => {
       title: 'Actions',
       key: 'actions',
       render: (_: any, t: Technician) => can('maintenance.technician.manage') ? (
-        <Space wrap size={4}>
-          <Button size="small" icon={<EditOutlined />} onClick={() => openEditTechnician(t)}>Edit</Button>
-          <Button size="small" danger icon={<DeleteOutlined />} onClick={() => Modal.confirm({ title: 'Deactivate this technician?', onOk: () => deleteTechnician(t.id) })} />
+        <Space wrap size={6}>
+          <Button size="small" className="erp-action-btn act-edit" icon={<EditOutlined />} aria-label="Edit" onClick={() => openEditTechnician(t)} />
+          <Button size="small" danger className="erp-action-btn act-delete" icon={<DeleteOutlined />} aria-label="Delete" onClick={() => Modal.confirm({ title: 'Deactivate this technician?', onOk: () => deleteTechnician(t.id) })} />
         </Space>
       ) : <Typography.Text type="secondary">No access</Typography.Text>,
     },
@@ -166,10 +166,10 @@ export const TeamsList: React.FC = () => {
       title: 'Actions',
       key: 'actions',
       render: (_: any, r: Team) => (
-        <Space wrap size={4}>
-          <Button size="small" onClick={() => viewTeam(r.id)}>View</Button>
+        <Space wrap size={6}>
+          <Button size="small" className="erp-action-btn act-view" icon={<EyeOutlined />} aria-label="View" onClick={() => viewTeam(r.id)} />
           {can('maintenance.team.manage') && (
-            <Button size="small" danger icon={<DeleteOutlined />} onClick={() => Modal.confirm({ title: 'Deactivate this team?', onOk: () => deleteTeam(r.id) })} />
+            <Button size="small" danger className="erp-action-btn act-delete" icon={<DeleteOutlined />} aria-label="Delete" onClick={() => Modal.confirm({ title: 'Deactivate this team?', onOk: () => deleteTeam(r.id) })} />
           )}
         </Space>
       ),

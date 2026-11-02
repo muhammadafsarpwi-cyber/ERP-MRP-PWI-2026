@@ -1,11 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert, Button, Card, Checkbox, Col, DatePicker, Divider, Empty, Modal, Popconfirm, Row, Segmented, Select, Space, Spin, Table, Tag, Tooltip,
-  Typography, message, theme,
+  Input, Typography, message, theme,
 } from 'antd';
 import {
   CheckCircleFilled, DeleteOutlined, FileExcelOutlined, FilePdfOutlined, LeftOutlined, LinkOutlined, PlusOutlined, PrinterOutlined,
-  ReloadOutlined, RightOutlined, SettingOutlined, SyncOutlined,
+  AppstoreOutlined, BorderOutlined, CheckSquareOutlined, ReloadOutlined, RightOutlined, SearchOutlined, SettingOutlined, SyncOutlined,
 } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
 import { jsPDF } from 'jspdf';
@@ -351,6 +351,7 @@ interface ReportRow {
   itemType: string;
   uomCode: string | null;
   openingBalance: number;
+  openingDispatched?: number;
   totalIn: number;
   totalOut: number;
   consumed?: number;
@@ -1043,15 +1044,27 @@ export const mergeChainsByGroups = (rawChains: readonly ChainDef[], groups: read
     }));
 
     const mergedCodes = matched.map((m) => m.fgItemCode || m.key);
-    const nameParts = Array.from(
-      new Set(
-        matched.map((m) => {
-          const clean = m.label.split('—')[0]?.trim() || m.fgItemCode;
-          return clean;
-        }),
-      ),
-    );
-    const combinedLabel = `${nameParts.join(' + ')} — ${mergedCodes.join(' + ')}`;
+    const grpKey = uniqueCodes.join('+');
+    let combinedLabel: string;
+    if (grpKey === 'SPI-FG-SPK-001+SPI-FG-SPK-002') {
+      combinedLabel = '250X17 Inn / Out Spoke Butted__225X17 & CD-250X17 Nipple — SPI-FG-SPK-001 & 002';
+    } else {
+      const nameParts = Array.from(
+        new Set(
+          matched.map((m) => {
+            const clean = m.label.split('—')[0]?.split(' - ')[0]?.trim() || m.fgItemCode;
+            return clean;
+          }),
+        ),
+      );
+      const prefixMatch = mergedCodes[0].match(/^(.*-)([0-9A-Za-z]+)$/);
+      let formattedCodes = mergedCodes.join(' & ');
+      if (prefixMatch && mergedCodes.every((c) => c.startsWith(prefixMatch[1]))) {
+        const leadPrefix = prefixMatch[1];
+        formattedCodes = `${mergedCodes[0]} & ${mergedCodes.slice(1).map((c) => c.slice(leadPrefix.length)).join(' & ')}`;
+      }
+      combinedLabel = `${nameParts.join(' & ')} — ${formattedCodes}`;
+    }
 
     mergedByLeadKey.set(lead.key, {
       ...lead,
@@ -1182,7 +1195,7 @@ export const buildChainGrid = (
         : genericOverride !== undefined
           ? genericOverride
           : isDp
-            ? round4(num(dpRowSource?.openingBalance ?? 0))
+            ? round4(num(dpRowSource?.openingBalance ?? dpParentFgSrc?.openingDispatched ?? 0))
             : round4(num(src?.openingBalance));
 
     return {
@@ -1529,8 +1542,8 @@ export const LETTERHEAD = {
 const PDF_PAGE_W = 841.89;
 const PDF_PAGE_H = 595.28;
 const PDF_MARGIN_X = 28;
-const PDF_RULE_TOP = 90; // bottom of the full letterhead on page 1
-const PDF_RULE_BOTTOM = 44; // bottom of the running header on later pages
+const PDF_RULE_TOP = 52; // bottom of the compact letterhead on page 1
+const PDF_RULE_BOTTOM = 38; // bottom of the running header on later pages
 
 /**
  * §2 — the Item Code / Item Name pair is a SINGLE column on screen and in
@@ -1586,23 +1599,23 @@ const PDF_TABLE_W = PDF_PAGE_W - PDF_MARGIN_X - PDF_MARGIN_X;
  * the exact remainder, guaranteeing the widths total `PDF_TABLE_W`.
  */
 const PDF_W: number[] = [
-  92, // stage — the ruled left margin
-  0, // item — filled below (the one elastic gutter)
-  48, // op balance
-  54, // production
-  48, // sub-total
-  48, // issuance
-  60, // closing pieces
-  28, // uom
-  66, // per piece weight (4 dp, 12pt bold)
+  72, // stage — the ruled left margin
+  145, // item — comfortable stacked cell
+  46, // op balance
+  50, // production
+  46, // sub-total
+  46, // issuance
+  54, // closing pieces
+  24, // uom
+  56, // per piece weight
   48, // total weight
-  42, // today scrap
-  42, // total scrap
-  74, // remarks
+  36, // today scrap — compact
+  36, // total scrap — compact
+  0, // remarks — filled below (elastic gutter taking all remaining width)
 ];
-PDF_W[COL.item] =
+PDF_W[COL.remarks] =
   PDF_TABLE_W -
-  PDF_W.reduce((sum, w, i) => (i === COL.item ? sum : sum + w), 0);
+  PDF_W.reduce((sum, w, i) => (i === COL.remarks ? sum : sum + w), 0);
 
 /** §3 — exports carry the very same full department title the grid shows. */
 const stageLabel = (r: LedgerMetrics): string => departmentName(r);
@@ -1916,6 +1929,8 @@ const ItemWiseProductionLedger: React.FC = () => {
   mergedFgGroupsRef.current = mergedFgGroups;
   const [mergeModalOpen, setMergeModalOpen] = useState(false);
   const [customMergeSelection, setCustomMergeSelection] = useState<string[]>([]);
+  const [selectChainsModalOpen, setSelectChainsModalOpen] = useState(false);
+  const [chainSearchText, setChainSearchText] = useState('');
 
   const [rows, setRows] = useState<ReportRow[]>([]);
   const [chainOpeningOverrides, setChainOpeningOverrides] = useState<Map<string, number>>(new Map());
@@ -2008,6 +2023,17 @@ const ItemWiseProductionLedger: React.FC = () => {
     () => filteredChains.find((c) => c.key === chainKey) ?? filteredChains[0] ?? null,
     [filteredChains, chainKey],
   );
+
+  const filteredChainsModalList = useMemo(() => {
+    if (!chainSearchText.trim()) return filteredChains;
+    const q = chainSearchText.toLowerCase();
+    return filteredChains.filter(
+      (c) =>
+        c.label.toLowerCase().includes(q) ||
+        c.key.toLowerCase().includes(q) ||
+        (c.fgItemCode && c.fgItemCode.toLowerCase().includes(q)),
+    );
+  }, [filteredChains, chainSearchText]);
 
   const selectedDivisionName = useMemo(() => {
     if (selectedDivisionId === 'ALL') return 'All Divisions';
@@ -2481,6 +2507,33 @@ const ItemWiseProductionLedger: React.FC = () => {
               targetRow.packingModeSummary = undefined;
             }
           });
+          // Ensure DP Dispatch Outward pseudo rows are seeded with baseline dispatched balances
+          currentChains.forEach((c) => {
+            c.rows.filter((r) => r.stage === 'DP').forEach((dpR) => {
+              if (!seededDayItems.some((it) => it.itemCode === dpR.itemCode)) {
+                const parentCode = dpR.itemCode.replace(/-DISP$/, '') || c.fgItemCode;
+                const parentRow = seededDayItems.find((it) => it.itemCode === parentCode);
+                const op = round4(num(parentRow?.openingDispatched ?? 0));
+                const out = round4(num(parentRow?.totalOut ?? 0));
+                seededDayItems.push({
+                  itemId: dpR.itemCode,
+                  itemCode: dpR.itemCode,
+                  itemName: dpR.itemLabel || `${dpR.itemCode} Outward Stage`,
+                  itemType: 'FINISHED_GOOD',
+                  uomCode: parentRow?.uomCode ?? 'PCS',
+                  openingBalance: op,
+                  totalIn: out,
+                  totalOut: 0,
+                  scrapOut: 0,
+                  consumed: 0,
+                  produced: out,
+                  closingBalance: round4(op + out),
+                  onHand: round4(op + out),
+                  flow: { source: null, consumers: [], flowStatus: 'CHAIN' },
+                });
+              }
+            });
+          });
           displayRows = seededDayItems;
         } else {
           // ── SEQUENTIAL DAILY ROLLING CHAIN ──
@@ -2566,6 +2619,36 @@ const ItemWiseProductionLedger: React.FC = () => {
               ? seededDayItems
               : (rawDayItemsReportCache.get(d) ?? ensureAllBaselineItems([], i === 0));
             const itemsForDay: ReportRow[] = daySource.map((r) => ({ ...r }));
+
+            // On Day 0 of rolling window, seed DP Outward stages from baseline openingDispatched
+            if (i === 0) {
+              currentChains.forEach((c) => {
+                c.rows.filter((r) => r.stage === 'DP').forEach((dpR) => {
+                  if (!itemsForDay.some((it) => it.itemCode === dpR.itemCode)) {
+                    const parentCode = dpR.itemCode.replace(/-DISP$/, '') || c.fgItemCode;
+                    const parentRow = itemsForDay.find((it) => it.itemCode === parentCode);
+                    const op = round4(num(parentRow?.openingDispatched ?? 0));
+                    const out = round4(num(parentRow?.totalOut ?? 0));
+                    itemsForDay.push({
+                      itemId: dpR.itemCode,
+                      itemCode: dpR.itemCode,
+                      itemName: dpR.itemLabel || `${dpR.itemCode} Outward Stage`,
+                      itemType: 'FINISHED_GOOD',
+                      uomCode: parentRow?.uomCode ?? 'PCS',
+                      openingBalance: op,
+                      totalIn: out,
+                      totalOut: 0,
+                      scrapOut: 0,
+                      consumed: 0,
+                      produced: out,
+                      closingBalance: round4(op + out),
+                      onHand: round4(op + out),
+                      flow: { source: null, consumers: [], flowStatus: 'CHAIN' },
+                    });
+                  }
+                });
+              });
+            }
 
             const prodForDay = dailyProdMap.get(d) ?? new Map<string, number>();
             const splitForDay = dailySplitMap.get(d) ?? new Map<string, DailyPackingSplit>();
@@ -2780,7 +2863,7 @@ const ItemWiseProductionLedger: React.FC = () => {
         // §2 — Item Code sits ON TOP of Item Name inside one cell.
         title: 'Item (Code / Name)',
         key: 'item',
-        width: 200,
+        width: 220,
         // §2 — the ONLY column that stays flush left, header and body alike.
         align: 'left' as const,
         onHeaderCell: () => ({ className: 'iwl-cell-item-head' }),
@@ -2794,17 +2877,39 @@ const ItemWiseProductionLedger: React.FC = () => {
             (row.production > 0 || row.issuance > 0 || row.opBalance > 0 || row.closingPieces > 0)
           );
           return (
-            <div className="iwl-item-stack">
-              <span
+            <div
+              className="iwl-item-stack"
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'flex-start',
+                justifyContent: 'center',
+                gap: 2,
+              }}
+            >
+              <div
                 className={`iwl-item-code ${isDataRow ? 'iwl-item-code--active' : 'iwl-item-code--inactive'}`}
+                style={{
+                  whiteSpace: 'nowrap',
+                  fontWeight: 800,
+                  fontSize: 12.5,
+                  letterSpacing: '0.2px',
+                  display: 'block',
+                }}
               >
                 {row.itemCode}
-              </span>
-              <span
+              </div>
+              <div
                 className={`iwl-item-name ${isDataRow ? 'iwl-item-name--active' : 'iwl-item-name--inactive'}`}
+                style={{
+                  fontSize: 11.5,
+                  wordBreak: 'break-word',
+                  lineHeight: 1.25,
+                  display: 'block',
+                }}
               >
                 {row.itemName}
-              </span>
+              </div>
             </div>
           );
         },
@@ -3108,7 +3213,7 @@ const ItemWiseProductionLedger: React.FC = () => {
               </span>
             );
           }
-          return <span style={{ fontSize: 11.5, fontWeight: 600, color: '#64748b' }}>{v}</span>;
+          return <span style={{ fontSize: 11.5, fontWeight: 600, color: token.colorTextSecondary }}>{v}</span>;
         },
       },
     ],
@@ -3195,11 +3300,46 @@ const ItemWiseProductionLedger: React.FC = () => {
         [],
       ];
       // §1 — excluded chains never reach the workbook.
+      const EXCEL_HEADERS = [
+        'Stage',
+        'Department',
+        'Item Code',
+        'Item Name',
+        'Op Balance',
+        'Production',
+        'Sub-Total',
+        'Issuance',
+        'Closing Pieces',
+        'UoM',
+        'Per Piece Weight (KG)',
+        'Total Weight (KG)',
+        'Today Scrap (KG)',
+        'Total Month Scrap (KG)',
+        'Remarks / Movement',
+      ];
       visibleGrids.forEach((g) => {
         matrix.push([]);
         matrix.push([g.def.label]);
-        matrix.push(EXPORT_HEADERS);
-        g.rows.forEach((r) => matrix.push(exportNumericRow(r)));
+        matrix.push(EXCEL_HEADERS);
+        g.rows.forEach((r) => {
+          matrix.push([
+            r.stage,
+            stageLabel(r),
+            r.itemCode,
+            r.itemName,
+            exportCell(r.opBalance, r.uomCode),
+            exportCell(r.production, r.uomCode),
+            exportCell(r.subTotal, r.uomCode),
+            r.suppressed ? '—' : exportCell(r.issuance, r.uomCode),
+            exportCell(r.closingPieces, r.uomCode),
+            r.uomCode ?? '—',
+            exportCell(r.perPieceWeight, 'KG'),
+            exportCell(r.totalWeight, 'KG'),
+            exportCell(r.scrapToday, r.uomCode),
+            exportCell(r.scrapMonth, r.uomCode),
+            r.remarks ?? '—',
+          ]);
+        });
       });
       // Copy into a fresh ArrayBuffer-backed view so it satisfies BlobPart.
       const bytes = new Uint8Array(buildXlsx(matrix, 'Item-Wise Ledger'));
@@ -3218,32 +3358,43 @@ const ItemWiseProductionLedger: React.FC = () => {
   /* ── §3 corporate letterhead for the PDF sheet ─────────────────────── */
 
   const drawPdfLetterhead = (doc: jsPDF): void => {
+    // Check if on-screen logo image exists to paint in PDF
+    const logoImg = document.querySelector('.iwl-lh-logo') as HTMLImageElement | null;
+    let textStartX = PDF_MARGIN_X;
+    if (logoImg && logoImg.complete && logoImg.naturalWidth > 0) {
+      try {
+        doc.addImage(logoImg, 'PNG', PDF_MARGIN_X, 12, 28, 28);
+        textStartX = PDF_MARGIN_X + 34;
+      } catch {
+        // Continue without image if drawing throws
+      }
+    }
+
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(18);
+    doc.setFontSize(13);
     doc.setTextColor(15, 23, 42);
-    doc.text(LETTERHEAD.company, PDF_MARGIN_X, 34);
+    doc.text(LETTERHEAD.company, textStartX, 24);
 
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9);
+    doc.setFontSize(8);
     doc.setTextColor(91, 100, 114);
-    doc.text(LETTERHEAD.subtitle, PDF_MARGIN_X, 48);
+    doc.text(
+      `${LETTERHEAD.reportTitle} — ${selectedDivisionName || LETTERHEAD.division}`,
+      textStartX,
+      36,
+    );
 
-    const colW = (PDF_PAGE_W - PDF_MARGIN_X * 2) / 3;
-    const meta: [string, string][] = [
-      ['Report Title', LETTERHEAD.reportTitle],
-      ['Selected Division', selectedDivisionName],
-      ['Production Date', endDate],
-    ];
-    meta.forEach(([label, value], i) => {
-      const x = PDF_MARGIN_X + colW * i;
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(6.5);
-      doc.setTextColor(68, 68, 68);
-      doc.text(label.toUpperCase(), x, 64);
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9.5);
-      doc.setTextColor(15, 23, 42);
-      doc.text(value, x, 77);
+    // Right-aligned Date badge & Month Window
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9.5);
+    doc.setTextColor(15, 23, 42);
+    doc.text(`AS-ON: ${endDate}`, PDF_PAGE_W - PDF_MARGIN_X, 24, { align: 'right' });
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(100, 116, 139);
+    doc.text(`Month Window: ${monthFrom} to ${endDate}`, PDF_PAGE_W - PDF_MARGIN_X, 36, {
+      align: 'right',
     });
 
     doc.setDrawColor(15, 23, 42);
@@ -3299,13 +3450,13 @@ const ItemWiseProductionLedger: React.FC = () => {
       visibleGrids.forEach((g) => {
         let startY: number;
         if (placed === 0) {
-          startY = PDF_RULE_TOP + 12;
+          startY = PDF_RULE_TOP + 8;
         } else if (cursor + CHAIN_SLOT > pageBottom) {
           // §2 — no room for a WHOLE chain ⇒ push it to the next page.
           doc.addPage();
           startY = PDF_RULE_BOTTOM + 6;
         } else {
-          startY = cursor + 16;
+          startY = cursor + 14;
         }
 
         autoTable(doc, {
@@ -3321,10 +3472,10 @@ const ItemWiseProductionLedger: React.FC = () => {
                 styles: {
                   halign: 'center',
                   fontStyle: 'bold',
-                  fontSize: 12,
+                  fontSize: 11,
                   fillColor: [255, 255, 255],
                   textColor: [15, 23, 42],
-                  cellPadding: 4,
+                  cellPadding: 3,
                   // One heavy statement rule under the title, no box around it.
                   // §13 — charcoal, the same solid grid ink every other line
                   // in this table now uses.
@@ -3354,13 +3505,13 @@ const ItemWiseProductionLedger: React.FC = () => {
           margin: {
             top: PDF_RULE_BOTTOM + 6,
             right: PDF_MARGIN_X,
-            bottom: 34,
+            bottom: 24,
             left: PDF_MARGIN_X,
           },
           theme: 'grid',
           styles: {
-            fontSize: 9,
-            cellPadding: 3,
+            fontSize: 8,
+            cellPadding: 2,
             overflow: 'linebreak',
             // §2 — one uniform centre alignment across the whole data matrix.
             halign: 'center',
@@ -3442,10 +3593,7 @@ const ItemWiseProductionLedger: React.FC = () => {
             const isNumeric =
               idx !== COL.stage && idx !== COL.item && idx !== COL.uom && idx !== COL.remarks;
             if (isNumeric) {
-              // §4 — NUMERIC SCALE-UP: every figure is set at 12pt bold on
-              // dark black, the same 12pt the sheet uses, so the balances
-              // read at arm's length. The descriptive columns keep 9pt.
-              data.cell.styles.fontSize = 12;
+              data.cell.styles.fontSize = 10;
               data.cell.styles.fontStyle = 'bold';
               data.cell.styles.textColor = [0, 0, 0];
             }
@@ -3457,7 +3605,7 @@ const ItemWiseProductionLedger: React.FC = () => {
               if (isNeg) {
                 data.cell.styles.textColor = [220, 38, 38];
                 data.cell.styles.fillColor = [254, 226, 226];
-                data.cell.styles.fontSize = 13;
+                data.cell.styles.fontSize = 10.5;
               } else {
                 data.cell.styles.textColor = [180, 83, 9];
               }
@@ -3482,22 +3630,28 @@ const ItemWiseProductionLedger: React.FC = () => {
           didDrawCell: (data) => {
             if (data.section !== 'body' || data.column.index !== COL.item) return;
             const cell = data.cell;
-            const [code = '', name = ''] = String(cell.raw ?? '').split('\n');
-            const fs = 9; // the same 9pt the descriptive columns are set at
-            // Identical placement maths to autotable's own top/left-aligned
-            // text, so the stack still starts on the grid's first text line.
-            const x = cell.x + cell.padding('left');
-            const y = cell.y + cell.padding('top') + fs * 0.85;
+            const rawStr = String(cell.raw ?? '');
+            const [code = '', ...nameParts] = rawStr.split('\n');
+            const name = nameParts.join('\n');
+            const fs = 8.5; // compact, readable 8.5pt font
+            const padX = cell.padding('left');
+            const padR = cell.padding('right');
+            const maxW = Math.max(cell.width - padX - padR, 20);
+            const x = cell.x + padX;
+            let y = cell.y + cell.padding('top') + fs * 0.9;
+            // Draw Item Code on line 1 - never broken
             doc.setFont('helvetica', 'bold');
             doc.setFontSize(fs);
             doc.setTextColor(15, 23, 42); // #0f172a — deep corporate navy
             doc.text(code, x, y);
             if (name) {
-              // §13 — ULTRA-BOLD ROYAL BLUE: the description carries the same
-              // 700 weight as the code, and a rich #1e40af that holds on paper.
+              // Draw Item Name wrapped cleanly on line 2 in Corporate Royal Blue
               doc.setFont('helvetica', 'bold');
+              doc.setFontSize(fs - 0.7);
               doc.setTextColor(30, 64, 175); // #1e40af — Corporate Royal Blue
-              doc.text(name, x, y + fs * 1.15);
+              const splitLines = doc.splitTextToSize(name, maxW);
+              y += fs * 1.15;
+              doc.text(splitLines, x, y);
             }
           },
           didDrawPage: () => {
@@ -3522,9 +3676,8 @@ const ItemWiseProductionLedger: React.FC = () => {
   };
 
   const handlePrint = () => {
-    const pageEl = document.querySelector('.iwl-page');
-    if (!pageEl) {
-      window.print();
+    if (visibleGrids.length === 0) {
+      message.warning('No item chain is included in the print output');
       return;
     }
 
@@ -3548,13 +3701,7 @@ const ItemWiseProductionLedger: React.FC = () => {
       return;
     }
 
-    const letterhead = pageEl.querySelector('.iwl-letterhead')?.outerHTML || '';
-    const grids = Array.from(pageEl.querySelectorAll('.iwl-grid:not(.iwl-grid--off)'))
-      .map((g) => g.outerHTML)
-      .join('\n');
-
-    doc.open();
-    doc.write(`
+    const printHtml = `
       <!DOCTYPE html>
       <html>
         <head>
@@ -3562,7 +3709,7 @@ const ItemWiseProductionLedger: React.FC = () => {
           <style>
             @page {
               size: A4 landscape;
-              margin: 7mm 7mm;
+              margin: 5mm 6mm;
             }
             * {
               box-sizing: border-box;
@@ -3573,209 +3720,330 @@ const ItemWiseProductionLedger: React.FC = () => {
               font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
               background: #ffffff !important;
               color: #0f172a !important;
-              padding: 4px;
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
             }
-            .iwl-no-print, .iwl-toolbar, .iwl-chain-check, .ant-alert {
-              display: none !important;
+            .iwl-print-chain {
+              width: 100%;
+              page-break-inside: avoid;
+              break-inside: avoid;
             }
-            .iwl-letterhead {
-              display: table !important;
-              width: 100% !important;
-              border-bottom: 2px solid #0f172a !important;
-              padding-bottom: 8px !important;
-              margin-bottom: 10px !important;
+            .iwl-print-chain + .iwl-print-chain {
+              page-break-before: always;
+              break-before: page;
+              margin-top: 0;
             }
-            .iwl-lh-left {
-              display: table-cell !important;
-              vertical-align: middle !important;
-              width: 70% !important;
+            .iwl-pl-header {
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              border-bottom: 2px solid #0f172a;
+              padding-bottom: 3px;
+              margin-bottom: 5px;
             }
-            .iwl-lh-logo {
-              height: 44px !important;
-              vertical-align: middle !important;
-              margin-right: 12px !important;
+            .iwl-pl-left {
+              display: flex;
+              align-items: center;
+              gap: 10px;
             }
-            .iwl-lh-titles {
-              display: inline-block !important;
-              vertical-align: middle !important;
+            .iwl-pl-company {
+              font-size: 13pt;
+              font-weight: 800;
+              color: #0f172a;
+              line-height: 1.15;
             }
-            .iwl-lh-company {
-              font-size: 15pt !important;
-              font-weight: 800 !important;
-              color: #0f172a !important;
-              line-height: 1.15 !important;
+            .iwl-pl-sub {
+              font-size: 8pt;
+              color: #475569;
+              font-weight: 600;
+              margin-top: 1px;
             }
-            .iwl-lh-subtitle {
-              font-size: 8.5pt !important;
-              color: #475569 !important;
+            .iwl-pl-right {
+              text-align: right;
             }
-            .iwl-lh-details {
-              font-size: 8.5pt !important;
-              color: #334155 !important;
-              margin-top: 2px !important;
+            .iwl-pl-date-badge {
+              font-size: 9.5pt;
+              font-weight: 800;
+              color: #0f172a;
             }
-            .iwl-lh-right {
-              display: table-cell !important;
-              vertical-align: middle !important;
-              text-align: right !important;
-              width: 30% !important;
+            .iwl-pl-meta {
+              font-size: 7.5pt;
+              color: #64748b;
+              margin-top: 1px;
             }
-            .iwl-lh-date-label {
-              font-size: 9pt !important;
-              font-weight: 700 !important;
-              color: #475569 !important;
+            .iwl-pch-banner {
+              text-align: center;
+              margin-bottom: 4px;
+              padding: 2px 6px;
+              background: #f8fafc;
+              border: 1px solid #cbd5e1;
+              border-radius: 4px;
             }
-            .iwl-lh-date-val {
-              font-size: 14pt !important;
-              font-weight: 800 !important;
-              color: #0f172a !important;
+            .iwl-pch-title {
+              font-size: 10pt;
+              font-weight: 800;
+              color: #0f172a;
+              letter-spacing: 0.2px;
             }
-            .iwl-grid {
-              break-inside: avoid !important;
-              page-break-inside: avoid !important;
-              margin-bottom: 12px !important;
+            .iwl-pch-sub {
+              font-size: 8pt;
+              color: #475569;
+              margin-left: 8px;
+              font-weight: 600;
             }
-            .iwl-grid-head {
-              text-align: center !important;
-              margin-bottom: 4px !important;
+            .iwl-p-table {
+              width: 100%;
+              border-collapse: collapse;
+              table-layout: fixed;
+              border: 1px solid #94a3b8;
+              font-size: 8.5pt;
             }
-            .iwl-grid-title {
-              font-size: 12pt !important;
-              font-weight: 800 !important;
-              color: #0f172a !important;
-            }
-            .iwl-grid-sub {
-              font-size: 8pt !important;
-              color: #64748b !important;
-            }
-            .iwl-grid table {
-              width: 100% !important;
-              border-collapse: collapse !important;
-              border: 1px solid #94a3b8 !important;
-              font-size: 11px !important;
-              table-layout: auto !important;
-            }
-            .iwl-grid thead th {
+            .iwl-p-table thead th {
               background: #1e293b !important;
               color: #ffffff !important;
-              font-weight: 800 !important;
-              padding: 4px 6px !important;
-              border: 1px solid #94a3b8 !important;
-              text-align: center !important;
-              font-size: 10.5px !important;
+              font-weight: 800;
+              border: 1px solid #94a3b8;
+              padding: 2.5px 3px;
+              text-align: center;
+              font-size: 8pt;
+              line-height: 1.15;
             }
-            .iwl-grid thead th.iwl-cell-stage-head,
-            .iwl-grid thead th:first-child {
+            .iwl-p-table tbody td {
+              border: 1px solid #94a3b8;
+              padding: 2px 3px;
+              vertical-align: middle;
+              font-size: 8pt;
+              color: #0f172a;
+              line-height: 1.2;
+            }
+            .col-stage {
+              width: 78px;
               text-align: left !important;
-              padding-left: 6px !important;
+              padding-left: 4px !important;
             }
-            .iwl-grid thead th.iwl-cell-item-head {
+            .st-code {
+              font-size: 8.5pt;
+              font-weight: 800;
+              color: #0f172a;
+            }
+            .st-dept {
+              font-size: 7.2pt;
+              font-weight: 600;
+              color: #64748b;
+              white-space: nowrap;
+              overflow: hidden;
+              text-overflow: ellipsis;
+            }
+            .col-item {
+              width: 155px;
               text-align: left !important;
+              padding-left: 4px !important;
             }
-            .iwl-grid tbody td {
-              border: 1px solid #94a3b8 !important;
-              padding: 3px 6px !important;
-              text-align: center !important;
-              color: #0f172a !important;
-              font-size: 11px !important;
-            }
-            .iwl-grid tbody td.iwl-cell-stage,
-            .iwl-grid tbody td:first-child {
-              text-align: left !important;
-              padding-left: 6px !important;
-            }
-            .iwl-grid tbody td.iwl-cell-item {
-              text-align: left !important;
-            }
-            .iwl-stage-stack {
-              display: flex !important;
-              flex-direction: column !important;
-              align-items: flex-start !important;
-              justify-content: center !important;
-              text-align: left !important;
-              gap: 1px !important;
-            }
-            .iwl-stage-code {
-              font-size: 11px !important;
-              font-weight: 800 !important;
-              line-height: 1.1 !important;
-              text-align: left !important;
-            }
-            .iwl-stage-dept-name {
-              font-size: 9.5px !important;
-              font-weight: 700 !important;
-              line-height: 1.1 !important;
-              text-align: left !important;
+            .it-code {
+              font-size: 8.8pt;
+              font-weight: 800;
+              color: #0284c7;
               white-space: nowrap !important;
+              letter-spacing: 0.1px;
             }
-            .iwl-weight-stack {
-              display: flex !important;
-              flex-direction: column !important;
-              align-items: center !important;
-              justify-content: center !important;
-              gap: 0 !important;
+            .it-name {
+              font-size: 7.5pt;
+              font-weight: 600;
+              color: #1e293b;
+              margin-top: 1px;
+              line-height: 1.15;
+              word-break: break-word;
             }
-            .iwl-weight-total {
-              font-size: 11.5px !important;
-              font-weight: 800 !important;
-              color: #0f172a !important;
+            .col-num {
+              text-align: center;
+              font-weight: 700;
+              font-variant-numeric: tabular-nums;
             }
-            .iwl-weight-ppw {
-              font-size: 9.5px !important;
-              font-weight: 600 !important;
-              color: #64748b !important;
+            .col-op {
+              color: #ea580c;
+              font-weight: 800;
+              width: 60px;
             }
-            .iwl-item-code {
-              font-size: 11.5px !important;
-              font-family: monospace;
+            .col-prod {
+              color: #047857;
+              font-weight: 800;
+              width: 60px;
             }
-            .iwl-item-code--active {
-              color: #0369a1 !important;
-              font-weight: 800 !important;
+            .col-sub {
+              width: 60px;
             }
-            .iwl-item-code--inactive {
-              color: #f59e0b !important;
-              font-weight: 600 !important;
+            .col-iss {
+              width: 58px;
             }
-            .iwl-item-name {
-              font-size: 10.5px !important;
+            .col-close {
+              color: #b45309;
+              font-weight: 800;
+              width: 64px;
             }
-            .iwl-item-name--active {
-              color: #1e40af !important;
-              font-weight: 700 !important;
+            .col-close.neg-val {
+              color: #dc2626 !important;
+              background-color: #fee2e2 !important;
             }
-            .iwl-item-name--inactive {
-              color: #d97706 !important;
-              font-weight: 600 !important;
+            .col-uom {
+              width: 28px;
+              text-align: center;
+              font-size: 7.5pt;
+              font-weight: 600;
+              color: #475569;
             }
-            .iwl-cell-prod {
-              color: #047857 !important;
-              font-weight: 800 !important;
+            .iwl-pl-logo {
+              height: 36px;
+              width: auto;
+              object-fit: contain;
+              margin-right: 10px;
             }
-            .iwl-cell-close {
-              color: #b45309 !important;
-              font-weight: 800 !important;
+            .col-weight {
+              width: 68px;
             }
-            .iwl-cell-num {
-              font-weight: 700 !important;
-              font-size: 11.5px !important;
+            .wt-total {
+              font-size: 8pt;
+              font-weight: 800;
+            }
+            .wt-ppw {
+              font-size: 6.8pt;
+              font-weight: 600;
+              color: #64748b;
+            }
+            .col-scrap-group {
+              border-bottom: 1px solid #94a3b8 !important;
+            }
+            .col-scrap-sub {
+              width: 42px !important;
+              font-size: 7.2pt !important;
+              padding: 2px !important;
+            }
+            .col-scrap {
+              width: 42px !important;
+              color: #dc2626;
+              font-weight: 700;
+            }
+            .col-remarks {
+              width: auto !important;
+              text-align: left;
+              font-size: 7.2pt;
+              color: #475569;
+              word-break: break-word;
+              padding-left: 6px !important;
+            }
+            .th-subtext {
+              font-size: 6.8pt;
+              font-weight: 500;
+              opacity: 0.85;
             }
           </style>
         </head>
         <body>
-          <div class="iwl-print-wrapper">
-            ${letterhead}
-            ${grids}
-          </div>
+          ${visibleGrids
+            .map(
+              (g) => `
+            <div class="iwl-print-chain">
+              <div class="iwl-pl-header">
+                <div class="iwl-pl-left">
+                  <img src="${window.location.origin}/logo.png" class="iwl-pl-logo" alt="PWI Logo" />
+                  <div>
+                    <div class="iwl-pl-company">${LETTERHEAD.company}</div>
+                    <div class="iwl-pl-sub">${LETTERHEAD.reportTitle} — ${selectedDivisionName || LETTERHEAD.division}</div>
+                  </div>
+                </div>
+                <div class="iwl-pl-right">
+                  <div class="iwl-pl-date-badge">AS-ON: ${endDate}</div>
+                  <div class="iwl-pl-meta">Month Window: ${monthFrom} to ${endDate}</div>
+                </div>
+              </div>
+
+              <div class="iwl-pch-banner">
+                <span class="iwl-pch-title">${g.def.label}</span>
+                <span class="iwl-pch-sub">(${g.summary.found}/${g.summary.total} stages)</span>
+              </div>
+
+              <table class="iwl-p-table">
+                <colgroup>
+                  <col style="width: 76px;" />
+                  <col style="width: 155px;" />
+                  <col style="width: 60px;" />
+                  <col style="width: 60px;" />
+                  <col style="width: 60px;" />
+                  <col style="width: 58px;" />
+                  <col style="width: 62px;" />
+                  <col style="width: 28px;" />
+                  <col style="width: 66px;" />
+                  <col style="width: 42px;" />
+                  <col style="width: 42px;" />
+                  <col style="width: auto;" />
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th rowspan="2" class="col-stage">Stage</th>
+                    <th rowspan="2" class="col-item">Item (Code / Name)</th>
+                    <th rowspan="2" class="col-op">Op Balance</th>
+                    <th rowspan="2" class="col-prod">Production</th>
+                    <th rowspan="2" class="col-sub">Sub-Total</th>
+                    <th rowspan="2" class="col-iss">Issuance</th>
+                    <th rowspan="2" class="col-close">Closing Pieces</th>
+                    <th rowspan="2" class="col-uom">UoM</th>
+                    <th rowspan="2" class="col-weight">Total Weight<br><span class="th-subtext">(Per Piece Wt)</span></th>
+                    <th colspan="2" class="col-scrap-group">SCRAP — KG</th>
+                    <th rowspan="2" class="col-remarks">Remarks / Movement</th>
+                  </tr>
+                  <tr>
+                    <th class="col-scrap-sub">Today</th>
+                    <th class="col-scrap-sub">Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${g.rows
+                    .map((r) => {
+                      const isNeg = r.closingPieces < 0;
+                      return `
+                      <tr>
+                        <td class="col-stage">
+                          <div class="st-code">${r.stage}</div>
+                          <div class="st-dept">${stageLabel(r)}</div>
+                        </td>
+                        <td class="col-item">
+                          <div class="it-code">${r.itemCode}</div>
+                          <div class="it-name">${r.itemName}</div>
+                        </td>
+                        <td class="col-num col-op">${fmtDisplayQty(r.opBalance, r.uomCode)}</td>
+                        <td class="col-num col-prod">${fmtDisplayQty(r.production, r.uomCode)}</td>
+                        <td class="col-num col-sub">${fmtDisplayQty(r.subTotal, r.uomCode)}</td>
+                        <td class="col-num col-iss">${issuanceCell(r)}</td>
+                        <td class="col-num col-close ${isNeg ? 'neg-val' : ''}">${fmtDisplayQty(r.closingPieces, r.uomCode)}</td>
+                        <td class="col-uom">${r.uomCode || 'PCS'}</td>
+                        <td class="col-num col-weight">
+                          <div class="wt-total">${fmtKg(r.totalWeight)}</div>
+                          <div class="wt-ppw">${fmtPpw(r.perPieceWeight)}</div>
+                        </td>
+                        <td class="col-num col-scrap">${fmtDisplayQty(r.scrapToday, r.uomCode)}</td>
+                        <td class="col-num col-scrap">${fmtDisplayQty(r.scrapMonth, r.uomCode)}</td>
+                        <td class="col-remarks">${r.remarks || '—'}</td>
+                      </tr>
+                    `;
+                    })
+                    .join('')}
+                </tbody>
+              </table>
+            </div>
+          `,
+            )
+            .join('')}
         </body>
       </html>
-    `);
+    `;
+
+    doc.open();
+    doc.write(printHtml);
     doc.close();
 
     setTimeout(() => {
       printFrame?.contentWindow?.focus();
       printFrame?.contentWindow?.print();
-    }, 200);
+    }, 250);
   };
 
   /**
@@ -4804,11 +5072,13 @@ const ItemWiseProductionLedger: React.FC = () => {
             white-space: nowrap !important;
             word-break: normal !important;
             overflow-wrap: normal !important;
+            display: block !important;
           }
           .iwl-grid .iwl-item-name {
             white-space: normal !important;
             word-break: normal !important;
             overflow-wrap: anywhere;
+            display: block !important;
           }
           .iwl-grid .ant-table-tbody > tr:hover > td,
           .iwl-grid .ant-table-tbody > tr:hover > td:not([class*='iwl-cell-']) {
@@ -5023,7 +5293,7 @@ const ItemWiseProductionLedger: React.FC = () => {
                       }}
                     >
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                        <span style={{ fontWeight: 700, fontSize: 13.5, color: '#0f172a' }}>
+                        <span style={{ fontWeight: 700, fontSize: 13.5, color: token.colorText }}>
                           {namePart}
                         </span>
                         {chain?.divisionName && (
@@ -5051,9 +5321,25 @@ const ItemWiseProductionLedger: React.FC = () => {
                 }}
               />
             </div>
-            <Checkbox checked={showAll} onChange={(e) => setShowAll(e.target.checked)}>
-              Show All Item Chains on One Page
-            </Checkbox>
+            <Button
+              icon={<AppstoreOutlined />}
+              onClick={() => setSelectChainsModalOpen(true)}
+              type={showAll ? 'primary' : 'default'}
+              style={{ fontWeight: 500 }}
+            >
+              {showAll
+                ? `Active Chains (${visibleGrids.length}/${filteredChains.length})`
+                : 'Select Chains to View / Print'}
+            </Button>
+            {showAll && (
+              <Button
+                size="small"
+                onClick={() => setShowAll(false)}
+                title="Return to viewing single chain selected in dropdown"
+              >
+                Single Chain View
+              </Button>
+            )}
             <Tooltip title="Merge FG items that share the same Plating / upstream stages (e.g. SPI-FG-SPK-001 + SPI-FG-SPK-002) into a single ledger">
               <Button
                 icon={<LinkOutlined />}
@@ -5540,6 +5826,181 @@ const ItemWiseProductionLedger: React.FC = () => {
                   Merge Selected
                 </Button>
               </Space.Compact>
+            </div>
+          </div>
+        </Modal>
+
+        {/* ── SELECT CHAINS MODAL (POPUP) ──────────────────────────────── */}
+        <Modal
+          title={
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <AppstoreOutlined style={{ color: token.colorPrimary, fontSize: 20 }} />
+              <div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: token.colorText }}>
+                  Select Production Item Chains
+                </div>
+                <div style={{ fontSize: 12, fontWeight: 400, color: token.colorTextSecondary }}>
+                  Select which Finished Good chains appear in ledger view, single-sheet print, and PDF export
+                </div>
+              </div>
+            </div>
+          }
+          open={selectChainsModalOpen}
+          onCancel={() => setSelectChainsModalOpen(false)}
+          width={760}
+          footer={[
+            <Button
+              key="single"
+              onClick={() => {
+                setShowAll(false);
+                setSelectChainsModalOpen(false);
+              }}
+            >
+              Single Dropdown Chain Only
+            </Button>,
+            <Button
+              key="apply"
+              type="primary"
+              onClick={() => {
+                setShowAll(true);
+                setSelectChainsModalOpen(false);
+              }}
+            >
+              Apply & View ({visibleGrids.length} Selected)
+            </Button>,
+          ]}
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <Input
+              placeholder="Search chains by name, code, or description..."
+              prefix={<SearchOutlined style={{ color: token.colorTextSecondary }} />}
+              value={chainSearchText}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setChainSearchText(e.target.value)}
+              allowClear
+              style={{ borderRadius: 6 }}
+            />
+
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: 8,
+                padding: '6px 10px',
+                borderRadius: 6,
+                backgroundColor: token.colorFillAlter,
+                border: `1px solid ${token.colorBorderSecondary}`,
+              }}
+            >
+              <Space size="small">
+                <Button
+                  size="small"
+                  icon={<CheckSquareOutlined />}
+                  onClick={() => {
+                    filteredChains.forEach((c) => setChainExcluded(c.key, false));
+                    setShowAll(true);
+                  }}
+                >
+                  Select All ({filteredChains.length})
+                </Button>
+                <Button
+                  size="small"
+                  icon={<BorderOutlined />}
+                  onClick={() => {
+                    filteredChains.forEach((c) => setChainExcluded(c.key, true));
+                    setShowAll(true);
+                  }}
+                >
+                  Deselect All
+                </Button>
+                <Button
+                  size="small"
+                  onClick={() => {
+                    filteredChains.forEach((c) => setChainExcluded(c.key, !excludedChains[c.key]));
+                    setShowAll(true);
+                  }}
+                >
+                  Invert
+                </Button>
+              </Space>
+
+              <Tag color={visibleGrids.length > 0 ? 'blue' : 'default'} style={{ margin: 0, fontWeight: 600 }}>
+                {visibleGrids.length} of {filteredChains.length} Chains Included
+              </Tag>
+            </div>
+
+            <div
+              style={{
+                maxHeight: 440,
+                overflowY: 'auto',
+                border: `1px solid ${token.colorBorderSecondary}`,
+                borderRadius: 8,
+                padding: 6,
+              }}
+            >
+              {filteredChainsModalList.length === 0 ? (
+                <div style={{ padding: '24px 0', textAlign: 'center', color: token.colorTextSecondary }}>
+                  No item chains match &quot;{chainSearchText}&quot;
+                </div>
+              ) : (
+                filteredChainsModalList.map((c) => {
+                  const isExcluded = Boolean(excludedChains[c.key]);
+                  const isChecked = !isExcluded;
+                  return (
+                    <div
+                      key={c.key}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '9px 12px',
+                        borderRadius: 6,
+                        backgroundColor: isChecked ? token.colorFillAlter : 'transparent',
+                        borderBottom: `1px solid ${token.colorBorderSecondary}`,
+                        cursor: 'pointer',
+                        transition: 'background-color 0.15s ease',
+                      }}
+                      onClick={() => {
+                        setChainExcluded(c.key, isChecked);
+                        setShowAll(true);
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1, minWidth: 0 }}>
+                        <Checkbox
+                          checked={isChecked}
+                          onChange={(e) => {
+                            setChainExcluded(c.key, !e.target.checked);
+                            setShowAll(true);
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          <div
+                            style={{
+                              fontWeight: isChecked ? 600 : 400,
+                              color: token.colorText,
+                              whiteSpace: 'nowrap',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              fontSize: 13,
+                            }}
+                          >
+                            {c.label}
+                          </div>
+                          <div style={{ fontSize: 11.5, color: token.colorTextSecondary, marginTop: 2 }}>
+                            Code: <Text code style={{ fontSize: 11 }}>{c.fgItemCode}</Text>
+                            {c.divisionName && <span style={{ marginLeft: 8 }}>• {c.divisionName}</span>}
+                          </div>
+                        </div>
+                      </div>
+                      <Tag style={{ margin: 0, fontSize: 11, flexShrink: 0 }}>
+                        {c.rows.length} stages
+                      </Tag>
+                    </div>
+                  );
+                })
+              )}
             </div>
           </div>
         </Modal>

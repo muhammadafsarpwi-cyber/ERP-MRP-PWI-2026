@@ -81,9 +81,7 @@ const StoreSettings: React.FC = () => {
       width: 100,
       render: (_: any, record: Store) => (
         canEdit ? (
-          <Button type="link" size="small" icon={<EditOutlined />} onClick={() => handleEdit(record)}>
-            Edit
-          </Button>
+          <Button type="text" size="small" className="erp-action-btn act-edit" icon={<EditOutlined />} aria-label="Edit" onClick={() => handleEdit(record)} />
         ) : null
       ),
     },

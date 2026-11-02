@@ -901,37 +901,40 @@ html[data-theme='dark'] .inv-trace-title,
   background-color: #78716c;
 }
 
-/* Action Buttons Group & Wrapper with Clean Gaps */
+/* Action Buttons Group & Wrapper (Unified Outlined -> Solid Hover Standard via erp-table.css) */
 .inv-actions-wrapper,
 .inv-actions-group {
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
-  gap: 8px !important;
+  gap: 6px !important;
   flex-wrap: nowrap !important;
 }
 
 .inv-action-btn {
-  width: 32px !important;
-  height: 32px !important;
+  width: 28px !important;
+  height: 28px !important;
   border-radius: 6px !important;
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
   cursor: pointer;
-  border: 1px solid rgba(255, 255, 255, 0.16) !important;
+  background: transparent !important;
+  border: 1px solid #93c5fd !important;
   font-size: 13.5px !important;
-  color: #ffffff !important;
-  transition: all 0.18s ease-in-out !important;
+  color: #0d6efd !important;
+  transition: all 0.16s ease-in-out !important;
   padding: 0 !important;
-  margin: 0 2px !important;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.22);
+  margin: 0 1px !important;
+  box-shadow: none;
 }
 
-.inv-action-btn:hover {
-  transform: translateY(-2px) scale(1.08) !important;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35) !important;
-  filter: brightness(1.14);
+.inv-action-btn:not(:disabled):hover {
+  background: #0d6efd !important;
+  border-color: #0d6efd !important;
+  color: #ffffff !important;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 2px 6px rgba(13, 110, 253, 0.28) !important;
 }
 
 .inv-action-btn:disabled {
@@ -942,74 +945,70 @@ html[data-theme='dark'] .inv-trace-title,
 }
 
 .inv-btn-view {
-  background-color: #334155 !important;
+  border-color: #93c5fd !important;
+  color: #0284c7 !important;
 }
-.inv-btn-view:hover {
-  background-color: #475569 !important;
-}
-
-.inv-btn-print {
-  background-color: #475569 !important;
-}
-
-.inv-btn-email {
-  background-color: #d97706 !important;
-}
-
-.inv-btn-wa {
-  background-color: #16a34a !important;
-}
-
-.inv-btn-pay {
-  background-color: #2563eb !important;
-}
-
-.inv-btn-convert {
-  background-color: #059669 !important;
-}
-
-.inv-btn-convert:hover {
-  background-color: #047857 !important;
+.inv-btn-view:not(:disabled):hover {
+  background: #0284c7 !important;
+  border-color: #0284c7 !important;
+  color: #ffffff !important;
 }
 
 .inv-btn-edit {
-  background-color: #f59e0b !important;
+  border-color: #fde68a !important;
+  color: #d97706 !important;
+}
+.inv-btn-edit:not(:disabled):hover {
+  background: #d97706 !important;
+  border-color: #d97706 !important;
+  color: #ffffff !important;
 }
 
-.inv-btn-cancel {
-  background-color: #7c3aed !important;
+.inv-btn-print {
+  border-color: #c7d2fe !important;
+  color: #4f46e5 !important;
+}
+.inv-btn-print:not(:disabled):hover {
+  background: #4f46e5 !important;
+  border-color: #4f46e5 !important;
+  color: #ffffff !important;
 }
 
-.inv-btn-delete {
-  background-color: #dc2626 !important;
-}
-
-.inv-btn-submit {
-  background-color: #2563eb !important;
-}
-.inv-btn-submit:hover {
-  background-color: #1d4ed8 !important;
-}
-
+.inv-btn-wa,
 .inv-btn-approve {
-  background-color: #0891b2 !important;
+  border-color: #86efac !important;
+  color: #16a34a !important;
 }
-.inv-btn-approve:hover {
-  background-color: #0e7490 !important;
-}
-
-.inv-btn-receive {
-  background-color: #d97706 !important;
-}
-.inv-btn-receive:hover {
-  background-color: #b45309 !important;
+.inv-btn-wa:not(:disabled):hover,
+.inv-btn-approve:not(:disabled):hover {
+  background: #16a34a !important;
+  border-color: #16a34a !important;
+  color: #ffffff !important;
 }
 
-.inv-btn-credit {
-  background-color: #7c3aed !important;
+.inv-btn-convert,
+.inv-btn-deliver {
+  border-color: #99f6e4 !important;
+  color: #0d9488 !important;
 }
-.inv-btn-credit:hover {
-  background-color: #6d28d9 !important;
+.inv-btn-convert:not(:disabled):hover,
+.inv-btn-deliver:not(:disabled):hover {
+  background: #0d9488 !important;
+  border-color: #0d9488 !important;
+  color: #ffffff !important;
+}
+
+.inv-btn-delete,
+.inv-btn-cancel {
+  border-color: #fca5a5 !important;
+  color: #dc2626 !important;
+}
+
+.inv-btn-delete:not(:disabled):hover,
+.inv-btn-cancel:not(:disabled):hover {
+  background: #dc2626 !important;
+  border-color: #dc2626 !important;
+  color: #ffffff !important;
 }
 
 /* Dates Cell with Distinct Vertical Gap */

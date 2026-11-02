@@ -406,22 +406,20 @@ html:not([data-theme="dark"]) body .ant-table-tbody > tr:nth-child(odd):not(:hov
 }
 
 [data-theme="dark"] .ant-table-tbody a,
-[data-theme="dark"] .ant-table-tbody .ant-btn-link {
+[data-theme="dark"] .ant-table-tbody .ant-btn-link:not(.ant-btn-icon-only):not(.erp-action-btn) {
   color: var(--theme-accent, #38bdf8) !important;
 }
 
 [data-theme="dark"] .ant-table-tbody a:hover,
-[data-theme="dark"] .ant-table-tbody .ant-btn-link:hover {
+[data-theme="dark"] .ant-table-tbody .ant-btn-link:not(.ant-btn-icon-only):not(.erp-action-btn):hover {
   color: #7dd3fc !important;
 }
 
-[data-theme="dark"] .erp-action-btn,
-[data-theme="dark"] .ant-table-tbody .ant-btn-text {
+[data-theme="dark"] .ant-table-tbody .ant-btn-text:not(.ant-btn-icon-only):not(.erp-action-btn) {
   color: #cbd5e1;
 }
 
-[data-theme="dark"] .erp-action-btn:hover,
-[data-theme="dark"] .ant-table-tbody .ant-btn-text:hover {
+[data-theme="dark"] .ant-table-tbody .ant-btn-text:not(.ant-btn-icon-only):not(.erp-action-btn):hover {
   background: rgba(255, 255, 255, 0.12) !important;
 }
 
@@ -430,7 +428,7 @@ html:not([data-theme="dark"]) body .ant-table-tbody > tr:nth-child(odd):not(:hov
 }
 
 [data-theme="dark"] .ant-table-tbody > tr > td div,
-[data-theme="dark"] .ant-table-tbody > tr > td span:not(.ant-tag):not(.ant-badge) {
+[data-theme="dark"] .ant-table-tbody > tr > td span:not(.ant-tag):not(.ant-badge):not(.anticon) {
   color: #e2e8f0;
 }
 
@@ -576,16 +574,34 @@ html:not([data-theme="dark"]) body .ant-table-tbody > tr:nth-child(odd):not(:hov
   max-width: 100%;
 }
 
-/* ── 7. Unified Action Column Buttons (View: Blue, Edit: Gold/Amber, Delete: Red) ── */
-/* ── 7. Unified Action Column Buttons (View: Blue, Edit: Gold/Amber, WhatsApp: Green, Delete: Red) ── */
+/* ── 7. Unified Action Column Buttons (Single Global Source of Truth) ──
+   Standard across the entire ERP:
+   - Outlined colored border + transparent background + colored icon at rest
+   - Solid colored background + pure white (#ffffff) icon on hover
+   - Distinct semantic color for each action:
+     • View (Eye): Royal Blue (#93c5fd border, #0284c7 icon -> #0284c7 hover)
+     • Edit (Pencil): Warm Amber / Gold (#fde68a border, #d97706 icon -> #d97706 hover)
+     • Delete / Danger (Trash / Close): Crimson Red (#fca5a5 border, #dc2626 icon -> #dc2626 hover)
+     • Print (Printer): Indigo / Violet (#c7d2fe border, #4f46e5 icon -> #4f46e5 hover)
+     • WhatsApp / Approve / Activate (Check / WA): Emerald Green (#86efac border, #16a34a icon -> #16a34a hover)
+     • Send / Convert / Deliver (Send / Swap): Teal / Cyan (#99f6e4 border, #0d9488 icon -> #0d9488 hover)
+     • Copy / Duplicate / Roles (Copy / History): Purple (#ddd6fe border, #7c3aed icon -> #7c3aed hover)
+     • Warning / Reverse / Pause (Pause / Rollback): Dark Orange (#fed7aa border, #ea580c icon -> #ea580c hover)
+   ────────────────────────────────────────────────────────────────────────── */
 .erp-table-actions,
 .erp-table-actions--bordered,
+.erp-col-actions .ant-space,
 .ant-table-cell:last-child .ant-space,
 .ant-table-cell .ant-space,
-.ant-table-cell-actions .ant-space {
+.ant-table-cell-actions .ant-space,
+.inv-actions-wrapper,
+.inv-actions-group,
+.gr-actions-group,
+.po-actions-group,
+.um-actions-group {
   display: inline-flex !important;
   align-items: center !important;
-  gap: 7px !important;
+  gap: 6px !important;
   white-space: nowrap !important;
 }
 
@@ -599,31 +615,12 @@ html:not([data-theme="dark"]) body .ant-table-tbody > tr:nth-child(odd):not(:hov
 /* Fallback margin separation even when size={0} is supplied in React */
 .ant-table-cell:last-child .ant-space > .ant-space-item + .ant-space-item,
 .ant-table-cell .ant-space > .ant-space-item + .ant-space-item {
-  margin-inline-start: 4px !important;
+  margin-inline-start: 2px !important;
 }
 
-.erp-table-actions .ant-btn-icon-only,
-.erp-table-actions--bordered .ant-btn-icon-only,
-.erp-action-btn,
-.ant-table-cell:last-child .ant-space > .ant-space-item > .ant-btn-icon-only,
-.ant-table-cell:last-child .ant-space > .ant-space-item > .ant-btn.erp-action-btn {
-  display: inline-flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  width: 28px !important;
-  min-width: 28px !important;
-  height: 28px !important;
-  padding: 0 !important;
-  font-size: 13px !important;
-  border-radius: 6px !important;
-  margin: 0 1px !important;
-  transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1) !important;
-  box-shadow: none !important;
-}
-
-/* Explicit exemption: Text buttons and link buttons in table cells must NEVER be squished */
-.ant-table-cell .ant-btn-link,
-.ant-table-cell .ant-btn:not(.ant-btn-icon-only):not(.erp-action-btn):not(.jc-action-primary):not(.ant-btn-primary) {
+/* Explicit exemption: Text-only buttons and text link buttons in table cells must NEVER be squished */
+.ant-table-cell .ant-btn-link:not(.ant-btn-icon-only):not(.erp-action-btn),
+.ant-table-cell .ant-btn:not(.ant-btn-icon-only):not(.erp-action-btn):not(.action-btn-square):not(.inv-action-btn):not(.um-action-btn):not(.visitor-action-btn):not(.btn-gr-action-icon):not(.btn-po-action-icon):not(.jc-action-primary):not(.ant-btn-primary) {
   width: auto !important;
   min-width: unset !important;
   height: auto !important;
@@ -634,163 +631,602 @@ html:not([data-theme="dark"]) body .ant-table-tbody > tr:nth-child(odd):not(:hov
   white-space: nowrap !important;
 }
 
-.erp-table-actions .ant-btn .anticon,
-.erp-table-actions--bordered .ant-btn .anticon {
-  font-size: 14px;
-  line-height: 1;
+/* Base geometry for ALL Table Action Icon Buttons */
+.erp-table-actions .ant-btn-icon-only,
+.erp-table-actions--bordered .ant-btn-icon-only,
+.erp-col-actions .ant-btn-icon-only,
+td.ant-table-cell .ant-btn-icon-only,
+.erp-action-btn,
+.action-btn-square,
+.inv-action-btn,
+.um-action-btn,
+.visitor-action-btn,
+.btn-gr-action-icon,
+.btn-po-action-icon {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 28px !important;
+  min-width: 28px !important;
+  height: 28px !important;
+  padding: 0 !important;
+  font-size: 13px !important;
+  border-radius: 6px !important;
+  margin: 0 1px !important;
+  background: transparent !important;
+  border: 1px solid #93c5fd !important;
+  color: #0284c7 !important;
+  box-shadow: none !important;
+  cursor: pointer !important;
+  transition: background-color 0.16s cubic-bezier(0.4, 0, 0.2, 1),
+              border-color 0.16s cubic-bezier(0.4, 0, 0.2, 1),
+              color 0.16s cubic-bezier(0.4, 0, 0.2, 1),
+              transform 0.16s cubic-bezier(0.4, 0, 0.2, 1),
+              box-shadow 0.16s cubic-bezier(0.4, 0, 0.2, 1) !important;
 }
 
-/* 1. View / Details action (Royal Blue Badge) */
+/* Force inner icon & SVG to inherit the button's state color (overrides inline icon colors) */
+.erp-table-actions .ant-btn-icon-only .anticon,
+.erp-table-actions--bordered .ant-btn-icon-only .anticon,
+.erp-col-actions .ant-btn-icon-only .anticon,
+td.ant-table-cell .ant-btn-icon-only .anticon,
+.erp-action-btn .anticon,
+.action-btn-square .anticon,
+.inv-action-btn .anticon,
+.um-action-btn .anticon,
+.visitor-action-btn .anticon,
+.btn-gr-action-icon .anticon,
+.btn-po-action-icon .anticon,
+td.ant-table-cell .ant-btn-icon-only svg,
+.erp-action-btn svg,
+.action-btn-square svg,
+.inv-action-btn svg,
+.um-action-btn svg,
+.visitor-action-btn svg,
+.btn-gr-action-icon svg,
+.btn-po-action-icon svg {
+  font-size: 14px !important;
+  line-height: 1 !important;
+  color: inherit !important;
+  fill: currentColor !important;
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   1. VIEW (Royal / Sky Blue)
+   ────────────────────────────────────────────────────────────────────────── */
 .erp-table-actions .act-view,
 .erp-table-actions--bordered .act-view,
+.erp-action-btn--view,
+.action-btn-view,
+.inv-action-btn.inv-btn-view,
+.visitor-action-btn.visitor-action-blue,
+.btn-gr-action-icon.view,
+.jc-view-btn,
 .erp-table-actions .ant-btn[aria-label*="View" i],
 .erp-table-actions .ant-btn[aria-label*="Detail" i],
-.ant-table-cell .ant-btn-icon-only:has(.anticon-eye) {
-  background: #eff6ff !important;
-  border: 1px solid #bfdbfe !important;
-  color: #1d4ed8 !important;
-}
-.erp-table-actions .act-view:hover,
-.erp-table-actions--bordered .act-view:hover,
-.erp-table-actions .ant-btn[aria-label*="View" i]:hover,
-.erp-table-actions .ant-btn[aria-label*="Detail" i]:hover,
-.ant-table-cell .ant-btn-icon-only:has(.anticon-eye):hover {
-  background: #1d4ed8 !important;
-  border-color: #1d4ed8 !important;
-  color: #ffffff !important;
-  transform: translateY(-1px);
-  box-shadow: 0 2px 5px rgba(29, 78, 216, 0.3) !important;
+td.ant-table-cell .ant-btn-icon-only:has(.anticon-eye) {
+  background: transparent !important;
+  border: 1px solid #93c5fd !important;
+  color: #0284c7 !important;
 }
 
-/* 2. Edit action (Gold / Amber Badge) */
+.erp-table-actions .act-view:not(:disabled):hover,
+.erp-table-actions--bordered .act-view:not(:disabled):hover,
+.erp-action-btn--view:not(:disabled):hover,
+.action-btn-view:not(:disabled):hover,
+.inv-action-btn.inv-btn-view:not(:disabled):hover,
+.visitor-action-btn.visitor-action-blue:not(:disabled):hover,
+.btn-gr-action-icon.view:not(:disabled):hover,
+.jc-view-btn:not(:disabled):hover,
+.erp-table-actions .ant-btn[aria-label*="View" i]:not(:disabled):hover,
+.erp-table-actions .ant-btn[aria-label*="Detail" i]:not(:disabled):hover,
+td.ant-table-cell .ant-btn-icon-only:has(.anticon-eye):not(:disabled):hover {
+  background: #0284c7 !important;
+  border-color: #0284c7 !important;
+  color: #ffffff !important;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(2, 132, 199, 0.28) !important;
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   2. EDIT (Warm Amber / Gold)
+   ────────────────────────────────────────────────────────────────────────── */
 .erp-table-actions .act-edit,
 .erp-table-actions--bordered .act-edit,
+.erp-action-btn--edit,
+.action-btn-edit,
+.inv-action-btn.inv-btn-edit,
+.btn-gr-action-icon.edit,
 .erp-table-actions .ant-btn[aria-label*="Edit" i],
-.ant-table-cell .ant-btn-icon-only:has(.anticon-edit),
-.ant-table-cell .ant-btn-icon-only:has(.anticon-form) {
-  background: #fffbeb !important;
+td.ant-table-cell .ant-btn-icon-only:has(.anticon-edit),
+td.ant-table-cell .ant-btn-icon-only:has(.anticon-form) {
+  background: transparent !important;
   border: 1px solid #fde68a !important;
   color: #d97706 !important;
 }
-.erp-table-actions .act-edit:hover,
-.erp-table-actions--bordered .act-edit:hover,
-.erp-table-actions .ant-btn[aria-label*="Edit" i]:hover,
-.ant-table-cell .ant-btn-icon-only:has(.anticon-edit):hover,
-.ant-table-cell .ant-btn-icon-only:has(.anticon-form):hover {
+
+.erp-table-actions .act-edit:not(:disabled):hover,
+.erp-table-actions--bordered .act-edit:not(:disabled):hover,
+.erp-action-btn--edit:not(:disabled):hover,
+.action-btn-edit:not(:disabled):hover,
+.inv-action-btn.inv-btn-edit:not(:disabled):hover,
+.btn-gr-action-icon.edit:not(:disabled):hover,
+.erp-table-actions .ant-btn[aria-label*="Edit" i]:not(:disabled):hover,
+td.ant-table-cell .ant-btn-icon-only:has(.anticon-edit):not(:disabled):hover,
+td.ant-table-cell .ant-btn-icon-only:has(.anticon-form):not(:disabled):hover {
   background: #d97706 !important;
   border-color: #d97706 !important;
   color: #ffffff !important;
   transform: translateY(-1px);
-  box-shadow: 0 2px 5px rgba(217, 119, 6, 0.3) !important;
+  box-shadow: 0 2px 6px rgba(217, 119, 6, 0.28) !important;
 }
 
-/* 3. WhatsApp / Share action (Emerald Green Badge) */
+/* ──────────────────────────────────────────────────────────────────────────
+   3. PRINT (Indigo / Blue-Violet)
+   ────────────────────────────────────────────────────────────────────────── */
+.erp-table-actions .act-print,
+.erp-action-btn--print,
+.inv-action-btn.inv-btn-print,
+.btn-gr-action-icon.print,
+.erp-table-actions .ant-btn[aria-label*="Print" i],
+td.ant-table-cell .ant-btn-icon-only:has(.anticon-printer) {
+  background: transparent !important;
+  border: 1px solid #c7d2fe !important;
+  color: #4f46e5 !important;
+}
+
+.erp-table-actions .act-print:not(:disabled):hover,
+.erp-action-btn--print:not(:disabled):hover,
+.inv-action-btn.inv-btn-print:not(:disabled):hover,
+.btn-gr-action-icon.print:not(:disabled):hover,
+.erp-table-actions .ant-btn[aria-label*="Print" i]:not(:disabled):hover,
+td.ant-table-cell .ant-btn-icon-only:has(.anticon-printer):not(:disabled):hover {
+  background: #4f46e5 !important;
+  border-color: #4f46e5 !important;
+  color: #ffffff !important;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(79, 70, 229, 0.28) !important;
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   4. WHATSAPP / APPROVE / ACTIVATE / SUCCESS (Emerald Green)
+   ────────────────────────────────────────────────────────────────────────── */
 .erp-table-actions .act-whatsapp,
 .erp-table-actions--bordered .act-whatsapp,
+.erp-action-btn--activate,
+.inv-action-btn.inv-btn-whatsapp,
+.inv-action-btn.inv-btn-wa,
+.inv-action-btn.inv-btn-approve,
+.um-action-btn.um-action-activate,
+.visitor-action-btn.visitor-action-green,
+.visitor-action-btn.visitor-action-teal,
+.btn-gr-action-icon.gatepass,
 .erp-table-actions .ant-btn[aria-label*="WhatsApp" i],
-.ant-table-cell .ant-btn-icon-only:has(.anticon-whats-app) {
-  background: #f0fdf4 !important;
-  border: 1px solid #bbf7d0 !important;
+td.ant-table-cell .ant-btn-icon-only:has(.anticon-whats-app),
+td.ant-table-cell .ant-btn-icon-only:has(.anticon-check-circle),
+td.ant-table-cell .ant-btn-icon-only:has(.anticon-check) {
+  background: transparent !important;
+  border: 1px solid #86efac !important;
   color: #16a34a !important;
 }
-.erp-table-actions .act-whatsapp:hover,
-.erp-table-actions--bordered .act-whatsapp:hover,
-.erp-table-actions .ant-btn[aria-label*="WhatsApp" i]:hover,
-.ant-table-cell .ant-btn-icon-only:has(.anticon-whats-app):hover {
+
+.erp-table-actions .act-whatsapp:not(:disabled):hover,
+.erp-table-actions--bordered .act-whatsapp:not(:disabled):hover,
+.erp-action-btn--activate:not(:disabled):hover,
+.inv-action-btn.inv-btn-whatsapp:not(:disabled):hover,
+.inv-action-btn.inv-btn-wa:not(:disabled):hover,
+.inv-action-btn.inv-btn-approve:not(:disabled):hover,
+.um-action-btn.um-action-activate:not(:disabled):hover,
+.visitor-action-btn.visitor-action-green:not(:disabled):hover,
+.visitor-action-btn.visitor-action-teal:not(:disabled):hover,
+.btn-gr-action-icon.gatepass:not(:disabled):hover,
+.erp-table-actions .ant-btn[aria-label*="WhatsApp" i]:not(:disabled):hover,
+td.ant-table-cell .ant-btn-icon-only:has(.anticon-whats-app):not(:disabled):hover,
+td.ant-table-cell .ant-btn-icon-only:has(.anticon-check-circle):not(:disabled):hover,
+td.ant-table-cell .ant-btn-icon-only:has(.anticon-check):not(:disabled):hover {
   background: #16a34a !important;
   border-color: #16a34a !important;
   color: #ffffff !important;
   transform: translateY(-1px);
-  box-shadow: 0 2px 5px rgba(22, 163, 74, 0.3) !important;
+  box-shadow: 0 2px 6px rgba(22, 163, 74, 0.28) !important;
 }
 
-/* 4. Delete action (Crimson Red Badge) */
+/* ──────────────────────────────────────────────────────────────────────────
+   5. SEND / CONVERT / DELIVER / SHARE (Teal / Cyan)
+   ────────────────────────────────────────────────────────────────────────── */
+.inv-action-btn.inv-btn-deliver,
+.inv-action-btn.inv-btn-Convert,
+.inv-action-btn.inv-btn-convert,
+.inv-action-btn.inv-btn-send,
+.erp-table-actions .ant-btn[aria-label*="Send" i],
+.erp-table-actions .ant-btn[aria-label*="Convert" i],
+td.ant-table-cell .ant-btn-icon-only:has(.anticon-send),
+td.ant-table-cell .ant-btn-icon-only:has(.anticon-swap),
+td.ant-table-cell .ant-btn-icon-only:has(.anticon-share-alt) {
+  background: transparent !important;
+  border: 1px solid #99f6e4 !important;
+  color: #0d9488 !important;
+}
+
+.inv-action-btn.inv-btn-deliver:not(:disabled):hover,
+.inv-action-btn.inv-btn-Convert:not(:disabled):hover,
+.inv-action-btn.inv-btn-convert:not(:disabled):hover,
+.inv-action-btn.inv-btn-send:not(:disabled):hover,
+.erp-table-actions .ant-btn[aria-label*="Send" i]:not(:disabled):hover,
+.erp-table-actions .ant-btn[aria-label*="Convert" i]:not(:disabled):hover,
+td.ant-table-cell .ant-btn-icon-only:has(.anticon-send):not(:disabled):hover,
+td.ant-table-cell .ant-btn-icon-only:has(.anticon-swap):not(:disabled):hover,
+td.ant-table-cell .ant-btn-icon-only:has(.anticon-share-alt):not(:disabled):hover {
+  background: #0d9488 !important;
+  border-color: #0d9488 !important;
+  color: #ffffff !important;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(13, 148, 136, 0.28) !important;
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   6. COPY / DUPLICATE / ROLES / HISTORY (Purple / Violet)
+   ────────────────────────────────────────────────────────────────────────── */
+.erp-action-btn--copy,
+.erp-table-actions .act-copy,
+.erp-table-actions .ant-btn[aria-label*="Copy" i],
+td.ant-table-cell .ant-btn-icon-only:has(.anticon-copy),
+td.ant-table-cell .ant-btn-icon-only:has(.anticon-history) {
+  background: transparent !important;
+  border: 1px solid #ddd6fe !important;
+  color: #7c3aed !important;
+}
+
+.erp-action-btn--copy:not(:disabled):hover,
+.erp-table-actions .act-copy:not(:disabled):hover,
+.erp-table-actions .ant-btn[aria-label*="Copy" i]:not(:disabled):hover,
+td.ant-table-cell .ant-btn-icon-only:has(.anticon-copy):not(:disabled):hover,
+td.ant-table-cell .ant-btn-icon-only:has(.anticon-history):not(:disabled):hover {
+  background: #7c3aed !important;
+  border-color: #7c3aed !important;
+  color: #ffffff !important;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(124, 58, 237, 0.28) !important;
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   7. WARNING / REVERSE / ON-HOLD / PAUSE (Dark Orange / Amber)
+   ────────────────────────────────────────────────────────────────────────── */
+.erp-action-btn--deactivate,
+.um-action-btn.um-action-deactivate,
+.visitor-action-btn.visitor-action-amber,
+.visitor-action-btn.visitor-action-orange,
+.btn-gr-action-icon.reverse,
+td.ant-table-cell .ant-btn-icon-only:has(.anticon-pause-circle),
+td.ant-table-cell .ant-btn-icon-only:has(.anticon-stop),
+td.ant-table-cell .ant-btn-icon-only:has(.anticon-rollback),
+td.ant-table-cell .ant-btn-icon-only:has(.anticon-undo) {
+  background: transparent !important;
+  border: 1px solid #fed7aa !important;
+  color: #ea580c !important;
+}
+
+.erp-action-btn--deactivate:not(:disabled):hover,
+.um-action-btn.um-action-deactivate:not(:disabled):hover,
+.visitor-action-btn.visitor-action-amber:not(:disabled):hover,
+.visitor-action-btn.visitor-action-orange:not(:disabled):hover,
+.btn-gr-action-icon.reverse:not(:disabled):hover,
+td.ant-table-cell .ant-btn-icon-only:has(.anticon-pause-circle):not(:disabled):hover,
+td.ant-table-cell .ant-btn-icon-only:has(.anticon-stop):not(:disabled):hover,
+td.ant-table-cell .ant-btn-icon-only:has(.anticon-rollback):not(:disabled):hover,
+td.ant-table-cell .ant-btn-icon-only:has(.anticon-undo):not(:disabled):hover {
+  background: #ea580c !important;
+  border-color: #ea580c !important;
+  color: #ffffff !important;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(234, 88, 12, 0.28) !important;
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   8. DELETE / DANGER / TRASH / REJECT (Crimson Red)
+   ────────────────────────────────────────────────────────────────────────── */
 .erp-table-actions .act-delete,
 .erp-table-actions--bordered .act-delete,
 .erp-table-actions .act-delete.ant-btn-dangerous,
 .erp-table-actions .ant-btn-icon-only.ant-btn-dangerous,
 .erp-table-actions .ant-btn[aria-label*="Delete" i],
-.ant-table-cell .ant-btn-icon-only.ant-btn-dangerous,
-.ant-table-cell .ant-btn-icon-only:has(.anticon-delete) {
-  background: #fef2f2 !important;
-  border: 1px solid #fecaca !important;
+.erp-table-actions .ant-btn[aria-label*="Remove" i],
+.erp-action-btn--delete,
+.action-btn-delete,
+.inv-action-btn.inv-btn-delete,
+.inv-action-btn.inv-btn-cancel,
+.um-action-btn.um-action-delete,
+.visitor-action-btn.visitor-action-red,
+.btn-gr-action-icon.danger,
+.btn-gr-action-icon.delete,
+.btn-po-action-icon.delete,
+td.ant-table-cell .ant-btn-icon-only.ant-btn-dangerous,
+td.ant-table-cell .ant-btn-icon-only:has(.anticon-delete),
+td.ant-table-cell .ant-btn-icon-only:has(.anticon-close-circle) {
+  background: transparent !important;
+  border: 1px solid #fca5a5 !important;
   color: #dc2626 !important;
 }
-.erp-table-actions .act-delete:hover,
-.erp-table-actions--bordered .act-delete:hover,
-.erp-table-actions .act-delete.ant-btn-dangerous:hover,
-.erp-table-actions .ant-btn-icon-only.ant-btn-dangerous:hover,
-.erp-table-actions .ant-btn[aria-label*="Delete" i]:hover,
-.ant-table-cell .ant-btn-icon-only.ant-btn-dangerous:hover,
-.ant-table-cell .ant-btn-icon-only:has(.anticon-delete):hover {
+
+.erp-table-actions .act-delete:not(:disabled):hover,
+.erp-table-actions--bordered .act-delete:not(:disabled):hover,
+.erp-table-actions .act-delete.ant-btn-dangerous:not(:disabled):hover,
+.erp-table-actions .ant-btn-icon-only.ant-btn-dangerous:not(:disabled):hover,
+.erp-table-actions .ant-btn[aria-label*="Delete" i]:not(:disabled):hover,
+.erp-table-actions .ant-btn[aria-label*="Remove" i]:not(:disabled):hover,
+.erp-action-btn--delete:not(:disabled):hover,
+.action-btn-delete:not(:disabled):hover,
+.inv-action-btn.inv-btn-delete:not(:disabled):hover,
+.inv-action-btn.inv-btn-cancel:not(:disabled):hover,
+.um-action-btn.um-action-delete:not(:disabled):hover,
+.visitor-action-btn.visitor-action-red:not(:disabled):hover,
+.btn-gr-action-icon.danger:not(:disabled):hover,
+.btn-gr-action-icon.delete:not(:disabled):hover,
+.btn-po-action-icon.delete:not(:disabled):hover,
+td.ant-table-cell .ant-btn-icon-only.ant-btn-dangerous:not(:disabled):hover,
+td.ant-table-cell .ant-btn-icon-only:has(.anticon-delete):not(:disabled):hover,
+td.ant-table-cell .ant-btn-icon-only:has(.anticon-close-circle):not(:disabled):hover {
   background: #dc2626 !important;
   border-color: #dc2626 !important;
   color: #ffffff !important;
   transform: translateY(-1px);
-  box-shadow: 0 2px 5px rgba(220, 38, 38, 0.3) !important;
+  box-shadow: 0 2px 6px rgba(220, 38, 38, 0.28) !important;
 }
 
-/* ── Dark Mode Action Button Badges (Clean, sophisticated, translucent, no glaring white pills) ── */
+/* ──────────────────────────────────────────────────────────────────────────
+   9. DEFAULT / UNCLASSIFIED ICON ACTION BUTTONS (Vibrant Sky Blue Fallback)
+   ────────────────────────────────────────────────────────────────────────── */
+.erp-table-actions .act-default,
+.erp-table-actions .ant-btn-icon-only:not(.act-edit):not(.act-delete):not(.act-view):not(.act-whatsapp):not(.act-print):not(.act-copy):not(.ant-btn-dangerous),
+.erp-col-actions .ant-btn-icon-only:not(.act-edit):not(.act-delete):not(.act-view):not(.act-whatsapp):not(.act-print):not(.act-copy):not(.ant-btn-dangerous),
+td.ant-table-cell .ant-btn-icon-only:not(.act-edit):not(.act-delete):not(.act-view):not(.act-whatsapp):not(.act-print):not(.act-copy):not(.ant-btn-dangerous) {
+  background: transparent !important;
+  border: 1px solid #93c5fd !important;
+  color: #0284c7 !important;
+}
+
+.erp-table-actions .act-default:not(:disabled):hover,
+.erp-table-actions .ant-btn-icon-only:not(.act-edit):not(.act-delete):not(.act-view):not(.act-whatsapp):not(.act-print):not(.act-copy):not(.ant-btn-dangerous):not(:disabled):hover,
+.erp-col-actions .ant-btn-icon-only:not(.act-edit):not(.act-delete):not(.act-view):not(.act-whatsapp):not(.act-print):not(.act-copy):not(.ant-btn-dangerous):not(:disabled):hover,
+td.ant-table-cell .ant-btn-icon-only:not(.act-edit):not(.act-delete):not(.act-view):not(.act-whatsapp):not(.act-print):not(.act-copy):not(.ant-btn-dangerous):not(:disabled):hover {
+  background: #0284c7 !important;
+  border-color: #0284c7 !important;
+  color: #ffffff !important;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(2, 132, 199, 0.28) !important;
+}
+
+/* Disabled state for table action buttons */
+td.ant-table-cell .ant-btn-icon-only:disabled,
+td.ant-table-cell .ant-btn-icon-only.ant-btn-disabled,
+.erp-action-btn:disabled,
+.erp-action-btn.ant-btn-disabled,
+.inv-action-btn:disabled,
+.um-action-btn:disabled {
+  opacity: 0.4 !important;
+  cursor: not-allowed !important;
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+/* ==========================================================================
+   Dark Mode Outlines & Hover Fills (Distinct Semantic Palette)
+   ========================================================================== */
+/* View (Blue in Dark Mode) */
 [data-theme="dark"] .erp-table-actions .act-view,
 [data-theme="dark"] .erp-table-actions--bordered .act-view,
-[data-theme="dark"] .ant-table-cell .ant-btn-icon-only:has(.anticon-eye) {
-  background: rgba(59, 130, 246, 0.16) !important;
-  border: 1px solid rgba(59, 130, 246, 0.35) !important;
-  color: #60a5fa !important;
+[data-theme="dark"] .erp-action-btn--view,
+[data-theme="dark"] .action-btn-view,
+[data-theme="dark"] .inv-action-btn.inv-btn-view,
+[data-theme="dark"] .visitor-action-btn.visitor-action-blue,
+[data-theme="dark"] .btn-gr-action-icon.view,
+[data-theme="dark"] .jc-view-btn,
+[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-eye) {
+  background: transparent !important;
+  border: 1px solid rgba(56, 189, 248, 0.45) !important;
+  color: #38bdf8 !important;
 }
-[data-theme="dark"] .erp-table-actions .act-view:hover,
-[data-theme="dark"] .erp-table-actions--bordered .act-view:hover,
-[data-theme="dark"] .ant-table-cell .ant-btn-icon-only:has(.anticon-eye):hover {
-  background: #2563eb !important;
-  border-color: #2563eb !important;
+[data-theme="dark"] .erp-table-actions .act-view:not(:disabled):hover,
+[data-theme="dark"] .erp-table-actions--bordered .act-view:not(:disabled):hover,
+[data-theme="dark"] .erp-action-btn--view:not(:disabled):hover,
+[data-theme="dark"] .action-btn-view:not(:disabled):hover,
+[data-theme="dark"] .inv-action-btn.inv-btn-view:not(:disabled):hover,
+[data-theme="dark"] .visitor-action-btn.visitor-action-blue:not(:disabled):hover,
+[data-theme="dark"] .btn-gr-action-icon.view:not(:disabled):hover,
+[data-theme="dark"] .jc-view-btn:not(:disabled):hover,
+[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-eye):not(:disabled):hover {
+  background: #0284c7 !important;
+  border-color: #0284c7 !important;
   color: #ffffff !important;
 }
 
+/* Edit (Amber / Gold in Dark Mode) */
 [data-theme="dark"] .erp-table-actions .act-edit,
 [data-theme="dark"] .erp-table-actions--bordered .act-edit,
-[data-theme="dark"] .ant-table-cell .ant-btn-icon-only:has(.anticon-edit),
-[data-theme="dark"] .ant-table-cell .ant-btn-icon-only:has(.anticon-form) {
-  background: rgba(245, 158, 11, 0.16) !important;
-  border: 1px solid rgba(245, 158, 11, 0.35) !important;
+[data-theme="dark"] .erp-action-btn--edit,
+[data-theme="dark"] .action-btn-edit,
+[data-theme="dark"] .inv-action-btn.inv-btn-edit,
+[data-theme="dark"] .btn-gr-action-icon.edit,
+[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-edit),
+[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-form) {
+  background: transparent !important;
+  border: 1px solid rgba(251, 191, 36, 0.45) !important;
   color: #fbbf24 !important;
 }
-[data-theme="dark"] .erp-table-actions .act-edit:hover,
-[data-theme="dark"] .erp-table-actions--bordered .act-edit:hover,
-[data-theme="dark"] .ant-table-cell .ant-btn-icon-only:has(.anticon-edit):hover,
-[data-theme="dark"] .ant-table-cell .ant-btn-icon-only:has(.anticon-form):hover {
+[data-theme="dark"] .erp-table-actions .act-edit:not(:disabled):hover,
+[data-theme="dark"] .erp-table-actions--bordered .act-edit:not(:disabled):hover,
+[data-theme="dark"] .erp-action-btn--edit:not(:disabled):hover,
+[data-theme="dark"] .action-btn-edit:not(:disabled):hover,
+[data-theme="dark"] .inv-action-btn.inv-btn-edit:not(:disabled):hover,
+[data-theme="dark"] .btn-gr-action-icon.edit:not(:disabled):hover,
+[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-edit):not(:disabled):hover,
+[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-form):not(:disabled):hover {
   background: #d97706 !important;
   border-color: #d97706 !important;
   color: #ffffff !important;
 }
 
+/* Print (Indigo in Dark Mode) */
+[data-theme="dark"] .erp-table-actions .act-print,
+[data-theme="dark"] .erp-action-btn--print,
+[data-theme="dark"] .inv-action-btn.inv-btn-print,
+[data-theme="dark"] .btn-gr-action-icon.print,
+[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-printer) {
+  background: transparent !important;
+  border: 1px solid rgba(129, 140, 248, 0.45) !important;
+  color: #818cf8 !important;
+}
+[data-theme="dark"] .erp-table-actions .act-print:not(:disabled):hover,
+[data-theme="dark"] .erp-action-btn--print:not(:disabled):hover,
+[data-theme="dark"] .inv-action-btn.inv-btn-print:not(:disabled):hover,
+[data-theme="dark"] .btn-gr-action-icon.print:not(:disabled):hover,
+[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-printer):not(:disabled):hover {
+  background: #4f46e5 !important;
+  border-color: #4f46e5 !important;
+  color: #ffffff !important;
+}
+
+/* WhatsApp / Approve / Activate (Green in Dark Mode) */
 [data-theme="dark"] .erp-table-actions .act-whatsapp,
 [data-theme="dark"] .erp-table-actions--bordered .act-whatsapp,
-[data-theme="dark"] .ant-table-cell .ant-btn-icon-only:has(.anticon-whats-app) {
-  background: rgba(34, 197, 94, 0.16) !important;
-  border: 1px solid rgba(34, 197, 94, 0.35) !important;
+[data-theme="dark"] .erp-action-btn--activate,
+[data-theme="dark"] .inv-action-btn.inv-btn-whatsapp,
+[data-theme="dark"] .inv-action-btn.inv-btn-wa,
+[data-theme="dark"] .inv-action-btn.inv-btn-approve,
+[data-theme="dark"] .um-action-btn.um-action-activate,
+[data-theme="dark"] .visitor-action-btn.visitor-action-green,
+[data-theme="dark"] .visitor-action-btn.visitor-action-teal,
+[data-theme="dark"] .btn-gr-action-icon.gatepass,
+[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-whats-app),
+[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-check-circle),
+[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-check) {
+  background: transparent !important;
+  border: 1px solid rgba(74, 222, 128, 0.45) !important;
   color: #4ade80 !important;
 }
-[data-theme="dark"] .erp-table-actions .act-whatsapp:hover,
-[data-theme="dark"] .erp-table-actions--bordered .act-whatsapp:hover,
-[data-theme="dark"] .ant-table-cell .ant-btn-icon-only:has(.anticon-whats-app):hover {
+[data-theme="dark"] .erp-table-actions .act-whatsapp:not(:disabled):hover,
+[data-theme="dark"] .erp-table-actions--bordered .act-whatsapp:not(:disabled):hover,
+[data-theme="dark"] .erp-action-btn--activate:not(:disabled):hover,
+[data-theme="dark"] .inv-action-btn.inv-btn-whatsapp:not(:disabled):hover,
+[data-theme="dark"] .inv-action-btn.inv-btn-wa:not(:disabled):hover,
+[data-theme="dark"] .inv-action-btn.inv-btn-approve:not(:disabled):hover,
+[data-theme="dark"] .um-action-btn.um-action-activate:not(:disabled):hover,
+[data-theme="dark"] .visitor-action-btn.visitor-action-green:not(:disabled):hover,
+[data-theme="dark"] .visitor-action-btn.visitor-action-teal:not(:disabled):hover,
+[data-theme="dark"] .btn-gr-action-icon.gatepass:not(:disabled):hover,
+[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-whats-app):not(:disabled):hover,
+[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-check-circle):not(:disabled):hover,
+[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-check):not(:disabled):hover {
   background: #16a34a !important;
   border-color: #16a34a !important;
   color: #ffffff !important;
 }
 
+/* Send / Convert / Deliver (Teal in Dark Mode) */
+[data-theme="dark"] .inv-action-btn.inv-btn-deliver,
+[data-theme="dark"] .inv-action-btn.inv-btn-Convert,
+[data-theme="dark"] .inv-action-btn.inv-btn-convert,
+[data-theme="dark"] .inv-action-btn.inv-btn-send,
+[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-send),
+[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-swap),
+[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-share-alt) {
+  background: transparent !important;
+  border: 1px solid rgba(45, 212, 191, 0.45) !important;
+  color: #2dd4bf !important;
+}
+[data-theme="dark"] .inv-action-btn.inv-btn-deliver:not(:disabled):hover,
+[data-theme="dark"] .inv-action-btn.inv-btn-Convert:not(:disabled):hover,
+[data-theme="dark"] .inv-action-btn.inv-btn-convert:not(:disabled):hover,
+[data-theme="dark"] .inv-action-btn.inv-btn-send:not(:disabled):hover,
+[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-send):not(:disabled):hover,
+[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-swap):not(:disabled):hover,
+[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-share-alt):not(:disabled):hover {
+  background: #0d9488 !important;
+  border-color: #0d9488 !important;
+  color: #ffffff !important;
+}
+
+/* Copy / Duplicate / Roles / History (Purple in Dark Mode) */
+[data-theme="dark"] .erp-action-btn--copy,
+[data-theme="dark"] .erp-table-actions .act-copy,
+[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-copy),
+[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-history) {
+  background: transparent !important;
+  border: 1px solid rgba(167, 139, 250, 0.45) !important;
+  color: #a78bfa !important;
+}
+[data-theme="dark"] .erp-action-btn--copy:not(:disabled):hover,
+[data-theme="dark"] .erp-table-actions .act-copy:not(:disabled):hover,
+[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-copy):not(:disabled):hover,
+[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-history):not(:disabled):hover {
+  background: #7c3aed !important;
+  border-color: #7c3aed !important;
+  color: #ffffff !important;
+}
+
+/* Warning / Reverse / On-Hold / Pause (Orange in Dark Mode) */
+[data-theme="dark"] .erp-action-btn--deactivate,
+[data-theme="dark"] .um-action-btn.um-action-deactivate,
+[data-theme="dark"] .visitor-action-btn.visitor-action-amber,
+[data-theme="dark"] .visitor-action-btn.visitor-action-orange,
+[data-theme="dark"] .btn-gr-action-icon.reverse,
+[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-pause-circle),
+[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-stop),
+[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-rollback),
+[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-undo) {
+  background: transparent !important;
+  border: 1px solid rgba(251, 146, 60, 0.45) !important;
+  color: #fb923c !important;
+}
+[data-theme="dark"] .erp-action-btn--deactivate:not(:disabled):hover,
+[data-theme="dark"] .um-action-btn.um-action-deactivate:not(:disabled):hover,
+[data-theme="dark"] .visitor-action-btn.visitor-action-amber:not(:disabled):hover,
+[data-theme="dark"] .visitor-action-btn.visitor-action-orange:not(:disabled):hover,
+[data-theme="dark"] .btn-gr-action-icon.reverse:not(:disabled):hover,
+[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-pause-circle):not(:disabled):hover,
+[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-stop):not(:disabled):hover,
+[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-rollback):not(:disabled):hover,
+[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-undo):not(:disabled):hover {
+  background: #ea580c !important;
+  border-color: #ea580c !important;
+  color: #ffffff !important;
+}
+
+/* Delete / Danger / Trash / Reject (Red in Dark Mode) */
 [data-theme="dark"] .erp-table-actions .act-delete,
 [data-theme="dark"] .erp-table-actions--bordered .act-delete,
 [data-theme="dark"] .erp-table-actions .ant-btn-icon-only.ant-btn-dangerous,
-[data-theme="dark"] .ant-table-cell .ant-btn-icon-only.ant-btn-dangerous,
-[data-theme="dark"] .ant-table-cell .ant-btn-icon-only:has(.anticon-delete) {
-  background: rgba(239, 68, 68, 0.16) !important;
-  border: 1px solid rgba(239, 68, 68, 0.35) !important;
+[data-theme="dark"] .erp-action-btn--delete,
+[data-theme="dark"] .action-btn-delete,
+[data-theme="dark"] .inv-action-btn.inv-btn-delete,
+[data-theme="dark"] .inv-action-btn.inv-btn-cancel,
+[data-theme="dark"] .um-action-btn.um-action-delete,
+[data-theme="dark"] .visitor-action-btn.visitor-action-red,
+[data-theme="dark"] .btn-gr-action-icon.danger,
+[data-theme="dark"] .btn-gr-action-icon.delete,
+[data-theme="dark"] .btn-po-action-icon.delete,
+[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only.ant-btn-dangerous,
+[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-delete),
+[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-close-circle) {
+  background: transparent !important;
+  border: 1px solid rgba(248, 113, 113, 0.45) !important;
   color: #f87171 !important;
 }
-[data-theme="dark"] .erp-table-actions .act-delete:hover,
-[data-theme="dark"] .erp-table-actions--bordered .act-delete:hover,
-[data-theme="dark"] .ant-table-cell .ant-btn-icon-only.ant-btn-dangerous:hover,
-[data-theme="dark"] .ant-table-cell .ant-btn-icon-only:has(.anticon-delete):hover {
+[data-theme="dark"] .erp-table-actions .act-delete:not(:disabled):hover,
+[data-theme="dark"] .erp-table-actions--bordered .act-delete:not(:disabled):hover,
+[data-theme="dark"] .erp-table-actions .ant-btn-icon-only.ant-btn-dangerous:not(:disabled):hover,
+[data-theme="dark"] .erp-action-btn--delete:not(:disabled):hover,
+[data-theme="dark"] .action-btn-delete:not(:disabled):hover,
+[data-theme="dark"] .inv-action-btn.inv-btn-delete:not(:disabled):hover,
+[data-theme="dark"] .inv-action-btn.inv-btn-cancel:not(:disabled):hover,
+[data-theme="dark"] .um-action-btn.um-action-delete:not(:disabled):hover,
+[data-theme="dark"] .visitor-action-btn.visitor-action-red:not(:disabled):hover,
+[data-theme="dark"] .btn-gr-action-icon.danger:not(:disabled):hover,
+[data-theme="dark"] .btn-gr-action-icon.delete:not(:disabled):hover,
+[data-theme="dark"] .btn-po-action-icon.delete:not(:disabled):hover,
+[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only.ant-btn-dangerous:not(:disabled):hover,
+[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-delete):not(:disabled):hover,
+[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-close-circle):not(:disabled):hover {
   background: #dc2626 !important;
   border-color: #dc2626 !important;
   color: #ffffff !important;
@@ -1383,90 +1819,7 @@ html:not([data-theme="dark"]) body .ant-table-tbody > tr:nth-child(odd):not(:hov
   box-shadow: -4px 0 8px -2px rgba(0, 0, 0, 0.35) !important;
 }
 
-/* ── 15. Premium Action Micro-Buttons ── */
-.erp-action-btn {
-  display: inline-flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  width: 28px !important;
-  height: 28px !important;
-  padding: 0 !important;
-  border-radius: 6px !important;
-  font-size: 13px !important;
-  cursor: pointer !important;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
-}
-
-.erp-action-btn:hover {
-  transform: translateY(-1px) scale(1.08) !important;
-  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.12) !important;
-}
-
-.erp-action-btn--view {
-  background: rgba(22, 119, 255, 0.08) !important;
-  color: #1677ff !important;
-  border: 1px solid rgba(22, 119, 255, 0.25) !important;
-}
-.erp-action-btn--view:hover {
-  background: #1677ff !important;
-  color: #ffffff !important;
-  border-color: #1677ff !important;
-}
-
-.erp-action-btn--edit {
-  background: rgba(114, 46, 209, 0.08) !important;
-  color: #722ed1 !important;
-  border: 1px solid rgba(114, 46, 209, 0.25) !important;
-}
-.erp-action-btn--edit:hover {
-  background: #722ed1 !important;
-  color: #ffffff !important;
-  border-color: #722ed1 !important;
-}
-
-.erp-action-btn--copy {
-  background: rgba(13, 148, 136, 0.08) !important;
-  color: #0d9488 !important;
-  border: 1px solid rgba(13, 148, 136, 0.25) !important;
-}
-.erp-action-btn--copy:hover {
-  background: #0d9488 !important;
-  color: #ffffff !important;
-  border-color: #0d9488 !important;
-}
-
-.erp-action-btn--deactivate {
-  background: rgba(250, 140, 22, 0.08) !important;
-  color: #fa8c16 !important;
-  border: 1px solid rgba(250, 140, 22, 0.25) !important;
-}
-.erp-action-btn--deactivate:hover {
-  background: #fa8c16 !important;
-  color: #ffffff !important;
-  border-color: #fa8c16 !important;
-}
-
-.erp-action-btn--activate {
-  background: rgba(82, 196, 26, 0.08) !important;
-  color: #52c41a !important;
-  border: 1px solid rgba(82, 196, 26, 0.25) !important;
-}
-.erp-action-btn--activate:hover {
-  background: #52c41a !important;
-  color: #ffffff !important;
-  border-color: #52c41a !important;
-}
-
-.erp-action-btn--delete {
-  background: rgba(255, 77, 79, 0.08) !important;
-  color: #ff4d4f !important;
-  border: 1px solid rgba(255, 77, 79, 0.25) !important;
-}
-.erp-action-btn--delete:hover {
-  background: #ff4d4f !important;
-  color: #ffffff !important;
-  border-color: #ff4d4f !important;
-}
+/* ── 15. Premium Action Micro-Buttons (Consolidated into Section 7 Unified System) ── */
 
 /* ============================================================================
    16. Universal Mobile-First Compact & Dense Table System
@@ -1536,7 +1889,7 @@ html:not([data-theme="dark"]) body .ant-table-tbody > tr:nth-child(odd):not(:hov
     line-height: 1.15 !important;
   }
 
-  .ant-table-cell .ant-btn-link {
+  .ant-table-cell .ant-btn-link:not(.ant-btn-icon-only):not(.erp-action-btn) {
     font-size: 11.5px !important;
     height: auto !important;
     padding: 0 !important;

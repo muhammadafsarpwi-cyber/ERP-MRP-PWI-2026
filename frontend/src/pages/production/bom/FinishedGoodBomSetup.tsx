@@ -1800,27 +1800,19 @@ const FinishedGoodBomSetup: React.FC<FinishedGoodBomSetupProps> = ({ isSubTab = 
               align: 'center' as const,
               width: 175,
               render: (_: any, r: any) => (
-                <Space size={6} onClick={(e) => e.stopPropagation()}>
+                <Space size={6} className="erp-table-actions" onClick={(e) => e.stopPropagation()}>
                   {/* 1. Edit BOM Action Icon */}
                   <Tooltip title="Edit BOM">
                     <Button
                       type="text"
-                      shape="circle"
-                      icon={<EditOutlined style={{ color: '#2563eb', fontSize: 15 }} />}
+                      size="small"
+                      className="erp-action-btn act-edit"
+                      icon={<EditOutlined />}
                       onClick={() => {
                         setSelectedProductId(r.fgId);
                         loadBomForProduct(r.fgId, true);
                         setIsEditing(true);
                         window.scrollTo({ top: 0, behavior: 'smooth' });
-                      }}
-                      style={{
-                        background: '#eff6ff',
-                        border: '1px solid #bfdbfe',
-                        width: 32,
-                        height: 32,
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
                       }}
                     />
                   </Tooltip>
@@ -1829,23 +1821,15 @@ const FinishedGoodBomSetup: React.FC<FinishedGoodBomSetupProps> = ({ isSubTab = 
                   <Tooltip title="Use in Packing">
                     <Button
                       type="text"
-                      shape="circle"
-                      icon={<SendOutlined style={{ color: '#059669', fontSize: 14 }} />}
+                      size="small"
+                      className="erp-action-btn erp-action-btn--activate"
+                      icon={<SendOutlined />}
                       onClick={() => {
                         if (onNavigateTab) {
                           onNavigateTab('packing-entry', { productId: r.fgId });
                         } else {
                           navigate(`/production/packing?productId=${r.fgId}`);
                         }
-                      }}
-                      style={{
-                        background: '#ecfdf5',
-                        border: '1px solid #a7f3d0',
-                        width: 32,
-                        height: 32,
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
                       }}
                     />
                   </Tooltip>
@@ -1854,21 +1838,13 @@ const FinishedGoodBomSetup: React.FC<FinishedGoodBomSetupProps> = ({ isSubTab = 
                   <Tooltip title="Delete BOM">
                     <Button
                       type="text"
-                      shape="circle"
+                      size="small"
                       danger
-                      icon={<DeleteOutlined style={{ color: '#ef4444', fontSize: 14 }} />}
+                      className="erp-action-btn act-delete"
+                      icon={<DeleteOutlined />}
                       onClick={() => {
                         setTargetDeleteBom(r);
                         setDeleteBomModalVisible(true);
-                      }}
-                      style={{
-                        background: '#fef2f2',
-                        border: '1px solid #fecaca',
-                        width: 32,
-                        height: 32,
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
                       }}
                     />
                   </Tooltip>
@@ -1877,22 +1853,14 @@ const FinishedGoodBomSetup: React.FC<FinishedGoodBomSetupProps> = ({ isSubTab = 
                   <Tooltip title="View Details">
                     <Button
                       type="text"
-                      shape="circle"
-                      icon={<EyeOutlined style={{ color: '#475569', fontSize: 14 }} />}
+                      size="small"
+                      className="erp-action-btn act-view"
+                      icon={<EyeOutlined />}
                       onClick={() => {
                         setSelectedProductId(r.fgId);
                         loadBomForProduct(r.fgId, false);
                         setIsEditing(false);
                         window.scrollTo({ top: 0, behavior: 'smooth' });
-                      }}
-                      style={{
-                        background: '#f8fafc',
-                        border: '1px solid #e2e8f0',
-                        width: 32,
-                        height: 32,
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
                       }}
                     />
                   </Tooltip>

@@ -177,13 +177,11 @@ export function VisitorLocationManagement() {
     {
       title: 'Actions',
       key: 'actions',
-      width: 170,
+      width: 120,
       render: (_, row) => (
-        <Space>
+        <Space size={6}>
           {can('location.update') && (
-            <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(row)}>
-              Edit
-            </Button>
+            <Button size="small" className="erp-action-btn act-edit" icon={<EditOutlined />} aria-label="Edit" onClick={() => openEdit(row)} />
           )}
           {can('location.delete') && (
             <Popconfirm
@@ -193,9 +191,7 @@ export function VisitorLocationManagement() {
               okText="Delete"
               cancelText="Cancel"
             >
-              <Button size="small" danger icon={<DeleteOutlined />}>
-                Delete
-              </Button>
+              <Button size="small" danger className="erp-action-btn act-delete" icon={<DeleteOutlined />} aria-label="Delete" />
             </Popconfirm>
           )}
         </Space>

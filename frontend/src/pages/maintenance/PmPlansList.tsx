@@ -121,10 +121,10 @@ export const PmPlansList: React.FC = () => {
       title: 'Actions',
       key: 'actions',
       render: (_: any, r: PmPlan) => (
-        <Space wrap size={4}>
-          <Button size="small" icon={<EyeOutlined />} onClick={() => viewPlan(r.id)}>View</Button>
+        <Space wrap size={6}>
+          <Button size="small" className="erp-action-btn act-view" icon={<EyeOutlined />} aria-label="View" onClick={() => viewPlan(r.id)} />
           {canManage && (
-            <Button size="small" danger icon={<DeleteOutlined />} onClick={() => Modal.confirm({
+            <Button size="small" danger className="erp-action-btn act-delete" icon={<DeleteOutlined />} aria-label="Delete" onClick={() => Modal.confirm({
               title: 'Deactivate this PM plan?',
               onOk: () => deletePlan(r.id),
             })} />

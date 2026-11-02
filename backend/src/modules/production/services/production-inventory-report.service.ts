@@ -94,6 +94,7 @@ export interface ProductionInventoryReportRow {
   departmentId: string | null;
   departmentName: string | null;
   openingBalance: number;
+  openingDispatched?: number;
   totalIn: number;
   totalOut: number;
   scrapOut: number;
@@ -290,6 +291,7 @@ export class ProductionInventoryReportService {
       .select('sl.itemId', 'itemId')
       .addSelect(`COALESCE(SUM(CASE WHEN sl.direction = 'IN' AND sl.transactionType <> 'PRODUCTION_SCRAP' AND ${openingInCond} THEN sl.quantity ELSE 0 END), 0)`, 'openingIn')
       .addSelect(`COALESCE(SUM(CASE WHEN sl.direction = 'OUT' AND sl.transactionType <> 'PRODUCTION_SCRAP' AND ${openingOutCond} THEN sl.quantity ELSE 0 END), 0)`, 'openingOut')
+      .addSelect(`COALESCE(SUM(CASE WHEN sl.direction = 'OUT' AND sl.transactionType IN ('SALES_DELIVERY', 'DISPATCH') AND ${openingOutCond} THEN sl.quantity ELSE 0 END), 0)`, 'openingDispatched')
       .addSelect(`COALESCE(SUM(CASE WHEN sl.direction = 'IN' AND sl.transactionType <> 'PRODUCTION_SCRAP' ${inRangeCond} THEN sl.quantity ELSE 0 END), 0)`, 'rangeIn')
       .addSelect(`COALESCE(SUM(CASE WHEN sl.direction = 'OUT' AND sl.transactionType <> 'PRODUCTION_SCRAP' ${outRangeCond} THEN sl.quantity ELSE 0 END), 0)`, 'rangeOut')
       .addSelect(`COALESCE(SUM(CASE WHEN sl.direction = 'IN' AND sl.transactionType = :movementType ${inRangeCond} THEN sl.quantity ELSE 0 END), 0)`, 'movIn')
@@ -864,6 +866,7 @@ export class ProductionInventoryReportService {
         departmentId: item.departmentId ?? null,
         departmentName: item.department?.name ?? null,
         openingBalance,
+        openingDispatched: R4(N(l?.openingDispatched)),
         totalIn: R4(totalIn),
         totalOut: R4(totalOut),
         scrapOut: R4(N(l?.scrapOut)),

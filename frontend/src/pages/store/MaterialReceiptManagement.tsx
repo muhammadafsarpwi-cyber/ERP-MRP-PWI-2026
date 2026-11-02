@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   Card, Table, Button, Space, Modal, Form, Input, Select, Tag, App, DatePicker, Row, Col, Drawer, Descriptions, Spin,
 } from 'antd';
-import { PlusOutlined, ArrowDownOutlined, SearchOutlined, CheckOutlined } from '@ant-design/icons';
+import { PlusOutlined, ArrowDownOutlined, SearchOutlined, CheckOutlined, EyeOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import apiService from '../../services/api';
@@ -220,8 +220,8 @@ const MaterialReceiptManagement: React.FC = () => {
     {
       title: 'Actions', key: 'actions', width: 300, fixed: 'right',
       render: (_, record) => (
-        <Space wrap size={4}>
-          <Button size="small" onClick={() => openDetail(record)}>View</Button>
+        <Space wrap size={6}>
+          <Button size="small" className="erp-action-btn act-view" icon={<EyeOutlined />} aria-label="View" onClick={() => openDetail(record)} />
           {record.status === 'RECEIVED' && canInspect && <Button size="small" type="primary" onClick={() => handleAction(record.id, 'inspect')}>Inspect</Button>}
           {record.status === 'INSPECTION' && canInspect && <Button size="small" type="primary" icon={<CheckOutlined />} onClick={() => handleAction(record.id, 'accept')}>Accept</Button>}
           {record.status === 'INSPECTION' && canInspect && <Button size="small" danger onClick={() => handleAction(record.id, 'reject')}>Reject</Button>}

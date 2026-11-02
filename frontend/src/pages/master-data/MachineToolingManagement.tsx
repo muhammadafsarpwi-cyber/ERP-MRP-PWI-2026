@@ -1108,70 +1108,34 @@ const MachineToolingManagement: React.FC = () => {
     {
       title: 'Actions', key: 'actions', fixed: 'right', width: 250,
       render: (_, r) => (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <div className="erp-table-actions" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
           <Tooltip title={`View Life History — ${r.componentCode}`}>
             <Button
               type="text"
-              size="middle"
+              size="small"
+              className="erp-action-btn act-view"
               icon={<EyeOutlined />}
               onClick={() => handleViewHistory(r)}
-              style={{
-                width: 32,
-                height: 32,
-                padding: 0,
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                borderRadius: 8,
-                background: 'rgba(99, 102, 241, 0.08)',
-                color: '#6366f1',
-                border: '1px solid rgba(99, 102, 241, 0.25)',
-                transition: 'all 0.2s',
-              }}
               aria-label={`View component — ${r.componentCode}`}
             />
           </Tooltip>
           <Tooltip title={`Breakdown Items — ${r.componentCode}`}>
             <Button
               type="text"
-              size="middle"
+              size="small"
+              className="erp-action-btn"
               icon={<UnorderedListOutlined />}
               onClick={() => openItems(r)}
-              style={{
-                width: 32,
-                height: 32,
-                padding: 0,
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                borderRadius: 8,
-                background: 'rgba(14, 165, 233, 0.08)',
-                color: '#0284c7',
-                border: '1px solid rgba(14, 165, 233, 0.25)',
-                transition: 'all 0.2s',
-              }}
               aria-label={`Breakdown items — ${r.componentCode}`}
             />
           </Tooltip>
           <Tooltip title={`Edit Component — ${r.componentCode}`}>
             <Button
               type="text"
-              size="middle"
+              size="small"
+              className="erp-action-btn act-edit"
               icon={<EditOutlined />}
               onClick={() => handleEditComponent(r)}
-              style={{
-                width: 32,
-                height: 32,
-                padding: 0,
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                borderRadius: 8,
-                background: 'rgba(16, 185, 129, 0.08)',
-                color: '#059669',
-                border: '1px solid rgba(16, 185, 129, 0.25)',
-                transition: 'all 0.2s',
-              }}
               aria-label={`Edit component — ${r.componentCode}`}
             />
           </Tooltip>
@@ -1184,16 +1148,16 @@ const MachineToolingManagement: React.FC = () => {
             <Button
               size="small"
               style={{
-                borderRadius: 8,
+                borderRadius: 6,
                 fontSize: 11,
                 fontWeight: 700,
                 padding: '0 8px',
-                height: 30,
+                height: 28,
                 display: 'inline-flex',
                 alignItems: 'center',
-                background: r.isActive ? 'rgba(239, 68, 68, 0.06)' : 'rgba(16, 185, 129, 0.06)',
-                color: r.isActive ? '#e11d48' : '#059669',
-                border: r.isActive ? '1px solid rgba(239, 68, 68, 0.3)' : '1px solid rgba(16, 185, 129, 0.3)',
+                background: 'transparent',
+                color: r.isActive ? '#dc2626' : '#16a34a',
+                border: r.isActive ? '1px solid #fca5a5' : '1px solid #86efac',
               }}
             >
               {r.isActive ? 'Deactivate' : 'Activate'}
@@ -1208,21 +1172,10 @@ const MachineToolingManagement: React.FC = () => {
             <Tooltip title={`Delete — ${r.componentCode}`}>
               <Button
                 type="text"
-                size="middle"
+                size="small"
                 danger
+                className="erp-action-btn act-delete"
                 icon={<DeleteOutlined />}
-                style={{
-                  width: 32,
-                  height: 32,
-                  padding: 0,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  borderRadius: 8,
-                  background: 'rgba(239, 68, 68, 0.08)',
-                  color: '#dc2626',
-                  border: '1px solid rgba(239, 68, 68, 0.25)',
-                }}
                 aria-label={`Delete component — ${r.componentCode}`}
               />
             </Tooltip>

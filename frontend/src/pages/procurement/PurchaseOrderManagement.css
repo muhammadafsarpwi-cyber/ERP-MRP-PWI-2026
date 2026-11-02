@@ -504,37 +504,45 @@ html[data-theme='dark'] .po-settlement-note {
   color: #fde68a;
 }
 
-/* Table Column 5: Square Dark Action Buttons */
+/* Table Column 5: Unified Outlined -> Solid Hover Action Buttons */
 .po-actions-group {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 5px;
-  flex-wrap: wrap;
+  gap: 6px;
+  flex-wrap: nowrap;
 }
 
 .btn-po-action-icon {
-  width: 30px !important;
-  height: 30px !important;
+  width: 28px !important;
+  height: 28px !important;
   padding: 0 !important;
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
-  background-color: #1f2937 !important;
-  color: #ffffff !important;
-  border: 1px solid #1f2937 !important;
-  border-radius: 4px !important;
+  background: transparent !important;
+  color: #0d6efd !important;
+  border: 1px solid #93c5fd !important;
+  border-radius: 6px !important;
   cursor: pointer;
-  transition: all 0.15s ease !important;
+  transition: all 0.16s ease !important;
 }
 
 .btn-po-action-icon:hover {
-  background-color: #374151 !important;
+  background: #0d6efd !important;
+  border-color: #0d6efd !important;
+  color: #ffffff !important;
   transform: translateY(-1px);
 }
 
+.btn-po-action-icon.delete {
+  color: #dc2626 !important;
+  border-color: #fca5a5 !important;
+}
+
 .btn-po-action-icon.delete:hover {
-  background-color: #dc2626 !important;
+  background: #dc2626 !important;
   border-color: #dc2626 !important;
+  color: #ffffff !important;
 }
 
 .btn-po-action-icon svg {

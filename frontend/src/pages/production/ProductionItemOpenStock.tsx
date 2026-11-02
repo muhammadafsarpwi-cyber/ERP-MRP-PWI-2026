@@ -2610,9 +2610,7 @@ export const ProductionItemOpenStock: React.FC = () => {
           cancelText="No"
           okButtonProps={{ danger: true }}
         >
-          <Button size="small" danger icon={<DeleteOutlined />}>
-            Delete
-          </Button>
+          <Button size="small" danger className="erp-action-btn act-delete" icon={<DeleteOutlined />} aria-label="Delete" />
         </Popconfirm>
       ),
     },

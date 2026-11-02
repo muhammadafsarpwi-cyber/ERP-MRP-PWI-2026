@@ -4,7 +4,7 @@ import {
   Row, Col, Tabs,
 } from 'antd';
 import {
-  PlusOutlined, SearchOutlined, EyeOutlined, FileSearchOutlined,
+  PlusOutlined, SearchOutlined, EyeOutlined, EditOutlined, DeleteOutlined, FileSearchOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import type { Dayjs } from 'dayjs';
@@ -287,10 +287,10 @@ const MaterialRequestManagement: React.FC = () => {
     {
       title: 'Actions', key: 'actions', width: 320, fixed: 'right',
       render: (_, record) => (
-        <Space wrap size={4}>
-          <Button size="small" icon={<EyeOutlined />} onClick={() => openDetail(record.id)}>View</Button>
+        <Space wrap size={6}>
+          <Button size="small" className="erp-action-btn act-view" icon={<EyeOutlined />} aria-label="View" onClick={() => openDetail(record.id)} />
           {record.status === 'DRAFT' && can('store.request.create') && (
-            <Button size="small" onClick={() => handleEdit(record)}>Edit</Button>
+            <Button size="small" className="erp-action-btn act-edit" icon={<EditOutlined />} aria-label="Edit" onClick={() => handleEdit(record)} />
           )}
           {record.status === 'DRAFT' && can('store.request.submit') && (
             <Button size="small" type="primary" onClick={() => handleAction(record.id, 'submit')}>Submit</Button>
@@ -308,7 +308,7 @@ const MaterialRequestManagement: React.FC = () => {
             <Button size="small" danger onClick={() => handleAction(record.id, 'reject')}>Reject</Button>
           )}
           {(record.status === 'DRAFT' || record.status === 'SUBMITTED' || record.status === 'APPROVED') && can('store.request.create') && (
-            <Button size="small" type="text" danger onClick={() => handleAction(record.id, 'cancel')}>Cancel</Button>
+            <Button size="small" danger className="erp-action-btn act-delete" icon={<DeleteOutlined />} aria-label="Cancel" onClick={() => handleAction(record.id, 'cancel')} />
           )}
         </Space>
       ),

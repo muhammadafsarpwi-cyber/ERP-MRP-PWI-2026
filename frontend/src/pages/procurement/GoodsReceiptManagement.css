@@ -1,65 +1,68 @@
 /* GoodsReceiptManagement.css */
 
 .gr-actions-group {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 5px;
-  flex-wrap: wrap;
+  gap: 6px;
+  flex-wrap: nowrap;
 }
 
+/* Unified Outlined -> Solid Hover Action Buttons (inherits from erp-table.css) */
 .btn-gr-action-icon {
-  width: 30px !important;
-  height: 30px !important;
+  width: 28px !important;
+  height: 28px !important;
   padding: 0 !important;
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
-  background-color: #1f2937 !important;
-  color: #94a3b8 !important;
-  border: 1px solid #374151 !important;
-  border-radius: 4px !important;
+  background: transparent !important;
+  color: #0d6efd !important;
+  border: 1px solid #93c5fd !important;
+  border-radius: 6px !important;
   cursor: pointer;
-  transition: all 0.15s ease !important;
+  transition: all 0.16s ease !important;
 }
 
 .btn-gr-action-icon:hover {
-  background-color: #374151 !important;
-  color: #38bdf8 !important;
-  border-color: #38bdf8 !important;
+  background: #0d6efd !important;
+  color: #ffffff !important;
+  border-color: #0d6efd !important;
   transform: translateY(-1px);
 }
 
-.btn-gr-action-icon.view:hover {
-  color: #38bdf8 !important;
-  border-color: #38bdf8 !important;
-}
-
-.btn-gr-action-icon.print:hover {
-  color: #f59e0b !important;
-  border-color: #f59e0b !important;
+.btn-gr-action-icon.gatepass {
+  color: #16a34a !important;
+  border-color: #86efac !important;
 }
 
 .btn-gr-action-icon.gatepass:hover {
-  color: #10b981 !important;
-  border-color: #10b981 !important;
+  background: #16a34a !important;
+  color: #ffffff !important;
+  border-color: #16a34a !important;
 }
 
-.btn-gr-action-icon.edit:hover {
-  color: #a855f7 !important;
-  border-color: #a855f7 !important;
+.btn-gr-action-icon.danger,
+.btn-gr-action-icon.delete {
+  color: #dc2626 !important;
+  border-color: #fca5a5 !important;
 }
 
 .btn-gr-action-icon.danger:hover,
 .btn-gr-action-icon.delete:hover {
-  background-color: rgba(220, 38, 38, 0.2) !important;
-  color: #ef4444 !important;
-  border-color: #ef4444 !important;
+  background: #dc2626 !important;
+  color: #ffffff !important;
+  border-color: #dc2626 !important;
+}
+
+.btn-gr-action-icon.reverse {
+  color: #d97706 !important;
+  border-color: #fcd34d !important;
 }
 
 .btn-gr-action-icon.reverse:hover {
-  background-color: rgba(245, 158, 11, 0.2) !important;
-  color: #f59e0b !important;
-  border-color: #f59e0b !important;
+  background: #d97706 !important;
+  color: #ffffff !important;
+  border-color: #d97706 !important;
 }
 
 .btn-gr-action-icon svg {

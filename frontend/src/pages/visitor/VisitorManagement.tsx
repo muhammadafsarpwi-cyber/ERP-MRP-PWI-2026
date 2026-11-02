@@ -1485,23 +1485,8 @@ export function VisitorManagement() {
         )}
       </Card>
 
-      {/* Alternating row tint + hover + action button styles */}
+      {/* Status tabs scrollbar cleanup (action buttons inherit unified style from erp-table.css) */}
       <style>{`
-        .visitor-row-alt td{background:#f8f9fc!important;}
-        .ant-table-tbody>tr:hover>td{background:#eef1ff!important;}
-        .visitor-action-btn{background:transparent!important;box-shadow:none!important;}
-        .visitor-action-blue{border-color:#1677ff!important;color:#1677ff!important;}
-        .visitor-action-blue:hover{background:#1677ff!important;color:#fff!important;}
-        .visitor-action-teal{border-color:#13c2c2!important;color:#13c2c2!important;}
-        .visitor-action-teal:hover{background:#13c2c2!important;color:#fff!important;}
-        .visitor-action-orange{border-color:#fa8c16!important;color:#fa8c16!important;}
-        .visitor-action-orange:hover{background:#fa8c16!important;color:#fff!important;}
-        .visitor-action-default{border-color:#d9d9d9!important;color:#595959!important;}
-        .visitor-action-default:hover{border-color:#1677ff!important;color:#1677ff!important;}
-        /* Prompt #20 - the status strip wraps, so it only scrolls in a
-           pathological case (a viewport narrower than the widest single tab, or
-           a large font scale). Keep that fallback available but never let a
-           scrollbar sit under the tabs and read as a layout defect. */
         .vm-status-tabs{scrollbar-width:none;}
         .vm-status-tabs::-webkit-scrollbar{width:0;height:0;display:none;}
       `}</style>
