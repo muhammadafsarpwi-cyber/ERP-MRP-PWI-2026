@@ -51,13 +51,14 @@ import dashboardService, {
   MachinePerformanceItem,
   FilterOption,
 } from '../../services/dashboardService';
-import { formatNumber, toNum } from '../../utils/numberFormat';
+import { formatNumber, formatCompact, toNum } from '../../utils/numberFormat';
 import {
   entryPartRejectKg,
   entryProcessScrapKg,
   entryDepartmentLabel,
   entryMachineLabel,
   topItemsScrapRollup,
+  scrapTotals,
   defectReasonDistribution,
 } from './entries/analyticsModel';
 import DepartmentProductionLedger from '../../components/dashboard/DepartmentProductionLedger';
@@ -140,6 +141,12 @@ interface ServerEntrySummary {
   actual: number;
   target: number;
   scrap: number;
+  processScrap?: number;
+  /** Unit-converted totals from the backend (never raw mixed-UOM sums). */
+  actualKg?: number;
+  actualPcs?: number;
+  rejectKg?: number;
+  rejectPcs?: number;
   overtime: number;
   downtime: number;
   efficiency: number;
@@ -465,6 +472,11 @@ export const ProductionDashboard: React.FC = () => {
   const cachedTab = useMemo(() => {
     const raw = tabSessionCache.get<ProductionDashboardTabCache>(PRODUCTION_DASHBOARD_TAB_ID);
     if (!raw) return undefined;
+    // Purge sessions cached before unit-converted rejection totals existed
+    if (raw.entrySummary && raw.entrySummary.rejectKg === undefined) {
+      tabSessionCache.remove(PRODUCTION_DASHBOARD_TAB_ID);
+      return undefined;
+    }
     // Purge cached ghost data if cached division does not match persisted active division
     if (savedDivisionId && raw.filters?.divisionId !== savedDivisionId) {
       tabSessionCache.remove(PRODUCTION_DASHBOARD_TAB_ID);
@@ -772,29 +784,96 @@ export const ProductionDashboard: React.FC = () => {
     const target = Number(entrySummary?.target ?? prod?.summary?.totalTarget ?? 0);
     const actual = Number(entrySummary?.actual ?? prod?.summary?.totalActual ?? 0);
     const ach = target > 0 ? (actual / target) * 100 : 0;
-    const producedKg = Math.round(actual * 0.008 * 10) / 10;
-    const partReject = Number(entrySummary?.scrap ?? prod?.summary?.totalScrap ?? 0);
-    const processScrap = Number((entrySummary as any)?.processScrap ?? prod?.summary?.processCuttingScrap ?? 0);
-    const scrap = Math.round((partReject + processScrap) * 10) / 10;
+
+    // Server-provided unit-aware totals, with robust client-side fallback to scrapTotals(scrapEntries)
+    const fallbackScrap = scrapTotals(scrapEntries);
+
+    const producedKg = Math.round(
+      Number(
+        (entrySummary?.actualKg && entrySummary.actualKg > 0)
+          ? entrySummary.actualKg
+          : (fallbackScrap?.actualKg && fallbackScrap.actualKg > 0)
+            ? fallbackScrap.actualKg
+            : (actual > 0 ? actual * 0.01147 : 0)
+      ) * 10
+    ) / 10;
+
+    const producedPcs = Math.round(
+      Number(
+        (entrySummary?.actualPcs && entrySummary.actualPcs > 0)
+          ? entrySummary.actualPcs
+          : (fallbackScrap?.actualUnits && fallbackScrap.actualUnits > 0)
+            ? fallbackScrap.actualUnits
+            : actual
+      )
+    );
+
+    // Product Rejection — the SAME rejected goods expressed in both units.
+    const rejectKg = Math.round(
+      Number(
+        (entrySummary?.rejectKg !== undefined && entrySummary.rejectKg > 0)
+          ? entrySummary.rejectKg
+          : (fallbackScrap?.partRejectKg && fallbackScrap.partRejectKg > 0)
+            ? fallbackScrap.partRejectKg
+            : 0
+      ) * 10
+    ) / 10;
+
+    const rejectPcs = Math.round(
+      Number(
+        (entrySummary?.rejectPcs !== undefined && entrySummary.rejectPcs > 0)
+          ? entrySummary.rejectPcs
+          : (fallbackScrap?.partRejectUnits && fallbackScrap.partRejectUnits > 0)
+            ? fallbackScrap.partRejectUnits
+            : 0
+      )
+    );
+
+    // Process Cutting Scrap (KG) — separate from product rejection.
+    const processScrap = Math.round(
+      Number(
+        (entrySummary?.processScrap !== undefined && entrySummary.processScrap > 0)
+          ? entrySummary.processScrap
+          : (fallbackScrap?.processScrapKg && fallbackScrap.processScrapKg > 0)
+            ? fallbackScrap.processScrapKg
+            : prod?.summary?.processCuttingScrap ?? 0
+      ) * 10
+    ) / 10;
+
+    const pct = (part: number, base: number) => (base > 0 ? (part / base) * 100 : 0);
+    const rejectKgPct = pct(rejectKg, producedKg);
+    const rejectPcsPct = pct(rejectPcs, producedPcs);
+    const processScrapPct = pct(processScrap, producedKg);
+    const totalRejectionPct = pct(rejectKg + processScrap, producedKg);
+
+    const partReject = rejectKg;
+    const scrap = Math.round((rejectKg + processScrap) * 10) / 10;
     const overtime = Number(entrySummary?.overtime ?? 0);
     const downtime = Number(entrySummary?.downtime ?? prod?.summary?.totalDowntimeHours ?? 0);
     const plantEff = Number(entrySummary?.efficiency ?? prod?.summary?.efficiencyPercentage ?? (target > 0 ? ach : 0));
-    const rejectionRate = producedKg > 0 ? (scrap / producedKg) * 100 : 0;
+    const rejectionRate = totalRejectionPct;
 
     return {
       target,
       actual,
       ach,
       producedKg,
+      producedPcs,
       scrap,
       partReject,
       processScrap,
+      rejectKg,
+      rejectPcs,
+      rejectKgPct,
+      rejectPcsPct,
+      processScrapPct,
+      totalRejectionPct,
       overtime,
       downtime,
       plantEff,
       rejectionRate,
     };
-  }, [entrySummary, prod]);
+  }, [entrySummary, prod, scrapEntries]);
 
   // ── Trend Area Chart Data (Target vs Actual) ────────────────────────
   const trendData = useMemo(() => {
@@ -2008,8 +2087,8 @@ export const ProductionDashboard: React.FC = () => {
                 </span>
               </div>
               <div className="pwi-kpi-card__value-row">
-                <span className="pwi-kpi-card__value">
-                  {formatNumber(kpiMetrics.target, 0)}{' '}
+                <span className="pwi-kpi-card__value" title={`${formatNumber(kpiMetrics.target, 0)} PCS`}>
+                  {formatCompact(kpiMetrics.target)}{' '}
                   <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)' }}>PCS</span>
                 </span>
                 <span className="pwi-kpi-card__trend" style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#10b981' }}>
@@ -2021,7 +2100,7 @@ export const ProductionDashboard: React.FC = () => {
               </div>
               <div className="pwi-kpi-card__subtext">
                 <span style={{ color: '#0ea5e9', fontWeight: 600 }}>
-                  {formatNumber(Math.round(kpiMetrics.target / 144), 0)} GRS Planned
+                  {formatCompact(Math.round(kpiMetrics.target / 144), 1)} GRS Planned
                 </span>
                 <RightOutlined style={{ fontSize: 9 }} />
               </div>
@@ -2042,8 +2121,8 @@ export const ProductionDashboard: React.FC = () => {
                 </span>
               </div>
               <div className="pwi-kpi-card__value-row">
-                <span className="pwi-kpi-card__value">
-                  {formatNumber(kpiMetrics.actual, 0)}{' '}
+                <span className="pwi-kpi-card__value" title={`${formatNumber(kpiMetrics.actual, 0)} PCS`}>
+                  {formatCompact(kpiMetrics.actual)}{' '}
                   <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)' }}>PCS</span>
                 </span>
                 <span className="pwi-kpi-card__trend" style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#10b981' }}>
@@ -2055,7 +2134,7 @@ export const ProductionDashboard: React.FC = () => {
               </div>
               <div className="pwi-kpi-card__subtext">
                 <span style={{ color: '#10b981', fontWeight: 700 }}>
-                  {formatNumber(Math.round(kpiMetrics.actual / 144), 0)} GRS · {formatNumber(kpiMetrics.producedKg, 1)} KG Net
+                  {formatCompact(Math.round(kpiMetrics.actual / 144), 1)} GRS · {formatCompact(kpiMetrics.producedKg, 1)} KG Net
                 </span>
                 <span>{kpiMetrics.ach.toFixed(1)}% Met</span>
               </div>
@@ -2091,34 +2170,88 @@ export const ProductionDashboard: React.FC = () => {
             </div>
           </Tooltip>
 
-          {/* CARD 4: SCRAP & REJECTION */}
+          {/* CARD 4: SCRAP & REJECTION — wide card.
+              Product Rejection shown in BOTH units (KG and PCS), each with its own %
+              of the matching production base, plus Process Scrap (KG) separately. */}
           <Tooltip title="Click to open Rejection & Scrap Details">
             <div
-              className="pwi-kpi-card"
+              className="pwi-kpi-card pwi-kpi-card--wide"
               style={{ borderLeft: '3.5px solid #ef4444' }}
               onClick={() => navigate('/production/entries', { state: { activeTab: 'scrap' } })}
             >
               <div className="pwi-kpi-card__top">
                 <span className="pwi-kpi-card__label">Scrap &amp; Rejection</span>
-                <span className="pwi-kpi-card__icon-badge" style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#f87171' }}>
-                  <DeleteOutlined />
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <span
+                    className="pwi-kpi-card__trend"
+                    style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#f87171' }}
+                    title="Total loss = Product Rejection (KG) + Process Scrap (KG) ÷ Production KG"
+                  >
+                    Total {kpiMetrics.totalRejectionPct.toFixed(2)}%
+                  </span>
+                  <span className="pwi-kpi-card__icon-badge" style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#f87171' }}>
+                    <DeleteOutlined />
+                  </span>
                 </span>
               </div>
-              <div className="pwi-kpi-card__value-row">
-                <span className="pwi-kpi-card__value">
-                  {formatNumber(kpiMetrics.scrap, 1)}{' '}
-                  <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)' }}>KG</span>
-                </span>
-                <span className="pwi-kpi-card__trend" style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#f87171' }}>
-                  ▼ {kpiMetrics.rejectionRate.toFixed(2)}%
-                </span>
+
+              <div className="pwi-scrap-grid">
+                {[
+                  {
+                    key: 'kg',
+                    title: 'Rejection · KG',
+                    value: kpiMetrics.rejectKg,
+                    unit: 'KG',
+                    pct: kpiMetrics.rejectKgPct,
+                    base: 'of production KG',
+                    color: '#ef4444',
+                  },
+                  {
+                    key: 'pcs',
+                    title: 'Rejection · PCS',
+                    value: kpiMetrics.rejectPcs,
+                    unit: 'PCS',
+                    pct: kpiMetrics.rejectPcsPct,
+                    base: 'of production PCS',
+                    color: '#f97316',
+                  },
+                  {
+                    key: 'proc',
+                    title: 'Process Scrap',
+                    value: kpiMetrics.processScrap,
+                    unit: 'KG',
+                    pct: kpiMetrics.processScrapPct,
+                    base: 'of production KG',
+                    color: '#0ea5e9',
+                  },
+                ].map((seg) => (
+                  <div
+                    key={seg.key}
+                    className="pwi-scrap-seg"
+                    title={`${seg.title}: ${formatNumber(seg.value, 2)} ${seg.unit} (${seg.pct.toFixed(2)}% ${seg.base})`}
+                  >
+                    <span className="pwi-scrap-seg__label">
+                      <i className="pwi-scrap-seg__dot" style={{ background: seg.color }} />
+                      {seg.title}
+                    </span>
+                    <span className="pwi-scrap-seg__value">
+                      {formatCompact(seg.value, 1)}
+                      <small>{seg.unit}</small>
+                    </span>
+                    <span className="pwi-scrap-seg__pct" style={{ color: seg.color, background: `${seg.color}1f` }}>
+                      {seg.pct.toFixed(2)}%
+                    </span>
+                    <div className="pwi-scrap-seg__bar">
+                      <div style={{ width: `${Math.min(100, seg.pct * 20)}%`, height: '100%', background: seg.color }} />
+                    </div>
+                    <span className="pwi-scrap-seg__base">{seg.base}</span>
+                  </div>
+                ))}
               </div>
-              <div className="pwi-kpi-card__progress">
-                <div style={{ width: `${Math.min(100, kpiMetrics.rejectionRate * 25)}%`, height: '100%', background: '#ef4444' }} />
-              </div>
-              <div className="pwi-kpi-card__subtext">
-                <span style={{ color: '#ef4444', fontWeight: 600 }}>
-                  Part: {formatNumber(kpiMetrics.partReject, 1)} KG · Scrap: {formatNumber(kpiMetrics.processScrap, 1)} KG ({kpiMetrics.rejectionRate.toFixed(2)}%)
+
+              <div className="pwi-kpi-card__subtext" style={{ marginTop: 8 }}>
+                <span>
+                  Production base: {formatCompact(kpiMetrics.producedKg, 1)} KG · {formatCompact(kpiMetrics.producedPcs, 1)} PCS
                 </span>
                 <RightOutlined style={{ fontSize: 9 }} />
               </div>
@@ -2139,7 +2272,7 @@ export const ProductionDashboard: React.FC = () => {
                 </span>
               </div>
               <div className="pwi-kpi-card__value-row">
-                <span className="pwi-kpi-card__value">{formatNumber(kpiMetrics.overtime, 1)} h</span>
+                <span className="pwi-kpi-card__value" title={`${formatNumber(kpiMetrics.overtime, 1)} h`}>{formatCompact(kpiMetrics.overtime, 1)} h</span>
                 <span className="pwi-kpi-card__trend" style={{ background: 'rgba(139, 92, 246, 0.15)', color: '#a78bfa' }}>
                   +5h Peak
                 </span>
@@ -2168,7 +2301,7 @@ export const ProductionDashboard: React.FC = () => {
                 </span>
               </div>
               <div className="pwi-kpi-card__value-row">
-                <span className="pwi-kpi-card__value">{formatNumber(kpiMetrics.downtime, 1)} h</span>
+                <span className="pwi-kpi-card__value" title={`${formatNumber(kpiMetrics.downtime, 1)} h`}>{formatCompact(kpiMetrics.downtime, 1)} h</span>
                 <span className="pwi-kpi-card__trend" style={{ background: 'rgba(245, 158, 11, 0.15)', color: '#fbbf24' }}>
                   ▼ 1.2h
                 </span>

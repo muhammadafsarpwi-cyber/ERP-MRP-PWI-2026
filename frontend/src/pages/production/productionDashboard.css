@@ -140,19 +140,26 @@
 /* ── 6 Crystal KPI Metric Cards ─────────────────────────────────────── */
 .pwi-kpi-grid {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  /* 5 standard cards + 1 wide Scrap & Rejection card (spans 2) = 7 tracks */
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-auto-flow: dense;
   gap: 12px;
   margin-bottom: 16px;
 }
 
-@media (max-width: 1400px) {
-  .pwi-kpi-grid { grid-template-columns: repeat(3, 1fr); }
+.pwi-kpi-card--wide { grid-column: span 2; }
+
+@media (max-width: 1700px) {
+  .pwi-kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .pwi-kpi-card--wide { grid-column: span 3; }
 }
 @media (max-width: 900px) {
-  .pwi-kpi-grid { grid-template-columns: repeat(2, 1fr); }
+  .pwi-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .pwi-kpi-card--wide { grid-column: span 2; }
 }
 @media (max-width: 600px) {
   .pwi-kpi-grid { grid-template-columns: 1fr; }
+  .pwi-kpi-card--wide { grid-column: span 1; }
 }
 
 .pwi-kpi-card {
@@ -217,12 +224,13 @@
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 6px;
+  flex-wrap: wrap;
+  gap: 4px 6px;
   margin-bottom: 8px;
 }
 
 .pwi-kpi-card__value {
-  font-size: 26px;
+  font-size: clamp(20px, 1.5vw, 26px);
   font-weight: 800;
   line-height: 1.1;
   font-variant-numeric: tabular-nums;
@@ -628,3 +636,95 @@
   font-weight: 300;
 }
 
+/* ── Scrap & Rejection wide card: KG · PCS · Process Scrap segments ───── */
+.pwi-scrap-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0;
+  flex: 1;
+}
+
+.pwi-scrap-seg {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 2px 12px;
+}
+
+.pwi-scrap-seg + .pwi-scrap-seg {
+  border-left: 1px dashed var(--theme-border, rgba(148, 163, 184, 0.35));
+}
+
+.pwi-scrap-seg:first-child { padding-left: 0; }
+.pwi-scrap-seg:last-child { padding-right: 0; }
+
+.pwi-scrap-seg__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--theme-text-muted, #64748b);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pwi-scrap-seg__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.pwi-scrap-seg__value {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  font-size: clamp(18px, 1.35vw, 23px);
+  font-weight: 800;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  color: var(--theme-text, #0f172a);
+  white-space: nowrap;
+}
+
+.pwi-scrap-seg__value small {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--theme-text-muted, #64748b);
+}
+
+.pwi-scrap-seg__pct {
+  align-self: flex-start;
+  font-size: 11.5px;
+  font-weight: 800;
+  padding: 1px 7px;
+  border-radius: 4px;
+  line-height: 1.3;
+}
+
+.pwi-scrap-seg__bar {
+  height: 3.5px;
+  width: 100%;
+  background: var(--theme-border, rgba(148, 163, 184, 0.2));
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.pwi-scrap-seg__base {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--theme-text-muted, #64748b);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 600px) {
+  .pwi-scrap-seg { padding: 2px 8px; }
+  .pwi-scrap-seg__value { font-size: 17px; }
+}

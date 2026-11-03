@@ -64,13 +64,15 @@ import {
   TrophyOutlined,
   WhatsAppOutlined,
   FileTextOutlined,
+  RightOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import apiService from '../../../services/api';
-import { formatNumber, toNum } from '../../../utils/numberFormat';
+import { formatNumber, formatCompact, toNum } from '../../../utils/numberFormat';
+import { scrapTotals } from './analyticsModel';
 import { calcActualKg, perUnitWeightLabel } from '../../../utils/productionWeight';
 import { useLookups, Department, ShiftLk } from './lookups';
 import { entryOvertimeHours, sumOvertime } from './overtimeHours';
@@ -833,6 +835,11 @@ interface ServerSummary {
   actual: number;
   target: number;
   scrap: number;
+  processScrap?: number;
+  actualKg?: number;
+  actualPcs?: number;
+  rejectKg?: number;
+  rejectPcs?: number;
   overtime: number;
   downtime: number;
   efficiency: number;
@@ -1236,46 +1243,101 @@ const EntryList: React.FC = () => {
     return list;
   }, [rows, serverSummary, activeChevronKey, fStatus]);
 
+  const rawScrapRollup = useMemo(() => {
+    return scrapTotals(displayedRows);
+  }, [displayedRows]);
+
   // Aggregate KPI summary for Crystal Metric Cards
   const kpiData = useMemo(() => {
-    if (serverSummary) {
-      const act = serverSummary.actual;
-      const tgt = serverSummary.target;
-      const achRatio = tgt > 0 ? (act / tgt) * 100 : 0;
-      return {
-        total: serverSummary.total,
-        actual: act,
-        target: tgt,
-        achievement: `${formatNumber(achRatio, 1)}%`,
-        scrap: serverSummary.scrap,
-        // Canonical OT (SQL: overtime_hours, else legacy remarks `OT: X h`) —
-        // the exact same rule the OT column renders (see ./overtimeHours.ts).
-        overtime: serverSummary.overtime,
-        downtime: serverSummary.downtime,
-        ach: `${formatNumber(serverSummary.efficiency, 2)}%`,
-      };
-    }
-    const target = displayedRows.reduce(
-      (s, r) => s + proRataTarget(r.targetQuantity, displayRunningHours(r), masterRateOf(r)).target,
-      0,
+    const act = Number(serverSummary?.actual ?? displayedRows.reduce((s, r) => s + toNum(r.actualQuantity), 0));
+    const tgt = Number(
+      serverSummary?.target ??
+      displayedRows.reduce(
+        (s, r) => s + proRataTarget(r.targetQuantity, displayRunningHours(r), masterRateOf(r)).target,
+        0,
+      )
     );
-    const actual = displayedRows.reduce((s, r) => s + toNum(r.actualQuantity), 0);
-    const scrap = displayedRows.reduce((s, r) => s + toNum(r.scrapQuantity), 0);
-    const overtime = sumOvertime(displayedRows);
-    const downtime = displayedRows.reduce((s, r) => s + toNum(r.downtimeHours), 0);
-    const ach = target > 0 ? Math.round((actual / target) * 10000) / 100 : null;
-    const achRatio = target > 0 ? (actual / target) * 100 : 0;
+    const achRatio = tgt > 0 ? (act / tgt) * 100 : 0;
+
+    // Unit-converted production base & loss breakdown (matching Production Dashboard executive standards)
+    const producedKg = Math.round(
+      Number(
+        (serverSummary?.actualKg && serverSummary.actualKg > 0)
+          ? serverSummary.actualKg
+          : (rawScrapRollup?.actualKg && rawScrapRollup.actualKg > 0)
+            ? rawScrapRollup.actualKg
+            : (act > 0 ? act * 0.01147 : 0)
+      ) * 10
+    ) / 10;
+    const producedPcs = Math.round(
+      Number(
+        (serverSummary?.actualPcs && serverSummary.actualPcs > 0)
+          ? serverSummary.actualPcs
+          : (rawScrapRollup?.actualUnits && rawScrapRollup.actualUnits > 0)
+            ? rawScrapRollup.actualUnits
+            : act
+      )
+    );
+
+    const rejectKg = Math.round(
+      Number(
+        (serverSummary?.rejectKg !== undefined && serverSummary.rejectKg > 0)
+          ? serverSummary.rejectKg
+          : (rawScrapRollup?.partRejectKg && rawScrapRollup.partRejectKg > 0)
+            ? rawScrapRollup.partRejectKg
+            : 0
+      ) * 10
+    ) / 10;
+    const rejectPcs = Math.round(
+      Number(
+        (serverSummary?.rejectPcs !== undefined && serverSummary.rejectPcs > 0)
+          ? serverSummary.rejectPcs
+          : (rawScrapRollup?.partRejectUnits && rawScrapRollup.partRejectUnits > 0)
+            ? rawScrapRollup.partRejectUnits
+            : 0
+      )
+    );
+    const processScrap = Math.round(
+      Number(
+        (serverSummary?.processScrap !== undefined && serverSummary.processScrap > 0)
+          ? serverSummary.processScrap
+          : (rawScrapRollup?.processScrapKg && rawScrapRollup.processScrapKg > 0)
+            ? rawScrapRollup.processScrapKg
+            : 0
+      ) * 10
+    ) / 10;
+
+    const pct = (part: number, base: number) => (base > 0 ? (part / base) * 100 : 0);
+    const rejectKgPct = pct(rejectKg, producedKg);
+    const rejectPcsPct = pct(rejectPcs, producedPcs);
+    const processScrapPct = pct(processScrap, producedKg);
+    const totalRejectionPct = pct(rejectKg + processScrap, producedKg);
+
+    const overtime = Number(serverSummary?.overtime ?? sumOvertime(displayedRows));
+    const downtime = Number(serverSummary?.downtime ?? displayedRows.reduce((s, r) => s + toNum(r.downtimeHours), 0));
+    const rawScrap = Number(serverSummary?.scrap ?? displayedRows.reduce((s, r) => s + toNum(r.scrapQuantity), 0));
+    const eff = serverSummary ? `${formatNumber(serverSummary.efficiency, 2)}%` : tgt > 0 ? `${Math.round(achRatio * 100) / 100}%` : '0%';
+
     return {
-      total: total || rows.length,
-      actual,
-      target,
+      total: serverSummary?.total ?? (total || rows.length),
+      actual: act,
+      target: tgt,
       achievement: `${formatNumber(achRatio, 1)}%`,
-      scrap,
+      producedKg,
+      producedPcs,
+      rejectKg,
+      rejectPcs,
+      processScrap,
+      rejectKgPct,
+      rejectPcsPct,
+      processScrapPct,
+      totalRejectionPct,
+      scrap: rawScrap,
       overtime,
       downtime,
-      ach: ach !== null ? `${ach}%` : '0%',
+      ach: eff,
     };
-  }, [serverSummary, displayedRows, total, rows.length]);
+  }, [serverSummary, displayedRows, total, rows.length, rawScrapRollup]);
 
   const summary = useMemo(() => {
     if (serverSummary) {
@@ -3073,41 +3135,51 @@ const EntryList: React.FC = () => {
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: screens.xl ? 'repeat(7, 1fr)' : screens.lg ? 'repeat(4, 1fr)' : screens.sm ? 'repeat(3, 1fr)' : 'repeat(2, 1fr)',
+          gridTemplateColumns: screens.xl ? 'repeat(8, 1fr)' : screens.lg ? 'repeat(4, 1fr)' : screens.sm ? 'repeat(2, 1fr)' : '1fr',
           gap: 10,
           marginBottom: 12,
         }}
       >
         {/* Card 1: TARGET QTY */}
-        <KpiCard
-          testId="kpi-target-qty"
-          label="TARGET QTY"
-          value={formatNumber(kpiData.target, 0)}
-          icon={AimOutlined}
-          tone="#6366f1"
-          toneSoft="rgba(99, 102, 241, 0.12)"
-          trend={{ value: '+2.1%', isUp: true, color: '#10b981' }}
-          subText="Planned Target"
-          progressPct={100}
-          progressBarColor="#6366f1"
-        />
+        <Tooltip title={`Planned Target: ${formatNumber(kpiData.target, 0)}`}>
+          <div>
+            <KpiCard
+              testId="kpi-target-qty"
+              label="TARGET QTY"
+              value={formatCompact(kpiData.target, 2)}
+              icon={AimOutlined}
+              tone="#6366f1"
+              toneSoft="rgba(99, 102, 241, 0.12)"
+              trend={{ value: '+2.1%', isUp: true, color: '#10b981' }}
+              subText={`Target: ${formatCompact(kpiData.target, 1)}`}
+              progressPct={100}
+              progressBarColor="#6366f1"
+            />
+          </div>
+        </Tooltip>
+
         {/* Card 2: GOOD PRODUCTION */}
-        <KpiCard
-          testId="kpi-good-production"
-          label="GOOD PRODUCTION"
-          value={formatNumber(kpiData.actual, 0)}
-          icon={CheckCircleOutlined}
-          tone="#16a34a"
-          toneSoft="rgba(22, 163, 74, 0.12)"
-          trend={{ value: '▲', color: '#10b981' }}
-          subText={
-            kpiData.target > kpiData.actual
-              ? `${kpiData.achievement} | ${formatNumber(kpiData.target - kpiData.actual, 0)} to go`
-              : `${kpiData.achievement} | Target met`
-          }
-          progressPct={kpiData.target > 0 ? (kpiData.actual / kpiData.target) * 100 : 0}
-          progressBarColor="#16a34a"
-        />
+        <Tooltip title={`Good Production: ${formatNumber(kpiData.actual, 0)}`}>
+          <div>
+            <KpiCard
+              testId="kpi-good-production"
+              label="GOOD PRODUCTION"
+              value={formatCompact(kpiData.actual, 2)}
+              icon={CheckCircleOutlined}
+              tone="#16a34a"
+              toneSoft="rgba(22, 163, 74, 0.12)"
+              trend={{ value: '▲', color: '#10b981' }}
+              subText={
+                kpiData.target > kpiData.actual
+                  ? `${kpiData.achievement} | ${formatCompact(kpiData.target - kpiData.actual, 1)} to go`
+                  : `${kpiData.achievement} | Target met`
+              }
+              progressPct={kpiData.target > 0 ? (kpiData.actual / kpiData.target) * 100 : 0}
+              progressBarColor="#16a34a"
+            />
+          </div>
+        </Tooltip>
+
         {/* Card 3: ACHIEVEMENT (%) */}
         <KpiCard
           testId="kpi-achievement"
@@ -3121,6 +3193,7 @@ const EntryList: React.FC = () => {
           progressPct={kpiData.target > 0 ? (kpiData.actual / kpiData.target) * 100 : 0}
           progressBarColor="#10b981"
         />
+
         {/* Card 4: AVG EFFICIENCY */}
         <KpiCard
           testId="kpi-avg-efficiency"
@@ -3134,58 +3207,219 @@ const EntryList: React.FC = () => {
           progressPct={parseFloat(kpiData.ach) || 80.5}
           progressBarColor="#10b981"
         />
-        {/* Card 5: SCRAP / REJECTION (Clickable -> switches to 'scrap' tab) */}
-        <KpiCard
-          testId="kpi-scrap-rejection"
-          label="SCRAP / REJECTION"
-          value={`${formatNumber(kpiData.scrap, 1)} KG`}
-          icon={DeleteOutlined}
-          tone="#e11d48"
-          toneSoft="rgba(225, 29, 72, 0.12)"
-          clickable
-          bottomIndicatorColor="#e11d48"
-          tooltip="Click to view Rejection & Scrap Details"
-          onClick={() => handleKpiTabSwitch('scrap')}
-          trend={{ value: '▼ 0.2%', color: '#ef4444' }}
-          subText={kpiData.actual > 0 ? `${formatNumber((kpiData.scrap / kpiData.actual) * 100, 2)}% Wastage` : '0% Wastage'}
-          progressPct={kpiData.actual > 0 ? Math.min(100, (kpiData.scrap / kpiData.actual) * 100 * 5) : 0}
-          progressBarColor="#e11d48"
-        />
+
+        {/* Card 5: SCRAP & REJECTION (Clickable -> switches to 'scrap' tab) */}
+        <Tooltip title="Click to view Rejection & Scrap Details">
+          <Card
+            size="small"
+            className="entry-crystal-kpi-card"
+            data-testid="kpi-scrap-rejection"
+            onClick={() => handleKpiTabSwitch('scrap')}
+            styles={{ body: { padding: '10px 12px 8px' } }}
+            style={{
+              position: 'relative',
+              overflow: 'hidden',
+              borderLeft: '3.5px solid #ef4444',
+              borderBottom: '3px solid #ef4444',
+              cursor: 'pointer',
+              gridColumn: screens.xl ? 'span 2' : 'span 1',
+              transition: 'all 0.2s ease',
+            }}
+          >
+            <DeleteOutlined
+              aria-hidden="true"
+              style={{
+                position: 'absolute',
+                right: -10,
+                bottom: -16,
+                fontSize: 68,
+                opacity: 0.1,
+                pointerEvents: 'none',
+                zIndex: 0,
+                color: '#ef4444',
+              }}
+            />
+            <div style={{ position: 'relative', zIndex: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+              <span
+                style={{
+                  fontSize: 11,
+                  lineHeight: 1.2,
+                  fontWeight: 700,
+                  letterSpacing: '0.04em',
+                  color: '#ef4444',
+                  textTransform: 'uppercase',
+                }}
+              >
+                SCRAP &amp; REJECTION
+              </span>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <span
+                  style={{
+                    fontSize: 10.5,
+                    fontWeight: 700,
+                    color: '#ef4444',
+                    background: 'rgba(239, 68, 68, 0.12)',
+                    padding: '1px 6px',
+                    borderRadius: 4,
+                  }}
+                  title="Total loss = Rejection (KG) + Process Scrap (KG) ÷ Produced KG"
+                >
+                  Total {kpiData.totalRejectionPct.toFixed(2)}%
+                </span>
+                <span
+                  aria-hidden="true"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    width: 24,
+                    height: 24,
+                    borderRadius: 6,
+                    fontSize: 13,
+                    background: 'rgba(239, 68, 68, 0.12)',
+                    color: '#ef4444',
+                  }}
+                >
+                  <DeleteOutlined />
+                </span>
+              </span>
+            </div>
+
+            {/* 3 Segments: Rejection KG, Rejection PCS, Process Scrap */}
+            <div
+              style={{
+                position: 'relative',
+                zIndex: 1,
+                display: 'grid',
+                gridTemplateColumns: 'repeat(3, 1fr)',
+                gap: 6,
+                marginTop: 6,
+                background: 'rgba(148, 163, 184, 0.06)',
+                borderRadius: 6,
+                padding: '6px 8px',
+                border: '1px solid rgba(148, 163, 184, 0.15)',
+              }}
+            >
+              {[
+                {
+                  label: 'Rejection · KG',
+                  val: kpiData.rejectKg,
+                  unit: 'KG',
+                  pct: kpiData.rejectKgPct,
+                  color: '#ef4444',
+                  base: 'of produced KG',
+                },
+                {
+                  label: 'Rejection · PCS',
+                  val: kpiData.rejectPcs,
+                  unit: 'PCS',
+                  pct: kpiData.rejectPcsPct,
+                  color: '#f97316',
+                  base: 'of produced PCS',
+                },
+                {
+                  label: 'Process Scrap',
+                  val: kpiData.processScrap,
+                  unit: 'KG',
+                  pct: kpiData.processScrapPct,
+                  color: '#0ea5e9',
+                  base: 'of produced KG',
+                },
+              ].map((seg, idx) => (
+                <div key={idx} style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 9.5, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: seg.color, marginRight: 4 }} />
+                    {seg.label}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 3, marginTop: 1 }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: 'var(--theme-text, #0f172a)' }}>
+                      {formatCompact(seg.val, 1)}
+                    </span>
+                    <span style={{ fontSize: 9, color: 'var(--theme-text-muted, #94a3b8)' }}>{seg.unit}</span>
+                    <span
+                      style={{
+                        marginLeft: 'auto',
+                        fontSize: 9.5,
+                        fontWeight: 700,
+                        color: seg.color,
+                        background: `${seg.color}18`,
+                        padding: '0 3px',
+                        borderRadius: 3,
+                      }}
+                    >
+                      {seg.pct.toFixed(2)}%
+                    </span>
+                  </div>
+                  <div style={{ marginTop: 3, height: 2.5, width: '100%', background: 'rgba(148, 163, 184, 0.2)', borderRadius: 2, overflow: 'hidden' }}>
+                    <div style={{ height: '100%', width: `${Math.min(100, seg.pct * 20)}%`, background: seg.color }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div
+              style={{
+                position: 'relative',
+                zIndex: 1,
+                marginTop: 6,
+                fontSize: 10,
+                color: 'var(--theme-text-muted, #64748b)',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+              }}
+            >
+              <span>
+                Base: {formatCompact(kpiData.producedKg, 1)} KG · {formatCompact(kpiData.producedPcs, 1)} PCS
+              </span>
+              <RightOutlined style={{ fontSize: 9, color: '#ef4444' }} />
+            </div>
+          </Card>
+        </Tooltip>
+
         {/* Card 6: OVERTIME (OT) (Clickable -> switches to 'overtime' tab) */}
-        <KpiCard
-          testId="kpi-total-overtime"
-          label="OVERTIME (OT)"
-          value={`${formatNumber(kpiData.overtime, 1)} h`}
-          icon={FieldTimeOutlined}
-          tone="#8b5cf6"
-          toneSoft="rgba(139, 92, 246, 0.12)"
-          clickable
-          bottomIndicatorColor="#8b5cf6"
-          tooltip="Click to view Overtime (OT) Details"
-          onClick={() => handleKpiTabSwitch('overtime')}
-          trend={{ value: '+5h Peak', isUp: true, color: '#8b5cf6' }}
-          subText={`${ribbonCounts.all || 0} Total Records`}
-          progressPct={Math.min(100, (kpiData.overtime / 250) * 100)}
-          progressBarColor="#8b5cf6"
-        />
+        <Tooltip title={`Total Overtime: ${formatNumber(kpiData.overtime, 1)} h`}>
+          <div>
+            <KpiCard
+              testId="kpi-total-overtime"
+              label="OVERTIME (OT)"
+              value={`${formatCompact(kpiData.overtime, 1)} h`}
+              icon={FieldTimeOutlined}
+              tone="#8b5cf6"
+              toneSoft="rgba(139, 92, 246, 0.12)"
+              clickable
+              bottomIndicatorColor="#8b5cf6"
+              tooltip="Click to view Overtime (OT) Details"
+              onClick={() => handleKpiTabSwitch('overtime')}
+              trend={{ value: '+5h Peak', isUp: true, color: '#8b5cf6' }}
+              subText={`${ribbonCounts.all || 0} Total Records`}
+              progressPct={Math.min(100, (kpiData.overtime / 250) * 100)}
+              progressBarColor="#8b5cf6"
+            />
+          </div>
+        </Tooltip>
+
         {/* Card 7: TOTAL DOWNTIME (Clickable -> switches to 'downtime' tab) */}
-        <KpiCard
-          testId="kpi-total-downtime"
-          label="TOTAL DOWNTIME"
-          value={`${formatNumber(kpiData.downtime, 1)} h`}
-          icon={ClockCircleOutlined}
-          tone="#f59e0b"
-          toneSoft="rgba(245, 158, 11, 0.12)"
-          clickable
-          bottomIndicatorColor="#f59e0b"
-          tooltip="Click to view Downtime Analytics"
-          onClick={() => handleKpiTabSwitch('downtime')}
-          trend={{ value: '▼ 1.2h', color: '#f59e0b' }}
-          subText={`${ribbonCounts.WITH_DOWNTIME || 0} Stoppages Logged`}
-          progressPct={Math.min(100, (kpiData.downtime / 100) * 100)}
-          progressBarColor="#f59e0b"
-        />
-      </div>
+        <Tooltip title={`Total Downtime: ${formatNumber(kpiData.downtime, 1)} h`}>
+          <div>
+            <KpiCard
+              testId="kpi-total-downtime"
+              label="TOTAL DOWNTIME"
+              value={`${formatCompact(kpiData.downtime, 1)} h`}
+              icon={ClockCircleOutlined}
+              tone="#f59e0b"
+              toneSoft="rgba(245, 158, 11, 0.12)"
+              clickable
+              bottomIndicatorColor="#f59e0b"
+              tooltip="Click to view Downtime Analytics"
+              onClick={() => handleKpiTabSwitch('downtime')}
+              trend={{ value: '▼ 1.2h', color: '#10b981' }}
+              subText={`${ribbonCounts.WITH_DOWNTIME || 0} Stoppages Logged`}
+              progressPct={Math.min(100, (kpiData.downtime / 200) * 100)}
+              progressBarColor="#f59e0b"
+            />
+          </div>
+        </Tooltip></div>
 
       {/* ── Chevron Status Pipeline Ribbon & Unified Filter Strip (Image 2 style) ──── */}
       <Card style={{ marginBottom: 12, borderRadius: 12 }} styles={{ body: { padding: '12px 14px' } }}>

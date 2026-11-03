@@ -1495,3 +1495,306 @@ export function topItemsScrapRollup(rows: readonly ProductionEntryRow[], limit =
 }
 
 
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * Machine-Wise & Hierarchical Department-Wise Rejection Model
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+export interface MachineScrapRow {
+  machine: string;
+  department: string;
+  actualKg: number;
+  actualUnits: number;
+  primaryUom: string;
+  partRejectKg: number;
+  partRejectUnits: number;
+  processScrapKg: number;
+  scrapKg: number;
+  wastagePct: number;
+  partRejectPct: number;
+  processScrapPct: number;
+  entries: number;
+}
+
+export function machineScrapRollup(
+  rows: readonly ProductionEntryRow[],
+  departmentFilter?: string,
+  limit = 12,
+): MachineScrapRow[] {
+  const filtered = departmentFilter && departmentFilter !== 'all'
+    ? rows.filter((r) => entryDepartmentLabel(r).toLowerCase() === departmentFilter.toLowerCase())
+    : rows;
+
+  const byMachine = new Map<string, {
+    machine: string;
+    department: string;
+    actualKg: number;
+    actualUnits: number;
+    partRejectKg: number;
+    partRejectUnits: number;
+    uomCounts: Map<string, number>;
+    processScrapKg: number;
+    scrapKg: number;
+    entries: number;
+  }>();
+
+  for (const row of filtered) {
+    const machine = entryMachineLabel(row);
+    const department = entryDepartmentLabel(row);
+    let cur = byMachine.get(machine);
+    if (!cur) {
+      cur = {
+        machine,
+        department,
+        actualKg: 0,
+        actualUnits: 0,
+        partRejectKg: 0,
+        partRejectUnits: 0,
+        uomCounts: new Map<string, number>(),
+        processScrapKg: 0,
+        scrapKg: 0,
+        entries: 0,
+      };
+      byMachine.set(machine, cur);
+    }
+    const producedInfo = entryProducedPrimaryQty(row);
+    const rejInfo = entryPartRejectPrimaryQty(row);
+    const uom = (row.uom?.code || 'PCS').toUpperCase();
+    cur.uomCounts.set(uom, (cur.uomCounts.get(uom) || 0) + 1);
+
+    cur.entries += 1;
+    cur.actualKg = round2(cur.actualKg + kgOf(row, toNum(row.actualQuantity)));
+    cur.actualUnits = round2(cur.actualUnits + producedInfo.qty);
+    cur.partRejectKg = round2(cur.partRejectKg + entryPartRejectKg(row));
+    cur.partRejectUnits = round2(cur.partRejectUnits + rejInfo.qty);
+    cur.processScrapKg = round2(cur.processScrapKg + entryProcessScrapKg(row));
+    cur.scrapKg = round2(cur.partRejectKg + cur.processScrapKg);
+  }
+
+  return [...byMachine.values()]
+    .map((m) => ({
+      machine: m.machine,
+      department: m.department,
+      actualKg: m.actualKg,
+      actualUnits: m.actualUnits,
+      primaryUom: getDominantUom(m.uomCounts),
+      partRejectKg: m.partRejectKg,
+      partRejectUnits: m.partRejectUnits,
+      processScrapKg: m.processScrapKg,
+      scrapKg: m.scrapKg,
+      wastagePct: m.actualKg > 0 ? round2((m.scrapKg / m.actualKg) * 100) : 0,
+      partRejectPct: m.actualUnits > 0 ? round2((m.partRejectUnits / m.actualUnits) * 100) : 0,
+      processScrapPct: m.actualKg > 0 ? round2((m.processScrapKg / m.actualKg) * 100) : 0,
+      entries: m.entries,
+    }))
+    .sort((a, b) => b.scrapKg - a.scrapKg || b.actualKg - a.actualKg)
+    .slice(0, limit);
+}
+
+export interface ScrapDetailEntryItem {
+  id: string;
+  entryNumber: string;
+  date: string;
+  machine: string;
+  product: string;
+  itemCode: string;
+  department: string;
+  shift: string;
+  operator: string;
+  actualKg: number;
+  actualUnits: number;
+  uomCode: string;
+  partRejectKg: number;
+  partRejectUnits: number;
+  partRejectPct: number;
+  processScrapKg: number;
+  processScrapPct: number;
+  scrapKg: number;
+  wastagePct: number;
+  defectReason: string;
+  remarks: string;
+}
+
+export interface DepartmentScrapGroup {
+  department: string;
+  actualKg: number;
+  actualUnits: number;
+  partRejectKg: number;
+  partRejectUnits: number;
+  processScrapKg: number;
+  scrapKg: number;
+  wastagePct: number;
+  partRejectPct: number;
+  processScrapPct: number;
+  entriesCount: number;
+  primaryUom: string;
+  datesCount: number;
+  items: ScrapDetailEntryItem[];
+  byDate: Array<{
+    date: string;
+    actualKg: number;
+    actualUnits: number;
+    partRejectKg: number;
+    partRejectUnits: number;
+    processScrapKg: number;
+    scrapKg: number;
+    wastagePct: number;
+    items: ScrapDetailEntryItem[];
+  }>;
+}
+
+export function departmentScrapTree(rows: readonly ProductionEntryRow[]): DepartmentScrapGroup[] {
+  const map = new Map<string, {
+    department: string;
+    actualKg: number;
+    actualUnits: number;
+    partRejectKg: number;
+    partRejectUnits: number;
+    processScrapKg: number;
+    scrapKg: number;
+    uomCounts: Map<string, number>;
+    items: ScrapDetailEntryItem[];
+    dateMap: Map<string, {
+      date: string;
+      actualKg: number;
+      actualUnits: number;
+      partRejectKg: number;
+      partRejectUnits: number;
+      processScrapKg: number;
+      scrapKg: number;
+      items: ScrapDetailEntryItem[];
+    }>;
+  }>();
+
+  for (const row of rows) {
+    const dept = entryDepartmentLabel(row);
+    let g = map.get(dept);
+    if (!g) {
+      g = {
+        department: dept,
+        actualKg: 0,
+        actualUnits: 0,
+        partRejectKg: 0,
+        partRejectUnits: 0,
+        processScrapKg: 0,
+        scrapKg: 0,
+        uomCounts: new Map<string, number>(),
+        items: [],
+        dateMap: new Map(),
+      };
+      map.set(dept, g);
+    }
+
+    const machine = entryMachineLabel(row);
+    const product = entryProductName(row);
+    const itemCode = row.item?.itemCode || '';
+    const date = (row.entryDate || '').slice(0, 10);
+    const shift = row.shift?.name || (row.shift as any)?.shiftCode || '—';
+    const operator = row.operatorName || '—';
+    const producedInfo = entryProducedPrimaryQty(row);
+    const rejInfo = entryPartRejectPrimaryQty(row);
+    const uom = (row.uom?.code || 'PCS').toUpperCase();
+    g.uomCounts.set(uom, (g.uomCounts.get(uom) || 0) + 1);
+
+    const actualKg = kgOf(row, toNum(row.actualQuantity));
+    const actualUnits = producedInfo.qty;
+    const partRejectKg = entryPartRejectKg(row);
+    const partRejectUnits = rejInfo.qty;
+    const processScrapKg = entryProcessScrapKg(row);
+    const scrapKg = round2(partRejectKg + processScrapKg);
+    const wastagePct = actualKg > 0 ? round2((scrapKg / actualKg) * 100) : 0;
+    const partRejectPct = actualUnits > 0 ? round2((partRejectUnits / actualUnits) * 100) : 0;
+    const processScrapPct = actualKg > 0 ? round2((processScrapKg / actualKg) * 100) : 0;
+    const defectReason = extractCleanDefectReason(row);
+    const remarks = row.remarks || '';
+
+    const detailItem: ScrapDetailEntryItem = {
+      id: row.id,
+      entryNumber: row.entryNumber || '',
+      date,
+      machine,
+      product,
+      itemCode,
+      department: dept,
+      shift,
+      operator,
+      actualKg,
+      actualUnits,
+      uomCode: uom,
+      partRejectKg,
+      partRejectUnits,
+      partRejectPct,
+      processScrapKg,
+      processScrapPct,
+      scrapKg,
+      wastagePct,
+      defectReason,
+      remarks,
+    };
+
+    g.actualKg = round2(g.actualKg + actualKg);
+    g.actualUnits = round2(g.actualUnits + actualUnits);
+    g.partRejectKg = round2(g.partRejectKg + partRejectKg);
+    g.partRejectUnits = round2(g.partRejectUnits + partRejectUnits);
+    g.processScrapKg = round2(g.processScrapKg + processScrapKg);
+    g.scrapKg = round2(g.partRejectKg + g.processScrapKg);
+    g.items.push(detailItem);
+
+    if (date) {
+      let dEntry = g.dateMap.get(date);
+      if (!dEntry) {
+        dEntry = {
+          date,
+          actualKg: 0,
+          actualUnits: 0,
+          partRejectKg: 0,
+          partRejectUnits: 0,
+          processScrapKg: 0,
+          scrapKg: 0,
+          items: [],
+        };
+        g.dateMap.set(date, dEntry);
+      }
+      dEntry.actualKg = round2(dEntry.actualKg + actualKg);
+      dEntry.actualUnits = round2(dEntry.actualUnits + actualUnits);
+      dEntry.partRejectKg = round2(dEntry.partRejectKg + partRejectKg);
+      dEntry.partRejectUnits = round2(dEntry.partRejectUnits + partRejectUnits);
+      dEntry.processScrapKg = round2(dEntry.processScrapKg + processScrapKg);
+      dEntry.scrapKg = round2(dEntry.partRejectKg + dEntry.processScrapKg);
+      dEntry.items.push(detailItem);
+    }
+  }
+
+  return [...map.values()]
+    .map((g) => {
+      const wastagePct = g.actualKg > 0 ? round2((g.scrapKg / g.actualKg) * 100) : 0;
+      const partRejectPct = g.actualUnits > 0 ? round2((g.partRejectUnits / g.actualUnits) * 100) : 0;
+      const processScrapPct = g.actualKg > 0 ? round2((g.processScrapKg / g.actualKg) * 100) : 0;
+
+      const byDate = [...g.dateMap.values()]
+        .map((d) => ({
+          ...d,
+          wastagePct: d.actualKg > 0 ? round2((d.scrapKg / d.actualKg) * 100) : 0,
+        }))
+        .sort((a, b) => b.date.localeCompare(a.date));
+
+      return {
+        department: g.department,
+        actualKg: g.actualKg,
+        actualUnits: g.actualUnits,
+        partRejectKg: g.partRejectKg,
+        partRejectUnits: g.partRejectUnits,
+        processScrapKg: g.processScrapKg,
+        scrapKg: g.scrapKg,
+        wastagePct,
+        partRejectPct,
+        processScrapPct,
+        entriesCount: g.items.length,
+        primaryUom: getDominantUom(g.uomCounts),
+        datesCount: g.dateMap.size,
+        items: g.items.sort((a, b) => b.date.localeCompare(a.date) || b.scrapKg - a.scrapKg),
+        byDate,
+      };
+    })
+    .sort((a, b) => b.scrapKg - a.scrapKg || b.actualKg - a.actualKg);
+}

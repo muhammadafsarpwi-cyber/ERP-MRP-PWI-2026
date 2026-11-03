@@ -220,6 +220,31 @@ const UOM_WEIGHT = new Set(['KG', 'KGS', 'KGM', 'KILOGRAM', 'KILOGRAMS']);
 const UOM_LENGTH = new Set(['M', 'MTR', 'METER', 'METRE', 'METERS', 'METRES']);
 const UOM_COUNT = new Set(['PCS', 'PC', 'PIECE', 'PIECES', 'EA', 'NOS', 'NO', 'UNIT']);
 
+/* ── Unit-aware SQL converters for the executive KPI summary ─────────────
+   `scrap_quantity` / `actual_quantity` are stored in the ENTRY'S OWN UOM
+   (PCS for spokes, KG for wire, M for PVC ...). Summing them raw and calling
+   the result "KG" (the old behaviour) mixed pieces into kilograms and showed
+   an impossible 19,117 KG rejection. These expressions convert each row to a
+   real KG figure and a real PCS figure through the Item Master weights,
+   mirroring calcActualKg() above. Aliases required: `uom` and `item`.      */
+const SQL_UOM = "UPPER(TRIM(COALESCE(uom.code, '')))";
+const SQL_IS_KG = `${SQL_UOM} IN ('KG','KGS','KGM','KILOGRAM','KILOGRAMS')`;
+const SQL_IS_LEN = `(${SQL_UOM} IN ('M','MTR','METER','METRE','METERS','METRES') OR COALESCE(item.weight_per_meter, 0) > 0)`;
+const SQL_IS_GRS = `${SQL_UOM} IN ('GRS','GROSS')`;
+const SQL_IS_CNT = `(${SQL_UOM} IN ('PCS','PC','PIECE','PIECES','EA','NOS','NO','UNIT') OR COALESCE(item.weight_per_piece, 0) > 0)`;
+const sqlQtyToKg = (col: string): string =>
+  `CASE WHEN ${SQL_IS_KG} THEN COALESCE(${col}, 0) ` +
+  `WHEN ${SQL_IS_LEN} THEN COALESCE(${col}, 0) * COALESCE(item.weight_per_meter, 0) ` +
+  `WHEN ${SQL_IS_GRS} THEN COALESCE(${col}, 0) * 144 * COALESCE(item.weight_per_piece, 0) ` +
+  `WHEN ${SQL_IS_CNT} THEN COALESCE(${col}, 0) * COALESCE(item.weight_per_piece, 0) ` +
+  `ELSE 0 END`;
+const sqlQtyToPcs = (col: string): string =>
+  `CASE WHEN ${SQL_IS_KG} THEN (CASE WHEN COALESCE(item.weight_per_piece, 0) > 0 THEN COALESCE(${col}, 0) / item.weight_per_piece ELSE 0 END) ` +
+  `WHEN ${SQL_IS_LEN} THEN 0 ` +
+  `WHEN ${SQL_IS_GRS} THEN COALESCE(${col}, 0) * 144 ` +
+  `WHEN ${SQL_IS_CNT} THEN COALESCE(${col}, 0) ` +
+  `ELSE 0 END`;
+
 export function calcActualKg(
   uomCode: string,
   actualQuantity: number,
@@ -345,6 +370,11 @@ export class ProductionEntryService {
       actual: number;
       target: number;
       scrap: number;
+      processScrap?: number;
+      actualKg?: number;
+      actualPcs?: number;
+      rejectKg?: number;
+      rejectPcs?: number;
       overtime: number;
       downtime: number;
       efficiency: number;
@@ -418,6 +448,7 @@ export class ProductionEntryService {
     // Build overall summary query matching all organization/date/search filters before pagination & chevron filtering
     const summaryQb = this.entryRepo.createQueryBuilder('pe')
       .leftJoin('pe.item', 'item')
+      .leftJoin('pe.uom', 'uom')
       // Target Master + shift plan: the summary has to total the SAME
       // corrected target the grid's TARGET column renders (locked planned
       // hourly rate × real run hours), or the Achievement KPI and the
@@ -459,6 +490,11 @@ export class ProductionEntryService {
         'COALESCE(SUM(pe.actual_quantity), 0)::float AS "totalActual"',
         'COALESCE(SUM(pe.scrap_quantity), 0)::float AS "totalScrap"',
         'COALESCE(SUM(pe.process_scrap_kg), 0)::float AS "totalProcessScrap"',
+        // Unit-aware conversions (see sqlQtyToKg / sqlQtyToPcs above).
+        `COALESCE(SUM(${sqlQtyToKg('pe.actual_quantity')}), 0)::float AS "totalActualKg"`,
+        `COALESCE(SUM(${sqlQtyToPcs('pe.actual_quantity')}), 0)::float AS "totalActualPcs"`,
+        `COALESCE(SUM(${sqlQtyToKg('pe.scrap_quantity')}), 0)::float AS "totalRejectKg"`,
+        `COALESCE(SUM(${sqlQtyToPcs('pe.scrap_quantity')}), 0)::float AS "totalRejectPcs"`,
         `COALESCE(SUM(${OVERTIME_SUM_SQL}), 0)::float AS "totalOvertime"`,
         'COALESCE(SUM(pe.downtime_hours), 0)::float AS "totalDowntime"',
         'COALESCE(AVG(pe.efficiency_percentage), 0)::float AS "avgEfficiency"',
@@ -481,6 +517,11 @@ export class ProductionEntryService {
       // Report-only process waste (off-cuts/trimmings) — additive, never merged
       // into `scrap` above so product-rejection KPIs keep their meaning.
       processScrap: Number(summaryRow?.totalProcessScrap || 0),
+      // Real (unit-converted) figures for the Scrap & Rejection KPI card.
+      actualKg: Math.round(Number(summaryRow?.totalActualKg || 0) * 100) / 100,
+      actualPcs: Math.round(Number(summaryRow?.totalActualPcs || 0)),
+      rejectKg: Math.round(Number(summaryRow?.totalRejectKg || 0) * 100) / 100,
+      rejectPcs: Math.round(Number(summaryRow?.totalRejectPcs || 0)),
       overtime: Number(summaryRow?.totalOvertime || 0),
       downtime: Number(summaryRow?.totalDowntime || 0),
       efficiency: totalTarget > 0 ? Math.round((totalActual / totalTarget) * 10000) / 100 : Number(summaryRow?.avgEfficiency || 0),

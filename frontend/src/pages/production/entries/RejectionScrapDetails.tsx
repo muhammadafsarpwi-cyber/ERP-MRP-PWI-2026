@@ -2,21 +2,23 @@
  * RejectionScrapDetails.tsx — TAB B · "Rejection & Scrap Details"
  *
  * Rich Analytical Dashboard featuring:
- *   1. Executive KPI Summary Tiles (Produced KG, Part Reject KG, Process Scrap KG,
- *      Total Scrap KG, Wastage %, Top Defect Reason)
- *   2. 4 Modern Visual Recharts:
- *      - Area Chart: Day-wise Scrap Trend (Produced vs Part Reject vs Process Scrap)
+ *   1. Executive KPI Summary Tiles (Produced KG & PCS, Part Reject KG & PCS,
+ *      Process Scrap KG, Total Loss KG & %, Top Defect Reason)
+ *   2. Interactive Charts Suite:
+ *      - Area Chart: Day-wise Scrap Trend
  *      - Donut Chart: Clean Defect Reason Distribution
- *      - Horizontal Stacked Bar Chart: Department-wise Rejection (KG)
- *        (Part Reject [Rose] + Process Scrap [Sky Blue] = Total Rejection)
- *      - Bar Chart: Top Item-wise Rejection
- *   3. Wastage Data Matrix (Machine/Product | Dept | Produced KG | Part Reject KG |
- *      Process Scrap KG | Total Scrap KG | Defect Reason)
- *   4. Department Breakdown Summary Table with Part Reject and Process Scrap columns
+ *      - Horizontal Bar Chart: Department-wise Rejection (KG)
+ *      - Machine-Wise Rejection Chart with Interactive Department Filter Buttons
+ *      - Bar Chart: Top Items by Rejection
+ *   3. Hierarchical Grouped Department-Wise Rejection Table:
+ *      - Grouped cleanly by Department (no mixed/jumbled rows)
+ *      - Date-wise and Machine-wise breakdown inside each department
+ *      - In-Browser "View" Popup Modal for instant on-screen review
+ *      - Individual Department PDF / Print Report Export
  * ──────────────────────────────────────────────────────────────────────────── */
 
-import React, { useMemo } from 'react';
-import { Button, Tooltip, Tag } from 'antd';
+import React, { useMemo, useState } from 'react';
+import { Button, Tag, Tooltip, Collapse, Space, Modal } from 'antd';
 import {
   Area,
   AreaChart,
@@ -37,8 +39,13 @@ import {
   PieChartOutlined,
   ApartmentOutlined,
   AppstoreOutlined,
+  ToolOutlined,
+  PrinterOutlined,
+  EyeOutlined,
+  CalendarOutlined,
+  CloseOutlined,
 } from '@ant-design/icons';
-import { formatNumber } from '../../../utils/numberFormat';
+import { formatNumber, formatCompact } from '../../../utils/numberFormat';
 import type { ProductionEntryRow } from './EntryList';
 import { useAnalysisRows } from './analyticsData';
 import {
@@ -46,12 +53,14 @@ import {
   departmentScrapRollup,
   defectReasonDistribution,
   topItemsScrapRollup,
-  hoursFixed,
+  machineScrapRollup,
+  departmentScrapTree,
   kgFixed,
-  scrapMatrix,
   scrapTotals,
   unweightedEntryCount,
+  sampleMonthLabel,
 } from './analyticsModel';
+import type { DepartmentScrapGroup } from './analyticsModel';
 import {
   ChartFrame,
   MetricTile,
@@ -61,6 +70,7 @@ import {
   labelCellStyle,
   numCellStyle,
 } from './analyticsUi';
+import { exportDepartmentRejectionPdf } from './rejectionAnalyticsPdf';
 
 export interface RejectionScrapDetailsProps {
   /** Rows the grid currently holds — seeds the sheet before the wide sample lands. */
@@ -81,7 +91,7 @@ const thHead: React.CSSProperties = {
   letterSpacing: '0.04em',
   lineHeight: 1.3,
   color: 'var(--theme-text-muted, #94a3b8)',
-  padding: '6px 6px',
+  padding: '7px 6px',
   whiteSpace: 'normal',
   verticalAlign: 'bottom',
 };
@@ -90,8 +100,14 @@ const RejectionScrapDetails: React.FC<RejectionScrapDetailsProps> = ({ seed, bui
   const analysis = useAnalysisRows(seed, buildFilters, active);
   const rows = analysis.rows;
 
-  /* ── Aggregations (pure, see analyticsModel.ts) ─────────────────────────── */
-  const matrix = useMemo(() => scrapMatrix(rows), [rows]);
+  /* ── Department selector for Machine Chart ────────────────────────── */
+  const [selectedMachineDept, setSelectedMachineDept] = useState<string>('all');
+  /* ── Expanded department groups in hierarchical view ──────────────── */
+  const [activeDeptPanels, setActiveDeptPanels] = useState<string[]>([]);
+  /* ── Department View Modal State ─────────────────────────────────── */
+  const [viewModalDept, setViewModalDept] = useState<DepartmentScrapGroup | null>(null);
+
+  /* ── Aggregations (pure, see analyticsModel.ts) ─────────────────────── */
   const series = useMemo(() => dailyScrapSeries(rows), [rows]);
   const byDepartment = useMemo(() => departmentScrapRollup(rows), [rows]);
   const totals = useMemo(() => scrapTotals(rows), [rows]);
@@ -105,14 +121,34 @@ const RejectionScrapDetails: React.FC<RejectionScrapDetailsProps> = ({ seed, bui
   }, [rows]);
   const topItems = useMemo(() => topItemsScrapRollup(rows, 6), [rows]);
 
+  // Department-filtered machine scrap list for Chart
+  const machineScrapList = useMemo(() => {
+    return machineScrapRollup(rows, selectedMachineDept, 12);
+  }, [rows, selectedMachineDept]);
+
+  // Hierarchical department scrap tree
+  const deptTree = useMemo(() => {
+    return departmentScrapTree(rows);
+  }, [rows]);
+
+  const monthScope = useMemo(() => sampleMonthLabel(rows), [rows]);
+
   const status =
-    analysis.error ?? (analysis.loading ? 'Loading the analytical sample…' : null);
+    analysis.error ?? (analysis.loading ? 'Loading the complete analytical dataset…' : null);
 
   const caption = analysis.loaded
     ? `Read-only · ${formatNumber(rows.length, 0)} of ${formatNumber(analysis.scopeTotal, 0)} matching entries analysed across ${formatNumber(series.length, 0)} production day${series.length === 1 ? '' : 's'}.`
-    : `Read-only · seeded with the ${formatNumber(rows.length, 0)} entries on the current page while the filtered sample loads.`;
+    : `Read-only · seeded with the ${formatNumber(rows.length, 0)} entries on the current page while the complete sample loads.`;
 
   const topDefect = defectDist[0];
+
+  // Rejection % formulas:
+  // Part Reject PCS % = Part Reject PCS ÷ Actual Produced PCS
+  // Part Reject KG % = Part Reject KG ÷ Actual Produced KG
+  // Process Scrap KG % = Process Scrap KG ÷ Actual Produced KG
+  const partRejPcsPct = totals.actualUnits > 0 ? (totals.partRejectUnits / totals.actualUnits) * 100 : 0;
+  const partRejKgPct = totals.actualKg > 0 ? (totals.partRejectKg / totals.actualKg) * 100 : 0;
+  const processScrapKgPct = totals.actualKg > 0 ? (totals.processScrapKg / totals.actualKg) * 100 : 0;
 
   return (
     <div data-testid="rejection-scrap-sheet" style={{ padding: '4px 0 16px' }}>
@@ -142,41 +178,47 @@ const RejectionScrapDetails: React.FC<RejectionScrapDetailsProps> = ({ seed, bui
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
         <MetricTile
           testId="scrap-produced"
-          label="Actual Produced"
+          label="Actual Produced Output"
           value={`${kgFixed(totals.actualKg)} KG`}
-          hint={`${formatNumber(totals.actualUnits, 0)} ${totals.dominantUom || 'PCS'} · ${formatNumber(totals.entries, 0)} entries`}
+          hint={`${formatCompact(totals.actualUnits, 1)} ${totals.dominantUom || 'PCS'} Net Output (${formatNumber(totals.entries, 0)} Entries)`}
         />
         <MetricTile
           testId="part-reject"
-          label="Part Reject"
+          label="Part Rejection"
           value={`${kgFixed(totals.partRejectKg)} KG`}
           tone={totals.partRejectKg > 0 ? '#f43f5e' : undefined}
-          hint={`${formatNumber(totals.partRejectUnits, 0)} ${totals.dominantUom || 'PCS'} Rejection Parts`}
+          hint={`${formatNumber(totals.partRejectUnits, 0)} ${totals.dominantUom || 'PCS'} (${partRejPcsPct.toFixed(2)}% PCS · ${partRejKgPct.toFixed(2)}% KG)`}
         />
         <MetricTile
           testId="process-scrap"
-          label="Process Scrap"
+          label="Process Scrap (Waste)"
           value={`${kgFixed(totals.processScrapKg)} KG`}
           tone={totals.processScrapKg > 0 ? '#0ea5e9' : undefined}
-          hint="Cutting, Wire & Packing Waste"
+          hint={`Cutting & Wire Waste (${processScrapKgPct.toFixed(2)}% of KG)`}
         />
         <MetricTile
           testId="scrap-rejected"
-          label="Total Rejection (KG)"
+          label="Total Loss (Rejection + Scrap)"
           value={`${kgFixed(totals.scrapKg)} KG`}
           tone={totals.scrapKg > 0 ? 'var(--theme-danger, #ef4444)' : undefined}
-          hint={`${formatNumber(totals.wastagePct, 2)}% Overall Wastage`}
+          hint={`${formatNumber(totals.wastagePct, 2)}% Overall Material Wastage`}
         />
         <MetricTile
           testId="scrap-top-defect"
           label="Top Defect Reason"
           value={topDefect ? topDefect.reason : 'None'}
           tone="#a855f7"
-          hint={topDefect ? `${topDefect.pct}% of total scrap (${kgFixed(topDefect.scrapKg)} KG · ${formatNumber(topDefect.units, 0)} ${totals.dominantUom || 'PCS'})` : (unweighted > 0 ? `${unweighted} rows excluded` : 'Zero defect recorded')}
+          hint={
+            topDefect
+              ? `${topDefect.pct}% of total scrap (${kgFixed(topDefect.scrapKg)} KG · ${formatNumber(topDefect.units, 0)} ${totals.dominantUom || 'PCS'})`
+              : unweighted > 0
+                ? `${unweighted} rows excluded`
+                : 'Zero defect recorded'
+          }
         />
       </div>
 
-      {/* ── 2x2 Grid: 4 Visual Analytics Charts ────────────────────────────── */}
+      {/* ── Visual Analytics Charts ───────────────────────────────────────── */}
       <div
         style={{
           display: 'grid',
@@ -189,7 +231,7 @@ const RejectionScrapDetails: React.FC<RejectionScrapDetailsProps> = ({ seed, bui
         <Panel
           title={
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700 }}>
-              <LineChartOutlined style={{ color: '#06b6d4' }} /> Day-wise Scrap Trend
+              <LineChartOutlined style={{ color: '#06b6d4' }} /> Day-wise Scrap Trend ({monthScope})
             </span>
           }
           testId="scrap-trend-panel"
@@ -357,7 +399,100 @@ const RejectionScrapDetails: React.FC<RejectionScrapDetailsProps> = ({ seed, bui
           )}
         </Panel>
 
-        {/* CHART 3: Department-wise Rejection (KG) (Stacked Horizontal Bar Chart) */}
+        {/* CHART 3: Machine-Wise Rejection Chart with Interactive Department Filter Buttons */}
+        <Panel
+          title={
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700 }}>
+                  <ToolOutlined style={{ color: '#10b981' }} /> Machine-Wise Rejection &amp; Scrap
+                </span>
+                <span style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)' }}>
+                  {machineScrapList.length} Machine{machineScrapList.length === 1 ? '' : 's'} Shown
+                </span>
+              </div>
+              {/* Interactive Department Filter Buttons */}
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                <Button
+                  size="small"
+                  type={selectedMachineDept === 'all' ? 'primary' : 'default'}
+                  onClick={() => setSelectedMachineDept('all')}
+                  style={{ fontSize: 11, height: 24, padding: '0 8px' }}
+                >
+                  All Departments
+                </Button>
+                {byDepartment.map((d) => (
+                  <Button
+                    key={d.department}
+                    size="small"
+                    type={selectedMachineDept.toLowerCase() === d.department.toLowerCase() ? 'primary' : 'default'}
+                    onClick={() => setSelectedMachineDept(d.department)}
+                    style={{ fontSize: 11, height: 24, padding: '0 8px' }}
+                  >
+                    {d.department}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          }
+          testId="scrap-machine-chart"
+        >
+          {machineScrapList.length === 0 ? (
+            <div style={{ fontSize: 12, color: 'var(--theme-text-muted, #94a3b8)', padding: '24px 8px', textAlign: 'center' }}>
+              No machine scrap records found for the selected department.
+            </div>
+          ) : (
+            <>
+              <ChartFrame height={230}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart
+                    data={machineScrapList}
+                    layout="vertical"
+                    margin={{ top: 8, right: 24, left: 16, bottom: 0 }}
+                    barCategoryGap="20%"
+                  >
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--theme-border, rgba(255,255,255,0.08))" horizontal={false} />
+                    <XAxis type="number" tick={{ fontSize: 10, fill: 'var(--theme-text-muted, #94a3b8)' }} />
+                    <YAxis
+                      dataKey="machine"
+                      type="category"
+                      width={90}
+                      tick={{ fontSize: 10, fill: 'var(--theme-text, #f1f5f9)', fontWeight: 500 }}
+                    />
+                    <ChartTooltip
+                      formatter={(val: unknown, name: unknown, item: any) => {
+                        const payload = item?.payload || {};
+                        const label = name === 'partRejectKg' ? 'Part Reject' : (name === 'processScrapKg' ? 'Process Scrap' : String(name));
+                        const units = name === 'partRejectKg' ? ` (${formatNumber(payload.partRejectUnits || 0, 0)} ${payload.primaryUom || 'PCS'})` : '';
+                        return [`${kgFixed(Number(val))} KG${units} (Total: ${kgFixed(payload.scrapKg || 0)} KG | ${payload.wastagePct}% Loss)`, label];
+                      }}
+                      contentStyle={{
+                        background: 'var(--theme-surface, #1e293b)',
+                        borderColor: 'var(--theme-border, #334155)',
+                        borderRadius: 8,
+                        fontSize: 12,
+                      }}
+                    />
+                    <Bar dataKey="partRejectKg" name="Part Reject (KG)" stackId="machScrap" fill="#f43f5e" isAnimationActive={false} />
+                    <Bar dataKey="processScrapKg" name="Process Scrap (KG)" stackId="machScrap" fill="#0ea5e9" radius={[0, 6, 6, 0]} isAnimationActive={false} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </ChartFrame>
+              <div style={{ display: 'flex', gap: 14, fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', marginTop: 4 }}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: 2, background: '#f43f5e' }} />
+                  Part Reject
+                </span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: 2, background: '#0ea5e9' }} />
+                  Process Scrap
+                </span>
+              </div>
+            </>
+          )}
+        </Panel>
+
+        {/* CHART 4: Department-wise Rejection (KG) (Stacked Horizontal Bar Chart) */}
         <Panel
           title={
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
@@ -421,7 +556,7 @@ const RejectionScrapDetails: React.FC<RejectionScrapDetailsProps> = ({ seed, bui
           )}
         </Panel>
 
-        {/* CHART 4: Top Items by Rejection (Item-wise Bar Chart) */}
+        {/* CHART 5: Top Items by Rejection (Item-wise Bar Chart) */}
         <Panel
           title={
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700 }}>
@@ -474,192 +609,371 @@ const RejectionScrapDetails: React.FC<RejectionScrapDetailsProps> = ({ seed, bui
         </Panel>
       </div>
 
-      {/* ── 3 · Wastage Data Matrix ──────────────────────────────────────── */}
+      {/* ── 3 · Hierarchical Grouped Department Rejection Breakdown ───────── */}
       <Panel
         title={
-          <span style={{ fontWeight: 700, fontSize: 13 }}>
-            Wastage Data Matrix — Machine &amp; Product Breakdown
-          </span>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+            <span style={{ fontWeight: 700, fontSize: 13 }}>
+              Department-Wise Rejection Hierarchy &amp; Date Logs
+            </span>
+            <Space>
+              <Button
+                size="small"
+                onClick={() => {
+                  if (activeDeptPanels.length === deptTree.length) {
+                    setActiveDeptPanels([]);
+                  } else {
+                    setActiveDeptPanels(deptTree.map((g) => g.department));
+                  }
+                }}
+              >
+                {activeDeptPanels.length === deptTree.length ? 'Collapse All' : 'Expand All'}
+              </Button>
+            </Space>
+          </div>
         }
-        testId="scrap-matrix"
+        testId="scrap-hierarchy-panel"
       >
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, tableLayout: 'fixed' }}>
-            <thead>
-              <tr>
-                <th style={{ ...thHead, textAlign: 'left', width: '22%' }}>Machine / Product</th>
-                <th style={{ ...thHead, textAlign: 'left', width: '12%' }}>Department</th>
-                <th style={{ ...thHead, textAlign: 'right', width: '14%' }}>Output (KG &amp; Units)</th>
-                <th style={{ ...thHead, textAlign: 'right', width: '14%', color: '#f43f5e' }}>Part Reject</th>
-                <th style={{ ...thHead, textAlign: 'right', width: '12%', color: '#0ea5e9' }}>Process Scrap</th>
-                <th style={{ ...thHead, textAlign: 'right', width: '13%' }}>Total Scrap</th>
-                <th style={{ ...thHead, textAlign: 'left', width: '13%' }}>Defect Reason</th>
-              </tr>
-            </thead>
-            <tbody>
-              {matrix.length === 0 ? (
-                <tr>
-                  <td colSpan={7} style={{ ...labelCellStyle, color: 'var(--theme-text-muted, #94a3b8)', padding: '16px 8px', textAlign: 'center' }}>
-                    No production records found for the selected filter.
-                  </td>
-                </tr>
-              ) : (
-                matrix.map((m) => (
-                  <tr key={m.key} data-testid="scrap-matrix-row" style={{ borderTop: '1px solid var(--theme-border, #e2e8f0)' }}>
-                    <td style={labelCellStyle}>
-                      <b style={{ color: 'var(--theme-text, #f1f5f9)' }}>{m.machine}</b>
-                      <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)' }}>{m.product}</div>
-                    </td>
-                    <td style={labelCellStyle}>
-                      <Tag color="cyan" style={{ fontSize: 10.5, margin: 0 }}>{m.department}</Tag>
-                    </td>
-                    <td style={{ ...numCellStyle, textAlign: 'right' }}>
-                      <div>{kgFixed(m.actualKg)} KG</div>
-                      <div style={{ fontSize: 10.5, color: 'var(--theme-text-muted, #94a3b8)' }}>
-                        {formatNumber(m.actualUnits, 0)} {m.uomCode}
-                      </div>
-                    </td>
-                    <td style={{ ...numCellStyle, textAlign: 'right', color: m.partRejectKg > 0 ? '#f43f5e' : 'var(--theme-text-muted, #94a3b8)', fontWeight: m.partRejectKg > 0 ? 600 : 400 }}>
-                      <div>{kgFixed(m.partRejectKg)} KG</div>
-                      <div style={{ fontSize: 10.5, opacity: 0.9 }}>
-                        {formatNumber(m.partRejectUnits, 0)} {m.uomCode}
-                      </div>
-                    </td>
-                    <td style={{ ...numCellStyle, textAlign: 'right', color: m.processScrapKg > 0 ? '#0ea5e9' : 'var(--theme-text-muted, #94a3b8)', fontWeight: m.processScrapKg > 0 ? 600 : 400 }}>
-                      {kgFixed(m.processScrapKg)} KG
-                    </td>
-                    <td
+        {deptTree.length === 0 ? (
+          <div style={{ fontSize: 12, color: 'var(--theme-text-muted, #94a3b8)', padding: '24px 8px', textAlign: 'center' }}>
+            No rejection records found for the selected filter.
+          </div>
+        ) : (
+          <Collapse
+            activeKey={activeDeptPanels}
+            onChange={(keys) => setActiveDeptPanels(Array.isArray(keys) ? keys.map(String) : [String(keys)])}
+            style={{ background: 'transparent', border: 'none' }}
+          >
+            {deptTree.map((group) => {
+              const isWorst = group === deptTree[0] && group.scrapKg > 0;
+              return (
+                <Collapse.Panel
+                  key={group.department}
+                  header={
+                    <div
                       style={{
-                        ...numCellStyle,
-                        textAlign: 'right',
-                        color: m.scrapKg > 0 ? 'var(--theme-danger, #ef4444)' : 'var(--theme-text-muted, #94a3b8)',
-                        fontWeight: 700,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        width: '100%',
+                        flexWrap: 'wrap',
+                        gap: 8,
+                        padding: '4px 0',
                       }}
                     >
-                      {kgFixed(m.scrapKg)} KG
-                      <div
-                        style={{
-                          fontSize: 10.5,
-                          fontWeight: 600,
-                          color: m.wastagePct > 0 ? 'var(--theme-warning, #f59e0b)' : 'var(--theme-text-muted, #94a3b8)',
-                        }}
-                      >
-                        {formatNumber(m.wastagePct, 2)}%
-                      </div>
-                    </td>
-                    <td style={labelCellStyle}>
-                      <Tooltip title={m.defectReason !== '—' ? m.defectReason : undefined}>
-                        <span style={{ color: m.defectReason !== '—' ? 'var(--theme-text, #f1f5f9)' : 'var(--theme-text-muted, #64748b)' }}>
-                          {m.defectReason}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <Tag color={isWorst ? 'error' : 'blue'} style={{ fontSize: 11, fontWeight: 700, margin: 0 }}>
+                          {group.department}
+                        </Tag>
+                        <span style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)' }}>
+                          {group.entriesCount} Entries across {group.datesCount} Days
                         </span>
-                      </Tooltip>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+                      </div>
+
+                      {/* Summary Metrics Pills */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        <Tag style={{ margin: 0, fontSize: 11, border: 'none', background: 'rgba(16, 185, 129, 0.12)', color: '#10b981' }}>
+                          Output: <strong>{formatCompact(group.actualKg, 1)} KG</strong> ({formatCompact(group.actualUnits, 1)} {group.primaryUom})
+                        </Tag>
+                        <Tag style={{ margin: 0, fontSize: 11, border: 'none', background: 'rgba(244, 63, 94, 0.12)', color: '#f43f5e' }}>
+                          Reject: <strong>{formatNumber(group.partRejectKg, 1)} KG</strong> ({formatCompact(group.partRejectUnits, 1)} {group.primaryUom} • {group.partRejectPct.toFixed(2)}%)
+                        </Tag>
+                        <Tag style={{ margin: 0, fontSize: 11, border: 'none', background: 'rgba(14, 165, 233, 0.12)', color: '#0ea5e9' }}>
+                          Process Scrap: <strong>{formatNumber(group.processScrapKg, 1)} KG</strong> ({group.processScrapPct.toFixed(2)}%)
+                        </Tag>
+                        <Tag style={{ margin: 0, fontSize: 11, border: 'none', background: 'rgba(225, 29, 72, 0.15)', color: '#e11d48', fontWeight: 700 }}>
+                          Total Loss: {formatNumber(group.scrapKg, 1)} KG ({group.wastagePct.toFixed(2)}%)
+                        </Tag>
+
+                        {/* View Report Button */}
+                        <Button
+                          size="small"
+                          icon={<EyeOutlined />}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setViewModalDept(group);
+                          }}
+                          style={{ fontSize: 10.5, height: 24, padding: '0 8px' }}
+                        >
+                          View
+                        </Button>
+
+                        {/* Export PDF Button */}
+                        <Button
+                          size="small"
+                          icon={<PrinterOutlined />}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            exportDepartmentRejectionPdf(group, monthScope);
+                          }}
+                          style={{ fontSize: 10.5, height: 24, padding: '0 8px' }}
+                        >
+                          Print / PDF
+                        </Button>
+                      </div>
+                    </div>
+                  }
+                  style={{
+                    marginBottom: 8,
+                    background: 'var(--theme-surface, rgba(255, 255, 255, 0.03))',
+                    border: '1px solid var(--theme-border, #e2e8f0)',
+                    borderRadius: 8,
+                    overflow: 'hidden',
+                  }}
+                >
+                  {/* Detailed Table inside Department: Grouped by Date */}
+                  <div style={{ overflowX: 'auto', marginTop: 4 }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                      <thead>
+                        <tr style={{ background: 'var(--theme-surface-subtle, rgba(0,0,0,0.02))' }}>
+                          <th style={{ ...thHead, textAlign: 'left', width: '8%' }}>Date</th>
+                          <th style={{ ...thHead, textAlign: 'left', width: '10%' }}>Machine</th>
+                          <th style={{ ...thHead, textAlign: 'left', width: '18%' }}>Item / Product</th>
+                          <th style={{ ...thHead, textAlign: 'center', width: '6%' }}>Shift</th>
+                          <th style={{ ...thHead, textAlign: 'right', width: '12%' }}>Produced Output</th>
+                          <th style={{ ...thHead, textAlign: 'right', width: '15%', color: '#f43f5e' }}>Part Reject</th>
+                          <th style={{ ...thHead, textAlign: 'right', width: '10%', color: '#0ea5e9' }}>Process Scrap</th>
+                          <th style={{ ...thHead, textAlign: 'right', width: '10%' }}>Total Loss</th>
+                          <th style={{ ...thHead, textAlign: 'left', width: '11%' }}>Defect Reason</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {group.items.map((row) => {
+                          const kgPct = row.actualKg > 0 ? (row.partRejectKg / row.actualKg) * 100 : 0;
+                          return (
+                            <tr
+                              key={row.id}
+                              style={{
+                                borderTop: '1px solid var(--theme-border, #e2e8f0)',
+                                background: row.scrapKg > 0 ? 'rgba(239, 68, 68, 0.02)' : 'transparent',
+                              }}
+                            >
+                              <td style={{ ...labelCellStyle, whiteSpace: 'nowrap' }}>
+                                <CalendarOutlined style={{ marginRight: 4, color: 'var(--theme-text-muted, #94a3b8)' }} />
+                                {row.date || '—'}
+                              </td>
+                              <td style={labelCellStyle}>
+                                <b style={{ color: 'var(--theme-text, #f1f5f9)' }}>{row.machine}</b>
+                              </td>
+                              <td style={labelCellStyle}>
+                                <div style={{ fontWeight: 600, color: 'var(--theme-text, #f1f5f9)', fontSize: 11 }}>{row.product}</div>
+                                {row.itemCode && <div style={{ fontSize: 9.5, color: 'var(--theme-text-muted, #94a3b8)' }}>{row.itemCode}</div>}
+                              </td>
+                              <td style={{ ...labelCellStyle, textAlign: 'center' }}>
+                                <Tag style={{ margin: 0, fontSize: 9.5 }}>{row.shift}</Tag>
+                              </td>
+                              <td style={{ ...numCellStyle, textAlign: 'right' }}>
+                                <div>{formatNumber(row.actualUnits, 0)} {row.uomCode}</div>
+                                <div style={{ fontSize: 9.5, color: 'var(--theme-text-muted, #94a3b8)' }}>
+                                  {formatNumber(row.actualKg, 2)} KG
+                                </div>
+                              </td>
+                              <td style={{ ...numCellStyle, textAlign: 'right', color: row.partRejectKg > 0 ? '#f43f5e' : 'var(--theme-text-muted, #94a3b8)', fontWeight: row.partRejectKg > 0 ? 600 : 400 }}>
+                                <div>{formatNumber(row.partRejectUnits, 0)} {row.uomCode} ({row.partRejectPct.toFixed(2)}%)</div>
+                                <div style={{ fontSize: 9.5 }}>
+                                  {formatNumber(row.partRejectKg, 2)} KG · {kgPct.toFixed(2)}%
+                                </div>
+                              </td>
+                              <td style={{ ...numCellStyle, textAlign: 'right', color: row.processScrapKg > 0 ? '#0ea5e9' : 'var(--theme-text-muted, #94a3b8)', fontWeight: row.processScrapKg > 0 ? 600 : 400 }}>
+                                <div>{formatNumber(row.processScrapKg, 2)} KG</div>
+                                <div style={{ fontSize: 9.5 }}>{row.processScrapPct.toFixed(1)}%</div>
+                              </td>
+                              <td
+                                style={{
+                                  ...numCellStyle,
+                                  textAlign: 'right',
+                                  color: row.scrapKg > 0 ? 'var(--theme-danger, #ef4444)' : 'var(--theme-text-muted, #94a3b8)',
+                                  fontWeight: 700,
+                                }}
+                              >
+                                <div>{formatNumber(row.scrapKg, 2)} KG</div>
+                                <div style={{ fontSize: 9.5, color: row.wastagePct > 0 ? 'var(--theme-warning, #f59e0b)' : 'var(--theme-text-muted, #94a3b8)' }}>
+                                  {row.wastagePct.toFixed(1)}%
+                                </div>
+                              </td>
+                              <td style={{ ...labelCellStyle, fontSize: 10 }}>
+                                <Tooltip title={row.defectReason !== '—' ? row.defectReason : undefined}>
+                                  <span style={{ color: row.defectReason !== '—' ? 'var(--theme-text, #f1f5f9)' : 'var(--theme-text-muted, #64748b)' }}>
+                                    {row.defectReason}
+                                  </span>
+                                </Tooltip>
+                                {row.remarks && (
+                                  <div style={{ fontSize: 9, color: 'var(--theme-text-muted, #94a3b8)', fontStyle: 'italic' }}>
+                                    {row.remarks}
+                                  </div>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </Collapse.Panel>
+              );
+            })}
+          </Collapse>
+        )}
       </Panel>
 
-      {/* ── 4 · Department Breakdown Table ───────────────────────────────── */}
-      <Panel
+      {/* ── 4 · In-Browser View Report Modal ─────────────────────────────── */}
+      <Modal
+        open={!!viewModalDept}
+        onCancel={() => setViewModalDept(null)}
+        width={1050}
+        footer={[
+          <Button key="close" onClick={() => setViewModalDept(null)}>
+            Close
+          </Button>,
+          <Button
+            key="pdf"
+            type="primary"
+            icon={<PrinterOutlined />}
+            onClick={() => {
+              if (viewModalDept) exportDepartmentRejectionPdf(viewModalDept, monthScope);
+            }}
+          >
+            Download PDF / Print
+          </Button>,
+        ]}
         title={
-          <span style={{ fontWeight: 700, fontSize: 13 }}>
-            Department Breakdown — Which Stage Wastes Most
-          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <ApartmentOutlined style={{ color: '#0ea5e9' }} />
+            <span>Department Rejection Report — <strong>{viewModalDept?.department}</strong></span>
+          </div>
         }
-        testId="scrap-departments"
       >
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-            <thead>
-              <tr>
-                {['Department', 'Entries', 'Produced (KG & Units)', 'Part Reject', 'Process Scrap', 'Total Scrap', 'Wastage Rate', 'Downtime'].map((h, i) => (
-                  <th
-                    key={h}
-                    style={{
-                      ...(i >= 1 ? numCellStyle : labelCellStyle),
-                      textAlign: i >= 1 ? 'right' : 'left',
-                      color: i === 3 ? '#f43f5e' : (i === 4 ? '#0ea5e9' : 'var(--theme-text-muted, #94a3b8)'),
-                      fontSize: 10.5,
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.05em',
-                      padding: '6px 6px',
-                    }}
-                  >
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {byDepartment.length === 0 ? (
-                <tr>
-                  <td colSpan={8} style={{ ...labelCellStyle, color: 'var(--theme-text-muted, #94a3b8)', padding: '16px 8px', textAlign: 'center' }}>
-                    No department produced anything in this period.
-                  </td>
-                </tr>
-              ) : (
-                byDepartment.map((d, i) => (
-                  <tr key={d.department} data-testid="scrap-department-row" style={{ borderTop: '1px solid var(--theme-border, #e2e8f0)' }}>
-                    <td style={labelCellStyle}>
-                      <span
+        {viewModalDept && (
+          <div>
+            {/* Modal KPI Banner */}
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(4, 1fr)',
+                gap: 8,
+                padding: '10px 12px',
+                background: 'var(--theme-surface-subtle, rgba(0,0,0,0.03))',
+                borderRadius: 8,
+                marginBottom: 12,
+                border: '1px solid var(--theme-border, #e2e8f0)',
+              }}
+            >
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--theme-text-muted, #64748b)' }}>TOTAL OUTPUT</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#10b981' }}>
+                  {formatNumber(viewModalDept.actualKg, 2)} KG
+                </div>
+                <div style={{ fontSize: 10, color: 'var(--theme-text-muted, #94a3b8)' }}>
+                  {formatCompact(viewModalDept.actualUnits, 1)} {viewModalDept.primaryUom}
+                </div>
+              </div>
+
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--theme-text-muted, #64748b)' }}>PART REJECTION</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#f43f5e' }}>
+                  {formatNumber(viewModalDept.partRejectKg, 2)} KG
+                </div>
+                <div style={{ fontSize: 10, color: '#f43f5e' }}>
+                  {formatNumber(viewModalDept.partRejectUnits, 0)} {viewModalDept.primaryUom} ({viewModalDept.partRejectPct.toFixed(2)}%)
+                </div>
+              </div>
+
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--theme-text-muted, #64748b)' }}>PROCESS SCRAP</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#0ea5e9' }}>
+                  {formatNumber(viewModalDept.processScrapKg, 2)} KG
+                </div>
+                <div style={{ fontSize: 10, color: '#0ea5e9' }}>
+                  {viewModalDept.processScrapPct.toFixed(2)}% of Produced KG
+                </div>
+              </div>
+
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--theme-text-muted, #64748b)' }}>TOTAL LOSS / WASTAGE</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#e11d48' }}>
+                  {formatNumber(viewModalDept.scrapKg, 2)} KG
+                </div>
+                <div style={{ fontSize: 10, color: '#e11d48', fontWeight: 600 }}>
+                  {viewModalDept.wastagePct.toFixed(2)}% Overall Loss
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Scrollable Table */}
+            <div style={{ maxHeight: '60vh', overflowY: 'auto', overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                <thead style={{ position: 'sticky', top: 0, zIndex: 2, background: 'var(--theme-surface, #1e293b)' }}>
+                  <tr>
+                    <th style={{ ...thHead, textAlign: 'left', width: '9%' }}>Date</th>
+                    <th style={{ ...thHead, textAlign: 'left', width: '10%' }}>Machine</th>
+                    <th style={{ ...thHead, textAlign: 'left', width: '20%' }}>Item / Product</th>
+                    <th style={{ ...thHead, textAlign: 'center', width: '6%' }}>Shift</th>
+                    <th style={{ ...thHead, textAlign: 'right', width: '12%' }}>Produced Output</th>
+                    <th style={{ ...thHead, textAlign: 'right', width: '15%', color: '#f43f5e' }}>Part Reject</th>
+                    <th style={{ ...thHead, textAlign: 'right', width: '10%', color: '#0ea5e9' }}>Process Scrap</th>
+                    <th style={{ ...thHead, textAlign: 'right', width: '10%' }}>Total Loss</th>
+                    <th style={{ ...thHead, textAlign: 'left', width: '8%' }}>Operator</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {viewModalDept.items.map((row) => {
+                    const kgPct = row.actualKg > 0 ? (row.partRejectKg / row.actualKg) * 100 : 0;
+                    return (
+                      <tr
+                        key={row.id}
                         style={{
-                          display: 'inline-block',
-                          minWidth: 16,
-                          fontWeight: 700,
-                          color: i === 0 ? 'var(--theme-danger, #ef4444)' : 'var(--theme-text-muted, #94a3b8)',
+                          borderTop: '1px solid var(--theme-border, #e2e8f0)',
+                          background: row.scrapKg > 0 ? 'rgba(239, 68, 68, 0.02)' : 'transparent',
                         }}
                       >
-                        {i + 1}.
-                      </span>{' '}
-                      <b style={{ color: 'var(--theme-text, #f1f5f9)' }}>{d.department}</b>
-                    </td>
-                    <td style={{ ...numCellStyle, textAlign: 'right' }}>{formatNumber(d.entries, 0)}</td>
-                    <td style={{ ...numCellStyle, textAlign: 'right' }}>
-                      <div>{kgFixed(d.actualKg)} KG</div>
-                      <div style={{ fontSize: 10.5, color: 'var(--theme-text-muted, #94a3b8)' }}>
-                        {formatNumber(d.actualUnits, 0)} {d.primaryUom}
-                      </div>
-                    </td>
-                    <td style={{ ...numCellStyle, textAlign: 'right', color: d.partRejectKg > 0 ? '#f43f5e' : 'var(--theme-text-muted, #94a3b8)', fontWeight: d.partRejectKg > 0 ? 600 : 400 }}>
-                      <div>{kgFixed(d.partRejectKg)} KG</div>
-                      <div style={{ fontSize: 10.5, opacity: 0.9 }}>
-                        {formatNumber(d.partRejectUnits, 0)} {d.primaryUom}
-                      </div>
-                    </td>
-                    <td style={{ ...numCellStyle, textAlign: 'right', color: d.processScrapKg > 0 ? '#0ea5e9' : 'var(--theme-text-muted, #94a3b8)', fontWeight: d.processScrapKg > 0 ? 600 : 400 }}>
-                      {kgFixed(d.processScrapKg)} KG
-                    </td>
-                    <td
-                      style={{
-                        ...numCellStyle,
-                        textAlign: 'right',
-                        fontWeight: 700,
-                        color: d.scrapKg > 0 ? 'var(--theme-danger, #ef4444)' : 'var(--theme-text-muted, #94a3b8)',
-                      }}
-                    >
-                      {kgFixed(d.scrapKg)} KG
-                    </td>
-                    <td
-                      style={{
-                        ...numCellStyle,
-                        textAlign: 'right',
-                        color: d.wastagePct > 0 ? 'var(--theme-warning, #f59e0b)' : 'var(--theme-text-muted, #94a3b8)',
-                        fontWeight: 600,
-                      }}
-                    >
-                      {formatNumber(d.wastagePct, 2)}%
-                    </td>
-                    <td style={{ ...numCellStyle, textAlign: 'right' }}>{hoursFixed(d.downtimeHours)}h</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </Panel>
+                        <td style={{ ...labelCellStyle, whiteSpace: 'nowrap' }}>{row.date || '—'}</td>
+                        <td style={labelCellStyle}><b>{row.machine}</b></td>
+                        <td style={labelCellStyle}>
+                          <div style={{ fontWeight: 600 }}>{row.product}</div>
+                          {row.itemCode && <div style={{ fontSize: 9.5, color: 'var(--theme-text-muted, #94a3b8)' }}>{row.itemCode}</div>}
+                        </td>
+                        <td style={{ ...labelCellStyle, textAlign: 'center' }}>
+                          <Tag style={{ margin: 0, fontSize: 9.5 }}>{row.shift}</Tag>
+                        </td>
+                        <td style={{ ...numCellStyle, textAlign: 'right' }}>
+                          <div>{formatNumber(row.actualUnits, 0)} {row.uomCode}</div>
+                          <div style={{ fontSize: 9.5, color: 'var(--theme-text-muted, #94a3b8)' }}>
+                            {formatNumber(row.actualKg, 2)} KG
+                          </div>
+                        </td>
+                        <td style={{ ...numCellStyle, textAlign: 'right', color: row.partRejectKg > 0 ? '#f43f5e' : 'var(--theme-text-muted, #94a3b8)', fontWeight: row.partRejectKg > 0 ? 600 : 400 }}>
+                          <div>{formatNumber(row.partRejectUnits, 0)} {row.uomCode} ({row.partRejectPct.toFixed(2)}%)</div>
+                          <div style={{ fontSize: 9.5 }}>
+                            {formatNumber(row.partRejectKg, 2)} KG · {kgPct.toFixed(2)}%
+                          </div>
+                        </td>
+                        <td style={{ ...numCellStyle, textAlign: 'right', color: row.processScrapKg > 0 ? '#0ea5e9' : 'var(--theme-text-muted, #94a3b8)', fontWeight: row.processScrapKg > 0 ? 600 : 400 }}>
+                          <div>{formatNumber(row.processScrapKg, 2)} KG</div>
+                          <div style={{ fontSize: 9.5 }}>{row.processScrapPct.toFixed(1)}%</div>
+                        </td>
+                        <td
+                          style={{
+                            ...numCellStyle,
+                            textAlign: 'right',
+                            color: row.scrapKg > 0 ? 'var(--theme-danger, #ef4444)' : 'var(--theme-text-muted, #94a3b8)',
+                            fontWeight: 700,
+                          }}
+                        >
+                          <div>{formatNumber(row.scrapKg, 2)} KG</div>
+                          <div style={{ fontSize: 9.5, color: row.wastagePct > 0 ? 'var(--theme-warning, #f59e0b)' : 'var(--theme-text-muted, #94a3b8)' }}>
+                            {row.wastagePct.toFixed(1)}%
+                          </div>
+                        </td>
+                        <td style={{ ...labelCellStyle, fontSize: 10 }}>{row.operator || '—'}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 };

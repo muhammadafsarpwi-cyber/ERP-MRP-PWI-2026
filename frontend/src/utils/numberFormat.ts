@@ -84,3 +84,20 @@ export function formatQty(value: unknown, decimals: number = 4): string {
   return formatDecimal(value, decimals);
 }
 
+/**
+ * Compact display for big KPI numbers: thousands → K, millions → M, billions → B.
+ * Values under 1,000 keep their natural digits. Trailing zeros are stripped.
+ *
+ *   formatCompact(38857093)   → "38.86M"
+ *   formatCompact(182328.4)   → "182.33K"
+ *   formatCompact(842.5, 1)   → "842.5"
+ */
+export function formatCompact(value: unknown, decimals: number = 2): string {
+  const n = toNum(value);
+  const abs = Math.abs(n);
+  const trim = (x: number) => x.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: decimals });
+  if (abs >= 1e9) return `${trim(n / 1e9)}B`;
+  if (abs >= 1e6) return `${trim(n / 1e6)}M`;
+  if (abs >= 1e3) return `${trim(n / 1e3)}K`;
+  return trim(n);
+}

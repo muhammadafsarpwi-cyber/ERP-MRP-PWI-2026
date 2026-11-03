@@ -56,8 +56,8 @@ export async function runQueue<T>(
  * 1 · Wide sample of the grid's current filter
  * ══════════════════════════════════════════════════════════════════════════ */
 
-/** Analytical sample ceiling — a dashboard, not an export. */
-export const ANALYSIS_ROW_LIMIT = 200;
+/** Analytical sample ceiling — handles large monthly scopes (up to 5,000 entries) so analytics match total KPI card numbers. */
+export const ANALYSIS_ROW_LIMIT = 5000;
 
 export interface AnalysisRows {
   /** Seed (current page) until the wide sample resolves, then the sample. */
