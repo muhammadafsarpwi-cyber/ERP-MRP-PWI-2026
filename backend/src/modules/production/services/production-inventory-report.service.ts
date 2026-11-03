@@ -480,9 +480,9 @@ export class ProductionInventoryReportService {
           JOIN erp_sales.sales_order_items soi ON soi.sales_order_id = so.id
           JOIN bom_factors bf ON bf.product_id = soi.item_id
           JOIN items comp ON comp.id = bf.item_id
-          LEFT JOIN uoms comp_uom ON comp_uom.id = comp.uom_id
+          LEFT JOIN uoms comp_uom ON comp_uom.id = comp.base_uom_id
           JOIN items parent ON parent.id = soi.item_id
-          LEFT JOIN uoms parent_uom ON parent_uom.id = parent.uom_id
+          LEFT JOIN uoms parent_uom ON parent_uom.id = parent.base_uom_id
           LEFT JOIN uoms soi_uom ON soi_uom.id = soi.uom_id
           LEFT JOIN divisions parent_div ON parent_div.id = parent.division_id
           WHERE so.company_id = $1
@@ -516,7 +516,7 @@ export class ProductionInventoryReportService {
           FROM erp_sales.sales_orders so
           JOIN erp_sales.sales_order_items soi ON soi.sales_order_id = so.id
           JOIN items i ON i.id = soi.item_id
-          LEFT JOIN uoms item_uom ON item_uom.id = i.uom_id
+          LEFT JOIN uoms item_uom ON item_uom.id = i.base_uom_id
           LEFT JOIN uoms soi_uom ON soi_uom.id = soi.uom_id
           LEFT JOIN divisions item_div ON item_div.id = i.division_id
           WHERE so.company_id = $1

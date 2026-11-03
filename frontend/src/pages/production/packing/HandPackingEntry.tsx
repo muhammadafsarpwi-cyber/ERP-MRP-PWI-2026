@@ -2743,8 +2743,8 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         const updatePayload: any = {
           ...(rawEntry || {}),
           remarks: cleanRemarks,
-          productionDate: completionDateStr,
-          entryDate: completionDateStr,
+          productionDate: rawEntry?.productionDate || rawEntry?.entryDate,
+          entryDate: rawEntry?.entryDate || rawEntry?.productionDate,
         };
 
         try {
@@ -5356,14 +5356,16 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
             const newRemarks = `[HAND PACKING] Batch: ${batch.batchNo} | Customer: ${allocateTargetCustomer} | SOC: ${allocateTargetSoc} | Style: ${batch.packagingStyle || 'OEM Packing'} | Cartons: ${shiftCartons} (${shiftGross} Gross / ${shiftPcs} PCS) | Weight: ${shiftWeightKg} KG | [SHIFTED FROM SAFETY STOCK on ${shiftDateFormatted}] | Allocated from Safety Stock (Orig. Packed: ${batch.entryDate})`;
 
             if (entryId && entryId.length === 36) {
+              const origEntryDate = batch.rawEntry?.entryDate || batch.entryDate;
+              const origProdDate = batch.rawEntry?.productionDate || origEntryDate;
               await apiService.put(`/production/entries/${entryId}`, {
-                entryDate: shiftDateFormatted,
-                productionDate: shiftDateFormatted,
+                entryDate: origEntryDate,
+                productionDate: origProdDate,
                 remarks: newRemarks,
               }).catch(async () => {
                 await apiService.patch(`/production/entries/${entryId}`, {
-                  entryDate: shiftDateFormatted,
-                  productionDate: shiftDateFormatted,
+                  entryDate: origEntryDate,
+                  productionDate: origProdDate,
                   remarks: newRemarks,
                 });
               });
@@ -5380,7 +5382,6 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
             const shiftCartons = allocateBatchCartonOverrides[r.id] ?? r.cartons;
             return {
               ...r,
-              entryDate: shiftDisplayDate,
               customerName: allocateTargetCustomer,
               socNo: allocateTargetSoc,
               cartons: shiftCartons,

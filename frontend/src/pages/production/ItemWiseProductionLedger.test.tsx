@@ -9,6 +9,7 @@ import {
   crc32,
   fmtKg,
   fmtQty,
+  getUnitBreakdownSubtext,
 } from './ItemWiseProductionLedger';
 
 /** Minimal stand-in for the `GET /production/inventory-report` row payload. */
@@ -647,5 +648,85 @@ describe('ItemWiseProductionLedger — Inner-Only / Outer-Only Packing Split & M
     expect(mergedList.some((c) => c.key === 'SPI-FG-SPK-012')).toBe(false);
     expect(merged004.mergedFgCodes).toEqual(['SPI-FG-SPK-004', 'SPI-FG-SPK-012']);
     expect(merged004.rows).toHaveLength(11);
+  });
+
+  describe('Nipple Chains & Direct Inward / Import Handling (§NIPPLE)', () => {
+    const nippleDef = {
+      key: 'FG-NP-001',
+      label: '225X17 Front Wheel Nipple — FG-NP-001',
+      fgItemCode: 'FG-NP-001',
+      rows: [
+        { order: 1, stage: 'FG', stageLabel: 'FG / Packing', itemCode: 'FG-NP-001', itemLabel: '225X17 Front Wheel Nipple' },
+        { order: 2, stage: 'DP', stageLabel: 'DP Dispatch', itemCode: 'FG-NP-001-DISP', itemLabel: '225X17 Front Wheel Nipple Dispatch' },
+      ],
+    };
+
+    it('credits goods receipts / inward import into production column when item has inward stock', () => {
+      const grid = buildChainGrid(
+        nippleDef as any,
+        [
+          {
+            itemId: 'FG-NP-001',
+            itemCode: 'FG-NP-001',
+            itemName: '225X17 Front Wheel Nipple',
+            uomCode: 'PCS',
+            openingBalance: 72000,
+            totalIn: 720000, // Goods receipt
+            totalOut: 144000, // Issued / consumed
+            produced: 0, // No daily production entry
+          },
+          {
+            itemId: 'FG-NP-001-DISP',
+            itemCode: 'FG-NP-001-DISP',
+            itemName: '225X17 Front Wheel Nipple Dispatch',
+            uomCode: 'PCS',
+            openingBalance: 0,
+            totalIn: 144000,
+            totalOut: 0,
+            produced: 144000,
+          },
+        ] as any,
+        {},
+        weights,
+      );
+
+      const fgRow = grid.rows.find((r) => r.itemCode === 'FG-NP-001')!;
+      expect(fgRow.opBalance).toBe(72000);
+      expect(fgRow.production).toBe(720000);
+      expect(fgRow.subTotal).toBe(792000);
+      expect(fgRow.issuance).toBe(144000);
+      expect(fgRow.closingPieces).toBe(648000); // Positive and mathematically balanced
+      expect(grid.summary.balanced).toBe(true);
+      expect(fgRow.remarks).toContain('Inward / Import: +720,000');
+    });
+
+    it('accurately breaks down carton and gross units for nipple balances', () => {
+      // FG-NP-001 with verified balance of 92,120 PCS
+      const b1 = getUnitBreakdownSubtext(92120, 'FG', 'PCS', 'FG-NP-001');
+      expect(b1).not.toBeNull();
+      expect(b1?.text).toBe('(64 CTN • 639.7 GRS)');
+      expect(b1?.gross).toBeCloseTo(639.72, 1);
+      expect(b1?.cartons).toBeCloseTo(63.97, 1);
+
+      // FG-NP-002 with verified balance of 1,043,838 PCS
+      const b2 = getUnitBreakdownSubtext(1043838, 'FG', 'PCS', 'FG-NP-002');
+      expect(b2).not.toBeNull();
+      expect(b2?.text).toBe('(724.9 CTN • 7,248.9 GRS)');
+
+      // FG-NP-003 with verified balance of 2,018,880 PCS
+      const b3 = getUnitBreakdownSubtext(2018880, 'FG', 'PCS', 'FG-NP-003');
+      expect(b3).not.toBeNull();
+      expect(b3?.text).toBe('(1,402 CTN • 14,020 GRS)');
+
+      // FG-NP-004 with verified balance of 1,258,708 PCS
+      const b4 = getUnitBreakdownSubtext(1258708, 'FG', 'PCS', 'FG-NP-004');
+      expect(b4).not.toBeNull();
+      expect(b4?.text).toBe('(874.1 CTN • 8,741 GRS)');
+
+      // FG-NP-005 with verified balance of 328,081 PCS
+      const b5 = getUnitBreakdownSubtext(328081, 'FG', 'PCS', 'FG-NP-005');
+      expect(b5).not.toBeNull();
+      expect(b5?.text).toBe('(227.8 CTN • 2,278.3 GRS)');
+    });
   });
 });

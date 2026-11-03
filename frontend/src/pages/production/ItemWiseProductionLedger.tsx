@@ -5,7 +5,7 @@ import {
 } from 'antd';
 import {
   CheckCircleFilled, DeleteOutlined, FileExcelOutlined, FilePdfOutlined, LeftOutlined, LinkOutlined, PlusOutlined, PrinterOutlined,
-  AppstoreOutlined, BorderOutlined, CheckSquareOutlined, ReloadOutlined, RightOutlined, SearchOutlined, SettingOutlined, SyncOutlined,
+  ApartmentOutlined, AppstoreOutlined, BorderOutlined, CalendarOutlined, CheckCircleOutlined, CheckSquareOutlined, NodeIndexOutlined, ReloadOutlined, RightOutlined, SafetyCertificateOutlined, SearchOutlined, SettingOutlined, SyncOutlined,
 } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
 import { jsPDF } from 'jspdf';
@@ -502,6 +502,65 @@ export const fmtDisplayKg = (v: number | null | undefined): string => {
   const parts = trimZeros(v.toFixed(2)).split('.');
   parts[0] = Number(parts[0]).toLocaleString('en-US');
   return parts.join('.');
+};
+
+function formatDisplayNum(n: number, maxDec = 1): string {
+  const rounded = Number(n.toFixed(maxDec));
+  return rounded.toLocaleString('en-US', { maximumFractionDigits: maxDec });
+}
+
+/**
+ * Breakdown quantity into Cartons (CTN) and Gross (GRS) conversions:
+ * - For FG (Hand Packing) & DP (Dispatch): (X CTN • Y GRS)
+ * - For other manufacturing stages (ST, SW, SP, PL): (Y GRS)
+ * - For RM (Raw Material KG): returns null
+ *
+ * Packaging standards:
+ * - 1 Gross = 144 Pieces
+ * - Standard Spoke / Nipple Cartons = 10 Gross (1,440 Pieces)
+ * - CS / 011 / 012 Cartons = 10.555556 Gross (1,520 Pieces)
+ */
+export const getUnitBreakdownSubtext = (
+  rawQty: number | null | undefined,
+  stage: string,
+  uomCode?: string | null,
+  itemCode?: string | null
+): { text: string; isFgOrDp: boolean; gross: number; cartons: number; grossText: string; cartonsText: string } | null => {
+  if (rawQty === null || rawQty === undefined || Number.isNaN(rawQty)) return null;
+  const uom = (uomCode || '').trim().toUpperCase();
+  if (uom === 'KG' || stage === 'RM') return null;
+  if (!isCountUnit(uom)) return null;
+
+  const isFgOrDp = stage === 'FG' || stage === 'DP';
+  const absQty = Math.abs(rawQty);
+
+  const gross = absQty / 144;
+  const isCS = (itemCode || '').includes('011') || (itemCode || '').includes('012') || (itemCode || '').includes('CS');
+  const grossPerCarton = isCS ? 10.555556 : 10;
+  const cartons = gross / grossPerCarton;
+
+  const sign = rawQty < 0 ? '-' : '';
+  const fmtGrs = `${sign}${formatDisplayNum(gross, gross % 1 === 0 ? 0 : 1)} GRS`;
+  const fmtCtn = `${sign}${formatDisplayNum(cartons, cartons % 1 === 0 ? 0 : 1)} CTN`;
+
+  if (isFgOrDp) {
+    return {
+      text: `(${fmtCtn} • ${fmtGrs})`,
+      isFgOrDp: true,
+      gross,
+      cartons,
+      grossText: fmtGrs,
+      cartonsText: fmtCtn,
+    };
+  }
+  return {
+    text: `(${fmtGrs})`,
+    isFgOrDp: false,
+    gross,
+    cartons,
+    grossText: fmtGrs,
+    cartonsText: fmtCtn,
+  };
 };
 
 /**
@@ -1044,10 +1103,18 @@ export const mergeChainsByGroups = (rawChains: readonly ChainDef[], groups: read
     }));
 
     const mergedCodes = matched.map((m) => m.fgItemCode || m.key);
-    const grpKey = uniqueCodes.join('+');
+    const sortedGrpKey = [...uniqueCodes].sort().join('+');
+    const MERGED_TITLE_OVERRIDES: Record<string, string> = {
+      'SPI-FG-SPK-001+SPI-FG-SPK-002':
+        '250X17 Inn / Out Spoke Butted__225X17 & CD-250X17 Nipple — SPI-FG-SPK-001 & 002',
+      'SPI-FG-SPK-004+SPI-FG-SPK-012':
+        '250*17 Inn / Out Spoke Straight__RM-250*17 Nipple & (CS) — SPI-FG-SPK-004 & 012',
+      'SPI-FG-SPK-006+SPI-FG-SPK-011':
+        '300X17 S9 Inn / Out Spoke Straight__125-S9 Nipple & (CS) — SPI-FG-SPK-006 & 011',
+    };
     let combinedLabel: string;
-    if (grpKey === 'SPI-FG-SPK-001+SPI-FG-SPK-002') {
-      combinedLabel = '250X17 Inn / Out Spoke Butted__225X17 & CD-250X17 Nipple — SPI-FG-SPK-001 & 002';
+    if (MERGED_TITLE_OVERRIDES[sortedGrpKey]) {
+      combinedLabel = MERGED_TITLE_OVERRIDES[sortedGrpKey];
     } else {
       const nameParts = Array.from(
         new Set(
@@ -1207,7 +1274,7 @@ export const buildChainGrid = (
         : round4(
             rowDef.stage === 'RM'
               ? num(src?.totalIn)
-              : num(src?.produced !== undefined ? src.produced : src?.totalIn),
+              : Math.max(num(src?.produced), num(src?.totalIn)),
           ),
       multiplier,
       found: isDp ? Boolean(dpRowSource) : Boolean(src),
@@ -1259,13 +1326,28 @@ export const buildChainGrid = (
       };
     }
 
-    if (stage === 'FG') {
+    if (stage === 'FG' || stage === 'NP') {
       const val = recordedOut;
+      const inhouseProd = round4(num(p.src?.produced));
+      const inwardImport = Math.max(0, round4(num(p.src?.totalIn) - inhouseProd));
+      let remarks = '—';
+      const parts: string[] = [];
+      if (inhouseProd > 0 && inwardImport > 0) {
+        parts.push(`Prod: ${fmtDisplayQty(inhouseProd, p.src?.uomCode)} | Inward: +${fmtDisplayQty(inwardImport, p.src?.uomCode)}`);
+      } else if (inwardImport > 0) {
+        parts.push(`Inward / Import: +${fmtDisplayQty(inwardImport, p.src?.uomCode)}`);
+      }
+      if (val > 0) {
+        parts.push(stage === 'FG' ? `Issued to DP (${fmtDisplayQty(val, p.src?.uomCode ?? 'PCS')})` : `Issued (${fmtDisplayQty(val, p.src?.uomCode ?? 'PCS')})`);
+      }
+      if (parts.length > 0) {
+        remarks = parts.join(' | ');
+      }
       return {
         value: val,
         rule: 'Recorded issues (OUT) — Issued to DP',
         driven: false,
-        remarks: val > 0 ? `Issued to DP (${fmtQty(val, p.src?.uomCode ?? 'PCS')})` : '—',
+        remarks,
         prodValue: 0,
         returnOutValue: val,
       };
@@ -1599,16 +1681,16 @@ const PDF_TABLE_W = PDF_PAGE_W - PDF_MARGIN_X - PDF_MARGIN_X;
  * the exact remainder, guaranteeing the widths total `PDF_TABLE_W`.
  */
 const PDF_W: number[] = [
-  72, // stage — the ruled left margin
-  145, // item — comfortable stacked cell
+  70, // stage — the ruled left margin
+  138, // item — comfortable stacked cell
   46, // op balance
   50, // production
   46, // sub-total
   46, // issuance
-  54, // closing pieces
+  64, // closing pieces
   24, // uom
-  56, // per piece weight
-  48, // total weight
+  54, // per piece weight
+  46, // total weight
   36, // today scrap — compact
   36, // total scrap — compact
   0, // remarks — filled below (elastic gutter taking all remaining width)
@@ -1632,23 +1714,34 @@ const issuanceCell = (r: LedgerMetrics): string =>
   r.suppressed ? '—' : fmtQty(r.issuance, r.uomCode);
 
 /** Values exactly as the screen shows them (PDF / CSV-style fidelity). */
-const exportDisplayRow = (r: LedgerMetrics): (string | number | null)[] => [
-  stageLabel(r),
-  stackItem(r),
-  fmtQty(r.opBalance, r.uomCode),
-  fmtQty(r.production, r.uomCode),
-  fmtQty(r.subTotal, r.uomCode),
-  issuanceCell(r),
-  fmtQty(r.closingPieces, r.uomCode),
-  // §6 — UoM travels with the balance it qualifies.
-  r.uomCode ?? '—',
-  fmtPpw(r.perPieceWeight),
-  fmtKg(r.totalWeight),
-  // §12 — bare numbers; the `SCRAP — KG` parent already names the unit.
-  fmtQty(r.scrapToday, r.uomCode),
-  fmtQty(r.scrapMonth, r.uomCode),
-  r.remarks ?? '—',
-];
+const exportDisplayRow = (r: LedgerMetrics): (string | number | null)[] => {
+  const subClose = getUnitBreakdownSubtext(r.closingPieces, r.stage, r.uomCode, r.itemCode);
+  const isFgOrDp = r.stage === 'FG' || r.stage === 'DP';
+  const uomText = r.uomCode || (r.stage === 'RM' ? 'KG' : 'PCS');
+  const closeText = subClose
+    ? subClose.isFgOrDp
+      ? `${fmtQty(r.closingPieces, r.uomCode)}\n${subClose.cartonsText}\n${subClose.grossText}`
+      : `${fmtQty(r.closingPieces, r.uomCode)}\n${subClose.grossText}`
+    : fmtQty(r.closingPieces, r.uomCode);
+
+  return [
+    stageLabel(r),
+    stackItem(r),
+    fmtQty(r.opBalance, r.uomCode),
+    fmtQty(r.production, r.uomCode),
+    fmtQty(r.subTotal, r.uomCode),
+    issuanceCell(r),
+    closeText,
+    // §6 — UoM travels with the balance it qualifies.
+    uomText,
+    fmtPpw(r.perPieceWeight),
+    fmtKg(r.totalWeight),
+    // §12 — bare numbers; the `SCRAP — KG` parent already names the unit.
+    fmtQty(r.scrapToday, r.uomCode),
+    fmtQty(r.scrapMonth, r.uomCode),
+    r.remarks ?? '—',
+  ];
+};
 
 /** Numeric cells for Excel — integers for PCS/GRS, 2 dp for weights. */
 const exportNumericRow = (r: LedgerMetrics): (string | number | null)[] => [
@@ -2003,6 +2096,16 @@ const ItemWiseProductionLedger: React.FC = () => {
    * after the 1st (e.g. 2026-10-02, 2026-10-03, etc.), yesterday's closing balance
    * seamlessly becomes today's opening balance.
    */
+  /**
+   * Universal Production Pipeline Baseline Anchor:
+   * In PWI ERP, production opening stock balances were initialized on 2026-10-01.
+   * To guarantee the fundamental mathematical law:
+   *   "Closing(Day D - 1) ≡ Opening(Day D)"
+   * holds across month boundaries (e.g. Oct 31 -> Nov 01), the chronological roll MUST anchor
+   * to 2026-10-01 (or the month boundary if viewing earlier historical data).
+   */
+  const LEDGER_SYSTEM_BASELINE_DATE = '2026-10-01';
+
   const monthFrom = useMemo(() => {
     const isSingleDay = viewMode === 'daily' || range[0].isSame(range[1], 'day');
     if (!isSingleDay) {
@@ -2011,8 +2114,11 @@ const ItemWiseProductionLedger: React.FC = () => {
         : range[0].format('YYYY-MM-DD');
     }
     const endStr = range[1].format('YYYY-MM-DD');
+    // If viewing date on or after 2026-10-01, anchor the rolling window to 2026-10-01!
+    if (endStr >= LEDGER_SYSTEM_BASELINE_DATE) {
+      return LEDGER_SYSTEM_BASELINE_DATE;
+    }
     const monthStart = range[1].startOf('month').format('YYYY-MM-DD');
-    // If viewing a single date after the 1st of the month, roll forward from the 1st of that month!
     if (endStr > monthStart) {
       return monthStart;
     }
@@ -2831,6 +2937,63 @@ const ItemWiseProductionLedger: React.FC = () => {
     };
   }, [visibleGrids]);
 
+  const renderQtyWithSubtext = (
+    v: number | null | undefined,
+    row: LedgerMetrics,
+    colorStyle?: React.CSSProperties,
+    className?: string
+  ) => {
+    const sub = getUnitBreakdownSubtext(v, row.stage, row.uomCode, row.itemCode);
+    return (
+      <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1.25 }}>
+        <span className={className} style={{ fontWeight: 800, fontSize: 14.5, letterSpacing: '0.2px', whiteSpace: 'nowrap', ...colorStyle }}>
+          {fmtDisplayQty(v, row.uomCode)}
+        </span>
+        {sub && (
+          sub.isFgOrDp ? (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginTop: 1.5, lineHeight: 1.2 }}>
+              <span
+                style={{
+                  fontSize: 10,
+                  fontWeight: 700,
+                  color: '#0284c7',
+                  whiteSpace: 'nowrap',
+                  letterSpacing: '0.1px',
+                }}
+              >
+                {sub.cartonsText}
+              </span>
+              <span
+                style={{
+                  fontSize: 10,
+                  fontWeight: 700,
+                  color: '#6366f1',
+                  whiteSpace: 'nowrap',
+                  letterSpacing: '0.1px',
+                }}
+              >
+                {sub.grossText}
+              </span>
+            </div>
+          ) : (
+            <span
+              className="iwl-subtext-grs"
+              style={{
+                fontSize: 10.5,
+                fontWeight: 600,
+                marginTop: 1.5,
+                whiteSpace: 'nowrap',
+                letterSpacing: '0.1px',
+              }}
+            >
+              {sub.grossText}
+            </span>
+          )
+        )}
+      </div>
+    );
+  };
+
   const columns = useMemo(
     () => [
       {
@@ -2919,22 +3082,12 @@ const ItemWiseProductionLedger: React.FC = () => {
         dataIndex: 'opBalance',
         key: 'opBalance',
         align: 'center' as const,
-        width: 120,
+        width: 140,
         onHeaderCell: () => ({ className: 'iwl-cell-op-head' }),
         onCell: () => ({ className: 'iwl-cell-op iwl-cell-num' }),
         render: (v: number, row: LedgerMetrics) => (
           <Tooltip title="Net closing of every day BEFORE the End Date">
-            <span
-              className="iwl-val-op"
-              style={{
-                fontWeight: 800,
-                fontSize: 14.5,
-                letterSpacing: '0.2px',
-                color: '#ea580c',
-              }}
-            >
-              {fmtDisplayQty(v, row.uomCode)}
-            </span>
+            {renderQtyWithSubtext(v, row, { color: '#ea580c' }, 'iwl-val-op')}
           </Tooltip>
         ),
       },
@@ -2943,7 +3096,7 @@ const ItemWiseProductionLedger: React.FC = () => {
         dataIndex: 'production',
         key: 'production',
         align: 'center' as const,
-        width: 135,
+        width: 145,
         onHeaderCell: () => ({ className: 'iwl-cell-num' }),
         onCell: () => ({ className: 'iwl-cell-prod iwl-cell-num' }),
         render: (v: number, row: LedgerMetrics) => (
@@ -2954,17 +3107,7 @@ const ItemWiseProductionLedger: React.FC = () => {
                 : 'Additions (IN) recorded on the End Date only'
             }
           >
-            <span
-              className="iwl-val-prod"
-              style={{
-                fontWeight: 800,
-                fontSize: 14.5,
-                letterSpacing: '0.2px',
-                color: '#059669',
-              }}
-            >
-              {fmtDisplayQty(v, row.uomCode)}
-            </span>
+            {renderQtyWithSubtext(v, row, { color: '#059669' }, 'iwl-val-prod')}
           </Tooltip>
         ),
       },
@@ -2973,20 +3116,17 @@ const ItemWiseProductionLedger: React.FC = () => {
         dataIndex: 'subTotal',
         key: 'subTotal',
         align: 'center' as const,
-        width: 130,
+        width: 140,
         onCell: () => ({ className: 'iwl-cell-num' }),
-        render: (v: number, row: LedgerMetrics) => (
-          <span style={{ fontWeight: 800, fontSize: 14.5, color: '#1e293b' }}>
-            {fmtDisplayQty(v, row.uomCode)}
-          </span>
-        ),
+        render: (v: number, row: LedgerMetrics) =>
+          renderQtyWithSubtext(v, row, { color: token.colorText }, 'iwl-val-subtotal'),
       },
       {
         title: 'Issuance',
         dataIndex: 'issuance',
         key: 'issuance',
         align: 'center' as const,
-        width: 140,
+        width: 150,
         onCell: () => ({ className: 'iwl-cell-num' }),
         render: (v: number, row: LedgerMetrics) => (
           <div>
@@ -2997,17 +3137,12 @@ const ItemWiseProductionLedger: React.FC = () => {
                 </Tooltip>
               ) : (
                 <Tooltip title={row.issuanceDriven ? `Driven by the next stage: ${row.issuanceRule}` : row.issuanceRule}>
-                  <span
-                    className="iwl-val-issuance"
-                    style={{
-                      fontWeight: 800,
-                      fontSize: 14.5,
-                      letterSpacing: '0.2px',
-                      color: row.returnOutValue > 0 ? '#dc2626' : '#2563eb',
-                    }}
-                  >
-                    {fmtDisplayQty(v, row.uomCode)}
-                  </span>
+                  {renderQtyWithSubtext(
+                    v,
+                    row,
+                    { color: row.returnOutValue > 0 ? '#dc2626' : '#2563eb' },
+                    'iwl-val-issuance'
+                  )}
                 </Tooltip>
               )}
             </div>
@@ -3041,36 +3176,18 @@ const ItemWiseProductionLedger: React.FC = () => {
         dataIndex: 'closingPieces',
         key: 'closingPieces',
         align: 'center' as const,
-        width: 140,
+        width: 150,
         onHeaderCell: () => ({ className: 'iwl-cell-num' }),
         onCell: (row: LedgerMetrics) => ({
           className: `${row.closingPieces < 0 ? 'iwl-cell-close--negative' : 'iwl-cell-close'} iwl-cell-num`,
         }),
         render: (v: number, row: LedgerMetrics) => (
           <Tooltip title="(Op Balance + Production) − Issuance">
-            {v < 0 ? (
-              <span
-                style={{
-                  color: '#dc2626',
-                  fontWeight: 800,
-                  fontSize: 14.5,
-                  letterSpacing: '0.2px',
-                }}
-              >
-                {fmtDisplayQty(v, row.uomCode)}
-              </span>
-            ) : (
-              <span
-                className="iwl-val-close"
-                style={{
-                  fontWeight: 800,
-                  fontSize: 14.5,
-                  letterSpacing: '0.2px',
-                  color: '#7c3aed',
-                }}
-              >
-                {fmtDisplayQty(v, row.uomCode)}
-              </span>
+            {renderQtyWithSubtext(
+              v,
+              row,
+              { color: v < 0 ? '#dc2626' : '#7c3aed' },
+              v < 0 ? 'iwl-val-close--negative' : 'iwl-val-close'
             )}
           </Tooltip>
         ),
@@ -3082,12 +3199,30 @@ const ItemWiseProductionLedger: React.FC = () => {
         dataIndex: 'uomCode',
         key: 'uomCode',
         align: 'center' as const,
-        width: 72,
-        render: (v: string | null) => (
-          <span style={{ fontWeight: 700, fontSize: 12.5, whiteSpace: 'nowrap', color: '#475569' }}>
-            {v ?? '—'}
-          </span>
-        ),
+        width: 85,
+        render: (v: string | null, row: LedgerMetrics) => {
+          const isFgOrDp = row.stage === 'FG' || row.stage === 'DP';
+          const isCount = isCountUnit(v);
+          return (
+            <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1.25 }}>
+              <span
+                className="iwl-val-uom"
+                style={{ fontWeight: 800, fontSize: 12.5, whiteSpace: 'nowrap', color: token.colorTextSecondary }}
+              >
+                {v ?? '—'}
+              </span>
+              {isFgOrDp ? (
+                <span className="iwl-subtext-fg-dp" style={{ fontSize: 9.5, fontWeight: 700, whiteSpace: 'nowrap' }}>
+                  CTN • GRS
+                </span>
+              ) : isCount ? (
+                <span className="iwl-subtext-grs" style={{ fontSize: 9.5, fontWeight: 600, whiteSpace: 'nowrap' }}>
+                  (GRS)
+                </span>
+              ) : null}
+            </div>
+          );
+        },
       },
       {
         title: 'Total Weight',
@@ -3183,7 +3318,7 @@ const ItemWiseProductionLedger: React.FC = () => {
         width: 250,
         render: (v: string, row: LedgerMetrics) => {
           if (!v || v === '—') {
-            return <span style={{ color: '#94a3b8' }}>—</span>;
+            return <span style={{ color: token.colorTextTertiary }}>—</span>;
           }
           if (row.returnOutValue > 0 && row.prodValue > 0) {
             return (
@@ -3310,6 +3445,8 @@ const ItemWiseProductionLedger: React.FC = () => {
         'Sub-Total',
         'Issuance',
         'Closing Pieces',
+        'Closing (CTN)',
+        'Closing (GRS)',
         'UoM',
         'Per Piece Weight (KG)',
         'Total Weight (KG)',
@@ -3322,6 +3459,7 @@ const ItemWiseProductionLedger: React.FC = () => {
         matrix.push([g.def.label]);
         matrix.push(EXCEL_HEADERS);
         g.rows.forEach((r) => {
+          const subClose = getUnitBreakdownSubtext(r.closingPieces, r.stage, r.uomCode, r.itemCode);
           matrix.push([
             r.stage,
             stageLabel(r),
@@ -3332,6 +3470,8 @@ const ItemWiseProductionLedger: React.FC = () => {
             exportCell(r.subTotal, r.uomCode),
             r.suppressed ? '—' : exportCell(r.issuance, r.uomCode),
             exportCell(r.closingPieces, r.uomCode),
+            subClose?.isFgOrDp ? Math.round(subClose.cartons * 10) / 10 : (subClose ? '—' : null),
+            subClose ? Math.round(subClose.gross * 10) / 10 : null,
             r.uomCode ?? '—',
             exportCell(r.perPieceWeight, 'KG'),
             exportCell(r.totalWeight, 'KG'),
@@ -3593,7 +3733,7 @@ const ItemWiseProductionLedger: React.FC = () => {
             const isNumeric =
               idx !== COL.stage && idx !== COL.item && idx !== COL.uom && idx !== COL.remarks;
             if (isNumeric) {
-              data.cell.styles.fontSize = 10;
+              data.cell.styles.fontSize = 9.5;
               data.cell.styles.fontStyle = 'bold';
               data.cell.styles.textColor = [0, 0, 0];
             }
@@ -3601,14 +3741,20 @@ const ItemWiseProductionLedger: React.FC = () => {
               data.cell.styles.textColor = [4, 120, 87];
             } else if (idx === COL.closing) {
               const rawStr = String(data.cell.raw ?? '').trim();
+              const isMultiLine = rawStr.includes('\n');
               const isNeg = rawStr.startsWith('-');
+              data.cell.styles.fontSize = isMultiLine ? 7.2 : 9.5;
+              data.cell.styles.cellPadding = isMultiLine ? { top: 1.5, bottom: 1.5, left: 1, right: 1 } : 2.5;
               if (isNeg) {
                 data.cell.styles.textColor = [220, 38, 38];
                 data.cell.styles.fillColor = [254, 226, 226];
-                data.cell.styles.fontSize = 10.5;
               } else {
                 data.cell.styles.textColor = [180, 83, 9];
               }
+            } else if (idx === COL.uom) {
+              data.cell.styles.fontSize = 8;
+              data.cell.styles.fontStyle = 'bold';
+              data.cell.styles.textColor = [71, 85, 105];
             } else if (idx === COL.scrapToday || idx === COL.scrapMonth) {
               data.cell.styles.textColor = [255, 77, 79];
             }
@@ -3878,18 +4024,39 @@ const ItemWiseProductionLedger: React.FC = () => {
             .col-close {
               color: #b45309;
               font-weight: 800;
-              width: 64px;
+              width: 76px;
+              padding: 2px 2px !important;
             }
             .col-close.neg-val {
               color: #dc2626 !important;
               background-color: #fee2e2 !important;
             }
             .col-uom {
-              width: 28px;
+              width: 32px;
               text-align: center;
-              font-size: 7.5pt;
-              font-weight: 600;
-              color: #475569;
+              font-size: 8pt;
+              font-weight: 700;
+              color: #334155;
+              white-space: nowrap !important;
+            }
+            .val-main {
+              font-size: 8.5pt !important;
+              font-weight: 800 !important;
+              white-space: nowrap !important;
+              line-height: 1.15 !important;
+            }
+            .sub-unit-line {
+              font-size: 6.8pt !important;
+              font-weight: 700 !important;
+              white-space: nowrap !important;
+              line-height: 1.15 !important;
+              margin-top: 1px !important;
+            }
+            .sub-unit-ctn {
+              color: #0284c7 !important;
+            }
+            .sub-unit-grs {
+              color: #4f46e5 !important;
             }
             .iwl-pl-logo {
               height: 36px;
@@ -3898,7 +4065,7 @@ const ItemWiseProductionLedger: React.FC = () => {
               margin-right: 10px;
             }
             .col-weight {
-              width: 68px;
+              width: 64px;
             }
             .wt-total {
               font-size: 8pt;
@@ -3913,12 +4080,12 @@ const ItemWiseProductionLedger: React.FC = () => {
               border-bottom: 1px solid #94a3b8 !important;
             }
             .col-scrap-sub {
-              width: 42px !important;
+              width: 38px !important;
               font-size: 7.2pt !important;
               padding: 2px !important;
             }
             .col-scrap {
-              width: 42px !important;
+              width: 38px !important;
               color: #dc2626;
               font-weight: 700;
             }
@@ -3963,17 +4130,17 @@ const ItemWiseProductionLedger: React.FC = () => {
 
               <table class="iwl-p-table">
                 <colgroup>
-                  <col style="width: 76px;" />
-                  <col style="width: 155px;" />
-                  <col style="width: 60px;" />
-                  <col style="width: 60px;" />
-                  <col style="width: 60px;" />
+                  <col style="width: 74px;" />
+                  <col style="width: 146px;" />
                   <col style="width: 58px;" />
-                  <col style="width: 62px;" />
-                  <col style="width: 28px;" />
-                  <col style="width: 66px;" />
-                  <col style="width: 42px;" />
-                  <col style="width: 42px;" />
+                  <col style="width: 58px;" />
+                  <col style="width: 58px;" />
+                  <col style="width: 56px;" />
+                  <col style="width: 76px;" />
+                  <col style="width: 32px;" />
+                  <col style="width: 64px;" />
+                  <col style="width: 38px;" />
+                  <col style="width: 38px;" />
                   <col style="width: auto;" />
                 </colgroup>
                 <thead>
@@ -4009,12 +4176,60 @@ const ItemWiseProductionLedger: React.FC = () => {
                           <div class="it-code">${r.itemCode}</div>
                           <div class="it-name">${r.itemName}</div>
                         </td>
-                        <td class="col-num col-op">${fmtDisplayQty(r.opBalance, r.uomCode)}</td>
-                        <td class="col-num col-prod">${fmtDisplayQty(r.production, r.uomCode)}</td>
-                        <td class="col-num col-sub">${fmtDisplayQty(r.subTotal, r.uomCode)}</td>
-                        <td class="col-num col-iss">${issuanceCell(r)}</td>
-                        <td class="col-num col-close ${isNeg ? 'neg-val' : ''}">${fmtDisplayQty(r.closingPieces, r.uomCode)}</td>
-                        <td class="col-uom">${r.uomCode || 'PCS'}</td>
+                        <td class="col-num col-op">
+                          <div class="val-main">${fmtDisplayQty(r.opBalance, r.uomCode)}</div>
+                          ${(() => {
+                            const s = getUnitBreakdownSubtext(r.opBalance, r.stage, r.uomCode, r.itemCode);
+                            if (!s) return '';
+                            return s.isFgOrDp
+                              ? `<div class="sub-unit-line sub-unit-ctn">${s.cartonsText}</div><div class="sub-unit-line sub-unit-grs">${s.grossText}</div>`
+                              : `<div class="sub-unit-line sub-unit-grs">${s.grossText}</div>`;
+                          })()}
+                        </td>
+                        <td class="col-num col-prod">
+                          <div class="val-main">${fmtDisplayQty(r.production, r.uomCode)}</div>
+                          ${(() => {
+                            const s = getUnitBreakdownSubtext(r.production, r.stage, r.uomCode, r.itemCode);
+                            if (!s) return '';
+                            return s.isFgOrDp
+                              ? `<div class="sub-unit-line sub-unit-ctn">${s.cartonsText}</div><div class="sub-unit-line sub-unit-grs">${s.grossText}</div>`
+                              : `<div class="sub-unit-line sub-unit-grs">${s.grossText}</div>`;
+                          })()}
+                        </td>
+                        <td class="col-num col-sub">
+                          <div class="val-main">${fmtDisplayQty(r.subTotal, r.uomCode)}</div>
+                          ${(() => {
+                            const s = getUnitBreakdownSubtext(r.subTotal, r.stage, r.uomCode, r.itemCode);
+                            if (!s) return '';
+                            return s.isFgOrDp
+                              ? `<div class="sub-unit-line sub-unit-ctn">${s.cartonsText}</div><div class="sub-unit-line sub-unit-grs">${s.grossText}</div>`
+                              : `<div class="sub-unit-line sub-unit-grs">${s.grossText}</div>`;
+                          })()}
+                        </td>
+                        <td class="col-num col-iss">
+                          <div class="val-main">${issuanceCell(r)}</div>
+                          ${(() => {
+                            if (r.suppressed) return '';
+                            const s = getUnitBreakdownSubtext(r.issuance, r.stage, r.uomCode, r.itemCode);
+                            if (!s) return '';
+                            return s.isFgOrDp
+                              ? `<div class="sub-unit-line sub-unit-ctn">${s.cartonsText}</div><div class="sub-unit-line sub-unit-grs">${s.grossText}</div>`
+                              : `<div class="sub-unit-line sub-unit-grs">${s.grossText}</div>`;
+                          })()}
+                        </td>
+                        <td class="col-num col-close ${isNeg ? 'neg-val' : ''}">
+                          <div class="val-main">${fmtDisplayQty(r.closingPieces, r.uomCode)}</div>
+                          ${(() => {
+                            const s = getUnitBreakdownSubtext(r.closingPieces, r.stage, r.uomCode, r.itemCode);
+                            if (!s) return '';
+                            return s.isFgOrDp
+                              ? `<div class="sub-unit-line sub-unit-ctn">${s.cartonsText}</div><div class="sub-unit-line sub-unit-grs">${s.grossText}</div>`
+                              : `<div class="sub-unit-line sub-unit-grs">${s.grossText}</div>`;
+                          })()}
+                        </td>
+                        <td class="col-uom">
+                          <div>${r.uomCode || (r.stage === 'RM' ? 'KG' : 'PCS')}</div>
+                        </td>
                         <td class="col-num col-weight">
                           <div class="wt-total">${fmtKg(r.totalWeight)}</div>
                           <div class="wt-ppw">${fmtPpw(r.perPieceWeight)}</div>
@@ -4233,23 +4448,24 @@ const ItemWiseProductionLedger: React.FC = () => {
           display: flex;
           align-items: center;
           justify-content: space-between;
-          border: 1px solid #d9d9d9;
-          border-left: 5px solid #1677ff;
-          border-radius: 6px;
-          background: #fbfcfe;
-          padding: 12px 18px;
+          border: 1px solid var(--theme-border, #e2e8f0);
+          border-left: 5px solid var(--theme-primary, #0284c7);
+          border-radius: 10px;
+          background: var(--theme-surface, #ffffff);
+          padding: 14px 22px;
           margin-bottom: 16px;
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
         }
         .iwl-lh-left { display: flex; align-items: center; gap: 14px; }
         .iwl-lh-logo { height: 46px; width: auto; object-fit: contain; }
-        .iwl-lh-company { font-size: 20px; font-weight: 800; line-height: 1.15; letter-spacing: -0.2px; color: #0f172a; }
-        .iwl-lh-subtitle { font-size: 12px; font-weight: 500; color: #5b6472; margin-top: 2px; }
-        .iwl-lh-details { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #475569; margin-top: 4px; }
-        .iwl-lh-detail-item strong { color: #1e293b; font-weight: 600; }
-        .iwl-lh-detail-sep { color: #cbd5e1; }
+        .iwl-lh-company { font-size: 20px; font-weight: 800; line-height: 1.15; letter-spacing: -0.2px; color: var(--theme-heading, ${token.colorTextHeading}); }
+        .iwl-lh-subtitle { font-size: 12px; font-weight: 500; color: var(--theme-text-secondary, ${token.colorTextSecondary}); margin-top: 2px; }
+        .iwl-lh-details { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--theme-text-secondary, ${token.colorTextSecondary}); margin-top: 4px; }
+        .iwl-lh-detail-item strong { color: var(--theme-heading, ${token.colorTextHeading}); font-weight: 600; }
+        .iwl-lh-detail-sep { color: var(--theme-border, #cbd5e1); }
         .iwl-lh-right { text-align: right; }
-        .iwl-lh-date-label { font-size: 11px; font-weight: 700; color: #64748b; letter-spacing: 0.5px; }
-        .iwl-lh-date-val { font-size: 20px; font-weight: 800; color: #0f172a; line-height: 1.1; margin-top: 2px; }
+        .iwl-lh-date-label { font-size: 11px; font-weight: 700; color: var(--theme-text-secondary, ${token.colorTextSecondary}); letter-spacing: 0.5px; }
+        .iwl-lh-date-val { font-size: 20px; font-weight: 800; color: var(--theme-primary, #0284c7); line-height: 1.1; margin-top: 2px; font-family: ui-monospace, monospace; }
 
         /* ── §4 chain identifier: centred bold sub-header ──────────────── */
         .iwl-grid-head {
@@ -4276,7 +4492,7 @@ const ItemWiseProductionLedger: React.FC = () => {
           font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
         }
         .iwl-item-code--active {
-          color: #0369a1 !important;
+          color: var(--theme-primary, #0284c7) !important;
           font-weight: 800 !important;
         }
         .iwl-item-code--inactive,
@@ -4291,7 +4507,7 @@ const ItemWiseProductionLedger: React.FC = () => {
           overflow-wrap: anywhere;
         }
         .iwl-item-name--active {
-          color: #1e40af !important;
+          color: var(--theme-heading, ${token.colorTextHeading}) !important;
           font-weight: 700 !important;
         }
         .iwl-item-name--inactive {
@@ -4303,12 +4519,14 @@ const ItemWiseProductionLedger: React.FC = () => {
         /* ── §1 SLIM slate header: compact accent band, zero dead space ── */
         .iwl-grid .ant-table-thead > tr > th {
           background: #1e293b !important;
-          color: #ffffff !important;
+          color: #f8fafc !important;
           font-weight: 800 !important;
-          font-size: 14px !important;
-          line-height: 1.25 !important;
-          letter-spacing: 0.2px;
-          padding: 4px 6px !important;
+          font-size: 12.5px !important;
+          line-height: 1.3 !important;
+          letter-spacing: 0.4px !important;
+          text-transform: uppercase !important;
+          padding: 7px 8px !important;
+          border-bottom: 2px solid #0f172a !important;
         }
 
         /* ── §2 UNIFIED GLOBAL CENTRE ALIGNMENT ───────────────────────────
@@ -4378,18 +4596,20 @@ const ItemWiseProductionLedger: React.FC = () => {
         .iwl-weight-total {
           font-size: 13px !important;
           font-weight: 700 !important;
-          color: #0f172a !important;
+          color: var(--theme-text, ${token.colorText}) !important;
         }
         .iwl-weight-ppw {
           font-size: 11px !important;
           font-weight: 600 !important;
-          color: #64748b !important;
+          color: var(--theme-text-tertiary, #94a3b8) !important;
           letter-spacing: 0.2px !important;
         }
-        [data-theme='dark'] .iwl-weight-total {
+        [data-theme='dark'] .iwl-weight-total,
+        .dark .iwl-weight-total {
           color: #f1f5f9 !important;
         }
-        [data-theme='dark'] .iwl-weight-ppw {
+        [data-theme='dark'] .iwl-weight-ppw,
+        .dark .iwl-weight-ppw {
           color: #94a3b8 !important;
         }
 
@@ -4434,10 +4654,41 @@ const ItemWiseProductionLedger: React.FC = () => {
           border-bottom-color: #94a3b8 !important;
         }
         .iwl-grid .ant-table-tbody > tr > td:not(.iwl-cell-item):not(.iwl-cell-prod):not(.iwl-cell-close):not(.iwl-cell-scrap) {
-          color: #0f172a !important;
+          color: var(--theme-text, ${token.colorText}) !important;
         }
-        [data-theme='dark'] .iwl-grid .ant-table-tbody > tr > td:not(.iwl-cell-item):not(.iwl-cell-prod):not(.iwl-cell-close):not(.iwl-cell-scrap) {
-          color: #e5e7eb !important;
+        [data-theme='dark'] .iwl-grid .ant-table-tbody > tr > td:not(.iwl-cell-item):not(.iwl-cell-prod):not(.iwl-cell-close):not(.iwl-cell-scrap),
+        .dark .iwl-grid .ant-table-tbody > tr > td:not(.iwl-cell-item):not(.iwl-cell-prod):not(.iwl-cell-close):not(.iwl-cell-scrap) {
+          color: #f1f5f9 !important;
+        }
+        .iwl-val-subtotal {
+          color: var(--theme-heading, ${token.colorTextHeading}) !important;
+        }
+        [data-theme='dark'] .iwl-val-subtotal,
+        .dark .iwl-val-subtotal {
+          color: #ffffff !important;
+        }
+        .iwl-val-uom {
+          color: var(--theme-text-secondary, ${token.colorTextSecondary}) !important;
+        }
+        [data-theme='dark'] .iwl-val-uom,
+        .dark .iwl-val-uom {
+          color: #94a3b8 !important;
+        }
+
+        /* ── Carton (CTN) & Gross (GRS) Unit Breakdown Subtext ───────────── */
+        .iwl-subtext-fg-dp {
+          color: #0284c7 !important;
+        }
+        [data-theme='dark'] .iwl-subtext-fg-dp,
+        .dark .iwl-subtext-fg-dp {
+          color: #38bdf8 !important;
+        }
+        .iwl-subtext-grs {
+          color: #6366f1 !important;
+        }
+        [data-theme='dark'] .iwl-subtext-grs,
+        .dark .iwl-subtext-grs {
+          color: #a5b4fc !important;
         }
 
         /* ── §10 CONTROL BARS — a tightly grouped upper structure ──────────
@@ -4461,11 +4712,16 @@ const ItemWiseProductionLedger: React.FC = () => {
            aligned: select, checkbox, picker on the left, navigation on the right. */
         .iwl-filters {
           display: flex;
-          align-items: flex-end;
+          align-items: center;
           justify-content: space-between;
           flex-wrap: wrap;
           gap: 12px;
           margin-bottom: 16px;
+          padding: 12px 16px;
+          background: var(--theme-surface, #ffffff);
+          border: 1px solid var(--theme-border, #e2e8f0);
+          border-radius: 10px;
+          box-shadow: 0 1px 4px rgba(0, 0, 0, 0.02);
         }
         .iwl-filters-left {
           display: flex;
@@ -4595,33 +4851,53 @@ const ItemWiseProductionLedger: React.FC = () => {
         }
         .iwl-cell-scrap { color: #ff4d4f !important; font-weight: 700 !important; }
 
-        [data-theme='dark'] .iwl-letterhead { background: #141b26; border-color: #2a3444; border-left-color: #1677ff; }
-        [data-theme='dark'] .iwl-lh-company { color: #f1f5f9; }
-        [data-theme='dark'] .iwl-lh-subtitle { color: #94a3b8; }
-        [data-theme='dark'] .iwl-lh-details { color: #cbd5e1; }
-        [data-theme='dark'] .iwl-lh-detail-item strong { color: #f8fafc; }
-        [data-theme='dark'] .iwl-lh-date-label { color: #94a3b8; }
-        [data-theme='dark'] .iwl-lh-date-val { color: #f1f5f9; }
-        [data-theme='dark'] .iwl-item-code--active { color: #38bdf8 !important; }
+        [data-theme='dark'] .iwl-letterhead,
+        .dark .iwl-letterhead { background: var(--theme-surface, #141b26); border-color: var(--theme-border, #2a3444); border-left-color: var(--theme-primary, #38bdf8); }
+        [data-theme='dark'] .iwl-lh-company,
+        .dark .iwl-lh-company { color: #f8fafc !important; }
+        [data-theme='dark'] .iwl-lh-subtitle,
+        .dark .iwl-lh-subtitle { color: #94a3b8 !important; }
+        [data-theme='dark'] .iwl-lh-details,
+        .dark .iwl-lh-details { color: #cbd5e1 !important; }
+        [data-theme='dark'] .iwl-lh-detail-item strong,
+        .dark .iwl-lh-detail-item strong { color: #ffffff !important; }
+        [data-theme='dark'] .iwl-lh-date-label,
+        .dark .iwl-lh-date-label { color: #94a3b8 !important; }
+        [data-theme='dark'] .iwl-lh-date-val,
+        .dark .iwl-lh-date-val { color: #38bdf8 !important; }
+        [data-theme='dark'] .iwl-item-code--active,
+        .dark .iwl-item-code--active { color: #38bdf8 !important; }
         [data-theme='dark'] .iwl-item-code--inactive,
-        [data-theme='dark'] .iwl-item-code--missing { color: #fbbf24 !important; }
-        [data-theme='dark'] .iwl-item-name--active { color: #60a5fa !important; }
-        [data-theme='dark'] .iwl-item-name--inactive { color: #f59e0b !important; }
-        [data-theme='dark'] .iwl-grid--off .iwl-grid-title { color: #55606f; }
-        [data-theme='dark'] .iwl-cell-prod { background: transparent !important; color: #10b981 !important; }
-        [data-theme='dark'] .iwl-cell-close { background: transparent !important; color: #a78bfa !important; }
-        [data-theme='dark'] .iwl-shimmer-track { background: #1e293b; }
-        [data-theme='dark'] .iwl-val-op {
+        [data-theme='dark'] .iwl-item-code--missing,
+        .dark .iwl-item-code--inactive,
+        .dark .iwl-item-code--missing { color: #fbbf24 !important; }
+        [data-theme='dark'] .iwl-item-name--active,
+        .dark .iwl-item-name--active { color: #93c5fd !important; }
+        [data-theme='dark'] .iwl-item-name--inactive,
+        .dark .iwl-item-name--inactive { color: #fbbf24 !important; }
+        [data-theme='dark'] .iwl-grid--off .iwl-grid-title,
+        .dark .iwl-grid--off .iwl-grid-title { color: #64748b; }
+        [data-theme='dark'] .iwl-cell-prod,
+        .dark .iwl-cell-prod { background: transparent !important; color: #34d399 !important; }
+        [data-theme='dark'] .iwl-cell-close,
+        .dark .iwl-cell-close { background: transparent !important; color: #c084fc !important; }
+        [data-theme='dark'] .iwl-shimmer-track,
+        .dark .iwl-shimmer-track { background: #1e293b; }
+        [data-theme='dark'] .iwl-val-op,
+        .dark .iwl-val-op {
           color: #fb923c !important;
         }
-        [data-theme='dark'] .iwl-val-prod {
-          color: #10b981 !important;
+        [data-theme='dark'] .iwl-val-prod,
+        .dark .iwl-val-prod {
+          color: #34d399 !important;
         }
-        [data-theme='dark'] .iwl-val-issuance {
+        [data-theme='dark'] .iwl-val-issuance,
+        .dark .iwl-val-issuance {
           color: #60a5fa !important;
         }
-        [data-theme='dark'] .iwl-val-close {
-          color: #a78bfa !important;
+        [data-theme='dark'] .iwl-val-close,
+        .dark .iwl-val-close {
+          color: #c084fc !important;
         }
         [data-theme='dark'] .iwl-status-badge--loading {
           background: #082f49;
@@ -5241,7 +5517,7 @@ const ItemWiseProductionLedger: React.FC = () => {
           <div className="iwl-filters-left">
             {/* ── 1. DIVISION SELECTOR ── */}
             <div className="iwl-filters-division">
-              <Text strong style={{ fontSize: 12.5, color: '#334155' }}>
+              <Text strong style={{ fontSize: 12.5, color: token.colorTextSecondary }}>
                 Division
               </Text>
               <Select
@@ -5263,7 +5539,7 @@ const ItemWiseProductionLedger: React.FC = () => {
 
             {/* ── 2. PRODUCTION ITEM CHAIN SELECTOR (Enlarged width, wide popup, clear full names) ── */}
             <div className="iwl-filters-chain">
-              <Text strong style={{ fontSize: 12.5, color: '#334155' }}>
+              <Text strong style={{ fontSize: 12.5, color: token.colorTextSecondary }}>
                 Select Production Item Chain (Finished Goods)
               </Text>
               <Select
@@ -5289,7 +5565,7 @@ const ItemWiseProductionLedger: React.FC = () => {
                         justifyContent: 'space-between',
                         padding: '6px 8px',
                         gap: 16,
-                        borderBottom: '1px solid #f1f5f9',
+                        borderBottom: `1px solid ${token.colorBorderSecondary}`,
                       }}
                     >
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -5297,7 +5573,7 @@ const ItemWiseProductionLedger: React.FC = () => {
                           {namePart}
                         </span>
                         {chain?.divisionName && (
-                          <span style={{ fontSize: 11, color: '#64748b' }}>
+                          <span style={{ fontSize: 11, color: token.colorTextTertiary }}>
                             {chain.divisionName}
                           </span>
                         )}
@@ -5422,12 +5698,14 @@ const ItemWiseProductionLedger: React.FC = () => {
                 <span>100% Loaded &amp; Ready</span>
               </div>
             ) : null}
-            <Button icon={<LeftOutlined />} disabled={loading} onClick={() => shiftEndDay(-1)}>
-              Previous Day
-            </Button>
-            <Button disabled={loading} onClick={() => shiftEndDay(1)}>
-              Next Day <RightOutlined />
-            </Button>
+            <Space.Compact>
+              <Button icon={<LeftOutlined />} disabled={loading} onClick={() => shiftEndDay(-1)} title="Previous Day">
+                Prev Day
+              </Button>
+              <Button disabled={loading} onClick={() => shiftEndDay(1)} title="Next Day">
+                Next Day <RightOutlined />
+              </Button>
+            </Space.Compact>
           </div>
         </div>
 
@@ -5440,51 +5718,198 @@ const ItemWiseProductionLedger: React.FC = () => {
             letterhead + its 3-column metadata grid is the sole masthead.
             §10 — it now sits under the unified filter row, immediately
             before the data tables. */}
-        <Row gutter={[16, 16]} className="iwl-no-print" style={{ marginBottom: 16 }}>
-          <Col xs={24} lg={6}>
-            <Card size="small">
-              <Text type="secondary">{showAll ? 'Stages Shown' : 'Stages in Chain'}</Text>
-              <div style={{ fontSize: 24, fontWeight: 600 }}>
-                {summary.found}
-                <Text type="secondary" style={{ fontSize: 14 }}>
-                  {' '}
-                  / {summary.total}
-                </Text>
+        {/* ── EXECUTIVE KPI METRIC CARDS ─────────────────────────────────── */}
+        <Row gutter={[16, 16]} className="iwl-no-print" style={{ marginBottom: 18 }}>
+          {/* Card 1: Pipeline Stages */}
+          <Col xs={24} sm={12} lg={6}>
+            <div
+              style={{
+                background: token.colorBgContainer,
+                border: `1px solid ${token.colorBorderSecondary}`,
+                borderTop: `3px solid ${token.colorPrimary}`,
+                borderRadius: 10,
+                padding: '14px 18px',
+                boxShadow: '0 2px 6px rgba(0,0,0,0.03)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                transition: 'all 0.2s ease',
+              }}
+            >
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase', color: token.colorTextSecondary }}>
+                  {showAll ? 'PIPELINE STAGES SHOWN' : 'PIPELINE STAGES'}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 4 }}>
+                  <span style={{ fontSize: 26, fontWeight: 800, color: token.colorText, fontFamily: 'ui-monospace, SFMono-Regular, monospace' }}>
+                    {summary.found}
+                  </span>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: token.colorTextSecondary }}>
+                    / {summary.total} stages
+                  </span>
+                </div>
+                <div style={{ fontSize: 11.5, color: summary.found === summary.total ? '#10b981' : token.colorTextTertiary, marginTop: 2, fontWeight: 500 }}>
+                  {summary.found === summary.total ? '● 100% Sequentially Linked' : `${summary.total - summary.found} Unlinked`}
+                </div>
               </div>
-            </Card>
-          </Col>
-          <Col xs={24} lg={6}>
-            <Card size="small">
-              <Text type="secondary">{viewMode === 'daily' ? 'Production Date' : 'As-On (End Date)'}</Text>
-              <div style={{ fontSize: 20, fontWeight: 600 }}>{endDate}</div>
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                {viewMode === 'daily' ? `baseline ${monthFrom}` : `${range[0].format('YYYY-MM-DD')} → ${endDate}`}
-              </Text>
-            </Card>
-          </Col>
-          <Col xs={24} lg={6}>
-            <Card size="small">
-              <Tooltip
-                title={
-                  showAll
-                    ? 'Sum of the FG / Packing bundle across every shown chain'
-                    : 'FG / Packing bundle on the As-On date — split ÷ 2 into PL Inner and PL Outer Issuance'
-                }
+              <div
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 10,
+                  backgroundColor: `${token.colorPrimary}14`,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
               >
-                <Text type="secondary">Total Packed Pieces</Text>
-              </Tooltip>
-              <div style={{ fontSize: 24, fontWeight: 600 }}>{fmtQty(summary.totalPacked, 'PCS')}</div>
-            </Card>
-          </Col>
-          <Col xs={24} lg={6}>
-            <Card size="small">
-              <Text type="secondary">Reconciliation</Text>
-              <div style={{ marginTop: 4 }}>
-                <Tag color={summary.balanced ? 'success' : 'error'}>
-                  {summary.balanced ? 'Balanced ✓' : 'MISMATCH'}
-                </Tag>
+                <NodeIndexOutlined style={{ fontSize: 22, color: token.colorPrimary }} />
               </div>
-            </Card>
+            </div>
+          </Col>
+
+          {/* Card 2: Production Date & Baseline Anchor */}
+          <Col xs={24} sm={12} lg={6}>
+            <div
+              style={{
+                background: token.colorBgContainer,
+                border: `1px solid ${token.colorBorderSecondary}`,
+                borderTop: '3px solid #0284c7',
+                borderRadius: 10,
+                padding: '14px 18px',
+                boxShadow: '0 2px 6px rgba(0,0,0,0.03)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                transition: 'all 0.2s ease',
+              }}
+            >
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase', color: token.colorTextSecondary }}>
+                  {viewMode === 'daily' ? 'PRODUCTION CUTOFF' : 'DATE RANGE'}
+                </div>
+                <div style={{ fontSize: 20, fontWeight: 800, color: token.colorText, marginTop: 4, fontFamily: 'ui-monospace, SFMono-Regular, monospace' }}>
+                  {endDate}
+                </div>
+                <div style={{ fontSize: 11.5, color: '#0284c7', marginTop: 2, fontWeight: 600 }}>
+                  {viewMode === 'daily' ? `Anchored: ${monthFrom}` : `${range[0].format('YYYY-MM-DD')} → ${endDate}`}
+                </div>
+              </div>
+              <div
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 10,
+                  backgroundColor: '#0284c714',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <CalendarOutlined style={{ fontSize: 22, color: '#0284c7' }} />
+              </div>
+            </div>
+          </Col>
+
+          {/* Card 3: Total Hand Packed Today */}
+          <Col xs={24} sm={12} lg={6}>
+            <div
+              style={{
+                background: token.colorBgContainer,
+                border: `1px solid ${token.colorBorderSecondary}`,
+                borderTop: '3px solid #10b981',
+                borderRadius: 10,
+                padding: '14px 18px',
+                boxShadow: '0 2px 6px rgba(0,0,0,0.03)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                transition: 'all 0.2s ease',
+              }}
+            >
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase', color: token.colorTextSecondary }}>
+                  TOTAL PACKED (TODAY)
+                </div>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 4 }}>
+                  <span style={{ fontSize: 26, fontWeight: 800, color: '#059669', fontFamily: 'ui-monospace, SFMono-Regular, monospace' }}>
+                    {fmtQty(summary.totalPacked, 'PCS')}
+                  </span>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: token.colorTextSecondary }}>
+                    PCS
+                  </span>
+                </div>
+                <div style={{ fontSize: 11.5, color: token.colorTextSecondary, marginTop: 2 }}>
+                  Finished Goods Packing Output
+                </div>
+              </div>
+              <div
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 10,
+                  backgroundColor: '#10b98114',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <CheckCircleOutlined style={{ fontSize: 22, color: '#10b981' }} />
+              </div>
+            </div>
+          </Col>
+
+          {/* Card 4: Mathematical Balance */}
+          <Col xs={24} sm={12} lg={6}>
+            <div
+              style={{
+                background: token.colorBgContainer,
+                border: `1px solid ${token.colorBorderSecondary}`,
+                borderTop: summary.balanced ? '3px solid #8b5cf6' : '3px solid #ef4444',
+                borderRadius: 10,
+                padding: '14px 18px',
+                boxShadow: '0 2px 6px rgba(0,0,0,0.03)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                transition: 'all 0.2s ease',
+              }}
+            >
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase', color: token.colorTextSecondary }}>
+                  MATERIAL RECONCILIATION
+                </div>
+                <div style={{ marginTop: 6 }}>
+                  <Tag
+                    color={summary.balanced ? 'purple' : 'error'}
+                    style={{
+                      fontSize: 13,
+                      fontWeight: 700,
+                      padding: '3px 10px',
+                      borderRadius: 6,
+                    }}
+                  >
+                    {summary.balanced ? '100% Balanced ✓' : 'DISCREPANCY DETECTED'}
+                  </Tag>
+                </div>
+                <div style={{ fontSize: 11.5, color: token.colorTextSecondary, marginTop: 4 }}>
+                  Op + Prod − Issuance = Closing
+                </div>
+              </div>
+              <div
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 10,
+                  backgroundColor: summary.balanced ? '#8b5cf614' : '#ef444414',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <SafetyCertificateOutlined style={{ fontSize: 22, color: summary.balanced ? '#8b5cf6' : '#ef4444' }} />
+              </div>
+            </div>
           </Col>
         </Row>
 
@@ -5504,24 +5929,47 @@ const ItemWiseProductionLedger: React.FC = () => {
             </div>
           }
         >
-          {grids.length === 0 && !loading ? (
-            <Empty description="No production item chain configured" />
+          {visibleGrids.length === 0 && !loading ? (
+            <Empty
+              description={
+                <div style={{ padding: '24px 0' }}>
+                  <div style={{ fontSize: 15, fontWeight: 600, color: token.colorText, marginBottom: 8 }}>
+                    No Active Production Item Chains Selected
+                  </div>
+                  <div style={{ fontSize: 13, color: token.colorTextSecondary, marginBottom: 16 }}>
+                    All unselected chains are hidden from view.
+                  </div>
+                  <Space size="middle">
+                    <Button
+                      type="primary"
+                      icon={<CheckSquareOutlined />}
+                      onClick={() => {
+                        setSelectChainsModalOpen(true);
+                        setShowAll(true);
+                      }}
+                    >
+                      Select Chains to View
+                    </Button>
+                    <Button onClick={restoreAllChains}>
+                      Restore All Chains ({filteredChains.length})
+                    </Button>
+                  </Space>
+                </div>
+              }
+            />
           ) : (
-            grids.map((g) => {
-              // §1 — an unticked chain keeps only its struck-through title.
-              // Gated on `showAll` so a stale key can never blank the single view.
-              const excluded = showAll && Boolean(excludedChains[g.def.key]);
+            visibleGrids.map((g) => {
               return (
                 <div
                   key={g.def.key}
-                  className={`iwl-grid${excluded ? ' iwl-grid--off' : ''}`}
+                  className="iwl-grid"
                   style={{ marginBottom: showAll ? 24 : 0 }}
                 >
                   <div className="iwl-grid-head">
                     {showAll ? (
                       <Checkbox
                         className="iwl-chain-check iwl-no-print"
-                        checked={!excluded}
+                        checked={true}
                         onChange={(e) => setChainExcluded(g.def.key, !e.target.checked)}
                         aria-label={`Include ${g.def.label} in the sheet, PDF, Excel and print output`}
                       />
@@ -5537,23 +5985,17 @@ const ItemWiseProductionLedger: React.FC = () => {
                       </Text>
                     </Title>
                   </div>
-                  {excluded ? (
-                    <Text type="secondary" className="iwl-grid-off-note" style={{ fontSize: 12 }}>
-                      Excluded from the view, the PDF, the workbook and the printout.
-                    </Text>
-                  ) : (
-                    <div className="iwl-grid-table">
-                      <Table
-                        columns={columns}
-                        dataSource={g.rows}
-                        rowKey="key"
-                        pagination={false}
-                        scroll={{ x: 1400 }}
-                        size="small"
-                        bordered
-                      />
-                    </div>
-                  )}
+                  <div className="iwl-grid-table">
+                    <Table
+                      columns={columns}
+                      dataSource={g.rows}
+                      rowKey="key"
+                      pagination={false}
+                      scroll={{ x: 1400 }}
+                      size="small"
+                      bordered
+                    />
+                  </div>
                 </div>
               );
             })

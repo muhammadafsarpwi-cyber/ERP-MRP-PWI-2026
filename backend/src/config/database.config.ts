@@ -32,6 +32,8 @@ export const databaseConfig = (
       ssl: sslConfig,
       max: 10,
       idleTimeoutMillis: 30000,
+      keepAlive: true,
+      keepAliveInitialDelayMillis: 10000,
     },
   };
 };

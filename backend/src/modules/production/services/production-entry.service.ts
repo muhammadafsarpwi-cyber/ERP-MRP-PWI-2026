@@ -4483,7 +4483,9 @@ addToDept(org, {
       .trim() + ` | Nipple Stock Deducted: ${completionDateStr} (${deductedGross} GRS / ${deductedPcs} PCS from WH-002) | Completed by User`;
 
     entry.remarks = cleanRemarks;
-    entry.entryDate = completionDateStr;
+    // Preservation of production date truth: Do NOT overwrite entryDate with completionDateStr.
+    // The physical production & packing occurred on entry.entryDate; nipple stock deduction
+    // is recorded with completionDateStr in stock_ledger and entry.remarks.
     await this.entryRepo.save(entry);
 
     return {
