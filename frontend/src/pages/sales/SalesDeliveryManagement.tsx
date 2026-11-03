@@ -740,12 +740,15 @@ const SalesDeliveryManagement: React.FC = () => {
 
           const itemObj = it.item || {};
           const itemName = itemObj.name || it.description || 'Product';
-          let pkgSize = Number(itemObj.packagingSize ?? itemObj.packaging_size) || 10;
+          const itemCodeStr = String(itemObj.itemCode ?? itemObj.item_code ?? it.itemCode ?? '');
+          const isCsItem = /\(cs\)/i.test(itemName) || /spk-011|spk-012/i.test(itemCodeStr);
+          const defaultCtnGross = isCsItem ? 10.556 : 10;
+          let pkgSize = Number(itemObj.packagingSize ?? itemObj.packaging_size) || defaultCtnGross;
           if (pkgSize <= 1) {
             const lower = itemName.toLowerCase();
             if (lower.includes('5 mm') || lower.includes('6 mm')) pkgSize = 500;
             else if (lower.includes('7 mm') || lower.includes('8 mm')) pkgSize = 250;
-            else pkgSize = 10; // Standard 10 Gross per Carton
+            else pkgSize = defaultCtnGross;
           }
           const pkgUnit = itemObj.packagingUnit ?? itemObj.packaging_unit ?? 'CTN';
           const pkgQty = pkgSize > 1 ? Number((balance / pkgSize).toFixed(2)) : balance;

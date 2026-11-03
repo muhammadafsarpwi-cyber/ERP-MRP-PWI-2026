@@ -3360,6 +3360,16 @@ const ItemManagement: React.FC = () => {
 
   const convChips = (r: Item): string[] => {
     const chips: string[] = [];
+    if ((r.packagingSize ?? 0) > 0) {
+      const pSize = Number(r.packagingSize);
+      const isSpokeOrNipple = (r.itemType || '').toUpperCase().includes('FINISH') && (r.itemCode?.includes('SPK') || r.itemCode?.includes('NP'));
+      if (isSpokeOrNipple || pSize <= 25) {
+        const pcs = Math.round(pSize * 144);
+        chips.push(`1 CTN=${pSize}G (${pcs}P)`);
+      } else {
+        chips.push(`1 ${r.packagingUnit || 'Pkg'}=${pSize}`);
+      }
+    }
     if ((r.weightPerPiece ?? 0) > 0 || (r.piecesPerKg ?? 0) > 0) chips.push('KG↔PCS');
     if ((r.weightPerMeter ?? 0) > 0) chips.push('KG↔M');
     if ((r.lengthPerPiece ?? 0) > 0) chips.push('PCS↔M');
@@ -4895,11 +4905,17 @@ const ItemManagement: React.FC = () => {
                         {
                           label: 'Packaging Specification',
                           children: detailItem.packagingSize
-                            ? (
-                              <Tag color="cyan">
-                                1 {detailItem.packagingUnit || detailItem.packagingType || 'Package'} = {Number(detailItem.packagingSize).toLocaleString()} {(detailItem.baseUom as any)?.symbol || detailItem.baseUom?.code || detailItem.baseUom?.name || ''}
-                              </Tag>
-                            )
+                            ? (() => {
+                                const pSize = Number(detailItem.packagingSize);
+                                const isGrossPkg = (detailItem.itemType || '').toUpperCase().includes('FINISH') && pSize <= 25;
+                                const pcsCount = isGrossPkg ? Math.round(pSize * 144) : null;
+                                return (
+                                  <Tag color="cyan">
+                                    1 {detailItem.packagingUnit || detailItem.packagingType || 'Carton'} = {pSize.toLocaleString()} {isGrossPkg ? 'GRS' : ((detailItem.baseUom as any)?.symbol || detailItem.baseUom?.code || detailItem.baseUom?.name || '')}
+                                    {pcsCount ? ` (= ${pcsCount.toLocaleString()} PCS)` : ''}
+                                  </Tag>
+                                );
+                              })()
                             : (detailItem.packagingType ? txt(detailItem.packagingType) : null),
                         },
                         {
@@ -5565,6 +5581,140 @@ const ItemManagement: React.FC = () => {
                 </div>
               </Card>
 
+              {/* SECTION 4B — PACKAGING SPECIFICATION & CARTON / GROSS / PIECE CONVERSION */}
+              <Card
+                size="small"
+                title={
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+                    <Space>
+                      <InboxOutlined style={{ color: '#10b981' }} />
+                      <span style={{ fontWeight: 600 }}>Section 4B — Packaging & Carton / Gross / Piece Conversion</span>
+                    </Space>
+                    <Space size={6} wrap>
+                      <Button
+                        size="small"
+                        onClick={() => {
+                          form.setFieldsValue({
+                            packagingType: 'BOX',
+                            packagingUnit: 'Carton',
+                            packagingSize: 10,
+                          });
+                        }}
+                        style={{ fontSize: 11, fontWeight: 600 }}
+                      >
+                        Standard Carton (10 GRS = 1,440 PCS)
+                      </Button>
+                      <Button
+                        size="small"
+                        type="primary"
+                        ghost
+                        onClick={() => {
+                          form.setFieldsValue({
+                            packagingType: 'BOX',
+                            packagingUnit: 'Carton',
+                            packagingSize: 10.556,
+                          });
+                        }}
+                        style={{ fontSize: 11, fontWeight: 600 }}
+                      >
+                        CS Carton (10.556 GRS = 1,520 PCS)
+                      </Button>
+                    </Space>
+                  </div>
+                }
+                style={{ marginBottom: 12, borderRadius: 8 }}
+              >
+                <div className="erp-form-responsive-grid">
+                  <Form.Item
+                    name="packagingType"
+                    label={<span style={{ fontWeight: 600 }}>Packaging Type</span>}
+                    extra="Physical container (e.g. Box / Carton, Coil, Gross, Drum)"
+                  >
+                    <Select
+                      allowClear
+                      placeholder="Select packaging type..."
+                      options={[
+                        { value: 'BOX', label: 'Box / Carton (Spokes & Nipples)' },
+                        { value: 'COIL', label: 'Coil (500m / 250m Wire or Cable)' },
+                        { value: 'GROSS', label: 'Gross (144 Pieces)' },
+                        { value: 'PACK', label: 'Pack' },
+                        { value: 'DRUM', label: 'Drum / Reel' },
+                        { value: 'NONE', label: 'None / Loose Bulk' },
+                      ]}
+                    />
+                  </Form.Item>
+                  <Form.Item
+                    name="packagingUnit"
+                    label={<span style={{ fontWeight: 600 }}>Packaging Unit Name</span>}
+                    extra="Label shown in Orders, Deliveries & Ledger (e.g. Carton, Coil)"
+                  >
+                    <Input maxLength={50} placeholder="e.g. Carton, Box, Coil" />
+                  </Form.Item>
+                  <Form.Item
+                    name="packagingSize"
+                    label={<span style={{ fontWeight: 600 }}>Gross / Sales Units per Carton</span>}
+                    extra="e.g. 10 GRS (Standard) or 10.556 GRS (CS = 1,520 PCS)"
+                  >
+                    <InputNumber
+                      style={{ width: '100%' }}
+                      min={0.001}
+                      step={0.001}
+                      precision={3}
+                      placeholder="e.g. 10 or 10.556"
+                    />
+                  </Form.Item>
+                  <Form.Item
+                    label={<span style={{ fontWeight: 600 }}>Pieces per Carton (PCS)</span>}
+                    extra="Type 1440 (Standard) or 1520 (CS) to auto-calculate Gross"
+                  >
+                    <InputNumber
+                      style={{ width: '100%' }}
+                      min={1}
+                      step={1}
+                      precision={0}
+                      value={watchedPackagingSize ? Math.round(Number(watchedPackagingSize) * 144) : undefined}
+                      placeholder="e.g. 1440 or 1520"
+                      addonAfter="PCS"
+                      onChange={(pcsVal) => {
+                        const numPcs = Number(pcsVal || 0);
+                        if (numPcs > 0) {
+                          const grs = Math.round((numPcs / 144) * 1000) / 1000;
+                          form.setFieldsValue({
+                            packagingSize: grs,
+                            packagingType: form.getFieldValue('packagingType') || 'BOX',
+                            packagingUnit: form.getFieldValue('packagingUnit') || 'Carton',
+                          });
+                        }
+                      }}
+                    />
+                  </Form.Item>
+                </div>
+                {watchedPackagingSize ? (() => {
+                  const baseUomObj = uoms.find((u) => u.id === watchedBaseUomId);
+                  const salesUomObj = uoms.find((u) => u.id === watchedSalesUomId);
+                  const targetUomObj = salesUomObj || baseUomObj;
+                  const targetUomCode = targetUomObj?.code || (targetUomObj as any)?.symbol || targetUomObj?.name || 'GRS';
+                  const isGrossTarget = targetUomCode.toUpperCase().includes('GR') || targetUomCode.toUpperCase().includes('GROSS');
+                  const isBasePcs = (baseUomObj?.code || '').toUpperCase().includes('PC') || isGrossTarget;
+                  const pcsPerPkg = isGrossTarget && isBasePcs ? Math.round(Number(watchedPackagingSize) * 144) : null;
+
+                  return (
+                    <div style={{ marginTop: 8, padding: '8px 12px', background: 'rgba(16, 185, 129, 0.08)', borderRadius: 6, border: '1px solid rgba(16, 185, 129, 0.25)' }}>
+                      <Space wrap size="small">
+                        <Tag color="green">Conversion Active</Tag>
+                        <Typography.Text strong>
+                          📦 1 {watchedPackagingUnit || watchedPackagingType || 'Carton'} = {Number(watchedPackagingSize).toLocaleString()} {targetUomCode}
+                          {pcsPerPkg ? ` (= ${pcsPerPkg.toLocaleString()} PCS)` : ''}
+                        </Typography.Text>
+                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                          (20 {watchedPackagingUnit || 'Cartons'} = {(Math.round(20 * Number(watchedPackagingSize) * 100) / 100).toLocaleString()} {targetUomCode}{pcsPerPkg ? ` / ${(20 * pcsPerPkg).toLocaleString()} PCS` : ''})
+                        </Typography.Text>
+                      </Space>
+                    </div>
+                  );
+                })() : null}
+              </Card>
+
           {/* SECTION 5 — PRODUCTION */}
           <Card
             size="small"
@@ -6053,82 +6203,6 @@ const ItemManagement: React.FC = () => {
                 </Form.Item>
               </div>
             </div>
-          </Card>
-
-          {/* Packaging Specification & Unit Conversion */}
-          <Card
-            size="small"
-            title={
-              <Space>
-                <InboxOutlined style={{ color: '#52c41a' }} />
-                <span>Packaging Specification & Unit Conversion</span>
-              </Space>
-            }
-            style={{ marginBottom: 12, borderRadius: 8 }}
-          >
-            <div className="erp-form-responsive-grid">
-              <Form.Item
-                name="packagingType"
-                label="Packaging Type"
-                extra="Physical container or handling unit (e.g. Coil, Box / Carton, Gross, Drum)"
-              >
-                <Select
-                  allowClear
-                  placeholder="Select packaging type..."
-                  options={[
-                    { value: 'COIL', label: 'Coil (e.g. 500m / 250m Wire or Cable)' },
-                    { value: 'BOX', label: 'Box / Carton (e.g. Spokes & Nipples)' },
-                    { value: 'GROSS', label: 'Gross (144 Pieces)' },
-                    { value: 'PACK', label: 'Pack' },
-                    { value: 'DRUM', label: 'Drum / Reel' },
-                    { value: 'NONE', label: 'None / Loose Bulk' },
-                  ]}
-                />
-              </Form.Item>
-              <Form.Item
-                name="packagingUnit"
-                label="Packaging Unit Name"
-                extra="Display label used in orders & deliveries (e.g. Coil, Box, Carton, Gross)"
-              >
-                <Input maxLength={50} placeholder="e.g. Coil, Box, Carton" />
-              </Form.Item>
-              <Form.Item
-                name="packagingSize"
-                label="Packaging Size (Conversion Ratio)"
-                extra="How many sales/base units per package (e.g. 10 Gross per Carton, 144 Pcs per Gross, 500 Meters per Coil)"
-              >
-                <InputNumber
-                  style={{ width: '100%' }}
-                  min={0.001}
-                  step={1}
-                  placeholder="e.g. 10 (Gross/Carton) or 500 (Meters/Coil)"
-                />
-              </Form.Item>
-            </div>
-            {watchedPackagingSize ? (() => {
-              const baseUomObj = uoms.find((u) => u.id === watchedBaseUomId);
-              const salesUomObj = uoms.find((u) => u.id === watchedSalesUomId);
-              const targetUomObj = salesUomObj || baseUomObj;
-              const targetUomCode = targetUomObj?.code || (targetUomObj as any)?.symbol || targetUomObj?.name || 'Units';
-              const isGrossTarget = targetUomCode.toUpperCase().includes('GR') || targetUomCode.toUpperCase().includes('GROSS');
-              const isBasePcs = (baseUomObj?.code || '').toUpperCase().includes('PC');
-              const pcsPerPkg = isGrossTarget && isBasePcs ? Number(watchedPackagingSize) * 144 : null;
-
-              return (
-                <div style={{ marginTop: 8, padding: '8px 12px', background: 'rgba(82, 196, 26, 0.08)', borderRadius: 6, border: '1px solid rgba(82, 196, 26, 0.2)' }}>
-                  <Space wrap size="small">
-                    <Tag color="green">Conversion Active</Tag>
-                    <Typography.Text strong>
-                      1 {watchedPackagingUnit || watchedPackagingType || 'Package'} = {Number(watchedPackagingSize).toLocaleString()} {targetUomCode}
-                      {pcsPerPkg ? ` (= ${pcsPerPkg.toLocaleString()} PCS)` : ''}
-                    </Typography.Text>
-                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                      (Entering 20 {watchedPackagingUnit || 'Packages'} in orders/deliveries will auto-calculate {(20 * Number(watchedPackagingSize)).toLocaleString()} {targetUomCode}{pcsPerPkg ? ` / ${(20 * pcsPerPkg).toLocaleString()} PCS` : ''})
-                    </Typography.Text>
-                  </Space>
-                </div>
-              );
-            })() : null}
           </Card>
 
           {/* SECTION 5D — TASK #45: PRODUCTION FLOW

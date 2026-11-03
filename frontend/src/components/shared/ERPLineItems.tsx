@@ -587,16 +587,16 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
                 let pcsEquivalent: number | null = null;
                 if (isGross) {
                   if (pSize >= 144) {
-                    displayPSize = pSize / 144;
-                    pcsEquivalent = pSize;
+                    displayPSize = Math.round((pSize / 144) * 1000) / 1000;
+                    pcsEquivalent = Math.round(pSize);
                   } else {
                     displayPSize = pSize;
-                    pcsEquivalent = pSize * 144;
+                    pcsEquivalent = Math.round(pSize * 144);
                   }
                 } else if (effectiveUomCode.toUpperCase().includes('PC')) {
                   displayPSize = pSize;
-                  if (pSize % 144 === 0) {
-                    pcsEquivalent = pSize;
+                  if (pSize >= 144) {
+                    pcsEquivalent = Math.round(pSize);
                   }
                 }
 
@@ -604,7 +604,7 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
                   <Tag color="cyan" style={{ fontSize: 10.5, fontWeight: 700, margin: 0, padding: '1px 6px', borderRadius: 4 }}>
                     📦 1 {pUnitClean} = {displayPSize.toLocaleString()} {effectiveUomCode}
                     {pcsEquivalent && isGross ? ` (= ${pcsEquivalent.toLocaleString()} PCS)` : ''}
-                    {pcsEquivalent && !isGross && pSize >= 144 ? ` (= ${(pSize / 144).toLocaleString()} GRS)` : ''}
+                    {pcsEquivalent && !isGross && pSize >= 144 ? ` (= ${(Math.round((pSize / 144) * 1000) / 1000).toLocaleString()} GRS)` : ''}
                   </Tag>
                 );
               })() : null}
@@ -817,7 +817,7 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
               }}
               onChange={(val) => {
                 const pkgQty = Number(val || 0);
-                const baseQty = pkgQty * pSize;
+                const baseQty = Math.round(pkgQty * pSize * 1000) / 1000;
                 const effectiveUom = (isSalesContext && (opt?.salesUom?.code || (opt?.salesUomId && 'GRS'))) || record.uomCode || (isPurchaseContext && opt?.purchaseUom?.code) || opt?.baseUom?.code || 'M';
                 updateLine(record.id, {
                   packageQuantity: pkgQty,
@@ -1247,7 +1247,7 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
               </Typography.Text>
               {totals.baseUom && totals.baseUom.toUpperCase().includes('GR') && (
                 <div style={{ fontSize: 11, color: '#10b981', fontWeight: 700 }}>
-                  (= {(totals.quantity * 144).toLocaleString()} PCS)
+                  (= {Math.round(totals.quantity * 144).toLocaleString()} PCS)
                 </div>
               )}
             </div>
