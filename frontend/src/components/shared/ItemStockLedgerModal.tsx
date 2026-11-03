@@ -88,13 +88,67 @@ export const ItemStockLedgerModal: React.FC<ItemStockLedgerModalProps> = ({
     setSelectedWarehouseId(warehouseId);
   }, [warehouseId]);
 
+  const [warehouseList, setWarehouseList] = useState<Array<{ id: string; name: string; warehouseCode?: string }>>([]);
+
+  useEffect(() => {
+    if (open) {
+      apiService.get<any>('/warehouses')
+        .then((res: any) => {
+          const list = res?.data || res || [];
+          if (Array.isArray(list)) {
+            setWarehouseList(list.map((w: any) => ({
+              id: w.id,
+              name: w.name,
+              warehouseCode: w.warehouseCode || w.code,
+            })));
+          }
+        })
+        .catch(() => {});
+    }
+  }, [open]);
+
   const selectedWarehouseName = useMemo(() => {
     if (!selectedWarehouseId) return 'All Warehouses';
+    const found = warehouseList.find((w) => w.id === selectedWarehouseId);
+    if (found) return found.name;
+    if (selectedWarehouseId === warehouseId && warehouseName) return warehouseName;
     if (selectedWarehouseId === '2f6aabde-69c1-4068-a0ea-b0fe1b8fb0b5') return 'SPI FG Dispatch Warehouse';
     if (selectedWarehouseId === 'cf5c9db8-5e84-41d5-a4b4-988b8dfd122d') return 'SPI Nipple Packing Warehouse';
     if (selectedWarehouseId === 'a70e0a7e-2ffa-47e4-83a9-c894d9dff41b') return 'SPL Spoke Plating Dept';
     return warehouseName || 'Warehouse';
-  }, [selectedWarehouseId, warehouseName]);
+  }, [selectedWarehouseId, warehouseList, warehouseId, warehouseName]);
+
+  const warehouseOptions = useMemo(() => {
+    const opts = [{ value: '', label: '🌐 All Warehouses' }];
+    const seen = new Set<string>();
+
+    if (warehouseId && warehouseName) {
+      opts.push({
+        value: warehouseId,
+        label: `🏢 ${warehouseName}`,
+      });
+      seen.add(warehouseId);
+    }
+
+    warehouseList.forEach((w) => {
+      if (!seen.has(w.id)) {
+        opts.push({
+          value: w.id,
+          label: `🏢 ${w.warehouseCode ? `${w.warehouseCode} — ` : ''}${w.name}`,
+        });
+        seen.add(w.id);
+      }
+    });
+
+    if (selectedWarehouseId && !seen.has(selectedWarehouseId)) {
+      opts.push({
+        value: selectedWarehouseId,
+        label: `🏢 ${warehouseName || 'Selected Warehouse'}`,
+      });
+    }
+
+    return opts;
+  }, [warehouseId, warehouseName, warehouseList, selectedWarehouseId]);
 
   const isDark = useThemeStore((state) => state.draft.mode === 'dark');
 
@@ -1064,13 +1118,10 @@ export const ItemStockLedgerModal: React.FC<ItemStockLedgerModalProps> = ({
               size="small"
               value={selectedWarehouseId || ''}
               onChange={(val) => setSelectedWarehouseId(val || undefined)}
-              style={{ minWidth: 230 }}
-              options={[
-                { value: '', label: '🌐 All Warehouses' },
-                { value: '2f6aabde-69c1-4068-a0ea-b0fe1b8fb0b5', label: '📍 SPI FG Dispatch Warehouse' },
-                { value: 'cf5c9db8-5e84-41d5-a4b4-988b8dfd122d', label: '📍 SPI Nipple Packing Warehouse' },
-                { value: 'a70e0a7e-2ffa-47e4-83a9-c894d9dff41b', label: '📍 SPL Spoke Plating Dept' },
-              ]}
+              style={{ minWidth: 260 }}
+              options={warehouseOptions}
+              showSearch
+              optionFilterProp="label"
             />
           </Space>
         </Space>

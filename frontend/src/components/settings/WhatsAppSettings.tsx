@@ -6,6 +6,7 @@ import {
   SaveOutlined,
   UndoOutlined,
   FileTextOutlined,
+  InboxOutlined,
 } from '@ant-design/icons';
 import { usePermission } from '../../hooks/usePermission';
 import { SETTINGS_PERMISSIONS } from './settingsNavigationConfig';
@@ -27,6 +28,8 @@ export interface WhatsAppSettingsData {
     quotation: string;
     statement: string;
     receipt: string;
+    rmReceipt: string;
+    rmSummary: string;
   };
 }
 
@@ -38,6 +41,8 @@ const DEFAULT_WHATSAPP_SETTINGS: WhatsAppSettingsData = {
     quotation: 'Dear {customer},\n\nHere is quotation {doc_no} for {amount}, valid until {due_date}.\n\nView, accept or decline: {link}',
     statement: 'Dear {customer},\n\nYour account balance with {company} is {balance} as of {date}.\n\nPlease reach out if anything looks incorrect.',
     receipt: 'Dear {customer},\n\nWe have received {amount} (receipt {doc_no}) on {date}. Thank you!\n\n{company}',
+    rmReceipt: '📦 *{company}*\n*RAW MATERIAL RECEIPT (GATE PASS)*\n━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 *Receipt Code:* {receipt_code}\n🎫 *Gate Pass No:* {gate_pass_no}\n📅 *Receipt Date:* {date}\n🏪 *Warehouse:* {warehouse}\n🏢 *Division:* {division}\n🏬 *Section:* {section}\n━━━━━━━━━━━━━━━━━━━━━━━━━\n{items}\n━━━━━━━━━━━━━━━━━━━━━━━━━\n📊 *RECEIPT SUMMARY TOTALS:*\n• Total Gate Pass Qty: {total_gp_qty}\n• Total Received Qty: {total_rcv_qty}\n• Net Variance: {net_variance}\n━━━━━━━━━━━━━━━━━━━━━━━━━\n🌐 _Generated via PWI ERP System (2026-2027)_',
+    rmSummary: '📦 *{company}*\n*Raw Material Receiving — Summary*\n━━━━━━━━━━━━━━━━━━━━━━━━━\n🏢 *Division:* {division}\n🏪 *Warehouse:* {warehouse}\n📅 *Date Range:* {date}\n━━━━━━━━━━━━━━━━━━━━━━━━━\n• Gate Pass Qty: {total_gp_qty}\n• Received Qty: {total_rcv_qty}\n• Net Variance: {net_variance}\n━━━━━━━━━━━━━━━━━━━━━━━━━\n🌐 _Generated via PWI ERP System (2026-2027)_',
   },
 };
 
@@ -52,6 +57,15 @@ const TAG_VARIABLES = [
   '{due_date}',
   '{date}',
   '{link}',
+  '{receipt_code}',
+  '{gate_pass_no}',
+  '{warehouse}',
+  '{division}',
+  '{section}',
+  '{items}',
+  '{total_gp_qty}',
+  '{total_rcv_qty}',
+  '{net_variance}',
 ];
 
 export const WhatsAppSettings: React.FC = () => {
@@ -68,8 +82,15 @@ export const WhatsAppSettings: React.FC = () => {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
-        setData(parsed);
-        setInitialData(parsed);
+        const merged: WhatsAppSettingsData = {
+          countryCode: parsed.countryCode || DEFAULT_WHATSAPP_SETTINGS.countryCode,
+          templates: {
+            ...DEFAULT_WHATSAPP_SETTINGS.templates,
+            ...(parsed.templates || {}),
+          },
+        };
+        setData(merged);
+        setInitialData(merged);
       }
     } catch {
       // fallback
@@ -258,6 +279,36 @@ export const WhatsAppSettings: React.FC = () => {
               value={data.templates.receipt}
               onChange={(e) => handleTemplateChange('receipt', e.target.value)}
               className="wa-glowing-input"
+            />
+          </div>
+
+          {/* Raw Material Receipt (Gate Pass) - RM-GP */}
+          <div className="wa-template-box" style={{ gridColumn: 'span 2' }}>
+            <label className="wa-template-label">
+              <InboxOutlined className="wa-field-icon" />
+              Raw Material Receipt (Gate Pass) — [RM-GP]
+            </label>
+            <TextArea
+              rows={6}
+              value={data.templates.rmReceipt}
+              onChange={(e) => handleTemplateChange('rmReceipt', e.target.value)}
+              className="wa-glowing-input"
+              placeholder="Template for Gate Pass receipt share in Raw Material Receiving..."
+            />
+          </div>
+
+          {/* Raw Material Summary */}
+          <div className="wa-template-box" style={{ gridColumn: 'span 2' }}>
+            <label className="wa-template-label">
+              <FileTextOutlined className="wa-field-icon" />
+              Raw Material Receiving Summary (Executive Breakdown)
+            </label>
+            <TextArea
+              rows={5}
+              value={data.templates.rmSummary}
+              onChange={(e) => handleTemplateChange('rmSummary', e.target.value)}
+              className="wa-glowing-input"
+              placeholder="Template for overall receiving summary WhatsApp message..."
             />
           </div>
         </div>

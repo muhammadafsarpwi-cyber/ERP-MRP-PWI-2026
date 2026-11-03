@@ -1,12 +1,15 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Alert, Badge, Button, Card, Checkbox, Col, DatePicker, Divider, Form, Input, InputNumber,
-  Modal, Popconfirm, Popover, Progress, Row, Select, Space, Spin, Table, Tag, Tooltip, Typography, message, App as AntApp, theme,
+  Alert, Badge, Button, Card, Checkbox, Col, DatePicker, Divider, Dropdown, Form, Input, InputNumber,
+  Modal, Popconfirm, Popover, Progress, Row, Segmented, Select, Space, Spin, Table, Tag, Tooltip, Typography, message, App as AntApp, theme,
 } from 'antd';
+import type { MenuProps } from 'antd';
 import {
-  AppstoreOutlined, CameraOutlined, CloseOutlined, CopyOutlined, DatabaseOutlined, DeleteOutlined, EditOutlined, EyeOutlined,
-  EyeInvisibleOutlined, ArrowRightOutlined, HistoryOutlined, InboxOutlined, PaperClipOutlined, PictureOutlined, PlusOutlined, ReloadOutlined,
-  SaveOutlined, SendOutlined, WarningOutlined, WhatsAppOutlined,
+  AppstoreOutlined, CameraOutlined, CheckCircleOutlined, CheckOutlined, ClearOutlined, CloseOutlined, CopyOutlined, DatabaseOutlined, DeleteOutlined,
+  DownOutlined, EditOutlined, EyeOutlined, EyeInvisibleOutlined, ArrowRightOutlined, FileExcelOutlined, FilePdfOutlined, FilterOutlined,
+  HistoryOutlined, InboxOutlined, PaperClipOutlined, PictureOutlined, PlusOutlined, PrinterOutlined, ReloadOutlined,
+  SaveOutlined, SendOutlined, SwapOutlined, TableOutlined, WarningOutlined, WhatsAppOutlined,
+  RollbackOutlined, SafetyCertificateOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
@@ -23,6 +26,17 @@ import { useRawReceiptDraftStore } from '../../../store/rawReceiptDraftStore';
 import type { ReceiptDraft, OrgBundle } from '../../../store/rawReceiptDraftStore';
 import { tabSessionCache, TAB_REFRESH_EVENT } from '../../../services/tabSessionCache';
 import { useThemeStore } from '../../../theme/themeStore';
+import {
+  exportReceivingPdf,
+  exportItemWiseReceivingPdf,
+  exportReceivingCsv,
+  exportItemWiseReceivingCsv,
+  generateReceivingWhatsAppMessage,
+  generateItemWiseReceivingWhatsAppMessage,
+  ReceivingExportItem,
+  ItemWiseReceivingExportItem,
+  ReceivingExportMeta,
+} from './rawMaterialReceivingPdf';
 import './rawMaterialForms.css';
 
 const { Text, Title } = Typography;
@@ -36,7 +50,7 @@ interface RawMaterialReceivingTabCache {
   list: ReceiptHeader[];
   total: number;
   page: number;
-  filters: { status?: string; warehouseId?: string; gatePassNo?: string; dateFrom?: string; dateTo?: string };
+  filters: { status?: string; warehouseId?: string; gatePassNo?: string; dateFrom?: string; dateTo?: string; divisionId?: string };
 }
 const ATTACH_FILE_MAX = 10 * 1024 * 1024;
 const PHOTO_MIME_ALLOW = ['image/jpeg', 'image/png', 'image/webp'];
@@ -102,7 +116,9 @@ interface FormRefData {
 interface ReceiptLine {
   id?: string;
   lineNumber: number;
+  itemId?: string;
   item?: { id: string; name: string; itemCode: string } | null;
+  uomId?: string;
   uom?: { id: string; code: string; name?: string; symbol?: string } | null;
   gatePassQuantity: number;
   receivedQuantity: number;
@@ -365,11 +381,24 @@ const RawMaterialReceiving: React.FC = () => {
   const [list, setList] = useState<ReceiptHeader[]>(() => cachedTab?.list ?? []);
   const [total, setTotal] = useState<number>(() => cachedTab?.total ?? 0);
   const [page, setPage] = useState<number>(() => cachedTab?.page ?? 1);
-  const [pageSize] = useState(20);
+  const [pageSize, setPageSize] = useState<number>(100);
   const [listLoading, setListLoading] = useState(false);
   const [listState, setListState] = useState<'loading' | 'error' | 'ready'>(() => cachedTab ? 'ready' : 'loading');
 
-  const [filters, setFilters] = useState<{ status?: string; warehouseId?: string; gatePassNo?: string; dateFrom?: string; dateTo?: string }>(() => cachedTab?.filters ?? {});
+  const [filters, setFilters] = useState<{ status?: string; warehouseId?: string; gatePassNo?: string; dateFrom?: string; dateTo?: string; divisionId?: string }>(() => cachedTab?.filters ?? {});
+
+  // Raw Material Returns Integration (for Inward vs Outward vs Net Available Stock)
+  const [returnsSummary, setReturnsSummary] = useState<{
+    totalReturnedKg: number;
+    returnsCount: number;
+    returnsList: any[];
+  }>({
+    totalReturnedKg: 0,
+    returnsCount: 0,
+    returnsList: [],
+  });
+  const [returnsLoading, setReturnsLoading] = useState(false);
+  const [returnsModalOpen, setReturnsModalOpen] = useState(false);
 
   // Customizable Column Visibility state with persistence
   const [visibleColumns, setVisibleColumns] = useState<string[]>(() => {
@@ -460,6 +489,8 @@ const RawMaterialReceiving: React.FC = () => {
   const [saveDialogResult, setSaveDialogResult] = useState<SaveResultData | null>(null);
   const [saveDialogError, setSaveDialogError] = useState<string | undefined>(undefined);
   const [saveDialogSuccessTitle, setSaveDialogSuccessTitle] = useState<string>('Receipt Confirmed Successfully');
+  const [saveDialogLoadingTitle, setSaveDialogLoadingTitle] = useState<string>('Posting Raw Material Receipt...');
+  const [saveDialogLoadingHint, setSaveDialogLoadingHint] = useState<string>('Validating division scopes and posting real-time inventory ledger movements...');
   const [saveDialogRetry, setSaveDialogRetry] = useState<(() => void) | undefined>(undefined);
 
   // Toggle state to hide/show the Live Verification Panel on the right
@@ -723,10 +754,39 @@ const RawMaterialReceiving: React.FC = () => {
     }
   }, []);
 
-  const loadList = useCallback(async (p: number = page, f: typeof filters = filters) => {
-    setListLoading(true);
+  const loadReturnsSummary = useCallback(async (f: typeof filters = filters) => {
+    setReturnsLoading(true);
     try {
-      const res = await apiService.get<{ data: ReceiptHeader[]; total: number }>('/inventory/receipts/gate-pass', { page: p, limit: pageSize, ...f });
+      const retParams: any = { page: 1, limit: 1000 };
+      if (f.divisionId) retParams.divisionId = f.divisionId;
+      if (f.warehouseId) retParams.warehouseId = f.warehouseId;
+      if (f.dateFrom) retParams.dateFrom = f.dateFrom;
+      if (f.dateTo) retParams.dateTo = f.dateTo;
+
+      const res = await apiService.get<{ data: any[]; total: number }>('/inventory/receipts/returns', retParams);
+      const rows = res.data || [];
+      const totalReturned = rows.reduce((acc: number, r: any) => acc + Number(r.quantityTotal || 0), 0);
+      setReturnsSummary({
+        totalReturnedKg: totalReturned,
+        returnsCount: res.total || rows.length,
+        returnsList: rows,
+      });
+    } catch {
+      setReturnsSummary({
+        totalReturnedKg: 0,
+        returnsCount: 0,
+        returnsList: [],
+      });
+    } finally {
+      setReturnsLoading(false);
+    }
+  }, []);
+
+  const loadList = useCallback(async (p: number = page, f: typeof filters = filters, ps: number = pageSize) => {
+    setListLoading(true);
+    void loadReturnsSummary(f);
+    try {
+      const res = await apiService.get<{ data: ReceiptHeader[]; total: number }>('/inventory/receipts/gate-pass', { page: p, limit: ps || pageSize, ...f });
       setList(res.data || []);
       setTotal(res.total || 0);
       setListState('ready');
@@ -745,7 +805,7 @@ const RawMaterialReceiving: React.FC = () => {
       setListLoading(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, pageSize, filters]);
+  }, [page, pageSize, filters, loadReturnsSummary]);
 
   // Dynamic on-demand loading of lines when a row is expanded
   const [expandedLinesMap, setExpandedLinesMap] = useState<Record<string, ReceiptLine[]>>({});
@@ -1493,6 +1553,7 @@ const RawMaterialReceiving: React.FC = () => {
   const [waReceiptId, setWaReceiptId] = useState<string | null>(null);
   const [waShareInfo, setWaShareInfo] = useState<ShareReceiptInfo | null>(null);
   const [waOutcome, setWaOutcome] = useState<{ type: 'queued' | 'unconfigured' | 'copied' | 'error'; text: string } | null>(null);
+  const [waCopied, setWaCopied] = useState(false);
 
   const waHref = useMemo(() => {
     const digits = normalizeWaPhone(waPhone);
@@ -1571,29 +1632,89 @@ const RawMaterialReceiving: React.FC = () => {
   // detail is fetched (same endpoint as View) before the share dialog opens —
   // the message always reflects the saved item breakdown, never a stub.
   const handleRowWaShare = useCallback(async (rec: ReceiptHeader) => {
-    const hide = message.loading('Loading receipt for sharing…', 0);
+    setSaveDialogLoadingTitle('Loading Receipt Data...');
+    setSaveDialogLoadingHint('Fetching items & gate pass details for WhatsApp share...');
+    setSaveDialogPhase('loading');
+    setSaveDialogError(undefined);
+    setSaveDialogResult(null);
+    setSaveDialogVisible(true);
     try {
       const res = await apiService.get<{ data: ReceiptHeader }>(`/inventory/receipts/gate-pass/${rec.id}`);
+      setSaveDialogVisible(false);
       openWaShare(buildShareInfoFromDetail(res.data), rec.id);
     } catch (err: any) {
-      message.error(formatApiError(err, 'Failed to load the receipt for sharing.'));
-    } finally {
-      hide();
+      setSaveDialogPhase('error');
+      setSaveDialogError(formatApiError(err, 'Failed to load the receipt for sharing.'));
+      setSaveDialogRetry(() => () => handleRowWaShare(rec));
     }
-  }, [openWaShare, buildShareInfoFromDetail, message]);
+  }, [openWaShare, buildShareInfoFromDetail]);
 
-  const handleWaCopy = useCallback(async () => {
-    if (!waMessage) return;
+  const copyToClipboard = (text: string): boolean => {
+    if (!text) return false;
+    let copied = false;
+
+    // 1. Direct synchronous selection if target textarea exists in DOM
     try {
-      if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
-        await navigator.clipboard.writeText(waMessage);
-      } else {
-        throw new Error('clipboard API unavailable');
+      const activeTextarea = document.querySelector('textarea[data-testid="wa-message"]') as HTMLTextAreaElement;
+      if (activeTextarea) {
+        activeTextarea.focus();
+        activeTextarea.select();
+        activeTextarea.setSelectionRange(0, activeTextarea.value.length);
+        copied = document.execCommand('copy');
       }
-      setWaOutcome({ type: 'copied', text: 'Message copied to clipboard.' });
-    } catch {
-      setWaOutcome({ type: 'error', text: 'Clipboard is unavailable — select and copy the message manually.' });
+    } catch {}
+
+    // 2. Synchronous in-viewport temporary element (100% trusted click event)
+    if (!copied) {
+      try {
+        const el = document.createElement('textarea');
+        el.value = text;
+        el.style.position = 'fixed';
+        el.style.top = '0';
+        el.style.left = '0';
+        el.style.width = '2em';
+        el.style.height = '2em';
+        el.style.padding = '0';
+        el.style.border = 'none';
+        el.style.outline = 'none';
+        el.style.boxShadow = 'none';
+        el.style.background = 'transparent';
+        el.style.opacity = '0.01';
+        document.body.appendChild(el);
+        el.focus();
+        el.select();
+        el.setSelectionRange(0, text.length);
+        copied = document.execCommand('copy');
+        document.body.removeChild(el);
+      } catch {}
     }
+
+    // 3. Also trigger modern clipboard API in background
+    if (navigator?.clipboard?.writeText && window.isSecureContext) {
+      navigator.clipboard.writeText(text).catch(() => {});
+    }
+
+    return copied;
+  };
+
+  const handleWaCopy = useCallback(() => {
+    if (!waMessage) return;
+    copyToClipboard(waMessage);
+
+    // Auto-select text inside the textarea for immediate user visual confirmation
+    try {
+      const target = document.querySelector('textarea[data-testid="wa-message"]') as HTMLTextAreaElement;
+      if (target) {
+        target.focus();
+        target.select();
+      }
+    } catch {}
+
+    setWaCopied(true);
+    setWaOutcome({ type: 'copied', text: 'Message copied to clipboard! You can paste (Ctrl+V) directly into WhatsApp.' });
+    setTimeout(() => {
+      setWaCopied(false);
+    }, 2500);
   }, [waMessage]);
 
   const handleWaSend = useCallback(async () => {
@@ -1747,6 +1868,8 @@ const RawMaterialReceiving: React.FC = () => {
     }
 
     setSubmitting(true);
+    setSaveDialogLoadingTitle(editingId ? 'Updating Raw Material Receipt...' : 'Posting Raw Material Receipt...');
+    setSaveDialogLoadingHint(editingId ? 'Recalculating inventory ledger movements and uploading documents...' : 'Validating division scopes and posting real-time inventory ledger movements...');
     setSaveDialogVisible(true);
     setSaveDialogPhase('loading');
     setSaveDialogSuccessTitle(editingId ? 'Receipt Updated Successfully' : 'Receipt Confirmed Successfully');
@@ -1883,12 +2006,291 @@ const RawMaterialReceiving: React.FC = () => {
     }
   };
 
-  const applyFilter = (patch: typeof filters) => {
+  const applyFilter = (patch: Partial<typeof filters>) => {
     const next = { ...filters, ...patch };
+    Object.keys(next).forEach((k) => {
+      const v = (next as any)[k];
+      if (v === undefined || v === null || v === '') {
+        delete (next as any)[k];
+      }
+    });
     setFilters(next);
     setPage(1);
     void loadList(1, next);
   };
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // View Mode: 'gatePass' (Receipt Audit) vs 'itemWise' (Material Totals)
+  // ─────────────────────────────────────────────────────────────────────────
+  const [viewMode, setViewMode] = useState<'gatePass' | 'itemWise'>('gatePass');
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Executive KPI Aggregation across current filtered receiving records
+  // ─────────────────────────────────────────────────────────────────────────
+  const summaryKpi = useMemo(() => {
+    let totalReceivedKg = 0;
+    let totalGatePassKg = 0;
+    let totalLines = 0;
+    const uniquePos = new Set<string>();
+
+    for (const item of list) {
+      totalReceivedKg += Number(item.receivedTotal || 0);
+      totalGatePassKg += Number(item.gatePassTotal || 0);
+      totalLines += Number(item.lineCount || 1);
+      if (item.poCode) uniquePos.add(item.poCode.trim());
+      else if (item.reference) uniquePos.add(item.reference.trim());
+    }
+
+    // True variance: Received - Gate Pass (Negative = Shortage, Positive = Excess)
+    const totalDifferenceKg = totalReceivedKg - totalGatePassKg;
+    const totalReturnedKg = Number(returnsSummary.totalReturnedKg || 0);
+    const netAvailableKg = Math.max(0, totalReceivedKg - totalReturnedKg);
+
+    return {
+      totalReceivedKg,
+      totalGatePassKg,
+      totalDifferenceKg,
+      totalReturnedKg,
+      netAvailableKg,
+      totalLines,
+      receiptsCount: list.length,
+      uniquePoCount: uniquePos.size,
+    };
+  }, [list, returnsSummary]);
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Item-Wise Aggregation across all loaded receipts
+  // ─────────────────────────────────────────────────────────────────────────
+  const itemWiseList: ItemWiseReceivingExportItem[] = useMemo(() => {
+    const map = new Map<string, {
+      itemId: string;
+      itemCode: string;
+      itemName: string;
+      uomCode: string;
+      gatePassTotal: number;
+      receivedTotal: number;
+      differenceTotal: number;
+      receiptCount: number;
+      gatePassSet: Set<string>;
+      poSet: Set<string>;
+    }>();
+
+    for (const receipt of list) {
+      const gpNo = (receipt.gatePassNo || receipt.receiptCode || '').trim();
+      const po = (receipt.poCode || receipt.reference || '').trim();
+      const lines = receipt.lines || [];
+
+      for (const line of lines) {
+        const itId = line.item?.id || (line as any).itemId || 'unknown';
+        const itCode = line.item?.itemCode || 'RAW-MAT';
+        const itName = line.item?.name || 'Raw Material';
+        const uom = line.uom?.code || line.uom?.name || 'KG';
+        const gpQty = Number(line.gatePassQuantity || 0);
+        const recvQty = Number(line.receivedQuantity || 0);
+        const diff = recvQty - gpQty;
+
+        let entry = map.get(itId);
+        if (!entry) {
+          entry = {
+            itemId: itId,
+            itemCode: itCode,
+            itemName: itName,
+            uomCode: uom,
+            gatePassTotal: 0,
+            receivedTotal: 0,
+            differenceTotal: 0,
+            receiptCount: 0,
+            gatePassSet: new Set<string>(),
+            poSet: new Set<string>(),
+          };
+          map.set(itId, entry);
+        }
+
+        entry.gatePassTotal += gpQty;
+        entry.receivedTotal += recvQty;
+        entry.differenceTotal += diff;
+        entry.receiptCount += 1;
+        if (gpNo) entry.gatePassSet.add(gpNo);
+        if (po) entry.poSet.add(po);
+      }
+    }
+
+    return Array.from(map.values())
+      .map((v) => ({
+        itemId: v.itemId,
+        itemCode: v.itemCode,
+        itemName: v.itemName,
+        uomCode: v.uomCode,
+        gatePassTotal: v.gatePassTotal,
+        receivedTotal: v.receivedTotal,
+        differenceTotal: v.receivedTotal - v.gatePassTotal,
+        receiptCount: v.receiptCount,
+        gatePassNumbers: Array.from(v.gatePassSet),
+        poNumbers: Array.from(v.poSet),
+      }))
+      .sort((a, b) => b.receivedTotal - a.receivedTotal);
+  }, [list]);
+
+  const selectedDivisionName = useMemo(() => {
+    if (!filters.divisionId) return 'All Divisions';
+    const found = refData?.divisions?.find((d) => d.id === filters.divisionId);
+    return found ? (found.divisionCode ? `${found.divisionCode} - ${found.name}` : found.name) : 'Selected Division';
+  }, [filters.divisionId, refData?.divisions]);
+
+  const exportMeta: ReceivingExportMeta = useMemo(() => ({
+    divisionName: selectedDivisionName,
+    warehouseName: filters.warehouseId ? refData?.warehouses?.find((w) => w.id === filters.warehouseId)?.name : undefined,
+    dateRangeStr: filters.dateFrom && filters.dateTo ? `${filters.dateFrom} to ${filters.dateTo}` : undefined,
+    totalReceivedKg: summaryKpi.totalReceivedKg,
+    totalGatePassKg: summaryKpi.totalGatePassKg,
+    totalDifferenceKg: summaryKpi.totalDifferenceKg,
+    receiptsCount: total || list.length,
+    uniquePoCount: summaryKpi.uniquePoCount,
+    linesCount: summaryKpi.totalLines,
+    distinctItemsCount: itemWiseList.length,
+  }), [selectedDivisionName, filters.warehouseId, refData?.warehouses, filters.dateFrom, filters.dateTo, summaryKpi, total, list.length, itemWiseList.length]);
+
+  const exportRows: ReceivingExportItem[] = useMemo(() => {
+    return list.map((r) => ({
+      id: r.id,
+      receiptCode: r.receiptCode,
+      gatePassNo: r.gatePassNo,
+      sourceNo: r.sourceNo,
+      heatNumber: r.heatNumber,
+      receiptDate: r.receiptDate,
+      status: r.status,
+      divisionName: r.division?.name || selectedDivisionName,
+      sectionName: r.section?.name,
+      departmentName: r.department?.name,
+      warehouseName: r.warehouse?.name,
+      poCode: r.poCode,
+      lineCount: r.lineCount,
+      gatePassTotal: Number(r.gatePassTotal || 0),
+      receivedTotal: Number(r.receivedTotal || 0),
+      differenceTotal: Number(r.receivedTotal || 0) - Number(r.gatePassTotal || 0),
+    }));
+  }, [list, selectedDivisionName]);
+
+  const handleExportPdfGatePass = useCallback(() => {
+    if (list.length === 0) {
+      message.warning('No receiving records available to export.');
+      return;
+    }
+    exportReceivingPdf(exportRows, exportMeta, 'pdf');
+    message.success('Gate Pass PDF report generated.');
+  }, [list.length, exportRows, exportMeta]);
+
+  const handleExportPdfItemWise = useCallback(() => {
+    if (itemWiseList.length === 0) {
+      message.warning('No item-wise records available to export.');
+      return;
+    }
+    exportItemWiseReceivingPdf(itemWiseList, exportMeta, 'pdf');
+    message.success('Item-Wise PDF report generated.');
+  }, [itemWiseList, exportMeta]);
+
+  const handleExportCsvGatePass = useCallback(() => {
+    if (list.length === 0) {
+      message.warning('No receiving records available to export.');
+      return;
+    }
+    exportReceivingCsv(exportRows, exportMeta);
+    message.success('Gate Pass CSV exported.');
+  }, [list.length, exportRows, exportMeta]);
+
+  const handleExportCsvItemWise = useCallback(() => {
+    if (itemWiseList.length === 0) {
+      message.warning('No item-wise records available to export.');
+      return;
+    }
+    exportItemWiseReceivingCsv(itemWiseList, exportMeta);
+    message.success('Item-Wise CSV exported.');
+  }, [itemWiseList, exportMeta]);
+
+  const handleSmartPrint = useCallback(() => {
+    if (viewMode === 'itemWise') {
+      if (itemWiseList.length === 0) {
+        message.warning('No items available to print.');
+        return;
+      }
+      exportItemWiseReceivingPdf(itemWiseList, exportMeta, 'print');
+    } else {
+      if (list.length === 0) {
+        message.warning('No receipts available to print.');
+        return;
+      }
+      exportReceivingPdf(exportRows, exportMeta, 'print');
+    }
+  }, [viewMode, itemWiseList, list.length, exportRows, exportMeta]);
+
+  // WhatsApp Share Dialog State (Supports Gate Pass vs Item-Wise switch)
+  const [whatsAppModalOpen, setWhatsAppModalOpen] = useState(false);
+  const [whatsAppTab, setWhatsAppTab] = useState<'gatePass' | 'itemWise'>('gatePass');
+  const [whatsAppPhone, setWhatsAppPhone] = useState('');
+  const [summaryWaCopied, setSummaryWaCopied] = useState(false);
+
+  const whatsAppSummaryText = useMemo(() => {
+    if (whatsAppTab === 'itemWise') {
+      return generateItemWiseReceivingWhatsAppMessage(exportMeta, itemWiseList);
+    }
+    return generateReceivingWhatsAppMessage(exportMeta, exportRows);
+  }, [whatsAppTab, exportMeta, itemWiseList, exportRows]);
+
+  const handleCopyWhatsAppMessage = useCallback(() => {
+    if (!whatsAppSummaryText) return;
+    copyToClipboard(whatsAppSummaryText);
+    setSummaryWaCopied(true);
+    setTimeout(() => setSummaryWaCopied(false), 2500);
+  }, [whatsAppSummaryText]);
+
+  const handleSendWhatsApp = useCallback(() => {
+    const normalized = normalizeWaPhone(whatsAppPhone);
+    const textEncoded = encodeURIComponent(whatsAppSummaryText.trim());
+    const url = normalized
+      ? waLink(normalized, whatsAppSummaryText)
+      : `https://api.whatsapp.com/send?text=${textEncoded}`;
+    window.open(url, '_blank');
+  }, [whatsAppPhone, whatsAppSummaryText]);
+
+  // PO Fulfillment & History Modal State
+  const [poModalVisible, setPoModalVisible] = useState(false);
+  const [poModalPoId, setPoModalPoId] = useState<string | null>(null);
+  const [poModalData, setPoModalData] = useState<PoFulfillmentData | null>(null);
+  const [poModalLoading, setPoModalLoading] = useState(false);
+
+  const openPoModal = useCallback(async (poId?: string) => {
+    setPoModalVisible(true);
+    const targetId = poId || (refData?.productionOrders?.[0]?.id ?? null);
+    setPoModalPoId(targetId);
+    if (!targetId) {
+      setPoModalData(null);
+      return;
+    }
+    setPoModalLoading(true);
+    try {
+      const res = await apiService.get<any>(`/inventory/receipts/po-fulfillment/${targetId}`);
+      setPoModalData(res?.data || res);
+    } catch {
+      message.error('Failed to load PO fulfillment details');
+      setPoModalData(null);
+    } finally {
+      setPoModalLoading(false);
+    }
+  }, [refData?.productionOrders]);
+
+  const handleSelectPoInModal = useCallback(async (poId: string) => {
+    setPoModalPoId(poId);
+    setPoModalLoading(true);
+    try {
+      const res = await apiService.get<any>(`/inventory/receipts/po-fulfillment/${poId}`);
+      setPoModalData(res?.data || res);
+    } catch {
+      message.error('Failed to load PO fulfillment details');
+      setPoModalData(null);
+    } finally {
+      setPoModalLoading(false);
+    }
+  }, []);
 
   const columns: ColumnsType<ReceiptHeader> = [
     {
@@ -1928,23 +2330,35 @@ const RawMaterialReceiving: React.FC = () => {
       render: (_, r) => {
         const po = (r as any).poCode || r.reference || (r.purchaseOrderId ? 'PO Linked' : null);
         if (!po || po === '-') return <span style={{ color: token.colorTextTertiary }}>—</span>;
+        const targetPoId = r.purchaseOrderId || r.productionOrderId;
         return (
-          <span
-            style={{
-              fontFamily: 'monospace, var(--theme-font-mono, sans-serif)',
-              fontWeight: 700,
-              fontSize: 12,
-              color: isDark ? '#38bdf8' : '#0369a1',
-              background: isDark ? 'rgba(56, 189, 248, 0.14)' : '#e0f2fe',
-              padding: '2px 8px',
-              borderRadius: 4,
-              border: isDark ? '1px solid rgba(56, 189, 248, 0.35)' : '1px solid #bae6fd',
-              whiteSpace: 'nowrap',
-              display: 'inline-block',
-            }}
-          >
-            {po}
-          </span>
+          <Tooltip title="Click to view PO Order vs Received Fulfillment History">
+            <span
+              onClick={(e) => {
+                e.stopPropagation();
+                if (targetPoId) {
+                  openPoModal(targetPoId);
+                } else {
+                  openPoModal();
+                }
+              }}
+              style={{
+                fontFamily: 'monospace, var(--theme-font-mono, sans-serif)',
+                fontWeight: 700,
+                fontSize: 12,
+                color: isDark ? '#38bdf8' : '#0369a1',
+                background: isDark ? 'rgba(56, 189, 248, 0.14)' : '#e0f2fe',
+                padding: '2px 8px',
+                borderRadius: 4,
+                border: isDark ? '1px solid rgba(56, 189, 248, 0.35)' : '1px solid #bae6fd',
+                whiteSpace: 'nowrap',
+                display: 'inline-block',
+                cursor: 'pointer',
+              }}
+            >
+              {po} &rarr;
+            </span>
+          </Tooltip>
         );
       },
     },
@@ -2106,15 +2520,26 @@ const RawMaterialReceiving: React.FC = () => {
     },
     {
       title: 'Difference',
-      dataIndex: 'differenceTotal',
       key: 'differenceTotal',
       width: 110,
       align: 'right' as const,
-      render: (v?: number) => {
-        const val = Number(v || 0);
+      render: (_, r) => {
+        const gp = Number(r.gatePassTotal || 0);
+        const rc = Number(r.receivedTotal || 0);
+        const diff = rc - gp; // True variance: Received - Gate Pass
+        if (diff === 0) {
+          return <span style={{ fontWeight: 600, color: token.colorTextSecondary }}>0.00</span>;
+        }
+        if (diff < 0) {
+          return (
+            <span style={{ fontWeight: 700, color: '#dc2626' }}>
+              {formatNumber(diff, 2)}
+            </span>
+          );
+        }
         return (
-          <span style={{ fontWeight: 600, color: val === 0 ? token.colorTextSecondary : (isDark ? '#fbbf24' : '#d97706') }}>
-            {formatNumber(v, 2)}
+          <span style={{ fontWeight: 700, color: '#16a34a' }}>
+            +{formatNumber(diff, 2)}
           </span>
         );
       },
@@ -2307,6 +2732,187 @@ const RawMaterialReceiving: React.FC = () => {
     </Popover>
   ), [visibleColumns, handleColumnToggle, handleSelectAllColumns, handleResetColumns]);
 
+  const handleOpenItemLedger = useCallback((item: { id: string; itemCode: string; name: string }) => {
+    setLedgerItem(item);
+    const whObj = filters.warehouseId
+      ? (refData?.warehouses.find((w) => w.id === filters.warehouseId) || {
+          id: filters.warehouseId,
+          name: warehouseOptions.find((o) => o.value === filters.warehouseId)?.label || 'Raw Material Warehouse',
+        })
+      : null;
+    setLedgerWarehouse(whObj);
+    setLedgerModalOpen(true);
+  }, [filters.warehouseId, refData?.warehouses, warehouseOptions]);
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Item-Wise Breakdown Table Columns
+  // ─────────────────────────────────────────────────────────────────────────
+  const itemWiseColumns: ColumnsType<ItemWiseReceivingExportItem> = useMemo(() => [
+    {
+      title: '#',
+      key: 'idx',
+      width: 48,
+      align: 'center',
+      render: (_, __, i) => <span style={{ color: token.colorTextTertiary, fontSize: 11 }}>{i + 1}</span>,
+    },
+    {
+      title: 'Item Code',
+      dataIndex: 'itemCode',
+      key: 'itemCode',
+      width: 145,
+      render: (c, r) => (
+        <Tooltip title="Click to view Item Stock Ledger Drill-down">
+          <span
+            onClick={() => handleOpenItemLedger({ id: r.itemId, itemCode: r.itemCode, name: r.itemName })}
+            style={{
+              fontFamily: 'monospace, var(--theme-font-mono, sans-serif)',
+              fontWeight: 700,
+              fontSize: 12.5,
+              color: isDark ? '#38bdf8' : '#0284c7',
+              cursor: 'pointer',
+              textDecoration: 'underline',
+            }}
+          >
+            {c}
+          </span>
+        </Tooltip>
+      ),
+    },
+    {
+      title: 'Raw Material Description',
+      dataIndex: 'itemName',
+      key: 'itemName',
+      render: (v) => <span style={{ fontWeight: 600, color: token.colorText }}>{v}</span>,
+    },
+    {
+      title: 'UoM',
+      dataIndex: 'uomCode',
+      key: 'uomCode',
+      width: 75,
+      align: 'center',
+      render: (u) => <Tag style={{ margin: 0 }}>{u || 'KG'}</Tag>,
+    },
+    {
+      title: 'GP Declared (KG)',
+      dataIndex: 'gatePassTotal',
+      key: 'gatePassTotal',
+      width: 135,
+      align: 'right',
+      render: (v) => (
+        <span style={{ fontFamily: 'monospace', fontWeight: 600, color: token.colorTextSecondary }}>
+          {formatNumber(v, 2)}
+        </span>
+      ),
+    },
+    {
+      title: 'Total Received (KG)',
+      dataIndex: 'receivedTotal',
+      key: 'receivedTotal',
+      width: 145,
+      align: 'right',
+      render: (v) => (
+        <span style={{ fontFamily: 'monospace', fontWeight: 800, color: '#16a34a', fontSize: 13 }}>
+          {formatNumber(v, 2)}
+        </span>
+      ),
+    },
+    {
+      title: 'Discrepancy (KG)',
+      dataIndex: 'differenceTotal',
+      key: 'differenceTotal',
+      width: 135,
+      align: 'right',
+      render: (v) => {
+        const diff = Number(v || 0);
+        if (diff === 0) return <Tag color="success" style={{ margin: 0 }}>0.00 (Match)</Tag>;
+        if (diff > 0) return <Tag color="warning" style={{ margin: 0 }}>+{formatNumber(diff, 2)} (Excess)</Tag>;
+        return <Tag color="error" style={{ margin: 0 }}>{formatNumber(diff, 2)} (Shortage)</Tag>;
+      },
+    },
+    {
+      title: 'Deliveries',
+      dataIndex: 'receiptCount',
+      key: 'receiptCount',
+      width: 90,
+      align: 'center',
+      render: (c) => (
+        <Badge
+          count={c}
+          overflowCount={999}
+          style={{
+            backgroundColor: isDark ? 'rgba(56, 189, 248, 0.15)' : '#e0f2fe',
+            color: isDark ? '#38bdf8' : '#0369a1',
+            border: isDark ? '1px solid rgba(56, 189, 248, 0.3)' : '1px solid #bae6fd',
+          }}
+        />
+      ),
+    },
+    {
+      title: 'Gate Passes',
+      dataIndex: 'gatePassNumbers',
+      key: 'gatePassNumbers',
+      width: 170,
+      render: (gps: string[]) => (
+        <Space wrap size={[2, 2]}>
+          {gps.slice(0, 3).map((gp) => (
+            <Tag key={gp} style={{ fontSize: 10, margin: 0, fontFamily: 'monospace' }}>
+              {gp}
+            </Tag>
+          ))}
+          {gps.length > 3 && (
+            <Tag style={{ fontSize: 10, margin: 0 }}>+{gps.length - 3} more</Tag>
+          )}
+        </Space>
+      ),
+    },
+    {
+      title: 'Action',
+      key: 'act',
+      width: 75,
+      align: 'center',
+      render: (_, r) => (
+        <Tooltip title="View Stock Ledger History">
+          <Button
+            type="text"
+            size="small"
+            icon={<HistoryOutlined />}
+            onClick={() => handleOpenItemLedger({ id: r.itemId, itemCode: r.itemCode, name: r.itemName })}
+          />
+        </Tooltip>
+      ),
+    },
+  ], [token, isDark, filters.warehouseId, refData?.warehouses]);
+
+  const pdfMenuItems: MenuProps['items'] = useMemo(() => [
+    {
+      key: 'gp-pdf',
+      icon: <FilePdfOutlined style={{ color: '#ef4444' }} />,
+      label: 'Gate Pass Audit PDF',
+      onClick: handleExportPdfGatePass,
+    },
+    {
+      key: 'item-pdf',
+      icon: <AppstoreOutlined style={{ color: '#0284c7' }} />,
+      label: 'Item-Wise Material Breakdown PDF',
+      onClick: handleExportPdfItemWise,
+    },
+  ], [handleExportPdfGatePass, handleExportPdfItemWise]);
+
+  const excelMenuItems: MenuProps['items'] = useMemo(() => [
+    {
+      key: 'gp-excel',
+      icon: <FileExcelOutlined style={{ color: '#10b981' }} />,
+      label: 'Gate Pass Records (CSV)',
+      onClick: handleExportCsvGatePass,
+    },
+    {
+      key: 'item-excel',
+      icon: <TableOutlined style={{ color: '#059669' }} />,
+      label: 'Item-Wise Material Breakdown (CSV)',
+      onClick: handleExportCsvItemWise,
+    },
+  ], [handleExportCsvGatePass, handleExportCsvItemWise]);
+
   const lineColumns: ColumnsType<LineRow> = [
     {
       title: 'Raw Material', key: 'itemId', width: 280,
@@ -2442,56 +3048,458 @@ const RawMaterialReceiving: React.FC = () => {
         extra={headerExtra}
       />
 
-      <Card className="erp-section-card" title={<Space><InboxOutlined /> Receiving History</Space>}>
-        <FilterBar
-          searchPlaceholder="Search Gate Pass No, PO, DC No..."
-          searchValue={filters.gatePassNo}
-          onSearchChange={(v) => applyFilter({ gatePassNo: v || undefined })}
-          actionButtons={columnSelectorButton}
-          primaryFilters={
-            <>
+      {/* ═══════════════════════════════════════════════════════════════════════
+          2027 EXECUTIVE RAW MATERIAL RECEIVING COMMAND CENTER
+          ═══════════════════════════════════════════════════════════════════════ */}
+      <Card
+        className="erp-section-card"
+        style={{
+          marginBottom: 16,
+          background: token.colorBgContainer,
+          border: `1px solid ${token.colorBorderSecondary}`,
+          boxShadow: isDark ? '0 4px 20px rgba(0,0,0,0.35)' : '0 2px 12px rgba(0,0,0,0.04)',
+        }}
+      >
+        {/* ROW 1: Sleek Control Bar (Division, Date Presets, Warehouse, Status, Search & Reset) */}
+        <div
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 12,
+            paddingBottom: 14,
+            marginBottom: 14,
+            borderBottom: `1px solid ${token.colorBorderSecondary}`,
+          }}
+        >
+          {/* Left: Division & Date Filter Group */}
+          <Space wrap size={10} align="center">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: token.colorTextSecondary, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                Division:
+              </span>
               <Select
-                placeholder="Status"
+                style={{ minWidth: 210 }}
+                placeholder="All Divisions (Corporate)"
                 allowClear
-                style={{ width: 140 }}
-                value={filters.status}
-                onChange={(v) => applyFilter({ status: v })}
-                options={[
-                  { value: 'CONFIRMED', label: 'Confirmed' },
-                  { value: 'DRAFT', label: 'Draft' },
-                  { value: 'CANCELLED', label: 'Cancelled' },
-                ]}
-              />
-              <Select
-                placeholder="Warehouse"
-                allowClear
+                value={filters.divisionId}
+                onChange={(val) => applyFilter({ divisionId: val })}
+                options={divisionOptions}
                 showSearch
                 optionFilterProp="label"
-                style={{ width: 180 }}
-                value={filters.warehouseId}
-                onChange={(v) => applyFilter({ warehouseId: v })}
-                options={warehouseOptions}
-                virtual
-                listHeight={160}
               />
-            </>
-          }
-          onReset={() => {
-            setFilters({});
-            loadList(1);
-          }}
-          totalCount={total}
-          itemLabel="receipts"
-        >
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <Text type="secondary" style={{ fontSize: 11, fontWeight: 600 }}>Date Range</Text>
-            <DatePicker.RangePicker
-              style={{ width: '100%' }}
-              value={filters.dateFrom && filters.dateTo ? [dayjs(filters.dateFrom), dayjs(filters.dateTo)] : undefined}
-              onChange={(v) => applyFilter({ dateFrom: v?.[0] ? v[0].format('YYYY-MM-DD') : undefined, dateTo: v?.[1] ? v[1].format('YYYY-MM-DD') : undefined })}
+            </div>
+
+            <Divider type="vertical" style={{ height: 20 }} />
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: token.colorTextSecondary, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                Date:
+              </span>
+              <DatePicker.RangePicker
+                style={{ width: 230 }}
+                value={filters.dateFrom && filters.dateTo ? [dayjs(filters.dateFrom), dayjs(filters.dateTo)] : undefined}
+                onChange={(v) => applyFilter({
+                  dateFrom: v?.[0] ? v[0].format('YYYY-MM-DD') : undefined,
+                  dateTo: v?.[1] ? v[1].format('YYYY-MM-DD') : undefined,
+                })}
+              />
+              {/* Quick Presets */}
+              <Space size={4}>
+                <Button
+                  size="small"
+                  type={!filters.dateFrom && !filters.dateTo ? 'default' : 'text'}
+                  style={{ fontSize: 11, padding: '0 6px', height: 24 }}
+                  onClick={() => applyFilter({
+                    dateFrom: dayjs().startOf('month').format('YYYY-MM-DD'),
+                    dateTo: dayjs().endOf('month').format('YYYY-MM-DD'),
+                  })}
+                >
+                  This Month
+                </Button>
+                <Button
+                  size="small"
+                  type="text"
+                  style={{ fontSize: 11, padding: '0 6px', height: 24 }}
+                  onClick={() => applyFilter({
+                    dateFrom: dayjs().subtract(1, 'month').startOf('month').format('YYYY-MM-DD'),
+                    dateTo: dayjs().subtract(1, 'month').endOf('month').format('YYYY-MM-DD'),
+                  })}
+                >
+                  Last Month
+                </Button>
+              </Space>
+            </div>
+          </Space>
+
+          {/* Right: Search, Warehouse, Status & Reset Action */}
+          <Space wrap size={10} align="center">
+            <Input.Search
+              placeholder="Search Gate Pass, PO, DC, Heat..."
+              allowClear
+              value={filters.gatePassNo}
+              onChange={(e) => applyFilter({ gatePassNo: e.target.value || undefined })}
+              style={{ width: 190 }}
             />
+
+            <Select
+              placeholder="Store / Warehouse"
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              style={{ width: 170 }}
+              value={filters.warehouseId}
+              onChange={(v) => applyFilter({ warehouseId: v })}
+              options={warehouseOptions}
+            />
+
+            <Select
+              placeholder="Status"
+              allowClear
+              style={{ width: 120 }}
+              value={filters.status}
+              onChange={(v) => applyFilter({ status: v })}
+              options={[
+                { value: 'CONFIRMED', label: 'Confirmed' },
+                { value: 'DRAFT', label: 'Draft' },
+                { value: 'CANCELLED', label: 'Cancelled' },
+              ]}
+            />
+
+            {/* Reset All Button */}
+            {(filters.divisionId || filters.warehouseId || filters.status || filters.gatePassNo || filters.dateFrom || filters.dateTo) && (
+              <Button
+                size="small"
+                danger
+                icon={<ClearOutlined />}
+                onClick={() => {
+                  setFilters({});
+                  setPage(1);
+                  void loadList(1, {});
+                }}
+              >
+                Clear
+              </Button>
+            )}
+
+            <Button
+              size="small"
+              icon={<ReloadOutlined />}
+              loading={listLoading}
+              onClick={() => loadList(page)}
+            />
+          </Space>
+        </div>
+
+        {/* ROW 2: 6 Executive 2027 KPI Stat Cards */}
+        <Row gutter={[10, 10]}>
+          {/* Card 1: Total Received (Gross Inward) */}
+          <Col xs={12} sm={8} md={8} lg={4} xl={4} xxl={4}>
+            <div
+              style={{
+                borderRadius: 8,
+                padding: '12px 14px',
+                background: isDark ? 'rgba(14, 165, 233, 0.08)' : '#f0f9ff',
+                border: isDark ? '1px solid rgba(14, 165, 233, 0.25)' : '1px solid #bae6fd',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+                height: '100%',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: isDark ? '#38bdf8' : '#0369a1', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                  Total Received
+                </span>
+                <InboxOutlined style={{ color: isDark ? '#38bdf8' : '#0284c7', fontSize: 16 }} />
+              </div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: token.colorText, fontFamily: 'monospace, var(--theme-font-mono, sans-serif)' }}>
+                {formatNumber(summaryKpi.totalReceivedKg, 2)} <span style={{ fontSize: 11, fontWeight: 600, color: token.colorTextSecondary }}>KG</span>
+              </div>
+              <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: 11, color: token.colorTextSecondary }}>Inward Gate Pass</span>
+                <Tag color="cyan" style={{ fontSize: 10, margin: 0, padding: '0 4px', lineHeight: '18px' }}>
+                  {summaryKpi.totalGatePassKg > 0 ? `${((summaryKpi.totalReceivedKg / summaryKpi.totalGatePassKg) * 100).toFixed(1)}%` : '100%'}
+                </Tag>
+              </div>
+            </div>
+          </Col>
+
+          {/* Card 2: Material Returned (Outward Chalan) */}
+          <Col xs={12} sm={8} md={8} lg={4} xl={4} xxl={4}>
+            <div
+              onClick={() => returnsSummary.returnsCount > 0 && setReturnsModalOpen(true)}
+              style={{
+                borderRadius: 8,
+                padding: '12px 14px',
+                background: isDark ? 'rgba(245, 158, 11, 0.08)' : '#fffbeb',
+                border: isDark ? '1px solid rgba(245, 158, 11, 0.25)' : '1px solid #fde68a',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+                height: '100%',
+                cursor: returnsSummary.returnsCount > 0 ? 'pointer' : 'default',
+                transition: 'all 0.2s ease',
+              }}
+              title={returnsSummary.returnsCount > 0 ? 'Click to inspect return chalans' : 'No returns recorded in this filter scope'}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: isDark ? '#fbbf24' : '#b45309', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                  Material Returned
+                </span>
+                <RollbackOutlined style={{ color: isDark ? '#fbbf24' : '#d97706', fontSize: 16 }} />
+              </div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: returnsSummary.totalReturnedKg > 0 ? (isDark ? '#fbbf24' : '#d97706') : token.colorText, fontFamily: 'monospace, var(--theme-font-mono, sans-serif)' }}>
+                {returnsSummary.totalReturnedKg > 0 ? `-${formatNumber(returnsSummary.totalReturnedKg, 2)}` : '0.00'}{' '}
+                <span style={{ fontSize: 11, fontWeight: 600, color: token.colorTextSecondary }}>KG</span>
+              </div>
+              <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: 11, color: token.colorTextSecondary }}>
+                  {returnsSummary.returnsCount > 0 ? `${returnsSummary.returnsCount} Return Chalan(s)` : 'Zero Returns'}
+                </span>
+                <Tag color={returnsSummary.totalReturnedKg > 0 ? 'warning' : 'default'} style={{ fontSize: 10, margin: 0, padding: '0 4px', lineHeight: '18px' }}>
+                  {returnsSummary.totalReturnedKg > 0 ? 'Deducted' : 'Clean'}
+                </Tag>
+              </div>
+            </div>
+          </Col>
+
+          {/* Card 3: Net Available Balance (In-Hand Stock = Received - Returned) */}
+          <Col xs={12} sm={8} md={8} lg={4} xl={4} xxl={4}>
+            <div
+              style={{
+                borderRadius: 8,
+                padding: '12px 14px',
+                background: isDark ? 'rgba(34, 197, 94, 0.08)' : '#f0fdf4',
+                border: isDark ? '1px solid rgba(34, 197, 94, 0.3)' : '1px solid #bbf7d0',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+                height: '100%',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: isDark ? '#4ade80' : '#15803d', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                  Net In-Hand Balance
+                </span>
+                <SafetyCertificateOutlined style={{ color: isDark ? '#4ade80' : '#16a34a', fontSize: 16 }} />
+              </div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: isDark ? '#4ade80' : '#16a34a', fontFamily: 'monospace, var(--theme-font-mono, sans-serif)' }}>
+                {formatNumber(Math.max(0, summaryKpi.totalReceivedKg - returnsSummary.totalReturnedKg), 2)}{' '}
+                <span style={{ fontSize: 11, fontWeight: 600, color: token.colorTextSecondary }}>KG</span>
+              </div>
+              <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: 11, color: token.colorTextSecondary }}>Recv − Return</span>
+                <Tag color="success" style={{ fontSize: 10, margin: 0, padding: '0 4px', lineHeight: '18px' }}>
+                  Net Usable
+                </Tag>
+              </div>
+            </div>
+          </Col>
+
+          {/* Card 4: Gate Pass Declared */}
+          <Col xs={12} sm={8} md={8} lg={4} xl={4} xxl={4}>
+            <div
+              style={{
+                borderRadius: 8,
+                padding: '12px 14px',
+                background: isDark ? 'rgba(100, 116, 139, 0.1)' : '#f8fafc',
+                border: isDark ? '1px solid rgba(100, 116, 139, 0.25)' : '1px solid #e2e8f0',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+                height: '100%',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: token.colorTextSecondary, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                  GP Declared
+                </span>
+                <DatabaseOutlined style={{ color: token.colorTextSecondary, fontSize: 16 }} />
+              </div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: token.colorText, fontFamily: 'monospace, var(--theme-font-mono, sans-serif)' }}>
+                {formatNumber(summaryKpi.totalGatePassKg, 2)} <span style={{ fontSize: 11, fontWeight: 600, color: token.colorTextSecondary }}>KG</span>
+              </div>
+              <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: 11, color: token.colorTextSecondary }}>Supplier Declared</span>
+                <span style={{ fontSize: 11, fontWeight: 600, color: token.colorTextTertiary }}>
+                  {total || list.length} GPs
+                </span>
+              </div>
+            </div>
+          </Col>
+
+          {/* Card 5: Weight Discrepancy */}
+          <Col xs={12} sm={8} md={8} lg={4} xl={4} xxl={4}>
+            <div
+              style={{
+                borderRadius: 8,
+                padding: '12px 14px',
+                background: summaryKpi.totalDifferenceKg === 0
+                  ? (isDark ? 'rgba(22, 163, 74, 0.08)' : '#f0fdf4')
+                  : summaryKpi.totalDifferenceKg > 0
+                  ? (isDark ? 'rgba(217, 119, 6, 0.08)' : '#fffbeb')
+                  : (isDark ? 'rgba(220, 38, 38, 0.08)' : '#fef2f2'),
+                border: summaryKpi.totalDifferenceKg === 0
+                  ? (isDark ? '1px solid rgba(22, 163, 74, 0.3)' : '1px solid #bbf7d0')
+                  : summaryKpi.totalDifferenceKg > 0
+                  ? (isDark ? '1px solid rgba(217, 119, 6, 0.3)' : '1px solid #fde68a')
+                  : (isDark ? '1px solid rgba(220, 38, 38, 0.3)' : '1px solid #fecaca'),
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+                height: '100%',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                <span
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 700,
+                    textTransform: 'uppercase',
+                    letterSpacing: 0.5,
+                    color: summaryKpi.totalDifferenceKg === 0 ? '#16a34a' : summaryKpi.totalDifferenceKg > 0 ? '#d97706' : '#dc2626',
+                  }}
+                >
+                  Discrepancy
+                </span>
+                <WarningOutlined
+                  style={{
+                    color: summaryKpi.totalDifferenceKg === 0 ? '#16a34a' : summaryKpi.totalDifferenceKg > 0 ? '#d97706' : '#dc2626',
+                    fontSize: 16,
+                  }}
+                />
+              </div>
+              <div
+                style={{
+                  fontSize: 20,
+                  fontWeight: 800,
+                  fontFamily: 'monospace, var(--theme-font-mono, sans-serif)',
+                  color: summaryKpi.totalDifferenceKg === 0 ? '#16a34a' : summaryKpi.totalDifferenceKg > 0 ? '#d97706' : '#dc2626',
+                }}
+              >
+                {summaryKpi.totalDifferenceKg >= 0 ? '+' : ''}{formatNumber(summaryKpi.totalDifferenceKg, 2)}{' '}
+                <span style={{ fontSize: 11, fontWeight: 600 }}>KG</span>
+              </div>
+              <div style={{ marginTop: 4 }}>
+                {summaryKpi.totalDifferenceKg === 0 ? (
+                  <Tag color="success" style={{ fontSize: 10, margin: 0, padding: '0 4px', lineHeight: '18px' }}>Exact Match (0.00)</Tag>
+                ) : summaryKpi.totalDifferenceKg > 0 ? (
+                  <Tag color="warning" style={{ fontSize: 10, margin: 0, padding: '0 4px', lineHeight: '18px' }}>Supplier Excess</Tag>
+                ) : (
+                  <Tag color="error" style={{ fontSize: 10, margin: 0, padding: '0 4px', lineHeight: '18px' }}>Weight Shortage</Tag>
+                )}
+              </div>
+            </div>
+          </Col>
+
+          {/* Card 6: Receipts & POs */}
+          <Col xs={12} sm={8} md={8} lg={4} xl={4} xxl={4}>
+            <div
+              onClick={() => openPoModal()}
+              style={{
+                borderRadius: 8,
+                padding: '12px 14px',
+                background: isDark ? 'rgba(139, 92, 246, 0.08)' : '#f5f3ff',
+                border: isDark ? '1px solid rgba(139, 92, 246, 0.25)' : '1px solid #ddd6fe',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+                height: '100%',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: isDark ? '#a78bfa' : '#6d28d9', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                  Receipts &amp; POs
+                </span>
+                <HistoryOutlined style={{ color: isDark ? '#a78bfa' : '#7c3aed', fontSize: 16 }} />
+              </div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: token.colorText, fontFamily: 'monospace, var(--theme-font-mono, sans-serif)' }}>
+                {total || list.length} <span style={{ fontSize: 11, fontWeight: 600, color: token.colorTextSecondary }}>GPs</span>
+              </div>
+              <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: 11, color: token.colorTextSecondary }}>{itemWiseList.length} Materials</span>
+                <span style={{ fontSize: 11, fontWeight: 600, color: token.colorPrimary }}>{summaryKpi.uniquePoCount} PO(s) &rarr;</span>
+              </div>
+            </div>
+          </Col>
+        </Row>
+      </Card>
+
+      {/* ═══════════════════════════════════════════════════════════════════════
+          TABLE VIEW CONTAINER WITH INTEGRATED VIEW SWITCHER & ACTIONS
+          ═══════════════════════════════════════════════════════════════════════ */}
+      <Card
+        className="erp-section-card"
+        title={
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, width: '100%' }}>
+            {/* View Mode Segmented Switcher */}
+            <Space size={12} align="center">
+              <Segmented
+                value={viewMode}
+                onChange={(val) => setViewMode(val as 'gatePass' | 'itemWise')}
+                options={[
+                  {
+                    value: 'gatePass',
+                    label: (
+                      <Space size={6}>
+                        <InboxOutlined />
+                        <span>Gate Pass Records ({total || list.length})</span>
+                      </Space>
+                    ),
+                  },
+                  {
+                    value: 'itemWise',
+                    label: (
+                      <Space size={6}>
+                        <AppstoreOutlined />
+                        <span>Item-Wise Totals ({itemWiseList.length} Materials)</span>
+                      </Space>
+                    ),
+                  },
+                ]}
+              />
+            </Space>
+
+            {/* Smart Action Buttons (Export PDF, Excel, Print, WhatsApp, Columns) */}
+            <Space wrap size={8} align="center">
+              {/* PDF Dropdown */}
+              <Dropdown menu={{ items: pdfMenuItems }} placement="bottomRight">
+                <Button icon={<FilePdfOutlined style={{ color: '#ef4444' }} />}>
+                  Export PDF <DownOutlined style={{ fontSize: 10 }} />
+                </Button>
+              </Dropdown>
+
+              {/* Excel Dropdown */}
+              <Dropdown menu={{ items: excelMenuItems }} placement="bottomRight">
+                <Button icon={<FileExcelOutlined style={{ color: '#10b981' }} />}>
+                  Export Excel <DownOutlined style={{ fontSize: 10 }} />
+                </Button>
+              </Dropdown>
+
+              {/* Print */}
+              <Tooltip title={`Print ${viewMode === 'itemWise' ? 'Item-Wise Breakdown' : 'Gate Pass Table'}`}>
+                <Button icon={<PrinterOutlined />} onClick={handleSmartPrint}>
+                  Print
+                </Button>
+              </Tooltip>
+
+              {/* WhatsApp */}
+              <Button
+                icon={<WhatsAppOutlined style={{ color: '#25d366' }} />}
+                onClick={() => setWhatsAppModalOpen(true)}
+              >
+                WhatsApp
+              </Button>
+
+              {viewMode === 'gatePass' && columnSelectorButton}
+            </Space>
           </div>
-        </FilterBar>
+        }
+      >
         {listState === 'error' ? (
           <Alert
             type="error"
@@ -2506,6 +3514,14 @@ const RawMaterialReceiving: React.FC = () => {
               </Space>
             }
           />
+        ) : viewMode === 'itemWise' ? (
+          <Table
+            columns={itemWiseColumns}
+            dataSource={itemWiseList}
+            rowKey="itemId"
+            pagination={{ pageSize: 20, showSizeChanger: true, showTotal: (t) => `Total ${t} raw materials` }}
+            size="middle"
+          />
         ) : (
           <Table
             columns={displayedColumns}
@@ -2514,7 +3530,23 @@ const RawMaterialReceiving: React.FC = () => {
             loading={listLoading}
             scroll={{ x: scrollX }}
             locale={{ emptyText: listLoading ? 'Loading receipts...' : 'No receipts found.' }}
-            pagination={{ current: page, total, pageSize, showSizeChanger: false, onChange: (p) => { setPage(p); void loadList(p); } }}
+            pagination={{
+              current: page,
+              total,
+              pageSize,
+              showSizeChanger: true,
+              pageSizeOptions: ['25', '50', '100', '200', '500'],
+              showTotal: (totalCount, range) => `Showing ${range[0]}–${range[1]} of ${totalCount} records`,
+              onChange: (p, ps) => {
+                setPage(p);
+                if (ps && ps !== pageSize) {
+                  setPageSize(ps);
+                  void loadList(1, filters, ps);
+                } else {
+                  void loadList(p, filters, pageSize);
+                }
+              },
+            }}
             expandable={{
               expandIcon: ({ expanded, onExpand, record }) => {
                 const count = record.lineCount || record.lines?.length || 0;
@@ -3551,8 +4583,8 @@ const RawMaterialReceiving: React.FC = () => {
         result={saveDialogResult}
         errorMessage={saveDialogError}
         successTitle={saveDialogSuccessTitle}
-        loadingTitle={editingId ? 'Updating Raw Material Receipt...' : 'Posting Raw Material Receipt...'}
-        loadingHint={editingId ? 'Recalculating inventory ledger movements and uploading documents...' : 'Validating division scopes and posting real-time inventory ledger movements...'}
+        loadingTitle={saveDialogLoadingTitle}
+        loadingHint={saveDialogLoadingHint}
         onRetry={saveDialogRetry}
         onClose={() => setSaveDialogVisible(false)}
       />
@@ -3631,8 +4663,18 @@ const RawMaterialReceiving: React.FC = () => {
                   Send to Entered Phone
                 </Button>
               )}
-              <Button icon={<CopyOutlined />} onClick={handleWaCopy} data-testid="wa-copy">
-                Copy Message
+              <Button
+                icon={waCopied ? <CheckOutlined /> : <CopyOutlined />}
+                type={waCopied ? 'primary' : 'default'}
+                style={
+                  waCopied
+                    ? { background: '#52c41a', borderColor: '#52c41a', color: '#fff', fontWeight: 600 }
+                    : { fontWeight: 500 }
+                }
+                onClick={handleWaCopy}
+                data-testid="wa-copy"
+              >
+                {waCopied ? 'Copied to Clipboard!' : 'Copy Message'}
               </Button>
             </Space>
           </Space>
@@ -4055,6 +5097,343 @@ const RawMaterialReceiving: React.FC = () => {
         warehouseName={ledgerWarehouse?.name}
         onClose={() => setLedgerModalOpen(false)}
       />
+
+      {/* ─────────────────────────────────────────────────────────────────────
+          WHATSAPP EXECUTIVE RECEIVING SUMMARY MODAL
+          ───────────────────────────────────────────────────────────────────── */}
+      <Modal
+        title={
+          <Space>
+            <WhatsAppOutlined style={{ color: '#25d366', fontSize: 18 }} />
+            <span>Share Receiving Summary via WhatsApp</span>
+          </Space>
+        }
+        open={whatsAppModalOpen}
+        onCancel={() => setWhatsAppModalOpen(false)}
+        footer={[
+          <Button key="close" onClick={() => setWhatsAppModalOpen(false)}>
+            Close
+          </Button>,
+          <Button
+            key="copy"
+            icon={summaryWaCopied ? <CheckOutlined /> : <CopyOutlined />}
+            type={summaryWaCopied ? 'primary' : 'default'}
+            style={
+              summaryWaCopied
+                ? { background: '#52c41a', borderColor: '#52c41a', color: '#fff', fontWeight: 600 }
+                : undefined
+            }
+            onClick={handleCopyWhatsAppMessage}
+          >
+            {summaryWaCopied ? 'Copied to Clipboard!' : 'Copy Summary'}
+          </Button>,
+          <Button
+            key="send"
+            type="primary"
+            icon={<WhatsAppOutlined />}
+            style={{ backgroundColor: '#25d366', borderColor: '#25d366' }}
+            onClick={handleSendWhatsApp}
+          >
+            Open WhatsApp
+          </Button>,
+        ]}
+        width={600}
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <Segmented
+            block
+            value={whatsAppTab}
+            onChange={(v) => setWhatsAppTab(v as 'gatePass' | 'itemWise')}
+            options={[
+              { value: 'gatePass', label: '📋 Gate Pass Overview Summary' },
+              { value: 'itemWise', label: '📦 Item-Wise Material Breakdown' },
+            ]}
+          />
+          {summaryWaCopied && (
+            <Alert
+              type="success"
+              showIcon
+              message="Executive summary copied to clipboard! You can paste (Ctrl+V) directly into WhatsApp."
+              style={{ fontSize: 13 }}
+            />
+          )}
+          <div>
+            <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>
+              Recipient Phone Number (Optional with country code, e.g. 923001234567):
+            </Text>
+            <Input
+              placeholder="e.g. 03001234567 or 923001234567"
+              value={whatsAppPhone}
+              onChange={(e) => setWhatsAppPhone(e.target.value)}
+              allowClear
+            />
+          </div>
+          <div>
+            <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>
+              Executive Summary Preview:
+            </Text>
+            <Input.TextArea
+              rows={12}
+              value={whatsAppSummaryText}
+              readOnly
+              style={{
+                fontFamily: 'monospace, var(--theme-font-mono, sans-serif)',
+                fontSize: 12,
+                background: isDark ? 'rgba(0,0,0,0.2)' : '#f8fafc',
+              }}
+            />
+          </div>
+        </div>
+      </Modal>
+
+      {/* ─────────────────────────────────────────────────────────────────────
+          PURCHASE ORDER FULFILLMENT & MATERIAL HISTORY MODAL
+          ───────────────────────────────────────────────────────────────────── */}
+      <Modal
+        title={
+          <Space>
+            <HistoryOutlined style={{ color: '#0d9488', fontSize: 18 }} />
+            <span>Purchase Order Fulfillment & Material History</span>
+          </Space>
+        }
+        open={poModalVisible}
+        onCancel={() => setPoModalVisible(false)}
+        footer={[
+          <Button key="close" type="primary" onClick={() => setPoModalVisible(false)}>
+            Close
+          </Button>,
+        ]}
+        width={850}
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+            <Space align="center">
+              <Text strong style={{ fontSize: 13 }}>Select Purchase Order:</Text>
+              <Select
+                style={{ minWidth: 260 }}
+                placeholder="Select Purchase Order"
+                value={poModalPoId}
+                onChange={handleSelectPoInModal}
+                options={refData?.productionOrders?.map((p) => ({
+                  value: p.id,
+                  label: `${p.po_code || p.order_number || 'PO'} ${p.status ? `(${p.status})` : ''}`,
+                }))}
+                showSearch
+                optionFilterProp="label"
+              />
+            </Space>
+            {poModalData?.po && (
+              <Tag color="cyan" style={{ fontSize: 12, padding: '2px 8px' }}>
+                Order Date: {poModalData.po.order_date ? dayjs(poModalData.po.order_date).format('DD-MMM-YYYY') : '-'}
+              </Tag>
+            )}
+          </div>
+
+          {poModalLoading ? (
+            <div style={{ textAlign: 'center', padding: '40px 0' }}>
+              <Spin tip="Loading Purchase Order fulfillment details..." />
+            </div>
+          ) : poModalData ? (
+            <div>
+              {/* Header Info Banner */}
+              <div
+                style={{
+                  background: isDark ? 'rgba(13, 148, 136, 0.1)' : '#f0fdfa',
+                  border: isDark ? '1px solid rgba(13, 148, 136, 0.3)' : '1px solid #ccfbf1',
+                  borderRadius: 6,
+                  padding: '10px 14px',
+                  marginBottom: 14,
+                }}
+              >
+                <Row gutter={[12, 8]}>
+                  <Col xs={12} sm={6}>
+                    <Text type="secondary" style={{ fontSize: 11 }}>PO NUMBER</Text>
+                    <div style={{ fontWeight: 700, fontSize: 14, color: '#0d9488' }}>
+                      {poModalData.po.po_code}
+                    </div>
+                  </Col>
+                  <Col xs={12} sm={6}>
+                    <Text type="secondary" style={{ fontSize: 11 }}>SUPPLIER</Text>
+                    <div style={{ fontWeight: 600, fontSize: 13 }}>
+                      {poModalData.po.supplier_name || 'Standard Supplier'}
+                    </div>
+                  </Col>
+                  <Col xs={12} sm={6}>
+                    <Text type="secondary" style={{ fontSize: 11 }}>STORE / WAREHOUSE</Text>
+                    <div style={{ fontWeight: 600, fontSize: 13 }}>
+                      {poModalData.po.warehouse_name || 'Raw Material Store'}
+                    </div>
+                  </Col>
+                  <Col xs={12} sm={6}>
+                    <Text type="secondary" style={{ fontSize: 11 }}>PO STATUS</Text>
+                    <div>
+                      <Tag color={poModalData.po.status === 'CONFIRMED' ? 'success' : 'processing'}>
+                        {poModalData.po.status || 'ACTIVE'}
+                      </Tag>
+                    </div>
+                  </Col>
+                </Row>
+              </div>
+
+              {/* Items Ordered vs Received Table */}
+              <Table
+                size="small"
+                pagination={false}
+                rowKey="poLineId"
+                dataSource={poModalData.items || []}
+                columns={[
+                  {
+                    title: 'Item Code',
+                    dataIndex: 'itemCode',
+                    key: 'itemCode',
+                    width: 120,
+                    render: (c) => <span style={{ fontWeight: 700, fontFamily: 'monospace' }}>{c}</span>,
+                  },
+                  {
+                    title: 'Material Description',
+                    dataIndex: 'itemName',
+                    key: 'itemName',
+                  },
+                  {
+                    title: 'Ordered Qty',
+                    dataIndex: 'orderedQty',
+                    key: 'orderedQty',
+                    align: 'right' as const,
+                    width: 110,
+                    render: (v, r) => (
+                      <span style={{ fontWeight: 600 }}>
+                        {formatNumber(v, 2)} {r.uomCode}
+                      </span>
+                    ),
+                  },
+                  {
+                    title: 'Received',
+                    dataIndex: 'receivedQty',
+                    key: 'receivedQty',
+                    align: 'right' as const,
+                    width: 110,
+                    render: (v, r) => (
+                      <span style={{ fontWeight: 700, color: '#16a34a' }}>
+                        {formatNumber(v, 2)} {r.uomCode}
+                      </span>
+                    ),
+                  },
+                  {
+                    title: 'Balance Left',
+                    dataIndex: 'remainingQty',
+                    key: 'remainingQty',
+                    align: 'right' as const,
+                    width: 110,
+                    render: (v, r) => {
+                      const bal = Number(v);
+                      return (
+                        <span style={{ fontWeight: 700, color: bal <= 0 ? '#16a34a' : '#d97706' }}>
+                          {bal <= 0 ? '0.00' : formatNumber(bal, 2)} {r.uomCode}
+                        </span>
+                      );
+                    },
+                  },
+                  {
+                    title: 'Fulfillment %',
+                    key: 'percent',
+                    width: 130,
+                    render: (_, r) => (
+                      <Progress
+                        percent={r.percent}
+                        size="small"
+                        status={r.remainingQty <= 0 ? 'success' : 'active'}
+                      />
+                    ),
+                  },
+                ]}
+              />
+            </div>
+          ) : (
+            <div style={{ textAlign: 'center', padding: '30px 0', color: token.colorTextSecondary }}>
+              No Purchase Order selected or no items found for this order.
+            </div>
+          )}
+        </div>
+      </Modal>
+
+      {/* ─────────────────────────────────────────────────────────────────────
+          RAW MATERIAL RETURNS AUDIT MODAL
+          ───────────────────────────────────────────────────────────────────── */}
+      <Modal
+        title={
+          <Space>
+            <RollbackOutlined style={{ color: '#d97706', fontSize: 18 }} />
+            <span style={{ fontWeight: 700 }}>
+              Raw Material Returns History ({returnsSummary.returnsCount} Records)
+            </span>
+          </Space>
+        }
+        open={returnsModalOpen}
+        onCancel={() => setReturnsModalOpen(false)}
+        footer={[
+          <Button key="close" type="primary" onClick={() => setReturnsModalOpen(false)}>
+            Close
+          </Button>,
+        ]}
+        width={900}
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <Alert
+            type="info"
+            showIcon
+            message="Material returns are deducted from gross received material to compute the net in-hand inventory balance."
+          />
+          <Table
+            dataSource={returnsSummary.returnsList}
+            rowKey="id"
+            size="small"
+            pagination={{ pageSize: 8, showSizeChanger: false }}
+            columns={[
+              {
+                title: 'Return Code',
+                dataIndex: 'returnCode',
+                key: 'returnCode',
+                render: (v) => <Tag color="orange" style={{ fontWeight: 600 }}>{v}</Tag>,
+              },
+              {
+                title: 'Return Date',
+                dataIndex: 'returnDate',
+                key: 'returnDate',
+                render: (d) => (d ? dayjs(d).format('DD-MMM-YYYY') : '—'),
+              },
+              {
+                title: 'Warehouse',
+                dataIndex: 'warehouse',
+                key: 'warehouse',
+                render: (w) => w?.name || '—',
+              },
+              {
+                title: 'Ref Gate Pass',
+                dataIndex: 'referenceReceipt',
+                key: 'referenceReceipt',
+                render: (r, row: any) => r?.receiptCode || row.sourceNo || '—',
+              },
+              {
+                title: 'Returned Qty (KG)',
+                dataIndex: 'quantityTotal',
+                key: 'quantityTotal',
+                align: 'right' as const,
+                render: (q) => (
+                  <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#d97706' }}>
+                    {formatNumber(q || 0, 2)} KG
+                  </span>
+                ),
+              },
+              {
+                title: 'Reason',
+                dataIndex: 'reason',
+                key: 'reason',
+                render: (r) => r || '—',
+              },
+            ]}
+          />
+        </div>
+      </Modal>
 
     </div>
   </TabKeepAlive>

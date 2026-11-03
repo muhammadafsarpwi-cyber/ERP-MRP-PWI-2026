@@ -10,6 +10,7 @@ import { formatNumber } from '../../utils/numberFormat';
 import { ERPTable, ItemStockLedgerModal } from '../../components/shared';
 import { useThemeStore } from '../../theme/themeStore';
 import { fetchAndExportItemLedger } from '../../utils/itemLedgerExport';
+import { calculateWeightKg, getItemWeightKg, exportInventoryBalancesReport, InventoryBalanceExportRow } from './inventoryBalancesPdf';
 
 const getPcsGrossCarton = (
   quantity: number,
@@ -78,6 +79,8 @@ interface StockBalance {
     name: string;
     itemCode: string;
     itemType?: string;
+    weightPerPiece?: number | string | null;
+    weightPerMeter?: number | string | null;
     uom?: { code: string };
     division?: { name: string };
   };
@@ -238,6 +241,53 @@ const Inventory: React.FC = () => {
     }, 0);
   }, [filteredBalances]);
 
+  const totalWeightKg = useMemo(() => {
+    return filteredBalances.reduce((sum, s) => {
+      const uom = (s.uom?.code || s.uomCode || s.item?.uom?.code || '').trim().toUpperCase();
+      const num = Number(s.onHand || 0);
+      if (num <= 0) return sum;
+      const itemCode = s.item?.itemCode || (s as any).itemCode;
+      const weightPerPiece = s.item?.weightPerPiece || (s as any).weightPerPiece;
+      return sum + calculateWeightKg(num, uom, itemCode, weightPerPiece);
+    }, 0);
+  }, [filteredBalances]);
+
+  const handleExportBalances = (action: 'pdf' | 'print') => {
+    const activeWhName = selectedWarehouse
+      ? warehouses.find((w) => w.id === selectedWarehouse)?.name || selectedWarehouse
+      : 'All Warehouses across Division';
+
+    const exportRows: InventoryBalanceExportRow[] = filteredBalances.map((b) => {
+      const itemCode = b.item?.itemCode || (b as any).itemCode || '';
+      const itemName = b.item?.name || (b as any).itemName || '';
+      const whName = b.warehouse?.name || (b as any).warehouseName || '';
+      const whCode = b.warehouse?.warehouseCode;
+      const uomCode = b.uom?.code || b.uomCode || b.item?.uom?.code || 'PCS';
+      const conv = getPcsGrossCarton(
+        Number(b.onHand || 0),
+        uomCode,
+        b.item?.itemType || (b as any).itemType,
+        itemCode,
+      );
+
+      return {
+        itemCode,
+        itemName,
+        warehouseName: whName,
+        warehouseCode: whCode,
+        onHand: Number(b.onHand || 0),
+        reserved: Number(b.reserved || 0),
+        available: Number(b.available || 0),
+        uomCode,
+        weightPerPiece: b.item?.weightPerPiece || (b as any).weightPerPiece,
+        grossText: conv ? `${formatNumber(conv.gross, conv.gross % 1 === 0 ? 0 : 2)} GR` : undefined,
+        cartonText: conv ? `${formatNumber(conv.ctn, 0)} CTN` : undefined,
+      };
+    });
+
+    exportInventoryBalancesReport(exportRows, activeWhName, action);
+  };
+
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
@@ -277,11 +327,18 @@ const Inventory: React.FC = () => {
           <Col span={6}>
             <Card>
               <Statistic
-                title="Total Pieces (PCs)"
+                title="Total Pieces & Weight"
                 value={formatNumber(totalPieces, 0)}
+                suffix={<span style={{ fontSize: 12, fontWeight: 700, color: 'var(--theme-text-muted)' }}>PCS</span>}
                 prefix={<InboxOutlined style={{ color: '#0ea5e9' }} />}
                 valueStyle={{ color: '#0ea5e9', fontWeight: 700 }}
               />
+              {totalWeightKg > 0 && (
+                <div style={{ marginTop: 4, fontSize: 13, fontWeight: 700, color: isDark ? '#38bdf8' : '#0284c7', display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <span>⚖️</span>
+                  <span>{formatNumber(totalWeightKg, 2)} KG</span>
+                </div>
+              )}
             </Card>
           </Col>
           <Col span={6}>
@@ -315,11 +372,18 @@ const Inventory: React.FC = () => {
           <Col span={6}>
             <Card>
               <Statistic
-                title="Total Pieces (PCs)"
+                title="Total Pieces & Weight"
                 value={formatNumber(totalPieces, 0)}
+                suffix={<span style={{ fontSize: 12, fontWeight: 700, color: 'var(--theme-text-muted)' }}>PCS</span>}
                 prefix={<InboxOutlined style={{ color: '#0ea5e9' }} />}
                 valueStyle={{ color: '#0ea5e9', fontWeight: 700 }}
               />
+              {totalWeightKg > 0 && (
+                <div style={{ marginTop: 4, fontSize: 13, fontWeight: 700, color: isDark ? '#38bdf8' : '#0284c7', display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <span>⚖️</span>
+                  <span>{formatNumber(totalWeightKg, 2)} KG</span>
+                </div>
+              )}
             </Card>
           </Col>
           <Col span={6}>
@@ -453,6 +517,22 @@ const Inventory: React.FC = () => {
 
           <Button size="middle" icon={<ReloadOutlined />} onClick={() => fetchSummary(selectedWarehouse)} loading={loading}>
             Reload
+          </Button>
+
+          <Button
+            size="middle"
+            icon={<FilePdfOutlined style={{ color: '#ef4444' }} />}
+            onClick={() => handleExportBalances('pdf')}
+          >
+            Export PDF
+          </Button>
+
+          <Button
+            size="middle"
+            icon={<PrinterOutlined style={{ color: isDark ? '#38bdf8' : '#0284c7' }} />}
+            onClick={() => handleExportBalances('print')}
+          >
+            Print Balances
           </Button>
         </Space>
       </div>
@@ -597,7 +677,7 @@ const Inventory: React.FC = () => {
                   ON HAND STOCK
                 </div>
                 <div style={{ color: isDark ? '#94a3b8' : '#64748b', fontSize: 10, fontWeight: 600 }}>
-                  GROSS · CARTON · PCS
+                  GROSS · CARTON · PCS · KG
                 </div>
               </div>
             ),
@@ -632,19 +712,37 @@ const Inventory: React.FC = () => {
                 r.item?.itemCode || (r as any).itemCode
               );
 
+              const itemCode = r.item?.itemCode || (r as any).itemCode;
+              const uomCode = r.uom?.code || r.uomCode || r.item?.uom?.code || 'PCS';
+              const weightKg = calculateWeightKg(num, uomCode, itemCode, r.item?.weightPerPiece || (r as any).weightPerPiece);
+
               if (!conv) {
                 return (
-                  <span
-                    style={{
-                      fontWeight: 700,
-                      fontSize: 13,
-                      fontVariantNumeric: 'tabular-nums',
-                      color: isNegative ? '#ef4444' : (isDark ? '#f8fafc' : '#0f172a'),
-                    }}
-                  >
-                    {isNegative && <span style={{ marginRight: 4 }}>⚠️</span>}
-                    {formatNumber(num, 0)} {r.uom?.code || r.uomCode || 'PCS'}
-                  </span>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
+                    <span
+                      style={{
+                        fontWeight: 700,
+                        fontSize: 13,
+                        fontVariantNumeric: 'tabular-nums',
+                        color: isNegative ? '#ef4444' : 'var(--theme-text)',
+                      }}
+                    >
+                      {isNegative && <span style={{ marginRight: 4 }}>⚠️</span>}
+                      {formatNumber(num, 0)} {uomCode}
+                    </span>
+                    {weightKg > 0 && uomCode.toUpperCase() !== 'KG' && (
+                      <span
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 700,
+                          color: isDark ? '#38bdf8' : '#0284c7',
+                          fontVariantNumeric: 'tabular-nums',
+                        }}
+                      >
+                        {formatNumber(weightKg, 2)} KG
+                      </span>
+                    )}
+                  </div>
                 );
               }
 
@@ -682,6 +780,18 @@ const Inventory: React.FC = () => {
                   >
                     {formatNumber(conv.pcs, 0)} PCS
                   </span>
+                  {weightKg > 0 && (
+                    <span
+                      style={{
+                        fontWeight: 700,
+                        fontSize: 11,
+                        color: isDark ? '#38bdf8' : '#0284c7',
+                        fontVariantNumeric: 'tabular-nums',
+                      }}
+                    >
+                      ({formatNumber(weightKg, 2)} KG)
+                    </span>
+                  )}
                 </div>
               );
             },
@@ -721,18 +831,36 @@ const Inventory: React.FC = () => {
                 r.item?.itemCode || (r as any).itemCode
               );
 
+              const itemCode = r.item?.itemCode || (r as any).itemCode;
+              const uomCode = r.uom?.code || r.uomCode || r.item?.uom?.code || 'PCS';
+              const resKg = calculateWeightKg(num, uomCode, itemCode, r.item?.weightPerPiece || (r as any).weightPerPiece);
+
               if (!conv) {
                 return (
-                  <span
-                    style={{
-                      fontWeight: 700,
-                      fontSize: 13,
-                      fontVariantNumeric: 'tabular-nums',
-                      color: isDark ? '#fbbf24' : '#d97706',
-                    }}
-                  >
-                    {formatNumber(num, 0)} {r.uom?.code || r.uomCode || 'PCS'}
-                  </span>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
+                    <span
+                      style={{
+                        fontWeight: 700,
+                        fontSize: 13,
+                        fontVariantNumeric: 'tabular-nums',
+                        color: isDark ? '#fbbf24' : '#d97706',
+                      }}
+                    >
+                      {formatNumber(num, 0)} {uomCode}
+                    </span>
+                    {resKg > 0 && uomCode.toUpperCase() !== 'KG' && (
+                      <span
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 700,
+                          color: isDark ? '#fcd34d' : '#b45309',
+                          fontVariantNumeric: 'tabular-nums',
+                        }}
+                      >
+                        {formatNumber(resKg, 2)} KG
+                      </span>
+                    )}
+                  </div>
                 );
               }
 
@@ -779,7 +907,7 @@ const Inventory: React.FC = () => {
                   AVAILABLE
                 </div>
                 <div style={{ color: isDark ? '#94a3b8' : '#64748b', fontSize: 10, fontWeight: 600 }}>
-                  GROSS · CARTON · PCS
+                  GROSS · CARTON · PCS · KG
                 </div>
               </div>
             ),
@@ -808,19 +936,37 @@ const Inventory: React.FC = () => {
                 r.item?.itemCode || (r as any).itemCode
               );
 
+              const itemCode = r.item?.itemCode || (r as any).itemCode;
+              const uomCode = r.uom?.code || r.uomCode || r.item?.uom?.code || 'PCS';
+              const availKg = calculateWeightKg(num, uomCode, itemCode, r.item?.weightPerPiece || (r as any).weightPerPiece);
+
               if (!conv) {
                 return (
-                  <span
-                    style={{
-                      fontWeight: 700,
-                      fontSize: 13,
-                      fontVariantNumeric: 'tabular-nums',
-                      color: isNegative ? '#ef4444' : (isDark ? '#4ade80' : '#15803d'),
-                    }}
-                  >
-                    {isNegative && <span style={{ marginRight: 4 }}>⚠️</span>}
-                    {formatNumber(num, 0)} {r.uom?.code || r.uomCode || 'PCS'}
-                  </span>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
+                    <span
+                      style={{
+                        fontWeight: 700,
+                        fontSize: 13,
+                        fontVariantNumeric: 'tabular-nums',
+                        color: isNegative ? '#ef4444' : (isDark ? '#4ade80' : '#15803d'),
+                      }}
+                    >
+                      {isNegative && <span style={{ marginRight: 4 }}>⚠️</span>}
+                      {formatNumber(num, 0)} {uomCode}
+                    </span>
+                    {availKg > 0 && uomCode.toUpperCase() !== 'KG' && (
+                      <span
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 700,
+                          color: isDark ? '#4ade80' : '#15803d',
+                          fontVariantNumeric: 'tabular-nums',
+                        }}
+                      >
+                        {formatNumber(availKg, 2)} KG
+                      </span>
+                    )}
+                  </div>
                 );
               }
 
@@ -857,6 +1003,18 @@ const Inventory: React.FC = () => {
                   >
                     {formatNumber(conv.pcs, 0)} PCS
                   </span>
+                  {availKg > 0 && (
+                    <span
+                      style={{
+                        fontWeight: 700,
+                        fontSize: 11,
+                        color: isDark ? '#4ade80' : '#15803d',
+                        fontVariantNumeric: 'tabular-nums',
+                      }}
+                    >
+                      ({formatNumber(availKg, 2)} KG)
+                    </span>
+                  )}
                 </div>
               );
             },
