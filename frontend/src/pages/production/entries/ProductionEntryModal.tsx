@@ -84,33 +84,72 @@ export const ProductionEntryModal: React.FC = () => {
           style={{ zIndex: 60001 }}
         >
           {/* ── Window Header Bar ── */}
-          <div className="entry-window-header">
-            <div className="entry-window-title-group">
+          <div
+            className="entry-window-header"
+            style={
+              isMobile
+                ? {
+                    padding: '6px 10px',
+                    gap: 6,
+                    flexWrap: 'nowrap',
+                  }
+                : undefined
+            }
+          >
+            <div className="entry-window-title-group" style={{ minWidth: 0, flex: 1 }}>
               <div
                 className="entry-window-icon-badge"
                 style={{
-                  width: isMobile ? 32 : 38,
-                  height: isMobile ? 32 : 38,
+                  width: isMobile ? 28 : 38,
+                  height: isMobile ? 28 : 38,
                   backgroundColor: '#ea580c',
                   color: '#ffffff',
                   boxShadow: '0 2px 10px rgba(234, 88, 12, 0.4)',
+                  flexShrink: 0,
                 }}
               >
                 <ThunderboltFilled />
               </div>
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                  <h3 className="entry-window-title" style={{ fontSize: isMobile ? 14 : 16 }}>{machineLabel}</h3>
-                  <Tag color="#10b981" style={{ fontWeight: 700, margin: 0 }}>
-                    {shiftLabel}
-                  </Tag>
-                  {dateLabel && (
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 5 : 8, flexWrap: isMobile ? 'nowrap' : 'wrap' }}>
+                  <h3
+                    className="entry-window-title"
+                    style={{
+                      fontSize: isMobile ? 13 : 16,
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      margin: 0,
+                    }}
+                  >
+                    {machineLabel}
+                  </h3>
+                  {!isMobile && (
+                    <Tag color="#10b981" style={{ fontWeight: 700, margin: 0 }}>
+                      {shiftLabel}
+                    </Tag>
+                  )}
+                  {!isMobile && dateLabel && (
                     <Tag style={{ margin: 0, background: token.colorFillAlter, color: token.colorText, border: 'none', fontWeight: 600 }}>
                       {dateLabel}
                     </Tag>
                   )}
                 </div>
-                {!isMobile && (
+                {isMobile ? (
+                  <div
+                    style={{
+                      fontSize: 10.5,
+                      color: token.colorTextSecondary,
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      lineHeight: 1.2,
+                    }}
+                  >
+                    <span style={{ color: '#10b981', fontWeight: 700 }}>{shiftLabel}</span>
+                    {dateLabel ? ` • ${dateLabel}` : ''}
+                  </div>
+                ) : (
                   <span className="entry-window-subtitle">
                     Daily Book Entry • Shift Production & Downtime Logging
                   </span>
@@ -119,62 +158,66 @@ export const ProductionEntryModal: React.FC = () => {
             </div>
 
             {/* Progression Step Indicator (Steps 1 & 2 -> Step 3 Active) */}
-            <div className="entry-progression-stepper" style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 4,
-                  padding: isMobile ? '2px 7px' : '4px 10px',
-                  borderRadius: 16,
-                  backgroundColor: token.colorFillAlter, color: token.colorTextSecondary,
-                  fontWeight: 700,
-                  fontSize: isMobile ? 10 : 11,
-                  userSelect: 'none',
-                }}
-              >
-                <span>{isMobile ? '1 Area' : '1 Shift & Area'}</span>
+            {!isMobile && (
+              <div className="entry-progression-stepper" style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    padding: '4px 10px',
+                    borderRadius: 16,
+                    backgroundColor: token.colorFillAlter,
+                    color: token.colorTextSecondary,
+                    fontWeight: 700,
+                    fontSize: 11,
+                    userSelect: 'none',
+                  }}
+                >
+                  <span>1 Shift & Area</span>
+                </div>
+                <span style={{ color: token.colorTextTertiary, fontSize: 10 }}>➔</span>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    padding: '4px 10px',
+                    borderRadius: 16,
+                    backgroundColor: token.colorFillAlter,
+                    color: token.colorTextSecondary,
+                    fontWeight: 700,
+                    fontSize: 11,
+                    userSelect: 'none',
+                  }}
+                >
+                  <span>2 Department & Machines</span>
+                </div>
+                <span style={{ color: token.colorTextTertiary, fontSize: 10 }}>➔</span>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    padding: '4px 12px',
+                    borderRadius: 16,
+                    backgroundColor: '#ea580c',
+                    color: '#ffffff',
+                    fontWeight: 800,
+                    fontSize: 11.5,
+                    boxShadow: '0 2px 8px rgba(234, 88, 12, 0.45)',
+                    userSelect: 'none',
+                  }}
+                >
+                  <span>3 Production Details</span>
+                </div>
               </div>
-              <span style={{ color: token.colorTextTertiary, fontSize: 10 }}>➔</span>
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 4,
-                  padding: isMobile ? '2px 7px' : '4px 10px',
-                  borderRadius: 16,
-                  backgroundColor: token.colorFillAlter, color: token.colorTextSecondary,
-                  fontWeight: 700,
-                  fontSize: isMobile ? 10 : 11,
-                  userSelect: 'none',
-                }}
-              >
-                <span>{isMobile ? '2 Machines' : '2 Department & Machines'}</span>
-              </div>
-              <span style={{ color: token.colorTextTertiary, fontSize: 10 }}>➔</span>
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 4,
-                  padding: isMobile ? '2px 8px' : '4px 12px',
-                  borderRadius: 16,
-                  backgroundColor: '#ea580c',
-                  color: '#ffffff',
-                  fontWeight: 800,
-                  fontSize: isMobile ? 10 : 11.5,
-                  boxShadow: '0 2px 8px rgba(234, 88, 12, 0.45)',
-                  userSelect: 'none',
-                }}
-              >
-                <span>{isMobile ? '3 Feed Details' : '3 Production Details'}</span>
-              </div>
-            </div>
+            )}
 
             {/* Window Controls */}
-            <div className="entry-window-controls" style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 5 : 8 }}>
+            <div className="entry-window-controls" style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 4 : 8, flexShrink: 0 }}>
               {/* Refresh Form & Data */}
-              <Tooltip title="Refresh Form & Reload Live Data">
+              <Tooltip title={isMobile ? '' : 'Refresh Form & Reload Live Data'} open={isMobile ? false : undefined}>
                 <button
                   type="button"
                   className="entry-window-view-toggle"
@@ -187,87 +230,91 @@ export const ProductionEntryModal: React.FC = () => {
                     color: '#38bdf8',
                     cursor: isRefreshing ? 'wait' : 'pointer',
                     fontWeight: 600,
-                    padding: isMobile ? '4px 8px' : '5px 12px',
-                    fontSize: isMobile ? 11 : 12,
+                    padding: isMobile ? '4px 7px' : '5px 12px',
+                    fontSize: isMobile ? 12 : 12,
+                    height: isMobile ? 28 : undefined,
                   }}
                 >
                   <ReloadOutlined spin={isRefreshing} />
-                  <span>{isRefreshing ? '…' : 'Refresh'}</span>
+                  {!isMobile && <span>{isRefreshing ? '…' : 'Refresh'}</span>}
                 </button>
               </Tooltip>
 
               {/* View Details Toggle */}
-              <Tooltip title={showLinkedView ? 'Hide Live Details' : 'View Live Details'}>
+              <Tooltip title={isMobile ? '' : (showLinkedView ? 'Hide Live Details' : 'View Live Details')} open={isMobile ? false : undefined}>
                 <button
                   type="button"
                   className="entry-window-view-toggle"
                   onClick={toggleLinkedView}
                   style={{
-                    padding: isMobile ? '4px 8px' : '5px 12px',
+                    padding: isMobile ? '4px 7px' : '5px 12px',
                     fontSize: isMobile ? 11 : 12,
+                    height: isMobile ? 28 : undefined,
                   }}
                 >
                   {showLinkedView ? <EyeInvisibleOutlined /> : <EyeOutlined />}
-                  <span>{showLinkedView ? 'Hide Details' : 'View Details'}</span>
+                  {!isMobile && <span>{showLinkedView ? 'Hide Details' : 'View Details'}</span>}
                 </button>
               </Tooltip>
 
               {/* Minimize */}
-              <Tooltip title="Minimize to Dock (-)">
+              <Tooltip title={isMobile ? '' : 'Minimize to Dock (-)'} open={isMobile ? false : undefined}>
                 <button
                   type="button"
                   className="entry-window-ctrl-btn"
                   onClick={minimize}
                   aria-label="Minimize Window"
                   style={{
-                    background: '#1e293b',
-                    border: '1.5px solid #475569',
-                    color: '#ffffff',
-                    width: 34,
-                    height: 34,
+                    background: token.colorFillAlter,
+                    border: `1.5px solid ${token.colorBorder}`,
+                    color: token.colorText,
+                    width: isMobile ? 28 : 34,
+                    height: isMobile ? 28 : 34,
                     borderRadius: 6,
-                    fontSize: 15,
+                    fontSize: isMobile ? 13 : 15,
                     display: 'inline-flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     cursor: 'pointer',
                   }}
                 >
-                  <MinusOutlined style={{ fontSize: 16, strokeWidth: 2, color: '#ffffff' }} />
+                  <MinusOutlined style={{ fontSize: isMobile ? 13 : 16, strokeWidth: 2, color: token.colorText }} />
                 </button>
               </Tooltip>
 
-              {/* Maximize / Restore */}
-              <Tooltip title={isMaximized ? 'Restore Window Size' : 'Maximize Fullscreen'}>
-                <button
-                  type="button"
-                  className="entry-window-ctrl-btn"
-                  onClick={toggleMaximize}
-                  aria-label="Toggle Fullscreen"
-                  style={{
-                    background: '#1e293b',
-                    border: '1.5px solid #475569',
-                    color: '#ffffff',
-                    width: 34,
-                    height: 34,
-                    borderRadius: 6,
-                    fontSize: 15,
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    cursor: 'pointer',
-                  }}
-                >
-                  {isMaximized ? (
-                    <FullscreenExitOutlined style={{ fontSize: 15, color: '#ffffff' }} />
-                  ) : (
-                    <FullscreenOutlined style={{ fontSize: 15, color: '#ffffff' }} />
-                  )}
-                </button>
-              </Tooltip>
+              {/* Maximize / Restore (Desktop Only) */}
+              {!isMobile && (
+                <Tooltip title={isMaximized ? 'Restore Window Size' : 'Maximize Fullscreen'}>
+                  <button
+                    type="button"
+                    className="entry-window-ctrl-btn"
+                    onClick={toggleMaximize}
+                    aria-label="Toggle Fullscreen"
+                    style={{
+                      background: token.colorFillAlter,
+                      border: `1.5px solid ${token.colorBorder}`,
+                      color: token.colorText,
+                      width: 34,
+                      height: 34,
+                      borderRadius: 6,
+                      fontSize: 15,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {isMaximized ? (
+                      <FullscreenExitOutlined style={{ fontSize: 15, color: token.colorText }} />
+                    ) : (
+                      <FullscreenOutlined style={{ fontSize: 15, color: token.colorText }} />
+                    )}
+                  </button>
+                </Tooltip>
+              )}
 
               {/* Close */}
-              <Tooltip title="Close Entry Window (Esc)">
+              <Tooltip title={isMobile ? '' : 'Close Entry Window (Esc)'} open={isMobile ? false : undefined}>
                 <button
                   type="button"
                   className="entry-window-ctrl-btn btn-close"
@@ -277,10 +324,10 @@ export const ProductionEntryModal: React.FC = () => {
                     background: '#ef4444',
                     border: '1.5px solid #dc2626',
                     color: '#ffffff',
-                    width: 34,
-                    height: 34,
+                    width: isMobile ? 28 : 34,
+                    height: isMobile ? 28 : 34,
                     borderRadius: 6,
-                    fontSize: 15,
+                    fontSize: isMobile ? 13 : 15,
                     fontWeight: 'bold',
                     display: 'inline-flex',
                     alignItems: 'center',
@@ -288,7 +335,7 @@ export const ProductionEntryModal: React.FC = () => {
                     cursor: 'pointer',
                   }}
                 >
-                  <CloseOutlined style={{ fontSize: 15, fontWeight: 'bold', color: '#ffffff' }} />
+                  <CloseOutlined style={{ fontSize: isMobile ? 13 : 15, fontWeight: 'bold', color: '#ffffff' }} />
                 </button>
               </Tooltip>
             </div>

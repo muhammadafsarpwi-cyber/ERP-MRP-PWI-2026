@@ -547,17 +547,17 @@ const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
         getContainer={() => document.body}
         style={
           isMobile
-            ? { top: 0, left: 0, right: 0, bottom: 0, margin: 0, padding: 0, maxWidth: '100vw', width: '100vw', height: '100vh', transform: 'none' }
+            ? { top: 0, left: 0, right: 0, bottom: 0, margin: 0, padding: 0, maxWidth: '100vw', width: '100vw', height: '100dvh', transform: 'none' }
             : isMaximized
             ? { top: 0, left: 0, right: 0, bottom: 0, margin: 0, paddingBottom: 0, maxWidth: '100vw', width: '100vw', height: '100vh', transform: 'none' }
             : { top: 20, transform: `translate(${modalPos.x}px, ${modalPos.y}px)` }
         }
         bodyStyle={{
-          padding: isMobile ? '12px 12px 28px' : isMaximized ? '22px 30px' : '22px 26px',
+          padding: isMobile ? '8px 10px 32px' : isMaximized ? '22px 30px' : '22px 26px',
           backgroundColor: token.colorBgContainer,
           borderRadius: isMobile || isMaximized ? 0 : 16,
-          height: isMobile || isMaximized ? '100vh' : undefined,
-          maxHeight: isMobile || isMaximized ? '100vh' : '92vh',
+          height: isMobile ? '100dvh' : isMaximized ? '100vh' : undefined,
+          maxHeight: isMobile ? '100dvh' : isMaximized ? '100vh' : '92vh',
           overflowY: 'auto',
           boxShadow: isMobile || isMaximized ? 'none' : '0 16px 48px rgba(0, 0, 0, 0.35)',
         }}
@@ -570,35 +570,35 @@ const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
-            marginBottom: isMobile ? 12 : 20,
+            marginBottom: isMobile ? 8 : 20,
             borderBottom: `1px solid ${token.colorBorderSecondary}`,
-            paddingBottom: isMobile ? 10 : 14,
-            flexWrap: 'wrap',
-            gap: isMobile ? 8 : 12,
+            paddingBottom: isMobile ? 6 : 14,
+            flexWrap: isMobile ? 'nowrap' : 'wrap',
+            gap: isMobile ? 6 : 12,
             cursor: isMobile || isMaximized ? 'default' : 'grab',
             userSelect: 'none',
           }}
         >
           {/* Left: Branding & Draggable indicator */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 6 : 12, minWidth: 0 }}>
             <div
               style={{
-                width: isMobile ? 34 : 44,
-                height: isMobile ? 34 : 44,
-                borderRadius: 10,
+                width: isMobile ? 28 : 44,
+                height: isMobile ? 28 : 44,
+                borderRadius: isMobile ? 7 : 10,
                 backgroundColor: '#ea580c',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 boxShadow: '0 4px 14px rgba(234, 88, 12, 0.45)',
                 color: '#ffffff',
-                fontSize: isMobile ? 17 : 22,
+                fontSize: isMobile ? 14 : 22,
                 flexShrink: 0,
               }}
             >
               <DashboardOutlined />
             </div>
-            <div>
+            <div style={{ minWidth: 0 }}>
               {!isMobile && (
                 <div
                   style={{
@@ -632,35 +632,45 @@ const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
                   )}
                 </div>
               )}
-              <div style={{ fontSize: isMobile ? 16 : 21, fontWeight: 900, color: token.colorText, marginTop: 1 }}>
-                Daily Production Entry Wizard
+              <div
+                style={{
+                  fontSize: isMobile ? 13.5 : 21,
+                  fontWeight: 900,
+                  color: token.colorText,
+                  marginTop: isMobile ? 0 : 1,
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}
+              >
+                {isMobile ? 'Production Entry' : 'Daily Production Entry Wizard'}
               </div>
             </div>
           </div>
 
           {/* Right: Step Indicator + Minimize, Maximize, Close Control Bar */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 6 : 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 4 : 12, flexShrink: 0 }}>
             {/* Progression Step Indicator */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 3 : 6 }}>
               <div
                 onClick={() => setStep(1)}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: 4,
-                  padding: isMobile ? '4px 8px' : '6px 14px',
+                  gap: 3,
+                  padding: isMobile ? '3px 7px' : '6px 14px',
                   borderRadius: 20,
                   backgroundColor: step === 1 ? '#ea580c' : token.colorFillAlter,
                   color: step === 1 ? '#ffffff' : token.colorTextSecondary,
                   fontWeight: 800,
-                  fontSize: isMobile ? 11 : 12,
+                  fontSize: isMobile ? 10.5 : 12,
                   cursor: 'pointer',
                   transition: 'all 0.15s ease',
                 }}
               >
                 <span>{isMobile ? '1 Area' : '1 Shift & Area'}</span>
               </div>
-              <span style={{ color: token.colorTextTertiary, fontSize: 11 }}>➔</span>
+              <span style={{ color: token.colorTextTertiary, fontSize: isMobile ? 9 : 11 }}>➔</span>
               <div
                 onClick={() => {
                   if (ready) setStep(2);
@@ -669,13 +679,13 @@ const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
                 style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: 4,
-                  padding: isMobile ? '4px 8px' : '6px 14px',
+                  gap: 3,
+                  padding: isMobile ? '3px 7px' : '6px 14px',
                   borderRadius: 20,
                   backgroundColor: step === 2 ? '#ea580c' : token.colorFillAlter,
                   color: step === 2 ? '#ffffff' : token.colorTextSecondary,
                   fontWeight: 800,
-                  fontSize: isMobile ? 11 : 12,
+                  fontSize: isMobile ? 10.5 : 12,
                   cursor: ready ? 'pointer' : 'not-allowed',
                   opacity: ready ? 1 : 0.6,
                   transition: 'all 0.15s ease',
@@ -1125,211 +1135,385 @@ const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
             ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
         {step === 2 && (
           <div>
-            {/* Top Navigation & Info Header */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <Button
-                  icon={<ArrowLeftOutlined />}
-                  onClick={() => setStep(1)}
-                  style={{
-                    height: 42,
-                    backgroundColor: token.colorFillAlter,
-                    borderColor: token.colorBorderSecondary,
-                    color: token.colorText,
-                    fontWeight: 700,
-                    borderRadius: 10,
-                  }}
-                >
-                  Back to Step 1
-                </Button>
-                <div>
-                  <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: token.colorText }}>
-                    Step 2: Department Selection & Machine Station Fleet
-                  </h3>
-                  <div style={{ color: token.colorTextSecondary, fontSize: 12, marginTop: 2 }}>
-                    Area: <strong style={{ color: token.colorPrimary }}>{scopeLabel || 'All Manufacturing'}</strong> | Shift: <strong style={{ color: '#10b981' }}>{effectiveShift?.name || 'Shift'}</strong> | Date: <strong style={{ color: '#ea580c' }}>{dateIso ? dayjs(dateIso).format('DD-MMM-YYYY') : '—'}</strong>
+            {/* Top Navigation & Info Header — Ultra-Compact on Mobile */}
+            {isMobile ? (
+              <div style={{ marginBottom: 8 }}>
+                {/* Row 1: Back button + Area/Shift/Date pill + Refresh */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+                  <Button
+                    size="small"
+                    icon={<ArrowLeftOutlined />}
+                    onClick={() => setStep(1)}
+                    style={{
+                      height: 30,
+                      padding: '0 8px',
+                      backgroundColor: token.colorFillAlter,
+                      borderColor: token.colorBorderSecondary,
+                      color: token.colorText,
+                      fontWeight: 700,
+                      fontSize: 11.5,
+                      borderRadius: 7,
+                      flexShrink: 0,
+                    }}
+                  >
+                    Step 1
+                  </Button>
+                  <div
+                    style={{
+                      flex: 1,
+                      minWidth: 0,
+                      padding: '4px 8px',
+                      borderRadius: 7,
+                      backgroundColor: token.colorFillAlter,
+                      border: `1px solid ${token.colorBorderSecondary}`,
+                      fontSize: 11,
+                      fontWeight: 600,
+                      color: token.colorTextSecondary,
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      textAlign: 'center',
+                    }}
+                  >
+                    <strong style={{ color: token.colorPrimary }}>{selectedSecObj?.name || selectedDivObj?.name || 'Area'}</strong>
+                    {' · '}
+                    <strong style={{ color: '#10b981' }}>{effectiveShift?.name || 'Shift'}</strong>
+                    {' · '}
+                    <strong style={{ color: '#ea580c' }}>{dateIso ? dayjs(dateIso).format('DD-MMM') : '—'}</strong>
                   </div>
+                  <Button
+                    size="small"
+                    icon={<ReloadOutlined />}
+                    onClick={() => setRefreshTick((t) => t + 1)}
+                    loading={loading}
+                    title="Refresh Fleet"
+                    style={{
+                      width: 30,
+                      height: 30,
+                      padding: 0,
+                      backgroundColor: token.colorFillAlter,
+                      borderColor: token.colorBorderSecondary,
+                      color: token.colorText,
+                      borderRadius: 7,
+                      flexShrink: 0,
+                    }}
+                  />
+                </div>
+
+                {/* Row 2: Quick Switch Buttons (Hand Packing & Direct Form) */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginTop: 6 }}>
+                  <Button
+                    size="small"
+                    icon={<InboxOutlined />}
+                    onClick={() => {
+                      setModalOpen(false);
+                      navigate('/production/packing');
+                    }}
+                    style={{
+                      height: 30,
+                      fontSize: 11.5,
+                      fontWeight: 700,
+                      borderColor: '#10b981',
+                      color: '#10b981',
+                      borderRadius: 7,
+                    }}
+                  >
+                    Hand Packing
+                  </Button>
+                  <Button
+                    size="small"
+                    icon={<FormOutlined />}
+                    onClick={() => {
+                      setModalOpen(false);
+                      navigate('/production/entries/new');
+                    }}
+                    style={{
+                      height: 30,
+                      fontSize: 11.5,
+                      fontWeight: 700,
+                      borderRadius: 7,
+                    }}
+                  >
+                    Direct Entry Form
+                  </Button>
                 </div>
               </div>
+            ) : (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <Button
+                    icon={<ArrowLeftOutlined />}
+                    onClick={() => setStep(1)}
+                    style={{
+                      height: 42,
+                      backgroundColor: token.colorFillAlter,
+                      borderColor: token.colorBorderSecondary,
+                      color: token.colorText,
+                      fontWeight: 700,
+                      borderRadius: 10,
+                    }}
+                  >
+                    Back to Step 1
+                  </Button>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: token.colorText }}>
+                      Step 2: Department Selection & Machine Station Fleet
+                    </h3>
+                    <div style={{ color: token.colorTextSecondary, fontSize: 12, marginTop: 2 }}>
+                      Area: <strong style={{ color: token.colorPrimary }}>{scopeLabel || 'All Manufacturing'}</strong> | Shift: <strong style={{ color: '#10b981' }}>{effectiveShift?.name || 'Shift'}</strong> | Date: <strong style={{ color: '#ea580c' }}>{dateIso ? dayjs(dateIso).format('DD-MMM-YYYY') : '—'}</strong>
+                    </div>
+                  </div>
+                </div>
 
-              <Space wrap>
-                <Button
-                  icon={<InboxOutlined />}
-                  onClick={() => {
-                    setModalOpen(false);
-                    navigate('/production/packing');
-                  }}
-                  style={{
-                    fontWeight: 600,
-                    borderColor: '#10b981',
-                    color: '#10b981',
-                    borderRadius: 8,
-                  }}
-                >
-                  Hand Packing (No Machine)
-                </Button>
-                <Button
-                  icon={<FormOutlined />}
-                  onClick={() => {
-                    setModalOpen(false);
-                    navigate('/production/entries/new');
-                  }}
-                  style={{ fontWeight: 600, borderRadius: 8 }}
-                >
-                  Direct Entry Form
-                </Button>
-                <Button
-                  icon={<ReloadOutlined />}
-                  onClick={() => setRefreshTick((t) => t + 1)}
-                  loading={loading}
-                  style={{ backgroundColor: token.colorFillAlter, borderColor: token.colorBorderSecondary, color: token.colorText, borderRadius: 8 }}
-                >
-                  Refresh Fleet
-                </Button>
-              </Space>
-            </div>
-
-            {/* ━━━ TOP DEPARTMENT CARDS (IDENTICAL TO IMAGE 2) ━━━ */}
-            <div style={{ marginBottom: 20 }}>
-              <div style={{ fontSize: 13, textTransform: 'uppercase', color: token.colorTextSecondary, fontWeight: 800, marginBottom: 10 }}>
-                Manufacturing Departments ({activeDepartments.length} Sections Available):
+                <Space wrap>
+                  <Button
+                    icon={<InboxOutlined />}
+                    onClick={() => {
+                      setModalOpen(false);
+                      navigate('/production/packing');
+                    }}
+                    style={{
+                      fontWeight: 600,
+                      borderColor: '#10b981',
+                      color: '#10b981',
+                      borderRadius: 8,
+                    }}
+                  >
+                    Hand Packing (No Machine)
+                  </Button>
+                  <Button
+                    icon={<FormOutlined />}
+                    onClick={() => {
+                      setModalOpen(false);
+                      navigate('/production/entries/new');
+                    }}
+                    style={{ fontWeight: 600, borderRadius: 8 }}
+                  >
+                    Direct Entry Form
+                  </Button>
+                  <Button
+                    icon={<ReloadOutlined />}
+                    onClick={() => setRefreshTick((t) => t + 1)}
+                    loading={loading}
+                    style={{ backgroundColor: token.colorFillAlter, borderColor: token.colorBorderSecondary, color: token.colorText, borderRadius: 8 }}
+                  >
+                    Refresh Fleet
+                  </Button>
+                </Space>
               </div>
-              <Row gutter={[12, 12]}>
-                {activeDepartments.map((dept, idx) => {
-                  const isSelected = selectedDeptId === dept.id;
-                  const palette = DEPT_COLOR_PALETTES[idx % DEPT_COLOR_PALETTES.length];
-                  const deptMachines = machines.filter((m) => m.departmentId === dept.id);
-                  const deptRequiredCount = deptMachines.filter((m) => m.status === 'ENTRY_REQUIRED').length;
+            )}
 
-                  return (
-                    <Col xs={24} sm={12} md={activeDepartments.length <= 4 ? 6 : 4} key={dept.id}>
+            {/* ━━━ TOP DEPARTMENT SELECTOR & SUMMARY (MINIMIZED ON MOBILE) ━━━ */}
+            {isMobile ? (
+              <div style={{ marginBottom: 8 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {activeDepartments.map((dept, idx) => {
+                    const isSelected = selectedDeptId === dept.id;
+                    const palette = DEPT_COLOR_PALETTES[idx % DEPT_COLOR_PALETTES.length];
+                    const deptMachines = machines.filter((m) => m.departmentId === dept.id);
+                    const deptEnteredCount = deptMachines.filter((m) => m.status === 'ENTERED').length;
+                    const deptRequiredCount = deptMachines.filter((m) => m.status === 'ENTRY_REQUIRED').length;
+
+                    return (
                       <div
+                        key={dept.id}
                         onClick={() => setSelectedDeptId(dept.id)}
                         style={{
                           backgroundColor: isSelected ? token.colorFillSecondary : token.colorBgContainer,
-                          borderRadius: 12,
-                          padding: isMobile ? '10px 12px' : '14px 14px',
-                          border: 'none',
+                          borderRadius: 9,
+                          padding: '7px 10px',
+                          border: isSelected ? `1.5px solid ${palette.color}` : `1px solid ${token.colorBorderSecondary}`,
                           cursor: 'pointer',
-                          transition: 'all 0.15s ease',
-                          boxShadow: isSelected ? `0 0 16px ${palette.color}44` : '0 2px 8px rgba(0,0,0,0.04)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: 8,
                         }}
                       >
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
                           <div
                             style={{
-                              width: 42,
-                              height: 42,
-                              borderRadius: 10,
+                              width: 28,
+                              height: 28,
+                              borderRadius: 7,
                               background: palette.bg,
                               display: 'flex',
                               alignItems: 'center',
                               justifyContent: 'center',
                               color: palette.color,
-                              fontSize: 18,
+                              fontSize: 14,
+                              flexShrink: 0,
                             }}
                           >
                             {palette.icon}
                           </div>
-                          <Badge
-                            count={`${deptMachines.length} Machines`}
-                            style={{
-                              backgroundColor: deptRequiredCount > 0 ? '#ea580c' : '#065f46',
-                              color: '#ffffff',
-                              fontWeight: 700,
-                              fontSize: 11,
-                            }}
-                          />
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ fontSize: 13, fontWeight: 800, color: token.colorText, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {dept.name}
+                            </div>
+                            <div style={{ fontSize: 10, color: token.colorTextSecondary }}>
+                              {dept.departmentCode || 'DEP'} • {deptMachines.length} Machines
+                            </div>
+                          </div>
                         </div>
 
-                        <div style={{ fontSize: 15, fontWeight: 800, color: token.colorText, marginTop: 10, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {dept.name}
-                        </div>
-                        <div style={{ fontSize: 11, color: token.colorTextSecondary, marginTop: 2 }}>
-                          {dept.departmentCode || 'DEP'} • {deptRequiredCount} Pending
-                        </div>
-
-                        <div
-                          style={{
-                            marginTop: 10,
-                            textAlign: 'center',
-                            padding: '4px',
-                            borderRadius: 6,
-                            backgroundColor: token.colorFillAlter,
-                            color: palette.color,
-                            fontWeight: 800,
-                            fontSize: 11,
-                          }}
-                        >
-                          {isSelected ? '✓ Selected Section' : 'Tap to View Machines →'}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, fontSize: 11, fontWeight: 700 }}>
+                          <span style={{ padding: '2px 6px', borderRadius: 6, backgroundColor: token.colorFillAlter, color: '#10b981' }}>
+                            ✓ {deptEnteredCount}
+                          </span>
+                          <span style={{ padding: '2px 6px', borderRadius: 6, backgroundColor: token.colorFillAlter, color: deptRequiredCount > 0 ? '#f43f5e' : token.colorTextSecondary }}>
+                            ● {deptRequiredCount} Left
+                          </span>
                         </div>
                       </div>
-                    </Col>
-                  );
-                })}
-              </Row>
-            </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : (
+              <>
+                <div style={{ marginBottom: 20 }}>
+                  <div style={{ fontSize: 13, textTransform: 'uppercase', color: token.colorTextSecondary, fontWeight: 800, marginBottom: 10 }}>
+                    Manufacturing Departments ({activeDepartments.length} Sections Available):
+                  </div>
+                  <Row gutter={[12, 12]}>
+                    {activeDepartments.map((dept, idx) => {
+                      const isSelected = selectedDeptId === dept.id;
+                      const palette = DEPT_COLOR_PALETTES[idx % DEPT_COLOR_PALETTES.length];
+                      const deptMachines = machines.filter((m) => m.departmentId === dept.id);
+                      const deptRequiredCount = deptMachines.filter((m) => m.status === 'ENTRY_REQUIRED').length;
 
-            {/* Summary Ribbon */}
-            <div
-              style={{
-                padding: '10px 16px',
-                backgroundColor: token.colorFillAlter,
-                borderRadius: 12,
-                border: `1px solid ${token.colorBorderSecondary}`,
-                marginBottom: 16,
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                flexWrap: 'wrap',
-                gap: 12,
-              }}
-            >
-              <Space size={18} wrap>
-                <Text style={{ fontSize: 13, color: token.colorText }}>
-                  Active Section: <strong style={{ color: token.colorPrimary }}>{activeDeptObj?.name || 'Selected Department'}</strong>
-                </Text>
-                <Text style={{ fontSize: 13, color: token.colorText }}>
-                  Total Machines: <Text strong style={{ color: token.colorText }}>{displayedMachines.length}</Text>
-                </Text>
-                <Text style={{ fontSize: 13, color: token.colorText }}>
-                  <span
-                    aria-hidden
-                    style={{ display: 'inline-block', width: 9, height: 9, borderRadius: '50%', background: '#10b981', marginRight: 6 }}
-                  />
-                  Entered: <Text strong style={{ color: '#10b981' }}>{displayedMachines.filter(m => m.status === 'ENTERED').length}</Text>
-                </Text>
-                <Text style={{ fontSize: 13, color: token.colorText }}>
-                  <span
-                    aria-hidden
-                    style={{ display: 'inline-block', width: 9, height: 9, borderRadius: '50%', background: '#f43f5e', marginRight: 6 }}
-                  />
-                  Entry Required: <Text strong style={{ color: '#f43f5e' }}>{displayedMachines.filter(m => m.status === 'ENTRY_REQUIRED').length}</Text>
-                </Text>
-              </Space>
+                      return (
+                        <Col xs={24} sm={12} md={activeDepartments.length <= 4 ? 6 : 4} key={dept.id}>
+                          <div
+                            onClick={() => setSelectedDeptId(dept.id)}
+                            style={{
+                              backgroundColor: isSelected ? token.colorFillSecondary : token.colorBgContainer,
+                              borderRadius: 12,
+                              padding: '14px 14px',
+                              border: 'none',
+                              cursor: 'pointer',
+                              transition: 'all 0.15s ease',
+                              boxShadow: isSelected ? `0 0 16px ${palette.color}44` : '0 2px 8px rgba(0,0,0,0.04)',
+                            }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                              <div
+                                style={{
+                                  width: 42,
+                                  height: 42,
+                                  borderRadius: 10,
+                                  background: palette.bg,
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  color: palette.color,
+                                  fontSize: 18,
+                                }}
+                              >
+                                {palette.icon}
+                              </div>
+                              <Badge
+                                count={`${deptMachines.length} Machines`}
+                                style={{
+                                  backgroundColor: deptRequiredCount > 0 ? '#ea580c' : '#065f46',
+                                  color: '#ffffff',
+                                  fontWeight: 700,
+                                  fontSize: 11,
+                                }}
+                              />
+                            </div>
 
-              <Space size={8} wrap>
-                {dateIso && <Tag color="blue" style={{ fontWeight: 700, borderRadius: 6 }}>{dayjs(dateIso).format('DD-MMM-YYYY')}</Tag>}
-              </Space>
-            </div>
+                            <div style={{ fontSize: 15, fontWeight: 800, color: token.colorText, marginTop: 10, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {dept.name}
+                            </div>
+                            <div style={{ fontSize: 11, color: token.colorTextSecondary, marginTop: 2 }}>
+                              {dept.departmentCode || 'DEP'} • {deptRequiredCount} Pending
+                            </div>
+
+                            <div
+                              style={{
+                                marginTop: 10,
+                                textAlign: 'center',
+                                padding: '4px',
+                                borderRadius: 6,
+                                backgroundColor: token.colorFillAlter,
+                                color: palette.color,
+                                fontWeight: 800,
+                                fontSize: 11,
+                              }}
+                            >
+                              {isSelected ? '✓ Selected Section' : 'Tap to View Machines →'}
+                            </div>
+                          </div>
+                        </Col>
+                      );
+                    })}
+                  </Row>
+                </div>
+
+                {/* Summary Ribbon */}
+                <div
+                  style={{
+                    padding: '10px 16px',
+                    backgroundColor: token.colorFillAlter,
+                    borderRadius: 12,
+                    border: `1px solid ${token.colorBorderSecondary}`,
+                    marginBottom: 16,
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    flexWrap: 'wrap',
+                    gap: 12,
+                  }}
+                >
+                  <Space size={18} wrap>
+                    <Text style={{ fontSize: 13, color: token.colorText }}>
+                      Active Section: <strong style={{ color: token.colorPrimary }}>{activeDeptObj?.name || 'Selected Department'}</strong>
+                    </Text>
+                    <Text style={{ fontSize: 13, color: token.colorText }}>
+                      Total Machines: <Text strong style={{ color: token.colorText }}>{displayedMachines.length}</Text>
+                    </Text>
+                    <Text style={{ fontSize: 13, color: token.colorText }}>
+                      <span
+                        aria-hidden
+                        style={{ display: 'inline-block', width: 9, height: 9, borderRadius: '50%', background: '#10b981', marginRight: 6 }}
+                      />
+                      Entered: <Text strong style={{ color: '#10b981' }}>{displayedMachines.filter(m => m.status === 'ENTERED').length}</Text>
+                    </Text>
+                    <Text style={{ fontSize: 13, color: token.colorText }}>
+                      <span
+                        aria-hidden
+                        style={{ display: 'inline-block', width: 9, height: 9, borderRadius: '50%', background: '#f43f5e', marginRight: 6 }}
+                      />
+                      Entry Required: <Text strong style={{ color: '#f43f5e' }}>{displayedMachines.filter(m => m.status === 'ENTRY_REQUIRED').length}</Text>
+                    </Text>
+                  </Space>
+
+                  <Space size={8} wrap>
+                    {dateIso && <Tag color="blue" style={{ fontWeight: 700, borderRadius: 6 }}>{dayjs(dateIso).format('DD-MMM-YYYY')}</Tag>}
+                  </Space>
+                </div>
+              </>
+            )}
 
             {error && (
-              <div style={{ marginBottom: 14 }}>
+              <div style={{ marginBottom: 10 }}>
                 <Tag color="error">{error}</Tag>
               </div>
             )}
 
             {/* ━━━ WIDE HORIZONTAL MACHINE ROWS ━━━ */}
             {loading && machines.length === 0 ? (
-              <div style={{ padding: '60px 0', textAlign: 'center' }}>
-                <GlobalLoading title="Loading Machines..." subtitle="Retrieving active machines for this selection..." badgeText="LIVE DATABASE QUERY" minHeight={240} />
+              <div style={{ padding: isMobile ? '30px 0' : '60px 0', textAlign: 'center' }}>
+                <GlobalLoading title="Loading Machines..." subtitle="Retrieving active machines for this selection..." badgeText="LIVE DATABASE QUERY" minHeight={isMobile ? 160 : 240} />
               </div>
             ) : displayedMachines.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '40px 20px', backgroundColor: token.colorFillAlter, borderRadius: 14, border: `1px dashed ${token.colorBorderSecondary}` }}>
-                <div style={{ fontSize: 16, fontWeight: 700, color: token.colorText }}>
+              <div style={{ textAlign: 'center', padding: isMobile ? '24px 14px' : '40px 20px', backgroundColor: token.colorFillAlter, borderRadius: 14, border: `1px dashed ${token.colorBorderSecondary}` }}>
+                <div style={{ fontSize: isMobile ? 14 : 16, fontWeight: 700, color: token.colorText }}>
                   No active machines found for {activeDeptObj?.name || 'this department'}.
                 </div>
-                <div style={{ fontSize: 13, color: token.colorTextSecondary, marginTop: 4 }}>
+                <div style={{ fontSize: 12, color: token.colorTextSecondary, marginTop: 4 }}>
                   Please select another department from the cards above.
                 </div>
               </div>
@@ -1338,10 +1522,11 @@ const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
                 style={{
                   display: 'flex',
                   flexDirection: 'column',
-                  gap: 12,
-                  maxHeight: '48vh',
-                  overflowY: 'auto',
-                  paddingRight: 4,
+                  gap: isMobile ? 8 : 12,
+                  maxHeight: isMobile ? undefined : '48vh',
+                  overflowY: isMobile ? 'visible' : 'auto',
+                  paddingRight: isMobile ? 0 : 4,
+                  paddingBottom: isMobile ? 24 : 0,
                 }}
               >
                 {displayedMachines.map((m) => (
@@ -1555,12 +1740,233 @@ const HorizontalMachineRow: React.FC<{
     </div>
   );
 
+  if (isMobile) {
+    const primaryId = machine.primaryEntryId || machine.entries[0]?.entryId || machine.entries[0]?.id;
+    return (
+      <div
+        style={{
+          backgroundColor: token.colorBgContainer,
+          borderRadius: 11,
+          padding: '9px 11px',
+          border: `1px solid ${token.colorBorderSecondary}`,
+          borderLeft: `4px solid ${entered ? '#10b981' : '#ea580c'}`,
+          boxShadow: entered ? '0 2px 8px rgba(16, 185, 129, 0.1)' : '0 2px 6px rgba(0,0,0,0.04)',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 7,
+        }}
+      >
+        {/* Row 1: Machine Code + Name + Status Badge */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0, flex: 1 }}>
+            <span
+              style={{
+                backgroundColor: entered ? '#10b981' : '#ea580c',
+                color: '#fff',
+                padding: '2px 7px',
+                borderRadius: 5,
+                fontSize: 10.5,
+                fontWeight: 800,
+                letterSpacing: '0.4px',
+                flexShrink: 0,
+              }}
+            >
+              {machine.machineCode}
+            </span>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div
+                style={{
+                  fontSize: 13.5,
+                  fontWeight: 800,
+                  color: token.colorText,
+                  lineHeight: 1.2,
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}
+              >
+                {machine.name}
+              </div>
+              <div style={{ fontSize: 10, color: token.colorTextSecondary, lineHeight: 1.15 }}>
+                {machine.departmentName || 'Asset Machinery'}
+                {machine.systemCode && machine.systemCode !== machine.machineCode ? ` • ${machine.systemCode}` : ''}
+              </div>
+            </div>
+          </div>
+
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+              padding: '2px 7px',
+              borderRadius: 999,
+              fontSize: 10.5,
+              fontWeight: 700,
+              backgroundColor: entered ? 'rgba(16, 185, 129, 0.12)' : 'rgba(244, 63, 94, 0.12)',
+              color: entered ? '#10b981' : '#f43f5e',
+              flexShrink: 0,
+            }}
+          >
+            <span
+              style={{
+                width: 6,
+                height: 6,
+                borderRadius: '50%',
+                background: entered ? '#10b981' : '#f43f5e',
+              }}
+            />
+            {entered ? 'Entered' : 'Pending'}
+          </span>
+        </div>
+
+        {/* Row 2: Compact 3-Column Metrics Strip */}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+            gap: 6,
+            padding: '5px 8px',
+            borderRadius: 7,
+            backgroundColor: token.colorFillAlter,
+          }}
+        >
+          <div>
+            <div style={{ fontSize: 9.5, color: token.colorTextSecondary, fontWeight: 600, textTransform: 'uppercase' }}>Target</div>
+            <div style={{ fontSize: 12.5, fontWeight: 800, color: token.colorText, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {target !== null ? `${formatQty(target)} ${uom}` : '—'}
+            </div>
+          </div>
+          <div style={{ borderLeft: `1px solid ${token.colorBorderSecondary}`, paddingLeft: 7 }}>
+            <div style={{ fontSize: 9.5, color: token.colorTextSecondary, fontWeight: 600, textTransform: 'uppercase' }}>Production</div>
+            <div style={{ fontSize: 12.5, fontWeight: 800, color: entered || target !== null ? '#10b981' : token.colorText, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {entered || target !== null ? `${formatQty(production)} ${uom}` : '—'}
+            </div>
+          </div>
+          <div style={{ borderLeft: `1px solid ${token.colorBorderSecondary}`, paddingLeft: 7 }}>
+            <div style={{ fontSize: 9.5, color: token.colorTextSecondary, fontWeight: 600, textTransform: 'uppercase' }}>Variance</div>
+            <div style={{ fontSize: 11.5, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {varianceNode || '—'}
+            </div>
+          </div>
+        </div>
+
+        {/* Row 3: Item Tag(s) + Slim Progress Bar */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+          {machine.entries && machine.entries.length > 0 ? (
+            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', flex: 1, minWidth: 0 }}>
+              {machine.entries.slice(0, 1).map((itemEntry, idx) => (
+                <span
+                  key={idx}
+                  style={{
+                    fontSize: 10.5,
+                    backgroundColor: token.colorFillAlter,
+                    padding: '1px 6px',
+                    borderRadius: 4,
+                    color: token.colorTextSecondary,
+                    maxWidth: '100%',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}
+                >
+                  {itemEntry.itemName || itemEntry.itemId}: {formatQty(itemEntry.actualQuantity)}
+                </span>
+              ))}
+              {machine.entries.length > 1 && (
+                <span style={{ fontSize: 10, color: token.colorTextTertiary }}>+{machine.entries.length - 1}</span>
+              )}
+            </div>
+          ) : (
+            <span style={{ fontSize: 10.5, color: token.colorTextTertiary }}>Achievement</span>
+          )}
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, width: 125, flexShrink: 0 }}>
+            <div style={{ flex: 1 }}>
+              <Progress
+                percent={achievement !== null ? Math.min(100, Math.round(achievement)) : 0}
+                showInfo={false}
+                status={achievement !== null && achievement >= 100 ? 'success' : 'active'}
+                strokeColor={{ '0%': '#ea580c', '100%': '#10b981' }}
+                trailColor={token.colorFillAlter}
+                strokeWidth={6}
+                style={{ margin: 0 }}
+              />
+            </div>
+            <span style={{ fontSize: 11, fontWeight: 800, color: achievement !== null && achievement >= 100 ? '#10b981' : token.colorText, minWidth: 38, textAlign: 'right' }}>
+              {achievement !== null ? formatPercent(achievement) : '—'}
+            </span>
+          </div>
+        </div>
+
+        {/* Row 4: Full-Width Mobile Action Bar (Never Cut Off) */}
+        <div>
+          {entered ? (
+            machine.entryCount <= 1 ? (
+              <div style={{ display: 'flex', gap: 6 }}>
+                <Button
+                  size="small"
+                  type="primary"
+                  ghost
+                  icon={<EditOutlined />}
+                  onClick={() => onEdit(primaryId)}
+                  style={{ flex: 1, height: 32, fontWeight: 700, borderRadius: 7, fontSize: 12 }}
+                >
+                  Edit Entry
+                </Button>
+                <Button
+                  size="small"
+                  icon={<EyeOutlined />}
+                  onClick={() => onView(primaryId)}
+                  style={{ height: 32, padding: '0 12px', borderRadius: 7, fontSize: 12, fontWeight: 600 }}
+                >
+                  View
+                </Button>
+                <Button
+                  size="small"
+                  danger
+                  icon={<DeleteOutlined />}
+                  onClick={() => onDelete(primaryId)}
+                  style={{ height: 32, width: 34, padding: 0, borderRadius: 7 }}
+                />
+              </div>
+            ) : (
+              <Popover content={entriesList} title={`${machine.entryCount} entries for this shift`} trigger="click">
+                <Button size="small" icon={<EditOutlined />} style={{ width: '100%', height: 32, borderRadius: 7, fontWeight: 700 }}>
+                  Manage Entries ({machine.entryCount})
+                </Button>
+              </Popover>
+            )
+          ) : (
+            <Button
+              type="primary"
+              onClick={onSelect}
+              style={{
+                height: 34,
+                width: '100%',
+                backgroundColor: '#ea580c',
+                borderColor: '#ea580c',
+                fontWeight: 800,
+                borderRadius: 7,
+                fontSize: 12.5,
+                letterSpacing: '0.4px',
+                boxShadow: '0 3px 10px rgba(234, 88, 12, 0.3)',
+              }}
+            >
+              SELECT & FEED ENTRY ➔
+            </Button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       style={{
         backgroundColor: token.colorBgContainer,
         borderRadius: 12,
-        padding: isMobile ? '10px 12px' : '14px 20px',
+        padding: '14px 20px',
         border: 'none',
         borderLeft: `4px solid ${entered ? '#10b981' : '#ea580c'}`,
         boxShadow: entered ? '0 2px 10px rgba(16, 185, 129, 0.12)' : '0 2px 8px rgba(0,0,0,0.04)',

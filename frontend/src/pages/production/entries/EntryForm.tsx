@@ -1142,7 +1142,7 @@ const EntryForm: React.FC<EntryFormProps> = ({
   // Form.List `add` is only exposed inside its render slot, so it is captured
   // into this ref for the header button to trigger.
   const addProductionItemRef = useRef<() => void>(() => {});
-  // "+ Add Downtime" likewise lives in the Downtime card header (Card extra);
+  // "Add Downtime" likewise lives in the Downtime card header (Card extra);
   // the Form.List `add` is captured here.
   const addDowntimeRef = useRef<() => void>(() => {});
 
@@ -2256,12 +2256,13 @@ const EntryForm: React.FC<EntryFormProps> = ({
   const progressPercent = Math.round((completedStepsCount / stepList.length) * 100);
 
   const submitBlocked = !isFullDowntime && mode === 'create' && (resolvingMt || (machineLinked && (!!mtError || displayTarget === null)));
+  const isSaveDisabled = submitBlocked || (mode === 'create' ? !isAllPriorStepsDone : (!isStep1Done || !isStep3Done || !isStep6Done));
 
   const onFinish = useCallback(async (values: Record<string, unknown>) => {
     console.log('ON_FINISH_START', values);
-    // Guard against duplicate submissions (double-click / Enter while saving):
-    // the success modal must appear exactly once per persisted entry.
-    if (saving || submitBlocked) return;
+    // Guard against duplicate submissions (double-click / Enter while saving)
+    // and block submission until all required steps are complete:
+    if (saving || isSaveDisabled) return;
     setSaving(true);
     setSaveError(null);
     setSavedEntry(null);
@@ -2633,7 +2634,7 @@ const EntryForm: React.FC<EntryFormProps> = ({
     } finally {
       setSaving(false);
     }
-  }, [mode, id, navigate, lockedContext, machineLinked, ctxIds, plannedHours, downtimeMode, lookups.items, saving, displayTarget, targetQty, achievement, submitBlocked, isFullDowntime, departmentItems, warehouses, lookups.shifts]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [mode, id, navigate, lockedContext, machineLinked, ctxIds, plannedHours, downtimeMode, lookups.items, saving, displayTarget, targetQty, achievement, submitBlocked, isSaveDisabled, isFullDowntime, departmentItems, warehouses, lookups.shifts]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // PROMPT-35: build the success-confirmation summary from the AUTHORITATIVE
   // saved entity + lookups (labels only — never raw UUIDs). Called only on
@@ -3396,18 +3397,18 @@ const EntryForm: React.FC<EntryFormProps> = ({
                     {maxItemsReached ? (
                       <Tooltip title="Maximum 4 production items are allowed.">
                         <span>
-                          <Button type="primary" size="middle" icon={<PlusOutlined />} disabled style={{ height: 32, padding: '0 16px', fontWeight: 600, borderRadius: 6 }}>
-                            + Add Item
+                          <Button type="primary" size="small" icon={<PlusOutlined />} disabled style={{ height: 30, padding: '0 12px', fontWeight: 700, borderRadius: 6 }}>
+                            Add Item
                           </Button>
                         </span>
                       </Tooltip>
                     ) : (
                       <Button
-                        type="primary" size="middle" icon={<PlusOutlined />}
+                        type="primary" size="small" icon={<PlusOutlined />}
                         onClick={() => addProductionItemRef.current()}
-                        style={{ height: 32, padding: '0 16px', fontWeight: 600, borderRadius: 6 }}
+                        style={{ height: 30, padding: '0 12px', fontWeight: 700, borderRadius: 6 }}
                       >
-                        + Add Item
+                        Add Item
                       </Button>
                     )}
                   </Space>
@@ -3489,29 +3490,31 @@ const EntryForm: React.FC<EntryFormProps> = ({
                               const variance = targetVal !== null ? actVal - targetVal : null;
                               const isPositive = variance !== null && variance >= 0;
                               return (
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 8, width: '100%' }}>
+                                <div className="entry-totals-kpi-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 8, width: '100%' }}>
                                   {/* 1. Target Production */}
                                   <div
+                                    className="entry-totals-kpi-card"
                                     style={{
-                                      background: 'var(--theme-surface, #ffffff)',
-                                      border: '1px solid var(--theme-border, rgba(168, 85, 247, 0.25))',
+                                      background: 'var(--theme-surface)',
+                                      border: '1px solid var(--theme-border)',
                                       borderRadius: 8,
-                                      padding: '8px 12px',
+                                      padding: '7px 10px',
                                       display: 'flex',
                                       flexDirection: 'column',
                                       justifyContent: 'center',
-                                      minHeight: 54,
+                                      minHeight: 52,
+                                      overflow: 'hidden',
                                     }}
                                   >
-                                    <span style={{ color: 'var(--theme-text-secondary, #64748b)', fontSize: 11, fontWeight: 600 }}>Target:</span>
-                                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
-                                      <span style={{ fontSize: 16, fontWeight: 800, color: '#a855f7' }}>
+                                    <span style={{ color: 'var(--theme-text-secondary)', fontSize: 10.5, fontWeight: 600 }}>Target:</span>
+                                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, flexWrap: 'wrap' }}>
+                                      <span style={{ fontSize: 14.5, fontWeight: 800, color: '#a855f7', lineHeight: 1.2 }}>
                                         {tgtVal !== null && tgtVal !== undefined ? formatNumber(tgtVal, 2) : '—'}
                                       </span>
-                                      <span style={{ fontSize: 11, fontWeight: 600, color: '#c084fc' }}>{uomLabel}</span>
+                                      <span style={{ fontSize: 10.5, fontWeight: 700, color: '#c084fc' }}>{uomLabel}</span>
                                     </div>
                                     {targetRateLabel && (
-                                      <span data-testid="target-rate-totals" style={{ display: 'block', fontSize: 10, color: 'var(--theme-text-muted, #94a3b8)', marginTop: 1, whiteSpace: 'nowrap' }}>
+                                      <span data-testid="target-rate-totals" style={{ display: 'block', fontSize: 9.5, color: 'var(--theme-text-muted)', marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                         {targetRateLabel}
                                       </span>
                                     )}
@@ -3519,71 +3522,78 @@ const EntryForm: React.FC<EntryFormProps> = ({
 
                                   {/* 2. Actual Production */}
                                   <div
+                                    className="entry-totals-kpi-card"
                                     style={{
-                                      background: 'var(--theme-surface, #ffffff)',
-                                      border: '1px solid var(--theme-border, rgba(59, 130, 246, 0.25))',
+                                      background: 'var(--theme-surface)',
+                                      border: '1px solid var(--theme-border)',
                                       borderRadius: 8,
-                                      padding: '8px 12px',
+                                      padding: '7px 10px',
                                       display: 'flex',
                                       flexDirection: 'column',
                                       justifyContent: 'center',
-                                      minHeight: 54,
+                                      minHeight: 52,
+                                      overflow: 'hidden',
                                     }}
                                   >
-                                    <span style={{ color: 'var(--theme-text-secondary, #64748b)', fontSize: 11, fontWeight: 600 }}>Actual:</span>
-                                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
-                                      <span style={{ fontSize: 16, fontWeight: 800, color: '#3b82f6' }}>
+                                    <span style={{ color: 'var(--theme-text-secondary)', fontSize: 10.5, fontWeight: 600 }}>Actual:</span>
+                                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, flexWrap: 'wrap' }}>
+                                      <span style={{ fontSize: 14.5, fontWeight: 800, color: '#3b82f6', lineHeight: 1.2 }}>
                                         {formatNumber(actVal, 2)}
                                       </span>
-                                      <span style={{ fontSize: 11, fontWeight: 600, color: '#60a5fa' }}>{uomLabel}</span>
+                                      <span style={{ fontSize: 10.5, fontWeight: 700, color: '#60a5fa' }}>{uomLabel}</span>
                                     </div>
                                   </div>
 
                                   {/* 3. Variance / Balance (+ / - Quantity) */}
                                   <div
+                                    className="entry-totals-kpi-card"
                                     style={{
-                                      background: variance === null ? 'var(--theme-surface, #ffffff)' : isPositive ? 'rgba(16, 185, 129, 0.06)' : 'rgba(239, 68, 68, 0.06)',
+                                      background: variance === null ? 'var(--theme-surface)' : isPositive ? 'rgba(16, 185, 129, 0.06)' : 'rgba(239, 68, 68, 0.06)',
                                       border: `1px solid ${variance === null ? 'var(--theme-border)' : isPositive ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
                                       borderRadius: 8,
-                                      padding: '8px 12px',
+                                      padding: '7px 10px',
                                       display: 'flex',
                                       flexDirection: 'column',
                                       justifyContent: 'center',
-                                      minHeight: 54,
+                                      minHeight: 52,
+                                      overflow: 'hidden',
                                     }}
                                   >
-                                    <span style={{ color: 'var(--theme-text-secondary, #64748b)', fontSize: 11, fontWeight: 600 }}>Variance (±):</span>
-                                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+                                    <span style={{ color: 'var(--theme-text-secondary)', fontSize: 10.5, fontWeight: 600 }}>Variance (±):</span>
+                                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, flexWrap: 'wrap' }}>
                                       <span style={{
-                                        fontSize: 16,
+                                        fontSize: 14.5,
                                         fontWeight: 800,
+                                        lineHeight: 1.2,
                                         color: variance === null ? 'var(--theme-text)' : isPositive ? '#10b981' : '#ef4444'
                                       }}>
                                         {variance !== null ? `${isPositive ? '+' : ''}${formatNumber(variance, 2)}` : '—'}
                                       </span>
-                                      <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--theme-text-secondary)' }}>{uomLabel}</span>
+                                      <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--theme-text-secondary)' }}>{uomLabel}</span>
                                     </div>
                                   </div>
 
                                   {/* 4. Target Achievement */}
                                   <div
+                                    className="entry-totals-kpi-card"
                                     style={{
-                                      background: isTargetMet ? 'rgba(16, 185, 129, 0.08)' : 'var(--theme-surface, #ffffff)',
-                                      border: `1px solid ${isTargetMet ? 'rgba(16, 185, 129, 0.35)' : 'var(--theme-border, rgba(245, 158, 11, 0.25))'}`,
+                                      background: isTargetMet ? 'rgba(16, 185, 129, 0.08)' : 'var(--theme-surface)',
+                                      border: `1px solid ${isTargetMet ? 'rgba(16, 185, 129, 0.35)' : 'var(--theme-border)'}`,
                                       borderRadius: 8,
-                                      padding: '8px 12px',
+                                      padding: '7px 10px',
                                       display: 'flex',
                                       flexDirection: 'column',
                                       justifyContent: 'center',
-                                      minHeight: 54,
+                                      minHeight: 52,
+                                      overflow: 'hidden',
                                     }}
                                   >
-                                    <span style={{ color: 'var(--theme-text-secondary, #64748b)', fontSize: 11, fontWeight: 600 }}>Achievement:</span>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                      <span style={{ fontSize: 16, fontWeight: 800, color: isTargetMet ? '#10b981' : (achievement ?? 0) >= 80 ? '#3b82f6' : '#f59e0b' }}>
+                                    <span style={{ color: 'var(--theme-text-secondary)', fontSize: 10.5, fontWeight: 600 }}>Achievement:</span>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                                      <span style={{ fontSize: 14.5, fontWeight: 800, lineHeight: 1.2, color: isTargetMet ? '#10b981' : (achievement ?? 0) >= 80 ? '#3b82f6' : '#f59e0b' }}>
                                         {achievement !== null ? `${formatNumber(achievement, 1)}%` : '—'}
                                       </span>
-                                      {isTargetMet && <CheckCircleFilled style={{ color: '#10b981', fontSize: 16 }} />}
+                                      {isTargetMet && <CheckCircleFilled style={{ color: '#10b981', fontSize: 14 }} />}
                                     </div>
                                   </div>
                                 </div>
@@ -3692,7 +3702,7 @@ const EntryForm: React.FC<EntryFormProps> = ({
                     {/* 4 — Process Cutting Scrap (KG) [REPORT-ONLY] */}
                     <Form.Item
                       name="processScrapKg"
-                      label={<span style={{ ...figLabelStyle, fontWeight: 600 }}>Process Cutting Scrap (KG) <Tag color={isFullDowntime ? 'green' : 'blue'} style={figTagStyle}>{isFullDowntime ? 'Auto' : 'Report-Only'}</Tag></span>}
+                      label={<span style={{ ...figLabelStyle, fontWeight: 600 }}>Process Scrap (KG) <Tag color={isFullDowntime ? 'green' : 'blue'} style={figTagStyle}>{isFullDowntime ? 'Auto' : 'Optional'}</Tag></span>}
                       rules={[{ type: 'number', min: 0, message: 'Must be ≥ 0' }]}
                       style={{ marginBottom: 0 }}
                     >
@@ -3806,7 +3816,7 @@ const EntryForm: React.FC<EntryFormProps> = ({
                             borderRadius: 6,
                           }}
                         >
-                          + Add Rejection Line
+                          Add Rejection Line
                         </Button>
                       </div>
                     </div>
@@ -4360,8 +4370,8 @@ const EntryForm: React.FC<EntryFormProps> = ({
                                   <Form.Item name={[f.name, 'lineNumber']} noStyle hidden>
                                     <InputNumber min={1} />
                                   </Form.Item>
-                                  <Row gutter={6} align="middle">
-                                    <Col span={9}>
+                                  <Row gutter={[6, 6]} align="middle">
+                                    <Col xs={15} sm={9}>
                                       <Form.Item
                                         name={[f.name, 'downtimeReasonId']}
                                         noStyle
@@ -4388,7 +4398,7 @@ const EntryForm: React.FC<EntryFormProps> = ({
                                         />
                                       </Form.Item>
                                     </Col>
-                                    <Col span={6}>
+                                    <Col xs={9} sm={6}>
                                       <Form.Item
                                         name={[f.name, 'downtimeHours']}
                                         noStyle
@@ -4414,12 +4424,12 @@ const EntryForm: React.FC<EntryFormProps> = ({
                                         />
                                       </Form.Item>
                                     </Col>
-                                    <Col span={5}>
+                                    <Col xs={17} sm={5}>
                                       <Form.Item name={[f.name, 'remarks']} noStyle>
                                         <Input placeholder="Notes" style={{ height: 38 }} />
                                       </Form.Item>
                                     </Col>
-                                    <Col span={4}>
+                                    <Col xs={7} sm={4} style={{ textAlign: 'right' }}>
                                       <Space size={4}>
                                         <Tooltip title={confirmed ? 'Confirmed — click to reopen' : 'Confirm (OK) this downtime'}>
                                           <Button
@@ -4875,11 +4885,11 @@ const EntryForm: React.FC<EntryFormProps> = ({
 
           {/* ── ACTION BAR (Finalize & Submit) - Pinned Stationary Bottom Bar ── */}
           <div className="entry-form-sticky-footer">
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, width: '100%' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flexWrap: 'wrap' }}>
+            <div className="entry-form-sticky-footer-inner" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, width: '100%' }}>
+              <div className="entry-form-sticky-status" style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flexWrap: 'wrap' }}>
                 <Tag
                   color={isAllPriorStepsDone ? '#16a34a' : '#f59e0b'}
-                  style={{ fontWeight: 700, borderRadius: 12, padding: '2px 8px', fontSize: 11.5, margin: 0 }}
+                  style={{ fontWeight: 700, borderRadius: 12, padding: '2px 8px', fontSize: 11, margin: 0 }}
                 >
                   {isAllPriorStepsDone ? (
                     <>
@@ -4887,11 +4897,11 @@ const EntryForm: React.FC<EntryFormProps> = ({
                       ALL 8 STEPS OK · 100% READY
                     </>
                   ) : (
-                    `ALL 8 STEPS · ${8 - completedStepsCount} STEP(S) REMAINING`
+                    <>{`ALL 8 STEPS · ${8 - completedStepsCount} STEP(S) REMAINING`}</>
                   )}
                 </Tag>
-                <Text strong style={{ fontSize: 12.5, color: 'var(--theme-text, #ffffff)', whiteSpace: 'nowrap' }}>
-                  {isAllPriorStepsDone ? 'All 8 Steps Complete — Ready to Save' : 'Finalize & Submit Production Entry'}
+                <Text className="entry-form-sticky-label" strong style={{ fontSize: 12, color: 'var(--theme-text)', whiteSpace: 'nowrap' }}>
+                  {isAllPriorStepsDone ? 'All 8 Steps Complete — Ready to Save' : 'Complete all steps to unlock Save'}
                 </Text>
                 {submitBlocked && !resolvingMt && !isFullDowntime && (
                   <span style={{ fontSize: 11, color: '#f87171', background: 'rgba(239, 68, 68, 0.1)', padding: '2px 6px', borderRadius: 4, border: '1px solid rgba(239, 68, 68, 0.2)' }}>
@@ -4899,31 +4909,35 @@ const EntryForm: React.FC<EntryFormProps> = ({
                   </span>
                 )}
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+              <div className="entry-form-sticky-actions" style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
                 <Button
                   type="primary"
                   htmlType="submit"
-                  icon={isAllPriorStepsDone ? <CheckCircleFilled /> : <SaveOutlined />}
+                  className="entry-form-save-btn"
+                  icon={isAllPriorStepsDone ? <CheckCircleFilled /> : (isSaveDisabled ? <LockOutlined /> : <SaveOutlined />)}
                   loading={saving}
-                  disabled={submitBlocked}
+                  disabled={isSaveDisabled}
                   onClick={() => {
+                    if (isSaveDisabled) return;
                     form.submit();
                   }}
                   style={{
-                    background: isAllPriorStepsDone ? '#16a34a' : undefined,
-                    borderColor: isAllPriorStepsDone ? '#16a34a' : undefined,
-                    boxShadow: isAllPriorStepsDone ? '0 2px 10px rgba(22, 163, 74, 0.4)' : undefined,
+                    background: !isSaveDisabled && isAllPriorStepsDone ? '#16a34a' : undefined,
+                    borderColor: !isSaveDisabled && isAllPriorStepsDone ? '#16a34a' : undefined,
+                    boxShadow: !isSaveDisabled && isAllPriorStepsDone ? '0 2px 10px rgba(22, 163, 74, 0.4)' : undefined,
                     fontSize: 13.5,
-                    fontWeight: 700,
-                    height: 36,
-                    padding: '0 16px',
-                    borderRadius: 6,
+                    fontWeight: 800,
+                    height: 40,
+                    padding: '0 18px',
+                    borderRadius: 8,
                     transition: 'all 0.25s ease',
                   }}
                 >
                   {isAllPriorStepsDone
                     ? (mode === 'create' ? 'Save Production Entry (All 8 Steps OK · 100%)' : 'Update Production Entry (All 8 Steps OK · 100%)')
-                    : (mode === 'create' ? 'Save Production Entry' : 'Update Production Entry')}
+                    : (mode === 'create'
+                        ? `Save Production Entry (${8 - completedStepsCount} Step${8 - completedStepsCount === 1 ? '' : 's'} Left)`
+                        : 'Update Production Entry')}
                 </Button>
               </div>
             </div>
@@ -6708,10 +6722,20 @@ const ProductionItemLine: React.FC<{
   const [expanded, setExpanded] = useState(false);
 
   return (
-    <div data-testid={`production-item-row-${rowNumber}`} style={{ padding: '8px 0', borderBottom: '1px solid var(--theme-border, #f0f0f0)' }}>
-      <Row gutter={[6, 8]} align="middle">
+    <div
+      data-testid={`production-item-row-${rowNumber}`}
+      className="production-item-line-card"
+      style={{
+        padding: '8px 10px',
+        marginBottom: 8,
+        borderRadius: 8,
+        background: 'var(--theme-surface-alt)',
+        border: '1px solid var(--theme-border)',
+      }}
+    >
+      <Row gutter={[6, 6]} align="middle">
         {/* Col 1: Expand (+) Button and Row Number */}
-        <Col xs={4} sm={2} md={2} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+        <Col xs={3} sm={2} md={2} style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
           <Button
             type="text"
             size="small"
@@ -6726,7 +6750,7 @@ const ProductionItemLine: React.FC<{
         </Col>
 
         {/* Col 2: Item / Product Selection */}
-        <Col xs={20} sm={10} md={9}>
+        <Col xs={21} sm={10} md={9}>
           <Form.Item name={[fieldName, 'itemId']} noStyle rules={isFullDowntime ? [] : [{ required: true, message: 'Required' }]}>
             <Select
               style={{ width: '100%', height: 38 }}
