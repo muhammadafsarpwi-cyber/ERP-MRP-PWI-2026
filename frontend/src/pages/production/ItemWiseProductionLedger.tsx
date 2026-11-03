@@ -822,8 +822,11 @@ export const bucketDailyProduction = (
     const children = Array.isArray(entry?.nestedItems) ? entry.nestedItems : [];
     if (children.length > 0) {
       for (const child of children) {
-        const code = String(child?.itemCode ?? '').trim();
-        const qty = num(child?.actualQuantity);
+        // Strictly count OUTPUT lines; raw material consumption (INPUT) is never production output
+        const kind = String(child?.entryKind ?? child?.entry_kind ?? 'OUTPUT').toUpperCase();
+        if (kind === 'INPUT') continue;
+        const code = String(child?.itemCode ?? child?.item_code ?? '').trim();
+        const qty = num(child?.actualQuantity ?? child?.actual_quantity);
         if (!code || qty <= 0) continue;
         add(day, code, qty);
       }
@@ -1274,7 +1277,9 @@ export const buildChainGrid = (
         : round4(
             rowDef.stage === 'RM'
               ? num(src?.totalIn)
-              : Math.max(num(src?.produced), num(src?.totalIn)),
+              : rowDef.stage === 'FG' || rowDef.stage === 'NP'
+                ? (num(src?.produced) > 0 ? num(src?.produced) : num(src?.totalIn))
+                : num(src?.produced),
           ),
       multiplier,
       found: isDp ? Boolean(dpRowSource) : Boolean(src),

@@ -690,6 +690,13 @@ export class ProductionInventoryReportService {
               codeUpper.startsWith('WIP-SPL') ||
               codeUpper.startsWith('NIP-SPL') ||
               (item.section?.name || '').toLowerCase().includes('plating');
+            const isManufacturingWip =
+              codeUpper.startsWith('WIP-') ||
+              codeUpper.startsWith('NIP-') ||
+              isSpokePlating ||
+              (item.section?.name || '').toLowerCase().includes('spoke') ||
+              (item.section?.name || '').toLowerCase().includes('straight') ||
+              (item.section?.name || '').toLowerCase().includes('swag');
 
             const rangeIn = N(sl?.rangeIn);
             const rangeOut = N(sl?.rangeOut);
@@ -697,7 +704,7 @@ export class ProductionInventoryReportService {
             const scrapQty = N(sl?.scrapOut);
             const producedQty = N(prod);
 
-            const actualInbound = isSpokePlating && producedQty > 0 ? producedQty : rangeIn;
+            const actualInbound = isManufacturingWip && producedQty > 0 ? producedQty : rangeIn;
             const actualOutflow =
               isSpokePlating && (hpOutflow > 0 || scrapQty > 0) ? hpOutflow + scrapQty : rangeOut;
 
@@ -775,14 +782,21 @@ export class ProductionInventoryReportService {
 
       const codeUpper = (item.itemCode || '').toUpperCase();
       const isSpokePlating = codeUpper.startsWith('WIP-SPL') || codeUpper.startsWith('NIP-SPL') || (item.section?.name || '').toLowerCase().includes('plating');
+      const isManufacturingWip =
+        codeUpper.startsWith('WIP-') ||
+        codeUpper.startsWith('NIP-') ||
+        isSpokePlating ||
+        (item.section?.name || '').toLowerCase().includes('spoke') ||
+        (item.section?.name || '').toLowerCase().includes('straight') ||
+        (item.section?.name || '').toLowerCase().includes('swag');
 
       const openingBalance = R4(N(l?.openingIn) - N(l?.openingOut));
       const rangeIn = N(l?.rangeIn);
       const rangeOut = N(l?.rangeOut);
 
-      // Reconciled Inbound & Outflow for Spoke Plating series:
-      // Inbound is strictly actual production output from child lines (eliminates ~26k double-counting/ghost stock)
-      const actualInbound = (isSpokePlating && p?.produced != null && N(p?.produced) > 0)
+      // Reconciled Inbound for WIP manufacturing series (Straightening, Swaging, Spoke, Plating, Nipple WIP):
+      // Inbound is strictly actual production output from child lines (eliminates ~26k double-counting/ghost stock from reversals & transfers)
+      const actualInbound = (isManufacturingWip && p?.produced != null && N(p?.produced) > 0)
         ? N(p?.produced)
         : rangeIn;
 
