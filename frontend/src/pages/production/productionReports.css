@@ -26,8 +26,7 @@
     inset 0 1px 1px 0 rgba(255, 255, 255, 0.9);
   overflow: hidden;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  height: 96px;
-  padding: 14px 16px;
+  min-height: 94px;
 }
 
 [data-theme='dark'] .erp-pr-kpi-card {
@@ -232,4 +231,140 @@
   .erp-pr .ant-tabs-ink-bar,
   .erp-pr .ant-tabs-nav { display: none !important; }
   body { background: #fff !important; }
+}
+
+/* ── 7 Professional Filing Folder Tabs (فائل فولڈر انڈیکس ٹیبز) ── */
+.erp-pr-filing-tabs .ant-tabs-nav {
+  margin-bottom: 0 !important;
+  background: transparent;
+  border-bottom: 2px solid var(--theme-border, #cbd5e1);
+}
+
+.erp-pr-filing-tabs .ant-tabs-nav-wrap {
+  padding-top: 6px;
+}
+
+.erp-pr-filing-tabs .ant-tabs-nav-list {
+  gap: 4px;
+}
+
+/* Inactive File Folder Tab */
+.erp-pr-filing-tabs.ant-tabs-card > .ant-tabs-nav .ant-tabs-tab {
+  background: var(--theme-surface-alt, #f1f5f9) !important;
+  border: 1px solid var(--theme-border, #cbd5e1) !important;
+  border-bottom: none !important;
+  border-radius: 8px 8px 0 0 !important;
+  padding: 8px 16px !important;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--theme-text-secondary, #64748b) !important;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  margin-right: 0 !important;
+  position: relative;
+  top: 2px;
+}
+
+.erp-pr-filing-tabs.ant-tabs-card > .ant-tabs-nav .ant-tabs-tab:hover {
+  background: var(--theme-surface, #ffffff) !important;
+  color: var(--theme-text, #0f172a) !important;
+  transform: translateY(-2px);
+}
+
+/* Active Elevated File Folder Tab (فائل اوپن ڈیزائن) */
+.erp-pr-filing-tabs.ant-tabs-card > .ant-tabs-nav .ant-tabs-tab-active {
+  background: var(--theme-surface, #ffffff) !important;
+  border-color: var(--theme-primary, #4f46e5) var(--theme-border-strong, #94a3b8) transparent var(--theme-border-strong, #94a3b8) !important;
+  border-top: 3.5px solid var(--theme-primary, #4f46e5) !important;
+  border-bottom: 3px solid var(--theme-surface, #ffffff) !important;
+  border-radius: 10px 10px 0 0 !important;
+  color: var(--theme-primary, #4f46e5) !important;
+  font-weight: 700 !important;
+  box-shadow: 0 -6px 16px rgba(15, 23, 42, 0.08);
+  top: 0 !important;
+  z-index: 2;
+  padding-bottom: 10px !important;
+}
+
+[data-theme='dark'] .erp-pr-filing-tabs.ant-tabs-card > .ant-tabs-nav .ant-tabs-tab {
+  background: rgba(30, 41, 59, 0.7) !important;
+  border-color: rgba(255, 255, 255, 0.12) !important;
+  color: #94a3b8 !important;
+}
+
+[data-theme='dark'] .erp-pr-filing-tabs.ant-tabs-card > .ant-tabs-nav .ant-tabs-tab-active {
+  background: #1e293b !important;
+  border-top: 3.5px solid #818cf8 !important;
+  border-bottom: 3px solid #1e293b !important;
+  color: #818cf8 !important;
+  box-shadow: 0 -6px 20px rgba(0, 0, 0, 0.35);
+}
+
+/* Tab pill content */
+.erp-pr-tab-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.erp-pr-tab-badge {
+  display: inline-block;
+  padding: 1px 7px;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.08);
+  color: var(--theme-text-secondary, #475569);
+  line-height: 1.4;
+}
+
+.erp-pr-filing-tabs .ant-tabs-tab-active .erp-pr-tab-badge {
+  background: rgba(79, 70, 229, 0.12);
+  color: var(--theme-primary, #4f46e5);
+}
+
+.erp-pr-tab-badge--success {
+  background: rgba(22, 163, 74, 0.12) !important;
+  color: #16a34a !important;
+}
+
+.erp-pr-tab-badge--danger {
+  background: rgba(220, 38, 38, 0.12) !important;
+  color: #dc2626 !important;
+}
+
+/* Tab Content seamlessly joins active folder */
+.erp-pr-filing-tabs > .ant-tabs-content-holder {
+  background: var(--theme-surface, #ffffff);
+  border: 1px solid var(--theme-border, #e2e8f0);
+  border-top: none;
+  border-radius: 0 0 12px 12px;
+  padding: 14px;
+  box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.04);
+}
+
+[data-theme='dark'] .erp-pr-filing-tabs > .ant-tabs-content-holder {
+  background: #1e293b;
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+
+/* Centered card body for KPI cards */
+.erp-pr-kpi-card .ant-card-body {
+  padding: 12px 14px !important;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+/* Circular progress trail and text inside KPI cards */
+.erp-pr-kpi-card .ant-progress-circle-trail {
+  stroke: rgba(255, 255, 255, 0.12) !important;
+}
+[data-theme='light'] .erp-pr-kpi-card .ant-progress-circle-trail {
+  stroke: rgba(0, 0, 0, 0.06) !important;
+}
+.erp-pr-kpi-card .ant-progress-text {
+  color: var(--theme-text, inherit) !important;
+  font-weight: 700 !important;
 }

@@ -1,14 +1,15 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert, App, Button, Card, Dropdown, Row, Col, Select, DatePicker,
-  Space, Statistic, Tabs, Tag, Tooltip, Typography,
+  Progress, Space, Statistic, Tabs, Tag, Tooltip, Typography, theme,
 } from 'antd';
 import type { MenuProps } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import {
   ReloadOutlined, DownloadOutlined, FilePdfOutlined, FileExcelOutlined,
   PrinterOutlined, BarChartOutlined, AlertOutlined, AimOutlined, CarryOutOutlined,
-  ClusterOutlined, AppstoreOutlined, InfoCircleOutlined,
+  FilterOutlined, ClearOutlined, SearchOutlined,
+  ClusterOutlined, AppstoreOutlined, InfoCircleOutlined, CheckCircleOutlined, SettingOutlined, CarOutlined, FileTextOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { jsPDF } from 'jspdf';
@@ -17,7 +18,7 @@ import apiService from '../../services/api';
 import dashboardService, { FilterOption } from '../../services/dashboardService';
 import { PageHeader, PageToolbar, ERPTable, TabKeepAlive, GlobalLoading } from '../../components/shared';
 import { ITEM_TYPES } from '../master-data/items/itemTypes';
-import { calcActualKg, perUnitWeightLabel } from '../../utils/productionWeight';
+import { calcActualKg, perUnitWeightLabel, COUNT_UOMS } from '../../utils/productionWeight';
 import { tabSessionCache, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 import './productionReports.css';
 
@@ -35,15 +36,19 @@ interface ProductionReportsTabCache {
   entries: ProdEntryRow[];
   entriesTotal: number;
   entriesPage: number;
+  entriesPageSize?: number;
   orders: ProdOrderRow[];
   ordersTotal: number;
   ordersPage: number;
+  ordersPageSize?: number;
   targets: MachineTargetRow[];
   targetsTotal: number;
   targetsPage: number;
+  targetsPageSize?: number;
   shipments: SalesDeliveryRow[];
   shipmentsTotal: number;
   shipmentsPage: number;
+  shipmentsPageSize?: number;
   search: string;
   filters: Filters;
   dateRange: [dayjs.Dayjs | null, dayjs.Dayjs | null] | null;
@@ -70,7 +75,7 @@ interface ReportItem {
   itemDivisionName?: string | null; itemSectionName?: string | null; itemDepartmentName?: string | null;
   uomCode: string;
   baseWeight?: number | null; weightPerPiece?: number | null; weightPerMeter?: number | null; weightUomCode?: string | null;
-  actualKg?: number | null; scrapPct?: number | null;
+  actualKg?: number | null; scrapPct?: number | null; processScrapKg?: number;
   targetQuantity: number; actualQuantity: number; scrapQuantity: number;
   runningHours: number; downtimeHours: number; plannedHours: number; entryCount: number;
   achievementPercentage: number | null; efficiencyPercentage: number | null;
@@ -146,6 +151,13 @@ interface ScrapRow {
   weightPerPiece?: number | null; weightPerMeter?: number | null;
   target: number; actual: number; scrap: number;
   actualKg: number | null; scrapRate: number | null;
+  partRejectPcs: number;
+  partRejectKg: number;
+  partRejectPct: number | null;
+  processScrapKg: number;
+  processScrapPct: number | null;
+  totalScrapKg: number;
+  totalScrapPct: number | null;
 }
 interface FamilyRow {
   key: string; family: string; uomCodes: string; target: number; actual: number; actualKg: number; scrap: number;
@@ -159,6 +171,25 @@ const fmt = (n: number | string | null | undefined) =>
 /* Fixed 2-decimal format for fragile KG quantities — zero rows render as 0. */
 const fmt2 = (n: number | string | null | undefined) =>
   n == null || n === '' ? '–' : (Math.round(Number(n) * 100) / 100).toLocaleString('en-US', { maximumFractionDigits: 2 });
+/* Compact number formatter for large values (e.g. 7.04M, 5.60M, 45.2K) */
+const fmtCompact = (val: number | null | undefined): string => {
+  if (val == null || !Number.isFinite(Number(val))) return '–';
+  const num = Number(val);
+  const abs = Math.abs(num);
+  if (abs >= 1_000_000) {
+    return (num / 1_000_000).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + 'M';
+  }
+  if (abs >= 100_000) {
+    return (num / 1_000).toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + 'K';
+  }
+  return Math.round(num).toLocaleString('en-US');
+};
+/* Convert pieces (PCS) to Gross (1 Gross = 144 Pieces) */
+const fmtGross = (pcs: number | null | undefined): string => {
+  if (pcs == null || pcs === 0) return '0 Gr';
+  const gr = Math.round(Number(pcs) / 144);
+  return gr.toLocaleString('en-US') + ' Gr';
+};
 const n = (v: number | string | null | undefined): number => (v == null || v === '' ? 0 : Number(v));
 const pct = (v: number | null | undefined): string => {
   if (v == null) return '–';
@@ -256,6 +287,7 @@ function exportPdf(filename: string, title: string, subtitle: string, tables: Pd
 
 const ProductionReports: React.FC = () => {
   const { message } = App.useApp();
+  const { token } = theme.useToken();
   const cachedTab = useMemo(() => tabSessionCache.get<ProductionReportsTabCache>(PRODUCTION_REPORTS_TAB_ID), []);
 
   const [loading, setLoading] = useState(!cachedTab);
@@ -277,15 +309,19 @@ const ProductionReports: React.FC = () => {
   const [entries, setEntries] = useState<ProdEntryRow[]>(() => cachedTab?.entries ?? []);
   const [entriesTotal, setEntriesTotal] = useState<number>(() => cachedTab?.entriesTotal ?? 0);
   const [entriesPage, setEntriesPage] = useState<number>(() => cachedTab?.entriesPage ?? 1);
+  const [entriesPageSize, setEntriesPageSize] = useState<number>(() => cachedTab?.entriesPageSize ?? 20);
   const [orders, setOrders] = useState<ProdOrderRow[]>(() => cachedTab?.orders ?? []);
   const [ordersTotal, setOrdersTotal] = useState<number>(() => cachedTab?.ordersTotal ?? 0);
   const [ordersPage, setOrdersPage] = useState<number>(() => cachedTab?.ordersPage ?? 1);
+  const [ordersPageSize, setOrdersPageSize] = useState<number>(() => cachedTab?.ordersPageSize ?? 20);
   const [targets, setTargets] = useState<MachineTargetRow[]>(() => cachedTab?.targets ?? []);
   const [targetsTotal, setTargetsTotal] = useState<number>(() => cachedTab?.targetsTotal ?? 0);
   const [targetsPage, setTargetsPage] = useState<number>(() => cachedTab?.targetsPage ?? 1);
+  const [targetsPageSize, setTargetsPageSize] = useState<number>(() => cachedTab?.targetsPageSize ?? 50);
   const [shipments, setShipments] = useState<SalesDeliveryRow[]>(() => cachedTab?.shipments ?? []);
   const [shipmentsTotal, setShipmentsTotal] = useState<number>(() => cachedTab?.shipmentsTotal ?? 0);
   const [shipmentsPage, setShipmentsPage] = useState<number>(() => cachedTab?.shipmentsPage ?? 1);
+  const [shipmentsPageSize, setShipmentsPageSize] = useState<number>(() => cachedTab?.shipmentsPageSize ?? 20);
 
   /* ── Filter metadata ── */
   useEffect(() => {
@@ -340,30 +376,30 @@ const ProductionReports: React.FC = () => {
     setReport(r.success ? r : null);
   }, [reportParams]);
 
-  const loadEntries = useCallback(async (page = entriesPage) => {
-    const params: Record<string, string | number> = { page, limit: 20, ...reportParams };
+  const loadEntries = useCallback(async (page = entriesPage, limit = entriesPageSize) => {
+    const params: Record<string, string | number> = { page, limit, ...reportParams };
     if (search) params.search = search;
     const r = await apiService.get<{ success: boolean; data: ProdEntryRow[]; total: number }>('/production/entries', params);
     if (r.success) { setEntries(r.data); setEntriesTotal(n(r.total)); setEntriesPage(page); }
   }, [reportParams, search, entriesPage]);
 
-  const loadOrders = useCallback(async (page = ordersPage) => {
-    const params: Record<string, string | number> = { page, limit: 20, ...reportParams };
+  const loadOrders = useCallback(async (page = ordersPage, limit = ordersPageSize) => {
+    const params: Record<string, string | number> = { page, limit, ...reportParams };
     if (filters.status && ORDER_STATUSES.includes(filters.status)) params.status = filters.status;
     const r = await apiService.get<{ success: boolean; data: ProdOrderRow[]; total: number }>('/production/orders', params);
     if (r.success) { setOrders(r.data); setOrdersTotal(n(r.total)); setOrdersPage(page); }
   }, [reportParams, filters.status, ordersPage]);
 
-  const loadTargets = useCallback(async (page = targetsPage) => {
-    const params: Record<string, string | number> = { page, limit: 50, ...reportParams };
+  const loadTargets = useCallback(async (page = targetsPage, limit = targetsPageSize) => {
+    const params: Record<string, string | number> = { page, limit, ...reportParams };
     params.status = 'ACTIVE';
     if (search) params.search = search;
     const r = await apiService.get<{ data: MachineTargetRow[]; total: number }>('/production/machine-targets', params);
     setTargets(r.data || []); setTargetsTotal(n(r.total)); setTargetsPage(page);
   }, [reportParams, search, targetsPage]);
 
-  const loadShipments = useCallback(async (page = shipmentsPage) => {
-    const params: Record<string, string | number> = { page, limit: 20 };
+  const loadShipments = useCallback(async (page = shipmentsPage, limit = shipmentsPageSize) => {
+    const params: Record<string, string | number> = { page, limit };
     if (filters.status && DELIVERY_STATUSES.includes(filters.status)) params.status = filters.status;
     if (search) params.search = search;
     const r = await apiService.get<{ success: boolean; data: SalesDeliveryRow[]; total: number }>('/sales/deliveries', params);
@@ -372,23 +408,38 @@ const ProductionReports: React.FC = () => {
 
   const loadAll = async () => {
     setLoading(true); setError(null);
-    const results = await Promise.allSettled([
-      loadReport(), loadEntries(1), loadOrders(1), loadTargets(1), loadShipments(1),
-    ]);
-    const failed = results.filter((r) => r.status === 'rejected').length;
-    if (failed > 0) setError(`Some report sections failed to load (${failed} of ${results.length}).`);
+    try {
+      const results = await Promise.allSettled([
+        loadReport(), loadEntries(1), loadOrders(1), loadTargets(1), loadShipments(1),
+      ]);
+      const failed = results.filter((r) => r.status === 'rejected').length;
+      if (failed > 0) setError(`Some report sections failed to load (${failed} of ${results.length}).`);
 
-    // Persist to session cache so switching back restores all report sections
-    tabSessionCache.set<ProductionReportsTabCache>(PRODUCTION_REPORTS_TAB_ID, {
-      report,
-      entries, entriesTotal, entriesPage,
-      orders, ordersTotal, ordersPage,
-      targets, targetsTotal, targetsPage,
-      shipments, shipmentsTotal, shipmentsPage,
-      search, filters, dateRange, activeTab,
-    });
-    setLoading(false);
+      tabSessionCache.set<ProductionReportsTabCache>(PRODUCTION_REPORTS_TAB_ID, {
+        report,
+        entries, entriesTotal, entriesPage,
+        orders, ordersTotal, ordersPage,
+        targets, targetsTotal, targetsPage,
+        shipments, shipmentsTotal, shipmentsPage,
+        search, filters, dateRange, activeTab,
+      });
+    } catch (err: any) {
+      setError(err?.message || 'Failed to load report data.');
+    } finally {
+      setLoading(false);
+    }
   };
+
+  const handleApplyFilters = useCallback(() => {
+    void loadAll();
+  }, [loadReport, loadEntries, loadOrders, loadTargets, loadShipments]);
+
+  const handleClearFilters = useCallback(() => {
+    setFilters({});
+    setDateRange(null);
+    setSearch('');
+    setTimeout(() => { void loadAll(); }, 50);
+  }, [loadReport, loadEntries, loadOrders, loadTargets, loadShipments]);
 
   const loadAllRef = useRef(loadAll);
   loadAllRef.current = loadAll;
@@ -444,12 +495,25 @@ const ProductionReports: React.FC = () => {
     const rows: ScrapRow[] = [];
     (report?.departments ?? []).forEach((d) =>
       d.items.forEach((i) => {
-        // Item Master mapping: include only production categories (Raw Material,
-        // Work in Progress, Semi-Finished, Finished Good). Oils / consumables and
-        // generic items are NOT part of the mapping.
         if (!i.itemType || !MAPPED_ITEM_TYPES.has(i.itemType)) return;
-        const actual = i.actualQuantity;
-        const scrap = i.scrapQuantity;
+        const isCountUom = COUNT_UOMS.has((i.uomCode || '').toUpperCase().trim());
+        const actual = Number(i.actualQuantity || 0);
+        const actualKg = n(i.actualKg);
+
+        const rawScrap = Number(i.scrapQuantity || 0);
+        const processScrapKg = Number(i.processScrapKg || 0);
+
+        const partRejectPcs = isCountUom ? rawScrap : 0;
+        const partRejectKg = isCountUom
+          ? (calcActualKg(i.uomCode, rawScrap, i.weightPerPiece, i.weightPerMeter) ?? 0)
+          : rawScrap;
+
+        const totalScrapKg = Math.round((partRejectKg + processScrapKg) * 1000) / 1000;
+
+        const partRejectPct = actual > 0 && partRejectPcs > 0 ? (partRejectPcs / actual) * 100 : null;
+        const processScrapPct = actualKg > 0 && processScrapKg > 0 ? (processScrapKg / actualKg) * 100 : null;
+        const totalScrapPct = actualKg > 0 && totalScrapKg > 0 ? (totalScrapKg / actualKg) * 100 : null;
+
         rows.push({
           key: `${i.itemType}-${i.itemId}-${i.uomCode}`,
           itemType: i.itemType,
@@ -457,18 +521,27 @@ const ProductionReports: React.FC = () => {
           itemDivision: i.itemDivisionName ?? '',
           itemSection: i.itemSectionName ?? '',
           itemDepartment: i.itemDepartmentName ?? '',
-          itemCode: i.itemCode, itemName: i.itemName,
+          itemCode: i.itemCode,
+          itemName: i.itemName,
           uomCode: i.uomCode,
           family: familyOf(i.uomCode),
-          weightPerPiece: i.weightPerPiece, weightPerMeter: i.weightPerMeter,
-          target: i.targetQuantity, actual, scrap,
-          // Rejection % comes from the backend (Rejection KG ÷ Actual KG) — never
-          // computed against Actual PCS; null when Actual KG is 0.
-          actualKg: i.actualKg ?? null, scrapRate: i.scrapPct ?? null,
+          weightPerPiece: i.weightPerPiece,
+          weightPerMeter: i.weightPerMeter,
+          target: i.targetQuantity,
+          actual,
+          actualKg: i.actualKg ?? null,
+          partRejectPcs,
+          partRejectKg,
+          partRejectPct,
+          processScrapKg,
+          processScrapPct,
+          scrap: totalScrapKg,
+          scrapRate: totalScrapPct,
+          totalScrapKg,
+          totalScrapPct,
         });
       }),
     );
-    // Keep every matched Item Master item (zero-scrap rows still show 0.00).
     return rows.sort(
       (a, b) => mappedTypeRank(a.itemType) - mappedTypeRank(b.itemType)
         || a.itemDepartment.localeCompare(b.itemDepartment)
@@ -588,26 +661,65 @@ const ProductionReports: React.FC = () => {
     };
   }, [deptRows]);
 
-  /* Shipment KPI — Delivered/Shipped/Draft counts + value from /sales/deliveries. */
+  /* Shipment KPI — Confirmed/Delivered/Shipped/Draft counts + total value from /sales/deliveries. */
   const shipmentKpi = useMemo(() => {
     const all = shipments;
+    const confirmed = all.filter((d) => String(d.status).toUpperCase() === 'CONFIRMED');
     const delivered = all.filter((d) => String(d.status).toUpperCase() === 'DELIVERED');
     const shipped = all.filter((d) => String(d.status).toUpperCase() === 'SHIPPED');
     const draft = all.filter((d) => String(d.status).toUpperCase() === 'DRAFT');
-    const value = delivered.concat(shipped).reduce((s, d) => s + n(d.totalAmount), 0);
-    return { total: shipmentsTotal, delivered: delivered.length, shipped: shipped.length, draft: draft.length, value };
+    const activeDeliveries = all.filter((d) => String(d.status).toUpperCase() !== 'CANCELLED');
+    const value = activeDeliveries.reduce((s, d) => s + n(d.totalAmount || d.subtotal), 0);
+    return {
+      total: shipmentsTotal || all.length,
+      confirmed: confirmed.length,
+      delivered: delivered.length,
+      shipped: shipped.length,
+      draft: draft.length,
+      value,
+    };
   }, [shipments, shipmentsTotal]);
 
   /* KPIs scoped to the Scrap & Rejection mapping rows (already Item-Master-filtered). */
   const scrapKpi = useMemo(() => {
-    const target = scrapRows.reduce((s, r) => s + n(r.target), 0);
-    const actual = scrapRows.reduce((s, r) => s + n(r.actual), 0);
-    const scrap = scrapRows.reduce((s, r) => s + n(r.scrap), 0);
-    const actualKg = scrapRows.reduce((s, r) => s + n(r.actualKg), 0);
+    let target = 0, actual = 0, actualKg = 0, actualPcs = 0;
+    let partRejectPcs = 0, partRejectKg = 0, processScrapKg = 0, totalScrapKg = 0;
+
+    scrapRows.forEach((r) => {
+      target += n(r.target);
+      actual += n(r.actual);
+      if (COUNT_UOMS.has((r.uomCode || '').toUpperCase().trim())) {
+        actualPcs += n(r.actual);
+      }
+      actualKg += n(r.actualKg);
+      partRejectPcs += n(r.partRejectPcs);
+      partRejectKg += n(r.partRejectKg);
+      processScrapKg += n(r.processScrapKg);
+      totalScrapKg += n(r.totalScrapKg);
+    });
+
+    const totalScrapPct = actualKg > 0 ? (totalScrapKg / actualKg) * 100 : (partRejectPcs > 0 ? 100 : 0);
+    const effectiveActualPcs = actualPcs > 0 ? actualPcs : actual;
+    const partRejectPcsPct = effectiveActualPcs > 0 ? (partRejectPcs / effectiveActualPcs) * 100 : 0;
+    const partRejectKgPct = actualKg > 0 ? (partRejectKg / actualKg) * 100 : 0;
+    const processScrapPct = actualKg > 0 ? (processScrapKg / actualKg) * 100 : 0;
+
     return {
       items: scrapRows.length,
-      target, actual, scrap,
-      scrapRate: actualKg > 0 ? (scrap / actualKg) * 100 : scrap > 0 ? 100 : 0,
+      target,
+      actual,
+      actualPcs: effectiveActualPcs,
+      actualKg: Math.round(actualKg * 100) / 100,
+      scrap: Math.round(totalScrapKg * 100) / 100,
+      partRejectPcs: Math.round(partRejectPcs),
+      partRejectPcsPct: Math.round(partRejectPcsPct * 100) / 100,
+      partRejectKg: Math.round(partRejectKg * 100) / 100,
+      partRejectKgPct: Math.round(partRejectKgPct * 100) / 100,
+      processScrapKg: Math.round(processScrapKg * 100) / 100,
+      processScrapPct: Math.round(processScrapPct * 100) / 100,
+      totalScrapKg: Math.round(totalScrapKg * 100) / 100,
+      totalScrapPct: Math.round(totalScrapPct * 100) / 100,
+      scrapRate: Math.round(totalScrapPct * 100) / 100,
       topDept: scrapRows[0]?.itemDepartment ?? '–',
     };
   }, [scrapRows]);
@@ -734,18 +846,94 @@ const ProductionReports: React.FC = () => {
         <div><Text type="secondary" style={{ fontSize: 11 }}>{r.divisionName}</Text></div>
       </div>
     ) },
-    { title: 'Item Code', dataIndex: 'itemCode', key: 'code', width: 120, sorter: (a, b) => a.itemCode.localeCompare(b.itemCode) },
-    { title: 'Item', dataIndex: 'itemName', key: 'item', width: 200, sorter: (a, b) => a.itemName.localeCompare(b.itemName) },
+    {
+      title: 'Item',
+      key: 'itemAndCode',
+      width: 230,
+      sorter: (a, b) => a.itemName.localeCompare(b.itemName),
+      render: (_, r) => (
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Tag color="blue" style={{ margin: 0, fontSize: 11, fontWeight: 700, padding: '0 5px', lineHeight: '18px' }}>
+              {r.itemCode}
+            </Tag>
+          </div>
+          <div style={{ fontWeight: 600, fontSize: 12.5, marginTop: 3 }}>
+            {r.itemName}
+          </div>
+        </div>
+      ),
+    },
     { title: 'UOM', dataIndex: 'uomCode', key: 'uom', width: 70 },
     { title: 'Per Unit Weight', key: 'perUnitWeight', width: 110, render: (_, r) => (
       <Text type="secondary" style={{ fontVariantNumeric: 'tabular-nums', fontSize: 12 }}>{perUnitWeightLabel(r.uomCode, r.weightPerPiece, r.weightPerMeter) ?? '—'}</Text>
     ) },
-    { title: 'Target', dataIndex: 'target', key: 'target', align: 'right', width: 95, sorter: (a, b) => a.target - b.target, render: (v: number) => fmt(v) },
-    { title: 'Actual', dataIndex: 'actual', key: 'actual', align: 'right', width: 95, sorter: (a, b) => a.actual - b.actual, render: (v: number) => fmt(v) },
+    {
+      title: 'Target',
+      dataIndex: 'target',
+      key: 'target',
+      align: 'right',
+      width: 105,
+      sorter: (a, b) => a.target - b.target,
+      render: (v: number, r) => {
+        const isCount = COUNT_UOMS.has((r.uomCode || '').toUpperCase().trim());
+        return (
+          <div style={{ fontVariantNumeric: 'tabular-nums' }}>
+            <div style={{ fontWeight: 600 }}>{fmt(v)}</div>
+            {isCount && v > 0 && (
+              <div style={{ fontSize: 11, color: 'var(--theme-text-secondary, #64748b)', fontWeight: 500 }}>
+                {fmtGross(v)}
+              </div>
+            )}
+          </div>
+        );
+      },
+    },
+    {
+      title: 'Actual',
+      dataIndex: 'actual',
+      key: 'actual',
+      align: 'right',
+      width: 105,
+      sorter: (a, b) => a.actual - b.actual,
+      render: (v: number, r) => {
+        const isCount = COUNT_UOMS.has((r.uomCode || '').toUpperCase().trim());
+        return (
+          <div style={{ fontVariantNumeric: 'tabular-nums' }}>
+            <div style={{ fontWeight: 600, color: '#16a34a' }}>{fmt(v)}</div>
+            {isCount && v > 0 && (
+              <div style={{ fontSize: 11, color: 'var(--theme-text-secondary, #64748b)', fontWeight: 500 }}>
+                {fmtGross(v)}
+              </div>
+            )}
+          </div>
+        );
+      },
+    },
     { title: 'Actual KG', key: 'actualKg', align: 'right', width: 100, sorter: (a, b) => n(a.actualKg) - n(b.actualKg), render: (_, r) => <Text style={{ fontVariantNumeric: 'tabular-nums' }}>{r.actualKg == null ? '—' : fmt2(r.actualKg)}</Text> },
-    { title: 'Variance', dataIndex: 'variance', key: 'var', align: 'right', width: 95, sorter: (a, b) => a.variance - b.variance, render: (v: number) => (
-      <span style={{ fontVariantNumeric: 'tabular-nums', color: v >= 0 ? '#16a34a' : '#dc2626', fontWeight: 600 }}>{v >= 0 ? '+' : ''}{fmt(v)}</span>
-    ) },
+    {
+      title: 'Variance',
+      dataIndex: 'variance',
+      key: 'var',
+      align: 'right',
+      width: 105,
+      sorter: (a, b) => a.variance - b.variance,
+      render: (v: number, r) => {
+        const isCount = COUNT_UOMS.has((r.uomCode || '').toUpperCase().trim());
+        return (
+          <div style={{ fontVariantNumeric: 'tabular-nums' }}>
+            <span style={{ color: v >= 0 ? '#16a34a' : '#dc2626', fontWeight: 600 }}>
+              {v >= 0 ? '+' : ''}{fmt(v)}
+            </span>
+            {isCount && v !== 0 && (
+              <div style={{ fontSize: 11, color: v >= 0 ? '#16a34a' : '#dc2626', fontWeight: 500 }}>
+                {v >= 0 ? '+' : ''}{fmtGross(Math.abs(v))}
+              </div>
+            )}
+          </div>
+        );
+      },
+    },
     { title: 'Achievement', dataIndex: 'achievement', key: 'ach', align: 'center', width: 110, sorter: (a, b) => n(a.achievement) - n(b.achievement), render: (v: number | null) => <AchievementBadge value={v} /> },
   ];
 
@@ -932,25 +1120,314 @@ const ProductionReports: React.FC = () => {
     </>
   )) || (activeTab === 'scrap' && (
     <>
-      <Col xs={12} sm={8} md={6}><Card className="erp-pr-kpi-card erp-pr-kpi-card--tone-danger"><Statistic title="Total Scrap" value={scrapKpi.scrap} /></Card></Col>
-      <Col xs={12} sm={8} md={6}><Card className="erp-pr-kpi-card erp-pr-kpi-card--tone-primary"><Statistic title="Items Mapped" value={scrapKpi.items} /></Card></Col>
-      <Col xs={12} sm={8} md={6}><Card className="erp-pr-kpi-card erp-pr-kpi-card--tone-warning"><Statistic title="Scrap Rate" value={scrapKpi.scrapRate} precision={2} suffix="%" /></Card></Col>
-      <Col xs={12} sm={8} md={6}><Card className="erp-pr-kpi-card erp-pr-kpi-card--tone-cyan"><Statistic title="Top Department" value={scrapKpi.topDept} /></Card></Col>
+      {/* 1. Total Scrap (KG) with Circle Progress */}
+      <Col xs={12} sm={8} md={4}>
+        <Card className="erp-pr-kpi-card erp-pr-kpi-card--tone-danger">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, width: '100%' }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div className="ant-statistic-title" style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.4px', textTransform: 'uppercase', marginBottom: 2 }}>
+                Total Scrap (KG)
+              </div>
+              <div style={{ fontSize: 19, fontWeight: 800, color: '#ef4444', lineHeight: 1.2, whiteSpace: 'nowrap' }}>
+                {fmt2(scrapKpi.totalScrapKg)} <span style={{ fontSize: 12, fontWeight: 600 }}>KG</span>
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--theme-text-secondary, #64748b)', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                Part + Process
+              </div>
+            </div>
+            <Tooltip title={`Total Scrap Rate: ${scrapKpi.totalScrapPct.toFixed(2)}% of Actual KG`}>
+              <div style={{ flexShrink: 0 }}>
+                <Progress
+                  type="circle"
+                  size={46}
+                  percent={Math.min(100, Math.max(0, scrapKpi.totalScrapPct))}
+                  strokeColor="#ef4444"
+                  strokeWidth={7}
+                  format={() => (
+                    <span style={{ fontSize: 9.5, fontWeight: 700, color: 'inherit' }}>
+                      ${scrapKpi.totalScrapPct.toFixed(2)}%
+                    </span>
+                  )}
+                />
+              </div>
+            </Tooltip>
+          </div>
+        </Card>
+      </Col>
+
+      {/* 2. Part Rejection (PCS) with Circle Progress */}
+      <Col xs={12} sm={8} md={4}>
+        <Card className="erp-pr-kpi-card erp-pr-kpi-card--tone-danger">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, width: '100%' }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div className="ant-statistic-title" style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.4px', textTransform: 'uppercase', marginBottom: 2 }}>
+                Part Rejection (PCS)
+              </div>
+              <div style={{ fontSize: 19, fontWeight: 800, color: '#f43f5e', lineHeight: 1.2, whiteSpace: 'nowrap' }}>
+                {fmt(scrapKpi.partRejectPcs)} <span style={{ fontSize: 12, fontWeight: 600 }}>PCS</span>
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--theme-text-secondary, #64748b)', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                Defective Units
+              </div>
+            </div>
+            <Tooltip title={`Part Rejection % (Pcs): ${scrapKpi.partRejectPcsPct.toFixed(2)}% of Produced Pieces`}>
+              <div style={{ flexShrink: 0 }}>
+                <Progress
+                  type="circle"
+                  size={46}
+                  percent={Math.min(100, Math.max(0, scrapKpi.partRejectPcsPct))}
+                  strokeColor="#f43f5e"
+                  strokeWidth={7}
+                  format={() => (
+                    <span style={{ fontSize: 9.5, fontWeight: 700, color: 'inherit' }}>
+                      ${scrapKpi.partRejectPcsPct.toFixed(2)}%
+                    </span>
+                  )}
+                />
+              </div>
+            </Tooltip>
+          </div>
+        </Card>
+      </Col>
+
+      {/* 3. Part Rejection (KG) with Circle Progress */}
+      <Col xs={12} sm={8} md={4}>
+        <Card className="erp-pr-kpi-card erp-pr-kpi-card--tone-purple">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, width: '100%' }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div className="ant-statistic-title" style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.4px', textTransform: 'uppercase', marginBottom: 2 }}>
+                Part Rejection (KG)
+              </div>
+              <div style={{ fontSize: 19, fontWeight: 800, color: '#8b5cf6', lineHeight: 1.2, whiteSpace: 'nowrap' }}>
+                {fmt2(scrapKpi.partRejectKg)} <span style={{ fontSize: 12, fontWeight: 600 }}>KG</span>
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--theme-text-secondary, #64748b)', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                Rejected Weight
+              </div>
+            </div>
+            <Tooltip title={`Part Rejection % (KG): ${scrapKpi.partRejectKgPct.toFixed(2)}% of Actual KG`}>
+              <div style={{ flexShrink: 0 }}>
+                <Progress
+                  type="circle"
+                  size={46}
+                  percent={Math.min(100, Math.max(0, scrapKpi.partRejectKgPct))}
+                  strokeColor="#8b5cf6"
+                  strokeWidth={7}
+                  format={() => (
+                    <span style={{ fontSize: 9.5, fontWeight: 700, color: 'inherit' }}>
+                      ${scrapKpi.partRejectKgPct.toFixed(2)}%
+                    </span>
+                  )}
+                />
+              </div>
+            </Tooltip>
+          </div>
+        </Card>
+      </Col>
+
+      {/* 4. Process Scrap (KG) with Circle Progress */}
+      <Col xs={12} sm={8} md={4}>
+        <Card className="erp-pr-kpi-card erp-pr-kpi-card--tone-warning">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, width: '100%' }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div className="ant-statistic-title" style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.4px', textTransform: 'uppercase', marginBottom: 2 }}>
+                Process Scrap (KG)
+              </div>
+              <div style={{ fontSize: 19, fontWeight: 800, color: '#f59e0b', lineHeight: 1.2, whiteSpace: 'nowrap' }}>
+                {fmt2(scrapKpi.processScrapKg)} <span style={{ fontSize: 12, fontWeight: 600 }}>KG</span>
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--theme-text-secondary, #64748b)', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                Cutting & Filings
+              </div>
+            </div>
+            <Tooltip title={`Process Scrap %: ${scrapKpi.processScrapPct.toFixed(2)}% of Actual KG`}>
+              <div style={{ flexShrink: 0 }}>
+                <Progress
+                  type="circle"
+                  size={46}
+                  percent={Math.min(100, Math.max(0, scrapKpi.processScrapPct))}
+                  strokeColor="#f59e0b"
+                  strokeWidth={7}
+                  format={() => (
+                    <span style={{ fontSize: 9.5, fontWeight: 700, color: 'inherit' }}>
+                      ${scrapKpi.processScrapPct.toFixed(2)}%
+                    </span>
+                  )}
+                />
+              </div>
+            </Tooltip>
+          </div>
+        </Card>
+      </Col>
+
+      {/* 5. Overall Rejection % with Circle Progress */}
+      <Col xs={12} sm={8} md={4}>
+        <Card className="erp-pr-kpi-card erp-pr-kpi-card--tone-primary">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, width: '100%' }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div className="ant-statistic-title" style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.4px', textTransform: 'uppercase', marginBottom: 2 }}>
+                Overall Rejection %
+              </div>
+              <div style={{ fontSize: 19, fontWeight: 800, color: '#6366f1', lineHeight: 1.2, whiteSpace: 'nowrap' }}>
+                {scrapKpi.scrapRate.toFixed(2)}%
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--theme-text-secondary, #64748b)', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                Actual: {fmt2(scrapKpi.actualKg)} KG
+              </div>
+            </div>
+            <Tooltip title={`Combined Scrap Rate: ${scrapKpi.scrapRate.toFixed(2)}%`}>
+              <div style={{ flexShrink: 0 }}>
+                <Progress
+                  type="circle"
+                  size={46}
+                  percent={Math.min(100, Math.max(0, scrapKpi.scrapRate))}
+                  strokeColor="#6366f1"
+                  strokeWidth={7}
+                  format={() => (
+                    <span style={{ fontSize: 9.5, fontWeight: 700, color: 'inherit' }}>
+                      ${scrapKpi.scrapRate.toFixed(2)}%
+                    </span>
+                  )}
+                />
+              </div>
+            </Tooltip>
+          </div>
+        </Card>
+      </Col>
+
+      {/* 6. Top Department */}
+      <Col xs={12} sm={8} md={4}>
+        <Card className="erp-pr-kpi-card erp-pr-kpi-card--tone-cyan">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, width: '100%' }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div className="ant-statistic-title" style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.4px', textTransform: 'uppercase', marginBottom: 2 }}>
+                Top Department
+              </div>
+              <div style={{ fontSize: 18, fontWeight: 800, color: '#06b6d4', lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={scrapKpi.topDept}>
+                {scrapKpi.topDept}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--theme-text-secondary, #64748b)', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                Highest Rejection
+              </div>
+            </div>
+            <div style={{ flexShrink: 0, paddingRight: 4 }}>
+              <ClusterOutlined style={{ fontSize: 30, color: '#06b6d4', opacity: 0.85 }} />
+            </div>
+          </div>
+        </Card>
+      </Col>
     </>
   )) || (activeTab === 'target' && (
     <>
-      <Col xs={12} sm={8} md={6}><Card className="erp-pr-kpi-card erp-pr-kpi-card--tone-primary"><Statistic title="Total Target" value={kpi.target} /></Card></Col>
-      <Col xs={12} sm={8} md={6}><Card className="erp-pr-kpi-card erp-pr-kpi-card--tone-success"><Statistic title="Total Actual" value={kpi.actual} /></Card></Col>
-      <Col xs={12} sm={8} md={6}><Card className="erp-pr-kpi-card erp-pr-kpi-card--tone-warning"><Statistic title="Achievement" value={kpi.achievement ?? 0} precision={1} suffix="%" /></Card></Col>
-      <Col xs={12} sm={8} md={6}><Card className="erp-pr-kpi-card erp-pr-kpi-card--tone-cyan"><Statistic title="Machine Targets" value={targetsTotal} /></Card></Col>
+      {/* 1. Total Target */}
+      <Col xs={12} sm={8} md={6}>
+        <Card className="erp-pr-kpi-card erp-pr-kpi-card--tone-primary">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, width: '100%' }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div className="ant-statistic-title" style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.4px', textTransform: 'uppercase', marginBottom: 2 }}>
+                Total Target
+              </div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: '#3b82f6', lineHeight: 1.2, whiteSpace: 'nowrap' }} title={`${fmt(kpi.target)} PCS`}>
+                {fmtCompact(kpi.target)} <span style={{ fontSize: 12.5, fontWeight: 700 }}>PCS</span>
+              </div>
+              <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--theme-text-secondary, #64748b)', marginTop: 2, whiteSpace: 'nowrap' }}>
+                {fmtGross(kpi.target)} <span style={{ fontSize: 10, fontWeight: 500, opacity: 0.8 }}>(144 pcs/Gr)</span>
+              </div>
+            </div>
+            <div style={{ flexShrink: 0, paddingRight: 4 }}>
+              <AimOutlined style={{ fontSize: 32, color: '#3b82f6', opacity: 0.85 }} />
+            </div>
+          </div>
+        </Card>
+      </Col>
+
+      {/* 2. Total Actual */}
+      <Col xs={12} sm={8} md={6}>
+        <Card className="erp-pr-kpi-card erp-pr-kpi-card--tone-success">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, width: '100%' }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div className="ant-statistic-title" style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.4px', textTransform: 'uppercase', marginBottom: 2 }}>
+                Total Actual
+              </div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: '#10b981', lineHeight: 1.2, whiteSpace: 'nowrap' }} title={`${fmt(kpi.actual)} PCS`}>
+                {fmtCompact(kpi.actual)} <span style={{ fontSize: 12.5, fontWeight: 700 }}>PCS</span>
+              </div>
+              <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--theme-text-secondary, #64748b)', marginTop: 2, whiteSpace: 'nowrap' }}>
+                {fmtGross(kpi.actual)} <span style={{ fontSize: 10, fontWeight: 500, opacity: 0.8 }}>(144 pcs/Gr)</span>
+              </div>
+            </div>
+            <div style={{ flexShrink: 0, paddingRight: 4 }}>
+              <CheckCircleOutlined style={{ fontSize: 32, color: '#10b981', opacity: 0.85 }} />
+            </div>
+          </div>
+        </Card>
+      </Col>
+
+      {/* 3. Achievement with Circular Progress */}
+      <Col xs={12} sm={8} md={6}>
+        <Card className="erp-pr-kpi-card erp-pr-kpi-card--tone-warning">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, width: '100%' }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div className="ant-statistic-title" style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.4px', textTransform: 'uppercase', marginBottom: 2 }}>
+                Achievement
+              </div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: (kpi.achievement ?? 0) >= 90 ? '#10b981' : (kpi.achievement ?? 0) >= 75 ? '#f59e0b' : '#ef4444', lineHeight: 1.2, whiteSpace: 'nowrap' }}>
+                {(kpi.achievement ?? 0).toFixed(1)}%
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--theme-text-secondary, #64748b)', marginTop: 2, whiteSpace: 'nowrap' }}>
+                Actual vs Target Rate
+              </div>
+            </div>
+            <Tooltip title={`Target Achievement: ${(kpi.achievement ?? 0).toFixed(1)}%`}>
+              <div style={{ flexShrink: 0 }}>
+                <Progress
+                  type="circle"
+                  size={48}
+                  percent={Math.min(100, Math.max(0, kpi.achievement ?? 0))}
+                  strokeColor={(kpi.achievement ?? 0) >= 90 ? '#10b981' : (kpi.achievement ?? 0) >= 75 ? '#f59e0b' : '#ef4444'}
+                  strokeWidth={7}
+                  format={() => (
+                    <span style={{ fontSize: 10, fontWeight: 700, color: 'inherit' }}>
+                      ${(kpi.achievement ?? 0).toFixed(1)}%
+                    </span>
+                  )}
+                />
+              </div>
+            </Tooltip>
+          </div>
+        </Card>
+      </Col>
+
+      {/* 4. Machine Targets */}
+      <Col xs={12} sm={8} md={6}>
+        <Card className="erp-pr-kpi-card erp-pr-kpi-card--tone-cyan">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, width: '100%' }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div className="ant-statistic-title" style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.4px', textTransform: 'uppercase', marginBottom: 2 }}>
+                Machine Targets
+              </div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: '#06b6d4', lineHeight: 1.2, whiteSpace: 'nowrap' }}>
+                {fmt(targetsTotal)}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--theme-text-secondary, #64748b)', marginTop: 2, whiteSpace: 'nowrap' }}>
+                Configured Targets
+              </div>
+            </div>
+            <div style={{ flexShrink: 0, paddingRight: 4 }}>
+              <SettingOutlined style={{ fontSize: 32, color: '#06b6d4', opacity: 0.85 }} />
+            </div>
+          </div>
+        </Card>
+      </Col>
     </>
   )) || (activeTab === 'shipments' && (
     <>
       <Col xs={12} sm={8} md={4}><Card className="erp-pr-kpi-card erp-pr-kpi-card--tone-primary"><Statistic title="Total Deliveries" value={shipmentKpi.total} /></Card></Col>
+      <Col xs={12} sm={8} md={4}><Card className="erp-pr-kpi-card erp-pr-kpi-card--tone-cyan"><Statistic title="Confirmed" value={shipmentKpi.confirmed} /></Card></Col>
       <Col xs={12} sm={8} md={4}><Card className="erp-pr-kpi-card erp-pr-kpi-card--tone-success"><Statistic title="Delivered" value={shipmentKpi.delivered} /></Card></Col>
-      <Col xs={12} sm={8} md={4}><Card className="erp-pr-kpi-card erp-pr-kpi-card--tone-cyan"><Statistic title="Shipped" value={shipmentKpi.shipped} /></Card></Col>
+      <Col xs={12} sm={8} md={4}><Card className="erp-pr-kpi-card erp-pr-kpi-card--tone-primary"><Statistic title="Shipped / In Transit" value={shipmentKpi.shipped} /></Card></Col>
       <Col xs={12} sm={8} md={4}><Card className="erp-pr-kpi-card erp-pr-kpi-card--tone-warning"><Statistic title="Draft" value={shipmentKpi.draft} /></Card></Col>
-      <Col xs={12} sm={8} md={4}><Card className="erp-pr-kpi-card erp-pr-kpi-card--tone-purple"><Statistic title="Shipment Value" value={shipmentKpi.value} /></Card></Col>
+      <Col xs={12} sm={8} md={4}><Card className="erp-pr-kpi-card erp-pr-kpi-card--tone-purple"><Statistic title="Total Shipment Value" value={Math.round(shipmentKpi.value)} prefix="PKR " /></Card></Col>
     </>
   )) || null;
 
@@ -992,37 +1469,55 @@ const ProductionReports: React.FC = () => {
 
         {showFilters && (
           <Card className="erp-pr-filter-card" style={{ marginBottom: 10 }} styles={{ body: { padding: '10px 14px 12px' } }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8, alignItems: 'center', width: '100%', maxWidth: 1440, margin: '0 auto' }}>
-              <RangePicker
-                allowClear
-                value={dateRange}
-                onChange={(v) => setDateRange(v as [dayjs.Dayjs | null, dayjs.Dayjs | null] | null)}
-                style={{ width: '100%' }}
-              />
-              <Select
-                allowClear showSearch optionFilterProp="label"
-                placeholder="Division" value={filters.divisionId} style={{ width: '100%' }}
-                options={divisions.map((d) => ({ value: d.id, label: d.name }))}
-                onChange={(v) => setFilters((p) => ({ ...p, divisionId: v, departmentId: undefined }))}
-              />
-              <Select
-                allowClear showSearch optionFilterProp="label"
-                placeholder="Department" value={filters.departmentId} style={{ width: '100%' }}
-                disabled={!filters.divisionId}
-                options={departments.map((d) => ({ value: d.id, label: d.name }))}
-                onChange={(v) => setFilters((p) => ({ ...p, departmentId: v }))}
-              />
-              <Select
-                allowClear showSearch optionFilterProp="label"
-                placeholder="Shift" value={filters.shiftId} style={{ width: '100%' }}
-                options={shifts.map((s) => ({ value: s.id, label: `${s.shiftCode} · ${s.name.trim()}` }))}
-                onChange={(v) => setFilters((p) => ({ ...p, shiftId: v }))}
-              />
-              <Select
-                allowClear placeholder="Status" value={filters.status} style={{ width: '100%' }}
-                options={ORDER_STATUSES.concat(DELIVERY_STATUSES).filter((v, i, a) => a.indexOf(v) === i).map((s) => ({ value: s, label: s }))}
-                onChange={(v) => setFilters((p) => ({ ...p, status: v }))}
-              />
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', width: '100%' }}>
+              <div style={{ flex: '1 1 200px', minWidth: 180 }}>
+                <RangePicker
+                  allowClear
+                  value={dateRange}
+                  onChange={(v) => setDateRange(v as [dayjs.Dayjs | null, dayjs.Dayjs | null] | null)}
+                  style={{ width: '100%' }}
+                />
+              </div>
+              <div style={{ flex: '1 1 160px', minWidth: 140 }}>
+                <Select
+                  allowClear showSearch optionFilterProp="label"
+                  placeholder="Division" value={filters.divisionId} style={{ width: '100%' }}
+                  options={divisions.map((d) => ({ value: d.id, label: d.name }))}
+                  onChange={(v) => setFilters((p) => ({ ...p, divisionId: v, departmentId: undefined }))}
+                />
+              </div>
+              <div style={{ flex: '1 1 160px', minWidth: 140 }}>
+                <Select
+                  allowClear showSearch optionFilterProp="label"
+                  placeholder="Department" value={filters.departmentId} style={{ width: '100%' }}
+                  disabled={!filters.divisionId}
+                  options={departments.map((d) => ({ value: d.id, label: d.name }))}
+                  onChange={(v) => setFilters((p) => ({ ...p, departmentId: v }))}
+                />
+              </div>
+              <div style={{ flex: '1 1 130px', minWidth: 110 }}>
+                <Select
+                  allowClear showSearch optionFilterProp="label"
+                  placeholder="Shift" value={filters.shiftId} style={{ width: '100%' }}
+                  options={shifts.map((s) => ({ value: s.id, label: `${s.shiftCode} · ${s.name.trim()}` }))}
+                  onChange={(v) => setFilters((p) => ({ ...p, shiftId: v }))}
+                />
+              </div>
+              <div style={{ flex: '1 1 130px', minWidth: 110 }}>
+                <Select
+                  allowClear placeholder="Status" value={filters.status} style={{ width: '100%' }}
+                  options={ORDER_STATUSES.concat(DELIVERY_STATUSES).filter((v, i, a) => a.indexOf(v) === i).map((s) => ({ value: s, label: s }))}
+                  onChange={(v) => setFilters((p) => ({ ...p, status: v }))}
+                />
+              </div>
+              <div style={{ display: 'flex', gap: 6, flexShrink: 0, marginLeft: 'auto' }}>
+                <Button type="primary" icon={<FilterOutlined />} loading={loading} onClick={handleApplyFilters}>
+                  Apply Filters
+                </Button>
+                <Button icon={<ClearOutlined />} onClick={handleClearFilters}>
+                  Clear Filters
+                </Button>
+              </div>
             </div>
           </Card>
         )}
@@ -1062,7 +1557,13 @@ const ProductionReports: React.FC = () => {
         items={[
           {
             key: 'dept',
-            label: <span><BarChartOutlined /> Item-wise Production</span>,
+            label: (
+              <span className="erp-pr-tab-label">
+                <BarChartOutlined />
+                <span>Item-wise Production</span>
+                <span className="erp-pr-tab-badge">{fmt(kpi.entryCount)}</span>
+              </span>
+            ),
             children: (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 <Card size="small" className="erp-section-card"
@@ -1110,10 +1611,16 @@ const ProductionReports: React.FC = () => {
           },
           {
             key: 'scrap',
-            label: <span><AlertOutlined /> Scrap & Rejection</span>,
+            label: (
+              <span className="erp-pr-tab-label">
+                <AlertOutlined />
+                <span>Scrap & Rejection</span>
+                <span className="erp-pr-tab-badge erp-pr-tab-badge--scrap">{fmt2(scrapKpi.totalScrapKg)} KG</span>
+              </span>
+            ),
             children: (
               <Card size="small" className="erp-section-card"
-                title={`Scrap & Rejection — Item Master Mapping (${fmt(scrapKpi.items)} items, total scrap ${fmt(scrapKpi.scrap)})`}>
+                title={`Scrap & Rejection — Item Master Mapping (${fmt(scrapKpi.items)} items, total scrap ${fmt2(scrapKpi.totalScrapKg)} KG)`}>
                 <ERPTable<ScrapRow>
                   rowKey="key"
                   dense
@@ -1130,7 +1637,13 @@ const ProductionReports: React.FC = () => {
           },
           {
             key: 'target',
-            label: <span><AimOutlined /> Target vs Actual</span>,
+            label: (
+              <span className="erp-pr-tab-label">
+                <AimOutlined />
+                <span>Target vs Actual</span>
+                <span className="erp-pr-tab-badge erp-pr-tab-badge--target">{fmt(targetRows.length)}</span>
+              </span>
+            ),
             children: (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 <Card size="small" className="erp-section-card"
@@ -1166,7 +1679,13 @@ const ProductionReports: React.FC = () => {
           },
           {
             key: 'family',
-            label: <span><ClusterOutlined /> Production Family</span>,
+            label: (
+              <span className="erp-pr-tab-label">
+                <ClusterOutlined />
+                <span>Production Family</span>
+                <span className="erp-pr-tab-badge">{fmt(familyRows.length)}</span>
+              </span>
+            ),
             children: (
               <Card size="small" className="erp-section-card"
                 title={`Production Family — UOM family aggregation (WEIGHT · COUNT · LENGTH)`}
@@ -1187,7 +1706,13 @@ const ProductionReports: React.FC = () => {
           },
           {
             key: 'entries',
-            label: <span><CarryOutOutlined /> Daily Production</span>,
+            label: (
+              <span className="erp-pr-tab-label">
+                <CarryOutOutlined />
+                <span>Daily Production</span>
+                <span className="erp-pr-tab-badge">{fmt(entriesTotal)}</span>
+              </span>
+            ),
             children: (
               <Card size="small" className="erp-section-card"
                 title={`Daily Production Entries — ${fmt(entriesTotal)} records`}>
@@ -1198,7 +1723,27 @@ const ProductionReports: React.FC = () => {
                   dataSource={entries}
                   loading={loading}
                   scroll={{ x: 1120 }}
-                  pagination={{ current: entriesPage, pageSize: 20, showSizeChanger: true, total: entriesTotal, showTotal: (t) => `${fmt(t)} entries`, onChange: (p) => loadEntries(p) }}
+                  pagination={{
+                    current: entriesPage,
+                    pageSize: entriesPageSize,
+                    pageSizeOptions: ['10', '20', '50', '100', '200', '500'],
+                    showSizeChanger: true,
+                    total: entriesTotal,
+                    showTotal: (t) => `${fmt(t)} entries`,
+                    onChange: (p, size) => {
+                      const nextSize = size || entriesPageSize;
+                      if (nextSize !== entriesPageSize) {
+                        setEntriesPageSize(nextSize);
+                        void loadEntries(1, nextSize);
+                      } else {
+                        void loadEntries(p, nextSize);
+                      }
+                    },
+                    onShowSizeChange: (_, size) => {
+                      setEntriesPageSize(size);
+                      void loadEntries(1, size);
+                    },
+                  }}
                   emptyTitle="No production entries"
                   emptyDescription="No daily production entries match the current filters."
                 />
@@ -1207,7 +1752,13 @@ const ProductionReports: React.FC = () => {
           },
           {
             key: 'orders',
-            label: <span><CarryOutOutlined /> Production Orders</span>,
+            label: (
+              <span className="erp-pr-tab-label">
+                <FileTextOutlined />
+                <span>Production Orders</span>
+                <span className="erp-pr-tab-badge">{fmt(ordersTotal)}</span>
+              </span>
+            ),
             children: (
               <Card size="small" className="erp-section-card"
                 title={`Production Orders — ${fmt(ordersTotal)} orders`}>
@@ -1218,7 +1769,27 @@ const ProductionReports: React.FC = () => {
                   dataSource={orders}
                   loading={loading}
                   scroll={{ x: 980 }}
-                  pagination={{ current: ordersPage, pageSize: 20, showSizeChanger: true, total: ordersTotal, showTotal: (t) => `${fmt(t)} orders`, onChange: (p) => loadOrders(p) }}
+                  pagination={{
+                    current: ordersPage,
+                    pageSize: ordersPageSize,
+                    pageSizeOptions: ['10', '20', '50', '100', '200', '500'],
+                    showSizeChanger: true,
+                    total: ordersTotal,
+                    showTotal: (t) => `${fmt(t)} orders`,
+                    onChange: (p, size) => {
+                      const nextSize = size || ordersPageSize;
+                      if (nextSize !== ordersPageSize) {
+                        setOrdersPageSize(nextSize);
+                        void loadOrders(1, nextSize);
+                      } else {
+                        void loadOrders(p, nextSize);
+                      }
+                    },
+                    onShowSizeChange: (_, size) => {
+                      setOrdersPageSize(size);
+                      void loadOrders(1, size);
+                    },
+                  }}
                   emptyTitle="No production orders"
                   emptyDescription="No production orders match the current filters."
                 />
@@ -1227,7 +1798,13 @@ const ProductionReports: React.FC = () => {
           },
           {
             key: 'shipments',
-            label: <span><CarryOutOutlined /> Shipment</span>,
+            label: (
+              <span className="erp-pr-tab-label">
+                <CarOutlined />
+                <span>Shipment</span>
+                <span className="erp-pr-tab-badge">{fmt(shipmentsTotal)}</span>
+              </span>
+            ),
             children: (
               <Card size="small" className="erp-section-card"
                 title={`Shipment Report — ${fmt(shipmentsTotal)} sales deliveries`}>
@@ -1238,7 +1815,27 @@ const ProductionReports: React.FC = () => {
                   dataSource={shipments}
                   loading={loading}
                   scroll={{ x: 1320 }}
-                  pagination={{ current: shipmentsPage, pageSize: 20, showSizeChanger: true, total: shipmentsTotal, showTotal: (t) => `${fmt(t)} deliveries`, onChange: (p) => loadShipments(p) }}
+                  pagination={{
+                    current: shipmentsPage,
+                    pageSize: shipmentsPageSize,
+                    pageSizeOptions: ['10', '20', '50', '100', '200'],
+                    showSizeChanger: true,
+                    total: shipmentsTotal,
+                    showTotal: (t) => `${fmt(t)} deliveries`,
+                    onChange: (p, size) => {
+                      const nextSize = size || shipmentsPageSize;
+                      if (nextSize !== shipmentsPageSize) {
+                        setShipmentsPageSize(nextSize);
+                        void loadShipments(1, nextSize);
+                      } else {
+                        void loadShipments(p, nextSize);
+                      }
+                    },
+                    onShowSizeChange: (_, size) => {
+                      setShipmentsPageSize(size);
+                      void loadShipments(1, size);
+                    },
+                  }}
                   emptyTitle="No shipment data"
                   emptyDescription="No sales deliveries match the current filters."
                 />

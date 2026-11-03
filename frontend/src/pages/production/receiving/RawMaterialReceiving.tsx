@@ -1649,39 +1649,28 @@ const RawMaterialReceiving: React.FC = () => {
     }
   }, [openWaShare, buildShareInfoFromDetail]);
 
-  const copyToClipboard = (text: string): boolean => {
+  const copyToClipboard = async (text: string): Promise<boolean> => {
     if (!text) return false;
     let copied = false;
 
-    // 1. Direct synchronous selection if target textarea exists in DOM
-    try {
-      const activeTextarea = document.querySelector('textarea[data-testid="wa-message"]') as HTMLTextAreaElement;
-      if (activeTextarea) {
-        activeTextarea.focus();
-        activeTextarea.select();
-        activeTextarea.setSelectionRange(0, activeTextarea.value.length);
-        copied = document.execCommand('copy');
-      }
-    } catch {}
+    // 1. Modern clipboard API
+    if (navigator?.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(text);
+        copied = true;
+      } catch {}
+    }
 
-    // 2. Synchronous in-viewport temporary element (100% trusted click event)
+    // 2. Synchronous off-screen element fallback (works on LAN IP without HTTPS)
     if (!copied) {
       try {
         const el = document.createElement('textarea');
         el.value = text;
+        el.setAttribute('readonly', '');
         el.style.position = 'fixed';
+        el.style.left = '-9999px';
         el.style.top = '0';
-        el.style.left = '0';
-        el.style.width = '2em';
-        el.style.height = '2em';
-        el.style.padding = '0';
-        el.style.border = 'none';
-        el.style.outline = 'none';
-        el.style.boxShadow = 'none';
-        el.style.background = 'transparent';
-        el.style.opacity = '0.01';
         document.body.appendChild(el);
-        el.focus();
         el.select();
         el.setSelectionRange(0, text.length);
         copied = document.execCommand('copy');
@@ -1689,17 +1678,12 @@ const RawMaterialReceiving: React.FC = () => {
       } catch {}
     }
 
-    // 3. Also trigger modern clipboard API in background
-    if (navigator?.clipboard?.writeText && window.isSecureContext) {
-      navigator.clipboard.writeText(text).catch(() => {});
-    }
-
     return copied;
   };
 
-  const handleWaCopy = useCallback(() => {
+  const handleWaCopy = useCallback(async () => {
     if (!waMessage) return;
-    copyToClipboard(waMessage);
+    const ok = await copyToClipboard(waMessage);
 
     // Auto-select text inside the textarea for immediate user visual confirmation
     try {
@@ -1712,6 +1696,25 @@ const RawMaterialReceiving: React.FC = () => {
 
     setWaCopied(true);
     setWaOutcome({ type: 'copied', text: 'Message copied to clipboard! You can paste (Ctrl+V) directly into WhatsApp.' });
+
+    // Show a professional centered dialog popup as requested
+    Modal.success({
+      title: 'WhatsApp Message Copied!',
+      content: (
+        <div style={{ marginTop: 8 }}>
+          <p style={{ margin: 0, fontSize: 13, color: 'var(--theme-text, #334155)' }}>
+            The complete formatted receipt summary has been copied to your clipboard.
+          </p>
+          <p style={{ margin: '6px 0 0', fontSize: 12, color: 'var(--theme-text-secondary, #64748b)' }}>
+            You can now switch to WhatsApp and paste (<b>Ctrl + V</b>) directly into any chat or group.
+          </p>
+        </div>
+      ),
+      okText: 'Done',
+      centered: true,
+      zIndex: 2200,
+    });
+
     setTimeout(() => {
       setWaCopied(false);
     }, 2500);
@@ -3519,7 +3522,7 @@ const RawMaterialReceiving: React.FC = () => {
             columns={itemWiseColumns}
             dataSource={itemWiseList}
             rowKey="itemId"
-            pagination={{ pageSize: 20, showSizeChanger: true, showTotal: (t) => `Total ${t} raw materials` }}
+            pagination={{ defaultPageSize: 100, pageSizeOptions: ['25', '50', '100', '200'], showSizeChanger: true, showTotal: (t) => `Total ${t} raw materials` }}
             size="middle"
           />
         ) : (

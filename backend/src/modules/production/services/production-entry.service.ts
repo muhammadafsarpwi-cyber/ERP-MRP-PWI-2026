@@ -982,6 +982,7 @@ export class ProductionEntryService {
          SUM(pe.target_quantity) AS target_quantity,
          SUM(pe.actual_quantity) AS actual_quantity,
          SUM(pe.scrap_quantity) AS scrap_quantity,
+         SUM(COALESCE(pe.process_scrap_kg, 0)) AS process_scrap_kg,
          SUM(pe.running_hours) AS running_hours,
          SUM(pe.downtime_hours) AS downtime_hours,
          SUM(COALESCE(NULLIF(sh.planned_hours, 0), pe.running_hours + pe.downtime_hours)) AS planned_hours,
@@ -1028,6 +1029,7 @@ export class ProductionEntryService {
       targetQuantity: number;
       actualQuantity: number;
       scrapQuantity: number;
+      processScrapKg: number;
       runningHours: number;
       downtimeHours: number;
       plannedHours: number;
@@ -1103,6 +1105,7 @@ addToDept(org, {
             targetQuantity: Number(r.target_quantity),
             actualQuantity: Number(r.actual_quantity),
             scrapQuantity: Number(r.scrap_quantity),
+            processScrapKg: Number(r.process_scrap_kg || 0),
             runningHours: Number(r.running_hours),
             downtimeHours: Number(r.downtime_hours),
             plannedHours: Number(r.planned_hours),
@@ -1123,6 +1126,7 @@ addToDept(org, {
           targetQuantity: 0,
           actualQuantity: 0,
           scrapQuantity: 0,
+          processScrapKg: 0,
           runningHours: 0,
           downtimeHours: 0,
           plannedHours: 0,
@@ -1155,6 +1159,7 @@ addToDept(org, {
         actualKg,
         scrapPct: calcScrapPct(g.scrapQuantity, actualKg),
         scrapQuantity: this.round4(g.scrapQuantity),
+        processScrapKg: this.round4(g.processScrapKg || 0),
         runningHours: this.round2(g.runningHours),
         downtimeHours: this.round2(g.downtimeHours),
         plannedHours: this.round2(g.plannedHours),

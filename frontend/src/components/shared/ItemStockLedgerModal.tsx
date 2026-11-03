@@ -67,6 +67,23 @@ interface ItemStockLedgerModalProps {
   onClose: () => void;
 }
 
+// Canonical dictionary of all warehouses in the system so UUIDs NEVER render as raw strings
+const SYSTEM_WAREHOUSES: Record<string, { name: string; code?: string }> = {
+  'c7735271-bc28-48ce-8f17-bf6241eb6b5a': { name: 'CCD Main Warehouse', code: 'WH-001' },
+  '45de05e2-d7d0-45d1-936f-425e317362db': { name: 'CCD Raw Material Warehouse', code: 'RM-001-CCD' },
+  '64a9a1b1-dee5-4da4-ab3e-ae68d04999a7': { name: 'FT Production Department', code: 'CCD-FT-001' },
+  'aa9fedcb-27ac-47d2-a963-40d01c2594bc': { name: 'Main Warehouse', code: 'WH-MAIN-001' },
+  '37dac1e5-a0b9-479a-b63e-3849a0dd0dd8': { name: 'PVC Production Department', code: 'CCD-PVC-003' },
+  'dc212cb0-364c-47ba-88db-1bde18f842de': { name: 'SP Production Department', code: 'CCD-SP-002' },
+  '2f6aabde-69c1-4068-a0ea-b0fe1b8fb0b5': { name: 'SPI FG Dispatch Warehouse', code: 'SPI-FGDW-001' },
+  'cf5c9db8-5e84-41d5-a4b4-988b8dfd122d': { name: 'SPI Nipple Packing Warehouse', code: 'WH-002' },
+  'a4c9ee6c-938f-4c34-b293-6686cfc3add3': { name: 'SPI Raw Material Warehouse', code: 'RM-002-SPI' },
+  '29e71f41-713e-45dc-bd69-4a3ce05a3801': { name: 'SPK Spoke Department', code: 'SPI-SPK-003' },
+  'a70e0a7e-2ffa-47e4-83a9-c894d9dff41b': { name: 'SPL Spoke Plating Department', code: 'SPI-PL-004' },
+  '2ec20775-616c-4c6e-818e-1f76912d6dfa': { name: 'ST Straightener Department', code: 'SPI-ST-001' },
+  'd5685ddf-923a-4f7c-ba19-a5715cafa02e': { name: 'SW Swagging Department', code: 'SPI-SW-002' },
+};
+
 export const ItemStockLedgerModal: React.FC<ItemStockLedgerModalProps> = ({
   open,
   itemId,
@@ -111,10 +128,8 @@ export const ItemStockLedgerModal: React.FC<ItemStockLedgerModalProps> = ({
     if (!selectedWarehouseId) return 'All Warehouses';
     const found = warehouseList.find((w) => w.id === selectedWarehouseId);
     if (found) return found.name;
+    if (SYSTEM_WAREHOUSES[selectedWarehouseId]) return SYSTEM_WAREHOUSES[selectedWarehouseId].name;
     if (selectedWarehouseId === warehouseId && warehouseName) return warehouseName;
-    if (selectedWarehouseId === '2f6aabde-69c1-4068-a0ea-b0fe1b8fb0b5') return 'SPI FG Dispatch Warehouse';
-    if (selectedWarehouseId === 'cf5c9db8-5e84-41d5-a4b4-988b8dfd122d') return 'SPI Nipple Packing Warehouse';
-    if (selectedWarehouseId === 'a70e0a7e-2ffa-47e4-83a9-c894d9dff41b') return 'SPL Spoke Plating Dept';
     return warehouseName || 'Warehouse';
   }, [selectedWarehouseId, warehouseList, warehouseId, warehouseName]);
 
@@ -122,30 +137,36 @@ export const ItemStockLedgerModal: React.FC<ItemStockLedgerModalProps> = ({
     const opts = [{ value: '', label: '🌐 All Warehouses' }];
     const seen = new Set<string>();
 
-    if (warehouseId && warehouseName) {
+    const addOption = (id: string, name: string, code?: string) => {
+      if (!id || seen.has(id)) return;
+      seen.add(id);
+      const codePart = code ? `${code} — ` : '';
       opts.push({
-        value: warehouseId,
-        label: `🏢 ${warehouseName}`,
+        value: id,
+        label: `🏢 ${codePart}${name}`,
       });
-      seen.add(warehouseId);
+    };
+
+    // 1. Initial / currently selected warehouse
+    if (warehouseId) {
+      const known = SYSTEM_WAREHOUSES[warehouseId];
+      addOption(warehouseId, warehouseName || known?.name || 'Selected Warehouse', known?.code);
     }
 
+    if (selectedWarehouseId) {
+      const known = SYSTEM_WAREHOUSES[selectedWarehouseId];
+      addOption(selectedWarehouseId, warehouseName || known?.name || 'Selected Warehouse', known?.code);
+    }
+
+    // 2. Warehouses from dynamic API
     warehouseList.forEach((w) => {
-      if (!seen.has(w.id)) {
-        opts.push({
-          value: w.id,
-          label: `🏢 ${w.warehouseCode ? `${w.warehouseCode} — ` : ''}${w.name}`,
-        });
-        seen.add(w.id);
-      }
+      addOption(w.id, w.name, w.warehouseCode);
     });
 
-    if (selectedWarehouseId && !seen.has(selectedWarehouseId)) {
-      opts.push({
-        value: selectedWarehouseId,
-        label: `🏢 ${warehouseName || 'Selected Warehouse'}`,
-      });
-    }
+    // 3. Fallback all system warehouses so every option is clean and human-readable
+    Object.entries(SYSTEM_WAREHOUSES).forEach(([id, info]) => {
+      addOption(id, info.name, info.code);
+    });
 
     return opts;
   }, [warehouseId, warehouseName, warehouseList, selectedWarehouseId]);
