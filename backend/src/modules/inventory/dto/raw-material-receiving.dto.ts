@@ -199,6 +199,10 @@ export class UpdateRawMaterialReceiptDto {
 
   @IsOptional()
   @IsUUID('loose')
+  purchaseOrderId?: string | null;
+
+  @IsOptional()
+  @IsUUID('loose')
   productionOrderId?: string | null;
 
   @IsOptional()

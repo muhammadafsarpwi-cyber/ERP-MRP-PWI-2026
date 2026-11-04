@@ -7,6 +7,7 @@ import {
   ProductionEntryItemKind,
   ProductionEntryDowntime,
   Machine,
+  MachineStatus,
   Shift,
   DowntimeReason,
   DowntimeReasonStatus,
@@ -1251,12 +1252,14 @@ addToDept(org, {
 
   async findMachines(
     companyId: string,
-    filters?: { departmentId?: string; search?: string; allowedDivisionIds?: string[] },
+    filters?: { departmentId?: string; search?: string; allowedDivisionIds?: string[]; status?: MachineStatus },
   ): Promise<Machine[]> {
     const qb = this.machineRepo.createQueryBuilder('m')
       .leftJoinAndSelect('m.department', 'department')
       .where('m.companyId = :companyId', { companyId })
       .andWhere('m.isActive = true');
+    const targetStatus = filters?.status ?? MachineStatus.ACTIVE;
+    qb.andWhere('m.status = :targetStatus', { targetStatus });
     if (filters?.departmentId) qb.andWhere('m.departmentId = :departmentId', { departmentId: filters.departmentId });
     if (filters?.search) qb.andWhere('(m.machineCode ILIKE :search OR m.name ILIKE :search)', { search: `%${filters.search}%` });
     applyDivisionScopeFilter(qb, 'm.divisionId', filters?.allowedDivisionIds);
@@ -1459,6 +1462,7 @@ addToDept(org, {
       systemCode: string;
       machineCode: string;
       name: string;
+      machineStatus?: string;
       status: 'ENTERED' | 'ENTRY_REQUIRED';
       entryCount: number;
       divisionId: string | null;
@@ -1503,7 +1507,8 @@ addToDept(org, {
       .createQueryBuilder('m')
       .leftJoinAndSelect('m.department', 'department')
       .where('m.companyId = :companyId', { companyId })
-      .andWhere('m.isActive = true');
+      .andWhere('m.isActive = true')
+      .andWhere('m.status = :activeStatus', { activeStatus: MachineStatus.ACTIVE });
     if (divisionId) machinesQb.andWhere('m.divisionId = :divisionId', { divisionId });
     applyDivisionScopeFilter(machinesQb, 'm.divisionId', allowedDivisionIds);
     if (sectionId) machinesQb.andWhere('m.sectionId = :sectionId', { sectionId });
@@ -1642,6 +1647,7 @@ addToDept(org, {
         systemCode: m.machineId,
         machineCode: m.machineCode,
         name: m.name,
+        machineStatus: m.status,
         status: (hasEntries ? 'ENTERED' : 'ENTRY_REQUIRED') as 'ENTERED' | 'ENTRY_REQUIRED',
         entryCount: machineEntries.length,
         primaryEntryId,

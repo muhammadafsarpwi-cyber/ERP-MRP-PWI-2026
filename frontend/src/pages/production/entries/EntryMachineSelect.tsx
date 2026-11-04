@@ -37,6 +37,7 @@ interface MachineStatusRow {
   systemCode: string;
   machineCode: string;
   name: string;
+  machineStatus?: string;
   status: 'ENTERED' | 'ENTRY_REQUIRED';
   entryCount: number;
   primaryEntryId?: string | null;
@@ -382,10 +383,7 @@ const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
     if (cached && cached.data.length > 0) {
       setMachines(cached.data);
       setMeta(cached.meta);
-      if (Date.now() - cached.ts < 15000 && refreshTick === 0) {
-        setLoading(false);
-        return;
-      }
+      // Revalidate in background so changes in Machine Master immediately reflect
     } else {
       setLoading(true);
     }
@@ -418,6 +416,22 @@ const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
     const t = setTimeout(() => void fetchStatus(), 150);
     return () => clearTimeout(t);
   }, [fetchStatus, refreshTick]);
+
+  // Listen for real-time machine status changes from Machine Master or window focus
+  useEffect(() => {
+    const handleMachineChange = () => {
+      machineStatusCache.clear();
+      setRefreshTick((t) => t + 1);
+    };
+    window.addEventListener('pwi:machine-status-changed', handleMachineChange);
+    window.addEventListener('pwi:machine-updated', handleMachineChange);
+    window.addEventListener('focus', handleMachineChange);
+    return () => {
+      window.removeEventListener('pwi:machine-status-changed', handleMachineChange);
+      window.removeEventListener('pwi:machine-updated', handleMachineChange);
+      window.removeEventListener('focus', handleMachineChange);
+    };
+  }, []);
 
   // When entry modal closes/saves in dock store, refresh availability grid automatically
   useEffect(() => {
@@ -526,8 +540,11 @@ const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
 
   // Machines filtered by the active department selected in Step 2
   const displayedMachines = useMemo(() => {
-    if (!selectedDeptId) return machines;
-    return machines.filter((m) => m.departmentId === selectedDeptId);
+    const activeFleet = machines.filter(
+      (m) => (m.machineStatus ? m.machineStatus === 'ACTIVE' : true)
+    );
+    if (!selectedDeptId) return activeFleet;
+    return activeFleet.filter((m) => m.departmentId === selectedDeptId);
   }, [machines, selectedDeptId]);
 
   const activeDeptObj = activeDepartments.find((d) => d.id === selectedDeptId);
@@ -1184,7 +1201,7 @@ const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
                   <Button
                     size="small"
                     icon={<ReloadOutlined />}
-                    onClick={() => setRefreshTick((t) => t + 1)}
+                    onClick={() => { machineStatusCache.clear(); setRefreshTick((t) => t + 1); }}
                     loading={loading}
                     title="Refresh Fleet"
                     style={{
@@ -1293,7 +1310,7 @@ const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
                   </Button>
                   <Button
                     icon={<ReloadOutlined />}
-                    onClick={() => setRefreshTick((t) => t + 1)}
+                    onClick={() => { machineStatusCache.clear(); setRefreshTick((t) => t + 1); }}
                     loading={loading}
                     style={{ backgroundColor: token.colorFillAlter, borderColor: token.colorBorderSecondary, color: token.colorText, borderRadius: 8 }}
                   >
@@ -1310,7 +1327,7 @@ const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
                   {activeDepartments.map((dept, idx) => {
                     const isSelected = selectedDeptId === dept.id;
                     const palette = DEPT_COLOR_PALETTES[idx % DEPT_COLOR_PALETTES.length];
-                    const deptMachines = machines.filter((m) => m.departmentId === dept.id);
+                    const deptMachines = machines.filter((m) => m.departmentId === dept.id && ((m.machineStatus ? m.machineStatus === 'ACTIVE' : true) ));
                     const deptEnteredCount = deptMachines.filter((m) => m.status === 'ENTERED').length;
                     const deptRequiredCount = deptMachines.filter((m) => m.status === 'ENTRY_REQUIRED').length;
 
@@ -1380,7 +1397,7 @@ const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
                     {activeDepartments.map((dept, idx) => {
                       const isSelected = selectedDeptId === dept.id;
                       const palette = DEPT_COLOR_PALETTES[idx % DEPT_COLOR_PALETTES.length];
-                      const deptMachines = machines.filter((m) => m.departmentId === dept.id);
+                      const deptMachines = machines.filter((m) => m.departmentId === dept.id && ((m.machineStatus ? m.machineStatus === 'ACTIVE' : true) ));
                       const deptRequiredCount = deptMachines.filter((m) => m.status === 'ENTRY_REQUIRED').length;
 
                       return (

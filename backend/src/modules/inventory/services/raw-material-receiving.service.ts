@@ -899,6 +899,34 @@ export class RawMaterialReceivingService implements OnModuleInit {
         }
       }
 
+      // Determine if a PO was referenced (Purchase Order vs Production Order)
+      const targetOrderId = (dto as any).purchaseOrderId !== undefined 
+        ? (dto as any).purchaseOrderId 
+        : dto.productionOrderId;
+      let purchaseOrderId: string | null = existing.purchaseOrderId ?? null;
+      let productionOrderId: string | null = existing.productionOrderId ?? null;
+      let poCodeRef: string | null = null;
+
+      if (targetOrderId !== undefined) {
+        if (!targetOrderId) {
+          purchaseOrderId = null;
+          productionOrderId = null;
+        } else {
+          const poRows = await manager.query(
+            `SELECT id, po_code FROM purchase_orders WHERE id = $1 AND company_id = $2`,
+            [targetOrderId, companyId],
+          );
+          if (poRows && poRows.length > 0) {
+            purchaseOrderId = poRows[0].id;
+            productionOrderId = null;
+            poCodeRef = poRows[0].po_code;
+          } else {
+            purchaseOrderId = null;
+            productionOrderId = targetOrderId;
+          }
+        }
+      }
+
       const { lines: _removedLines, ...existingScalar } = existing;
       const updated = await manager.getRepository(RawMaterialReceipt).save({
         ...existingScalar,
@@ -910,8 +938,9 @@ export class RawMaterialReceivingService implements OnModuleInit {
         sectionId,
         departmentId,
         warehouseId,
-        productionOrderId: dto.productionOrderId !== undefined ? dto.productionOrderId ?? null : existing.productionOrderId,
-        reference: dto.reference !== undefined ? dto.reference ?? null : existing.reference,
+        purchaseOrderId,
+        productionOrderId,
+        reference: dto.reference !== undefined ? (dto.reference ?? null) : (poCodeRef || existing.reference),
         remarks: dto.remarks !== undefined ? dto.remarks ?? null : existing.remarks,
         updatedBy: userId ?? null,
       });
@@ -1523,24 +1552,26 @@ export class RawMaterialReceivingService implements OnModuleInit {
 
     const ids = data.map((h) => h.id);
     const totals: Record<string, { quantityTotal: number }> = {};
+    const linesByReturnId: Record<string, any[]> = {};
     if (ids.length > 0) {
-      const rows: any[] = await this.returnLineRepo
-        .createQueryBuilder('l')
-        .select('l.returnId', 'returnId')
-        .addSelect('COALESCE(SUM(l.quantity), 0)', 'quantity')
-        .where('l.returnId IN (:...ids)', { ids })
-        .groupBy('l.returnId')
-        .getRawMany();
-      for (const r of rows) {
-        totals[r.returnId] = { quantityTotal: Number(r.quantity || 0) };
+      const returnLines = await this.returnLineRepo.find({
+        where: { returnId: In(ids) },
+        relations: ['item', 'uom'],
+      });
+      for (const line of returnLines) {
+        if (!totals[line.returnId]) totals[line.returnId] = { quantityTotal: 0 };
+        totals[line.returnId].quantityTotal += Number(line.quantity || 0);
+        if (!linesByReturnId[line.returnId]) linesByReturnId[line.returnId] = [];
+        linesByReturnId[line.returnId].push(line);
       }
     }
 
     return {
       data: data.map((h) => ({
         ...h,
-        lineCount: (h as any).lineCount ?? 0,
+        lineCount: linesByReturnId[h.id]?.length ?? (h as any).lineCount ?? 0,
         quantityTotal: totals[h.id]?.quantityTotal ?? 0,
+        lines: linesByReturnId[h.id] ?? [],
       })),
       total,
     };

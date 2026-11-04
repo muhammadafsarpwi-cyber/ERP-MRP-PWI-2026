@@ -352,7 +352,7 @@ export async function prefetchAllLookups(forceRefresh = false): Promise<LookupsS
         fetchList<CachedSection>('/sections', { limit: 500 }),
         fetchList<CachedDepartment>('/departments', { limit: 500 }),
         fetchList<CachedShift>('/production/shifts'),
-        fetchList<CachedMachine>('/production/machines', { limit: 500 }),
+        fetchList<CachedMachine>('/production/machines', { limit: 500, status: 'ACTIVE' }),
         fetchList<CachedUom>('/master-data/uom', { limit: 200 }),
         fetchList<CachedUomConversion>('/master-data/uom-conversions', { limit: 500 }),
         fetchList<CachedItem>('/master-data/items', { limit: 1000, status: 'ACTIVE' }),

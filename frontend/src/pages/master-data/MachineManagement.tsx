@@ -1975,6 +1975,10 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
     try {
       await apiService.patch(`/machines/${m.id}/status`, { status });
       message.success(`Machine ${m.machineCode} set to ${status}`);
+      try {
+        window.dispatchEvent(new CustomEvent('pwi:machine-status-changed', { detail: { id: m.id, machineCode: m.machineCode, status } }));
+        window.dispatchEvent(new CustomEvent('pwi:machine-updated'));
+      } catch {}
       fetchMachines();
     } catch (error: any) {
       message.error(error?.response?.data?.message || 'Failed to change status');

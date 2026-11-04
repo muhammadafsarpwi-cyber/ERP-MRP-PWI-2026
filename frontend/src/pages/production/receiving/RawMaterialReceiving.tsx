@@ -5,7 +5,7 @@ import {
 } from 'antd';
 import type { MenuProps } from 'antd';
 import {
-  AppstoreOutlined, CameraOutlined, CheckCircleOutlined, CheckOutlined, ClearOutlined, CloseOutlined, CopyOutlined, DatabaseOutlined, DeleteOutlined,
+  AppstoreOutlined, BarsOutlined, CameraOutlined, CheckCircleOutlined, CheckOutlined, ClearOutlined, CloseOutlined, CopyOutlined, DatabaseOutlined, DeleteOutlined,
   DownOutlined, EditOutlined, EyeOutlined, EyeInvisibleOutlined, ArrowRightOutlined, FileExcelOutlined, FilePdfOutlined, FilterOutlined,
   HistoryOutlined, InboxOutlined, PaperClipOutlined, PictureOutlined, PlusOutlined, PrinterOutlined, ReloadOutlined,
   SaveOutlined, SendOutlined, SwapOutlined, TableOutlined, WarningOutlined, WhatsAppOutlined,
@@ -1296,6 +1296,15 @@ const RawMaterialReceiving: React.FC = () => {
     try {
       const res = await apiService.get<{ data: ReceiptHeader }>(`/inventory/receipts/gate-pass/${rec.id}`);
       const d = res.data;
+      const matchedPo = (refData?.productionOrders || []).find((p: any) =>
+        p.id === d.purchaseOrderId ||
+        p.id === d.productionOrderId ||
+        (d.reference && (p.po_code === d.reference || p.order_number === d.reference)) ||
+        ((d as any).poCode && (p.po_code === (d as any).poCode || p.order_number === (d as any).poCode))
+      );
+      const selectedPoId = matchedPo ? matchedPo.id : (d.purchaseOrderId || d.productionOrderId || undefined);
+      const selectedPoRef = d.reference || (matchedPo ? (matchedPo.po_code || matchedPo.order_number) : undefined);
+
       form.setFieldsValue({
         divisionId: d.division?.id,
         sectionId: d.section?.id,
@@ -1305,8 +1314,8 @@ const RawMaterialReceiving: React.FC = () => {
         gatePassNo: d.gatePassNo || undefined,
         sourceNo: d.sourceNo || undefined,
         heatNumber: d.heatNumber || undefined,
-        productionOrderId: d.productionOrderId || undefined,
-        reference: d.reference || undefined,
+        productionOrderId: selectedPoId,
+        reference: selectedPoRef,
         remarks: d.remarks || undefined,
       });
       if (d.division?.id) void loadSections(d.division.id);
@@ -1878,7 +1887,15 @@ const RawMaterialReceiving: React.FC = () => {
     setSaveDialogSuccessTitle(editingId ? 'Receipt Updated Successfully' : 'Receipt Confirmed Successfully');
     setSaveDialogError(undefined);
 
-    const payload = {
+    const selectedPoOption = (refData?.productionOrders || []).find((p: any) => p.id === values.productionOrderId);
+    const poCodeString = selectedPoOption?.po_code || selectedPoOption?.order_number || '';
+    const isPurchaseOrder = !!(
+      (poCodeString && (poCodeString.toUpperCase().startsWith('PO') || poCodeString.toUpperCase().includes('PO'))) ||
+      selectedPoOption?.warehouse_id ||
+      values.productionOrderId
+    );
+
+    const payload: any = {
       divisionId: values.divisionId,
       sectionId: values.sectionId,
       departmentId: values.departmentId,
@@ -1887,8 +1904,6 @@ const RawMaterialReceiving: React.FC = () => {
       gatePassNo: values.gatePassNo || undefined,
       sourceNo: values.sourceNo || undefined,
       heatNumber: values.heatNumber || undefined,
-      productionOrderId: values.productionOrderId || undefined,
-      reference: values.reference || undefined,
       remarks: values.remarks || undefined,
       items: rows.map((r) => ({
         itemId: r.itemId,
@@ -1897,6 +1912,21 @@ const RawMaterialReceiving: React.FC = () => {
         receivedQuantity: Number(r.receivedQuantity || 0),
       })),
     };
+
+    if (values.productionOrderId) {
+      payload.reference = poCodeString || values.reference || undefined;
+      if (isPurchaseOrder) {
+        payload.purchaseOrderId = values.productionOrderId;
+        payload.productionOrderId = null; // Explicit null prevents foreign key violation on production_orders
+      } else {
+        payload.productionOrderId = values.productionOrderId;
+        payload.purchaseOrderId = null;
+      }
+    } else {
+      payload.productionOrderId = null;
+      payload.purchaseOrderId = null;
+      payload.reference = null;
+    }
 
     try {
       let resultReceiptCode = editingId ? (list.find((x) => x.id === editingId)?.receiptCode || editingId) : '';
@@ -2025,7 +2055,7 @@ const RawMaterialReceiving: React.FC = () => {
   // ─────────────────────────────────────────────────────────────────────────
   // View Mode: 'gatePass' (Receipt Audit) vs 'itemWise' (Material Totals)
   // ─────────────────────────────────────────────────────────────────────────
-  const [viewMode, setViewMode] = useState<'gatePass' | 'itemWise'>('gatePass');
+  const [viewMode, setViewMode] = useState<'unified' | 'gatePass' | 'itemWise'>('unified');
 
   // ─────────────────────────────────────────────────────────────────────────
   // Executive KPI Aggregation across current filtered receiving records
@@ -2118,21 +2148,51 @@ const RawMaterialReceiving: React.FC = () => {
       }
     }
 
+    // Map returned quantities per item from returnsSummary
+    const returnedByItemMap = new Map<string, number>();
+    for (const ret of (returnsSummary.returnsList || [])) {
+      for (const line of (ret.lines || [])) {
+        const lineItId = line.item?.id || line.itemId || '';
+        const lineItCode = (line.item?.itemCode || '').trim().toUpperCase();
+        const lineQty = Number(line.quantity || 0);
+        if (lineItId) {
+          returnedByItemMap.set(lineItId, (returnedByItemMap.get(lineItId) || 0) + lineQty);
+        }
+        if (lineItCode) {
+          returnedByItemMap.set(lineItCode, (returnedByItemMap.get(lineItCode) || 0) + lineQty);
+        }
+      }
+    }
+
+    const mappedTotalReturns = Array.from(returnedByItemMap.values()).reduce((a, b) => a + b, 0);
+    const unallocatedReturns = Math.max(0, (returnsSummary.totalReturnedKg || 0) - mappedTotalReturns);
+
     return Array.from(map.values())
-      .map((v) => ({
-        itemId: v.itemId,
-        itemCode: v.itemCode,
-        itemName: v.itemName,
-        uomCode: v.uomCode,
-        gatePassTotal: v.gatePassTotal,
-        receivedTotal: v.receivedTotal,
-        differenceTotal: v.receivedTotal - v.gatePassTotal,
-        receiptCount: v.receiptCount,
-        gatePassNumbers: Array.from(v.gatePassSet),
-        poNumbers: Array.from(v.poSet),
-      }))
+      .map((v, idx) => {
+        let retQty = returnedByItemMap.get(v.itemId) || (v.itemCode ? returnedByItemMap.get(v.itemCode.trim().toUpperCase()) : 0) || 0;
+        if (unallocatedReturns > 0 && map.size === 1) {
+          retQty += unallocatedReturns;
+        } else if (unallocatedReturns > 0 && idx === 0 && mappedTotalReturns === 0) {
+          retQty += unallocatedReturns;
+        }
+        const netBal = Math.max(0, v.receivedTotal - retQty);
+        return {
+          itemId: v.itemId,
+          itemCode: v.itemCode,
+          itemName: v.itemName,
+          uomCode: v.uomCode,
+          gatePassTotal: v.gatePassTotal,
+          receivedTotal: v.receivedTotal,
+          differenceTotal: v.receivedTotal - v.gatePassTotal,
+          returnedTotal: retQty,
+          netBalanceTotal: netBal,
+          receiptCount: v.receiptCount,
+          gatePassNumbers: Array.from(v.gatePassSet),
+          poNumbers: Array.from(v.poSet),
+        };
+      })
       .sort((a, b) => b.receivedTotal - a.receivedTotal);
-  }, [list]);
+  }, [list, returnsSummary]);
 
   const selectedDivisionName = useMemo(() => {
     if (!filters.divisionId) return 'All Divisions';
@@ -2145,13 +2205,17 @@ const RawMaterialReceiving: React.FC = () => {
     warehouseName: filters.warehouseId ? refData?.warehouses?.find((w) => w.id === filters.warehouseId)?.name : undefined,
     dateRangeStr: filters.dateFrom && filters.dateTo ? `${filters.dateFrom} to ${filters.dateTo}` : undefined,
     totalReceivedKg: summaryKpi.totalReceivedKg,
+    totalReturnedKg: returnsSummary.totalReturnedKg,
+    netAvailableKg: Math.max(0, summaryKpi.totalReceivedKg - returnsSummary.totalReturnedKg),
+    returnsCount: returnsSummary.returnsCount,
     totalGatePassKg: summaryKpi.totalGatePassKg,
     totalDifferenceKg: summaryKpi.totalDifferenceKg,
     receiptsCount: total || list.length,
     uniquePoCount: summaryKpi.uniquePoCount,
     linesCount: summaryKpi.totalLines,
     distinctItemsCount: itemWiseList.length,
-  }), [selectedDivisionName, filters.warehouseId, refData?.warehouses, filters.dateFrom, filters.dateTo, summaryKpi, total, list.length, itemWiseList.length]);
+    itemWiseList,
+  }), [selectedDivisionName, filters.warehouseId, refData?.warehouses, filters.dateFrom, filters.dateTo, summaryKpi, returnsSummary, total, list.length, itemWiseList]);
 
   const exportRows: ReceivingExportItem[] = useMemo(() => {
     return list.map((r) => ({
@@ -2811,13 +2875,53 @@ const RawMaterialReceiving: React.FC = () => {
       title: 'Total Received (KG)',
       dataIndex: 'receivedTotal',
       key: 'receivedTotal',
-      width: 145,
+      width: 140,
       align: 'right',
       render: (v) => (
-        <span style={{ fontFamily: 'monospace', fontWeight: 800, color: '#16a34a', fontSize: 13 }}>
+        <span style={{ fontFamily: 'monospace', fontWeight: 800, color: '#0284c7', fontSize: 13 }}>
           {formatNumber(v, 2)}
         </span>
       ),
+    },
+    {
+      title: 'Returned (KG)',
+      dataIndex: 'returnedTotal',
+      key: 'returnedTotal',
+      width: 130,
+      align: 'right',
+      render: (v) => {
+        const qty = Number(v || 0);
+        return qty > 0 ? (
+          <Tag color="warning" style={{ margin: 0, fontFamily: 'monospace', fontWeight: 700, fontSize: 11.5 }}>
+            -{formatNumber(qty, 2)}
+          </Tag>
+        ) : (
+          <span style={{ color: token.colorTextTertiary, fontFamily: 'monospace', fontSize: 11.5 }}>0.00</span>
+        );
+      },
+    },
+    {
+      title: 'Net In-Hand (KG)',
+      dataIndex: 'netBalanceTotal',
+      key: 'netBalanceTotal',
+      width: 145,
+      align: 'right',
+      render: (v, r) => {
+        const ret = Number(r.returnedTotal || 0);
+        const net = v !== undefined ? Number(v) : Math.max(0, Number(r.receivedTotal || 0) - ret);
+        return (
+          <span
+            style={{
+              fontFamily: 'monospace, var(--theme-font-mono, sans-serif)',
+              fontWeight: 800,
+              fontSize: 13,
+              color: isDark ? '#4ade80' : '#16a34a',
+            }}
+          >
+            {formatNumber(net, 2)}
+          </span>
+        );
+      },
     },
     {
       title: 'Discrepancy (KG)',
@@ -3443,8 +3547,17 @@ const RawMaterialReceiving: React.FC = () => {
             <Space size={12} align="center">
               <Segmented
                 value={viewMode}
-                onChange={(val) => setViewMode(val as 'gatePass' | 'itemWise')}
+                onChange={(val) => setViewMode(val as 'unified' | 'gatePass' | 'itemWise')}
                 options={[
+                  {
+                    value: 'unified',
+                    label: (
+                      <Space size={6}>
+                        <BarsOutlined />
+                        <span>Unified View (GPs &amp; Item Audit)</span>
+                      </Space>
+                    ),
+                  },
                   {
                     value: 'gatePass',
                     label: (
@@ -3459,7 +3572,7 @@ const RawMaterialReceiving: React.FC = () => {
                     label: (
                       <Space size={6}>
                         <AppstoreOutlined />
-                        <span>Item-Wise Totals ({itemWiseList.length} Materials)</span>
+                        <span>Item-Wise Totals ({itemWiseList.length})</span>
                       </Space>
                     ),
                   },
@@ -3517,16 +3630,10 @@ const RawMaterialReceiving: React.FC = () => {
               </Space>
             }
           />
-        ) : viewMode === 'itemWise' ? (
-          <Table
-            columns={itemWiseColumns}
-            dataSource={itemWiseList}
-            rowKey="itemId"
-            pagination={{ defaultPageSize: 100, pageSizeOptions: ['25', '50', '100', '200'], showSizeChanger: true, showTotal: (t) => `Total ${t} raw materials` }}
-            size="middle"
-          />
         ) : (
-          <Table
+          <>
+            {viewMode !== 'itemWise' && (
+              <Table
             columns={displayedColumns}
             dataSource={list}
             rowKey="id"
@@ -3751,6 +3858,62 @@ const RawMaterialReceiving: React.FC = () => {
               rowExpandable: (record) => (record.lineCount || record.lines?.length || 0) > 0,
             }}
           />
+            )}
+
+            {/* Item-Wise Breakdown Table (rendered directly below in unified mode, or alone in itemWise mode) */}
+            {(viewMode === 'unified' || viewMode === 'itemWise') && (
+              <div
+                style={{
+                  marginTop: viewMode === 'unified' ? 24 : 0,
+                  paddingTop: viewMode === 'unified' ? 18 : 0,
+                  borderTop: viewMode === 'unified' ? (isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid #e2e8f0') : undefined,
+                }}
+              >
+                {viewMode === 'unified' && (
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      marginBottom: 12,
+                      flexWrap: 'wrap',
+                      gap: 8,
+                    }}
+                  >
+                    <Space size={8} align="center">
+                      <AppstoreOutlined style={{ color: token.colorPrimary, fontSize: 16 }} />
+                      <span style={{ fontSize: 14, fontWeight: 700, color: token.colorText }}>
+                        Item-Wise Raw Material Audit Breakdown — Received vs Returned ({itemWiseList.length} Materials)
+                      </span>
+                    </Space>
+                    <Space size={10} wrap>
+                      <Tag color="processing" style={{ fontSize: 11, padding: '2px 8px', margin: 0 }}>
+                        Total Received: <strong>{formatNumber(summaryKpi.totalReceivedKg, 2)} KG</strong>
+                      </Tag>
+                      <Tag color={returnsSummary.totalReturnedKg > 0 ? 'warning' : 'default'} style={{ fontSize: 11, padding: '2px 8px', margin: 0 }}>
+                        Material Returned: <strong>{returnsSummary.totalReturnedKg > 0 ? `-${formatNumber(returnsSummary.totalReturnedKg, 2)} KG` : '0.00 KG'}</strong>
+                      </Tag>
+                      <Tag color="success" style={{ fontSize: 11, padding: '2px 8px', margin: 0 }}>
+                        Net In-Hand: <strong>{formatNumber(Math.max(0, summaryKpi.totalReceivedKg - returnsSummary.totalReturnedKg), 2)} KG</strong>
+                      </Tag>
+                    </Space>
+                  </div>
+                )}
+                <Table
+                  columns={itemWiseColumns}
+                  dataSource={itemWiseList}
+                  rowKey="itemId"
+                  pagination={{
+                    defaultPageSize: 50,
+                    pageSizeOptions: ['25', '50', '100', '200'],
+                    showSizeChanger: true,
+                    showTotal: (t) => `Total ${t} raw materials`,
+                  }}
+                  size="middle"
+                />
+              </div>
+            )}
+          </>
         )}
       </Card>
 

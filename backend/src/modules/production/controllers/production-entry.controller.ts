@@ -21,6 +21,7 @@ import { OrgScopeGuard, RequireOrgScope } from '../../auth/guards/org-scope.guar
 import { DivisionScopeGuard, divisionFilterFromRequest } from '../../auth/guards/division-scope.guard';
 import { ProductionEntryService } from '../services';
 import { ResolveMachineTargetQueryDto } from '../../machine-target/dto';
+import { MachineStatus } from '../entities';
 import {
   CreateProductionEntryDto,
   UpdateProductionEntryDto,
@@ -226,12 +227,19 @@ export class ProductionEntryController {
   @RequirePermission('manufacturing.production.entries.view')
   @ApiQuery({ name: 'departmentId', required: false })
   @ApiQuery({ name: 'search', required: false })
-  @ApiOperation({ summary: 'List machine master (optionally filtered by department)' })
-  async machines(@Req() req: any, @Query('departmentId') departmentId?: string, @Query('search') search?: string) {
+  @ApiQuery({ name: 'status', required: false, enum: MachineStatus })
+  @ApiOperation({ summary: 'List machine master (optionally filtered by department and status, defaults to ACTIVE)' })
+  async machines(
+    @Req() req: any,
+    @Query('departmentId') departmentId?: string,
+    @Query('search') search?: string,
+    @Query('status') status?: MachineStatus,
+  ) {
     const companyId = this.getCompanyId(req);
     const data = await this.entryService.findMachines(companyId, {
       departmentId,
       search,
+      status: status || MachineStatus.ACTIVE,
       allowedDivisionIds: this.divisions(req),
     });
     return { success: true, data };

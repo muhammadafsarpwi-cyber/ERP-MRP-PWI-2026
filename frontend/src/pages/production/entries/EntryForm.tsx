@@ -1375,6 +1375,13 @@ const EntryForm: React.FC<EntryFormProps> = ({
       void lookups.loadDepartmentItems(effectiveDeptId, 'WORK_IN_PROGRESS,RAW_MATERIAL,WIP,RM');
       void lookups.loadEmployeesForDepartment(effectiveDeptId);
     }
+    const handleItemUpdate = () => {
+      if (effectiveDeptId) {
+        void lookups.loadDepartmentItems(effectiveDeptId, 'WORK_IN_PROGRESS,RAW_MATERIAL,WIP,RM', true);
+      }
+    };
+    window.addEventListener('erp-item-updated', handleItemUpdate);
+    return () => window.removeEventListener('erp-item-updated', handleItemUpdate);
   }, [effectiveDeptId, lookups.loadDepartmentItems, lookups.loadEmployeesForDepartment]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /**
@@ -1387,6 +1394,12 @@ const EntryForm: React.FC<EntryFormProps> = ({
    */
   const isProductionItem = useCallback((i: any, targetDeptId?: string): boolean => {
     if (!i) return false;
+
+    // 0. Active check: Inactive / discontinued items must NEVER appear in the production entry form
+    const itemStatus = String(i.status || '').toUpperCase().trim();
+    if (itemStatus && itemStatus !== 'ACTIVE') {
+      return false;
+    }
 
     // 1. Department match: must belong to the active department
     if (targetDeptId) {

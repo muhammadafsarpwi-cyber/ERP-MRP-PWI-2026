@@ -130,6 +130,9 @@ interface DeptRow {
   weightPerPiece?: number | null; weightPerMeter?: number | null;
   target: number; actual: number; scrap: number; running: number;
   actualKg: number | null; scrapPct: number | null;
+  actualPcs: number;
+  partRejectPcs: number; partRejectKg: number; processScrapKg: number; totalScrapKg: number;
+  partRejectPcsPct: number | null; partRejectKgPct: number | null; processScrapPct: number | null; totalScrapPct: number | null;
   achievement: number | null; efficiency: number | null;
 }
 /** Genuine department-level summary: exactly ONE row per department. */
@@ -140,6 +143,9 @@ interface DeptSummaryRow {
   perUnitWeight: string | null;
   target: number; actual: number; scrap: number;
   actualKg: number; scrapPct: number | null;
+  actualPcs: number;
+  partRejectPcs: number; partRejectKg: number; processScrapKg: number; totalScrapKg: number;
+  partRejectPcsPct: number | null; partRejectKgPct: number | null; processScrapPct: number | null; totalScrapPct: number | null;
   achievement: number | null; efficiency: number | null;
 }
 interface ScrapRow {
@@ -151,6 +157,7 @@ interface ScrapRow {
   weightPerPiece?: number | null; weightPerMeter?: number | null;
   target: number; actual: number; scrap: number;
   actualKg: number | null; scrapRate: number | null;
+  actualPcs: number;
   partRejectPcs: number;
   partRejectKg: number;
   partRejectPct: number | null;
@@ -189,6 +196,38 @@ const fmtGross = (pcs: number | null | undefined): string => {
   if (pcs == null || pcs === 0) return '0 Gr';
   const gr = Math.round(Number(pcs) / 144);
   return gr.toLocaleString('en-US') + ' Gr';
+};
+const isCountUom = (u?: string | null) => COUNT_UOMS.has((u || '').toUpperCase().trim());
+const pctOf = (num: number, den: number): number | null => (den > 0 ? (num / den) * 100 : null);
+/* Splits a report item's rejection into its three separate components:
+   Part Rejection (PCS) · Part Rejection (KG) · Process Scrap (KG).
+   Total Scrap (KG) = Part Rejection (KG) + Process Scrap (KG) — never mixes PCS with KG. */
+const rejFields = (i: {
+  uomCode: string; scrapQuantity: number; actualQuantity: number; actualKg?: number | null;
+  processScrapKg?: number; weightPerPiece?: number | null; weightPerMeter?: number | null;
+}) => {
+  const count = isCountUom(i.uomCode);
+  const raw = n(i.scrapQuantity);
+  const actualPcs = count ? n(i.actualQuantity) : 0;
+  const actualKg = n(i.actualKg);
+  const processScrapKg = n(i.processScrapKg);
+  const partRejectPcs = count ? raw : 0;
+  const partRejectKg = calcActualKg(i.uomCode, raw, i.weightPerPiece, i.weightPerMeter) ?? (count ? 0 : raw);
+  const totalScrapKg = partRejectKg + processScrapKg;
+  const totalScrapPct = pctOf(totalScrapKg, actualKg);
+  return {
+    actualPcs,
+    partRejectPcs,
+    partRejectKg,
+    processScrapKg,
+    totalScrapKg,
+    partRejectPcsPct: pctOf(partRejectPcs, actualPcs),
+    partRejectKgPct: pctOf(partRejectKg, actualKg),
+    processScrapPct: pctOf(processScrapKg, actualKg),
+    totalScrapPct,
+    scrap: totalScrapKg,
+    scrapPct: totalScrapPct,
+  };
 };
 const n = (v: number | string | null | undefined): number => (v == null || v === '' ? 0 : Number(v));
 const pct = (v: number | null | undefined): string => {
@@ -284,6 +323,79 @@ function exportPdf(filename: string, title: string, subtitle: string, tables: Pd
 }
 
 /* ── Page ──────────────────────────────────────────────────────────────── */
+
+/* ── Rejection split cell: value on top, % of production underneath ── */
+const RejCell: React.FC<{ value: string; pct: number | null; color: string }> = ({ value, pct: p, color }) => (
+  <div style={{ fontVariantNumeric: 'tabular-nums', lineHeight: 1.25 }}>
+    <div style={{ fontWeight: 700, color }}>{value}</div>
+    <div style={{ fontSize: 10.5, color: 'var(--theme-text-secondary)' }}>{p == null ? '—' : `${p.toFixed(2)}%`}</div>
+  </div>
+);
+
+interface RejLike {
+  actualPcs: number; actualKg: number | null;
+  partRejectPcs: number; partRejectKg: number; processScrapKg: number; totalScrapKg: number;
+}
+/* Shared 4 rejection columns: Part Rej (PCS) · Part Rej (KG) · Process Scrap (KG) · Total Scrap (KG). */
+function buildRejColumns<T extends RejLike>(): ColumnsType<T> {
+  return [
+    { title: 'Part Rej (PCS)', key: 'partRejectPcs', align: 'right', width: 105, sorter: (a, b) => a.partRejectPcs - b.partRejectPcs,
+      render: (_, r) => (r.actualPcs > 0 || r.partRejectPcs > 0
+        ? <RejCell value={fmt(r.partRejectPcs)} pct={pctOf(r.partRejectPcs, r.actualPcs)} color="#ef4444" />
+        : <Text type="secondary">—</Text>) },
+    { title: 'Part Rej (KG)', key: 'partRejectKg', align: 'right', width: 105, sorter: (a, b) => a.partRejectKg - b.partRejectKg,
+      render: (_, r) => <RejCell value={fmt2(r.partRejectKg)} pct={pctOf(r.partRejectKg, n(r.actualKg))} color="#a855f7" /> },
+    { title: 'Process Scrap (KG)', key: 'processScrapKg', align: 'right', width: 115, sorter: (a, b) => a.processScrapKg - b.processScrapKg,
+      render: (_, r) => <RejCell value={fmt2(r.processScrapKg)} pct={pctOf(r.processScrapKg, n(r.actualKg))} color="#f59e0b" /> },
+    { title: 'Total Scrap (KG)', key: 'totalScrapKg', align: 'right', width: 115, sorter: (a, b) => a.totalScrapKg - b.totalScrapKg,
+      render: (_, r) => (
+        <div style={{ lineHeight: 1.25 }}>
+          <Text strong style={{ color: '#dc2626', fontVariantNumeric: 'tabular-nums' }}>{fmt2(r.totalScrapKg)}</Text>
+          <div><ScrapRateBadge value={pctOf(r.totalScrapKg, n(r.actualKg))} /></div>
+        </div>
+      ) },
+  ];
+}
+
+/* ── KPI card with an optional circular % ring (theme-aware, no hardcoded surfaces) ── */
+const KpiRingCard: React.FC<{
+  tone: string; title: string; color: string; value: React.ReactNode; sub?: React.ReactNode;
+  pct?: number | null; icon?: React.ReactNode; tip?: string;
+}> = ({ tone, title, color, value, sub, pct: p, icon, tip }) => (
+  <Card className={`erp-pr-kpi-card erp-pr-kpi-card--tone-${tone}`}>
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, width: '100%' }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div className="ant-statistic-title" style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.4px', textTransform: 'uppercase', marginBottom: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          {title}
+        </div>
+        <div style={{ fontSize: 19, fontWeight: 800, color, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          {value}
+        </div>
+        {sub != null && (
+          <div style={{ fontSize: 11, color: 'var(--theme-text-secondary)', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {sub}
+          </div>
+        )}
+      </div>
+      {p !== undefined ? (
+        <Tooltip title={tip}>
+          <div style={{ flexShrink: 0 }}>
+            <Progress
+              type="circle"
+              size={48}
+              percent={Math.min(100, Math.max(0, p ?? 0))}
+              strokeColor={color}
+              strokeWidth={7}
+              format={() => <span style={{ fontSize: 9.5, fontWeight: 700, color: 'inherit' }}>{p == null ? '—' : `${p.toFixed(p < 10 ? 2 : 1)}%`}</span>}
+            />
+          </div>
+        </Tooltip>
+      ) : icon ? (
+        <div style={{ flexShrink: 0, paddingRight: 4, fontSize: 30, color, opacity: 0.85 }}>{icon}</div>
+      ) : null}
+    </div>
+  </Card>
+);
 
 const ProductionReports: React.FC = () => {
   const { message } = App.useApp();
@@ -481,9 +593,10 @@ const ProductionReports: React.FC = () => {
           itemCode: i.itemCode, itemName: i.itemName, uomCode: i.uomCode,
           family: familyOf(i.uomCode),
           weightPerPiece: i.weightPerPiece, weightPerMeter: i.weightPerMeter,
-          target: i.targetQuantity, actual: i.actualQuantity, scrap: i.scrapQuantity,
+          target: i.targetQuantity, actual: i.actualQuantity,
           running: i.runningHours,
-          actualKg: i.actualKg ?? null, scrapPct: i.scrapPct ?? null,
+          actualKg: i.actualKg ?? null,
+          ...rejFields(i),
           achievement: i.achievementPercentage, efficiency: i.efficiencyPercentage,
         }),
       ),
@@ -530,6 +643,7 @@ const ProductionReports: React.FC = () => {
           target: i.targetQuantity,
           actual,
           actualKg: i.actualKg ?? null,
+          actualPcs: isCountUom ? actual : 0,
           partRejectPcs,
           partRejectKg,
           partRejectPct,
@@ -561,7 +675,7 @@ const ProductionReports: React.FC = () => {
           key: f, family: f, uomCodes: '', target: 0, actual: 0, actualKg: 0, scrap: 0, entryCount: 0, achievement: null,
         };
         cur.target += i.targetQuantity; cur.actual += i.actualQuantity;
-        cur.actualKg += n(i.actualKg ?? null); cur.scrap += i.scrapQuantity;
+        cur.actualKg += n(i.actualKg ?? null); cur.scrap += rejFields(i).totalScrapKg;
         cur.entryCount += i.entryCount;
         cur.uomCodes = cur.uomCodes ? `${cur.uomCodes}, ${i.uomCode}` : i.uomCode;
         map.set(f, cur);
@@ -582,13 +696,19 @@ const ProductionReports: React.FC = () => {
   const deptSummaryRows = useMemo<DeptSummaryRow[]>(() => {
     return (report?.departments ?? []).map((d) => {
       let target = 0, actual = 0, scrap = 0, actualKg = 0;
+      let actualPcs = 0, partRejectPcs = 0, partRejectKg = 0, processScrapKg = 0;
       const uomSet = new Set<string>();
       const labels: Array<string | null> = [];
       const effVals: number[] = [];
       d.items.forEach((i) => {
         target += i.targetQuantity;
         actual += i.actualQuantity;
-        scrap += i.scrapQuantity;
+        const rj = rejFields(i);
+        scrap += rj.totalScrapKg;
+        actualPcs += rj.actualPcs;
+        partRejectPcs += rj.partRejectPcs;
+        partRejectKg += rj.partRejectKg;
+        processScrapKg += rj.processScrapKg;
         actualKg += n(i.actualKg);
         if (i.uomCode) uomSet.add(i.uomCode);
         labels.push(perUnitWeightLabel(i.uomCode, i.weightPerPiece, i.weightPerMeter));
@@ -608,7 +728,12 @@ const ProductionReports: React.FC = () => {
         uomCodes: [...uomSet],
         perUnitWeight: singleWeight ? nonNullLabels[0] : null,
         target, actual, scrap, actualKg,
-        scrapPct: actualKg > 0 ? (scrap / actualKg) * 100 : null,
+        scrapPct: pctOf(scrap, actualKg),
+        actualPcs, partRejectPcs, partRejectKg, processScrapKg, totalScrapKg: scrap,
+        partRejectPcsPct: pctOf(partRejectPcs, actualPcs),
+        partRejectKgPct: pctOf(partRejectKg, actualKg),
+        processScrapPct: pctOf(processScrapKg, actualKg),
+        totalScrapPct: pctOf(scrap, actualKg),
         achievement: target > 0 ? (actual / target) * 100 : null,
         efficiency,
       };
@@ -653,11 +778,27 @@ const ProductionReports: React.FC = () => {
   /* Sum of per-row Actual KG (authoritative: deptRows carry backend-calculated
      actualKg per item). KG-based Rejection % = Total Scrap (KG) ÷ Total Actual (KG) × 100. */
   const deptKpiKg = useMemo(() => {
-    const actualKg = deptRows.reduce((s, r) => s + n(r.actualKg), 0);
-    const scrapKg = deptRows.reduce((s, r) => s + n(r.scrap), 0);
+    let actualKg = 0, actualPcs = 0, partRejectPcs = 0, partRejectKg = 0, processScrapKg = 0;
+    deptRows.forEach((r) => {
+      actualKg += n(r.actualKg);
+      actualPcs += n(r.actualPcs);
+      partRejectPcs += n(r.partRejectPcs);
+      partRejectKg += n(r.partRejectKg);
+      processScrapKg += n(r.processScrapKg);
+    });
+    const totalScrapKg = partRejectKg + processScrapKg;
     return {
       actualKg,
-      rejectionPct: actualKg > 0 ? (scrapKg / actualKg) * 100 : null,
+      actualPcs,
+      partRejectPcs,
+      partRejectKg,
+      processScrapKg,
+      totalScrapKg,
+      partRejectPcsPct: pctOf(partRejectPcs, actualPcs),
+      partRejectKgPct: pctOf(partRejectKg, actualKg),
+      processScrapPct: pctOf(processScrapKg, actualKg),
+      totalScrapPct: pctOf(totalScrapKg, actualKg),
+      rejectionPct: pctOf(totalScrapKg, actualKg),
     };
   }, [deptRows]);
 
@@ -752,8 +893,7 @@ const ProductionReports: React.FC = () => {
     { title: 'Achievement', dataIndex: 'achievement', key: 'ach', align: 'center', width: 110, sorter: (a, b) => n(a.achievement) - n(b.achievement), render: (v: number | null) => <AchievementBadge value={v} /> },
     { title: 'Efficiency %', dataIndex: 'efficiency', key: 'eff', align: 'right', width: 100, sorter: (a, b) => n(a.efficiency) - n(b.efficiency), render: (v: number | null) => (v == null ? <Text type="secondary">–</Text> : <span style={{ fontVariantNumeric: 'tabular-nums' }}>{pct(v)}</span>) },
     { title: 'Actual KG', key: 'actualKg', align: 'right', width: 100, sorter: (a, b) => n(a.actualKg) - n(b.actualKg), render: (_, r) => <Text style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt2(r.actualKg)}</Text> },
-    { title: 'Rejection (KG)', dataIndex: 'scrap', key: 'scrap', align: 'right', width: 100, sorter: (a, b) => a.scrap - b.scrap, render: (v: number) => <Text strong style={{ color: '#dc2626', fontVariantNumeric: 'tabular-nums' }}>{fmt2(v)}</Text> },
-    { title: 'Rejection %', dataIndex: 'scrapPct', key: 'scrapPct', align: 'center', width: 100, sorter: (a, b) => n(a.scrapPct) - n(b.scrapPct), render: (v: number | null) => <ScrapRateBadge value={v} /> },
+    ...buildRejColumns<DeptRow>(),
   ];
 
   const deptSummaryColumns: ColumnsType<DeptSummaryRow> = [
@@ -781,8 +921,7 @@ const ProductionReports: React.FC = () => {
     { title: 'Achievement', dataIndex: 'achievement', key: 'ach', align: 'center', width: 110, sorter: (a, b) => n(a.achievement) - n(b.achievement), render: (v: number | null) => <AchievementBadge value={v} /> },
     { title: 'Efficiency %', dataIndex: 'efficiency', key: 'eff', align: 'right', width: 105, sorter: (a, b) => n(a.efficiency) - n(b.efficiency), render: (v: number | null) => (v == null ? <Text type="secondary">–</Text> : <span style={{ fontVariantNumeric: 'tabular-nums' }}>{pct(v)}</span>) },
     { title: 'Actual KG', key: 'actualKg', align: 'right', width: 110, sorter: (a, b) => a.actualKg - b.actualKg, render: (_, r) => <Text style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt2(r.actualKg)}</Text> },
-    { title: 'Rejection (KG)', dataIndex: 'scrap', key: 'scrap', align: 'right', width: 105, sorter: (a, b) => a.scrap - b.scrap, render: (v: number) => <Text strong style={{ color: '#dc2626', fontVariantNumeric: 'tabular-nums' }}>{fmt2(v)}</Text> },
-    { title: 'Rejection %', dataIndex: 'scrapPct', key: 'rej', align: 'center', width: 105, sorter: (a, b) => n(a.scrapPct) - n(b.scrapPct), render: (v: number | null) => <ScrapRateBadge value={v} /> },
+    ...buildRejColumns<DeptSummaryRow>(),
   ];
 
   const scrapColumns: ColumnsType<ScrapRow> = [
@@ -824,8 +963,7 @@ const ProductionReports: React.FC = () => {
     ) },
     { title: 'Actual PCS', dataIndex: 'actual', key: 'actual', align: 'right', width: 85, sorter: (a, b) => a.actual - b.actual, render: (v: number) => fmt(v) },
     { title: 'Actual KG', key: 'actualKg', align: 'right', width: 100, sorter: (a, b) => n(a.actualKg) - n(b.actualKg), render: (_, r) => <Text style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt2(r.actualKg)}</Text> },
-    { title: 'Rejection (KG)', dataIndex: 'scrap', key: 'scrap', align: 'right', width: 95, sorter: (a, b) => a.scrap - b.scrap, render: (v: number) => <Text strong style={{ color: '#dc2626', fontVariantNumeric: 'tabular-nums' }}>{fmt2(v)}</Text> },
-    { title: 'Rejection %', dataIndex: 'scrapRate', key: 'rate', align: 'right', width: 95, sorter: (a, b) => n(a.scrapRate) - n(b.scrapRate), render: (v: number | null) => <ScrapRateBadge value={v} /> },
+    ...buildRejColumns<ScrapRow>(),
   ];
 
   const familyColumns: ColumnsType<FamilyRow> = [
@@ -1108,31 +1246,74 @@ const ProductionReports: React.FC = () => {
   const activeFilterCount =
     Number(!!dateRange) + Number(!!filters.divisionId) + Number(!!filters.departmentId) + Number(!!filters.shiftId) + Number(!!filters.status);
 
+  const fourPerRow = { xs: 12, sm: 8, md: 6 } as const;
+  const achColor = (kpi.achievement ?? 0) >= 90 ? '#10b981' : (kpi.achievement ?? 0) >= 75 ? '#f59e0b' : '#ef4444';
+  const pctLabel = (v: number | null) => (v == null ? '—' : `${v.toFixed(2)}%`);
   const kpiCards = (activeTab === 'dept' && (
     <>
-      <Col xs={12} sm={8} md={6}><Card className="erp-pr-kpi-card erp-pr-kpi-card--tone-danger erp-pr-kpi-card--target"><Statistic title="Target" value={Math.round(kpi.target)} /></Card></Col>
-      <Col xs={12} sm={8} md={6}><Card className="erp-pr-kpi-card erp-pr-kpi-card--tone-success"><Statistic title="Total Actual / Production" value={Math.round(kpi.actual)} /></Card></Col>
-      <Col xs={12} sm={8} md={6}><Card className="erp-pr-kpi-card erp-pr-kpi-card--tone-warning"><Statistic title="Achievement %" value={kpi.achievement ?? 0} precision={1} suffix="%" /></Card></Col>
-      <Col xs={12} sm={8} md={6}><Card className="erp-pr-kpi-card erp-pr-kpi-card--tone-purple"><Statistic title="Actual KG" value={deptKpiKg.actualKg == null ? 0 : Math.round(deptKpiKg.actualKg * 100) / 100} /></Card></Col>
-      <Col xs={12} sm={8} md={6}><Card className="erp-pr-kpi-card erp-pr-kpi-card--tone-danger"><Statistic title="Total Scrap / Rejection (KG)" value={Math.round(kpi.scrap * 100) / 100} /></Card></Col>
-      <Col xs={12} sm={8} md={6}><Card className="erp-pr-kpi-card erp-pr-kpi-card--tone-primary"><Statistic title="Rejection %" value={deptKpiKg.rejectionPct ?? 0} precision={1} suffix="%" /></Card></Col>
-      <Col xs={12} sm={8} md={6}><Card className="erp-pr-kpi-card erp-pr-kpi-card--tone-cyan"><Statistic title="Efficiency %" value={kpi.efficiency ?? 0} precision={1} suffix="%" /></Card></Col>
+      {/* Row 1 — Production Overview (4 Cards) */}
+      <Col {...fourPerRow}>
+        <KpiRingCard tone="primary" title="Target" color="#3b82f6" icon={<AimOutlined />}
+          value={<span title={`${fmt(kpi.target)} PCS`}>{fmtCompact(kpi.target)} <span style={{ fontSize: 12, fontWeight: 700 }}>PCS</span></span>}
+          sub={<>{fmtGross(kpi.target)} <span style={{ fontSize: 10, opacity: 0.8 }}>(144 pcs/Gr)</span></>} />
+      </Col>
+      <Col {...fourPerRow}>
+        <KpiRingCard tone="success" title="Total Actual / Production" color="#10b981" icon={<CheckCircleOutlined />}
+          value={<span title={`${fmt(kpi.actual)} PCS`}>{fmtCompact(kpi.actual)} <span style={{ fontSize: 12, fontWeight: 700 }}>PCS</span></span>}
+          sub={<>{fmtGross(kpi.actual)} <span style={{ fontSize: 10, opacity: 0.8 }}>(144 pcs/Gr)</span></>} />
+      </Col>
+      <Col {...fourPerRow}>
+        <KpiRingCard tone="warning" title="Achievement %" color={achColor}
+          value={`${(kpi.achievement ?? 0).toFixed(1)}%`} sub="Actual vs Target"
+          pct={kpi.achievement ?? 0} tip={`Achievement: ${(kpi.achievement ?? 0).toFixed(1)}%`} />
+      </Col>
+      <Col {...fourPerRow}>
+        <KpiRingCard tone="purple" title="Actual KG" color="#8b5cf6" icon={<BarChartOutlined />}
+          value={<>{fmtCompact(deptKpiKg.actualKg)} <span style={{ fontSize: 12, fontWeight: 700 }}>KG</span></>}
+          sub={`${fmt2(deptKpiKg.actualKg)} KG produced`} />
+      </Col>
+
+      {/* Row 2 — Rejection Breakdown (4 Cards, completely separated) */}
+      <Col {...fourPerRow}>
+        <KpiRingCard tone="danger" title="Part Rejection (PCS)" color="#ef4444"
+          value={<>{fmtCompact(deptKpiKg.partRejectPcs)} <span style={{ fontSize: 12, fontWeight: 700 }}>PCS</span></>}
+          sub={`${fmtGross(deptKpiKg.partRejectPcs)} · ${pctLabel(deptKpiKg.partRejectPcsPct)} of pcs`}
+          pct={deptKpiKg.partRejectPcsPct} tip={`Part Rejection: ${pctLabel(deptKpiKg.partRejectPcsPct)} of produced pieces`} />
+      </Col>
+      <Col {...fourPerRow}>
+        <KpiRingCard tone="purple" title="Part Rejection (KG)" color="#a855f7"
+          value={<>{fmt2(deptKpiKg.partRejectKg)} <span style={{ fontSize: 12, fontWeight: 700 }}>KG</span></>}
+          sub={`${pctLabel(deptKpiKg.partRejectKgPct)} of Actual KG`}
+          pct={deptKpiKg.partRejectKgPct} tip={`Part Rejection (KG): ${pctLabel(deptKpiKg.partRejectKgPct)} of Actual KG`} />
+      </Col>
+      <Col {...fourPerRow}>
+        <KpiRingCard tone="warning" title="Process Scrap (KG)" color="#f59e0b"
+          value={<>{fmt2(deptKpiKg.processScrapKg)} <span style={{ fontSize: 12, fontWeight: 700 }}>KG</span></>}
+          sub={`${pctLabel(deptKpiKg.processScrapPct)} of Actual KG`}
+          pct={deptKpiKg.processScrapPct} tip={`Process Scrap: ${pctLabel(deptKpiKg.processScrapPct)} of Actual KG`} />
+      </Col>
+      <Col {...fourPerRow}>
+        <KpiRingCard tone="danger" title="Total Scrap (KG)" color="#dc2626"
+          value={<>{fmt2(deptKpiKg.totalScrapKg)} <span style={{ fontSize: 12, fontWeight: 700 }}>KG</span></>}
+          sub={`Total Rate: ${pctLabel(deptKpiKg.totalScrapPct)}`}
+          pct={deptKpiKg.totalScrapPct} tip={`Total Scrap: ${pctLabel(deptKpiKg.totalScrapPct)} of Actual KG`} />
+      </Col>
     </>
   )) || (activeTab === 'scrap' && (
     <>
-      {/* 1. Total Scrap (KG) with Circle Progress */}
-      <Col xs={12} sm={8} md={4}>
+      {/* Exact 4 Cards from media_1793761760391_b8ebc76a.jpg */}
+      <Col xs={12} sm={8} md={6}>
         <Card className="erp-pr-kpi-card erp-pr-kpi-card--tone-danger">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, width: '100%' }}>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div className="ant-statistic-title" style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.4px', textTransform: 'uppercase', marginBottom: 2 }}>
-                Total Scrap (KG)
+                Total Scrap
               </div>
-              <div style={{ fontSize: 19, fontWeight: 800, color: '#ef4444', lineHeight: 1.2, whiteSpace: 'nowrap' }}>
+              <div style={{ fontSize: 20, fontWeight: 800, color: '#ef4444', lineHeight: 1.2, whiteSpace: 'nowrap' }}>
                 {fmt2(scrapKpi.totalScrapKg)} <span style={{ fontSize: 12, fontWeight: 600 }}>KG</span>
               </div>
               <div style={{ fontSize: 11, color: 'var(--theme-text-secondary, #64748b)', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                Part + Process
+                Part: {fmt2(scrapKpi.partRejectKg)} KG · Process: {fmt2(scrapKpi.processScrapKg)} KG
               </div>
             </div>
             <Tooltip title={`Total Scrap Rate: ${scrapKpi.totalScrapPct.toFixed(2)}% of Actual KG`}>
@@ -1145,7 +1326,7 @@ const ProductionReports: React.FC = () => {
                   strokeWidth={7}
                   format={() => (
                     <span style={{ fontSize: 9.5, fontWeight: 700, color: 'inherit' }}>
-                      ${scrapKpi.totalScrapPct.toFixed(2)}%
+                      {scrapKpi.totalScrapPct.toFixed(2)}%
                     </span>
                   )}
                 />
@@ -1155,137 +1336,52 @@ const ProductionReports: React.FC = () => {
         </Card>
       </Col>
 
-      {/* 2. Part Rejection (PCS) with Circle Progress */}
-      <Col xs={12} sm={8} md={4}>
-        <Card className="erp-pr-kpi-card erp-pr-kpi-card--tone-danger">
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, width: '100%' }}>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div className="ant-statistic-title" style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.4px', textTransform: 'uppercase', marginBottom: 2 }}>
-                Part Rejection (PCS)
-              </div>
-              <div style={{ fontSize: 19, fontWeight: 800, color: '#f43f5e', lineHeight: 1.2, whiteSpace: 'nowrap' }}>
-                {fmt(scrapKpi.partRejectPcs)} <span style={{ fontSize: 12, fontWeight: 600 }}>PCS</span>
-              </div>
-              <div style={{ fontSize: 11, color: 'var(--theme-text-secondary, #64748b)', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                Defective Units
-              </div>
-            </div>
-            <Tooltip title={`Part Rejection % (Pcs): ${scrapKpi.partRejectPcsPct.toFixed(2)}% of Produced Pieces`}>
-              <div style={{ flexShrink: 0 }}>
-                <Progress
-                  type="circle"
-                  size={46}
-                  percent={Math.min(100, Math.max(0, scrapKpi.partRejectPcsPct))}
-                  strokeColor="#f43f5e"
-                  strokeWidth={7}
-                  format={() => (
-                    <span style={{ fontSize: 9.5, fontWeight: 700, color: 'inherit' }}>
-                      ${scrapKpi.partRejectPcsPct.toFixed(2)}%
-                    </span>
-                  )}
-                />
-              </div>
-            </Tooltip>
-          </div>
-        </Card>
-      </Col>
-
-      {/* 3. Part Rejection (KG) with Circle Progress */}
-      <Col xs={12} sm={8} md={4}>
-        <Card className="erp-pr-kpi-card erp-pr-kpi-card--tone-purple">
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, width: '100%' }}>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div className="ant-statistic-title" style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.4px', textTransform: 'uppercase', marginBottom: 2 }}>
-                Part Rejection (KG)
-              </div>
-              <div style={{ fontSize: 19, fontWeight: 800, color: '#8b5cf6', lineHeight: 1.2, whiteSpace: 'nowrap' }}>
-                {fmt2(scrapKpi.partRejectKg)} <span style={{ fontSize: 12, fontWeight: 600 }}>KG</span>
-              </div>
-              <div style={{ fontSize: 11, color: 'var(--theme-text-secondary, #64748b)', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                Rejected Weight
-              </div>
-            </div>
-            <Tooltip title={`Part Rejection % (KG): ${scrapKpi.partRejectKgPct.toFixed(2)}% of Actual KG`}>
-              <div style={{ flexShrink: 0 }}>
-                <Progress
-                  type="circle"
-                  size={46}
-                  percent={Math.min(100, Math.max(0, scrapKpi.partRejectKgPct))}
-                  strokeColor="#8b5cf6"
-                  strokeWidth={7}
-                  format={() => (
-                    <span style={{ fontSize: 9.5, fontWeight: 700, color: 'inherit' }}>
-                      ${scrapKpi.partRejectKgPct.toFixed(2)}%
-                    </span>
-                  )}
-                />
-              </div>
-            </Tooltip>
-          </div>
-        </Card>
-      </Col>
-
-      {/* 4. Process Scrap (KG) with Circle Progress */}
-      <Col xs={12} sm={8} md={4}>
-        <Card className="erp-pr-kpi-card erp-pr-kpi-card--tone-warning">
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, width: '100%' }}>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div className="ant-statistic-title" style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.4px', textTransform: 'uppercase', marginBottom: 2 }}>
-                Process Scrap (KG)
-              </div>
-              <div style={{ fontSize: 19, fontWeight: 800, color: '#f59e0b', lineHeight: 1.2, whiteSpace: 'nowrap' }}>
-                {fmt2(scrapKpi.processScrapKg)} <span style={{ fontSize: 12, fontWeight: 600 }}>KG</span>
-              </div>
-              <div style={{ fontSize: 11, color: 'var(--theme-text-secondary, #64748b)', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                Cutting & Filings
-              </div>
-            </div>
-            <Tooltip title={`Process Scrap %: ${scrapKpi.processScrapPct.toFixed(2)}% of Actual KG`}>
-              <div style={{ flexShrink: 0 }}>
-                <Progress
-                  type="circle"
-                  size={46}
-                  percent={Math.min(100, Math.max(0, scrapKpi.processScrapPct))}
-                  strokeColor="#f59e0b"
-                  strokeWidth={7}
-                  format={() => (
-                    <span style={{ fontSize: 9.5, fontWeight: 700, color: 'inherit' }}>
-                      ${scrapKpi.processScrapPct.toFixed(2)}%
-                    </span>
-                  )}
-                />
-              </div>
-            </Tooltip>
-          </div>
-        </Card>
-      </Col>
-
-      {/* 5. Overall Rejection % with Circle Progress */}
-      <Col xs={12} sm={8} md={4}>
+      <Col xs={12} sm={8} md={6}>
         <Card className="erp-pr-kpi-card erp-pr-kpi-card--tone-primary">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, width: '100%' }}>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div className="ant-statistic-title" style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.4px', textTransform: 'uppercase', marginBottom: 2 }}>
-                Overall Rejection %
+                Items Mapped
               </div>
-              <div style={{ fontSize: 19, fontWeight: 800, color: '#6366f1', lineHeight: 1.2, whiteSpace: 'nowrap' }}>
-                {scrapKpi.scrapRate.toFixed(2)}%
+              <div style={{ fontSize: 20, fontWeight: 800, color: '#6366f1', lineHeight: 1.2, whiteSpace: 'nowrap' }}>
+                {fmt(scrapKpi.items)}
               </div>
-              <div style={{ fontSize: 11, color: 'var(--theme-text-secondary, #64748b)', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              <div style={{ fontSize: 11, color: 'var(--theme-text-secondary, #64748b)', marginTop: 2, whiteSpace: 'nowrap' }}>
+                Item Master Filtered
+              </div>
+            </div>
+            <div style={{ flexShrink: 0, paddingRight: 4 }}>
+              <ClusterOutlined style={{ fontSize: 30, color: '#6366f1', opacity: 0.85 }} />
+            </div>
+          </div>
+        </Card>
+      </Col>
+
+      <Col xs={12} sm={8} md={6}>
+        <Card className="erp-pr-kpi-card erp-pr-kpi-card--tone-warning">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, width: '100%' }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div className="ant-statistic-title" style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.4px', textTransform: 'uppercase', marginBottom: 2 }}>
+                Scrap Rate
+              </div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: '#f59e0b', lineHeight: 1.2, whiteSpace: 'nowrap' }}>
+                {scrapKpi.scrapRate.toFixed(2)} %
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--theme-text-secondary, #64748b)', marginTop: 2, whiteSpace: 'nowrap' }}>
                 Actual: {fmt2(scrapKpi.actualKg)} KG
               </div>
             </div>
-            <Tooltip title={`Combined Scrap Rate: ${scrapKpi.scrapRate.toFixed(2)}%`}>
+            <Tooltip title={`Scrap Rate: ${scrapKpi.scrapRate.toFixed(2)}%`}>
               <div style={{ flexShrink: 0 }}>
                 <Progress
                   type="circle"
                   size={46}
                   percent={Math.min(100, Math.max(0, scrapKpi.scrapRate))}
-                  strokeColor="#6366f1"
+                  strokeColor="#f59e0b"
                   strokeWidth={7}
                   format={() => (
                     <span style={{ fontSize: 9.5, fontWeight: 700, color: 'inherit' }}>
-                      ${scrapKpi.scrapRate.toFixed(2)}%
+                      {scrapKpi.scrapRate.toFixed(2)}%
                     </span>
                   )}
                 />
@@ -1295,8 +1391,7 @@ const ProductionReports: React.FC = () => {
         </Card>
       </Col>
 
-      {/* 6. Top Department */}
-      <Col xs={12} sm={8} md={4}>
+      <Col xs={12} sm={8} md={6}>
         <Card className="erp-pr-kpi-card erp-pr-kpi-card--tone-cyan">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, width: '100%' }}>
             <div style={{ flex: 1, minWidth: 0 }}>
@@ -1306,12 +1401,12 @@ const ProductionReports: React.FC = () => {
               <div style={{ fontSize: 18, fontWeight: 800, color: '#06b6d4', lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={scrapKpi.topDept}>
                 {scrapKpi.topDept}
               </div>
-              <div style={{ fontSize: 11, color: 'var(--theme-text-secondary, #64748b)', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              <div style={{ fontSize: 11, color: 'var(--theme-text-secondary, #64748b)', marginTop: 2, whiteSpace: 'nowrap' }}>
                 Highest Rejection
               </div>
             </div>
             <div style={{ flexShrink: 0, paddingRight: 4 }}>
-              <ClusterOutlined style={{ fontSize: 30, color: '#06b6d4', opacity: 0.85 }} />
+              <BarChartOutlined style={{ fontSize: 30, color: '#06b6d4', opacity: 0.85 }} />
             </div>
           </div>
         </Card>
@@ -1388,7 +1483,7 @@ const ProductionReports: React.FC = () => {
                   strokeWidth={7}
                   format={() => (
                     <span style={{ fontSize: 10, fontWeight: 700, color: 'inherit' }}>
-                      ${(kpi.achievement ?? 0).toFixed(1)}%
+                      {(kpi.achievement ?? 0).toFixed(1)}%
                     </span>
                   )}
                 />
@@ -1552,6 +1647,7 @@ const ProductionReports: React.FC = () => {
 
       <Tabs
         size="small"
+        className="erp-pr-pill-tabs"
         activeKey={activeTab}
         onChange={setActiveTab}
         items={[
@@ -1568,14 +1664,14 @@ const ProductionReports: React.FC = () => {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 <Card size="small" className="erp-section-card"
                   title={`ITEM-WISE PRODUCTION REPORT — Target vs Actual · Scrap · Performance (${fmt(kpi.entryCount)} entries)`}
-                  extra={<Space size={6}><Tooltip title="Scrap & rejection detail in the next tab"><Tag icon={<AlertOutlined />} color="red">Scrap {fmt(kpi.scrap)}</Tag></Tooltip></Space>}>
+                  extra={<Space size={6}><Tooltip title="Scrap & rejection detail in the next tab"><Tag icon={<AlertOutlined />} color="red">Total Scrap {fmt2(deptKpiKg.totalScrapKg)} KG</Tag></Tooltip></Space>}>
                   <ERPTable<DeptRow>
                     rowKey="key"
                     dense
                     columns={deptColumns}
                     dataSource={filteredDeptRows}
                     loading={loading}
-                    scroll={{ x: 1280 }}
+                    scroll={{ x: 1560 }}
                     pagination={{ pageSize: 20, showSizeChanger: true, showTotal: (t) => `${fmt(t)} rows` }}
                     emptyTitle="No item production data"
                     emptyDescription="No production entries match the current filters."
@@ -1591,7 +1687,7 @@ const ProductionReports: React.FC = () => {
                     columns={deptSummaryColumns}
                     dataSource={deptSummaryRows}
                     loading={loading}
-                    scroll={{ x: 1180 }}
+                    scroll={{ x: 1480 }}
                     pagination={{
                       current: deptPage,
                       pageSize: deptPageSize,
@@ -1627,7 +1723,7 @@ const ProductionReports: React.FC = () => {
                   columns={scrapColumns}
                   dataSource={filteredScrapRows}
                   loading={loading}
-                  scroll={{ x: 1180 }}
+                  scroll={{ x: 1480 }}
                   pagination={{ pageSize: 20, showSizeChanger: true, showTotal: (t) => `${fmt(t)} rows` }}
                   emptyTitle="No mapped items"
                   emptyDescription="Item Master items of type Raw Material, Work in Progress, Semi-Finished or Finished Good with production entries will appear here."

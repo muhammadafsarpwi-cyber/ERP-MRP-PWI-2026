@@ -209,7 +209,8 @@ export function useLookups() {
         const code = (i.itemCode || (i as any)?.code || '').toUpperCase().trim();
         const isWip = type === 'WORK_IN_PROGRESS' || type === 'WIP' || code.startsWith('WIP-');
         const isRm = type === 'RAW_MATERIAL' || type === 'RM' || code.startsWith('RM-');
-        return isWip || isRm;
+        const isActive = (i as any).status ? (i as any).status === 'ACTIVE' : true;
+        return (isWip || isRm) && isActive;
       });
       if (sanitized.length > 0) {
         cacheDepartmentItems(departmentId, sanitized);
@@ -272,7 +273,7 @@ export function useLookups() {
   }, []);
 
   const loadMachines = async (departmentId?: string) => {
-    const list = await fetchList<MachineLk>('/production/machines', departmentId ? { departmentId } : {});
+    const list = await fetchList<MachineLk>('/production/machines', departmentId ? { departmentId, status: 'ACTIVE' } : { status: 'ACTIVE' });
     setMachines(list);
     return list;
   };
