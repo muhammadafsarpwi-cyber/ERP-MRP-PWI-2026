@@ -23,6 +23,7 @@ const getPcsGrossCarton = (
 
   // Gross & Carton packaging strictly applies ONLY to FINISHED_GOOD items.
   // Work-in-Progress (WIP), Semi-Finished, and Raw Materials (RM) do NOT use Gross/Carton.
+  const code = (uomCode || '').trim().toUpperCase();
   if (
     type === 'WORK_IN_PROGRESS' ||
     type === 'WORK_IN_PROCESS' ||
@@ -30,12 +31,14 @@ const getPcsGrossCarton = (
     type === 'RAW_MATERIAL' ||
     type.includes('WIP') ||
     codeStr.startsWith('WIP-') ||
-    codeStr.startsWith('RM-')
+    codeStr.startsWith('RM-') ||
+    code === 'KG' ||
+    code === 'KGS' ||
+    code === 'KILOGRAM'
   ) {
     return null;
   }
 
-  const code = (uomCode || '').trim().toUpperCase();
   const isPcs = ['PCS', 'PC', 'EA', 'NOS', 'PIECE', 'PIECES', 'BKTS'].includes(code);
   const isGross = ['GRS', 'GR', 'GROSS'].includes(code);
   const isCtn = ['CTN', 'CARTON', 'BOX', 'CS'].includes(code);
@@ -173,6 +176,80 @@ const Inventory: React.FC = () => {
         return codeA.localeCompare(codeB, undefined, { numeric: true, sensitivity: 'base' });
       });
       setSummary(aggregatedRecords);
+
+      // Authoritative Stock Ledger Reconciliation:
+      // Stock Ledger is the absolute single source of truth for all movements (receipts, issues, consumptions).
+      // Reconcile items (especially raw materials or any items that have movement history) so that
+      // the On Hand Stock in this table is 100% IDENTICAL to the Stock Ledger Modal!
+      const itemsToReconcile = aggregatedRecords.filter((rec) => {
+        const iCode = (rec.item?.itemCode || (rec as any).itemCode || '').toUpperCase();
+        const uCode = (rec.uom?.code || rec.uomCode || rec.item?.uom?.code || '').toUpperCase();
+        const iType = (rec.item?.itemType || (rec as any).itemType || '').toUpperCase();
+        return (
+          iCode.startsWith('RM-') ||
+          uCode === 'KG' ||
+          uCode === 'KGS' ||
+          iType === 'RAW_MATERIAL' ||
+          Boolean(warehouseId)
+        );
+      });
+
+      if (itemsToReconcile.length > 0) {
+        (async () => {
+          try {
+            const updates = new Map<string, { onHand: number; available: number }>();
+            await Promise.all(
+              itemsToReconcile.map(async (rec) => {
+                const itemId = rec.item?.id || (rec as any).itemId;
+                if (!itemId) return;
+                const whId = rec.warehouse?.id || (rec as any).warehouseId || warehouseId;
+                const key = `${itemId}_${whId || ''}`;
+                try {
+                  const p: any = {};
+                  if (whId) p.warehouseId = whId;
+                  let ledgerRes: any;
+                  try {
+                    ledgerRes = await apiService.get<any>(`/inventory/balances/items/${itemId}/ledger`, p);
+                  } catch {
+                    ledgerRes = await apiService.get<any>(`/inventory/receipts/items/${itemId}/ledger`, p);
+                  }
+                  const s = ledgerRes?.data?.summary || ledgerRes?.summary;
+                  if (s && s.currentBalance !== undefined) {
+                    const ledgerBal = Number(s.currentBalance);
+                    const resQty = Number(rec.reserved || 0);
+                    updates.set(key, {
+                      onHand: ledgerBal,
+                      available: Math.max(0, Number((ledgerBal - resQty).toFixed(4))),
+                    });
+                  }
+                } catch {
+                  // Keep initial snapshot if ledger endpoint is unreachable
+                }
+              })
+            );
+
+            if (updates.size > 0) {
+              setSummary((prev) =>
+                prev.map((row) => {
+                  const rItemId = row.item?.id || (row as any).itemId;
+                  const rWhId = row.warehouse?.id || (row as any).warehouseId || warehouseId || '';
+                  const match = updates.get(`${rItemId}_${rWhId}`);
+                  if (match) {
+                    return {
+                      ...row,
+                      onHand: match.onHand,
+                      available: match.available,
+                    };
+                  }
+                  return row;
+                })
+              );
+            }
+          } catch (e) {
+            console.warn('Could not complete background stock ledger reconciliation:', e);
+          }
+        })();
+      }
     } catch (err: any) {
       const msg = err?.response?.data?.message || err?.message || 'Failed to fetch inventory balances';
       setError(Array.isArray(msg) ? msg[0] : String(msg));

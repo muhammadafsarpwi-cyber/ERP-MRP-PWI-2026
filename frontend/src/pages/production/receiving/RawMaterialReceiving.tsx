@@ -33,6 +33,7 @@ import {
   exportItemWiseReceivingCsv,
   generateReceivingWhatsAppMessage,
   generateItemWiseReceivingWhatsAppMessage,
+  generateItemBalanceOnlyWhatsAppMessage,
   ReceivingExportItem,
   ItemWiseReceivingExportItem,
   ReceivingExportMeta,
@@ -782,21 +783,108 @@ const RawMaterialReceiving: React.FC = () => {
     }
   }, []);
 
+  // Live item-level inventory balance and production usage loaded directly from stock ledger
+  const [materialBalances, setMaterialBalances] = useState<Record<string, {
+    totalIn?: number;
+    totalOut?: number;
+    currentBalance?: number;
+    onHand?: number;
+    available?: number;
+    usedInProduction?: number;
+    ledgerNetBalance?: number;
+  }>>({});
+  const [balancesLoading, setBalancesLoading] = useState(false);
+
+  const fetchItemsLedgerUsage = useCallback(async (
+    targetItems: Array<{ id: string; itemCode?: string }>,
+    f: typeof filters = filters,
+  ) => {
+    if (!targetItems || targetItems.length === 0) return;
+    setBalancesLoading(true);
+
+    const balanceMap: Record<string, {
+      totalIn: number;
+      totalOut: number;
+      currentBalance: number;
+      onHand: number;
+      available: number;
+      usedInProduction: number;
+      ledgerNetBalance: number;
+    }> = {};
+
+    try {
+      await Promise.all(
+        targetItems.map(async (item) => {
+          if (!item.id || item.id === 'unknown') return;
+          try {
+            const params: any = {};
+            if (f.warehouseId) params.warehouseId = f.warehouseId;
+
+            let res: any;
+            try {
+              res = await apiService.get<any>(`/inventory/balances/items/${item.id}/ledger`, params);
+            } catch {
+              res = await apiService.get<any>(`/inventory/receipts/items/${item.id}/ledger`, params);
+            }
+
+            const ledgerData = res?.data || res;
+            const summary = ledgerData?.summary || {};
+
+            const totalIn = summary?.totalIn !== undefined ? Number(summary.totalIn) : 0;
+            const totalOut = summary?.totalOut !== undefined ? Number(summary.totalOut) : 0;
+            const currentBal = summary?.currentBalance !== undefined ? Number(summary.currentBalance) : 0;
+
+            balanceMap[item.id] = {
+              totalIn: Math.round(totalIn * 1000) / 1000,
+              totalOut: Math.round(totalOut * 1000) / 1000,
+              currentBalance: Math.round(currentBal * 1000) / 1000,
+              onHand: Math.round(currentBal * 1000) / 1000,
+              available: Math.round(currentBal * 1000) / 1000,
+              usedInProduction: Math.round(totalOut * 1000) / 1000,
+              ledgerNetBalance: Math.round(currentBal * 1000) / 1000,
+            };
+          } catch (err) {
+            console.warn(`Could not load ledger for item ${item.id}:`, err);
+          }
+        })
+      );
+
+      setMaterialBalances((prev) => ({ ...prev, ...balanceMap }));
+    } finally {
+      setBalancesLoading(false);
+    }
+  }, []);
+
   const loadList = useCallback(async (p: number = page, f: typeof filters = filters, ps: number = pageSize) => {
     setListLoading(true);
     void loadReturnsSummary(f);
     try {
       const res = await apiService.get<{ data: ReceiptHeader[]; total: number }>('/inventory/receipts/gate-pass', { page: p, limit: ps || pageSize, ...f });
-      setList(res.data || []);
+      const loadedList = res.data || [];
+      setList(loadedList);
       setTotal(res.total || 0);
       setListState('ready');
       // Persist to session cache so switching back restores rows + filters
       tabSessionCache.set<RawMaterialReceivingTabCache>(RM_RECEIVING_TAB_ID, {
-        list: res.data || [],
+        list: loadedList,
         total: res.total || 0,
         page: p,
         filters: f,
       });
+
+      // Extract unique item IDs and load their live ledger usage
+      const uniqueItems = new Map<string, { id: string; itemCode?: string }>();
+      for (const receipt of loadedList) {
+        for (const line of (receipt.lines || [])) {
+          const itId = line.item?.id || (line as any).itemId;
+          if (itId && itId !== 'unknown') {
+            uniqueItems.set(itId, { id: itId, itemCode: line.item?.itemCode });
+          }
+        }
+      }
+      if (uniqueItems.size > 0) {
+        void fetchItemsLedgerUsage(Array.from(uniqueItems.values()), f);
+      }
     } catch {
       setList([]);
       setTotal(0);
@@ -805,7 +893,7 @@ const RawMaterialReceiving: React.FC = () => {
       setListLoading(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, pageSize, filters, loadReturnsSummary]);
+  }, [page, pageSize, filters, loadReturnsSummary, fetchItemsLedgerUsage]);
 
   // Dynamic on-demand loading of lines when a row is expanded
   const [expandedLinesMap, setExpandedLinesMap] = useState<Record<string, ReceiptLine[]>>({});
@@ -2175,24 +2263,52 @@ const RawMaterialReceiving: React.FC = () => {
         } else if (unallocatedReturns > 0 && idx === 0 && mappedTotalReturns === 0) {
           retQty += unallocatedReturns;
         }
-        const netBal = Math.max(0, v.receivedTotal - retQty);
+        const balInfo = materialBalances[v.itemId];
+        const totalReceived = (balInfo?.totalIn !== undefined && balInfo.totalIn > 0)
+          ? balInfo.totalIn
+          : v.receivedTotal;
+        const returnedQty = retQty;
+        const netBal = Math.max(0, totalReceived - returnedQty);
+
+        const totalOut = (balInfo?.totalOut !== undefined && balInfo.totalOut > 0)
+          ? balInfo.totalOut
+          : (balInfo ? Number(balInfo.usedInProduction || 0) : 0);
+        const usedInProd = Math.max(0, totalOut - returnedQty);
+
+        const currentBal = (balInfo?.currentBalance !== undefined)
+          ? balInfo.currentBalance
+          : Math.max(0, netBal - usedInProd);
+
         return {
           itemId: v.itemId,
           itemCode: v.itemCode,
           itemName: v.itemName,
           uomCode: v.uomCode,
           gatePassTotal: v.gatePassTotal,
-          receivedTotal: v.receivedTotal,
-          differenceTotal: v.receivedTotal - v.gatePassTotal,
-          returnedTotal: retQty,
+          receivedTotal: totalReceived,
+          differenceTotal: totalReceived - v.gatePassTotal,
+          returnedTotal: returnedQty,
           netBalanceTotal: netBal,
+          usedInProduction: usedInProd,
+          currentStoreBalance: currentBal,
           receiptCount: v.receiptCount,
           gatePassNumbers: Array.from(v.gatePassSet),
           poNumbers: Array.from(v.poSet),
         };
       })
       .sort((a, b) => b.receivedTotal - a.receivedTotal);
-  }, [list, returnsSummary]);
+  }, [list, returnsSummary, materialBalances]);
+
+  // Auto-fetch ledger balances for any item in itemWiseList that doesn't have it yet
+  useEffect(() => {
+    if (itemWiseList.length === 0) return;
+    const missing = itemWiseList
+      .filter((it) => it.itemId && it.itemId !== 'unknown' && materialBalances[it.itemId] === undefined)
+      .map((it) => ({ id: it.itemId, itemCode: it.itemCode }));
+    if (missing.length > 0) {
+      void fetchItemsLedgerUsage(missing, filters);
+    }
+  }, [itemWiseList, materialBalances, fetchItemsLedgerUsage, filters]);
 
   const selectedDivisionName = useMemo(() => {
     if (!filters.divisionId) return 'All Divisions';
@@ -2290,13 +2406,16 @@ const RawMaterialReceiving: React.FC = () => {
     }
   }, [viewMode, itemWiseList, list.length, exportRows, exportMeta]);
 
-  // WhatsApp Share Dialog State (Supports Gate Pass vs Item-Wise switch)
+  // WhatsApp Share Dialog State (Supports Gate Pass, Item-Wise, and Item & Balance)
   const [whatsAppModalOpen, setWhatsAppModalOpen] = useState(false);
-  const [whatsAppTab, setWhatsAppTab] = useState<'gatePass' | 'itemWise'>('gatePass');
+  const [whatsAppTab, setWhatsAppTab] = useState<'gatePass' | 'itemWise' | 'itemBalance'>('gatePass');
   const [whatsAppPhone, setWhatsAppPhone] = useState('');
   const [summaryWaCopied, setSummaryWaCopied] = useState(false);
 
   const whatsAppSummaryText = useMemo(() => {
+    if (whatsAppTab === 'itemBalance') {
+      return generateItemBalanceOnlyWhatsAppMessage(exportMeta, itemWiseList);
+    }
     if (whatsAppTab === 'itemWise') {
       return generateItemWiseReceivingWhatsAppMessage(exportMeta, itemWiseList);
     }
@@ -2823,33 +2942,33 @@ const RawMaterialReceiving: React.FC = () => {
       render: (_, __, i) => <span style={{ color: token.colorTextTertiary, fontSize: 11 }}>{i + 1}</span>,
     },
     {
-      title: 'Item Code',
-      dataIndex: 'itemCode',
-      key: 'itemCode',
-      width: 145,
-      render: (c, r) => (
-        <Tooltip title="Click to view Item Stock Ledger Drill-down">
-          <span
-            onClick={() => handleOpenItemLedger({ id: r.itemId, itemCode: r.itemCode, name: r.itemName })}
-            style={{
-              fontFamily: 'monospace, var(--theme-font-mono, sans-serif)',
-              fontWeight: 700,
-              fontSize: 12.5,
-              color: isDark ? '#38bdf8' : '#0284c7',
-              cursor: 'pointer',
-              textDecoration: 'underline',
-            }}
-          >
-            {c}
+      title: 'Item Code / Raw Material',
+      key: 'itemAndName',
+      width: 250,
+      render: (_, r) => (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+          <Tooltip title="Click to view Item Stock Ledger Drill-down">
+            <span
+              onClick={() => handleOpenItemLedger({ id: r.itemId, itemCode: r.itemCode, name: r.itemName })}
+              style={{
+                fontFamily: 'monospace, var(--theme-font-mono, sans-serif)',
+                fontWeight: 700,
+                fontSize: 12.5,
+                color: isDark ? '#38bdf8' : '#0284c7',
+                cursor: 'pointer',
+                textDecoration: 'underline',
+                display: 'inline-block',
+                width: 'fit-content',
+              }}
+            >
+              {r.itemCode}
+            </span>
+          </Tooltip>
+          <span style={{ fontWeight: 600, color: token.colorText, fontSize: 12, lineHeight: 1.35 }}>
+            {r.itemName}
           </span>
-        </Tooltip>
+        </div>
       ),
-    },
-    {
-      title: 'Raw Material Description',
-      dataIndex: 'itemName',
-      key: 'itemName',
-      render: (v) => <span style={{ fontWeight: 600, color: token.colorText }}>{v}</span>,
     },
     {
       title: 'UoM',
@@ -2915,10 +3034,52 @@ const RawMaterialReceiving: React.FC = () => {
               fontFamily: 'monospace, var(--theme-font-mono, sans-serif)',
               fontWeight: 800,
               fontSize: 13,
-              color: isDark ? '#4ade80' : '#16a34a',
+              color: isDark ? '#38bdf8' : '#0284c7',
             }}
           >
             {formatNumber(net, 2)}
+          </span>
+        );
+      },
+    },
+    {
+      title: 'Used in Prod (KG)',
+      dataIndex: 'usedInProduction',
+      key: 'usedInProduction',
+      width: 145,
+      align: 'right',
+      render: (v) => {
+        const qty = Number(v || 0);
+        return qty > 0 ? (
+          <Tag color="orange" style={{ margin: 0, fontFamily: 'monospace', fontWeight: 700, fontSize: 11.5 }}>
+            -{formatNumber(qty, 2)}
+          </Tag>
+        ) : (
+          <span style={{ color: token.colorTextTertiary, fontFamily: 'monospace', fontSize: 11.5 }}>0.00</span>
+        );
+      },
+    },
+    {
+      title: 'Current Balance (KG)',
+      dataIndex: 'currentStoreBalance',
+      key: 'currentStoreBalance',
+      width: 155,
+      align: 'right',
+      render: (v, r) => {
+        const ret = Number(r.returnedTotal || 0);
+        const net = r.netBalanceTotal !== undefined ? Number(r.netBalanceTotal) : Math.max(0, Number(r.receivedTotal || 0) - ret);
+        const used = Number(r.usedInProduction || 0);
+        const bal = v !== undefined ? Number(v) : Math.max(0, net - used);
+        return (
+          <span
+            style={{
+              fontFamily: 'monospace, var(--theme-font-mono, sans-serif)',
+              fontWeight: 800,
+              fontSize: 13,
+              color: isDark ? '#4ade80' : '#16a34a',
+            }}
+          >
+            {formatNumber(bal, 2)}
           </span>
         );
       },
@@ -2952,24 +3113,6 @@ const RawMaterialReceiving: React.FC = () => {
             border: isDark ? '1px solid rgba(56, 189, 248, 0.3)' : '1px solid #bae6fd',
           }}
         />
-      ),
-    },
-    {
-      title: 'Gate Passes',
-      dataIndex: 'gatePassNumbers',
-      key: 'gatePassNumbers',
-      width: 170,
-      render: (gps: string[]) => (
-        <Space wrap size={[2, 2]}>
-          {gps.slice(0, 3).map((gp) => (
-            <Tag key={gp} style={{ fontSize: 10, margin: 0, fontFamily: 'monospace' }}>
-              {gp}
-            </Tag>
-          ))}
-          {gps.length > 3 && (
-            <Tag style={{ fontSize: 10, margin: 0 }}>+{gps.length - 3} more</Tag>
-          )}
-        </Space>
       ),
     },
     {
@@ -3606,7 +3749,14 @@ const RawMaterialReceiving: React.FC = () => {
               {/* WhatsApp */}
               <Button
                 icon={<WhatsAppOutlined style={{ color: '#25d366' }} />}
-                onClick={() => setWhatsAppModalOpen(true)}
+                onClick={() => {
+                  if (viewMode === 'itemWise') {
+                    setWhatsAppTab('itemBalance');
+                  } else {
+                    setWhatsAppTab('gatePass');
+                  }
+                  setWhatsAppModalOpen(true);
+                }}
               >
                 WhatsApp
               </Button>
@@ -5309,10 +5459,11 @@ const RawMaterialReceiving: React.FC = () => {
           <Segmented
             block
             value={whatsAppTab}
-            onChange={(v) => setWhatsAppTab(v as 'gatePass' | 'itemWise')}
+            onChange={(v) => setWhatsAppTab(v as 'gatePass' | 'itemWise' | 'itemBalance')}
             options={[
-              { value: 'gatePass', label: '📋 Gate Pass Overview Summary' },
-              { value: 'itemWise', label: '📦 Item-Wise Material Breakdown' },
+              { value: 'gatePass', label: '📋 Gate Pass Overview' },
+              { value: 'itemWise', label: '📦 Item Breakdown' },
+              { value: 'itemBalance', label: '⚖️ Item & Balance Only (صرف آئٹم اور بیلنس)' },
             ]}
           />
           {summaryWaCopied && (

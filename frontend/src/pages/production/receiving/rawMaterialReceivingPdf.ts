@@ -37,6 +37,8 @@ export interface ItemWiseReceivingExportItem {
   differenceTotal: number;
   returnedTotal?: number;
   netBalanceTotal?: number;
+  usedInProduction?: number;
+  currentStoreBalance?: number;
   receiptCount: number;
   gatePassNumbers: string[];
   poNumbers: string[];
@@ -517,7 +519,8 @@ export function exportItemWiseReceivingPdf(
     const diffStr = diff === 0 ? '0.00' : (diff > 0 ? `+${formatNumber(diff, 2)}` : formatNumber(diff, 2));
     const ret = Number(item.returnedTotal || 0);
     const net = item.netBalanceTotal !== undefined ? Number(item.netBalanceTotal) : Math.max(0, item.receivedTotal - ret);
-    const gps = item.gatePassNumbers.slice(0, 3).join(', ') + (item.gatePassNumbers.length > 3 ? ` (+${item.gatePassNumbers.length - 3})` : '');
+    const usedProd = Number(item.usedInProduction || 0);
+    const storeBal = item.currentStoreBalance !== undefined ? Number(item.currentStoreBalance) : Math.max(0, net - usedProd);
     const pos = item.poNumbers.slice(0, 2).join(', ') + (item.poNumbers.length > 2 ? ` (+${item.poNumbers.length - 2})` : '');
 
     return [
@@ -529,9 +532,10 @@ export function exportItemWiseReceivingPdf(
       formatNumber(Number(item.receivedTotal || 0), 2),
       ret > 0 ? `-${formatNumber(ret, 2)}` : '0.00',
       formatNumber(net, 2),
+      usedProd > 0 ? formatNumber(usedProd, 2) : '0.00',
+      formatNumber(storeBal, 2),
       diffStr,
       String(item.receiptCount || 1),
-      gps || '-',
       pos || '—',
     ];
   });
@@ -547,9 +551,10 @@ export function exportItemWiseReceivingPdf(
       'Received Qty',
       'Returned Qty',
       'Net In-Hand',
+      'Used in Prod',
+      'Store Balance',
       'Variance',
       'Deliveries',
-      'Associated GPs',
       'Linked PO(s)',
     ]],
     body: tableBody,
@@ -571,17 +576,18 @@ export function exportItemWiseReceivingPdf(
     },
     columnStyles: {
       0: { halign: 'center', cellWidth: 20 },
-      1: { fontStyle: 'bold', textColor: [2, 132, 199], cellWidth: 70 },
-      2: { cellWidth: 155 },
-      3: { halign: 'center', cellWidth: 30 },
-      4: { halign: 'right', fontStyle: 'bold', cellWidth: 60 },
-      5: { halign: 'right', fontStyle: 'bold', textColor: [2, 132, 199], cellWidth: 60 },
-      6: { halign: 'right', fontStyle: 'bold', textColor: [217, 119, 6], cellWidth: 60 },
-      7: { halign: 'right', fontStyle: 'bold', textColor: [22, 163, 74], cellWidth: 60 },
-      8: { halign: 'right', fontStyle: 'bold', cellWidth: 50 },
-      9: { halign: 'center', cellWidth: 40 },
-      10: { cellWidth: 95, textColor: [71, 85, 105], fontSize: 7.5 },
-      11: { cellWidth: 75, textColor: [15, 118, 110], fontSize: 7.5 },
+      1: { fontStyle: 'bold', textColor: [2, 132, 199], cellWidth: 65 },
+      2: { cellWidth: 140 },
+      3: { halign: 'center', cellWidth: 28 },
+      4: { halign: 'right', fontStyle: 'bold', cellWidth: 55 },
+      5: { halign: 'right', fontStyle: 'bold', textColor: [2, 132, 199], cellWidth: 55 },
+      6: { halign: 'right', fontStyle: 'bold', textColor: [217, 119, 6], cellWidth: 55 },
+      7: { halign: 'right', fontStyle: 'bold', textColor: [22, 163, 74], cellWidth: 55 },
+      8: { halign: 'right', fontStyle: 'bold', textColor: [234, 88, 12], cellWidth: 55 },
+      9: { halign: 'right', fontStyle: 'bold', textColor: [16, 185, 129], cellWidth: 55 },
+      10: { halign: 'right', fontStyle: 'bold', cellWidth: 45 },
+      11: { halign: 'center', cellWidth: 35 },
+      12: { cellWidth: 70, textColor: [15, 118, 110], fontSize: 7.5 },
     },
     didDrawPage: (data) => {
       const totalPages = (doc as any).internal.getNumberOfPages();
@@ -746,15 +752,18 @@ export function exportItemWiseReceivingCsv(
     'Total Received Qty',
     'Material Returned Qty',
     'Net In-Hand Balance',
+    'Used in Production (KG)',
+    'Current Store Balance (KG)',
     'Difference / Variance',
     'Deliveries Count',
-    'Associated Gate Passes',
     'Linked Purchase Orders',
   ];
 
   const rows = records.map((r) => {
     const ret = Number(r.returnedTotal || 0);
     const net = r.netBalanceTotal !== undefined ? Number(r.netBalanceTotal) : Math.max(0, r.receivedTotal - ret);
+    const usedProd = Number(r.usedInProduction || 0);
+    const storeBal = r.currentStoreBalance !== undefined ? Number(r.currentStoreBalance) : Math.max(0, net - usedProd);
     return [
       `"${(r.itemCode || '').replace(/"/g, '""')}"`,
       `"${(r.itemName || '').replace(/"/g, '""')}"`,
@@ -763,9 +772,10 @@ export function exportItemWiseReceivingCsv(
       Number(r.receivedTotal || 0).toFixed(2),
       (-ret).toFixed(2),
       net.toFixed(2),
+      usedProd.toFixed(2),
+      storeBal.toFixed(2),
       Number(r.differenceTotal || 0).toFixed(2),
       r.receiptCount || 1,
-      `"${r.gatePassNumbers.join(', ').replace(/"/g, '""')}"`,
       `"${r.poNumbers.join(', ').replace(/"/g, '""')}"`,
     ];
   });
@@ -906,3 +916,50 @@ export function generateItemWiseReceivingWhatsAppMessage(
   msg += `_PWI ERP Multi-Theme Material Intelligence_`;
   return msg;
 }
+
+export function generateItemBalanceOnlyWhatsAppMessage(
+  meta: ReceivingExportMeta,
+  items: ItemWiseReceivingExportItem[],
+): string {
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const totalBalance = items.reduce((sum, it) => {
+    const net = it.netBalanceTotal !== undefined ? Number(it.netBalanceTotal) : Math.max(0, Number(it.receivedTotal || 0) - Number(it.returnedTotal || 0));
+    const used = Number(it.usedInProduction || 0);
+    const bal = it.currentStoreBalance !== undefined ? Number(it.currentStoreBalance) : Math.max(0, net - used);
+    return sum + bal;
+  }, 0);
+
+  let msg = `*PAKISTAN WIRE INDUSTRIES (PVT.) LTD.*\n`;
+  msg += `*Raw Material Current Stock & Balances*\n`;
+  msg += `_Date: ${todayStr}_\n`;
+  msg += `------------------------------------\n`;
+  if (meta.divisionName) {
+    msg += `🏢 *Division:* ${meta.divisionName}\n`;
+  }
+  if (meta.warehouseName) {
+    msg += `🏬 *Warehouse:* ${meta.warehouseName}\n`;
+  }
+  msg += `------------------------------------\n`;
+  msg += `*Item & Balance List:*\n\n`;
+
+  items.forEach((it, idx) => {
+    const net = it.netBalanceTotal !== undefined ? Number(it.netBalanceTotal) : Math.max(0, Number(it.receivedTotal || 0) - Number(it.returnedTotal || 0));
+    const used = Number(it.usedInProduction || 0);
+    const bal = it.currentStoreBalance !== undefined ? Number(it.currentStoreBalance) : Math.max(0, net - used);
+    const uom = it.uomCode || 'KG';
+    msg += `${idx + 1}. *${it.itemCode}*\n`;
+    msg += `   ${it.itemName}\n`;
+    if (used > 0) {
+      msg += `   Used in Prod: ${formatNumber(used, 2)} ${uom}\n`;
+    }
+    msg += `   Current Balance: *${formatNumber(bal, 2)} ${uom}*\n\n`;
+  });
+
+  msg += `------------------------------------\n`;
+  msg += `📦 *Total Materials:* ${items.length} Items\n`;
+  msg += `⚖️ *Total Store Balance:* *${formatNumber(totalBalance, 2)} KG*\n`;
+  msg += `------------------------------------\n`;
+  msg += `_PWI ERP Multi-Theme Material Intelligence_`;
+  return msg;
+}
+

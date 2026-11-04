@@ -439,13 +439,47 @@ const formatInt = (v: number | null | undefined): string => {
   return Math.round(Number(v)).toLocaleString('en-US');
 };
 
+const formatNum = (v: number | null | undefined): string => {
+  if (v == null || isNaN(Number(v))) return '-';
+  const val = Number(v);
+  return Number.isInteger(val)
+    ? val.toLocaleString('en-US')
+    : val.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 2 });
+};
+
 const formatGrs = (pcs: number | null | undefined): string => {
   if (pcs == null || isNaN(Number(pcs))) return '-';
   const val = Number(pcs) / 144;
   return (Number.isInteger(val) ? val.toLocaleString('en-US') : val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })) + ' GRS';
 };
 
+export const isRawMaterialItem = (r: {
+  itemType?: string | null;
+  uomCode?: string | null;
+  itemCode?: string | null;
+  sectionName?: string | null;
+  departmentName?: string | null;
+}): boolean => {
+  const type = (r.itemType || '').toUpperCase();
+  const code = (r.itemCode || '').toUpperCase();
+  const uom = (r.uomCode || '').toUpperCase();
+  const sec = (r.sectionName || '').toUpperCase();
+  const dept = (r.departmentName || '').toUpperCase();
+
+  return (
+    type === 'RAW_MATERIAL' ||
+    type.includes('RAW') ||
+    uom === 'KG' ||
+    uom === 'KGS' ||
+    uom === 'KILOGRAM' ||
+    code.startsWith('RM-') ||
+    sec.includes('RAW') ||
+    dept.includes('RAW')
+  );
+};
+
 const isSpokeDivision = (r: ReportRow): boolean => {
+  if (isRawMaterialItem(r)) return false;
   const div = (r.divisionName || '').toUpperCase();
   const sec = (r.sectionName || '').toUpperCase();
   const code = (r.itemCode || '').toUpperCase();
@@ -463,6 +497,7 @@ const isSpokeDivision = (r: ReportRow): boolean => {
 };
 
 const isLengthBased = (r: ReportRow): boolean => {
+  if (isRawMaterialItem(r)) return false;
   const div = (r.divisionName || '').toUpperCase();
   const sec = (r.sectionName || '').toUpperCase();
   const code = (r.itemCode || '').toUpperCase();
@@ -500,6 +535,17 @@ const renderDynamicUomQty = (
     : colorClass === 'erp-num--danger'
     ? '#EF4444'
     : '#38BDF8';
+
+  // 0. Raw Material: STRICTLY in KG (Never GRS, never PCS)
+  if (isRawMaterialItem(r)) {
+    return (
+      <div style={{ textAlign: 'right', lineHeight: 1.25 }}>
+        <div style={{ fontWeight: 700, fontSize: 13, color: primaryColor, letterSpacing: '0.2px' }}>
+          {formatNum(num)} <span style={{ fontSize: 10.5, fontWeight: 700, opacity: 0.9 }}>KG</span>
+        </div>
+      </div>
+    );
+  }
 
   // 1. Spoke Division (SPD): Gross (GRS) as primary commercial currency, raw Piece counts in table with erp-table-pcs-subtext
   if (isSpokeDivision(r)) {
@@ -1020,6 +1066,25 @@ const ProductionInventoryReport: React.FC = () => {
       });
     }
 
+    // Professional Reconciliation for Raw Materials:
+    // 1. Physical On Hand matches the Closing Balance (Opening + IN - OUT).
+    // 2. Available = On Hand - Reserved (if no reservation, Closing == On Hand == Available).
+    // 3. Produced = 0 / '-' (Raw materials are received from suppliers, never produced).
+    items = items.map((r) => {
+      if (isRawMaterialItem(r)) {
+        const res = Number(r.reserved) || 0;
+        const reconciledOnHand = r.closingBalance;
+        const reconciledAvailable = Math.max(0, reconciledOnHand - res);
+        return {
+          ...r,
+          onHand: reconciledOnHand,
+          available: reconciledAvailable,
+          produced: 0,
+        };
+      }
+      return r;
+    });
+
     if (!searchTerm.trim()) return items;
     const q = searchTerm.toLowerCase().trim();
     return items.filter(
@@ -1044,13 +1109,16 @@ const ProductionInventoryReport: React.FC = () => {
   // Case 1: Spoke Division (SPD) -> GRS primary, PCS secondary
   // Case 2: Control Cable Division (CCD) -> Meters (M) / KG primary, per-meter weight yield secondary, completely suppress 'GRS'
   // Case 3: Standard / General -> Units / PCS
-  const activeUomMode = useMemo<'SPOKE' | 'CABLE' | 'STANDARD'>(() => {
+  const activeUomMode = useMemo<'SPOKE' | 'CABLE' | 'STANDARD' | 'RAW_MATERIAL'>(() => {
+    const items = filteredItems.length > 0 ? filteredItems : (report?.items || []);
+    if (selectedCategory === 'RAW_MATERIAL' || (items.length > 0 && items.every((r) => isRawMaterialItem(r)))) {
+      return 'RAW_MATERIAL';
+    }
     if (activeDivision) {
       const divName = (activeDivision.name || '').toUpperCase();
       if (divName.includes('CABLE') || divName.includes('CCD')) return 'CABLE';
       if (divName.includes('SPOKE') || divName.includes('SPD')) return 'SPOKE';
     }
-    const items = filteredItems.length > 0 ? filteredItems : (report?.items || []);
     if (items.length === 0) return 'STANDARD';
 
     let cableCount = 0;
@@ -1062,7 +1130,7 @@ const ProductionInventoryReport: React.FC = () => {
     if (cableCount > spokeCount && cableCount > 0) return 'CABLE';
     if (spokeCount > cableCount && spokeCount > 0) return 'SPOKE';
     return 'STANDARD';
-  }, [activeDivision, filteredItems, report?.items]);
+  }, [activeDivision, filteredItems, report?.items, selectedCategory]);
 
   // Detect dominant unit for Cable mode (M or KG)
   const cablePrimaryUom = useMemo(() => {
@@ -1148,6 +1216,22 @@ const ProductionInventoryReport: React.FC = () => {
     primaryColor: string,
     weightYieldKg: number,
   ) => {
+    if (activeUomMode === 'RAW_MATERIAL') {
+      return {
+        primary: (
+          <span style={{ color: primaryColor, fontWeight: 800 }}>
+            {formatNum(rawVal)}{' '}
+            <span style={{ fontSize: '0.78em', fontWeight: 700, opacity: 0.9 }}>KG</span>
+          </span>
+        ),
+        secondary: (
+          <span style={{ color: '#10B981', fontWeight: 600 }}>
+            (Raw Material Weight)
+          </span>
+        ),
+      };
+    }
+
     if (activeUomMode === 'SPOKE') {
       return {
         primary: (
@@ -1506,16 +1590,16 @@ const ProductionInventoryReport: React.FC = () => {
         <td style="border: 1px solid #cbd5e1; padding: 6px 8px;">${r.itemName}</td>
         <td style="border: 1px solid #cbd5e1; padding: 6px 8px;">${r.divisionName || '-'}</td>
         <td style="border: 1px solid #cbd5e1; padding: 6px 8px;">${r.departmentName || '-'}</td>
-        <td style="border: 1px solid #cbd5e1; padding: 6px 8px; text-align: right;">${formatInt(r.openingBalance)}</td>
-        <td style="border: 1px solid #cbd5e1; padding: 6px 8px; text-align: right; color: #16a34a; font-weight: 600;">${formatInt(r.totalIn)}</td>
-        <td style="border: 1px solid #cbd5e1; padding: 6px 8px; text-align: right; color: #dc2626; font-weight: 600;">${formatInt(r.totalOut)}</td>
-        <td style="border: 1px solid #cbd5e1; padding: 6px 8px; text-align: right; font-weight: 600;">${formatInt(r.closingBalance)}</td>
-        <td style="border: 1px solid #cbd5e1; padding: 6px 8px; text-align: right;">${formatInt(r.onHand)}</td>
-        <td style="border: 1px solid #cbd5e1; padding: 6px 8px; text-align: right;">${formatInt(r.available)}</td>
-        <td style="border: 1px solid #cbd5e1; padding: 6px 8px; text-align: right;">${formatInt(r.produced)}</td>
-        <td style="border: 1px solid #cbd5e1; padding: 6px 8px; text-align: right;">${formatInt(r.required)}</td>
-        <td style="border: 1px solid #cbd5e1; padding: 6px 8px; text-align: right;">${formatInt(r.dispatched || 0)}</td>
-        <td style="border: 1px solid #cbd5e1; padding: 6px 8px; text-align: right;">${formatInt(r.consumed)}</td>
+        <td style="border: 1px solid #cbd5e1; padding: 6px 8px; text-align: right;">${formatInt(r.openingBalance)}${isRawMaterialItem(r) ? ' KG' : ''}</td>
+        <td style="border: 1px solid #cbd5e1; padding: 6px 8px; text-align: right; color: #16a34a; font-weight: 600;">${formatInt(r.totalIn)}${isRawMaterialItem(r) ? ' KG' : ''}</td>
+        <td style="border: 1px solid #cbd5e1; padding: 6px 8px; text-align: right; color: #dc2626; font-weight: 600;">${formatInt(r.totalOut)}${isRawMaterialItem(r) ? ' KG' : ''}</td>
+        <td style="border: 1px solid #cbd5e1; padding: 6px 8px; text-align: right; font-weight: 600;">${formatInt(r.closingBalance)}${isRawMaterialItem(r) ? ' KG' : ''}</td>
+        <td style="border: 1px solid #cbd5e1; padding: 6px 8px; text-align: right;">${formatInt(r.onHand)}${isRawMaterialItem(r) ? ' KG' : ''}</td>
+        <td style="border: 1px solid #cbd5e1; padding: 6px 8px; text-align: right;">${formatInt(r.available)}${isRawMaterialItem(r) ? ' KG' : ''}</td>
+        <td style="border: 1px solid #cbd5e1; padding: 6px 8px; text-align: right;">${isRawMaterialItem(r) ? '—' : formatInt(r.produced)}</td>
+        <td style="border: 1px solid #cbd5e1; padding: 6px 8px; text-align: right;">${formatInt(r.required)}${isRawMaterialItem(r) ? ' KG' : ''}</td>
+        <td style="border: 1px solid #cbd5e1; padding: 6px 8px; text-align: right;">${isRawMaterialItem(r) && (!r.dispatched || r.dispatched === 0) ? '—' : formatInt(r.dispatched || 0)}</td>
+        <td style="border: 1px solid #cbd5e1; padding: 6px 8px; text-align: right;">${formatInt(r.consumed)}${isRawMaterialItem(r) ? ' KG' : ''}</td>
         <td style="border: 1px solid #cbd5e1; padding: 6px 8px; text-align: right;">${formatInt(r.scrapOut)}</td>
         <td style="border: 1px solid #cbd5e1; padding: 6px 8px; text-align: right; ${r.shortage > 0 ? 'color: #dc2626; font-weight: 700;' : ''}">${formatInt(r.shortage)}</td>
       </tr>
@@ -1587,6 +1671,9 @@ const ProductionInventoryReport: React.FC = () => {
   const handleShareWhatsApp = () => {
     const s = activeSummary;
     const formatShareVal = (val: number) => {
+      if (activeUomMode === 'RAW_MATERIAL') {
+        return `${formatNum(val)} KG`;
+      }
       if (activeUomMode === 'SPOKE') {
         const grs = (val / 144).toFixed(2);
         return `${grs} GRS (${formatInt(val)} PCS)`;
@@ -1870,7 +1957,12 @@ const ProductionInventoryReport: React.FC = () => {
       key: 'produced',
       align: 'right',
       width: 120,
-      render: (v: number, r: ReportRow) => renderDynamicUomQty(v, r, 'erp-num--bold'),
+      render: (v: number, r: ReportRow) => {
+        if (isRawMaterialItem(r)) {
+          return <span style={{ color: 'var(--theme-text-muted, #94a3b8)', fontWeight: 500 }}>—</span>;
+        }
+        return renderDynamicUomQty(v, r, 'erp-num--bold');
+      },
     },
     {
       title: <span style={{ whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 4 }}><AimOutlined className="erp-th-icon" />Required</span>,

@@ -577,6 +577,22 @@ export class InventoryReceiptController {
     return { success: true, data };
   }
 
+  @Get('material-balances')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('manufacturing.material_receiving.view')
+  @ApiOperation({ summary: 'Get current balances and production usage for all raw materials' })
+  async getRawMaterialsStockAndUsage(
+    @Query('warehouseId') warehouseId: string | undefined,
+    @Req() req: any,
+  ) {
+    const companyId = this.getCompanyId(req);
+    const data = await this.rawMaterialService.getRawMaterialsStockAndUsage(
+      companyId, warehouseId, this.divisionScope(req),
+    );
+    return { success: true, data };
+  }
+
   @Get('items/:itemId/ledger')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()

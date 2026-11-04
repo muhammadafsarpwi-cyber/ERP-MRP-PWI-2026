@@ -123,6 +123,46 @@ export class InventoryBalanceService {
         return iType === 'FINISHED_GOOD' || iCode.includes('-FG-');
       });
 
+      // 0. Stock Ledger Single Source of Truth Reconciliation:
+      // Stock Ledger records every physical movement (+IN / -OUT). When inventory_balances
+      // diverges (e.g. from historical direct consumption posts), reconcile onHand with the ledger.
+      const allItemIds = Array.from(new Set(balances.map((b) => b.itemId).filter(Boolean)));
+      if (allItemIds.length > 0) {
+        try {
+          const ledgerSums: Array<{ item_id: string; warehouse_id: string; net_balance: string | number }> =
+            await this.repo.manager.query(
+              `SELECT sl.item_id, sl.warehouse_id,
+                      COALESCE(SUM(CASE WHEN sl.direction = 'IN' THEN sl.quantity ELSE -sl.quantity END), 0) AS net_balance
+               FROM public.stock_ledger sl
+               WHERE sl.transaction_type <> 'PRODUCTION_SCRAP'
+                 AND sl.item_id = ANY($1)
+                 ${companyId ? 'AND sl.company_id = $2' : ''}
+               GROUP BY sl.item_id, sl.warehouse_id`,
+              companyId ? [allItemIds, companyId] : [allItemIds],
+            );
+
+          const ledgerMap = new Map<string, number>();
+          for (const row of ledgerSums) {
+            ledgerMap.set(`${row.item_id}_${row.warehouse_id}`, Number(row.net_balance || 0));
+          }
+
+          for (const b of balances) {
+            const key = `${b.itemId}_${b.warehouseId}`;
+            if (ledgerMap.has(key)) {
+              const liveNet = ledgerMap.get(key)!;
+              const roundedNet = Math.round(liveNet * 10000) / 10000;
+              if (Math.abs(Number(b.onHand || 0) - roundedNet) > 0.001) {
+                b.onHand = roundedNet;
+                // Asynchronously heal the static table row in the DB
+                void this.repo.update({ id: b.id }, { onHand: roundedNet });
+              }
+            }
+          }
+        } catch (ledgerErr) {
+          this.logger.warn(`Could not reconcile balances with stock_ledger: ${(ledgerErr as any)?.message}`);
+        }
+      }
+
       // Normalize non-FG rows so reserved never exceeds onHand and available = onHand - reserved
       for (const b of balances) {
         const iType = (b.item?.itemType || '').toUpperCase();

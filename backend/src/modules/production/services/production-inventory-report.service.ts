@@ -782,13 +782,22 @@ export class ProductionInventoryReportService {
 
       const codeUpper = (item.itemCode || '').toUpperCase();
       const isSpokePlating = codeUpper.startsWith('WIP-SPL') || codeUpper.startsWith('NIP-SPL') || (item.section?.name || '').toLowerCase().includes('plating');
+      const isRawMaterial =
+        (item.itemType || '').toUpperCase() === 'RAW_MATERIAL' ||
+        (item.itemType || '').toUpperCase().includes('RAW') ||
+        (item.baseUom?.code || '').toUpperCase() === 'KG' ||
+        codeUpper.startsWith('RM-') ||
+        (item.section?.name || '').toLowerCase().includes('raw') ||
+        (item.department?.name || '').toLowerCase().includes('raw');
       const isManufacturingWip =
-        codeUpper.startsWith('WIP-') ||
-        codeUpper.startsWith('NIP-') ||
-        isSpokePlating ||
-        (item.section?.name || '').toLowerCase().includes('spoke') ||
-        (item.section?.name || '').toLowerCase().includes('straight') ||
-        (item.section?.name || '').toLowerCase().includes('swag');
+        !isRawMaterial && (
+          codeUpper.startsWith('WIP-') ||
+          codeUpper.startsWith('NIP-') ||
+          isSpokePlating ||
+          (item.section?.name || '').toLowerCase().includes('spoke') ||
+          (item.section?.name || '').toLowerCase().includes('straight') ||
+          (item.section?.name || '').toLowerCase().includes('swag')
+        );
 
       const openingBalance = R4(N(l?.openingIn) - N(l?.openingOut));
       const rangeIn = N(l?.rangeIn);
@@ -815,9 +824,21 @@ export class ProductionInventoryReportService {
       const totalIn = filters.movementType ? N(l?.movIn) : actualInbound;
       const totalOut = filters.movementType ? N(l?.movOut) : actualOutflow;
 
-      const onHand = R4(isSpokePlating && !filters.dateFrom && !filters.dateTo ? closingBalance : N(b?.onHand));
+      const onHand = R4(
+        (isSpokePlating || isRawMaterial) && !filters.dateFrom && !filters.dateTo
+          ? closingBalance
+          : isRawMaterial
+          ? closingBalance
+          : N(b?.onHand)
+      );
       const reserved = R4(N(b?.reserved));
-      const available = R4(isSpokePlating && !filters.dateFrom && !filters.dateTo ? closingBalance : N(b?.available));
+      const available = R4(
+        (isSpokePlating || isRawMaterial) && !filters.dateFrom && !filters.dateTo
+          ? Math.max(0, closingBalance - reserved)
+          : isRawMaterial
+          ? Math.max(0, closingBalance - reserved)
+          : N(b?.available)
+      );
       const shortage = Math.max(0, R4(-closingBalance));
 
       // Upstream source resolution: authoritative preceding stage in processes takes precedence,
@@ -885,7 +906,7 @@ export class ProductionInventoryReportService {
         totalOut: R4(totalOut),
         scrapOut: R4(N(l?.scrapOut)),
         consumed: R4(N(l?.consumed)),
-        produced: R4(N(p?.produced)),
+        produced: isRawMaterial ? 0 : R4(N(p?.produced)),
         required: R4(Math.max(N(r?.required), effectiveSocDemand)),
         dispatched: R4(effectiveSocDispatched),
         closingBalance,

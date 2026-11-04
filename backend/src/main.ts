@@ -63,6 +63,10 @@ async function startCloudFallbackGateway(port: number | string) {
     });
   });
 
+  app.get('/api/v1/inventory/receipts/material-balances', (_req, res) => {
+    res.status(200).json({ success: true, data: {} });
+  });
+
   app.get('/api/docs', (_req, res) => {
     res.status(200).send(
       '<!DOCTYPE html><html><head><title>ERP System API Docs</title></head><body><h1>ERP System API Documentation</h1></body></html>',

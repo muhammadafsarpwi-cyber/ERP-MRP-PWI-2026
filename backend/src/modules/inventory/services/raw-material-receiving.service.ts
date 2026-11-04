@@ -2156,4 +2156,70 @@ export class RawMaterialReceivingService implements OnModuleInit {
       movements: movements.reverse(),
     };
   }
+
+  async getRawMaterialsStockAndUsage(
+    companyId: string,
+    warehouseId?: string,
+    allowedDivisionIds?: DivisionScope,
+  ) {
+    const balanceQb = this.ledgerRepo.manager
+      .getRepository(InventoryBalance)
+      .createQueryBuilder('b')
+      .select('b.itemId', 'itemId')
+      .addSelect('COALESCE(SUM(b.onHand), 0)', 'onHand')
+      .addSelect('COALESCE(SUM(b.available), 0)', 'available')
+      .where('b.companyId = :companyId', { companyId })
+      .andWhere('b.status = :status', { status: 'ACTIVE' });
+
+    if (warehouseId) {
+      balanceQb.andWhere('b.warehouseId = :warehouseId', { warehouseId });
+    }
+    balanceQb.groupBy('b.itemId');
+    const balanceRows = await balanceQb.getRawMany<{ itemId: string; onHand: string; available: string }>();
+
+    const usageQb = this.ledgerRepo
+      .createQueryBuilder('sl')
+      .select('sl.itemId', 'itemId')
+      .addSelect(
+        `COALESCE(SUM(CASE 
+           WHEN sl.direction = 'OUT' AND (sl.transactionType IN ('PRODUCTION_CONSUMPTION', 'PRODUCTION_ISSUE') OR sl.referenceType = 'PRODUCTION_ENTRY') THEN sl.quantity 
+           WHEN sl.direction = 'IN' AND sl.transactionType = 'PRODUCTION_REVERSAL' THEN -sl.quantity
+           ELSE 0 
+         END), 0)`,
+        'usedInProduction',
+      )
+      .addSelect(
+        `COALESCE(SUM(CASE WHEN sl.direction = 'IN' THEN sl.quantity ELSE -sl.quantity END), 0)`,
+        'ledgerNetBalance',
+      )
+      .where('sl.companyId = :companyId', { companyId });
+
+    RawMaterialReceivingService.scopeQuery(usageQb, 'sl.divisionId', allowedDivisionIds);
+
+    if (warehouseId) {
+      usageQb.andWhere('sl.warehouseId = :warehouseId', { warehouseId });
+    }
+    usageQb.groupBy('sl.itemId');
+    const usageRows = await usageQb.getRawMany<{ itemId: string; usedInProduction: string; ledgerNetBalance: string }>();
+
+    const balanceMap: Record<string, { onHand: number; available: number; usedInProduction: number; ledgerNetBalance: number }> = {};
+
+    for (const b of balanceRows) {
+      if (!balanceMap[b.itemId]) {
+        balanceMap[b.itemId] = { onHand: 0, available: 0, usedInProduction: 0, ledgerNetBalance: 0 };
+      }
+      balanceMap[b.itemId].onHand = Math.round(Number(b.onHand || 0) * 1000) / 1000;
+      balanceMap[b.itemId].available = Math.round(Number(b.available || 0) * 1000) / 1000;
+    }
+
+    for (const u of usageRows) {
+      if (!balanceMap[u.itemId]) {
+        balanceMap[u.itemId] = { onHand: 0, available: 0, usedInProduction: 0, ledgerNetBalance: 0 };
+      }
+      balanceMap[u.itemId].usedInProduction = Math.max(0, Math.round(Number(u.usedInProduction || 0) * 1000) / 1000);
+      balanceMap[u.itemId].ledgerNetBalance = Math.round(Number(u.ledgerNetBalance || 0) * 1000) / 1000;
+    }
+
+    return balanceMap;
+  }
 }
