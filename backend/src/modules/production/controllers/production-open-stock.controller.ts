@@ -314,5 +314,32 @@ export class ProductionOpenStockController {
     const companyId = this.getCompanyId(req);
     return await this.openStockService.updateNotes(companyId, id, notes);
   }
+
+  @Post('allocate-safety-stock')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('manufacturing.production.entries.create')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Allocate/Shift stock from Safety Stock to Customer Order with clean partial split support' })
+  async allocateSafetyStock(
+    @Req() req: any,
+    @Body() dto: {
+      sourceId: string;
+      isOpeningStock: boolean;
+      shiftCartons: number;
+      totalCartons: number;
+      targetCustomer: string;
+      targetSoc: string;
+      shiftDate: string;
+      packagingStyle?: string;
+    },
+  ) {
+    const companyId = this.getCompanyId(req);
+    const userId = req.erpUser?.id || req.user?.id;
+    return await this.openStockService.allocateSafetyStock(companyId, {
+      ...dto,
+      userId,
+    });
+  }
 }
 

@@ -197,10 +197,11 @@ export const SheetHead: React.FC<{
 export const Panel: React.FC<{
   title: React.ReactNode;
   titleExtra?: React.ReactNode;
+  extra?: React.ReactNode;
   children: React.ReactNode;
   testId?: string;
   bodyStyle?: React.CSSProperties;
-}> = ({ title, titleExtra, children, testId, bodyStyle }) => (
+}> = ({ title, titleExtra, extra, children, testId, bodyStyle }) => (
   <section
     data-testid={testId}
     style={{
@@ -232,7 +233,7 @@ export const Panel: React.FC<{
       >
         {title}
       </span>
-      {titleExtra}
+      {extra ?? titleExtra}
     </div>
     <div style={bodyStyle}>{children}</div>
   </section>

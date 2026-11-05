@@ -1055,6 +1055,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
   const [allocateBatchCartonOverrides, setAllocateBatchCartonOverrides] = useState<Record<string, number>>({});
   const [allocateTargetCustomer, setAllocateTargetCustomer] = useState<string>('');
   const [allocateTargetSoc, setAllocateTargetSoc] = useState<string>('');
+  const [allocatePackagingStyle, setAllocatePackagingStyle] = useState<string>('Customer Branded Printed Bag (Poly Bag)');
   const [allocateDate, setAllocateDate] = useState<string>(dayjs().format('YYYY-MM-DD'));
   const [allocateFilterItemCode, setAllocateFilterItemCode] = useState<string>('ALL');
   const [allocateSearchText, setAllocateSearchText] = useState<string>('');
@@ -1090,9 +1091,18 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
 
   // Shift logs: Recent saved entries displayed directly below the form.
   // Source of truth = backend (production entries with machineNo HAND-PACK-*); session cache only for instant paint.
-  const [recentSavedEntries, setRecentSavedEntries] = useState<RecentPackingLog[]>(
-    () => tabSessionCache.get<RecentPackingLog[]>(RECENT_CACHE_KEY) || []
-  );
+  const [recentSavedEntries, setRecentSavedEntries] = useState<RecentPackingLog[]>(() => {
+    const session = tabSessionCache.get<RecentPackingLog[]>(RECENT_CACHE_KEY);
+    if (session && session.length > 0) return session;
+    try {
+      const backup = localStorage.getItem('pwi_packing_recent_entries_backup');
+      if (backup) {
+        const parsed = JSON.parse(backup);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (_) {}
+    return [];
+  });
   const [recentLoading, setRecentLoading] = useState<boolean>(false);
   // Expand/collapse controls for Date-Wise Grouped Log Details table
   const [expandedDateKeys, setExpandedDateKeys] = useState<string[]>([]);
@@ -1244,7 +1254,56 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
       const openStockRows: RecentPackingLog[] = [];
 
       openStockList.forEach((os: any) => {
+        const itemCode = String(os.itemCode || os.item?.itemCode || '').toUpperCase().trim();
+        const itemName = String(os.itemName || os.item?.name || '').toUpperCase().trim();
+        const itemType = String(os.itemType || os.item?.itemType || '').toUpperCase().trim();
+
         const notes = String(os.notes || '');
+
+        // STRICT FILTER: Hand Packing Department is exclusively for FINISHED GOODS (Spoke FG sets)!
+        // Loose Nipples (FG-NP-*, RM-NP-*, NP-*), Wire Coils (RM-WIRE-*), WIP (WIP-SPL-*), etc. must NEVER appear as packed spoke goods!
+        if (
+          itemCode.startsWith('RM-') ||
+          itemCode.startsWith('WIRE-') ||
+          itemCode.startsWith('FLAT-') ||
+          itemCode.startsWith('WIP-') ||
+          itemCode.startsWith('FG-NP') ||
+          itemCode.startsWith('RM-NP') ||
+          itemCode.startsWith('NP-') ||
+          itemType === 'RAW_MATERIAL' ||
+          itemType.includes('WIP') ||
+          itemType.includes('WORK_IN_PROCESS') ||
+          itemType.includes('PROGRESS') ||
+          itemType.includes('SEMI_FINISHED') ||
+          itemName.includes('WIRE COIL') ||
+          itemName.includes('STEEL WIRE') ||
+          itemName.includes('FLAT STRIP')
+        ) {
+          return;
+        }
+
+        // Must be a genuine Spoke Finished Good (SPI-FG-SPK-*) or explicit Hand Packing batch
+        const isSpokeFg =
+          itemCode.startsWith('SPI-FG-SPK') ||
+          (itemCode.startsWith('SPI-FG') && !itemCode.startsWith('SPI-FG-NP')) ||
+          (itemType === 'FINISHED_GOOD' && (itemCode.includes('SPK') || itemName.includes('SPOKE')) && !itemCode.includes('NP')) ||
+          notes.includes('[HAND PACKING]');
+
+        if (!isSpokeFg) {
+          return;
+        }
+
+        // Must have an assigned Customer or Safety Stock (never orphaned General Stock)
+        const hasValidAssignment =
+          notes.toUpperCase().includes('CUSTOMER:') ||
+          notes.toUpperCase().includes('SOC:') ||
+          notes.toUpperCase().includes('SAFETY STOCK') ||
+          notes.toUpperCase().includes('SAFETY-STOCK') ||
+          notes.toUpperCase().includes('SAFETY_STOCK');
+
+        if (!hasValidAssignment) {
+          return;
+        }
         const custMatch = notes.match(/Customer:\s*([^|\]]+)/i);
         const socMatch = notes.match(/SOC:\s*([^|\]]+)/i);
         const ctnMatch = notes.match(/Cartons:\s*([\d.]+)/i) || notes.match(/\[([\d.]+)\s*CTN/i);
@@ -1308,8 +1367,30 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
       });
 
       const rows = [...liveRows, ...openStockRows].sort((a, b) => b.createdAtMs - a.createdAtMs);
-      setRecentSavedEntries(rows);
-      tabSessionCache.set(RECENT_CACHE_KEY, rows);
+      if (rows.length > 0) {
+        setRecentSavedEntries(rows);
+        tabSessionCache.set(RECENT_CACHE_KEY, rows);
+        try {
+          localStorage.setItem('pwi_packing_recent_entries_backup', JSON.stringify(rows));
+        } catch (_) {}
+      } else {
+        // RESILIENCE GUARD: Never wipe existing data if the network had a temporary blip
+        const cached = tabSessionCache.get<RecentPackingLog[]>(RECENT_CACHE_KEY);
+        if (cached && cached.length > 0) {
+          setRecentSavedEntries(cached);
+        } else {
+          try {
+            const backup = localStorage.getItem('pwi_packing_recent_entries_backup');
+            if (backup) {
+              const parsed = JSON.parse(backup);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                setRecentSavedEntries(parsed);
+                tabSessionCache.set(RECENT_CACHE_KEY, parsed);
+              }
+            }
+          } catch (_) {}
+        }
+      }
 
       // Prevent duplicate batch numbers: next batch = highest saved batch + 1 (calculated from live production batches only)
       const year = dayjs().format('YYYY');
@@ -5321,54 +5402,33 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
           : dayjs().format('YYYY-MM-DD');
 
         for (const batch of selectedBatches) {
-          const entryId = batch.id;
           const shiftCartons = allocateBatchCartonOverrides[batch.id] ?? batch.cartons ?? 1;
-          const shiftGross = Math.round((shiftCartons * 10) * 100) / 100;
-          const shiftPcs = Math.round(shiftCartons * (batch.pcs / (batch.cartons || 1) || 1440));
-          const shiftWeightKg = Math.round(
-            (batch.weightKg ? (shiftCartons / (batch.cartons || 1)) * batch.weightKg : shiftCartons * 18.936) * 10
-          ) / 10;
-
-          if (batch.isOpeningStock) {
-            const oldNotes = String(batch.rawEntry?.notes || '');
-            let newNotes = oldNotes;
-            if (newNotes.includes('Customer:')) {
-              newNotes = newNotes
-                .replace(/Customer:\s*[^|\]]+/i, `Customer: ${allocateTargetCustomer}`)
-                .replace(/SOC:\s*[^|\]]+/i, `SOC: ${allocateTargetSoc}`)
-                .replace(/\[Customer:[^\]]+\]/i, `[Customer: ${allocateTargetCustomer}]`)
-                .replace(/\[SOC:[^\]]+\]/i, `[SOC: ${allocateTargetSoc}]`);
-            } else {
-              newNotes = `Customer: ${allocateTargetCustomer} | SOC: ${allocateTargetSoc} | ${newNotes}`;
-            }
-            newNotes += ` | [SHIFTED FROM SAFETY STOCK on ${shiftDateFormatted}] to ${allocateTargetCustomer} (${allocateTargetSoc}) (${shiftCartons} CTN / ${shiftGross} GRS)`;
-
-            await apiService.patch(`/production/open-stock/history/${entryId}`, {
-              notes: newNotes,
-              transactionDate: shiftDateFormatted,
-            }).catch(async () => {
-              await apiService.put(`/production/open-stock/history/${entryId}`, {
-                notes: newNotes,
-                transactionDate: shiftDateFormatted,
-              });
+          try {
+            await apiService.post('/production/open-stock/allocate-safety-stock', {
+              sourceId: batch.id,
+              isOpeningStock: Boolean(batch.isOpeningStock),
+              shiftCartons,
+              totalCartons: batch.cartons || 1,
+              targetCustomer: allocateTargetCustomer,
+              targetSoc: allocateTargetSoc,
+              shiftDate: shiftDateFormatted,
+              packagingStyle: allocatePackagingStyle || batch.packagingStyle,
             });
-          } else {
-            const newRemarks = `[HAND PACKING] Batch: ${batch.batchNo} | Customer: ${allocateTargetCustomer} | SOC: ${allocateTargetSoc} | Style: ${batch.packagingStyle || 'OEM Packing'} | Cartons: ${shiftCartons} (${shiftGross} Gross / ${shiftPcs} PCS) | Weight: ${shiftWeightKg} KG | [SHIFTED FROM SAFETY STOCK on ${shiftDateFormatted}] | Allocated from Safety Stock (Orig. Packed: ${batch.entryDate})`;
-
-            if (entryId && entryId.length === 36) {
-              const origEntryDate = batch.rawEntry?.entryDate || batch.entryDate;
-              const origProdDate = batch.rawEntry?.productionDate || origEntryDate;
-              await apiService.put(`/production/entries/${entryId}`, {
-                entryDate: origEntryDate,
-                productionDate: origProdDate,
-                remarks: newRemarks,
-              }).catch(async () => {
-                await apiService.patch(`/production/entries/${entryId}`, {
-                  entryDate: origEntryDate,
-                  productionDate: origProdDate,
-                  remarks: newRemarks,
-                });
-              });
+          } catch (allocErr) {
+            console.warn('Backend allocate endpoint failed, fallback in progress:', allocErr);
+            // Fallback: direct patch
+            if (batch.isOpeningStock) {
+              const oldNotes = String(batch.rawEntry?.notes || '');
+              let newNotes = oldNotes;
+              if (newNotes.includes('Customer:')) {
+                newNotes = newNotes
+                  .replace(/Customer:\s*[^|\]]+/i, `Customer: ${allocateTargetCustomer}`)
+                  .replace(/SOC:\s*[^|\]]+/i, `SOC: ${allocateTargetSoc}`);
+              } else {
+                newNotes = `Customer: ${allocateTargetCustomer} | SOC: ${allocateTargetSoc} | ${newNotes}`;
+              }
+              newNotes += ` | [SHIFTED FROM SAFETY STOCK on ${shiftDateFormatted}] to ${allocateTargetCustomer} (${allocateTargetSoc}) (${shiftCartons} CTN)`;
+              await apiService.patch(`/production/open-stock/history/${batch.id}`, { notes: newNotes, transactionDate: shiftDateFormatted });
             }
           }
         }
@@ -5676,8 +5736,27 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                 )}
               </Col>
 
+              {/* Customer Packaging Style / Poly Bag */}
+              <Col xs={24} sm={12}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--theme-text-muted, #94a3b8)', marginBottom: 4, display: 'block' }}>
+                  🛍️ Customer Packaging Style (پولی بیگ / برانڈڈ باکس):
+                </span>
+                <Select
+                  style={{ width: '100%', fontWeight: 700 }}
+                  value={allocatePackagingStyle}
+                  onChange={(val) => setAllocatePackagingStyle(val)}
+                  options={[
+                    { value: 'Customer Branded Printed Bag (Poly Bag)', label: '🛍️ Customer Branded Printed Bag (Poly Bag)' },
+                    { value: 'Customer Branded Printed Box', label: '📦 Customer Branded Printed Box' },
+                    { value: 'White Poly Bag with Brand Sticker', label: '🏷️ White Poly Bag with Brand Sticker' },
+                    { value: 'Plain White Poly Bag (Without Sticker)', label: '⚪ Plain White Poly Bag (Without Sticker)' },
+                    { value: 'OEM Export Box Packaging', label: '🚢 OEM Export Box Packaging' },
+                  ]}
+                />
+              </Col>
+
               {/* Shift Date for Packing Register & Daily Report */}
-              <Col xs={24} sm={24}>
+              <Col xs={24} sm={12}>
                 <div style={{ background: 'rgba(16, 185, 129, 0.06)', border: '1px solid rgba(16, 185, 129, 0.25)', borderRadius: 6, padding: '8px 12px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
                     <div>
@@ -6440,6 +6519,8 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
       return sortedKeys.map((dateKey) => {
         const items = groups.get(dateKey)!;
         const totalCartons = Math.round(items.reduce((s, r) => s + (r.cartons || 0), 0) * 100) / 100;
+        const producedCartons = Math.round(items.filter(r => !r.allocatedFromSafetyStock).reduce((s, r) => s + (r.cartons || 0), 0) * 100) / 100;
+        const shiftedCartons = Math.round(items.filter(r => r.allocatedFromSafetyStock).reduce((s, r) => s + (r.cartons || 0), 0) * 100) / 100;
         const totalGross = Math.round(items.reduce((s, r) => s + (r.gross || 0), 0) * 100) / 100;
         const totalPcs = items.reduce((s, r) => s + (r.pcs || 0), 0);
         const totalWeightKg = Math.round(items.reduce((s, r) => {
@@ -6457,7 +6538,8 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         const baseTarget = (rawTarget && rawTarget !== 100) ? rawTarget : activeBase;
         const otTarget = dayOtHours > 0 ? (dayOtHours * (baseTarget / 8)) : 0;
         const effectiveTargetCartons = Math.round((baseTarget + otTarget) * 10) / 10;
-        const achievementPct = effectiveTargetCartons > 0 ? Math.min(100, Math.round((totalCartons / effectiveTargetCartons) * 1000) / 10) : 0;
+        // Target achievement is based strictly on FRESH produced cartons (shifted safety stock is not double counted as fresh output)
+        const achievementPct = effectiveTargetCartons > 0 ? Math.min(100, Math.round(((producedCartons || totalCartons) / effectiveTargetCartons) * 1000) / 10) : 0;
 
         const firstEntry = items[0];
         let divisionName = firstEntry?.divisionName;
@@ -6475,6 +6557,8 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
           rawDate: dateKey,
           entries: items,
           totalCartons,
+          producedCartons,
+          shiftedCartons,
           totalGross,
           totalPcs,
           totalWeightKg,
@@ -6873,17 +6957,33 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         title: <span style={{ fontWeight: 800 }}>Batch # & Date</span>,
         key: 'batch',
         width: 175,
-        render: (_: any, r: RecentPackingLog) => (
-          <div>
-            <Tag color="orange" style={{ fontWeight: 800, fontSize: 12, padding: '2px 8px', borderRadius: 4 }}>
-              {r.batchNo}
-            </Tag>
-            <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #64748b)', marginTop: 4 }}>
-              📅 {dayjs(r.entryDate).format('DD MMM YYYY')}
-              {r.createdAtMs ? ` · ${dayjs(r.createdAtMs).format('hh:mm A')}` : ''}
+        render: (_: any, r: RecentPackingLog) => {
+          const dateStr = (() => {
+            if (!r.entryDate) return '—';
+            if (r.entryDate.includes('/')) {
+              const p = dayjs(r.entryDate, 'DD/MM/YYYY');
+              if (p.isValid()) return p.format('DD MMM YYYY');
+            }
+            const d = dayjs(r.entryDate);
+            if (d.isValid()) return d.format('DD MMM YYYY');
+            if (r.createdAtMs) {
+              const c = dayjs(r.createdAtMs);
+              if (c.isValid()) return c.format('DD MMM YYYY');
+            }
+            return r.entryDate;
+          })();
+          return (
+            <div>
+              <Tag color="orange" style={{ fontWeight: 800, fontSize: 12, padding: '2px 8px', borderRadius: 4 }}>
+                {r.batchNo}
+              </Tag>
+              <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', marginTop: 4 }}>
+                📅 {dateStr}
+                {r.createdAtMs ? ` · ${dayjs(r.createdAtMs).format('hh:mm A')}` : ''}
+              </div>
             </div>
-          </div>
-        ),
+          );
+        },
       },
       {
         title: <span style={{ fontWeight: 800 }}>Customer & SOC #</span>,
@@ -6891,13 +6991,13 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         width: 210,
         render: (_: any, r: RecentPackingLog) => (
           <div>
-            <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--theme-heading, var(--theme-text, #0f172a))' }}>
+            <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--theme-heading, var(--theme-text, #f8fafc))' }}>
               {r.customerName}
             </div>
-            <div style={{ fontSize: 11.5, color: '#0284c7', fontWeight: 600, marginTop: 2 }}>
+            <div style={{ fontSize: 11.5, color: '#38bdf8', fontWeight: 600, marginTop: 2 }}>
               SOC: {r.socNo || 'General Stock'}
             </div>
-            <Tag color="gold" style={{ fontSize: 10, marginTop: 4 }}>
+            <Tag color="gold" style={{ fontSize: 10, marginTop: 4, fontWeight: 700 }}>
               {r.packagingStyle || 'White Poly Bag (Safety Stock)'}
             </Tag>
           </div>
@@ -6912,7 +7012,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
             <Tag color="blue" style={{ fontSize: 10.5, fontWeight: 700 }}>
               {r.fgItemCode}
             </Tag>
-            <div style={{ fontWeight: 600, fontSize: 12.5, color: 'var(--theme-text, #334155)', marginTop: 2 }}>
+            <div style={{ fontWeight: 600, fontSize: 12.5, color: 'var(--theme-text, #e2e8f0)', marginTop: 2 }}>
               {r.fgItemName}
             </div>
           </div>
@@ -6924,10 +7024,10 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         width: 190,
         render: (_: any, r: RecentPackingLog) => (
           <div>
-            <div style={{ fontWeight: 800, fontSize: 13, color: '#0f172a' }}>
-              {formatNumber(r.pcs, 0)} PCS <span style={{ color: '#64748b', fontWeight: 600 }}>({formatNumber(r.gross, 0)} GRS)</span>
+            <div style={{ fontWeight: 800, fontSize: 13.5, color: 'var(--theme-heading, var(--theme-text, #f8fafc))' }}>
+              {formatNumber(r.pcs, 0)} PCS <span style={{ color: 'var(--theme-text-muted, #94a3b8)', fontWeight: 600 }}>({formatNumber(r.gross, 0)} GRS)</span>
             </div>
-            <div style={{ fontSize: 11.5, color: '#c2410c', fontWeight: 700, marginTop: 2 }}>
+            <div style={{ fontSize: 11.5, color: '#fb923c', fontWeight: 700, marginTop: 2 }}>
               📦 {formatNumber(r.cartons, 0)} Cartons · ⚖️ {formatNumber(r.weightKg, 1)} KG
             </div>
           </div>
@@ -6938,12 +7038,12 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         key: 'pendingNipple',
         width: 220,
         render: (_: any, r: RecentPackingLog) => (
-          <div style={{ background: 'rgba(239, 68, 68, 0.08)', padding: '6px 10px', borderRadius: 6, border: '1px dashed #ef4444' }}>
-            <div style={{ fontWeight: 800, fontSize: 12, color: '#b91c1c' }}>
+          <div style={{ background: 'rgba(239, 68, 68, 0.15)', padding: '6px 10px', borderRadius: 6, border: '1px dashed #ef4444' }}>
+            <div style={{ fontWeight: 800, fontSize: 12, color: '#f87171' }}>
               ⚠️ {r.pendingNippleCode || 'Nipple Required'}
             </div>
-            <div style={{ fontSize: 11, color: '#b91c1c', fontWeight: 600, marginTop: 2 }}>
-              Pending: <strong>{formatNumber(r.pendingNippleGross || r.gross, 0)} GRS</strong> ({formatNumber(r.pcs, 0)} PCS)
+            <div style={{ fontSize: 11, color: '#fca5a5', fontWeight: 600, marginTop: 2 }}>
+              Pending: <strong style={{ color: '#ffffff' }}>{formatNumber(r.pendingNippleGross || r.gross, 0)} GRS</strong> ({formatNumber(r.pcs, 0)} PCS)
             </div>
           </div>
         ),
@@ -7068,6 +7168,11 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
               <Tag color="green" style={{ fontWeight: 800, fontSize: 13, margin: 0, whiteSpace: 'nowrap' }}>
                 {r.totalCartons} Cartons
               </Tag>
+              {r.shiftedCartons > 0 && (
+                <Tag color="purple" style={{ fontWeight: 800, fontSize: 10.5, margin: 0, border: '1px solid #c084fc' }}>
+                  ({r.producedCartons} Produced + {r.shiftedCartons} Shifted)
+                </Tag>
+              )}
               <Tag color="blue" style={{ fontWeight: 700, fontSize: 12, margin: 0, whiteSpace: 'nowrap' }}>
                 {r.totalGross} Gross
               </Tag>
@@ -9377,7 +9482,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
               <Row gutter={[12, 4]}>
                 <Col xs={24} sm={12} md={6}>
                   <Form.Item name="packingNo" label={<span style={{ fontWeight: 700, fontSize: 12 }}>Packing No / Batch No</span>}>
-                    <Input readOnly style={{ fontWeight: 800, background: '#f8fafc', color: '#0f172a' }} />
+                    <Input readOnly style={{ fontWeight: 800, background: '#f8fafc', color: 'var(--theme-heading, var(--theme-text, #f8fafc))' }} />
                   </Form.Item>
                 </Col>
                 <Col xs={24} sm={12} md={6}>
@@ -9644,7 +9749,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                   <Text type="secondary" style={{ fontSize: 12, fontWeight: 700, color: '#15803d' }}>Current FG Inventory</Text>
                   <Tag color="success" style={{ margin: 0, fontSize: 10, fontWeight: 700 }}>Available</Tag>
                 </div>
-                <div style={{ fontSize: 20, fontWeight: 800, color: '#0f172a' }}>
+                <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--theme-heading, var(--theme-text, #f8fafc))' }}>
                   {formatNumber(inventoryImpact.currentFgInventoryPcs, 0)} <span style={{ fontSize: 13, fontWeight: 500 }}>PCS</span>
                 </div>
                 <Text type="secondary" style={{ fontSize: 11 }}>
@@ -9768,7 +9873,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
           <Row gutter={[14, 14]} align="middle">
             <Col xs={24} md={15}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <span style={{ fontWeight: 800, fontSize: 14, color: '#0f172a' }}>
+                <span style={{ fontWeight: 800, fontSize: 14, color: 'var(--theme-heading, var(--theme-text, #f8fafc))' }}>
                   Packing & Inventory Receipt Summary
                 </span>
                 <Text type="secondary" style={{ fontSize: 12.5 }}>
@@ -9847,7 +9952,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                   boxShadow: st.current ? '0 2px 6px rgba(16, 185, 129, 0.15)' : 'none',
                 }}>
                   <div style={{ fontSize: 10, fontWeight: 800, color: st.current ? '#059669' : '#64748b' }}>{st.step}</div>
-                  <div style={{ fontSize: 12.5, fontWeight: 800, color: '#0f172a', marginTop: 2 }}>{st.title}</div>
+                  <div style={{ fontSize: 12.5, fontWeight: 800, color: 'var(--theme-heading, var(--theme-text, #f8fafc))', marginTop: 2 }}>{st.title}</div>
                   <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>{st.desc}</div>
                 </div>
                 {i < 4 && <div style={{ color: '#0284c7', fontWeight: 900, fontSize: 18, userSelect: 'none' }}>➔</div>}

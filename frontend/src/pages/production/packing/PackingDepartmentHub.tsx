@@ -143,8 +143,52 @@ export const PackingDepartmentHub: React.FC = () => {
       const openStockEntries = openStockList
         .filter((os: any) => {
           const notes = String(os.notes || '');
-          const isFg = os.item?.itemType === 'FINISHED_GOOD' || (os.item?.itemCode || '').startsWith('SPI-FG');
-          return isFg || notes.includes('Customer:') || notes.includes('SOC:') || notes.includes('Cartons:');
+          const code = String(os.item?.itemCode || os.itemCode || '').toUpperCase().trim();
+          const type = String(os.item?.itemType || os.itemType || '').toUpperCase().trim();
+          const name = String(os.item?.name || os.itemName || '').toUpperCase().trim();
+
+          // STRICT FILTER: Hand Packing Department is exclusively for FINISHED GOODS (Spoke FG sets)!
+          // Loose Nipples (FG-NP-*, RM-NP-*, NP-*), Wire Coils (RM-WIRE-*), WIP (WIP-SPL-*), etc. must NEVER appear as packed spoke goods!
+          if (
+            code.startsWith('RM-') ||
+            code.startsWith('WIRE-') ||
+            code.startsWith('FLAT-') ||
+            code.startsWith('WIP-') ||
+            code.startsWith('FG-NP') ||
+            code.startsWith('RM-NP') ||
+            code.startsWith('NP-') ||
+            type === 'RAW_MATERIAL' ||
+            type.includes('WIP') ||
+            type.includes('WORK_IN_PROCESS') ||
+            type.includes('PROGRESS') ||
+            type.includes('SEMI_FINISHED') ||
+            name.includes('WIRE COIL') ||
+            name.includes('STEEL WIRE') ||
+            name.includes('FLAT STRIP')
+          ) {
+            return false;
+          }
+
+          // Must be a genuine Spoke Finished Good (SPI-FG-SPK-*) or explicit Hand Packing batch
+          const isSpokeFg =
+            code.startsWith('SPI-FG-SPK') ||
+            (code.startsWith('SPI-FG') && !code.startsWith('SPI-FG-NP')) ||
+            (type === 'FINISHED_GOOD' && (code.includes('SPK') || name.includes('SPOKE')) && !code.includes('NP')) ||
+            notes.includes('[HAND PACKING]');
+
+          if (!isSpokeFg) {
+            return false;
+          }
+
+          // Must have an assigned Customer or Safety Stock (never orphaned General Stock)
+          const hasValidAssignment =
+            notes.toUpperCase().includes('CUSTOMER:') ||
+            notes.toUpperCase().includes('SOC:') ||
+            notes.toUpperCase().includes('SAFETY STOCK') ||
+            notes.toUpperCase().includes('SAFETY-STOCK') ||
+            notes.toUpperCase().includes('SAFETY_STOCK');
+
+          return hasValidAssignment;
         })
         .map((os: any) => {
           const notes = String(os.notes || '');

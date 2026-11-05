@@ -1276,6 +1276,87 @@ export function dailyScrapSeries(rows: readonly ProductionEntryRow[]): ScrapDayP
   return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
 }
 
+export interface ScrapMonthPoint {
+  month: string;
+  label: string;
+  actualKg: number;
+  actualUnits: number;
+  partRejectKg: number;
+  partRejectUnits: number;
+  processScrapKg: number;
+  scrapKg: number;
+  wastagePct: number;
+  partRejectPct: number;
+  processScrapPct: number;
+  entries: number;
+}
+
+/**
+ * Monthly scrap and rejection timeline — groups entries chronologically by month ("YYYY-MM"),
+ * calculating Part Rejection and Process Scrap separately so managers can track month-over-month performance.
+ */
+export function monthlyScrapSeries(rows: readonly ProductionEntryRow[]): ScrapMonthPoint[] {
+  const byMonth = new Map<string, {
+    month: string;
+    actualKg: number;
+    actualUnits: number;
+    partRejectKg: number;
+    partRejectUnits: number;
+    processScrapKg: number;
+    scrapKg: number;
+    entries: number;
+  }>();
+
+  for (const row of rows) {
+    const raw = row.entryDate ? String(row.entryDate).slice(0, 10) : '';
+    if (!raw || raw.length < 7) continue;
+    const month = raw.slice(0, 7); // "YYYY-MM"
+    let cur = byMonth.get(month);
+    if (!cur) {
+      cur = {
+        month,
+        actualKg: 0,
+        actualUnits: 0,
+        partRejectKg: 0,
+        partRejectUnits: 0,
+        processScrapKg: 0,
+        scrapKg: 0,
+        entries: 0,
+      };
+      byMonth.set(month, cur);
+    }
+
+    const producedInfo = entryProducedPrimaryQty(row);
+    const rejInfo = entryPartRejectPrimaryQty(row);
+
+    cur.entries += 1;
+    cur.actualKg = round2(cur.actualKg + kgOf(row, toNum(row.actualQuantity)));
+    cur.actualUnits = round2(cur.actualUnits + producedInfo.qty);
+    cur.partRejectKg = round2(cur.partRejectKg + entryPartRejectKg(row));
+    cur.partRejectUnits = round2(cur.partRejectUnits + rejInfo.qty);
+    cur.processScrapKg = round2(cur.processScrapKg + entryProcessScrapKg(row));
+    cur.scrapKg = round2(cur.partRejectKg + cur.processScrapKg);
+  }
+
+  const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+  return [...byMonth.values()]
+    .sort((a, b) => a.month.localeCompare(b.month))
+    .map((m) => {
+      const parts = m.month.split('-');
+      const year = parts[0] || '';
+      const mIdx = parseInt(parts[1] || '1', 10) - 1;
+      const label = mIdx >= 0 && mIdx < 12 ? `${MONTH_NAMES[mIdx]} ${year}` : m.month;
+      return {
+        ...m,
+        label,
+        wastagePct: m.actualKg > 0 ? round2((m.scrapKg / m.actualKg) * 100) : 0,
+        partRejectPct: m.actualKg > 0 ? round2((m.partRejectKg / m.actualKg) * 100) : 0,
+        processScrapPct: m.actualKg > 0 ? round2((m.processScrapKg / m.actualKg) * 100) : 0,
+      };
+    });
+}
+
 /** Department tier roll-up (Straightening · Swaging · Spoke · Plating · Spoke Packing), worst waste first. */
 export function departmentScrapRollup(rows: readonly ProductionEntryRow[]): DepartmentScrapRow[] {
   const byDept = new Map<string, {
@@ -1411,11 +1492,30 @@ export interface DefectReasonSlice {
   pct: number;
 }
 
-export function defectReasonDistribution(rows: readonly ProductionEntryRow[]): DefectReasonSlice[] {
+export function defectReasonDistribution(
+  rows: readonly ProductionEntryRow[],
+  departmentFilter?: string,
+  topCount = 6,
+): DefectReasonSlice[] {
+  const filtered = departmentFilter && departmentFilter !== 'all'
+    ? rows.filter((r) => {
+        const d = entryDepartmentLabel(r).toLowerCase().trim();
+        const f = departmentFilter.toLowerCase().trim();
+        if (f.includes('pack')) return d.includes('pack');
+        if (f.includes('plat')) return d.includes('plat');
+        if (f === 'spoke' || f.includes('head')) {
+          return (d === 'spoke' || d.includes('head')) && !d.includes('plat') && !d.includes('pack');
+        }
+        if (f.includes('swag')) return d.includes('swag');
+        if (f.includes('straight')) return d.includes('straight');
+        return d.includes(f);
+      })
+    : rows;
+
   const byReason = new Map<string, { scrapKg: number; units: number; entries: number }>();
   let totalScrap = 0;
 
-  for (const row of rows) {
+  for (const row of filtered) {
     const scrapKg = entryTotalScrapKg(row);
     const rejInfo = entryPartRejectPrimaryQty(row);
     if (scrapKg <= 0 && rejInfo.qty <= 0) continue;
@@ -1431,7 +1531,7 @@ export function defectReasonDistribution(rows: readonly ProductionEntryRow[]): D
 
   if (totalScrap <= 0 && byReason.size === 0) return [];
 
-  return [...byReason.entries()]
+  const sorted = [...byReason.entries()]
     .map(([reason, val]) => ({
       reason,
       scrapKg: val.scrapKg,
@@ -1440,6 +1540,32 @@ export function defectReasonDistribution(rows: readonly ProductionEntryRow[]): D
       pct: totalScrap > 0 ? round2((val.scrapKg / totalScrap) * 100) : 0,
     }))
     .sort((a, b) => b.scrapKg - a.scrapKg || b.units - a.units);
+
+  if (sorted.length <= topCount) {
+    return sorted;
+  }
+
+  // Pick top N major defects (e.g. 5 or 6)
+  const topSlices = sorted.slice(0, topCount);
+  const remaining = sorted.slice(topCount);
+
+  // Group all minor faults into a single "Other Defects" slice
+  const otherKg = round2(remaining.reduce((sum, item) => sum + item.scrapKg, 0));
+  const otherUnits = remaining.reduce((sum, item) => sum + item.units, 0);
+  const otherEntries = remaining.reduce((sum, item) => sum + item.entries, 0);
+  const otherPct = totalScrap > 0 ? round2((otherKg / totalScrap) * 100) : 0;
+
+  if (otherKg > 0 || otherUnits > 0) {
+    topSlices.push({
+      reason: `Other Defects (${remaining.length} Minor Faults)`,
+      scrapKg: otherKg,
+      units: otherUnits,
+      entries: otherEntries,
+      pct: otherPct,
+    });
+  }
+
+  return topSlices;
 }
 
 export interface ItemScrapRow {

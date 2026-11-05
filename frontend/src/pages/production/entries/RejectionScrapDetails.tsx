@@ -50,6 +50,7 @@ import type { ProductionEntryRow } from './EntryList';
 import { useAnalysisRows } from './analyticsData';
 import {
   dailyScrapSeries,
+  monthlyScrapSeries,
   departmentScrapRollup,
   defectReasonDistribution,
   topItemsScrapRollup,
@@ -106,19 +107,22 @@ const RejectionScrapDetails: React.FC<RejectionScrapDetailsProps> = ({ seed, bui
   const [activeDeptPanels, setActiveDeptPanels] = useState<string[]>([]);
   /* ── Department View Modal State ─────────────────────────────────── */
   const [viewModalDept, setViewModalDept] = useState<DepartmentScrapGroup | null>(null);
+  /* ── Monthly Scrap Unit Toggle ('kg' | 'pcs') ─────────────────────── */
+  const [monthlyUnit, setMonthlyUnit] = useState<'kg' | 'pcs'>('kg');
 
   /* ── Aggregations (pure, see analyticsModel.ts) ─────────────────────── */
   const series = useMemo(() => dailyScrapSeries(rows), [rows]);
+  const monthSeries = useMemo(() => monthlyScrapSeries(rows), [rows]);
   const byDepartment = useMemo(() => departmentScrapRollup(rows), [rows]);
   const totals = useMemo(() => scrapTotals(rows), [rows]);
   const unweighted = useMemo(() => unweightedEntryCount(rows), [rows]);
   const defectDist = useMemo(() => {
-    const list = defectReasonDistribution(rows);
+    const list = defectReasonDistribution(rows, selectedMachineDept, 6);
     return list.map((item, index) => ({
       ...item,
       fill: DEFECT_COLORS[index % DEFECT_COLORS.length],
     }));
-  }, [rows]);
+  }, [rows, selectedMachineDept]);
   const topItems = useMemo(() => topItemsScrapRollup(rows, 6), [rows]);
 
   // Department-filtered machine scrap list for Chart
@@ -250,6 +254,123 @@ const RejectionScrapDetails: React.FC<RejectionScrapDetailsProps> = ({ seed, bui
           marginBottom: 14,
         }}
       >
+        {/* CHART: Month-wise Rejection & Scrap Trend (Per Month Comparison: Part Rejection vs Process Scrap) */}
+        <Panel
+          title={
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700 }}>
+              <CalendarOutlined style={{ color: '#ec4899' }} /> Month-Wise Rejection Trend (Part vs Process Scrap)
+            </span>
+          }
+          titleExtra={
+            <div style={{ display: 'inline-flex', gap: 4, background: 'var(--theme-surface-alt, rgba(255,255,255,0.06))', padding: '2px 4px', borderRadius: 6, border: '1px solid var(--theme-border, rgba(255,255,255,0.12))' }}>
+              <button
+                type="button"
+                onClick={() => setMonthlyUnit('kg')}
+                style={{
+                  padding: '2px 8px',
+                  fontSize: 11,
+                  fontWeight: 600,
+                  border: 'none',
+                  borderRadius: 4,
+                  cursor: 'pointer',
+                  background: monthlyUnit === 'kg' ? 'var(--theme-primary, #06b6d4)' : 'transparent',
+                  color: monthlyUnit === 'kg' ? '#fff' : 'var(--theme-text-muted, #94a3b8)',
+                }}
+              >
+                Weight (KG)
+              </button>
+              <button
+                type="button"
+                onClick={() => setMonthlyUnit('pcs')}
+                style={{
+                  padding: '2px 8px',
+                  fontSize: 11,
+                  fontWeight: 600,
+                  border: 'none',
+                  borderRadius: 4,
+                  cursor: 'pointer',
+                  background: monthlyUnit === 'pcs' ? 'var(--theme-primary, #06b6d4)' : 'transparent',
+                  color: monthlyUnit === 'pcs' ? '#fff' : 'var(--theme-text-muted, #94a3b8)',
+                }}
+              >
+                Units (PCS)
+              </button>
+            </div>
+          }
+          testId="monthly-scrap-trend-panel"
+        >
+          {monthSeries.length === 0 ? (
+            <div style={{ fontSize: 12, color: 'var(--theme-text-muted, #94a3b8)', padding: '24px 8px', textAlign: 'center' }}>
+              No monthly entries recorded yet.
+            </div>
+          ) : (
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 8, fontSize: 11 }}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                  <span style={{ width: 10, height: 10, borderRadius: 2, background: '#f43f5e' }} />
+                  <span style={{ color: 'var(--theme-text-muted, #94a3b8)' }}>Part Rejection ({monthlyUnit === 'kg' ? 'KG' : 'PCS'})</span>
+                </span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                  <span style={{ width: 10, height: 10, borderRadius: 2, background: '#0ea5e9' }} />
+                  <span style={{ color: 'var(--theme-text-muted, #94a3b8)' }}>Process Scrap (KG)</span>
+                </span>
+              </div>
+              <ChartFrame height={230}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={monthSeries} margin={{ top: 10, right: 12, left: -10, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--theme-border, rgba(255,255,255,0.08))" vertical={false} />
+                    <XAxis
+                      dataKey="label"
+                      tick={{ fontSize: 11, fill: 'var(--theme-text, #cbd5e1)', fontWeight: 600 }}
+                      stroke="var(--theme-border, #cbd5e1)"
+                    />
+                    <YAxis
+                      tick={{ fontSize: 10, fill: 'var(--theme-text-muted, #94a3b8)' }}
+                      stroke="var(--theme-border, #cbd5e1)"
+                    />
+                    <ChartTooltip
+                      formatter={(val: unknown, name: unknown, item: any) => {
+                        const payload = item?.payload || {};
+                        const n = String(name);
+                        if (n.includes('Part Rejection')) {
+                          return [
+                            monthlyUnit === 'kg'
+                              ? `${kgFixed(Number(val))} KG (${formatNumber(payload.partRejectUnits, 0)} PCS · ${payload.partRejectPct.toFixed(2)}%)`
+                              : `${formatNumber(Number(val), 0)} PCS (${kgFixed(payload.partRejectKg)} KG · ${payload.partRejectPct.toFixed(2)}%)`,
+                            n,
+                          ];
+                        }
+                        if (n.includes('Process Scrap')) {
+                          return [`${kgFixed(Number(val))} KG (${payload.processScrapPct.toFixed(2)}%)`, n];
+                        }
+                        return [`${val}`, n];
+                      }}
+                      contentStyle={{
+                        background: 'var(--theme-surface, #1e293b)',
+                        borderColor: 'var(--theme-border, #334155)',
+                        borderRadius: 8,
+                        fontSize: 12,
+                      }}
+                    />
+                    <Bar
+                      dataKey={monthlyUnit === 'kg' ? 'partRejectKg' : 'partRejectUnits'}
+                      name={monthlyUnit === 'kg' ? 'Part Rejection (KG)' : 'Part Rejection (PCS)'}
+                      fill="#f43f5e"
+                      radius={[4, 4, 0, 0]}
+                    />
+                    <Bar
+                      dataKey="processScrapKg"
+                      name="Process Scrap (KG)"
+                      fill="#0ea5e9"
+                      radius={[4, 4, 0, 0]}
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
+              </ChartFrame>
+            </>
+          )}
+        </Panel>
+
         {/* CHART 1: Day-wise Scrap Trend (Area Chart) */}
         <Panel
           title={
@@ -357,12 +478,22 @@ const RejectionScrapDetails: React.FC<RejectionScrapDetailsProps> = ({ seed, bui
           )}
         </Panel>
 
-        {/* CHART 2: Defect Reason Distribution (Donut Pie Chart) */}
+        {/* CHART 2: Defect Reason Distribution (Donut Pie Chart - Reactive to Department Buttons) */}
         <Panel
           title={
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700 }}>
-              <PieChartOutlined style={{ color: '#f97316' }} /> Defect Reason Distribution
-            </span>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700 }}>
+                <PieChartOutlined style={{ color: '#f97316' }} /> Defect Reason Distribution
+                {selectedMachineDept !== 'all' && (
+                  <Tag color="cyan" style={{ marginLeft: 6, fontSize: 10, borderRadius: 4 }}>
+                    {selectedMachineDept}
+                  </Tag>
+                )}
+              </span>
+              <span style={{ fontSize: 10.5, color: 'var(--theme-text-muted, #94a3b8)', fontWeight: 500 }}>
+                Top Major Faults + Other
+              </span>
+            </div>
           }
           testId="defect-dist-panel"
         >
@@ -398,7 +529,7 @@ const RejectionScrapDetails: React.FC<RejectionScrapDetailsProps> = ({ seed, bui
                 </ResponsiveContainer>
               </ChartFrame>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
-                {defectDist.slice(0, 6).map((d, i) => (
+                {defectDist.map((d, i) => (
                   <Tag
                     key={d.reason}
                     style={{
