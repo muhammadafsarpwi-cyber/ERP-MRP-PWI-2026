@@ -174,34 +174,57 @@ const RejectionScrapDetails: React.FC<RejectionScrapDetailsProps> = ({ seed, bui
       />
       <SheetStatus text={status} />
 
-      {/* ── 5 Top Executive KPI Metrics ────────────────────────────────────── */}
+      {/* ── 7 Top Executive KPI Metrics ────────────────────────────────────── */}
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
         <MetricTile
-          testId="scrap-produced"
-          label="Actual Produced Output"
+          testId="scrap-produced-kg"
+          label="Actual Produced (KG)"
           value={`${kgFixed(totals.actualKg)} KG`}
-          hint={`${formatCompact(totals.actualUnits, 1)} ${totals.dominantUom || 'PCS'} Net Output (${formatNumber(totals.entries, 0)} Entries)`}
+          tone="#06b6d4"
+          hint={`Net Produced Weight (${formatNumber(totals.entries, 0)} Entries)`}
         />
         <MetricTile
-          testId="part-reject"
-          label="Part Rejection"
+          testId="scrap-produced-pcs"
+          label="Actual Produced (PCS)"
+          value={`${formatNumber(totals.actualUnits, 0)} PCS`}
+          tone="#10b981"
+          hint={`${formatCompact(totals.actualUnits, 1)} ${totals.dominantUom || 'PCS'} Net Units Output`}
+        />
+        <MetricTile
+          testId="part-reject-kg"
+          label="Part Rejection (KG)"
           value={`${kgFixed(totals.partRejectKg)} KG`}
           tone={totals.partRejectKg > 0 ? '#f43f5e' : undefined}
-          hint={`${formatNumber(totals.partRejectUnits, 0)} ${totals.dominantUom || 'PCS'} (${partRejPcsPct.toFixed(2)}% PCS · ${partRejKgPct.toFixed(2)}% KG)`}
+          hint="Defective Parts Weight"
+          gaugePct={partRejKgPct}
+          gaugeColor="#f43f5e"
+        />
+        <MetricTile
+          testId="part-reject-pcs"
+          label="Part Rejection (PCS)"
+          value={`${formatNumber(totals.partRejectUnits, 0)} PCS`}
+          tone={totals.partRejectUnits > 0 ? '#fbbf24' : undefined}
+          hint="Defective Units Count"
+          gaugePct={partRejPcsPct}
+          gaugeColor="#fbbf24"
         />
         <MetricTile
           testId="process-scrap"
           label="Process Scrap (Waste)"
           value={`${kgFixed(totals.processScrapKg)} KG`}
           tone={totals.processScrapKg > 0 ? '#0ea5e9' : undefined}
-          hint={`Cutting & Wire Waste (${processScrapKgPct.toFixed(2)}% of KG)`}
+          hint="Cutting & Wire Waste"
+          gaugePct={processScrapKgPct}
+          gaugeColor="#0ea5e9"
         />
         <MetricTile
           testId="scrap-rejected"
           label="Total Loss (Rejection + Scrap)"
           value={`${kgFixed(totals.scrapKg)} KG`}
           tone={totals.scrapKg > 0 ? 'var(--theme-danger, #ef4444)' : undefined}
-          hint={`${formatNumber(totals.wastagePct, 2)}% Overall Material Wastage`}
+          hint={`${formatNumber(totals.wastagePct, 2)}% Material Wastage`}
+          gaugePct={totals.wastagePct}
+          gaugeColor="#ef4444"
         />
         <MetricTile
           testId="scrap-top-defect"

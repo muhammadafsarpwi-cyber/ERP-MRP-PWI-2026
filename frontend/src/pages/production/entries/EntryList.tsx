@@ -73,6 +73,7 @@ import autoTable from 'jspdf-autotable';
 import apiService from '../../../services/api';
 import { formatNumber, formatCompact, toNum } from '../../../utils/numberFormat';
 import { scrapTotals } from './analyticsModel';
+import { useAnalysisRows } from './analyticsData';
 import { calcActualKg, perUnitWeightLabel } from '../../../utils/productionWeight';
 import { useLookups, Department, ShiftLk } from './lookups';
 import { entryOvertimeHours, sumOvertime } from './overtimeHours';
@@ -1243,9 +1244,15 @@ const EntryList: React.FC = () => {
     return list;
   }, [rows, serverSummary, activeChevronKey, fStatus]);
 
+  // Analytical wide sample hook for exact parity with Rejection & Scrap Details
+  const analysis = useAnalysisRows(displayedRows, buildFilters, true);
+
   const rawScrapRollup = useMemo(() => {
+    if (analysis.loaded && analysis.rows.length > 0) {
+      return scrapTotals(analysis.rows);
+    }
     return scrapTotals(displayedRows);
-  }, [displayedRows]);
+  }, [analysis.loaded, analysis.rows, displayedRows]);
 
   // Aggregate KPI summary for Crystal Metric Cards
   const kpiData = useMemo(() => {
@@ -1260,49 +1267,50 @@ const EntryList: React.FC = () => {
     const achRatio = tgt > 0 ? (act / tgt) * 100 : 0;
 
     // Unit-converted production base & loss breakdown (matching Production Dashboard executive standards)
+    // Authoritative analytical totals matching Rejection & Scrap Analytics exactly
     const producedKg = Math.round(
       Number(
-        (serverSummary?.actualKg && serverSummary.actualKg > 0)
-          ? serverSummary.actualKg
-          : (rawScrapRollup?.actualKg && rawScrapRollup.actualKg > 0)
-            ? rawScrapRollup.actualKg
+        (rawScrapRollup?.actualKg && rawScrapRollup.actualKg > 0)
+          ? rawScrapRollup.actualKg
+          : (serverSummary?.actualKg && serverSummary.actualKg > 0)
+            ? serverSummary.actualKg
             : (act > 0 ? act * 0.01147 : 0)
       ) * 10
     ) / 10;
     const producedPcs = Math.round(
       Number(
-        (serverSummary?.actualPcs && serverSummary.actualPcs > 0)
-          ? serverSummary.actualPcs
-          : (rawScrapRollup?.actualUnits && rawScrapRollup.actualUnits > 0)
-            ? rawScrapRollup.actualUnits
+        (rawScrapRollup?.actualUnits && rawScrapRollup.actualUnits > 0)
+          ? rawScrapRollup.actualUnits
+          : (serverSummary?.actualPcs && serverSummary.actualPcs > 0)
+            ? serverSummary.actualPcs
             : act
       )
     );
 
     const rejectKg = Math.round(
       Number(
-        (serverSummary?.rejectKg !== undefined && serverSummary.rejectKg > 0)
-          ? serverSummary.rejectKg
-          : (rawScrapRollup?.partRejectKg && rawScrapRollup.partRejectKg > 0)
-            ? rawScrapRollup.partRejectKg
+        (rawScrapRollup?.partRejectKg !== undefined && rawScrapRollup.partRejectKg > 0)
+          ? rawScrapRollup.partRejectKg
+          : (serverSummary?.rejectKg !== undefined && serverSummary.rejectKg > 0)
+            ? serverSummary.rejectKg
             : 0
       ) * 10
     ) / 10;
     const rejectPcs = Math.round(
       Number(
-        (serverSummary?.rejectPcs !== undefined && serverSummary.rejectPcs > 0)
-          ? serverSummary.rejectPcs
-          : (rawScrapRollup?.partRejectUnits && rawScrapRollup.partRejectUnits > 0)
-            ? rawScrapRollup.partRejectUnits
+        (rawScrapRollup?.partRejectUnits !== undefined && rawScrapRollup.partRejectUnits > 0)
+          ? rawScrapRollup.partRejectUnits
+          : (serverSummary?.rejectPcs !== undefined && serverSummary.rejectPcs > 0)
+            ? serverSummary.rejectPcs
             : 0
       )
     );
     const processScrap = Math.round(
       Number(
-        (serverSummary?.processScrap !== undefined && serverSummary.processScrap > 0)
-          ? serverSummary.processScrap
-          : (rawScrapRollup?.processScrapKg && rawScrapRollup.processScrapKg > 0)
-            ? rawScrapRollup.processScrapKg
+        (rawScrapRollup?.processScrapKg !== undefined && rawScrapRollup.processScrapKg > 0)
+          ? rawScrapRollup.processScrapKg
+          : (serverSummary?.processScrap !== undefined && serverSummary.processScrap > 0)
+            ? serverSummary.processScrap
             : 0
       ) * 10
     ) / 10;
@@ -3966,7 +3974,7 @@ const EntryList: React.FC = () => {
         ),
         children: (
           <RejectionScrapDetails
-            seed={displayedRows}
+            seed={analysis.rows.length > 0 ? analysis.rows : displayedRows}
             buildFilters={buildFilters}
             active={paneKey === 'scrap'}
           />

@@ -975,11 +975,26 @@ export function entryPartRejectPrimaryQty(row: ProductionEntryRow): { qty: numbe
     return { qty: sq, uom };
   }
   const remarks = row.remarks || '';
-  const m = /(?:Total:\s*[\d.]+\s*KG\s*\()?(\d+)\s*PCS/i.exec(remarks) || /(\d+)\s*PCS/i.exec(remarks);
+  if (!remarks) return { qty: 0, uom };
+
+  // Match explicit rejection / scrap prefixes only (never match good production / carton counts like "Cartons: 70 (100800 PCS)")
+  const m = /(?:Part Rejection|Component Scrap|Packing Rejection|Plating Defect|Rejection|Scrap|Defect):\s*(\d+)\s*PCS/i.exec(remarks)
+    || /Total:\s*[\d.]+\s*KG\s*\((\d+)\s*PCS\)/i.exec(remarks)
+    || /\((\d+)\s*PCS\s*(?:reject|scrap|defect)/i.exec(remarks);
   if (m && m[1]) {
     const val = parseInt(m[1], 10);
     if (!isNaN(val) && val > 0) return { qty: val, uom: 'PCS' };
   }
+
+  // If entryPartRejectKg is known and positive, derive pieces from item weight or default unit weight
+  const rejectKg = entryPartRejectKg(row);
+  if (rejectKg > 0) {
+    const w = (row.item as any)?.weightPerPiece || (row.item as any)?.weight_per_piece || 0.0105;
+    if (w > 0) {
+      return { qty: Math.round(rejectKg / w), uom: 'PCS' };
+    }
+  }
+
   return { qty: 0, uom };
 }
 
@@ -1105,6 +1120,14 @@ export function extractCleanDefectReason(row: ProductionEntryRow): string {
   if (scrapReasonMatch && scrapReasonMatch[1]?.trim()) {
     const r = scrapReasonMatch[1].trim();
     if (!/^(no remarks|none|nil|—|-)$/i.test(r)) return r;
+  }
+
+  // 2.5. Check "| Fault Reasons: <reasons>" from HandPacking (e.g. "Rust / Oxidation")
+  const faultReasonMatch = /(?:^|\|)\s*Fault Reasons:\s*([^|]*)/i.exec(raw);
+  if (faultReasonMatch && faultReasonMatch[1]?.trim()) {
+    const fr = faultReasonMatch[1].trim();
+    const cleaned = fr.replace(/WIP-[A-Z0-9-]+:\s*/gi, '').split(';')[0]?.trim();
+    if (cleaned && !/^(no remarks|none|nil|—|-)$/i.test(cleaned)) return cleaned;
   }
 
   // 3. Check "| Scrap Detail: <details>" from HandPacking

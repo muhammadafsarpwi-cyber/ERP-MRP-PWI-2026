@@ -1162,3 +1162,551 @@ html[data-theme='dark'] .reports-icon-btn,
   align-items: center;
 }
 
+/* ===================================================
+   EXECUTIVE VISUAL PRODUCTION ANALYTICS DASHBOARD
+   100% Pixel-Accurate Implementation of Approved Mockup
+   Multi-Theme Reactive (Light / Dark / Crystal)
+   =================================================== */
+
+.reports-exec-dashboard-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  margin-top: 4px;
+  margin-bottom: 24px;
+}
+
+/* 1. TOP EXECUTIVE HEADER BANNER */
+.reports-exec-top-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 10px 18px;
+  background: var(--theme-surface, rgba(15, 23, 42, 0.75));
+  border: 1px solid var(--theme-border, rgba(56, 189, 248, 0.22));
+  border-radius: 10px;
+  backdrop-filter: blur(14px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+}
+
+.reports-exec-banner-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.reports-exec-banner-title {
+  font-size: 15.5px;
+  font-weight: 800;
+  color: var(--theme-text, #ffffff);
+  letter-spacing: 0.2px;
+}
+
+.reports-exec-banner-pills {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.reports-exec-banner-pill {
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 6px;
+  background: var(--theme-surface-alt, rgba(30, 41, 59, 0.6));
+  border: 1px solid var(--theme-border, rgba(148, 163, 184, 0.2));
+  color: var(--theme-text-secondary, #94a3b8);
+}
+
+.reports-exec-banner-pill strong {
+  color: var(--theme-text, #f1f5f9);
+}
+
+/* 2. EXECUTIVE KPI CARDS ROW (7 CARDS) */
+.reports-exec-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 10px;
+}
+
+@media (max-width: 1550px) {
+  .reports-exec-kpi-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+@media (max-width: 1100px) {
+  .reports-exec-kpi-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 700px) {
+  .reports-exec-kpi-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.reports-exec-kpi-card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-radius: 12px;
+  background: var(--theme-surface, rgba(15, 23, 42, 0.75));
+  border: 1px solid var(--theme-border, rgba(56, 189, 248, 0.22));
+  backdrop-filter: blur(14px);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.12);
+  transition: transform 0.2s ease, border-color 0.2s ease;
+  min-height: 94px;
+}
+
+.reports-exec-kpi-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--theme-accent, #38bdf8);
+}
+
+.reports-exec-kpi-card.target {
+  border-color: rgba(56, 189, 248, 0.28);
+}
+
+.reports-exec-kpi-card.actual {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.12) 0%, var(--theme-surface, rgba(15, 23, 42, 0.8)) 100%);
+  border-color: rgba(16, 185, 129, 0.45);
+  box-shadow: 0 4px 20px rgba(16, 185, 129, 0.08);
+}
+
+.reports-exec-kpi-card.efficiency {
+  border-color: rgba(6, 182, 212, 0.35);
+}
+
+.reports-exec-kpi-card.scrap,
+.reports-exec-kpi-card.process-scrap {
+  background: linear-gradient(135deg, rgba(6, 182, 212, 0.08) 0%, var(--theme-surface, rgba(15, 23, 42, 0.8)) 100%);
+  border-color: rgba(6, 182, 212, 0.38);
+}
+
+.reports-exec-kpi-card.part-rejection {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.1) 0%, var(--theme-surface, rgba(15, 23, 42, 0.8)) 100%);
+  border-color: rgba(245, 158, 11, 0.42);
+}
+
+/* EXECUTIVE GLOBAL DEPARTMENT SELECTOR BAR (TOP LEVEL) */
+.reports-exec-global-dept-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px 16px;
+  background: var(--theme-surface, rgba(15, 23, 42, 0.75));
+  border: 1px solid var(--theme-border, rgba(56, 189, 248, 0.25));
+  border-radius: 10px;
+  backdrop-filter: blur(14px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+}
+
+.reports-exec-global-dept-label {
+  font-size: 12.5px;
+  font-weight: 800;
+  color: var(--theme-text, #ffffff);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  letter-spacing: 0.2px;
+}
+
+.reports-exec-global-pill {
+  padding: 5px 12px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  font-weight: 700;
+  border: 1px solid var(--theme-border, rgba(148, 163, 184, 0.25));
+  background: var(--theme-surface-alt, rgba(30, 41, 59, 0.6));
+  color: var(--theme-text-muted, #94a3b8);
+  cursor: pointer;
+  transition: all 0.25s ease;
+  line-height: 1.4;
+}
+
+.reports-exec-global-pill:hover {
+  border-color: var(--theme-accent, #38bdf8);
+  color: var(--theme-text, #ffffff);
+  transform: translateY(-1px);
+}
+
+.reports-exec-global-pill.active {
+  background: linear-gradient(135deg, rgba(6, 182, 212, 0.25) 0%, rgba(16, 185, 129, 0.25) 100%);
+  border-color: var(--theme-accent, #06b6d4);
+  color: var(--theme-text, #ffffff);
+  box-shadow: 0 0 10px rgba(6, 182, 212, 0.35);
+}
+
+.reports-exec-kpi-left {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.reports-exec-kpi-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--theme-text-muted, #94a3b8);
+  text-transform: capitalize;
+  letter-spacing: 0.2px;
+}
+
+.reports-exec-kpi-num-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.reports-exec-kpi-big-num {
+  font-size: 26px;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: -0.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.reports-exec-kpi-unit {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--theme-text-muted, #94a3b8);
+}
+
+/* KPI Badges & Mini Visuals */
+.reports-exec-badge-pill {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.reports-exec-badge-val {
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.reports-exec-badge-val.green {
+  background: rgba(16, 185, 129, 0.2);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.4);
+}
+
+.reports-exec-badge-val.amber {
+  background: rgba(245, 158, 11, 0.2);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.4);
+}
+
+.reports-exec-badge-sub {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--theme-text-muted, #94a3b8);
+}
+
+/* KPI Circular Progress Ring */
+.reports-exec-ring-gauge {
+  width: 58px;
+  height: 58px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.reports-exec-ring-svg {
+  transform: rotate(-90deg);
+  overflow: visible;
+}
+
+.reports-exec-ring-text {
+  position: absolute;
+  font-size: 12px;
+  font-weight: 900;
+  color: #06b6d4;
+  letter-spacing: -0.3px;
+}
+
+/* 3. ROW 2 (MIDDLE): TREND CURVE (62%) + OPERATOR BENCHMARK (38%) */
+.reports-exec-row-middle {
+  display: grid;
+  grid-template-columns: 1.62fr 1fr;
+  gap: 16px;
+}
+
+@media (max-width: 1100px) {
+  .reports-exec-row-middle {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* 4. ROW 3 (BOTTOM): 3 COLUMNS (33% / 33% / 33%) */
+.reports-exec-row-bottom {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+@media (max-width: 1100px) {
+  .reports-exec-row-bottom {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Standard Executive Card */
+.reports-exec-card {
+  background: var(--theme-surface, rgba(15, 23, 42, 0.75));
+  border: 1px solid var(--theme-border, rgba(56, 189, 248, 0.22));
+  border-radius: 12px;
+  padding: 16px 18px;
+  backdrop-filter: blur(14px);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.1);
+  display: flex;
+  flex-direction: column;
+}
+
+.reports-exec-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--theme-border, rgba(255, 255, 255, 0.05));
+}
+
+.reports-exec-card-title {
+  font-size: 13.5px;
+  font-weight: 800;
+  color: var(--theme-text, #f1f5f9);
+  letter-spacing: 0.2px;
+}
+
+.reports-exec-card-legend {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--theme-text-muted, #94a3b8);
+}
+
+.reports-exec-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Smooth Trend Wave SVG */
+.reports-exec-trend-wrap {
+  width: 100%;
+  height: 220px;
+  position: relative;
+}
+
+/* Operator Vertical Column Chart SVG */
+.reports-exec-col-chart-wrap {
+  width: 100%;
+  height: 220px;
+  position: relative;
+}
+
+/* Machine-Wise Horizontal Progress Bars */
+.reports-exec-machine-bars-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+  justify-content: space-around;
+}
+
+.reports-exec-mbar-row {
+  display: grid;
+  grid-template-columns: 58px 1fr 44px;
+  align-items: center;
+  gap: 10px;
+}
+
+.reports-exec-mbar-id {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--theme-text, #f1f5f9);
+}
+
+.reports-exec-mbar-track {
+  width: 100%;
+  height: 10px;
+  background: var(--theme-surface-alt, rgba(30, 41, 59, 0.6));
+  border-radius: 5px;
+  overflow: hidden;
+  position: relative;
+}
+
+.reports-exec-mbar-fill {
+  height: 100%;
+  border-radius: 5px;
+  transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.reports-exec-mbar-badge {
+  font-size: 11px;
+  font-weight: 800;
+  text-align: right;
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+.reports-exec-mbar-axis {
+  display: flex;
+  justify-content: space-between;
+  padding-left: 68px;
+  padding-right: 48px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--theme-text-muted, #64748b);
+  margin-top: 4px;
+}
+
+/* Process Stage Donut Layout */
+.reports-exec-donut-container {
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  height: 100%;
+  min-height: 200px;
+  gap: 14px;
+}
+
+.reports-exec-donut-svg-wrap {
+  position: relative;
+  width: 150px;
+  height: 150px;
+  flex-shrink: 0;
+}
+
+.reports-exec-donut-legend-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.reports-exec-donut-legend-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--theme-text, #e2e8f0);
+}
+
+/* Scrap & Defect Vertical Bar Chart SVG */
+.reports-exec-scrap-svg-wrap {
+  width: 100%;
+  height: 200px;
+  position: relative;
+}
+
+/* Department & Metric Filter Mini Pills */
+.reports-exec-pills-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.reports-exec-mini-pill {
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 10.5px;
+  font-weight: 700;
+  border: 1px solid var(--theme-border, rgba(148, 163, 184, 0.2));
+  background: var(--theme-surface-alt, rgba(30, 41, 59, 0.45));
+  color: var(--theme-text-muted, #94a3b8);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  line-height: 1.4;
+}
+
+.reports-exec-mini-pill:hover {
+  border-color: var(--theme-accent, #38bdf8);
+  color: var(--theme-text, #ffffff);
+}
+
+.reports-exec-mini-pill.active {
+  background: rgba(56, 189, 248, 0.2);
+  border-color: var(--theme-accent, #38bdf8);
+  color: var(--theme-accent, #38bdf8);
+}
+
+.reports-exec-kpi-subgross {
+  font-size: 11px;
+  font-weight: 700;
+  color: #38bdf8;
+  margin-top: 3px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Scrap Breakdown Dual Capsules */
+.reports-exec-scrap-stats-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.reports-exec-scrap-stat-capsule {
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: var(--theme-surface-alt, rgba(30, 41, 59, 0.4));
+  border: 1px solid var(--theme-border, rgba(255, 255, 255, 0.05));
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.reports-exec-scrap-stat-label {
+  font-size: 9.5px;
+  font-weight: 700;
+  color: var(--theme-text-muted, #94a3b8);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.reports-exec-scrap-stat-val {
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.reports-exec-scrap-stat-capsule.process .reports-exec-scrap-stat-val {
+  color: #38bdf8;
+}
+
+.reports-exec-scrap-stat-capsule.part .reports-exec-scrap-stat-val {
+  color: #fbbf24;
+}
+
+/* 5. ROW 4 (FLEET & ITEM BREAKDOWN): 2 COLUMNS (50% / 50%) */
+.reports-exec-row-row4 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+@media (max-width: 1100px) {
+  .reports-exec-row-row4 {
+    grid-template-columns: 1fr;
+  }
+}
+
+

@@ -32,65 +32,139 @@ export const labelCellStyle: React.CSSProperties = {
   wordBreak: 'break-word',
 };
 
-/** One compact KPI tile. `tone` paints only the number, never the caption. */
+/** One compact KPI tile. `tone` paints only the number, never the caption.
+ *  Optionally displays a circular SVG ring gauge with percentage in center. */
 export const MetricTile: React.FC<{
   label: string;
   value: React.ReactNode;
   hint?: string;
   tone?: string;
   testId?: string;
-}> = ({ label, value, hint, tone, testId }) => (
-  <div
-    data-testid={testId}
-    style={{
-      flex: '1 1 140px',
-      minWidth: 132,
-      background: 'var(--theme-surface-alt, #f1f5f9)',
-      border: '1px solid var(--theme-border, #e2e8f0)',
-      borderRadius: 8,
-      padding: '6px 10px',
-    }}
-  >
+  gaugePct?: number;
+  gaugeColor?: string;
+}> = ({ label, value, hint, tone, testId, gaugePct, gaugeColor }) => {
+  const hasGauge = gaugePct !== undefined && gaugePct !== null;
+  const radius = 19;
+  const circumference = 2 * Math.PI * radius; // ~119.38
+  const validPct = Math.max(0, Math.min(100, Number(gaugePct) || 0));
+  const strokeDashoffset = circumference - (validPct / 100) * circumference;
+  const ringColor = gaugeColor || tone || '#06b6d4';
+
+  return (
     <div
+      data-testid={testId}
       style={{
-        fontSize: 10,
-        letterSpacing: '0.05em',
-        textTransform: 'uppercase',
-        color: 'var(--theme-text-muted, #94a3b8)',
-        whiteSpace: 'nowrap',
-        overflow: 'hidden',
-        textOverflow: 'ellipsis',
+        flex: '1 1 150px',
+        minWidth: 140,
+        background: 'var(--theme-surface-alt, #f1f5f9)',
+        border: '1px solid var(--theme-border, #e2e8f0)',
+        borderRadius: 8,
+        padding: '6px 10px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 8,
+        position: 'relative',
       }}
     >
-      {label}
-    </div>
-    <div
-      style={{
-        fontSize: 18,
-        fontWeight: 700,
-        lineHeight: 1.2,
-        fontVariantNumeric: 'tabular-nums',
-        color: tone || 'var(--theme-text, rgba(15, 23, 42, 0.88))',
-        whiteSpace: 'nowrap',
-      }}
-    >
-      {value}
-    </div>
-    {hint ? (
-      <div
-        style={{
-          fontSize: 10.5,
-          color: 'var(--theme-text-muted, #94a3b8)',
-          whiteSpace: 'nowrap',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-        }}
-      >
-        {hint}
+      <div style={{ minWidth: 0, flex: 1 }}>
+        <div
+          style={{
+            fontSize: 10,
+            letterSpacing: '0.05em',
+            textTransform: 'uppercase',
+            color: 'var(--theme-text-muted, #94a3b8)',
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+          }}
+        >
+          {label}
+        </div>
+        <div
+          style={{
+            fontSize: 17,
+            fontWeight: 700,
+            lineHeight: 1.2,
+            fontVariantNumeric: 'tabular-nums',
+            color: tone || 'var(--theme-text, rgba(15, 23, 42, 0.88))',
+            whiteSpace: 'nowrap',
+            marginTop: 2,
+          }}
+        >
+          {value}
+        </div>
+        {hint ? (
+          <div
+            style={{
+              fontSize: 10,
+              color: 'var(--theme-text-muted, #94a3b8)',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              marginTop: 2,
+            }}
+          >
+            {hint}
+          </div>
+        ) : null}
       </div>
-    ) : null}
-  </div>
-);
+
+      {hasGauge && (
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            position: 'relative',
+            width: 48,
+            height: 48,
+            flexShrink: 0,
+          }}
+        >
+          <svg width="48" height="48" viewBox="0 0 48 48">
+            {/* Background muted track */}
+            <circle
+              cx="24"
+              cy="24"
+              r={radius}
+              fill="none"
+              stroke="var(--theme-border, rgba(148, 163, 184, 0.2))"
+              strokeWidth="3.5"
+            />
+            {/* Foreground progress circle */}
+            <circle
+              cx="24"
+              cy="24"
+              r={radius}
+              fill="none"
+              stroke={ringColor}
+              strokeWidth="3.5"
+              strokeDasharray={circumference}
+              strokeDashoffset={strokeDashoffset}
+              strokeLinecap="round"
+              transform="rotate(-90 24 24)"
+              style={{ transition: 'stroke-dashoffset 0.5s ease' }}
+            />
+          </svg>
+          <span
+            style={{
+              position: 'absolute',
+              fontSize: validPct >= 10 ? 8.5 : 9,
+              fontWeight: 700,
+              color: ringColor,
+              textAlign: 'center',
+              lineHeight: 1,
+            }}
+          >
+            {validPct < 0.1 && validPct > 0 ? validPct.toFixed(2) : validPct.toFixed(1)}%
+          </span>
+        </div>
+      )}
+    </div>
+  );
+};
 
 /** Compact header strip: sheet title, scope caption, and the refresh control. */
 export const SheetHead: React.FC<{
