@@ -313,6 +313,13 @@ const AiAssistantPage: React.FC = () => {
     };
   }, []);
 
+  // Mirror live speech transcript directly into the input box while recording
+  useEffect(() => {
+    if (isRecording && liveTranscript) {
+      setInputText(liveTranscript);
+    }
+  }, [isRecording, liveTranscript]);
+
   // Last question, so empty-state suggestions can re-ask with context.
   const lastQuestionRef = useRef<string>('');
 
@@ -1081,6 +1088,13 @@ const AiAssistantPage: React.FC = () => {
   const handleSend = async (customText?: string, overrideCode?: string, overrideDept?: string) => {
     if (loading) return;
 
+    // If the user clicked Send (→) while the voice microphone is still recording, stop the mic & capture the spoken transcript!
+    let voiceCapturedText = '';
+    if (isRecording && !customText) {
+      const captured = await stopRecording();
+      voiceCapturedText = (captured?.liveTranscript || liveTranscript || '').trim();
+    }
+
     const effectiveCode = overrideCode || selectedDivisionCode;
     const effectiveDept = overrideDept !== undefined ? overrideDept : selectedDepartment;
     const divMeta = divisionsList.find((d) => d.code === effectiveCode) || DEFAULT_DIVISIONS[1];
@@ -1088,7 +1102,7 @@ const AiAssistantPage: React.FC = () => {
     const deptLabel = effectiveDept !== 'ALL' ? (deptMeta?.name || effectiveDept) : '';
     const dateSuffix = selectedDate ? ` — ${dayjs(selectedDate).format('DD MMMM YYYY')}` : '';
 
-    const rawTyped = (customText || inputText).trim();
+    const rawTyped = (customText || voiceCapturedText || inputText).trim();
     const query =
       rawTyped ||
       (effectiveCode === 'ALL'
@@ -1347,22 +1361,37 @@ const AiAssistantPage: React.FC = () => {
   // VOICE PIPELINE — Client Audio Compression → Whisper → Text-to-SQL + Fallback
   // ══════════════════════════════════════════════════════════════════════════
 
-  const submitVoiceBlob = async (blob: Blob, mimeType: string, fallbackTranscript?: string) => {
+  const submitVoiceBlob = async (
+    blob: Blob,
+    mimeType: string,
+    fallbackTranscript?: string,
+    speechError?: string,
+  ) => {
     if (loading) return;
-    const browserTranscript = (fallbackTranscript || '').trim();
+    const browserTranscript = (fallbackTranscript || inputText || '').trim();
 
     // Server STT not configured → use the browser transcript directly.
-    if (serverSttAvailableRef.current === false) {
+    if (serverSttAvailableRef.current !== true) {
       if (browserTranscript) {
+        setInputText('');
         await handleSend(`🎤 ${browserTranscript}`);
       } else {
+        const errorDetails =
+          speechError === 'not-allowed' || speechError === 'service-not-allowed'
+            ? 'Microphone permission is blocked in your browser. Click the lock/tune icon on the left side of the browser address bar and set **Microphone = Allow**.'
+            : speechError === 'audio-capture'
+            ? 'No working microphone input was detected by Windows / your browser. Please verify your microphone is connected and unmuted in Windows Sound Settings.'
+            : speechError === 'network'
+            ? 'Browser Speech Recognition could not reach the speech service (check internet connection or try Microsoft Edge / Google Chrome).'
+            : speechError === 'speech-api-unsupported'
+            ? 'This browser does not support Web Speech API. Please open the ERP in **Google Chrome** or **Microsoft Edge**.'
+            : 'No speech was detected. Click the Mic icon, wait half a second, speak clearly into your microphone, and then click the Mic or Send (→) button.';
         setMessages((prev) => [
           ...prev,
           {
             id: `err-${Date.now()}-v`,
             sender: 'assistant',
-            text:
-              '🎙️ No speech was recognised. Please speak clearly near the microphone using Google Chrome or Microsoft Edge, allow microphone access, and check the UR / EN voice language toggle next to the mic.',
+            text: `🎙️ ${errorDetails}`,
             timestamp: dayjs().format('hh:mm A'),
           },
         ]);
@@ -1396,9 +1425,10 @@ const AiAssistantPage: React.FC = () => {
     } catch (err) {
       // If backend STT is unconfigured/offline and browser SpeechRecognition captured the voice query,
       // route the transcript seamlessly through our ERP analytics pipeline.
-      if (fallbackTranscript && fallbackTranscript.trim()) {
+      if (browserTranscript) {
         setLoading(false);
-        await handleSend(`🎤 ${fallbackTranscript.trim()}`);
+        setInputText('');
+        await handleSend(`🎤 ${browserTranscript}`);
         return;
       }
 
@@ -1425,11 +1455,19 @@ const AiAssistantPage: React.FC = () => {
         message.warning('No audio was captured. Please try again.');
         return;
       }
-      await submitVoiceBlob(captured.blob, captured.mimeType, captured.liveTranscript);
+      await submitVoiceBlob(
+        captured.blob,
+        captured.mimeType,
+        captured.liveTranscript,
+        captured.speechError,
+      );
     } else {
-      const started = await startRecording(voiceLang);
+      const useBrowserOnly = serverSttAvailableRef.current !== true;
+      const started = await startRecording(voiceLang, useBrowserOnly);
       if (started) {
-        message.info('Recording… speak your question, then click the mic to stop and send.');
+        message.info(
+          `Listening (${voiceLang === 'ur-PK' ? 'Urdu' : 'English'})… speak now, then click Mic or Send (→).`,
+        );
       }
     }
   };

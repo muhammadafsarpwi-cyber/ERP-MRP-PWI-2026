@@ -44,6 +44,8 @@ export interface RecordedVoicePayload {
   mimeType: string;
   /** Parallel browser speech recognition transcript (fallback when offline). */
   liveTranscript?: string;
+  /** Diagnostic error code if browser speech recognition failed (e.g. not-allowed, network, audio-capture). */
+  speechError?: string;
 }
 
 export interface UseVoiceRecorder {
@@ -57,8 +59,10 @@ export interface UseVoiceRecorder {
   /**
    * Starts recording. `speechLang` is the BCP-47 tag used by the parallel
    * browser SpeechRecognition (e.g. 'ur-PK' for Urdu, 'en-US' for English).
+   * When `browserSpeechOnly` is true, skips competing MediaRecorder/getUserMedia(16kHz)
+   * so browser SpeechRecognition has exclusive microphone access on Windows.
    */
-  start: (speechLang?: string) => Promise<boolean>;
+  start: (speechLang?: string, browserSpeechOnly?: boolean) => Promise<boolean>;
   /** Stops, compresses, and resolves the recorded audio (null when nothing was captured). */
   stop: () => Promise<RecordedVoicePayload | null>;
   reset: () => void;
@@ -73,7 +77,11 @@ export function useVoiceRecorder(): UseVoiceRecorder {
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const recognitionRef = useRef<any>(null);
+  const wantRecordingRef = useRef<boolean>(false);
+  const accumulatedTranscriptRef = useRef<string>('');
+  const sessionTranscriptRef = useRef<string>('');
   const transcriptRef = useRef<string>('');
+  const speechErrorRef = useRef<string>('');
   const chunksRef = useRef<BlobPart[]>([]);
   const mimeTypeRef = useRef<string>('');
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -86,6 +94,7 @@ export function useVoiceRecorder(): UseVoiceRecorder {
   }, []);
 
   const stopSpeechRecognition = useCallback(() => {
+    wantRecordingRef.current = false;
     if (recognitionRef.current) {
       try {
         recognitionRef.current.onresult = null;
@@ -110,6 +119,7 @@ export function useVoiceRecorder(): UseVoiceRecorder {
    * stop with handlers detached used to drop the tail of the sentence).
    */
   const flushSpeechRecognition = useCallback((): Promise<void> => {
+    wantRecordingRef.current = false;
     const recognition = recognitionRef.current;
     if (!recognition) return Promise.resolve();
     return new Promise((resolve) => {
@@ -125,7 +135,7 @@ export function useVoiceRecorder(): UseVoiceRecorder {
       } catch {
         finish();
       }
-      setTimeout(finish, 900);
+      setTimeout(finish, 750);
     });
   }, []);
 
@@ -134,12 +144,21 @@ export function useVoiceRecorder(): UseVoiceRecorder {
     await flushSpeechRecognition();
     return new Promise((resolve) => {
       const recorder = recorderRef.current;
+      const capturedText = transcriptRef.current.trim();
+      const capturedError = speechErrorRef.current;
       stopSpeechRecognition();
 
+      // Browser-Speech-Only path (no MediaRecorder running)
       if (!recorder || recorder.state === 'inactive') {
         releaseStream();
         setIsRecording(false);
-        resolve(null);
+        setElapsedSeconds(0);
+        resolve({
+          blob: new Blob(['speech'], { type: 'audio/webm' }),
+          mimeType: 'audio/webm',
+          liveTranscript: capturedText || undefined,
+          speechError: capturedError || undefined,
+        });
         return;
       }
 
@@ -147,7 +166,7 @@ export function useVoiceRecorder(): UseVoiceRecorder {
         const rawMime = mimeTypeRef.current || recorder.mimeType || 'audio/webm';
         const cleanMime = rawMime.split(';')[0].trim();
         const rawBlob = new Blob(chunksRef.current, { type: cleanMime });
-        const capturedText = transcriptRef.current.trim();
+        const finalText = transcriptRef.current.trim() || capturedText;
 
         chunksRef.current = [];
         recorderRef.current = null;
@@ -155,17 +174,23 @@ export function useVoiceRecorder(): UseVoiceRecorder {
         setIsRecording(false);
         setElapsedSeconds(0);
 
-        if (rawBlob.size === 0) {
-          resolve(null);
+        if (rawBlob.size === 0 && !finalText) {
+          resolve({
+            blob: new Blob(['speech'], { type: 'audio/webm' }),
+            mimeType: 'audio/webm',
+            liveTranscript: undefined,
+            speechError: capturedError || undefined,
+          });
           return;
         }
 
         // Compress payload client-side before sending to backend to prevent 413 Entity Too Large
-        const compressed = await compressAudioBlob(rawBlob, cleanMime);
+        const compressed = rawBlob.size > 0 ? await compressAudioBlob(rawBlob, cleanMime) : { blob: rawBlob, mimeType: cleanMime };
         resolve({
           blob: compressed.blob,
           mimeType: compressed.mimeType,
-          liveTranscript: capturedText || undefined,
+          liveTranscript: finalText || undefined,
+          speechError: capturedError || undefined,
         });
       };
 
@@ -174,30 +199,168 @@ export function useVoiceRecorder(): UseVoiceRecorder {
       } catch {
         releaseStream();
         setIsRecording(false);
-        resolve(null);
+        resolve({
+          blob: new Blob(['speech'], { type: 'audio/webm' }),
+          mimeType: 'audio/webm',
+          liveTranscript: capturedText || undefined,
+          speechError: capturedError || undefined,
+        });
       }
     });
   }, [clearTimers, flushSpeechRecognition, releaseStream, stopSpeechRecognition]);
 
-  const start = useCallback(async (speechLang = 'ur-PK'): Promise<boolean> => {
+  const start = useCallback(async (speechLang = 'ur-PK', browserSpeechOnly = false): Promise<boolean> => {
     setError(null);
     setLiveTranscript('');
+    accumulatedTranscriptRef.current = '';
+    sessionTranscriptRef.current = '';
     transcriptRef.current = '';
+    speechErrorRef.current = '';
+    wantRecordingRef.current = true;
+
+    const SpeechRecognitionCtor =
+      typeof window !== 'undefined'
+        ? (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+        : undefined;
+
+    // 1. Start Browser SpeechRecognition SYNCHRONOUSLY inside user click gesture
+    let recognitionStarted = false;
+    if (SpeechRecognitionCtor) {
+      const fallbackChain =
+        speechLang === 'en-US'
+          ? ['en-US']
+          : [speechLang || 'ur-PK', 'ur-IN', 'ur', 'hi-IN', 'en-US'];
+
+      const launchRecognition = (langIndex: number) => {
+        if (!wantRecordingRef.current || langIndex >= fallbackChain.length) return;
+        const lang = fallbackChain[langIndex];
+        let sessionStartMs = Date.now();
+        let hasResultInSession = false;
+        try {
+          const recognition = new SpeechRecognitionCtor();
+          recognition.continuous = true;
+          recognition.interimResults = true;
+          recognition.maxAlternatives = 1;
+          recognition.lang = lang;
+
+          recognition.onresult = (event: any) => {
+            hasResultInSession = true;
+            let currentSession = '';
+            for (let i = 0; i < event.results.length; i += 1) {
+              const piece = event.results[i][0]?.transcript || '';
+              currentSession += `${piece} `;
+            }
+            sessionTranscriptRef.current = currentSession.replace(/\s+/g, ' ').trim();
+            const fullText = [accumulatedTranscriptRef.current, sessionTranscriptRef.current]
+              .filter(Boolean)
+              .join(' ')
+              .replace(/\s+/g, ' ')
+              .trim();
+            if (fullText) {
+              transcriptRef.current = fullText;
+              setLiveTranscript(fullText);
+              speechErrorRef.current = '';
+            }
+          };
+
+          recognition.onerror = (event: any) => {
+            const errCode = String(event?.error || '');
+            if (errCode === 'language-not-supported' && langIndex + 1 < fallbackChain.length) {
+              try {
+                recognition.onend = null;
+                recognition.stop();
+              } catch {}
+              launchRecognition(langIndex + 1);
+              return;
+            }
+            if (errCode && errCode !== 'no-speech' && errCode !== 'aborted') {
+              speechErrorRef.current = errCode;
+            }
+          };
+
+          recognition.onend = () => {
+            // If user is still recording and no fatal permission error occurred, commit session & auto-restart!
+            if (
+              wantRecordingRef.current &&
+              speechErrorRef.current !== 'not-allowed' &&
+              speechErrorRef.current !== 'service-not-allowed' &&
+              speechErrorRef.current !== 'audio-capture'
+            ) {
+              // If the browser immediately closed this locale (< 450ms) with no result, step to next locale in chain
+              if (!hasResultInSession && Date.now() - sessionStartMs < 450 && langIndex + 1 < fallbackChain.length) {
+                launchRecognition(langIndex + 1);
+                return;
+              }
+              if (sessionTranscriptRef.current) {
+                accumulatedTranscriptRef.current = [
+                  accumulatedTranscriptRef.current,
+                  sessionTranscriptRef.current,
+                ]
+                  .filter(Boolean)
+                  .join(' ')
+                  .replace(/\s+/g, ' ')
+                  .trim();
+                sessionTranscriptRef.current = '';
+              }
+              sessionStartMs = Date.now();
+              hasResultInSession = false;
+              try {
+                recognition.start();
+              } catch {
+                setTimeout(() => {
+                  if (wantRecordingRef.current) launchRecognition(langIndex);
+                }, 150);
+              }
+            }
+          };
+
+          sessionStartMs = Date.now();
+          recognition.start();
+          recognitionRef.current = recognition;
+          recognitionStarted = true;
+        } catch (e: any) {
+          speechErrorRef.current = e?.message || 'speech-start-failed';
+        }
+      };
+
+      launchRecognition(0);
+    } else {
+      speechErrorRef.current = 'speech-api-unsupported';
+    }
+
+    // 2. If running in Browser-Speech-Only mode (backend Whisper STT not configured),
+    // DO NOT open getUserMedia(16kHz) + MediaRecorder, so SpeechRecognition has 100% exclusive access to the Windows microphone!
+    if (browserSpeechOnly && recognitionStarted) {
+      startedAtRef.current = Date.now();
+      setIsRecording(true);
+      setElapsedSeconds(0);
+      tickRef.current = setInterval(() => {
+        setElapsedSeconds(Math.round((Date.now() - startedAtRef.current) / 1000));
+      }, 500);
+      maxTimeoutRef.current = setTimeout(() => {
+        void stop();
+      }, MAX_RECORDING_SECONDS * 1000);
+      return true;
+    }
 
     if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+      if (recognitionStarted) {
+        startedAtRef.current = Date.now();
+        setIsRecording(true);
+        setElapsedSeconds(0);
+        return true;
+      }
       setError('Audio recording is not supported in this browser. Please use Google Chrome or Microsoft Edge.');
       return false;
     }
 
     try {
-      // 16 kHz Mono audio captures speech with high fidelity while drastically shrinking raw data
+      // Standard audio constraints (do not force sampleRate: 16000 on getUserMedia as it conflicts with Windows WASAPI drivers)
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true,
-          channelCount: 1,
-          sampleRate: WHISPER_SAMPLE_RATE,
         },
       });
       streamRef.current = stream;
@@ -223,40 +386,6 @@ export function useVoiceRecorder(): UseVoiceRecorder {
       recorder.ondataavailable = (event) => {
         if (event.data && event.data.size > 0) chunksRef.current.push(event.data);
       };
-
-      // Start parallel browser SpeechRecognition when available (resilient fallback)
-      try {
-        const SpeechRecognitionCtor =
-          (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-        if (SpeechRecognitionCtor) {
-          const launchRecognition = (lang: string, allowFallback: boolean) => {
-            const recognition = new SpeechRecognitionCtor();
-            recognition.continuous = true;
-            recognition.interimResults = true;
-            // Urdu by default — shop-floor users speak Urdu / mixed Urdu-English.
-            recognition.lang = lang;
-            recognition.onresult = (event: any) => {
-              let combined = '';
-              for (let i = 0; i < event.results.length; i += 1) {
-                combined += `${event.results[i][0]?.transcript || ''} `;
-              }
-              const clean = combined.replace(/\s+/g, ' ').trim();
-              transcriptRef.current = clean;
-              setLiveTranscript(clean);
-            };
-            recognition.onerror = (event: any) => {
-              // Browser lacks this language pack → retry once in English.
-              if (allowFallback && event?.error === 'language-not-supported') {
-                try { recognition.onend = null; recognition.stop(); } catch {}
-                launchRecognition('en-US', false);
-              }
-            };
-            recognition.start();
-            recognitionRef.current = recognition;
-          };
-          launchRecognition(speechLang || 'ur-PK', speechLang !== 'en-US');
-        }
-      } catch {}
 
       recorder.start(250); // push chunks periodically so nothing is lost on crash
       recorderRef.current = recorder;
@@ -293,7 +422,10 @@ export function useVoiceRecorder(): UseVoiceRecorder {
     releaseStream();
     recorderRef.current = null;
     chunksRef.current = [];
+    accumulatedTranscriptRef.current = '';
+    sessionTranscriptRef.current = '';
     transcriptRef.current = '';
+    speechErrorRef.current = '';
     setLiveTranscript('');
     setIsRecording(false);
     setElapsedSeconds(0);
