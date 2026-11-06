@@ -54,7 +54,11 @@ export interface UseVoiceRecorder {
   liveTranscript: string;
   /** Human-readable failure (permission denied, unsupported browser, ...). */
   error: string | null;
-  start: () => Promise<boolean>;
+  /**
+   * Starts recording. `speechLang` is the BCP-47 tag used by the parallel
+   * browser SpeechRecognition (e.g. 'ur-PK' for Urdu, 'en-US' for English).
+   */
+  start: (speechLang?: string) => Promise<boolean>;
   /** Stops, compresses, and resolves the recorded audio (null when nothing was captured). */
   stop: () => Promise<RecordedVoicePayload | null>;
   reset: () => void;
@@ -100,10 +104,36 @@ export function useVoiceRecorder(): UseVoiceRecorder {
     streamRef.current = null;
   }, [stopSpeechRecognition]);
 
-  const stop = useCallback((): Promise<RecordedVoicePayload | null> => {
+  /**
+   * Ask the browser recognizer to finish gracefully so the last spoken words
+   * are delivered as a FINAL result before we read the transcript (an abrupt
+   * stop with handlers detached used to drop the tail of the sentence).
+   */
+  const flushSpeechRecognition = useCallback((): Promise<void> => {
+    const recognition = recognitionRef.current;
+    if (!recognition) return Promise.resolve();
+    return new Promise((resolve) => {
+      let done = false;
+      const finish = () => {
+        if (done) return;
+        done = true;
+        resolve();
+      };
+      try {
+        recognition.onend = finish;
+        recognition.stop();
+      } catch {
+        finish();
+      }
+      setTimeout(finish, 900);
+    });
+  }, []);
+
+  const stop = useCallback(async (): Promise<RecordedVoicePayload | null> => {
+    clearTimers();
+    await flushSpeechRecognition();
     return new Promise((resolve) => {
       const recorder = recorderRef.current;
-      clearTimers();
       stopSpeechRecognition();
 
       if (!recorder || recorder.state === 'inactive') {
@@ -147,9 +177,9 @@ export function useVoiceRecorder(): UseVoiceRecorder {
         resolve(null);
       }
     });
-  }, [clearTimers, releaseStream, stopSpeechRecognition]);
+  }, [clearTimers, flushSpeechRecognition, releaseStream, stopSpeechRecognition]);
 
-  const start = useCallback(async (): Promise<boolean> => {
+  const start = useCallback(async (speechLang = 'ur-PK'): Promise<boolean> => {
     setError(null);
     setLiveTranscript('');
     transcriptRef.current = '';
@@ -199,22 +229,32 @@ export function useVoiceRecorder(): UseVoiceRecorder {
         const SpeechRecognitionCtor =
           (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
         if (SpeechRecognitionCtor) {
-          const recognition = new SpeechRecognitionCtor();
-          recognition.continuous = true;
-          recognition.interimResults = true;
-          recognition.lang = 'en-US';
-          recognition.onresult = (event: any) => {
-            let combined = '';
-            for (let i = 0; i < event.results.length; i += 1) {
-              combined += event.results[i][0]?.transcript || '';
-            }
-            const clean = combined.trim();
-            transcriptRef.current = clean;
-            setLiveTranscript(clean);
+          const launchRecognition = (lang: string, allowFallback: boolean) => {
+            const recognition = new SpeechRecognitionCtor();
+            recognition.continuous = true;
+            recognition.interimResults = true;
+            // Urdu by default — shop-floor users speak Urdu / mixed Urdu-English.
+            recognition.lang = lang;
+            recognition.onresult = (event: any) => {
+              let combined = '';
+              for (let i = 0; i < event.results.length; i += 1) {
+                combined += `${event.results[i][0]?.transcript || ''} `;
+              }
+              const clean = combined.replace(/\s+/g, ' ').trim();
+              transcriptRef.current = clean;
+              setLiveTranscript(clean);
+            };
+            recognition.onerror = (event: any) => {
+              // Browser lacks this language pack → retry once in English.
+              if (allowFallback && event?.error === 'language-not-supported') {
+                try { recognition.onend = null; recognition.stop(); } catch {}
+                launchRecognition('en-US', false);
+              }
+            };
+            recognition.start();
+            recognitionRef.current = recognition;
           };
-          recognition.onerror = () => {};
-          recognition.start();
-          recognitionRef.current = recognition;
+          launchRecognition(speechLang || 'ur-PK', speechLang !== 'en-US');
         }
       } catch {}
 

@@ -10,6 +10,57 @@ import {
 // Dynamic current date reference
 const CURRENT_DATE = dayjs();
 
+/** Urdu month names (Urdu script) used for date detection. */
+const URDU_MONTHS = ['جنوری', 'فروری', 'مارچ', 'اپریل', 'مئی', 'جون', 'جولائی', 'اگست', 'ستمبر', 'اکتوبر', 'نومبر', 'دسمبر'];
+
+const EN_MONTHS = [
+  'january', 'jan', 'february', 'feb', 'march', 'mar', 'april', 'apr', 'may',
+  'june', 'jun', 'july', 'jul', 'august', 'aug', 'september', 'sept', 'sep',
+  'october', 'oct', 'november', 'nov', 'december', 'dec',
+];
+
+/** Urdu & Roman-Urdu number words 1–31 (voice typing often writes "پانچ نومبر" or "panch november"). */
+const URDU_DAY_WORDS: Record<string, number> = {
+  ایک: 1, دو: 2, تین: 3, چار: 4, پانچ: 5, چھ: 6, چھے: 6, سات: 7, آٹھ: 8, اٹھ: 8, نو: 9, دس: 10,
+  گیارہ: 11, بارہ: 12, تیرہ: 13, چودہ: 14, پندرہ: 15, سولہ: 16, سترہ: 17, اٹھارہ: 18, انیس: 19, بیس: 20,
+  اکیس: 21, بائیس: 22, تئیس: 23, تیئس: 23, چوبیس: 24, پچیس: 25, چھبیس: 26, ستائیس: 27, اٹھائیس: 28, انتیس: 29, تیس: 30, اکتیس: 31,
+  ek: 1, aik: 1, do: 2, teen: 3, char: 4, chaar: 4, panch: 5, paanch: 5, che: 6, chay: 6, chhe: 6,
+  sat: 7, saat: 7, aath: 8, ath: 8, nau: 9, das: 10, gyarah: 11, barah: 12, terah: 13, chaudah: 14,
+  pandrah: 15, solah: 16, satrah: 17, atharah: 18, unnees: 19, bees: 20, ikkees: 21, ikais: 21,
+  baees: 22, taees: 23, chaubees: 24, pachees: 25, chabbees: 26, sattaees: 27, athaees: 28, untees: 29,
+  tees: 30, iktees: 31,
+};
+
+/**
+ * Normalises Urdu / Roman-Urdu voice & typed input so dates are machine-readable:
+ *  • Urdu / Arabic-Indic digits (۰-۹, ٠-٩) → ASCII digits
+ *  • an Urdu/Roman-Urdu number word directly before a month name, "تاریخ"/"tarikh",
+ *    or "کی پروڈکشن"/"کی رپورٹ" → digits ("پانچ نومبر" → "5 نومبر").
+ *  • a month name followed by an Urdu/Roman-Urdu number word ("نومبر پانچ") → "نومبر 5".
+ *  Words elsewhere (e.g. "ٹاپ پانچ کسٹمر") remain untouched.
+ */
+export function normalizeUrduDateText(input: string): string {
+  let s = input
+    .replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 0x06f0))
+    .replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660));
+  const words = Object.keys(URDU_DAY_WORDS).sort((a, b) => b.length - a.length).join('|');
+  const monthPat = [...URDU_MONTHS, ...EN_MONTHS].join('|');
+  const anchors = [
+    monthPat,
+    'تاریخ',
+    'tarikh',
+    'tareekh',
+    'کی\\s+(?:پروڈکشن|رپورٹ|مشین)',
+    'کا\\s+ڈیٹا',
+  ].join('|');
+  const beforeRe = new RegExp(`(^|[\\s—–,-])(${words})(?=\\s+(?:تاریخ\\s+|tarikh\\s+|tareekh\\s+)?(?:${anchors}))`, 'gi');
+  s = s.replace(beforeRe, (_m, pre: string, w: string) => `${pre}${URDU_DAY_WORDS[w.toLowerCase()] ?? w}`);
+
+  const afterMonthRe = new RegExp(`(${monthPat})(\\s+(?:کی\\s+)?)(${words})(?=$|\\s|[،,.-])`, 'gi');
+  s = s.replace(afterMonthRe, (_m, mName: string, sep: string, w: string) => `${mName}${sep}${URDU_DAY_WORDS[w.toLowerCase()] ?? w}`);
+  return s;
+}
+
 function resolveRequestedUnit(query: string): ReportingUnit | undefined {
   const q = query.toLowerCase();
   if (/\b(gross|grosses|gross[\s-]?wise)\b/i.test(q) || q.includes('گراس')) return 'Gross';
@@ -26,7 +77,7 @@ export function parseNaturalLanguageQuery(
   currentDepartmentCode: string,
   context?: ConversationContext,
 ): QueryIntent {
-  const q = rawQuery.toLowerCase().trim();
+  const q = normalizeUrduDateText(rawQuery.toLowerCase().trim());
 
   // 1. Detect future write requests (safe confirmation requirement)
   const isWrite =
@@ -79,7 +130,11 @@ export function parseNaturalLanguageQuery(
   const isUnitFollowUp =
     Boolean(detectedUnit) &&
     /^(?:now\s+)?(?:show\s+(?:it\s+)?)?(?:convert\s+(?:it\s+)?(?:to|into)\s+)?(?:in\s+)?(gross|grosses|pcs|pieces?|kg|kilos?|mtrs?|meters?|bags?)(?:-wise)?$/i.test(q);
-  const isOnlyDeptFollowUp = /^only\s+([\w\s-]+)$/i.test(q) || /^just\s+([\w\s-]+)$/i.test(q);
+  const deptOnlyCandidate = (/^(?:only|just)\s+([\w\s-]+)$/i.exec(q)?.[1] || '').trim();
+  const isOnlyDeptFollowUp =
+    Boolean(deptOnlyCandidate) &&
+    Boolean(resolveDepartmentCode(deptOnlyCandidate, currentDivisionCode)) &&
+    !/\d/.test(deptOnlyCandidate);
   const isSwitchDimensionFollowUp =
     /^(?:now\s+)?(?:show\s+it\s+)?(?:now\s+)?(machine|operator|item|shift|department)(?:-wise)?$/i.test(q) ||
     /^(?:switch\s+to\s+)(machine|operator|item|shift|department)(?:-wise)?$/i.test(q);
@@ -96,8 +151,7 @@ export function parseNaturalLanguageQuery(
     }
 
     if (isOnlyDeptFollowUp) {
-      const deptPart = q.replace(/^(?:only|just)\s+/i, '').trim();
-      inherited.departmentCode = resolveDepartmentCode(deptPart) || deptPart;
+      inherited.departmentCode = resolveDepartmentCode(deptOnlyCandidate, inherited.divisionCode || currentDivisionCode) || deptOnlyCandidate;
       inherited.isFollowUp = true;
       return inherited;
     }
@@ -156,10 +210,10 @@ export function parseNaturalLanguageQuery(
 
   // 4. Resolve Department Filter
   let departmentCode = 'ALL';
-  const detectedDept = resolveDepartmentCode(q);
+  const detectedDept = resolveDepartmentCode(q, divisionCode);
   if (detectedDept) {
     departmentCode = detectedDept;
-  } else if (!explicitDivision && currentDepartmentCode) {
+  } else if (currentDepartmentCode && (!explicitDivision || divisionCode === currentDivisionCode)) {
     departmentCode = currentDepartmentCode;
   }
 
@@ -204,10 +258,9 @@ export function parseNaturalLanguageQuery(
     period.type === 'yesterday' ||
     (period.type === 'custom' && Boolean(period.startDate) && period.startDate === period.endDate);
 
-  // When a specific date is requested (e.g. "23rd production report", "22nd data") without an explicit
-  // division lock, include all divisions/departments so the granular ledger groups under Spoke Division,
-  // Outer Casing, Control Cable, etc.
-  if (isSpecificSingleDate && !explicitDivision) {
+  // When a specific date is requested without an explicit division in text or UI selector,
+  // include all divisions/departments.
+  if (isSpecificSingleDate && !explicitDivision && !currentDivisionCode) {
     divisionCode = 'ALL';
   }
 
@@ -384,15 +437,19 @@ export function parseNaturalLanguageQuery(
 }
 
 // ── Department Code Resolver ────────────────────────────────────────────────
-function resolveDepartmentCode(query: string): string | undefined {
+function resolveDepartmentCode(query: string, divisionCode?: string): string | undefined {
   const q = query.toLowerCase();
   if (q.includes('flattening') || q.includes('فلیٹننگ') || /\bft\b/.test(q)) return 'Flattening';
   if (q.includes('spiral') || q.includes('سپائرل') || /\bsp\b/.test(q) || /\bsp-\d+\b/.test(q)) return 'Spiral';
   if (q.includes('pvc') || q.includes('coating') || q.includes('پی وی سی')) return 'PVC';
-  if (q.includes('packing') || q.includes('packaging') || q.includes('پیکنگ')) return 'Packing';
+  if (q.includes('packing') || q.includes('packaging') || q.includes('پیکنگ')) {
+    return divisionCode === 'DIV-SPD' ? 'Spoke Packing' : 'Packing';
+  }
   if (q.includes('straightener') || q.includes('سٹریٹنر') || /\bst\b/.test(q)) return 'Straightener';
   if (q.includes('swagging') || q.includes('سویجنگ') || q.includes('سوگ') || q.includes('swag') || /\bsw\b/.test(q)) return 'Swagging';
-  if (q.includes('plating') || q.includes('electroplating') || q.includes('پلیٹنگ')) return 'Plating';
+  if (q.includes('plating') || q.includes('electroplating') || q.includes('پلیٹنگ')) {
+    return divisionCode === 'DIV-SPD' ? 'Spoke Plating' : 'Plating';
+  }
   if (q.includes('spoke heading') || (q.includes('heading') && !q.includes('swag')) || /\bspk\b/.test(q)) return 'Spoke';
   if (q.includes('drawing') || q.includes('wire drawing') || q.includes('ڈراؤنگ')) return 'Drawing';
   if (q.includes('galvanizing') || q.includes('گلوینائزنگ')) return 'Galvanizing';
@@ -402,7 +459,7 @@ function resolveDepartmentCode(query: string): string | undefined {
 
 // ── Date Period Resolver ────────────────────────────────────────────────────
 function resolveDatePeriod(query: string, isTopQuery = false): DateRangePeriod {
-  const q = query.toLowerCase();
+  const q = normalizeUrduDateText(query.toLowerCase());
   const now = CURRENT_DATE;
 
   // Explicit period comparison
@@ -457,7 +514,7 @@ function resolveDatePeriod(query: string, isTopQuery = false): DateRangePeriod {
     };
   }
 
-  // Explicit single ISO date (e.g. "2026-10-23") or DD-MM-YYYY / DD/MM/YYYY / DD-MMM-YYYY
+  // Explicit single ISO date (e.g. "2026-10-23") or DD-MM-YYYY / DD/MM/YYYY
   const isoSingleMatch = q.match(/\b(20\d{2})[-/](0?[1-9]|1[0-2])[-/](0?[1-9]|[12]\d|3[01])\b/);
   if (isoSingleMatch) {
     const d = dayjs(`${isoSingleMatch[1]}-${String(isoSingleMatch[2]).padStart(2, '0')}-${String(isoSingleMatch[3]).padStart(2, '0')}`);
@@ -486,7 +543,7 @@ function resolveDatePeriod(query: string, isTopQuery = false): DateRangePeriod {
     }
   }
 
-  // Day + Month or Month + Day (e.g. "23rd october", "23 oct", "october 23rd", "22 sep")
+  // Day + Month or Month + Day (supports leading zeros "05 November 2026", "05-Nov-2026", Urdu "5 نومبر", "پانچ نومبر")
   const monthNamesMap: Record<string, number> = {
     jan: 0, january: 0, جنوری: 0,
     feb: 1, february: 1, فروری: 1,
@@ -502,8 +559,9 @@ function resolveDatePeriod(query: string, isTopQuery = false): DateRangePeriod {
     dec: 11, december: 11, دسمبر: 11,
   };
 
-  const dayMonthRegex = /\b([12]?\d|3[01])(?:st|nd|rd|th)?\s*(?:of\s+)?(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|جنوری|فروری|مارچ|اپریل|مئی|جون|جولائی|اگست|ستمبر|اکتوبر|نومبر|دسمبر)(?:\s*(20\d{2}))?\b/i;
-  const monthDayRegex = /\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+([12]?\d|3[01])(?:st|nd|rd|th)?(?:,?\s*(20\d{2}))?\b/i;
+  // Note: Do not use trailing ASCII \b after Urdu script (\u0600-\u06FF are non-ASCII \W in JS regex)
+  const dayMonthRegex = /(?:^|[^\dA-Za-z])(0?[1-9]|[12]\d|3[01])(?:st|nd|rd|th)?[\s,/-]*(?:of\s+|tarikh\s+|tareekh\s+|تاریخ\s+|کی\s+)?(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|جنوری|فروری|مارچ|اپریل|مئی|جون|جولائی|اگست|ستمبر|اکتوبر|نومبر|دسمبر)(?=[\s,/-]*(?:20\d{2})?(?:$|[^a-zA-Z\u0600-\u06FF]))(?:[\s,/-]*(20\d{2}))?/i;
+  const monthDayRegex = /(?:^|[^a-zA-Z\u0600-\u06FF])(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|جنوری|فروری|مارچ|اپریل|مئی|جون|جولائی|اگست|ستمبر|اکتوبر|نومبر|دسمبر)[\s,/-]+(?:کی\s+)?(0?[1-9]|[12]\d|3[01])(?:st|nd|rd|th)?(?:\s*(?:tarikh|tareekh|تاریخ))?(?:[\s,/-]+(20\d{2}))?(?=$|[^\d])/i;
 
   const dmMatch = q.match(dayMonthRegex);
   const mdMatch = !dmMatch ? q.match(monthDayRegex) : null;
@@ -526,12 +584,16 @@ function resolveDatePeriod(query: string, isTopQuery = false): DateRangePeriod {
     }
   }
 
-  // Ordinal Day-of-Month (e.g. "23rd production report", "22nd data", "15th report", "23 tarikh", "23 تاریخ")
+  // Ordinal Day-of-Month (e.g. "23rd production report", "05th data", "5 tarikh", "5 تاریخ", "5 کی رپورٹ")
+  const hasNonDateNumberContext = /\btop\s+\d+|ٹاپ\s*\d+|(?:machine|swag|مشین|سوگ|نمبر|number)\s*#?\s*\d+|\d+\s*(?:number|نمبر)/i.test(q);
   const ordinalDayMatch =
-    q.match(/\b([12]?\d|3[01])(?:st|nd|rd|th)\b/i) ||
-    q.match(/\b(?:date|tarikh|tareekh|تاریخ)\s*([12]?\d|3[01])\b/i) ||
-    q.match(/\b([12]?\d|3[01])\s*(?:tarikh|tareekh|تاریخ)\b/i) ||
-    (!/\btop\s+\d+/i.test(q) ? q.match(/\b([12]?\d|3[01])\s+(?:production\s+report|production\s+data|production|report|data)\b/i) : null);
+    q.match(/\b(0?[1-9]|[12]\d|3[01])(?:st|nd|rd|th)\b/i) ||
+    q.match(/(?:^|\s)(?:date|tarikh|tareekh|تاریخ)\s*(0?[1-9]|[12]\d|3[01])(?=$|[^\d])/i) ||
+    q.match(/(?:^|[^\d-])(0?[1-9]|[12]\d|3[01])\s*(?:tarikh|tareekh|تاریخ)/i) ||
+    (!hasNonDateNumberContext
+      ? q.match(/\b(0?[1-9]|[12]\d|3[01])\s+(?:production\s+report|production\s+data|production|report|data)\b/i) ||
+        q.match(/(?:^|\s)(0?[1-9]|[12]\d|3[01])\s*(?:کی|کا)\s*(?:پروڈکشن|رپورٹ|ڈیٹا|مشین)/i)
+      : null);
 
   if (ordinalDayMatch) {
     const dayNum = parseInt(ordinalDayMatch[1], 10);
@@ -539,7 +601,7 @@ function resolveDatePeriod(query: string, isTopQuery = false): DateRangePeriod {
       // Resolve month: if a month was named anywhere in the query, use it; otherwise use current month
       let resolvedMonth = now.month();
       for (const [k, idx] of Object.entries(monthNamesMap)) {
-        if (q.includes(k)) {
+        if (k.length >= 3 && q.includes(k)) {
           resolvedMonth = idx;
           break;
         }

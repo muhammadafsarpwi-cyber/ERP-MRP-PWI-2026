@@ -292,6 +292,12 @@ export async function generateReportData(
 }
 
 // ── Department Resolver Helper ──────────────────────────────────────────────
+function normalizeMachineDisplayCode(raw: string): string {
+  const m = raw.trim().toUpperCase();
+  if (m.startsWith('HAND-PACK-')) return 'HAND-PACK';
+  return m;
+}
+
 function resolveRecordDepartment(row: any, divCode: string, machineCode: string): string {
   if (row.department?.name) return row.department.name;
   if (row.department?.code) return row.department.code;
@@ -308,10 +314,34 @@ function resolveRecordDepartment(row: any, divCode: string, machineCode: string)
     if (m.startsWith('ST-')) return 'Straightener';
     if (m.startsWith('SW-')) return 'Swagging';
     if (m.startsWith('BL-') || m.startsWith('SPL-') || m.startsWith('APS-')) return 'Spoke Plating';
-    if (m.startsWith('PKS-')) return 'Spoke Packing';
+    if (m.startsWith('PKS-') || m.startsWith('HAND-PACK')) return 'Spoke Packing';
     return 'Spoke';
   }
   return 'Production';
+}
+
+function matchesDepartmentFilter(recordDept: string, categoryDept: string, filterDept?: string): boolean {
+  if (!filterDept || filterDept === 'ALL') return true;
+  const f = filterDept.toLowerCase().trim();
+  const r = recordDept.toLowerCase().trim();
+  const c = categoryDept.toLowerCase().trim();
+  if (f === 'spoke') {
+    // Must match Spoke Heading & Threading only — not Spoke Plating or Spoke Packing
+    return r === 'spoke' || c.includes('heading');
+  }
+  if (f === 'plating' || f === 'spoke plating') {
+    return r.includes('plat') || c.includes('plat');
+  }
+  if (f === 'packing' || f === 'spoke packing') {
+    return r.includes('pack') || c.includes('pack');
+  }
+  if (f === 'straightener') {
+    return r.includes('straight') || c.includes('straight');
+  }
+  if (f === 'swagging') {
+    return r.includes('swag') || c.includes('swag');
+  }
+  return r === f || c.includes(f);
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -1100,13 +1130,14 @@ function aggregateByMachine(
   }> = {};
 
   entries.forEach((e) => {
-    const mCode = (e.machine?.machineCode || e.machineCode || e.machineNo || 'UNKNOWN').trim().toUpperCase();
-    if (mCode === 'UNKNOWN') return;
+    const rawCode = (e.machine?.machineCode || e.machineCode || e.machineNo || 'UNKNOWN').trim().toUpperCase();
+    if (rawCode === 'UNKNOWN') return;
+    const mCode = normalizeMachineDisplayCode(rawCode);
     const mId = String(e.machineId || e.machine_id || e.machine?.id || mCode);
     const dStr = dayjs(e.entryDate || e.createdAt).format('YYYY-MM-DD');
-    const dept = resolveRecordDepartment(e, division.code, mCode);
+    const dept = resolveRecordDepartment(e, division.code, rawCode);
 
-    if (department !== 'ALL' && dept.toLowerCase() !== department.toLowerCase()) {
+    if (!matchesDepartmentFilter(dept, dept, department)) {
       return;
     }
 
@@ -2575,7 +2606,9 @@ function resolveEntryDivisionDisplay(row: any): { code: string; name: string; uo
     mNo.startsWith('ST-') ||
     mNo.startsWith('SW-') ||
     mNo.startsWith('BL-') ||
-    mNo.startsWith('SPL-')
+    mNo.startsWith('SPL-') ||
+    mNo.startsWith('PKS-') ||
+    mNo.startsWith('HAND-PACK')
   ) {
     return { code: 'DIV-SPD', name: 'Spoke Division', uom: 'PCS' };
   }
@@ -2636,7 +2669,7 @@ function resolveGranularCategoryDepartment(row: any, divCode: string, machineCod
     if (m.startsWith('ST-') || explicitDept.toLowerCase().includes('straight')) return 'Wire Straightener';
     if (m.startsWith('SW-') || explicitDept.toLowerCase().includes('swag')) return 'Swagging';
     if (m.startsWith('BL-') || m.startsWith('SPL-') || explicitDept.toLowerCase().includes('plat')) return 'Spoke Plating';
-    if (m.startsWith('PKS-') || explicitDept.toLowerCase().includes('pack')) return 'Spoke Packing';
+    if (m.startsWith('PKS-') || m.startsWith('HAND-PACK') || explicitDept.toLowerCase().includes('pack')) return 'Spoke Packing';
     return explicitDept || 'Spoke Heading & Threading';
   }
 
@@ -2725,10 +2758,8 @@ async function handleGranularDailyLedgerReport(
       const m = (e.machine?.machineCode || e.machineCode || e.machineNo || '').toUpperCase();
       const divInfo = resolveEntryDivisionDisplay(e);
       const cat = resolveGranularCategoryDepartment(e, divInfo.code, m);
-      return (
-        cat.toLowerCase().includes(filterDept.toLowerCase()) ||
-        resolveRecordDepartment(e, divInfo.code, m).toLowerCase() === filterDept.toLowerCase()
-      );
+      const recDept = resolveRecordDepartment(e, divInfo.code, m);
+      return matchesDepartmentFilter(recDept, cat, filterDept);
     });
     if (deptFiltered.length > 0) {
       matchedEntries = deptFiltered;
@@ -2753,8 +2784,8 @@ async function handleGranularDailyLedgerReport(
 
   if (matchedEntries.length === 0) {
     return {
-      title: `Granular Daily Production Ledger — ${formattedDateLabel}`,
-      summaryText: `No production entries were found for exact date **${formattedDateLabel}**.\n\nTry querying another date (e.g. "22nd data", "23rd production report") or check the division/department scope.`,
+      title: `Machine-Wise & Item-Wise Production Report — ${formattedDateLabel}`,
+      summaryText: `No production entries were found for exact date **${formattedDateLabel}**.\n\nTry querying another date (e.g. "05 November 2026", "5 نومبر کی رپورٹ") or check the division/department scope.`,
       divisionScope: intent.divisionCode || targetDivision.code,
       departmentScope: filterDept,
       periodLabel: formattedDateLabel,
@@ -2798,8 +2829,9 @@ async function handleGranularDailyLedgerReport(
 
   matchedEntries.forEach((e: any, entryIdx: number) => {
     const divInfo = resolveEntryDivisionDisplay(e);
-    const machineCode = (e.machine?.machineCode || e.machineCode || e.machineNo || `M-${entryIdx + 1}`).trim().toUpperCase();
-    const deptName = resolveGranularCategoryDepartment(e, divInfo.code, machineCode);
+    const rawMachineCode = (e.machine?.machineCode || e.machineCode || e.machineNo || `M-${entryIdx + 1}`).trim().toUpperCase();
+    const machineCode = normalizeMachineDisplayCode(rawMachineCode);
+    const deptName = resolveGranularCategoryDepartment(e, divInfo.code, rawMachineCode);
     const categoryGroup = `${divInfo.name} — ${deptName}`;
 
     const runningHours = Number(e.runningHours ?? e.running_hours ?? 8) || 0;
@@ -2835,6 +2867,7 @@ async function handleGranularDailyLedgerReport(
           ];
 
     const entryProcessScrapKg = Number(e.processScrapKg ?? e.process_scrap_kg ?? 0);
+    const totalEntryActual = nestedLines.reduce((sum, l) => sum + Number(l.actualQuantity ?? 0), 0);
 
     nestedLines.forEach((line: any, lineIdx: number) => {
       const itemCode = String(line.itemCode || e.item?.itemCode || 'ITEM').trim();
@@ -2843,8 +2876,19 @@ async function handleGranularDailyLedgerReport(
       const uom = isGrossMode ? 'Gross' : rawUom;
       const unitDivisor = isGrossMode ? PCS_PER_GROSS : 1;
 
-      const baseTarget = Number(line.targetQuantity ?? e.targetQuantity ?? e.target_quantity ?? 0) / unitDivisor;
-      const explicitPerHour = Number(e.targetPerHour ?? e.target_per_hour ?? 0) / unitDivisor;
+      const lineActualRaw = Number(line.actualQuantity ?? (nestedLines.length === 1 ? e.actualQuantity : 0) ?? 0);
+      const lineWeight =
+        nestedLines.length > 1
+          ? totalEntryActual > 0
+            ? lineActualRaw / totalEntryActual
+            : 1 / nestedLines.length
+          : 1;
+
+      const rawLineTarget = Number(line.targetQuantity ?? 0);
+      const rawEntryTarget = Number(e.targetQuantity ?? e.target_quantity ?? 0);
+      const baseTarget = (rawLineTarget > 0 ? rawLineTarget : rawEntryTarget * lineWeight) / unitDivisor;
+
+      const explicitPerHour = (Number(e.targetPerHour ?? e.target_per_hour ?? 0) * lineWeight) / unitDivisor;
       const targetPerHour =
         explicitPerHour > 0
           ? Math.round(explicitPerHour * 100) / 100
@@ -2852,7 +2896,10 @@ async function handleGranularDailyLedgerReport(
           ? Math.round((baseTarget / standardHours) * 100) / 100
           : 0;
 
-      const explicitDynamicTarget = Number(line.calculatedTarget ?? e.calculatedTarget ?? e.calculated_target ?? 0) / unitDivisor;
+      const rawLineCalcTarget = Number(line.calculatedTarget ?? 0);
+      const rawEntryCalcTarget = Number(e.calculatedTarget ?? e.calculated_target ?? 0);
+      const explicitDynamicTarget =
+        (rawLineCalcTarget > 0 ? rawLineCalcTarget : rawEntryCalcTarget * lineWeight) / unitDivisor;
       const runtimeDynamicTarget =
         explicitDynamicTarget > 0
           ? Math.round(explicitDynamicTarget * 100) / 100
@@ -2860,7 +2907,7 @@ async function handleGranularDailyLedgerReport(
           ? Math.round(targetPerHour * runningHours * 100) / 100
           : Math.round(baseTarget * 100) / 100;
 
-      const actualProduction = Math.round((Number(line.actualQuantity ?? e.actualQuantity ?? 0) / unitDivisor) * 100) / 100;
+      const actualProduction = Math.round((lineActualRaw / unitDivisor) * 100) / 100;
       const targetBasis = runtimeDynamicTarget > 0 ? runtimeDynamicTarget : baseTarget;
       const achievementPct =
         targetBasis > 0
@@ -3268,7 +3315,7 @@ async function handleGranularDailyLedgerReport(
   ];
 
   return {
-    title: `Granular Daily Production Ledger — ${formattedDateLabel}${isGrossMode ? ' [Gross: 144 PCS]' : ''}`,
+    title: `Machine-Wise & Item-Wise Production Report — ${formattedDateLabel}${isGrossMode ? ' [Gross: 144 PCS]' : ''}`,
     summaryText:
       `📋 **Detailed Category-Wise, Department-Wise, Machine-Wise & Item-Wise Production Ledger (${formattedDateLabel})${isGrossMode ? ' — Converted to Gross (1 Gross = 144 PCS)' : ''}**\n` +
       `Grouped logically by **Division & Department** (${categoryOrder.join(' • ')}) with machines sorted in ascending order (` +

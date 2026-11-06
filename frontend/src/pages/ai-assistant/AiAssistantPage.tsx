@@ -10,6 +10,7 @@ import {
   Select,
   Badge,
   Popover,
+  DatePicker,
 } from 'antd';
 import {
   RobotOutlined,
@@ -34,6 +35,7 @@ import {
   MessageOutlined,
   CloseOutlined,
   ClockCircleOutlined,
+  CalendarOutlined,
 } from '@ant-design/icons';
 import {
   BarChart,
@@ -203,6 +205,7 @@ const AiAssistantPage: React.FC = () => {
   const [divisionsList, setDivisionsList] = useState<DivisionMeta[]>(DEFAULT_DIVISIONS);
   const [selectedDivisionCode, setSelectedDivisionCode] = useState<string>('DIV-CCD');
   const [selectedDepartment, setSelectedDepartment] = useState<string>('ALL');
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [uomOverride, setUomOverride] = useState<string>('AUTO');
 
   // Sidebar & Multi-Session Chat History
@@ -252,6 +255,48 @@ const AiAssistantPage: React.FC = () => {
     stop: stopRecording,
   } = useVoiceRecorder();
   const isListening = isRecording;
+
+  // Browser speech-recognition language (Urdu default; persisted per browser).
+  const [voiceLang, setVoiceLang] = useState<'ur-PK' | 'en-US'>(() => {
+    try {
+      return localStorage.getItem('pwi-ai-voice-lang') === 'en-US' ? 'en-US' : 'ur-PK';
+    } catch {
+      return 'ur-PK';
+    }
+  });
+  const toggleVoiceLang = () => {
+    setVoiceLang((prev) => {
+      const next = prev === 'ur-PK' ? 'en-US' : 'ur-PK';
+      try { localStorage.setItem('pwi-ai-voice-lang', next); } catch {}
+      message.info(next === 'ur-PK' ? 'Voice language: اردو (Urdu)' : 'Voice language: English');
+      return next;
+    });
+  };
+
+  // Is server-side Speech-to-Text (Whisper / Gemini) or Text-to-SQL configured?
+  // When not configured, questions route directly through client-side natural-language & speech engines.
+  const serverSttAvailableRef = useRef<boolean | null>(null);
+  const serverLlmAvailableRef = useRef<boolean | null>(null);
+  useEffect(() => {
+    let alive = true;
+    aiAssistantService
+      .health()
+      .then((h: any) => {
+        if (alive) {
+          serverSttAvailableRef.current = Boolean(h?.providers?.whisper);
+          serverLlmAvailableRef.current = Boolean(h?.providers?.textToSql);
+        }
+      })
+      .catch(() => {
+        if (alive) {
+          serverSttAvailableRef.current = false;
+          serverLlmAvailableRef.current = false;
+        }
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   // Last question, so empty-state suggestions can re-ask with context.
   const lastQuestionRef = useRef<string>('');
@@ -1000,6 +1045,23 @@ const AiAssistantPage: React.FC = () => {
         conversationContextRef.current,
       );
 
+      // If the user picked a date in the bottom DatePicker and did not specify another date in text, apply it
+      if (selectedDate && intent.period.type === 'this_month') {
+        const d = dayjs(selectedDate);
+        if (d.isValid()) {
+          intent.period = {
+            type: 'specific_date',
+            label: d.format('DD-MMM-YYYY'),
+            startDate: d.format('YYYY-MM-DD'),
+            endDate: d.format('YYYY-MM-DD'),
+            dayOfMonth: d.date(),
+          };
+          if (intent.dimension === 'machine') {
+            intent.dimension = 'daily_granular_ledger';
+          }
+        }
+      }
+
       // Handle safe write confirmation if user requested a data modification
       if (intent.isWriteRequest && intent.proposedChange) {
         const botMsg: ChatMessage = {
@@ -1044,7 +1106,7 @@ const AiAssistantPage: React.FC = () => {
       //    generate the full report (Summary KPI Cards + Detailed Table + Graphical Chart) with dynamic
       //    ÷ 144 piece conversion directly from the hydrated production entries endpoint.
       const isGrossActive = effectiveUnit.toLowerCase() === 'gross';
-      if (intent.dimension !== 'daily_granular_ledger' && !isGrossActive) {
+      if (serverLlmAvailableRef.current === true && intent.dimension !== 'daily_granular_ledger' && !isGrossActive) {
         try {
           const answer = await aiAssistantService.askQuestion(query);
           // Guard against collapsed 1-row "Grand Total" responses when a breakdown was requested
@@ -1123,6 +1185,29 @@ const AiAssistantPage: React.FC = () => {
 
   const submitVoiceBlob = async (blob: Blob, mimeType: string, fallbackTranscript?: string) => {
     if (loading) return;
+    const browserTranscript = (fallbackTranscript || '').trim();
+
+    // Server STT not configured → use the browser transcript directly.
+    if (serverSttAvailableRef.current === false) {
+      if (browserTranscript) {
+        await handleSend(`🎤 ${browserTranscript}`);
+      } else {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `err-${Date.now()}-v`,
+            sender: 'assistant',
+            text:
+              '🎙️ آواز سمجھ نہیں آئی — براہ کرم مائیک کے قریب واضح بولیں اور دوبارہ کوشش کریں۔\n' +
+              '(No speech was recognised. Use Google Chrome / Microsoft Edge, allow microphone access, ' +
+              'and check the voice language toggle next to the mic.)',
+            timestamp: dayjs().format('hh:mm A'),
+          },
+        ]);
+      }
+      return;
+    }
+
     lastQuestionRef.current = '';
     setLoadingKind('voice');
     setLoading(true);
@@ -1180,7 +1265,7 @@ const AiAssistantPage: React.FC = () => {
       }
       await submitVoiceBlob(captured.blob, captured.mimeType, captured.liveTranscript);
     } else {
-      const started = await startRecording();
+      const started = await startRecording(voiceLang);
       if (started) {
         message.info('Recording… speak your question, then click the mic to stop and send.');
       }
@@ -2182,8 +2267,6 @@ const AiAssistantPage: React.FC = () => {
                 alignItems: 'center',
                 gap: 4,
                 flexShrink: 0,
-                paddingRight: 6,
-                borderRight: isDark ? '1px solid #334155' : '1px solid #cbd5e1',
               }}
             >
               <FilterOutlined style={{ color: '#0284c7', fontSize: 12 }} />
@@ -2191,7 +2274,7 @@ const AiAssistantPage: React.FC = () => {
                 size="small"
                 value={selectedDepartment}
                 onChange={handleDepartmentSwitch}
-                style={{ width: 145, fontSize: 12 }}
+                style={{ width: 135, fontSize: 12 }}
                 popupMatchSelectWidth={210}
                 disabled={selectedDivisionCode === 'ALL'}
                 options={[
@@ -2202,6 +2285,40 @@ const AiAssistantPage: React.FC = () => {
                   })),
                 ]}
               />
+            </div>
+
+            {/* Bottom-Anchored Specific Date Picker (1-click date machine-wise report) */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+                flexShrink: 0,
+                paddingRight: 6,
+                borderRight: isDark ? '1px solid #334155' : '1px solid #cbd5e1',
+              }}
+            >
+              <Tooltip title="کسی بھی تاریخ کی مشین وائز رپورٹ کے لیے تاریخ منتخب کریں (Select Date for Machine-wise Report)">
+                <DatePicker
+                  size="small"
+                  format="DD-MMM-YYYY"
+                  placeholder="📅 Select Date"
+                  allowClear
+                  value={selectedDate ? dayjs(selectedDate) : null}
+                  onChange={(d) => {
+                    const iso = d ? d.format('YYYY-MM-DD') : null;
+                    setSelectedDate(iso);
+                    if (d) {
+                      handleSend(
+                        `Machine-wise Performance Report — ${d.format('DD MMMM YYYY')}`,
+                        selectedDivisionCode,
+                        selectedDepartment,
+                      );
+                    }
+                  }}
+                  style={{ width: 128, fontSize: 12 }}
+                />
+              </Tooltip>
             </div>
 
             {/* Ask Anything Chat Input Field */}
@@ -2277,6 +2394,19 @@ const AiAssistantPage: React.FC = () => {
                 />
               </Tooltip>
             </Popover>
+
+            {/* Voice language toggle (browser speech recognition): اردو ↔ EN */}
+            <Tooltip title={voiceLang === 'ur-PK' ? 'Voice language: Urdu (click for English)' : 'Voice language: English (click for Urdu)'}>
+              <Button
+                type="text"
+                size="small"
+                onClick={toggleVoiceLang}
+                disabled={loading || isListening}
+                style={{ fontWeight: 700, fontSize: 12, padding: '0 6px', flexShrink: 0 }}
+              >
+                {voiceLang === 'ur-PK' ? 'اردو' : 'EN'}
+              </Button>
+            </Tooltip>
 
             {/* Voice Input Microphone Button — Compressed MediaRecorder → OpenAI Whisper pipeline */}
             <Tooltip
