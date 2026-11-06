@@ -1414,25 +1414,56 @@
 /* ── Intelligence Row: Activity Chart + Today's Schedule + Mini Calendar ─ */
 .erp-dashboard-intel-row {
   display: grid;
-  grid-template-columns: minmax(340px, 1.8fr) minmax(280px, 1.2fr) minmax(240px, 1fr);
+  grid-template-columns: minmax(0, 1.8fr) minmax(0, 1.2fr) minmax(0, 1fr);
   gap: 14px;
   margin-bottom: 8px;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
-@media (max-width: 1200px) {
+.erp-dashboard-intel-row > div {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+/* ── Top Customers Row & Intel Row Responsive Layout ────────────────── */
+@media (max-width: 1080px) {
   .erp-dashboard-intel-row {
-    grid-template-columns: 1fr 1fr;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    width: 100%;
   }
-  .erp-dashboard-intel-row > div:nth-child(3) {
-    grid-column: span 2;
+
+  .erp-dashboard-intel-row > div {
+    width: 100%;
+    min-height: auto;
   }
 }
 
-@media (max-width: 840px) {
-  .erp-dashboard-intel-row {
-    grid-template-columns: 1fr;
+@media (max-width: 768px) {
+  .erp-dashboard-top-customers-wrapper {
+    width: 100%;
+    overflow-x: hidden;
   }
-  .erp-dashboard-intel-row > div:nth-child(3) {
-    grid-column: span 1;
+
+  .erp-dashboard-top-row-grid {
+    grid-template-columns: 1fr !important;
+    gap: 10px !important;
+  }
+
+  .erp-dashboard-intel-row {
+    gap: 12px;
+  }
+
+  .erp-dashboard-trend-card,
+  .erp-dashboard-schedule-card,
+  .erp-dashboard-calendar-card {
+    padding: 12px 14px !important;
+    border-radius: 12px !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
   }
 }

@@ -97,6 +97,7 @@ export const MiniCalendarWidget: React.FC<MiniCalendarWidgetProps> = ({
 
   return (
     <div
+      className="erp-dashboard-calendar-card"
       style={{
         background: 'var(--theme-card-bg, #ffffff)',
         border: '1px solid var(--theme-border, #e2e8f0)',
@@ -106,6 +107,9 @@ export const MiniCalendarWidget: React.FC<MiniCalendarWidgetProps> = ({
         display: 'flex',
         flexDirection: 'column',
         height: '100%',
+        minWidth: 0,
+        width: '100%',
+        boxSizing: 'border-box',
       }}
     >
       {/* Month Navigation Header */}

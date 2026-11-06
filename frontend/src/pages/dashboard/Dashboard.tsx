@@ -16,7 +16,7 @@ import OrderSummary from '../../components/dashboard/OrderSummary';
 import ProductionPerformance from '../../components/dashboard/ProductionPerformance';
 import ProductionTrend from '../../components/dashboard/ProductionTrend';
 import QuickActions from '../../components/dashboard/QuickActions';
-import TopProductsRow from '../../components/dashboard/TopProductsRow';
+import TopCustomersRow from '../../components/dashboard/TopCustomersRow';
 import ShopfloorTouchscreenModal from '../../components/dashboard/ShopfloorTouchscreenModal';
 import DepartmentTrendChart from '../../components/dashboard/DepartmentTrendChart';
 import TodayScheduleCard from '../../components/dashboard/TodayScheduleCard';
@@ -554,13 +554,11 @@ const Dashboard: React.FC = () => {
         onRemove={handleRemoveFilter}
       />
 
-      {/* ━━━ TOP PRODUCTS / SERVICES CARDS (Matching Reference Design Top Row) ━━━ */}
-      <TopProductsRow
-        items={itemOverview}
+      {/* ━━━ TOP CUSTOMERS CARDS (Order Demand, Sales & Fulfillment Progress) ━━━ */}
+      <TopCustomersRow
         loading={secondaryLoading}
-        onViewAll={() => navigate('/master-data/items')}
-        onOpenItem={openItemDetail}
-        onQuickAction={() => setTouchscreenOpen(true)}
+        onViewAll={() => navigate('/customers/analytics')}
+        onQuickAction={() => navigate('/customers/analytics')}
       />
 
       {/* ━━━ INTELLIGENCE & SCHEDULE ROW (Activity Chart + Today's Schedule + Mini Calendar) ━━━ */}

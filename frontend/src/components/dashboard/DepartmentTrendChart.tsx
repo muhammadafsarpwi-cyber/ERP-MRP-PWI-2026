@@ -196,6 +196,7 @@ export const DepartmentTrendChart: React.FC<DepartmentTrendChartProps> = ({
 
   return (
     <div
+      className="erp-dashboard-trend-card"
       style={{
         background: 'var(--theme-card-bg, #ffffff)',
         border: '1px solid var(--theme-border, #e2e8f0)',
@@ -206,6 +207,9 @@ export const DepartmentTrendChart: React.FC<DepartmentTrendChartProps> = ({
         flexDirection: 'column',
         height: '100%',
         minHeight: 280,
+        minWidth: 0,
+        width: '100%',
+        boxSizing: 'border-box',
       }}
     >
       {/* ━━━ HEADER: Title, Total Metric Badge & Department Tabs ━━━ */}
@@ -244,10 +248,11 @@ export const DepartmentTrendChart: React.FC<DepartmentTrendChartProps> = ({
                   gap: 3,
                   fontSize: 11,
                   fontWeight: 700,
-                  color: overallAch >= 80 ? '#15803d' : overallAch >= 70 ? '#854d0e' : '#b91c1c',
-                  background: overallAch >= 80 ? '#dcfce7' : overallAch >= 70 ? '#fef9c3' : '#fee2e2',
-                  padding: '1px 6px',
-                  borderRadius: 4,
+                  color: overallAch >= 80 ? '#10b981' : overallAch >= 70 ? '#f59e0b' : '#ef4444',
+                  background: overallAch >= 80 ? 'rgba(16, 185, 129, 0.14)' : overallAch >= 70 ? 'rgba(245, 158, 11, 0.14)' : 'rgba(239, 68, 68, 0.14)',
+                  border: overallAch >= 80 ? '1px solid rgba(16, 185, 129, 0.3)' : overallAch >= 70 ? '1px solid rgba(245, 158, 11, 0.3)' : '1px solid rgba(239, 68, 68, 0.3)',
+                  padding: '1px 8px',
+                  borderRadius: 6,
                 }}
               >
                 <ArrowUpOutlined style={{ fontSize: 9 }} />
@@ -269,11 +274,11 @@ export const DepartmentTrendChart: React.FC<DepartmentTrendChartProps> = ({
                     gap: 3,
                     fontSize: 11,
                     fontWeight: 600,
-                    color: '#b45309',
-                    background: '#fef3c7',
-                    border: '1px solid #fde68a',
-                    padding: '1px 6px',
-                    borderRadius: 4,
+                    color: '#f59e0b',
+                    background: 'rgba(245, 158, 11, 0.14)',
+                    border: '1px solid rgba(245, 158, 11, 0.3)',
+                    padding: '1px 8px',
+                    borderRadius: 6,
                   }}
                 >
                   <span>Avg: <strong>{avgDailyActual.toLocaleString()} pcs/day</strong></span>
@@ -289,11 +294,11 @@ export const DepartmentTrendChart: React.FC<DepartmentTrendChartProps> = ({
                     gap: 4,
                     fontSize: 11,
                     fontWeight: 600,
-                    color: '#b91c1c',
-                    background: '#fee2e2',
-                    border: '1px solid #fecaca',
-                    padding: '1px 6px',
-                    borderRadius: 4,
+                    color: '#ef4444',
+                    background: 'rgba(239, 68, 68, 0.14)',
+                    border: '1px solid rgba(239, 68, 68, 0.3)',
+                    padding: '1px 8px',
+                    borderRadius: 6,
                   }}
                 >
                   <span>Scrap: <strong>{totalScrapPieces.toLocaleString()} Pcs</strong> ({totalScrapKg > 0 ? `${totalScrapKg.toFixed(1)} Kg` : `${(totalScrapPieces * 0.008).toFixed(1)} Kg`})</span>
@@ -660,7 +665,7 @@ export const DepartmentTrendChart: React.FC<DepartmentTrendChartProps> = ({
                         display: 'flex',
                         alignItems: 'flex-end',
                         justifyContent: 'center',
-                        gap: 2,
+                        gap: chartPoints.length <= 7 ? 4 : 2,
                         height: 105,
                         width: '100%',
                       }}
@@ -668,23 +673,23 @@ export const DepartmentTrendChart: React.FC<DepartmentTrendChartProps> = ({
                       {/* Target Bar */}
                       <div
                         style={{
-                          width: chartPoints.length > 20 ? 5 : 7,
+                          width: chartPoints.length <= 7 ? 14 : chartPoints.length <= 15 ? 10 : chartPoints.length > 20 ? 5 : 7,
                           height: `${targetHeightPx}px`,
                           background: 'var(--theme-border-strong, #cbd5e1)',
-                          borderRadius: '2px 2px 0 0',
+                          borderRadius: '3px 3px 0 0',
                           transition: 'all 0.3s ease',
-                          opacity: isBarSelected ? 1 : 0.85,
+                          opacity: isBarSelected ? 1 : 0.75,
                         }}
                       />
                       {/* Actual Bar */}
                       <div
                         style={{
-                          width: chartPoints.length > 20 ? 7 : 10,
+                          width: chartPoints.length <= 7 ? 22 : chartPoints.length <= 15 ? 14 : chartPoints.length > 20 ? 7 : 10,
                           height: `${actualHeightPx}px`,
                           background: actualBarColor,
-                          borderRadius: '2px 2px 0 0',
+                          borderRadius: '4px 4px 0 0',
                           transition: 'all 0.3s ease',
-                          boxShadow: isBarSelected ? `0 0 0 2px ${actualBarColor}` : 'none',
+                          boxShadow: isBarSelected ? `0 0 0 2px ${actualBarColor}` : '0 2px 6px rgba(0, 0, 0, 0.12)',
                         }}
                       />
                     </div>

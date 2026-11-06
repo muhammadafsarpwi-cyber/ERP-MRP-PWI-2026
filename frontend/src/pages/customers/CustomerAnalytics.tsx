@@ -248,12 +248,16 @@ function parsePackingEntry(e: any): PackedEntryInfo | null {
   let custName = custMatch ? custMatch[1].trim() : '';
   let socNo = socMatch ? socMatch[1].trim() : '';
 
+  const isShiftedFromSafety =
+    rem.toUpperCase().includes('SHIFTED FROM SAFETY') ||
+    rem.toUpperCase().includes('ALLOCATED FROM SAFETY');
+
   const isSafetyStock =
-    custName.toUpperCase().replace(/[\s_-]+/g, '') === 'SAFETYSTOCK' ||
-    socNo.toUpperCase().replace(/[\s_-]+/g, '') === 'SAFETYSTOCK' ||
-    rem.toUpperCase().includes('CUSTOMER: SAFETY') ||
-    rem.toUpperCase().includes('SOC: SAFETY_STOCK') ||
-    rem.toUpperCase().includes('SAFETY STOCK');
+    !isShiftedFromSafety &&
+    (custName.toUpperCase().replace(/[\s_-]+/g, '') === 'SAFETYSTOCK' ||
+     socNo.toUpperCase().replace(/[\s_-]+/g, '') === 'SAFETYSTOCK' ||
+     rem.toUpperCase().includes('CUSTOMER: SAFETY') ||
+     rem.toUpperCase().includes('SOC: SAFETY_STOCK'));
 
   if (isSafetyStock) {
     custName = 'SAFETY STOCK';
@@ -300,11 +304,16 @@ function parseOpenStockEntry(os: any): PackedEntryInfo | null {
   let custName = custMatch ? custMatch[1].trim() : (os.customerName || 'General Stock');
   let socNo = socMatch ? socMatch[1].trim() : (os.socNo || '—');
 
+  const isShiftedFromSafety =
+    notes.toUpperCase().includes('SHIFTED FROM SAFETY') ||
+    notes.toUpperCase().includes('ALLOCATED FROM SAFETY');
+
   const isSafetyStock =
-    custName.toUpperCase().replace(/[\s_-]+/g, '') === 'SAFETYSTOCK' ||
-    socNo.toUpperCase().replace(/[\s_-]+/g, '') === 'SAFETYSTOCK' ||
-    notes.toUpperCase().includes('CUSTOMER: SAFETY') ||
-    notes.toUpperCase().includes('SOC: SAFETY');
+    !isShiftedFromSafety &&
+    (custName.toUpperCase().replace(/[\s_-]+/g, '') === 'SAFETYSTOCK' ||
+     socNo.toUpperCase().replace(/[\s_-]+/g, '') === 'SAFETYSTOCK' ||
+     notes.toUpperCase().includes('CUSTOMER: SAFETY') ||
+     notes.toUpperCase().includes('SOC: SAFETY'));
 
   if (isSafetyStock) {
     custName = 'SAFETY STOCK';
@@ -841,15 +850,27 @@ const CustomerAnalytics: React.FC = () => {
         }
       }
 
-      // Parse all hand-packing and opening-stock entries
+      // Parse all hand-packing and opening-stock entries with strict cross-table deduplication
       const allPackedEntries: PackedEntryInfo[] = [];
+      const seenEntryKeys = new Set<string>();
+
       prodEntries.forEach((e) => {
         const p = parsePackingEntry(e);
-        if (p) allPackedEntries.push(p);
+        if (p) {
+          const key = `${normKey(p.fgItemCode || '')}_${normKey(p.socNo || '')}_${normKey(p.customerName || '')}_${p.cartons}_${p.gross}`;
+          seenEntryKeys.add(key);
+          allPackedEntries.push(p);
+        }
       });
       openStockEntries.forEach((os) => {
         const p = parseOpenStockEntry(os);
-        if (p) allPackedEntries.push(p);
+        if (p) {
+          const key = `${normKey(p.fgItemCode || '')}_${normKey(p.socNo || '')}_${normKey(p.customerName || '')}_${p.cartons}_${p.gross}`;
+          if (!seenEntryKeys.has(key)) {
+            seenEntryKeys.add(key);
+            allPackedEntries.push(p);
+          }
+        }
       });
 
       // Group packed quantities: safety stock buffer vs customer packed stock
@@ -1078,13 +1099,6 @@ const CustomerAnalytics: React.FC = () => {
       const result: CustomerStat[] = Array.from(custMap.values()).map((c) => {
         const packed = custPackedMap.get(c.id) || { gross: 0, cartons: 0, topItem: '' };
 
-        // Core business formula requested by user: Packed - Dispatched = Ready to Dispatch (P - D)
-        const readyToDispatchGross = Math.max(0, Math.round((packed.gross - c.totalDispatchedGross) * 100) / 100);
-        const readyToDispatchCartons =
-          packed.gross > 0 && packed.cartons > 0
-            ? Math.round((readyToDispatchGross / packed.gross) * packed.cartons)
-            : Math.round(readyToDispatchGross / 10);
-
         const rawSocs = custSocMap.get(c.id) || [];
         const finalizedSocs: SocContractSummary[] = rawSocs.map((soc) => {
           const isDelivered = String(soc.status).toUpperCase() === 'DELIVERED' || String(soc.status).toUpperCase() === 'CLOSED';
@@ -1101,22 +1115,11 @@ const CustomerAnalytics: React.FC = () => {
             if (isDelivered) {
               dispatchedQty = Math.max(dispatchedQty, orderedQty);
               packedQty = Math.max(packedQty, orderedQty);
-            }
-            const remainingPendingQty = isDelivered ? 0 : Math.max(0, Math.round((orderedQty - dispatchedQty) * 100) / 100);
-
-            // Compute true packed quantity based on physical stock and dispatches:
-            // What was dispatched + what is currently sitting ready in FGR warehouse cannot exceed total packed
-            const resItem = resolveFgItem(it.itemCode, it.itemName);
-            const meta = itemMetaMap.get(normKey(resItem.code)) || itemMetaMap.get(normKey(resItem.name));
-            const matrixStock = meta?.matrixFgrGross || 0;
-            // Clean, automatic business formula: Packed quantity cannot be less than what was already dispatched
-            // plus physical stock sitting ready in FGR warehouse (capped at ordered quantity).
-            if (!isDelivered && matrixStock > 0) {
-              const potentialPacked = Math.round((dispatchedQty + matrixStock) * 100) / 100;
-              packedQty = Math.min(orderedQty, Math.max(packedQty, potentialPacked));
             } else if (packedQty < dispatchedQty) {
+              // Physically dispatched goods must have been packed first
               packedQty = dispatchedQty;
             }
+            const remainingPendingQty = isDelivered ? 0 : Math.max(0, Math.round((orderedQty - dispatchedQty) * 100) / 100);
 
             const itemPct =
               orderedQty > 0
@@ -1158,13 +1161,26 @@ const CustomerAnalytics: React.FC = () => {
         // Sort SOCs so contracts with pending quantities appear first
         finalizedSocs.sort((a, b) => b.totalPendingQty - a.totalPendingQty);
 
-        // System-wide strict sync: Customer Card figures MUST match actual genuine deliveries
+        // System-wide strict sync: Customer Card figures MUST match actual genuine deliveries & packing
         const totalOrderedGross = finalizedSocs.length > 0
           ? Math.round(finalizedSocs.reduce((s, x) => s + x.totalOrderedQty, 0) * 100) / 100
           : Math.round(c.totalOrderedGross * 100) / 100;
         const totalDispatchedGross = Math.round(c.totalDispatchedGross * 100) / 100;
+        const totalPackedGross = finalizedSocs.length > 0
+          ? Math.round(finalizedSocs.reduce((s, x) => s + x.totalPackedQty, 0) * 100) / 100
+          : Math.round(packed.gross * 100) / 100;
+        const totalPackedCartons = packed.gross > 0 && packed.cartons > 0
+          ? Math.round((totalPackedGross / packed.gross) * packed.cartons)
+          : Math.round(totalPackedGross / 10);
         const pendingGross = Math.max(0, Math.round((totalOrderedGross - totalDispatchedGross) * 100) / 100);
         const totalOrders = finalizedSocs.length > 0 ? finalizedSocs.length : c.totalOrders;
+
+        // Ready to dispatch = Packed - Dispatched
+        const readyToDispatchGross = Math.max(0, Math.round((totalPackedGross - totalDispatchedGross) * 100) / 100);
+        const readyToDispatchCartons =
+          totalPackedGross > 0 && packed.cartons > 0
+            ? Math.round((readyToDispatchGross / totalPackedGross) * packed.cartons)
+            : Math.round(readyToDispatchGross / 10);
 
         const custFulfillmentPct =
           totalOrderedGross > 0
@@ -1176,8 +1192,8 @@ const CustomerAnalytics: React.FC = () => {
           totalOrders,
           totalOrderedGross,
           totalDispatchedGross,
-          totalPackedGross: packed.gross,
-          totalPackedCartons: packed.cartons,
+          totalPackedGross,
+          totalPackedCartons,
           pendingGross,
           fulfillmentPct: custFulfillmentPct,
           readyToDispatchGross,
@@ -1203,7 +1219,9 @@ const CustomerAnalytics: React.FC = () => {
           pcs: Math.round(prev.pcs + b.pcs),
         });
       }
-      const safetyItems = Array.from(safetyItemsMap.values()).sort((a, b) => b.cartons - a.cartons);
+      const safetyItems = Array.from(safetyItemsMap.values())
+        .filter((it) => it.cartons > 0)
+        .sort((a, b) => b.cartons - a.cartons);
 
       // Add dedicated SAFETY STOCK customer card
       const totalSafetyGross = Math.round(safetyBatches.reduce((s, b) => s + b.gross, 0));
@@ -1972,12 +1990,16 @@ const CustomerAnalytics: React.FC = () => {
           <div className="ca-chart-toggles">
             <div className="ca-chart-legend">
               <span className="ca-legend-item">
-                <span className="ca-legend-dot ca-legend-ordered" />
-                <span>Ordered (Light)</span>
-              </span>
-              <span className="ca-legend-item">
                 <span className="ca-legend-dot ca-legend-dispatched" />
                 <span>Dispatched (Solid)</span>
+              </span>
+              <span className="ca-legend-item">
+                <span className="ca-legend-dot ca-legend-ready" />
+                <span>Ready to Dispatch (Packed)</span>
+              </span>
+              <span className="ca-legend-item">
+                <span className="ca-legend-dot ca-legend-ordered" />
+                <span>Ordered Demand</span>
               </span>
             </div>
 
@@ -2006,14 +2028,23 @@ const CustomerAnalytics: React.FC = () => {
               .filter((c) => !c.isSafetyStock)
               .slice(0, 10)
               .map((c, i) => {
+                const orderedGross = c.totalOrderedGross || 0;
+                const dispatchedGross = c.totalDispatchedGross || 0;
+                const readyGross = c.readyToDispatchGross || 0;
+                const pendingGross = c.pendingGross || Math.max(0, orderedGross - dispatchedGross);
+
                 const maxVol = Math.max(
                   ...customers
                     .filter((x) => !x.isSafetyStock)
-                    .map((x) => Math.max(x.totalOrderedGross, x.totalDispatchedGross)),
+                    .map((x) => Math.max(x.totalOrderedGross, (x.totalDispatchedGross || 0) + (x.readyToDispatchGross || 0))),
                   1
                 );
-                const orderedWidth = Math.min(100, Math.max(3, (c.totalOrderedGross / maxVol) * 100));
-                const dispatchedWidth = Math.min(100, Math.max(0, (c.totalDispatchedGross / maxVol) * 100));
+                const envelopeTotal = Math.max(orderedGross, dispatchedGross + readyGross);
+                const capsuleWidth = Math.min(100, Math.max(8, (envelopeTotal / maxVol) * 100));
+
+                const dispatchedPct = envelopeTotal > 0 ? (dispatchedGross / envelopeTotal) * 100 : 0;
+                const readyPct = envelopeTotal > 0 ? (readyGross / envelopeTotal) * 100 : 0;
+                const pendingPct = Math.max(0, 100 - dispatchedPct - readyPct);
                 const clr = COLORS[i % COLORS.length];
 
                 return (
@@ -2030,53 +2061,79 @@ const CustomerAnalytics: React.FC = () => {
                       </div>
                     </div>
 
-                    <div className="ca-dual-bars">
-                      {/* Ordered Bar (Upper line - light color) */}
-                      <div className="ca-bar-line">
-                        <span className="ca-bar-line-tag ca-tag-ordered">ORDERED</span>
-                        <div className="ca-bar-track-outer">
+                    <div className="ca-multi-track-wrapper">
+                      <div className="ca-multi-track-capsule-outer">
+                        <Tooltip
+                          title={
+                            <div>
+                              <div style={{ fontWeight: 800, marginBottom: 4 }}>{c.name}</div>
+                              <div>📦 Ordered Demand: <strong>{fmtNum(orderedGross, 0)} GRS</strong></div>
+                              <div style={{ color: '#818cf8' }}>🚚 Dispatched: <strong>{fmtNum(dispatchedGross, 0)} GRS</strong> ({Math.round((dispatchedGross / Math.max(orderedGross, 1)) * 100)}%)</div>
+                              <div style={{ color: '#34d399' }}>🛡️ Ready to Dispatch: <strong>{fmtNum(readyGross, 0)} GRS</strong> ({Math.round((readyGross / Math.max(orderedGross, 1)) * 100)}%)</div>
+                              <div style={{ color: '#fbbf24' }}>⏳ Pending Production: <strong>{fmtNum(pendingGross, 0)} GRS</strong></div>
+                            </div>
+                          }
+                        >
                           <div
-                            className="ca-bar-fill-ordered"
-                            style={{
-                              width: `${orderedWidth}%`,
-                              background: `linear-gradient(90deg, ${clr}44, ${clr}22)`,
-                              border: `1px dashed ${clr}99`,
-                            }}
-                          />
-                        </div>
-                        <span className="ca-bar-line-val ca-val-ordered">
-                          {fmtNum(c.totalOrderedGross, 0)} GRS
-                        </span>
+                            className="ca-multi-track-capsule"
+                            style={{ width: `${capsuleWidth}%` }}
+                          >
+                            {dispatchedPct > 0 && (
+                              <div
+                                className="ca-seg-dispatched"
+                                style={{ width: `${dispatchedPct}%` }}
+                              />
+                            )}
+                            {readyPct > 0 && (
+                              <div
+                                className="ca-seg-ready"
+                                style={{ width: `${readyPct}%` }}
+                              />
+                            )}
+                            {pendingPct > 0 && (
+                              <div
+                                className="ca-seg-pending"
+                                style={{ width: `${pendingPct}%` }}
+                              />
+                            )}
+                          </div>
+                        </Tooltip>
                       </div>
 
-                      {/* Dispatched Bar (Lower line - vibrant solid color) */}
-                      <div className="ca-bar-line">
-                        <span className="ca-bar-line-tag ca-tag-dispatched">DISPATCHED</span>
-                        <div className="ca-bar-track-outer">
-                          <div
-                            className="ca-bar-fill-dispatched"
-                            style={{
-                              width: `${dispatchedWidth}%`,
-                              background: `linear-gradient(90deg, ${clr}, ${clr}dd)`,
-                              boxShadow: `0 1px 6px ${clr}55`,
-                            }}
-                          />
-                        </div>
-                        <span className="ca-bar-line-val ca-val-dispatched">
-                          {fmtNum(c.totalDispatchedGross, 0)} GRS
+                      <div className="ca-multi-submetrics">
+                        <span className="ca-submetric-pill">
+                          <span>📦 Demand:</span> <strong>{fmtNum(orderedGross, 0)} GRS</strong>
                         </span>
+                        <span className="ca-submetric-pill pill-dispatched">
+                          <span>🚚 Dispatched:</span> <strong>{fmtNum(dispatchedGross, 0)} GRS</strong>
+                        </span>
+                        {readyGross > 0 && (
+                          <span className="ca-submetric-pill pill-ready">
+                            <span>🛡️ Ready:</span> <strong>{fmtNum(readyGross, 0)} GRS</strong>
+                          </span>
+                        )}
+                        {pendingGross > 0 && (
+                          <span className="ca-submetric-pill pill-pending">
+                            <span>⏳ Pending:</span> <strong>{fmtNum(pendingGross, 0)} GRS</strong>
+                          </span>
+                        )}
                       </div>
                     </div>
 
                     <div className="ca-dual-right">
                       <Tag
                         color={c.fulfillmentPct >= 100 ? 'success' : c.fulfillmentPct >= 50 ? 'warning' : 'default'}
-                        style={{ fontWeight: 700, margin: 0 }}
+                        style={{ fontWeight: 800, margin: 0, borderRadius: 6, fontSize: 11 }}
                       >
                         {c.fulfillmentPct}% Fulfilled
                       </Tag>
+                      {readyGross > 0 && (
+                        <span style={{ fontSize: 10, color: '#10b981', fontWeight: 700 }}>
+                          +{Math.round((readyGross / Math.max(orderedGross, 1)) * 100)}% Packed Ready
+                        </span>
+                      )}
                       <span className="ca-dual-fraction">
-                        {fmtNum(c.totalDispatchedGross, 0)} / {fmtNum(c.totalOrderedGross, 0)}
+                        {fmtNum(dispatchedGross, 0)} / {fmtNum(orderedGross, 0)} GRS
                       </span>
                     </div>
                   </div>
@@ -2089,14 +2146,23 @@ const CustomerAnalytics: React.FC = () => {
         ) : (
           <div className="ca-dual-chart">
             {itemStats.map((it, i) => {
+              const orderedGross = it.totalGross || 0;
+              const dispatchedGross = it.totalDispatchedGross || 0;
+              const readyGross = it.readyFgrGross || 0;
+              const pendingGross = it.balancePendingGross || Math.max(0, orderedGross - dispatchedGross);
+
               const maxVol = Math.max(
-                ...itemStats.map((x) => Math.max(x.totalGross, x.totalDispatchedGross || 0)),
+                ...itemStats.map((x) => Math.max(x.totalGross, (x.totalDispatchedGross || 0) + (x.readyFgrGross || 0))),
                 1
               );
-              const orderedWidth = Math.min(100, Math.max(3, (it.totalGross / maxVol) * 100));
-              const dispatchedWidth = Math.min(100, Math.max(0, ((it.totalDispatchedGross || 0) / maxVol) * 100));
+              const envelopeTotal = Math.max(orderedGross, dispatchedGross + readyGross);
+              const capsuleWidth = Math.min(100, Math.max(8, (envelopeTotal / maxVol) * 100));
+
+              const dispatchedPct = envelopeTotal > 0 ? (dispatchedGross / envelopeTotal) * 100 : 0;
+              const readyPct = envelopeTotal > 0 ? (readyGross / envelopeTotal) * 100 : 0;
+              const pendingPct = Math.max(0, 100 - dispatchedPct - readyPct);
               const fulfillmentPct =
-                it.totalGross > 0 ? Math.round(((it.totalDispatchedGross || 0) / it.totalGross) * 100) : 0;
+                orderedGross > 0 ? Math.round((dispatchedGross / orderedGross) * 100) : (dispatchedGross > 0 ? 100 : 0);
               const clr = COLORS[i % COLORS.length];
 
               return (
@@ -2113,53 +2179,79 @@ const CustomerAnalytics: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="ca-dual-bars">
-                    {/* Ordered Bar (Upper line - light color) */}
-                    <div className="ca-bar-line">
-                      <span className="ca-bar-line-tag ca-tag-ordered">ORDERED</span>
-                      <div className="ca-bar-track-outer">
+                  <div className="ca-multi-track-wrapper">
+                    <div className="ca-multi-track-capsule-outer">
+                      <Tooltip
+                        title={
+                          <div>
+                            <div style={{ fontWeight: 800, marginBottom: 4 }}>{it.itemName}</div>
+                            <div>📦 Ordered Demand: <strong>{fmtNum(orderedGross, 0)} GRS</strong></div>
+                            <div style={{ color: '#818cf8' }}>🚚 Dispatched: <strong>{fmtNum(dispatchedGross, 0)} GRS</strong> ({Math.round((dispatchedGross / Math.max(orderedGross, 1)) * 100)}%)</div>
+                            <div style={{ color: '#34d399' }}>🛡️ Ready in Warehouse: <strong>{fmtNum(readyGross, 0)} GRS</strong> ({Math.round((readyGross / Math.max(orderedGross, 1)) * 100)}%)</div>
+                            <div style={{ color: '#fbbf24' }}>⏳ Pending Production: <strong>{fmtNum(pendingGross, 0)} GRS</strong></div>
+                          </div>
+                        }
+                      >
                         <div
-                          className="ca-bar-fill-ordered"
-                          style={{
-                            width: `${orderedWidth}%`,
-                            background: `linear-gradient(90deg, ${clr}44, ${clr}22)`,
-                            border: `1px dashed ${clr}99`,
-                          }}
-                        />
-                      </div>
-                      <span className="ca-bar-line-val ca-val-ordered">
-                        {fmtNum(it.totalGross, 0)} GRS
-                      </span>
+                          className="ca-multi-track-capsule"
+                          style={{ width: `${capsuleWidth}%` }}
+                        >
+                          {dispatchedPct > 0 && (
+                            <div
+                              className="ca-seg-dispatched"
+                              style={{ width: `${dispatchedPct}%` }}
+                            />
+                          )}
+                          {readyPct > 0 && (
+                            <div
+                              className="ca-seg-ready"
+                              style={{ width: `${readyPct}%` }}
+                            />
+                          )}
+                          {pendingPct > 0 && (
+                            <div
+                              className="ca-seg-pending"
+                              style={{ width: `${pendingPct}%` }}
+                            />
+                          )}
+                        </div>
+                      </Tooltip>
                     </div>
 
-                    {/* Dispatched Bar (Lower line - vibrant solid color) */}
-                    <div className="ca-bar-line">
-                      <span className="ca-bar-line-tag ca-tag-dispatched">DISPATCHED</span>
-                      <div className="ca-bar-track-outer">
-                        <div
-                          className="ca-bar-fill-dispatched"
-                          style={{
-                            width: `${dispatchedWidth}%`,
-                            background: `linear-gradient(90deg, ${clr}, ${clr}dd)`,
-                            boxShadow: `0 1px 6px ${clr}55`,
-                          }}
-                        />
-                      </div>
-                      <span className="ca-bar-line-val ca-val-dispatched">
-                        {fmtNum(it.totalDispatchedGross || 0, 0)} GRS
+                    <div className="ca-multi-submetrics">
+                      <span className="ca-submetric-pill">
+                        <span>📦 Demand:</span> <strong>{fmtNum(orderedGross, 0)} GRS</strong>
                       </span>
+                      <span className="ca-submetric-pill pill-dispatched">
+                        <span>🚚 Dispatched:</span> <strong>{fmtNum(dispatchedGross, 0)} GRS</strong>
+                      </span>
+                      {readyGross > 0 && (
+                        <span className="ca-submetric-pill pill-ready">
+                          <span>🛡️ Ready:</span> <strong>{fmtNum(readyGross, 0)} GRS</strong>
+                        </span>
+                      )}
+                      {pendingGross > 0 && (
+                        <span className="ca-submetric-pill pill-pending">
+                          <span>⏳ Pending:</span> <strong>{fmtNum(pendingGross, 0)} GRS</strong>
+                        </span>
+                      )}
                     </div>
                   </div>
 
                   <div className="ca-dual-right">
                     <Tag
                       color={fulfillmentPct >= 100 ? 'success' : fulfillmentPct >= 50 ? 'warning' : 'default'}
-                      style={{ fontWeight: 700, margin: 0 }}
+                      style={{ fontWeight: 800, margin: 0, borderRadius: 6, fontSize: 11 }}
                     >
                       {fulfillmentPct}% Fulfilled
                     </Tag>
+                    {readyGross > 0 && (
+                      <span style={{ fontSize: 10, color: '#10b981', fontWeight: 700 }}>
+                        +{Math.round((readyGross / Math.max(orderedGross, 1)) * 100)}% Ready
+                      </span>
+                    )}
                     <span className="ca-dual-fraction">
-                      {fmtNum(it.totalDispatchedGross || 0, 0)} / {fmtNum(it.totalGross, 0)}
+                      {fmtNum(dispatchedGross, 0)} / {fmtNum(orderedGross, 0)} GRS
                     </span>
                   </div>
                 </div>
