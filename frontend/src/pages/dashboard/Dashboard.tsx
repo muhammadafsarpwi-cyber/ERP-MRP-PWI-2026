@@ -554,9 +554,13 @@ const Dashboard: React.FC = () => {
         onRemove={handleRemoveFilter}
       />
 
-      {/* ━━━ TOP CUSTOMERS CARDS (Order Demand, Sales & Fulfillment Progress) ━━━ */}
+      {/* ━━━ TOP CUSTOMERS CARDS (Top Sales by Volume & Relative Share) ━━━ */}
       <TopCustomersRow
         loading={secondaryLoading}
+        dateRangePreset={dateRangePreset}
+        appliedFilters={appliedFilters}
+        lastEntryDate={lastEntryDate}
+        customRange={customRange}
         onViewAll={() => navigate('/customers/analytics')}
         onQuickAction={() => navigate('/customers/analytics')}
       />
