@@ -1116,6 +1116,8 @@ export const ProductionDashboard: React.FC = () => {
           return {
             id: d.departmentId,
             name: d.departmentName,
+            poCode: (d as any).poCode,
+            netQuantity: Number((d as any).netQuantity || 0),
             reportingUom,
             secondaryUom,
             enableConversionBridge,
@@ -2921,6 +2923,22 @@ export const ProductionDashboard: React.FC = () => {
                             <span style={{ fontWeight: 700, color: 'var(--theme-text, #0f172a)', fontSize: 13 }}>
                               {d.name}
                             </span>
+                            {(d as any).poCode && (
+                              <span
+                                style={{
+                                  fontSize: 10,
+                                  fontWeight: 700,
+                                  color: '#0284c7',
+                                  background: 'rgba(14, 165, 233, 0.12)',
+                                  border: '1px solid rgba(14, 165, 233, 0.28)',
+                                  padding: '1px 6px',
+                                  borderRadius: 4,
+                                  letterSpacing: '0.02em',
+                                }}
+                              >
+                                PO: {(d as any).poCode}
+                              </span>
+                            )}
                           </div>
                         </td>
                         <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
@@ -2943,11 +2961,15 @@ export const ProductionDashboard: React.FC = () => {
                               {actualUnits.primaryBadge}
                             </span>
                           </div>
-                          {actualUnits.secondaryText && (
+                          {(d as any).netQuantity && (d as any).netQuantity !== d.actual ? (
+                            <div style={{ fontSize: 10.5, fontWeight: 700, color: '#10b981', marginTop: 1 }}>
+                              Net In-Hand: {formatNumber((d as any).netQuantity, 1)} KG
+                            </div>
+                          ) : actualUnits.secondaryText ? (
                             <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--theme-text, #0f172a)', marginTop: 1 }}>
                               {actualUnits.secondaryText}
                             </div>
-                          )}
+                          ) : null}
                         </td>
                     <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', minWidth: 110 }}>
                       <span style={{ color: d.eff >= 80 ? '#10b981' : '#f59e0b', fontWeight: 700, fontSize: 13 }}>

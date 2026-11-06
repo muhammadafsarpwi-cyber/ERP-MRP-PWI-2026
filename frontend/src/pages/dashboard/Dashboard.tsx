@@ -612,7 +612,15 @@ const Dashboard: React.FC = () => {
       </div>
 
       {/* ━━━ PRODUCTION TREND ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-      <ProductionTrend trend={trend} loading={loading} nav={navigate} />
+      <ProductionTrend
+        trend={trend}
+        loading={loading}
+        nav={navigate}
+        departments={prodSummary?.departments ?? []}
+        filters={appliedFilters}
+        divisionId={appliedFilters.divisionId}
+        divisionCode={divisions.find((d) => d.id === appliedFilters.divisionId)?.divisionCode}
+      />
 
       {/* ━━━ DEPARTMENT PERFORMANCE (FULL WIDTH SCORECARD) ━━━━━━━━━━━━━━━━━ */}
       <div style={{ marginBottom: 16 }}>

@@ -615,45 +615,68 @@ export class DashboardService {
     }
 
     // ── Raw Material Receiving & Requirement (PO) Analytics ──
-    let rmReceivedKg = 0;
     let rmReceiptCount = 0;
     let rmTargetKg = 0;
+    let rmReceivedKg = 0;
     let rmReturnedKg = 0;
+    let activePoCode = '';
 
     const divScopeId = filters?.divisionId || null;
 
     try {
-      // 1. Query verified Purchase Orders for Raw Material strictly within division and date filters
-      const poRes = await this.entryRepo.query(`
-        SELECT COALESCE(SUM(pol.quantity), 0) AS "totalPoKg",
-               COALESCE(SUM(pol.received_quantity), 0) AS "totalPoReceivedKg",
-               COUNT(DISTINCT po.id) AS "poCount"
-        FROM purchase_order_lines pol
-        INNER JOIN purchase_orders po ON po.id = pol.po_id
+      // 1. Query verified Purchase Orders for Raw Material strictly within division
+      const poList = await this.entryRepo.query(`
+        SELECT po.id, po.po_code, po.order_date, po.expected_delivery_date, po.notes,
+               COALESCE(SUM(pol.quantity), 0) AS "poKg",
+               COALESCE(SUM(pol.received_quantity), 0) AS "poReceivedKg"
+        FROM purchase_orders po
+        INNER JOIN purchase_order_lines pol ON pol.po_id = po.id
         INNER JOIN items itm ON itm.id = pol.item_id
         WHERE (po.company_id = $1 OR po.company_id IS NULL)
           AND po.status NOT IN ('CANCELLED')
           AND itm.item_type = 'RAW_MATERIAL'
           AND ($2::uuid IS NULL OR itm.division_id = $2)
-          AND ($3::date IS NULL OR po.order_date >= $3)
-          AND ($4::date IS NULL OR po.order_date <= $4)
-      `, [
-        companyId,
-        divScopeId,
-        filters?.dateFrom || null,
-        filters?.dateTo || null,
-      ]);
+        GROUP BY po.id, po.po_code, po.order_date, po.expected_delivery_date, po.notes
+        ORDER BY po.order_date DESC
+      `, [companyId, divScopeId]);
 
-      const totalPoKg = Math.round(Number(poRes?.[0]?.totalPoKg || 0) * 10) / 10;
-      const totalPoReceivedKg = Math.round(Number(poRes?.[0]?.totalPoReceivedKg || 0) * 10) / 10;
-      const poCount = Number(poRes?.[0]?.poCount || 0);
+      // Determine active target month in PKT (UTC+5)
+      const targetMonth = filters?.dateFrom
+        ? new Date(new Date(`${filters.dateFrom}T12:00:00Z`).getTime()).toISOString().slice(0, 7)
+        : null;
+
+      // Match the PO that specifically drives this target period
+      let matchingPos: any[] = [];
+      if (targetMonth && poList.length > 0) {
+        matchingPos = poList.filter((p: any) => {
+          const d = p.expected_delivery_date ? new Date(p.expected_delivery_date) : new Date(p.order_date);
+          const pkt = new Date(d.getTime() + 5 * 3600 * 1000);
+          return pkt.toISOString().slice(0, 7) === targetMonth;
+        });
+
+        // Secondary match: check order_date if expected_delivery_date was blank
+        if (matchingPos.length === 0) {
+          matchingPos = poList.filter((p: any) => {
+            const d = new Date(p.order_date);
+            const pkt = new Date(d.getTime() + 5 * 3600 * 1000);
+            return pkt.toISOString().slice(0, 7) === targetMonth;
+          });
+        }
+      }
+
+      if (matchingPos.length > 0) {
+        rmTargetKg = matchingPos.reduce((sum: number, p: any) => sum + Math.round(Number(p.poKg || 0) * 10) / 10, 0);
+        activePoCode = matchingPos.map((p: any) => p.po_code).filter(Boolean).join(', ');
+      } else if (poList.length > 0 && !targetMonth) {
+        // All-time or unfiltered view: take latest PO requirement
+        rmTargetKg = Math.round(Number(poList[0]?.poKg || 0) * 10) / 10;
+        activePoCode = poList[0]?.po_code || '';
+      }
 
       // 2. Query actual Raw Material Receipts for the period from confirmed raw_material_receipts
       const rmRes = await this.entryRepo.query(`
         SELECT COALESCE(SUM(rl.received_quantity), 0) AS "totalReceivedKg",
                COALESCE(SUM(rl.gate_pass_quantity), 0) AS "totalGatePassKg",
-               COALESCE(SUM(CASE WHEN r.purchase_order_id IS NOT NULL THEN rl.received_quantity ELSE 0 END), 0) AS "poLinkedReceivedKg",
-               COALESCE(SUM(CASE WHEN r.purchase_order_id IS NULL THEN rl.received_quantity ELSE 0 END), 0) AS "directReceivedKg",
                COUNT(DISTINCT r.id) AS "receiptCount"
         FROM raw_material_receipts r
         INNER JOIN raw_material_receipt_lines rl ON rl.receipt_id = r.id
@@ -672,8 +695,6 @@ export class DashboardService {
 
       const totalReceivedKg = Math.round(Number(rmRes?.[0]?.totalReceivedKg || 0) * 10) / 10;
       const totalGatePassKg = Math.round(Number(rmRes?.[0]?.totalGatePassKg || 0) * 10) / 10;
-      const poLinkedReceivedKg = Math.round(Number(rmRes?.[0]?.poLinkedReceivedKg || 0) * 10) / 10;
-      const directReceivedKg = Math.round(Number(rmRes?.[0]?.directReceivedKg || 0) * 10) / 10;
       rmReceiptCount = Number(rmRes?.[0]?.receiptCount || 0);
 
       // 3. Query confirmed returns / rejections for Raw Material
@@ -694,25 +715,10 @@ export class DashboardService {
       ]);
       rmReturnedKg = Math.round(Number(retRes?.[0]?.totalReturnedKg || 0) * 10) / 10;
 
-      // 4. Strict Alignment of Requirement (Target) vs Verified Inflow (Actual)
-      if (totalPoKg > 0) {
-        // Active PO Requirement mode: Target is PO ordered qty; Actual is what was received against that PO
-        rmTargetKg = totalPoKg;
-        rmReceivedKg = poLinkedReceivedKg > 0 ? poLinkedReceivedKg : totalPoReceivedKg;
-      } else if (filters?.dateFrom || filters?.dateTo) {
-        // Filtered date range without new POs placed:
-        // Use verified gate pass expected weight as Target and net received as Actual
-        if (rmReceiptCount > 0) {
-          rmReceivedKg = totalReceivedKg;
-          rmTargetKg = totalGatePassKg > 0 ? totalGatePassKg : totalReceivedKg;
-        } else {
-          rmReceivedKg = 0;
-          rmTargetKg = 0;
-        }
-      } else {
-        // All-Time fallback when no PO filter is bounding:
-        rmReceivedKg = totalReceivedKg;
-        rmTargetKg = totalGatePassKg > 0 ? totalGatePassKg : totalReceivedKg;
+      // 4. Actual Verified Receipts Inflow
+      rmReceivedKg = totalReceivedKg;
+      if (rmTargetKg === 0 && totalGatePassKg > 0) {
+        rmTargetKg = totalGatePassKg;
       }
     } catch {
       // Fallback gracefully if queries fail
@@ -753,7 +759,9 @@ export class DashboardService {
       combinedRows[rmRowIdx].targetQuantity = String(rmTargetKg);
       combinedRows[rmRowIdx].scrapQuantity = String(rmReturnedKg);
       combinedRows[rmRowIdx].processScrapKg = '0';
+      (combinedRows[rmRowIdx] as any).netQuantity = String(Math.max(0, rmReceivedKg - rmReturnedKg));
       (combinedRows[rmRowIdx] as any).achievementPercentage = rmAch;
+      (combinedRows[rmRowIdx] as any).poCode = activePoCode;
       if (filters?.divisionId) {
         combinedRows[rmRowIdx].divisionId = filters.divisionId;
       }
@@ -769,6 +777,7 @@ export class DashboardService {
         targetQuantity: String(rmTargetKg),
         actualQuantity: String(rmReceivedKg),
         scrapQuantity: String(rmReturnedKg),
+        netQuantity: String(Math.max(0, rmReceivedKg - rmReturnedKg)),
         processScrapKg: '0',
         runningHours: '0',
         downtimeHours: '0',
@@ -776,6 +785,7 @@ export class DashboardService {
         avgWeightPerMeter: '0',
         avgWeightPerPiece: '1',
         achievementPercentage: rmAch,
+        poCode: activePoCode,
       } as any);
     }
 
@@ -905,6 +915,62 @@ export class DashboardService {
       dateLimit.setDate(dateLimit.getDate() - days);
       const limitStr = dateLimit.toISOString().slice(0, 10);
       effectiveDateFrom = firstOfMonth < limitStr ? firstOfMonth : limitStr;
+    }
+
+    // Raw Material Department Handling: receipts are tracked in raw_material_receipts
+    const isRmDept =
+      filters?.departmentId === 'f8312f0c-ba1e-401a-80cd-43d6b5cc8c05' ||
+      filters?.departmentId === 'd8cf64a6-ebfc-4a94-a807-4960d3166752';
+
+    if (isRmDept) {
+      const rmParams: any[] = [companyId];
+      let rmIdx = 2;
+      let rmDateWhere = `AND r.receipt_date >= $${rmIdx++}`;
+      rmParams.push(effectiveDateFrom);
+      if (effectiveDateTo) {
+        rmDateWhere += ` AND r.receipt_date <= $${rmIdx++}`;
+        rmParams.push(effectiveDateTo);
+      }
+      let rmDivWhere = '';
+      if (filters?.divisionId) {
+        rmDivWhere = ` AND r.division_id = $${rmIdx++}`;
+        rmParams.push(filters.divisionId);
+      }
+
+      const rmSql = `
+        SELECT 
+          TO_CHAR(r.receipt_date, 'YYYY-MM-DD') AS date,
+          COUNT(DISTINCT r.id) AS "entryCount",
+          COALESCE(SUM(rl.received_quantity), 0) AS target,
+          COALESCE(SUM(rl.received_quantity), 0) AS actual,
+          0 AS scrap,
+          0 AS "scrapPieces",
+          0 AS "scrapKg",
+          0 AS "runningHours",
+          0 AS "downtimeHours"
+        FROM raw_material_receipts r
+        INNER JOIN raw_material_receipt_lines rl ON rl.receipt_id = r.id
+        WHERE (r.company_id = $1 OR r.company_id IS NULL)
+          AND r.status = 'CONFIRMED'
+          ${rmDivWhere}
+          ${rmDateWhere}
+        GROUP BY r.receipt_date
+        ORDER BY r.receipt_date ASC
+      `;
+      const rmEntries = await this.entryRepo.query(rmSql, rmParams);
+
+      return rmEntries.map((e: any) => ({
+        date: e.date,
+        entryCount: parseInt(e.entryCount, 10),
+        targetQuantity: Math.round(Number(e.target) * 10) / 10,
+        actualQuantity: Math.round(Number(e.actual) * 10) / 10,
+        scrapQuantity: 0,
+        scrapPieces: 0,
+        scrapKg: 0,
+        runningHours: 0,
+        downtimeHours: 0,
+        achievementPercentage: 100,
+      }));
     }
 
     // Authoritative Packing Shift Target Calculation:

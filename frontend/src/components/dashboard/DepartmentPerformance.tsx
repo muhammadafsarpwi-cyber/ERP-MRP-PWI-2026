@@ -27,6 +27,8 @@ interface DepartmentPerformanceProps {
 interface ScorecardDeptRow {
   id: string;
   name: string;
+  poCode?: string;
+  netQuantity?: number;
   divisionId?: string | null;
   reportingUom: string;
   secondaryUom: string;
@@ -233,6 +235,8 @@ const DepartmentPerformance: React.FC<DepartmentPerformanceProps> = ({
         downPct,
         otHours,
         eff,
+        poCode: (d as any).poCode,
+        netQuantity: Number((d as any).netQuantity || 0),
       };
     };
 
@@ -386,6 +390,22 @@ const DepartmentPerformance: React.FC<DepartmentPerformanceProps> = ({
                       <span style={{ fontWeight: 700, color: 'var(--theme-text, #0f172a)', fontSize: 13 }}>
                         {d.name}
                       </span>
+                      {d.poCode && (
+                        <span
+                          style={{
+                            fontSize: 10,
+                            fontWeight: 700,
+                            color: '#0284c7',
+                            background: 'rgba(14, 165, 233, 0.12)',
+                            border: '1px solid rgba(14, 165, 233, 0.28)',
+                            padding: '1px 6px',
+                            borderRadius: 4,
+                            letterSpacing: '0.02em',
+                          }}
+                        >
+                          PO: {d.poCode}
+                        </span>
+                      )}
                     </div>
                   </td>
 
@@ -412,11 +432,15 @@ const DepartmentPerformance: React.FC<DepartmentPerformanceProps> = ({
                         {actualUnits.primaryBadge}
                       </span>
                     </div>
-                    {actualUnits.secondaryText && (
+                    {d.netQuantity && d.netQuantity !== d.actual ? (
+                      <div style={{ fontSize: 10.5, fontWeight: 700, color: '#10b981', marginTop: 1 }}>
+                        Net In-Hand: {formatNumber(d.netQuantity, 1)} KG
+                      </div>
+                    ) : actualUnits.secondaryText ? (
                       <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--theme-text, #0f172a)', marginTop: 1 }}>
                         {actualUnits.secondaryText}
                       </div>
-                    )}
+                    ) : null}
                   </td>
 
                   {/* PLANT EFFICIENCY (OEE) CELL */}
