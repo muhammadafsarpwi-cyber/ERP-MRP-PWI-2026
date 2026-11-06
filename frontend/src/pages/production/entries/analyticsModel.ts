@@ -1201,7 +1201,22 @@ export function extractCleanDefectReason(row: ProductionEntryRow): string {
 
 /** The four-column data matrix: Machine/Product | KG produced | KG rejected | reason. */
 export function scrapMatrix(rows: readonly ProductionEntryRow[]): ScrapMatrixRow[] {
-  interface Acc extends ScrapMatrixRow {
+  interface Acc {
+    key: string;
+    machineProduct: string;
+    machine: string;
+    product: string;
+    department: string;
+    actualKg: number;
+    actualUnits: number;
+    uomCode: string;
+    partRejectKg: number;
+    partRejectUnits: number;
+    processScrapKg: number;
+    scrapKg: number;
+    wastagePct: number;
+    defectReason: string;
+    entries: number;
     seenDefect: string | null;
   }
   const byKey = new Map<string, Acc>();
