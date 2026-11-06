@@ -816,6 +816,12 @@ export const bucketDailyProduction = (
 
   for (const entry of entries) {
     if (entry?.isActive === false) continue;
+    // Entries shifted or allocated from Safety Stock / Opening Stock are not
+    // fresh factory production runs — they are allocations of pre-packed cartons.
+    const parentRem = String(entry?.remarks || '').toUpperCase();
+    if (parentRem.includes('SHIFTED FROM SAFETY') || parentRem.includes('ALLOCATED FROM SAFETY')) {
+      continue;
+    }
     const day = dayOf(entry?.entryDate);
     if (!day) continue;
 
@@ -975,6 +981,12 @@ export const bucketDailyPackingSplit = (
 
   for (const entry of entries) {
     if (entry?.isActive === false) continue;
+    // Entries shifted or allocated from Safety Stock / Opening Stock are not
+    // fresh factory production runs — they are allocations of pre-packed cartons.
+    const parentRem = String(entry?.remarks || '').toUpperCase();
+    if (parentRem.includes('SHIFTED FROM SAFETY') || parentRem.includes('ALLOCATED FROM SAFETY')) {
+      continue;
+    }
     const day = dayOf(entry?.entryDate);
     if (!day) continue;
 

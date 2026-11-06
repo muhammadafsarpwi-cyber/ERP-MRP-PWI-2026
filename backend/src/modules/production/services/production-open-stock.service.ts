@@ -1447,34 +1447,6 @@ export class ProductionOpenStockService {
           userId || null,
         ]);
 
-        // 3. Insert live production entry for customer order visibility
-        const peRemarks = `[HAND PACKING] Batch: ${batchNo} | Division: Spoke Division | DivCode: DIV-SPD | SOC: ${targetSoc} | Customer: ${targetCustomer} | Style: ${packagingStyle || 'Customer Box'} | Line: Spoke Boxing & Nipple Station A | OT: 0h | Cartons: ${shiftCartons} (${shiftGross} Gross / ${shiftPcs} PCS) | Weight: ${shiftWeightKg} KG | SpokePackingMode: COMPLETE_SET | [SHIFTED FROM SAFETY STOCK on ${shiftDateFormatted}] | Allocated from Safety Stock (Orig. Batch: ${batchNo})`;
-
-        await this.dataSource.query(`
-          INSERT INTO public.production_entries (
-            id, company_id, division_id, section_id, department_id, warehouse_id,
-            entry_date, shift_id, machine_no, operator_name, supervisor_name,
-            item_id, uom_id, target_quantity, actual_quantity, scrap_quantity,
-            running_hours, overtime_hours, downtime_hours, is_active, remarks, packing_mode,
-            created_by, created_at, updated_at
-          ) VALUES (
-            gen_random_uuid(), $1, 'd1000000-0000-0000-0000-000000000001', 'd2000000-0000-0000-0000-000000000004',
-            'd3000000-0000-0000-0000-000000000008', $2, $3, '7b376b7c-e668-48ba-8914-ab04d06709d2',
-            $4, 'Operator', 'Supervisor', $5, $6, $7, $7, 0,
-            8, 0, 0, true, $8, 'COMPLETE_SET', $9, NOW(), NOW()
-          )
-        `, [
-          companyId,
-          entry.warehouseId,
-          shiftDateFormatted,
-          `HAND-PACK-${batchNo}-AL`,
-          entry.itemId,
-          entry.uomId,
-          shiftPcs,
-          peRemarks,
-          userId || null,
-        ]);
-
         return {
           success: true,
           message: `Successfully allocated ${shiftCartons} Cartons to ${targetCustomer} (${targetSoc}); ${remainingCartons} Cartons retained in Safety Stock.`,
