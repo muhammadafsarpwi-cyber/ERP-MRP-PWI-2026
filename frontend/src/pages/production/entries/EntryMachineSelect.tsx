@@ -10,6 +10,7 @@ import {
   ThunderboltOutlined, CalendarOutlined, AppstoreOutlined,
   BuildOutlined, ToolOutlined, FireOutlined, ScissorOutlined,
   MinusOutlined, FullscreenOutlined, FullscreenExitOutlined, CloseOutlined,
+  WhatsAppOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import apiService from '../../../services/api';
@@ -17,6 +18,12 @@ import { useLookups, ShiftLk } from './lookups';
 import { GlobalLoading } from '../../../components/shared';
 import { useEntryDockStore, type EntryContextParams } from './entryDockStore';
 import ProductionEntryDetailModal from './ProductionEntryDetailModal';
+import {
+  buildDepartmentFleetWhatsAppText,
+  openWhatsAppDirect,
+  type DeptFleetWhatsAppParams,
+} from './deptFleetWhatsApp';
+import DeptFleetWhatsAppModal from './DeptFleetWhatsAppModal';
 import './productionEntryModal.css';
 
 const { Text } = Typography;
@@ -548,6 +555,58 @@ const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
   }, [machines, selectedDeptId]);
 
   const activeDeptObj = activeDepartments.find((d) => d.id === selectedDeptId);
+
+  // ── WhatsApp Sharing for Department Fleet ──
+  const [whatsAppModalParams, setWhatsAppModalParams] = useState<DeptFleetWhatsAppParams | null>(null);
+  const [whatsAppModalOpen, setWhatsAppModalOpen] = useState(false);
+
+  const getDeptWhatsAppParams = useCallback(
+    (dept: { id: string; name: string; departmentCode?: string }): DeptFleetWhatsAppParams | null => {
+      if (!dept) return null;
+      return {
+        department: dept,
+        divisionName: scopeLabel || lookups.divisions.find((d) => d.id === divisionId)?.name,
+        shiftName: effectiveShift?.name,
+        shiftTiming: effectiveShift
+          ? `${effectiveShift.startTime || ''} - ${effectiveShift.endTime || ''}`.trim()
+          : undefined,
+        dateStr: dateIso,
+        machines,
+      };
+    },
+    [scopeLabel, lookups.divisions, divisionId, effectiveShift, dateIso, machines]
+  );
+
+  const handleDirectWhatsApp = useCallback(
+    (dept: { id: string; name: string; departmentCode?: string }) => {
+      const params = getDeptWhatsAppParams(dept);
+      if (!params) return;
+
+      const deptMachines = (machines || []).filter(
+        (m) => m.departmentId === dept.id && (m.machineStatus ? m.machineStatus === 'ACTIVE' : true)
+      );
+
+      if (deptMachines.length === 0) {
+        message.warning(`No active machines found for ${dept.name}`);
+        return;
+      }
+
+      const text = buildDepartmentFleetWhatsAppText(params);
+      openWhatsAppDirect(text);
+      message.success(`${dept.name} WhatsApp report generated! Opening WhatsApp & text copied.`);
+    },
+    [getDeptWhatsAppParams, machines, message]
+  );
+
+  const handlePreviewWhatsApp = useCallback(
+    (dept: { id: string; name: string; departmentCode?: string }) => {
+      const params = getDeptWhatsAppParams(dept);
+      if (!params) return;
+      setWhatsAppModalParams(params);
+      setWhatsAppModalOpen(true);
+    },
+    [getDeptWhatsAppParams]
+  );
 
   return (
     <div>
@@ -1381,6 +1440,26 @@ const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
                           <span style={{ padding: '2px 6px', borderRadius: 6, backgroundColor: token.colorFillAlter, color: deptRequiredCount > 0 ? '#f43f5e' : token.colorTextSecondary }}>
                             ● {deptRequiredCount} Left
                           </span>
+                          <Tooltip title={`Send ${dept.name} WhatsApp Report`}>
+                            <Button
+                              size="small"
+                              icon={<WhatsAppOutlined style={{ color: '#25D366', fontSize: 13 }} />}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDirectWhatsApp(dept);
+                              }}
+                              style={{
+                                borderRadius: 6,
+                                borderColor: '#25D366',
+                                backgroundColor: token.colorFillAlter,
+                                height: 24,
+                                padding: '0 6px',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                              }}
+                            />
+                          </Tooltip>
                         </div>
                       </div>
                     );
@@ -1441,8 +1520,36 @@ const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
                               />
                             </div>
 
-                            <div style={{ fontSize: 15, fontWeight: 800, color: token.colorText, marginTop: 10, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                              {dept.name}
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 }}>
+                              <div style={{ fontSize: 15, fontWeight: 800, color: token.colorText, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1, marginRight: 6 }}>
+                                {dept.name}
+                              </div>
+                              <Tooltip title={`Send ${dept.name} Fleet Report via WhatsApp`}>
+                                <Button
+                                  size="small"
+                                  icon={<WhatsAppOutlined style={{ color: '#25D366', fontSize: 13 }} />}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDirectWhatsApp(dept);
+                                  }}
+                                  style={{
+                                    borderRadius: 6,
+                                    borderColor: '#25D366',
+                                    color: '#25D366',
+                                    backgroundColor: token.colorFillAlter,
+                                    fontWeight: 700,
+                                    fontSize: 11,
+                                    height: 24,
+                                    padding: '0 8px',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 4,
+                                    flexShrink: 0,
+                                  }}
+                                >
+                                  WhatsApp
+                                </Button>
+                              </Tooltip>
                             </div>
                             <div style={{ fontSize: 11, color: token.colorTextSecondary, marginTop: 2 }}>
                               {dept.departmentCode || 'DEP'} • {deptRequiredCount} Pending
@@ -1509,6 +1616,42 @@ const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
 
                   <Space size={8} wrap>
                     {dateIso && <Tag color="blue" style={{ fontWeight: 700, borderRadius: 6 }}>{dayjs(dateIso).format('DD-MMM-YYYY')}</Tag>}
+                    {activeDeptObj && (
+                      <Space.Compact>
+                        <Button
+                          type="primary"
+                          icon={<WhatsAppOutlined style={{ fontSize: 14 }} />}
+                          onClick={() => handleDirectWhatsApp(activeDeptObj)}
+                          style={{
+                            backgroundColor: '#25D366',
+                            borderColor: '#25D366',
+                            color: '#ffffff',
+                            fontWeight: 700,
+                            borderRadius: '8px 0 0 8px',
+                            boxShadow: '0 2px 8px rgba(37, 211, 102, 0.3)',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 6,
+                          }}
+                        >
+                          Share {activeDeptObj.name} via WhatsApp
+                        </Button>
+                        <Tooltip title="Preview & Options">
+                          <Button
+                            type="primary"
+                            icon={<EyeOutlined />}
+                            onClick={() => handlePreviewWhatsApp(activeDeptObj)}
+                            style={{
+                              backgroundColor: '#128C7E',
+                              borderColor: '#128C7E',
+                              color: '#ffffff',
+                              borderRadius: '0 8px 8px 0',
+                              boxShadow: '0 2px 8px rgba(18, 140, 126, 0.3)',
+                            }}
+                          />
+                        </Tooltip>
+                      </Space.Compact>
+                    )}
                   </Space>
                 </div>
               </>
@@ -1653,6 +1796,13 @@ const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
           setDetailModalEntryId(null);
           setRefreshTick((t) => t + 1);
         }}
+      />
+
+      {/* ── WhatsApp Department Fleet Sharing Modal ── */}
+      <DeptFleetWhatsAppModal
+        open={whatsAppModalOpen}
+        onClose={() => setWhatsAppModalOpen(false)}
+        params={whatsAppModalParams}
       />
     </div>
   );
