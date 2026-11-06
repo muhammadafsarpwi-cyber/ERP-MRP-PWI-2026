@@ -97,18 +97,25 @@ describe('deptFleetWhatsApp', () => {
     expect(text).toContain('05-Nov-2026');
     expect(text).toContain('General Shift (D)');
     expect(text).toContain('ST-01 — Straightener Machine 01');
-    expect(text).toContain('*Target:* 63,000 PCS');
+
+    // Target and Shortage should NOT be present in machine rows
+    expect(text).not.toContain('*Target:* 63,000 PCS');
+    expect(text).not.toContain('*Shortage:*');
+
+    // Actual, Achievement, Items should be present
     expect(text).toContain('*Actual:* 44,001 PCS');
-    expect(text).toContain('*Shortage:* -18,999 PCS');
-    expect(text).toContain('*Achievement:* 69.84%');
+    expect(text).toContain('*Achievement:* 69.84% ▼');
     expect(text).toContain('CD-250*17 Butted (44,001 PCS)');
 
     // Check totals
     expect(text).toContain('STRAIGHTENER TOTALS:');
     expect(text).toContain('*Total Machines:* 3 (2 Entered / 1 Pending)');
-    // Sum target: 63000 + 74400 + 72960 = 210,360
-    expect(text).toContain('210,360 PCS');
     // Sum actual: 44001 + 49509 + 0 = 93,510
-    expect(text).toContain('93,510 PCS');
+    expect(text).toContain('*Total Production:* *93,510 PCS*');
+
+    // Check item-wise total summary
+    expect(text).toContain('ITEM-WISE TOTAL SUMMARY:');
+    expect(text).toContain('*CD-250*17 Butted:* *44,001 PCS*');
+    expect(text).toContain('*S9-300*17 Inner Straight:* *49,509 PCS*');
   });
 });

@@ -82,6 +82,9 @@ export function buildDepartmentFleetWhatsAppText(params: DeptFleetWhatsAppParams
   let totalActual = 0;
   let primaryUom = 'PCS';
 
+  // Map to accumulate item-wise totals across all machines in this department
+  const itemTotalsMap = new Map<string, { itemName: string; totalQty: number; uom: string }>();
+
   const out: string[] = [];
 
   // Header Banner
@@ -120,12 +123,6 @@ export function buildDepartmentFleetWhatsAppText(params: DeptFleetWhatsAppParams
     const uom = m.uom || (hasEntries ? m.entries[0]?.uom : null) || 'PCS';
     if (idx === 0) primaryUom = uom;
 
-    const variance = m.variance !== undefined && m.variance !== null
-      ? Number(m.variance)
-      : (target > 0 || actual > 0)
-        ? Number((actual - target).toFixed(2))
-        : 0;
-
     const achievement = m.achievementPercentage !== undefined && m.achievementPercentage !== null
       ? Number(m.achievementPercentage)
       : target > 0
@@ -137,31 +134,34 @@ export function buildDepartmentFleetWhatsAppText(params: DeptFleetWhatsAppParams
 
     const numEmoji = idx < NUMBER_EMOJIS.length ? NUMBER_EMOJIS[idx] : `#${idx + 1}`;
     const statusIcon = m.status === 'ENTERED' ? '✅ Entered' : '⏳ Entry Required';
-    const achTone = achievement >= 100 ? '▲' : '▼';
+    // User requested achievement threshold indicator: >= 70% is ▲, below is ▼
+    const achTone = achievement >= 70 ? '▲' : '▼';
 
     const displayName = m.machineCode
       ? `${m.machineCode} — ${m.name}`
       : m.name || m.systemCode || `Machine ${idx + 1}`;
 
     out.push(`${numEmoji} *${displayName}* [${statusIcon}]`);
-    out.push(`   🎯 *Target:* ${formatNumber(target, 0)} ${uom}`);
     out.push(`   📦 *Actual:* ${formatNumber(actual, 0)} ${uom}`);
-
-    if (variance < 0) {
-      out.push(`   📉 *Shortage:* -${formatNumber(Math.abs(variance), 0)} ${uom}`);
-    } else if (variance > 0) {
-      out.push(`   📈 *Surplus:* +${formatNumber(variance, 0)} ${uom}`);
-    } else {
-      out.push(`   ⚖️ *Variance:* 0 ${uom} (On Target)`);
-    }
-
     out.push(`   📊 *Achievement:* ${achievement.toFixed(2)}% ${achTone}`);
 
-    // Items Breakdown
+    // Items Breakdown & Item totals accumulation
     if (hasEntries) {
       const itemSummaries = m.entries.map((e) => {
         const iName = e.itemName || e.itemCode || 'Item';
-        return `${iName} (${formatNumber(e.actualQuantity, 0)} ${e.uom || uom})`;
+        const eUom = e.uom || uom;
+        const eQty = Number(e.actualQuantity) || 0;
+
+        // Accumulate into department item-wise summary
+        const key = e.itemId || e.itemCode || iName;
+        const existing = itemTotalsMap.get(key);
+        if (existing) {
+          existing.totalQty += eQty;
+        } else {
+          itemTotalsMap.set(key, { itemName: iName, totalQty: eQty, uom: eUom });
+        }
+
+        return `${iName} (${formatNumber(eQty, 0)} ${eUom})`;
       });
       out.push(`   🏷️ *Items:* ${itemSummaries.join(', ')}`);
     }
@@ -169,27 +169,26 @@ export function buildDepartmentFleetWhatsAppText(params: DeptFleetWhatsAppParams
     out.push('   ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄');
   });
 
-  const totalVariance = totalActual - totalTarget;
   const overallAch = totalTarget > 0 ? Number(((totalActual / totalTarget) * 100).toFixed(2)) : 0;
-  const overallTone = overallAch >= 100 ? '▲' : '▼';
+  const overallTone = overallAch >= 70 ? '▲' : '▼';
 
   // Summary Totals
   out.push('');
   out.push('━━━━━━━━━━━━━━━━━━━━');
   out.push(`📊 *${department.name.toUpperCase()} TOTALS:*`);
   out.push(`• *Total Machines:* ${deptMachines.length} (${enteredCount} Entered / ${pendingCount} Pending)`);
-  out.push(`• *Total Target:* *${formatNumber(totalTarget, 0)} ${primaryUom}*`);
   out.push(`• *Total Production:* *${formatNumber(totalActual, 0)} ${primaryUom}*`);
+  out.push(`• *Overall Achievement:* *${overallAch.toFixed(2)}%* ${overallTone}`);
 
-  if (totalVariance < 0) {
-    out.push(`• *Total Shortage:* *-${formatNumber(Math.abs(totalVariance), 0)} ${primaryUom}* 📉`);
-  } else if (totalVariance > 0) {
-    out.push(`• *Total Surplus:* *+${formatNumber(totalVariance, 0)} ${primaryUom}* 📈`);
-  } else {
-    out.push(`• *Variance:* *0 ${primaryUom}* (100% Balanced)`);
+  // Item-wise totals summary at the end
+  if (itemTotalsMap.size > 0) {
+    out.push('');
+    out.push('📦 *ITEM-WISE TOTAL SUMMARY:*');
+    Array.from(itemTotalsMap.values()).forEach((item) => {
+      out.push(`• *${item.itemName}:* *${formatNumber(item.totalQty, 0)} ${item.uom}*`);
+    });
   }
 
-  out.push(`• *Overall Achievement:* *${overallAch.toFixed(2)}%* ${overallTone}`);
   out.push('━━━━━━━━━━━━━━━━━━━━');
   out.push('📱 _Generated via PWI ERP System_');
 
@@ -215,3 +214,4 @@ export function openWhatsAppDirect(text: string, phone?: string): void {
 
   window.open(url, '_blank', 'noopener,noreferrer');
 }
+
