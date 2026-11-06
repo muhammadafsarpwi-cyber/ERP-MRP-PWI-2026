@@ -1,4 +1,5 @@
 import { parseNaturalLanguageQuery, normalizeUrduDateText } from './nlQueryParser';
+import { detectExportCommand, buildAiReportWhatsAppText } from './aiReportExporter';
 
 describe('nlQueryParser — Date & Urdu/English Natural Language Resolution', () => {
   it('normalizes Urdu and Roman-Urdu day words before month names and تاریخ', () => {
@@ -76,6 +77,67 @@ describe('nlQueryParser — Date & Urdu/English Natural Language Resolution', ()
     const mach5 = parseNaturalLanguageQuery('مشین 5 کی رپورٹ', 'DIV-SPD', 'ALL');
     expect(mach5.specificMachine).toBe('M-05');
     expect(mach5.period.type).not.toBe('specific_date');
+  });
+
+  it('detects standalone PDF, Excel, and WhatsApp export commands in Urdu and English', () => {
+    expect(detectExportCommand('اس کو پی ڈی ایف میں بنا دے')).toEqual({
+      format: 'pdf',
+      isStandaloneFollowUp: true,
+    });
+    expect(detectExportCommand('اس کو ایکسل میں بنا دو')).toEqual({
+      format: 'excel',
+      isStandaloneFollowUp: true,
+    });
+    expect(detectExportCommand('واٹس ایپ کی طرح بنا دو')).toEqual({
+      format: 'whatsapp',
+      isStandaloneFollowUp: true,
+    });
+    expect(detectExportCommand('5 نومبر کی مشین وائز رپورٹ واٹس ایپ میں بنا دو')).toEqual({
+      format: 'whatsapp',
+      isStandaloneFollowUp: false,
+    });
+  });
+
+  it('formats granular daily machine report into executive WhatsApp text with item-wise summary', () => {
+    const wa = buildAiReportWhatsAppText({
+      id: 'm1',
+      text: 'Summary',
+      reportTitle: 'Machine-Wise & Item-Wise Production Report — 05-Nov-2026',
+      divisionScope: 'DIV-SPD',
+      departmentScope: 'Spoke',
+      periodLabel: '05-Nov-2026',
+      tableData: {
+        columns: [],
+        rows: [
+          {
+            id: '1',
+            categoryGroup: 'Spoke Division — Spoke Heading & Threading',
+            machine: 'SPK-01',
+            itemCode: 'WIP-SPK-001',
+            itemName: '250X17 Inner Butted',
+            uom: 'PCS',
+            runtimeDynamicTarget: 34560,
+            actualProduction: 28001,
+          },
+          {
+            id: '2',
+            categoryGroup: 'Spoke Division — Spoke Heading & Threading',
+            machine: 'SPK-02',
+            itemCode: 'WIP-SPK-001',
+            itemName: '250X17 Inner Butted',
+            uom: 'PCS',
+            runtimeDynamicTarget: 34560,
+            actualProduction: 28500,
+          },
+        ],
+      },
+    });
+
+    expect(wa).toContain('PAKISTAN WIRE INDUSTRIES (PVT.) LTD');
+    expect(wa).toContain('*SPK-01* [✅ Entered]');
+    expect(wa).toContain('*Actual:* 28,001 PCS');
+    expect(wa).toContain('*ITEM-WISE TOTAL SUMMARY:*');
+    expect(wa).toContain('*250X17 Inner Butted:* *56,501 PCS*');
   });
 });
 

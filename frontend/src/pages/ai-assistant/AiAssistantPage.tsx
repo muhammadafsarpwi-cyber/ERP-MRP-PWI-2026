@@ -11,6 +11,7 @@ import {
   Badge,
   Popover,
   DatePicker,
+  Modal,
 } from 'antd';
 import {
   RobotOutlined,
@@ -36,6 +37,9 @@ import {
   CloseOutlined,
   ClockCircleOutlined,
   CalendarOutlined,
+  FilePdfOutlined,
+  FileExcelOutlined,
+  WhatsAppOutlined,
 } from '@ant-design/icons';
 import {
   BarChart,
@@ -78,6 +82,13 @@ import {
 } from './types';
 import { parseNaturalLanguageQuery } from './nlQueryParser';
 import { generateReportData, formatQty } from './reportGenerator';
+import {
+  detectExportCommand,
+  buildAiReportWhatsAppText,
+  exportAiReportToPdf,
+  exportAiReportToExcel,
+  shareAiReportOnWhatsApp,
+} from './aiReportExporter';
 
 // AI Assistant ERP reporting module
 dayjs.extend(weekOfYear);
@@ -114,6 +125,10 @@ interface ChatMessage {
     oldValue: any;
     newValue: any;
   };
+  /** Pre-formatted WhatsApp message text (when requested via chat or button). */
+  whatsappText?: string;
+  /** Reference to a previous report message ID for export follow-up cards. */
+  sourceReportMsgId?: string;
   liked?: boolean;
   disliked?: boolean;
 }
@@ -974,21 +989,69 @@ const AiAssistantPage: React.FC = () => {
     );
   };
 
+  // WhatsApp Preview & Share Modal state
+  const [whatsappModalMsg, setWhatsappModalMsg] = useState<ChatMessage | null>(null);
+  const [whatsappDraftText, setWhatsappDraftText] = useState<string>('');
+
+  const resolveSourceReportMessage = (msg: ChatMessage): ChatMessage => {
+    if (msg.sourceReportMsgId) {
+      const found = messages.find((m) => m.id === msg.sourceReportMsgId);
+      if (found) return found;
+    }
+    return msg;
+  };
+
+  const findLatestReportMessage = (): ChatMessage | undefined => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (
+        m.sender === 'assistant' &&
+        (m.tableData?.rows?.length || m.kpiCards?.length || m.backendAnswer?.rows?.length || m.reportTitle) &&
+        !m.sourceReportMsgId
+      ) {
+        return m;
+      }
+    }
+    return undefined;
+  };
+
+  const handleExportPdf = (msg: ChatMessage) => {
+    const target = resolveSourceReportMessage(msg);
+    try {
+      const filename = exportAiReportToPdf(target);
+      message.success(`PDF ڈاؤن لوڈ ہو گئی: ${filename}`);
+    } catch {
+      message.error('Failed to generate PDF report');
+    }
+  };
+
+  const handleExportExcel = (msg: ChatMessage) => {
+    const target = resolveSourceReportMessage(msg);
+    try {
+      const filename = exportAiReportToExcel(target);
+      message.success(`Excel فائل ڈاؤن لوڈ ہو گئی: ${filename}`);
+    } catch {
+      message.error('Failed to generate Excel report');
+    }
+  };
+
+  const handleOpenWhatsAppModal = (msg: ChatMessage) => {
+    const target = resolveSourceReportMessage(msg);
+    const waText = target.whatsappText || buildAiReportWhatsAppText(target);
+    setWhatsappDraftText(waText);
+    setWhatsappModalMsg(target);
+    try {
+      navigator.clipboard.writeText(waText);
+      message.success('واٹس ایپ رپورٹ کاپی ہو گئی ہے! (Copied for WhatsApp)');
+    } catch {}
+  };
+
   const handleCopy = (msg: ChatMessage) => {
-    let copyContent = `${msg.reportTitle ? msg.reportTitle + '\n' : ''}${msg.text}`;
-    if (msg.tableData) {
-      copyContent += '\n\n' + msg.tableData.rows.map((r) => JSON.stringify(r)).join('\n');
-    }
-    if (msg.backendAnswer) {
-      const a = msg.backendAnswer;
-      copyContent += '\n\n' + [
-        a.columns.join('\t'),
-        ...a.rows.map((r) => a.columns.map((c) => String(r[c] ?? '')).join('\t')),
-      ].join('\n');
-    }
+    const target = resolveSourceReportMessage(msg);
+    const copyContent = target.whatsappText || buildAiReportWhatsAppText(target);
     navigator.clipboard.writeText(copyContent);
     setCopiedId(msg.id);
-    message.success('Copied to clipboard');
+    message.success('پروفیشنل رپورٹ کاپی ہو گئی! (Copied to clipboard)');
     setTimeout(() => setCopiedId(null), 2000);
   };
 
@@ -1030,6 +1093,9 @@ const AiAssistantPage: React.FC = () => {
       divisionScope: effectiveCode,
     };
 
+    const latestReport = findLatestReportMessage();
+    const exportCmd = detectExportCommand(query);
+
     setMessages((prev) => [...prev, userMsg]);
     if (!customText) setInputText('');
     lastQuestionRef.current = query;
@@ -1037,6 +1103,72 @@ const AiAssistantPage: React.FC = () => {
     setLoading(true);
 
     try {
+      // 0. Check if user asked to convert/export the report above into PDF, Excel, or WhatsApp
+      if (exportCmd.format && exportCmd.isStandaloneFollowUp && latestReport) {
+        if (exportCmd.format === 'pdf') {
+          const filename = exportAiReportToPdf(latestReport);
+          const botMsg: ChatMessage = {
+            id: `b-${Date.now()}`,
+            sender: 'assistant',
+            reportTitle: `📄 PDF Export Ready — ${latestReport.reportTitle || 'AI Report'}`,
+            divisionScope: latestReport.divisionScope,
+            departmentScope: latestReport.departmentScope,
+            periodLabel: latestReport.periodLabel,
+            sourceReportMsgId: latestReport.id,
+            text:
+              `✅ آپ کی اوپر والی رپورٹ پروفیشنل **PDF** فارمیٹ میں تیار کر کے ڈاؤن لوڈ کر دی گئی ہے:\n` +
+              `📁 **File:** ${filename}\n\n` +
+              `آپ نیچے دیے گئے بٹنوں سے اسے دوبارہ **PDF**، **Excel** یا **WhatsApp** میں بھی شیئر کر سکتے ہیں۔`,
+            timestamp: dayjs().format('hh:mm A'),
+          };
+          setMessages((prev) => [...prev, botMsg]);
+          return;
+        }
+
+        if (exportCmd.format === 'excel') {
+          const filename = exportAiReportToExcel(latestReport);
+          const botMsg: ChatMessage = {
+            id: `b-${Date.now()}`,
+            sender: 'assistant',
+            reportTitle: `📊 Excel Export Ready — ${latestReport.reportTitle || 'AI Report'}`,
+            divisionScope: latestReport.divisionScope,
+            departmentScope: latestReport.departmentScope,
+            periodLabel: latestReport.periodLabel,
+            sourceReportMsgId: latestReport.id,
+            text:
+              `✅ آپ کی اوپر والی رپورٹ پروفیشنل **Microsoft Excel (.xls)** فارمیٹ میں تیار کر کے ڈاؤن لوڈ کر دی گئی ہے:\n` +
+              `📁 **File:** ${filename}\n\n` +
+              `آپ نیچے دیے گئے بٹنوں سے اسے **PDF** یا **WhatsApp** میں بھی حاصل کر سکتے ہیں۔`,
+            timestamp: dayjs().format('hh:mm A'),
+          };
+          setMessages((prev) => [...prev, botMsg]);
+          return;
+        }
+
+        if (exportCmd.format === 'whatsapp') {
+          const waText = buildAiReportWhatsAppText(latestReport);
+          try {
+            navigator.clipboard.writeText(waText);
+            message.success('واٹس ایپ فارمیٹ کاپی ہو گیا! (Copied for WhatsApp)');
+          } catch {}
+          const botMsg: ChatMessage = {
+            id: `b-${Date.now()}`,
+            sender: 'assistant',
+            reportTitle: `🟢 WhatsApp Formatted Report — ${latestReport.periodLabel || ''}`,
+            divisionScope: latestReport.divisionScope,
+            departmentScope: latestReport.departmentScope,
+            periodLabel: latestReport.periodLabel,
+            sourceReportMsgId: latestReport.id,
+            whatsappText: waText,
+            text:
+              `✅ آپ کی اوپر والی رپورٹ **پروفیشنل واٹس ایپ فارمیٹ** میں تیار کر کے خودکار طور پر **Copy** کر دی گئی ہے! نیچے سے سیدھا واٹس ایپ پر بھیجیں یا کاپی کریں:`,
+            timestamp: dayjs().format('hh:mm A'),
+          };
+          setMessages((prev) => [...prev, botMsg]);
+          return;
+        }
+      }
+
       // 1. Local intent parse — write-guard + follow-up context (instant, offline)
       const intent = parseNaturalLanguageQuery(
         query,
@@ -1102,14 +1234,10 @@ const AiAssistantPage: React.FC = () => {
       };
 
       // 2. SPECIFIC-DATE GRANULAR LEDGER & GROSS UNIT CONVERSION PRIORITY:
-      //    When a user requests a specific date OR when the "Gross" unit (1 Gross = 144 PCS) is active,
-      //    generate the full report (Summary KPI Cards + Detailed Table + Graphical Chart) with dynamic
-      //    ÷ 144 piece conversion directly from the hydrated production entries endpoint.
       const isGrossActive = effectiveUnit.toLowerCase() === 'gross';
       if (serverLlmAvailableRef.current === true && intent.dimension !== 'daily_granular_ledger' && !isGrossActive) {
         try {
           const answer = await aiAssistantService.askQuestion(query);
-          // Guard against collapsed 1-row "Grand Total" responses when a breakdown was requested
           const isCollapsedGrandTotalOnly =
             answer.rows.length <= 1 &&
             answer.columns.length <= 3 &&
@@ -1162,6 +1290,26 @@ const AiAssistantPage: React.FC = () => {
         auditTrail: report.auditTrail,
         proposedAction: report.proposedAction,
       };
+
+      // If user asked for a report AND specified PDF / Excel / WhatsApp in the same sentence
+      if (exportCmd.format === 'pdf') {
+        try {
+          const filename = exportAiReportToPdf(botMsg);
+          message.success(`PDF ڈاؤن لوڈ ہو گئی: ${filename}`);
+        } catch {}
+      } else if (exportCmd.format === 'excel') {
+        try {
+          const filename = exportAiReportToExcel(botMsg);
+          message.success(`Excel فائل ڈاؤن لوڈ ہو گئی: ${filename}`);
+        } catch {}
+      } else if (exportCmd.format === 'whatsapp') {
+        const waText = buildAiReportWhatsAppText(botMsg);
+        botMsg.whatsappText = waText;
+        try {
+          navigator.clipboard.writeText(waText);
+          message.success('واٹس ایپ فارمیٹ کاپی ہو گیا! (Copied for WhatsApp)');
+        } catch {}
+      }
 
       setMessages((prev) => [...prev, botMsg]);
     } catch {
@@ -1926,16 +2074,68 @@ const AiAssistantPage: React.FC = () => {
                           <div style={{ fontWeight: 800, fontSize: 15, color: isDark ? '#93c5fd' : '#1d4ed8' }}>
                             📊 {msg.reportTitle}
                           </div>
-                          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
                             {msg.divisionScope && (
-                              <Tag color="blue">{msg.divisionScope}</Tag>
+                              <Tag color="blue" style={{ margin: 0 }}>{msg.divisionScope}</Tag>
                             )}
                             {msg.departmentScope && msg.departmentScope !== 'ALL' && (
-                              <Tag color="cyan">{msg.departmentScope}</Tag>
+                              <Tag color="cyan" style={{ margin: 0 }}>{msg.departmentScope}</Tag>
                             )}
                             {msg.periodLabel && (
-                              <Tag color="purple">📅 {msg.periodLabel}</Tag>
+                              <Tag color="purple" style={{ margin: 0 }}>📅 {msg.periodLabel}</Tag>
                             )}
+                            {/* Executive Export Action Suite: WhatsApp, PDF, Excel, Copy */}
+                            <Tooltip title="واٹس ایپ فارمیٹ میں کاپی اور شیئر کریں (WhatsApp Report)">
+                              <Button
+                                size="small"
+                                icon={<WhatsAppOutlined />}
+                                onClick={() => handleOpenWhatsAppModal(msg)}
+                                style={{
+                                  background: '#16a34a',
+                                  borderColor: '#16a34a',
+                                  color: '#ffffff',
+                                  fontWeight: 700,
+                                  fontSize: 11.5,
+                                  borderRadius: 6,
+                                }}
+                              >
+                                WhatsApp
+                              </Button>
+                            </Tooltip>
+                            <Tooltip title="پی ڈی ایف ڈاؤن لوڈ کریں (Download PDF)">
+                              <Button
+                                size="small"
+                                icon={<FilePdfOutlined />}
+                                onClick={() => handleExportPdf(msg)}
+                                style={{
+                                  background: '#dc2626',
+                                  borderColor: '#dc2626',
+                                  color: '#ffffff',
+                                  fontWeight: 700,
+                                  fontSize: 11.5,
+                                  borderRadius: 6,
+                                }}
+                              >
+                                PDF
+                              </Button>
+                            </Tooltip>
+                            <Tooltip title="ایکسل فائل ڈاؤن لوڈ کریں (Download Excel)">
+                              <Button
+                                size="small"
+                                icon={<FileExcelOutlined />}
+                                onClick={() => handleExportExcel(msg)}
+                                style={{
+                                  background: '#059669',
+                                  borderColor: '#059669',
+                                  color: '#ffffff',
+                                  fontWeight: 700,
+                                  fontSize: 11.5,
+                                  borderRadius: 6,
+                                }}
+                              >
+                                Excel
+                              </Button>
+                            </Tooltip>
                           </div>
                         </div>
                       )}
@@ -1944,6 +2144,73 @@ const AiAssistantPage: React.FC = () => {
                       <div style={{ whiteSpace: 'pre-line', color: msg.sender === 'user' ? '#ffffff' : (isDark ? '#f8fafc' : '#0f172a') }}>
                         {msg.text}
                       </div>
+
+                      {/* Inline WhatsApp Formatted Report Box (when requested via chat/voice) */}
+                      {msg.whatsappText && (
+                        <div
+                          style={{
+                            marginTop: 12,
+                            padding: 14,
+                            borderRadius: 10,
+                            border: '1.5px solid #16a34a',
+                            background: isDark ? 'rgba(22, 163, 74, 0.10)' : '#f0fdf4',
+                          }}
+                        >
+                          <div
+                            style={{
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                              flexWrap: 'wrap',
+                              gap: 8,
+                              marginBottom: 10,
+                              paddingBottom: 8,
+                              borderBottom: isDark ? '1px solid rgba(22, 163, 74, 0.35)' : '1px solid #bbf7d0',
+                            }}
+                          >
+                            <span style={{ fontWeight: 800, color: '#16a34a', fontSize: 13 }}>
+                              <WhatsAppOutlined /> Ready-to-Share WhatsApp Report
+                            </span>
+                            <div style={{ display: 'flex', gap: 8 }}>
+                              <Button
+                                size="small"
+                                icon={<CopyOutlined />}
+                                onClick={() => {
+                                  navigator.clipboard.writeText(msg.whatsappText || '');
+                                  message.success('واٹس ایپ میسج کاپی ہو گیا! (Copied)');
+                                }}
+                                style={{ fontWeight: 600 }}
+                              >
+                                Copy Text
+                              </Button>
+                              <Button
+                                size="small"
+                                type="primary"
+                                icon={<WhatsAppOutlined />}
+                                onClick={() => shareAiReportOnWhatsApp(msg.whatsappText || '')}
+                                style={{ background: '#16a34a', borderColor: '#16a34a', fontWeight: 700 }}
+                              >
+                                Send on WhatsApp
+                              </Button>
+                            </div>
+                          </div>
+                          <pre
+                            style={{
+                              margin: 0,
+                              whiteSpace: 'pre-wrap',
+                              wordBreak: 'break-word',
+                              fontFamily: 'inherit',
+                              fontSize: 12.5,
+                              lineHeight: 1.55,
+                              maxHeight: 380,
+                              overflowY: 'auto',
+                              color: isDark ? '#f8fafc' : '#0f172a',
+                            }}
+                          >
+                            {msg.whatsappText}
+                          </pre>
+                        </div>
+                      )}
 
                       {/* Backend AI answer: dynamic chart / clean striped table /
                           bilingual empty state — driven by the validated
@@ -2134,30 +2401,68 @@ const AiAssistantPage: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Timestamp + copy actions */}
+                  {/* Timestamp + export & copy actions */}
                   <div
                     style={{
                       fontSize: 11,
                       color: isDark ? '#94a3b8' : '#64748b',
-                      marginTop: 4,
+                      marginTop: 5,
                       marginLeft: msg.sender === 'assistant' ? 46 : 0,
                       marginRight: msg.sender === 'user' ? 8 : 0,
                       display: 'flex',
                       alignItems: 'center',
+                      flexWrap: 'wrap',
                       gap: 8,
                     }}
                   >
                     <span>{msg.timestamp}</span>
                     {msg.sender === 'assistant' && (
-                      <Tooltip title="Copy report">
-                        <Button
-                          type="text"
-                          size="small"
-                          icon={copiedId === msg.id ? <CheckOutlined style={{ color: '#10b981' }} /> : <CopyOutlined />}
-                          onClick={() => handleCopy(msg)}
-                          style={{ fontSize: 11, padding: '0 4px', height: 'auto', color: isDark ? '#94a3b8' : '#64748b' }}
-                        />
-                      </Tooltip>
+                      <>
+                        <Tooltip title="واٹس ایپ فارمیٹ میں کاپی اور شیئر کریں (WhatsApp)">
+                          <Button
+                            type="text"
+                            size="small"
+                            icon={<WhatsAppOutlined style={{ color: '#16a34a' }} />}
+                            onClick={() => handleOpenWhatsAppModal(msg)}
+                            style={{ fontSize: 11.5, padding: '0 6px', height: 'auto', color: '#16a34a', fontWeight: 600 }}
+                          >
+                            WhatsApp
+                          </Button>
+                        </Tooltip>
+                        <Tooltip title="پی ڈی ایف ڈاؤن لوڈ کریں (Download PDF)">
+                          <Button
+                            type="text"
+                            size="small"
+                            icon={<FilePdfOutlined style={{ color: '#ef4444' }} />}
+                            onClick={() => handleExportPdf(msg)}
+                            style={{ fontSize: 11.5, padding: '0 6px', height: 'auto', color: '#ef4444', fontWeight: 600 }}
+                          >
+                            PDF
+                          </Button>
+                        </Tooltip>
+                        <Tooltip title="ایکسل فائل ڈاؤن لوڈ کریں (Download Excel)">
+                          <Button
+                            type="text"
+                            size="small"
+                            icon={<FileExcelOutlined style={{ color: '#10b981' }} />}
+                            onClick={() => handleExportExcel(msg)}
+                            style={{ fontSize: 11.5, padding: '0 6px', height: 'auto', color: '#10b981', fontWeight: 600 }}
+                          >
+                            Excel
+                          </Button>
+                        </Tooltip>
+                        <Tooltip title="پوری رپورٹ کاپی کریں (Copy Report)">
+                          <Button
+                            type="text"
+                            size="small"
+                            icon={copiedId === msg.id ? <CheckOutlined style={{ color: '#10b981' }} /> : <CopyOutlined />}
+                            onClick={() => handleCopy(msg)}
+                            style={{ fontSize: 11.5, padding: '0 6px', height: 'auto', color: isDark ? '#94a3b8' : '#64748b' }}
+                          >
+                            Copy
+                          </Button>
+                        </Tooltip>
+                      </>
                     )}
                   </div>
                 </div>
@@ -2484,6 +2789,71 @@ const AiAssistantPage: React.FC = () => {
         </div>
       </div>
     </div>
+
+    {/* Executive WhatsApp Report Preview & Share Modal */}
+    <Modal
+      open={Boolean(whatsappModalMsg)}
+      onCancel={() => setWhatsappModalMsg(null)}
+      width={680}
+      title={
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <WhatsAppOutlined style={{ color: '#16a34a', fontSize: 18 }} />
+          <span>WhatsApp Report Preview &amp; Share</span>
+        </div>
+      }
+      footer={
+        <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Button
+              icon={<FilePdfOutlined />}
+              onClick={() => whatsappModalMsg && handleExportPdf(whatsappModalMsg)}
+            >
+              Download PDF
+            </Button>
+            <Button
+              icon={<FileExcelOutlined />}
+              onClick={() => whatsappModalMsg && handleExportExcel(whatsappModalMsg)}
+            >
+              Download Excel
+            </Button>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Button
+              icon={<CopyOutlined />}
+              onClick={() => {
+                navigator.clipboard.writeText(whatsappDraftText);
+                message.success('واٹس ایپ رپورٹ کلپ بورڈ پر کاپی ہو گئی! (Copied)');
+              }}
+            >
+              Copy for WhatsApp
+            </Button>
+            <Button
+              type="primary"
+              icon={<WhatsAppOutlined />}
+              style={{ background: '#16a34a', borderColor: '#16a34a', fontWeight: 700 }}
+              onClick={() => shareAiReportOnWhatsApp(whatsappDraftText)}
+            >
+              Open WhatsApp &amp; Send
+            </Button>
+          </div>
+        </div>
+      }
+    >
+      <div style={{ marginBottom: 8, fontSize: 12.5, color: isDark ? '#94a3b8' : '#475569' }}>
+        یہ رپورٹ واٹس ایپ کے پروفیشنل فارمیٹ میں تیار ہے اور خودکار طور پر کاپی بھی ہو چکی ہے۔ آپ چاہیں تو نیچے ٹیکسٹ میں تبدیلی بھی کر سکتے ہیں یا سیدھا <strong>Open WhatsApp &amp; Send</strong> دبا کر بھیج سکتے ہیں:
+      </div>
+      <Input.TextArea
+        value={whatsappDraftText}
+        onChange={(e) => setWhatsappDraftText(e.target.value)}
+        autoSize={{ minRows: 14, maxRows: 22 }}
+        style={{
+          fontFamily: 'monospace',
+          fontSize: 12.5,
+          lineHeight: 1.55,
+          borderRadius: 8,
+        }}
+      />
+    </Modal>
   </div>
 </div>
   );
