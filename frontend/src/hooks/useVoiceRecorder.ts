@@ -226,22 +226,26 @@ export function useVoiceRecorder(): UseVoiceRecorder {
     // 1. Start Browser SpeechRecognition SYNCHRONOUSLY inside user click gesture
     let recognitionStarted = false;
     if (SpeechRecognitionCtor) {
+      // Include '' (browser native default locale) as final fallback so Chrome/Edge never fails if a specific locale tag is rejected
       const fallbackChain =
         speechLang === 'en-US'
-          ? ['en-US']
-          : [speechLang || 'ur-PK', 'ur-IN', 'ur', 'hi-IN', 'en-US'];
+          ? ['en-US', '']
+          : [speechLang || 'ur-PK', 'en-US', ''];
 
       const launchRecognition = (langIndex: number) => {
         if (!wantRecordingRef.current || langIndex >= fallbackChain.length) return;
         const lang = fallbackChain[langIndex];
-        let sessionStartMs = Date.now();
         let hasResultInSession = false;
+        let stepHandled = false;
         try {
           const recognition = new SpeechRecognitionCtor();
-          recognition.continuous = true;
+          // Use continuous = false + auto-restart in onend: prevents Chrome/Edge 'network' errors on non-US locales
+          recognition.continuous = false;
           recognition.interimResults = true;
           recognition.maxAlternatives = 1;
-          recognition.lang = lang;
+          if (lang) {
+            recognition.lang = lang;
+          }
 
           recognition.onresult = (event: any) => {
             hasResultInSession = true;
@@ -265,12 +269,19 @@ export function useVoiceRecorder(): UseVoiceRecorder {
 
           recognition.onerror = (event: any) => {
             const errCode = String(event?.error || '');
-            if (errCode === 'language-not-supported' && langIndex + 1 < fallbackChain.length) {
+            if (
+              (errCode === 'language-not-supported' || errCode === 'network') &&
+              !hasResultInSession &&
+              langIndex + 1 < fallbackChain.length
+            ) {
+              stepHandled = true;
               try {
                 recognition.onend = null;
-                recognition.stop();
+                recognition.abort();
               } catch {}
-              launchRecognition(langIndex + 1);
+              setTimeout(() => {
+                if (wantRecordingRef.current) launchRecognition(langIndex + 1);
+              }, 200);
               return;
             }
             if (errCode && errCode !== 'no-speech' && errCode !== 'aborted') {
@@ -279,42 +290,33 @@ export function useVoiceRecorder(): UseVoiceRecorder {
           };
 
           recognition.onend = () => {
-            // If user is still recording and no fatal permission error occurred, commit session & auto-restart!
+            if (stepHandled) return;
+            // Commit any partial/final transcript from this phrase before restarting
+            if (sessionTranscriptRef.current) {
+              accumulatedTranscriptRef.current = [
+                accumulatedTranscriptRef.current,
+                sessionTranscriptRef.current,
+              ]
+                .filter(Boolean)
+                .join(' ')
+                .replace(/\s+/g, ' ')
+                .trim();
+              sessionTranscriptRef.current = '';
+            }
+            // Only auto-restart if still recording and no fatal/network error stopped us
             if (
               wantRecordingRef.current &&
               speechErrorRef.current !== 'not-allowed' &&
               speechErrorRef.current !== 'service-not-allowed' &&
-              speechErrorRef.current !== 'audio-capture'
+              speechErrorRef.current !== 'audio-capture' &&
+              speechErrorRef.current !== 'network'
             ) {
-              // If the browser immediately closed this locale (< 450ms) with no result, step to next locale in chain
-              if (!hasResultInSession && Date.now() - sessionStartMs < 450 && langIndex + 1 < fallbackChain.length) {
-                launchRecognition(langIndex + 1);
-                return;
-              }
-              if (sessionTranscriptRef.current) {
-                accumulatedTranscriptRef.current = [
-                  accumulatedTranscriptRef.current,
-                  sessionTranscriptRef.current,
-                ]
-                  .filter(Boolean)
-                  .join(' ')
-                  .replace(/\s+/g, ' ')
-                  .trim();
-                sessionTranscriptRef.current = '';
-              }
-              sessionStartMs = Date.now();
-              hasResultInSession = false;
-              try {
-                recognition.start();
-              } catch {
-                setTimeout(() => {
-                  if (wantRecordingRef.current) launchRecognition(langIndex);
-                }, 150);
-              }
+              setTimeout(() => {
+                if (wantRecordingRef.current) launchRecognition(langIndex);
+              }, 120);
             }
           };
 
-          sessionStartMs = Date.now();
           recognition.start();
           recognitionRef.current = recognition;
           recognitionStarted = true;

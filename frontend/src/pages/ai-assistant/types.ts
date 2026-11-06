@@ -24,6 +24,7 @@ export type ReportingDimension =
   | 'department_operator'
   | 'rejection'
   | 'downtime'
+  | 'overtime'
   | 'maintenance'
   | 'tooling'
   | 'division_comparison'

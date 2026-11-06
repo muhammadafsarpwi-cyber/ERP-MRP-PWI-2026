@@ -365,6 +365,11 @@ export function parseNaturalLanguageQuery(
     q.includes('رکاوٹ') ||
     q.includes('مشین بند');
 
+  const isOvertimeQuery =
+    /\b(overtime|over\s+time|ot\s+hours|ot\s+report|ot\s+details|extra\s+hours)\b/i.test(q) ||
+    q.includes('اوور ٹائم') ||
+    q.includes('اوورٹائم');
+
   const isTargetOrAverageQuery =
     /\b(target|targets|average|averages|avg)\b/i.test(q) ||
     q.includes('ٹارگٹ') ||
@@ -424,6 +429,8 @@ export function parseNaturalLanguageQuery(
     dimension = 'rejection';
   } else if (isDowntimeQuery) {
     dimension = 'downtime';
+  } else if (isOvertimeQuery) {
+    dimension = 'overtime';
   } else if (
     (q.includes('compare') && (q.includes('august') && q.includes('september'))) ||
     period.type === 'comparison'
