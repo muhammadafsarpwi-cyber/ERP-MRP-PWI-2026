@@ -2624,6 +2624,12 @@ addToDept(org, {
         companyId, delta.itemId, delta.warehouseId, undefined, undefined, manager,
       );
       if (available + 1e-6 < change) {
+        if (previous.seen) {
+          this.logger.warn(
+            `Allowing historical consumption delta for posted entry ${entry.entryNumber || entry.id}: required ${change}, available ${available}`,
+          );
+          continue;
+        }
         const component = await this.itemRepo.findOne({ where: { id: delta.itemId }, relations: ['baseUom'] });
         const uomCode = component?.baseUom?.code ?? '';
         throw new BadRequestException(
