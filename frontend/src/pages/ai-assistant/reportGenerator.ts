@@ -107,15 +107,15 @@ export function convertEntriesForUnit(entries: any[], isGrossMode: boolean): any
         : undefined,
     nestedItems: Array.isArray(e.nestedItems)
       ? e.nestedItems.map((line: any) => ({
-          ...line,
-          actualQuantity: Number(line.actualQuantity ?? 0) / PCS_PER_GROSS,
-          targetQuantity: Number(line.targetQuantity ?? 0) / PCS_PER_GROSS,
-          calculatedTarget:
-            line.calculatedTarget !== undefined && line.calculatedTarget !== null
-              ? Number(line.calculatedTarget) / PCS_PER_GROSS
-              : undefined,
-          uomCode: 'Gross',
-        }))
+        ...line,
+        actualQuantity: Number(line.actualQuantity ?? 0) / PCS_PER_GROSS,
+        targetQuantity: Number(line.targetQuantity ?? 0) / PCS_PER_GROSS,
+        calculatedTarget:
+          line.calculatedTarget !== undefined && line.calculatedTarget !== null
+            ? Number(line.calculatedTarget) / PCS_PER_GROSS
+            : undefined,
+        uomCode: 'Gross',
+      }))
       : undefined,
   }));
 }
@@ -152,8 +152,8 @@ export async function generateReportData(
     intent.requestedUnit && intent.requestedUnit !== 'AUTO'
       ? intent.requestedUnit
       : uomOverride && uomOverride !== 'AUTO'
-      ? uomOverride
-      : undefined;
+        ? uomOverride
+        : undefined;
 
   const isGrossMode =
     effectiveUnit?.toLowerCase() === 'gross' || baseDivision.uom.toLowerCase() === 'gross';
@@ -220,7 +220,7 @@ export async function generateReportData(
       try {
         const fallbackRes: any = await apiService.get('/production/entries', { limit: 5000 });
         allEntries = Array.isArray(fallbackRes) ? fallbackRes : fallbackRes?.data || fallbackRes?.items || [];
-      } catch {}
+      } catch { }
     }
 
     // STRICT DIVISION ISOLATION
@@ -720,13 +720,13 @@ function aggregateByOperator(
   let summaryText = isTopQuery
     ? `🏆 **Top ${intent.limit} Operators Ranking by Production Output (${intent.period.label})**:\n\n`
     : `👤 **${division.name} — Operator Performance Report (${intent.period.label})**:\n\n` +
-      `• **Active Workforce:** ${rawRows.length} recorded operators in production entries\n` +
-      `• **Total Output Produced:** ${formatQty(grandProd)} ${division.uom}\n` +
-      `• **Total Scheduled Target:** ${formatQty(grandTarget)} ${division.uom}\n` +
-      `• **Overall Target Achievement:** ${grandAch}%\n` +
-      `• **Total Machine Operating Hours:** ${grandRun.toFixed(1)} hrs\n` +
-      `• **Recorded Downtime Hours:** ${grandDown.toFixed(1)} hrs\n` +
-      `• **Total Material Scrap:** ${formatQty(grandScrap)} KG`;
+    `• **Active Workforce:** ${rawRows.length} recorded operators in production entries\n` +
+    `• **Total Output Produced:** ${formatQty(grandProd)} ${division.uom}\n` +
+    `• **Total Scheduled Target:** ${formatQty(grandTarget)} ${division.uom}\n` +
+    `• **Overall Target Achievement:** ${grandAch}%\n` +
+    `• **Total Machine Operating Hours:** ${grandRun.toFixed(1)} hrs\n` +
+    `• **Recorded Downtime Hours:** ${grandDown.toFixed(1)} hrs\n` +
+    `• **Total Material Scrap:** ${formatQty(grandScrap)} KG`;
 
   if (isTopQuery) {
     displayRows.forEach((r, idx) => {
@@ -1731,14 +1731,14 @@ function aggregateByItem(
       Array.isArray(e.nestedItems) && e.nestedItems.length > 0
         ? e.nestedItems
         : [
-            {
-              itemCode: e.item?.itemCode || e.item_code || e.itemCode || 'SKU',
-              itemName: e.item?.name || e.item_name || e.itemName || 'Standard Product',
-              actualQuantity: e.actualQuantity ?? e.producedQty ?? 0,
-              targetQuantity: e.targetQuantity ?? 0,
-              scrapQuantity: e.scrapQuantity ?? 0,
-            },
-          ];
+          {
+            itemCode: e.item?.itemCode || e.item_code || e.itemCode || 'SKU',
+            itemName: e.item?.name || e.item_name || e.itemName || 'Standard Product',
+            actualQuantity: e.actualQuantity ?? e.producedQty ?? 0,
+            targetQuantity: e.targetQuantity ?? 0,
+            scrapQuantity: e.scrapQuantity ?? 0,
+          },
+        ];
 
     const totalEntryActual = nestedLines.reduce((s, l) => s + Number(l.actualQuantity ?? 0), 0);
 
@@ -1821,15 +1821,15 @@ function aggregateByItem(
   const columns: AiColumn[] = [
     ...(isTopQuery
       ? [
-          {
-            title: 'Rank',
-            dataIndex: 'rank',
-            key: 'rank',
-            width: 80,
-            render: (_: any, __: any, idx?: any) =>
-              idx === 0 ? '🥇 #1' : idx === 1 ? '🥈 #2' : idx === 2 ? '🥉 #3' : `#${(idx || 0) + 1}`,
-          },
-        ]
+        {
+          title: 'Rank',
+          dataIndex: 'rank',
+          key: 'rank',
+          width: 80,
+          render: (_: any, __: any, idx?: any) =>
+            idx === 0 ? '🥇 #1' : idx === 1 ? '🥈 #2' : idx === 2 ? '🥉 #3' : `#${(idx || 0) + 1}`,
+        },
+      ]
       : []),
     { title: 'Item Code', dataIndex: 'code', key: 'code', render: (v: string) => React.createElement(Tag, { color: 'geekblue' }, '🔖 ' + v) },
     { title: 'Item / Product Name', dataIndex: 'name', key: 'name', render: (v: string) => React.createElement('strong', null, v) },
@@ -1890,8 +1890,8 @@ function aggregateByItem(
     title: intent.specificItem
       ? `📦 Item Production Report: ${intent.specificItem} — ${intent.period.label}`
       : isTopQuery
-      ? `🏆 Top ${intent.limit} Manufactured Products — ${intent.period.label}`
-      : `Product & Item Production Volume — ${intent.period.label}`,
+        ? `🏆 Top ${intent.limit} Manufactured Products — ${intent.period.label}`
+        : `Product & Item Production Volume — ${intent.period.label}`,
     summaryText,
     divisionScope: division.code,
     departmentScope: department,
@@ -1908,13 +1908,13 @@ function aggregateByItem(
       { title: isTopQuery ? 'Top Products Count' : 'Matching Items', value: rows.length, color: '#8b5cf6' },
       ...(rows[0]
         ? [
-            {
-              title: intent.specificItem ? 'Primary Stage' : '#1 Top Produced',
-              value: rows[0].code,
-              color: '#f59e0b',
-              subtitle: `${formatQty(rows[0].production)} ${division.uom} (${rows[0].dept})`,
-            },
-          ]
+          {
+            title: intent.specificItem ? 'Primary Stage' : '#1 Top Produced',
+            value: rows[0].code,
+            color: '#f59e0b',
+            subtitle: `${formatQty(rows[0].production)} ${division.uom} (${rows[0].dept})`,
+          },
+        ]
         : []),
     ],
     chartData: {
@@ -1924,8 +1924,8 @@ function aggregateByItem(
       title: intent.specificItem
         ? `${intent.specificItem} Production by Stage (${division.uom})`
         : isTopQuery
-        ? `Top ${intent.limit} Produced Products (${division.uom})`
-        : `Product Volume Share`,
+          ? `Top ${intent.limit} Produced Products (${division.uom})`
+          : `Product Volume Share`,
       dataKeys: [
         { key: 'Production', color: '#3b82f6', name: `Produced (${division.uom})` },
         { key: 'Target', color: '#10b981', name: `Target (${division.uom})` },
@@ -2000,13 +2000,13 @@ function aggregateByRejection(
     const entryProcKg = Number(e.authoritativeProcessScrapKg ?? entryProcessScrapKg(e));
     const entryProdKg = Number(
       e.authoritativeActualKg ??
-        calcActualKg(
-          e.uom?.code || '',
-          toNum(e.actualQuantity ?? e.producedQty ?? 0),
-          e.item?.weightPerPiece ?? (e.item as any)?.weight_per_piece,
-          e.item?.weightPerMeter ?? (e.item as any)?.weight_per_meter,
-        ) ??
-        0,
+      calcActualKg(
+        e.uom?.code || '',
+        toNum(e.actualQuantity ?? e.producedQty ?? 0),
+        e.item?.weightPerPiece ?? (e.item as any)?.weight_per_piece,
+        e.item?.weightPerMeter ?? (e.item as any)?.weight_per_meter,
+      ) ??
+      0,
     );
     const defectReason = extractCleanDefectReason(e) || (entryPartKg + entryProcKg > 0 ? 'Part Reject & Scrap' : '—');
 
@@ -2014,12 +2014,12 @@ function aggregateByRejection(
       Array.isArray(e.nestedItems) && e.nestedItems.length > 0
         ? e.nestedItems
         : [
-            {
-              itemCode: e.item?.itemCode || e.item_code || e.itemCode || 'SKU',
-              itemName: e.item?.name || e.item_name || e.itemName || 'Standard Product',
-              actualQuantity: e.actualQuantity ?? e.producedQty ?? 0,
-            },
-          ];
+          {
+            itemCode: e.item?.itemCode || e.item_code || e.itemCode || 'SKU',
+            itemName: e.item?.name || e.item_name || e.itemName || 'Standard Product',
+            actualQuantity: e.actualQuantity ?? e.producedQty ?? 0,
+          },
+        ];
 
     const totalNestedActual = nestedLines.reduce((sum, l) => sum + Number(l.actualQuantity ?? 0), 0);
 
@@ -2093,17 +2093,17 @@ function aggregateByRejection(
     return naturalSortMachines(a.machine, b.machine);
   });
 
-  // Authoritative ERP totals matching Daily Production Entry -> Rejection & Scrap Details
-  const totalProdPcs = Math.round((totals.actualUnits / unitDivisor) * 100) / 100;
-  const totalProdKg = Math.round(totals.actualKg * 100) / 100;
-  const totalRejPcs = Math.round((totals.partRejectUnits / unitDivisor) * 100) / 100;
-  const totalRejKg = Math.round(totals.partRejectKg * 100) / 100;
+  // Authoritative ERP totals matching Daily Production Entry -> Rejection & Scrap Details (AnalyticsTotals)
+  const totalProdPcs = Math.round((totals.producedPrimaryQty / unitDivisor) * 100) / 100;
+  const totalProdKg = Math.round(totals.producedKg * 100) / 100;
+  const totalRejPcs = Math.round((totals.partScrapPrimaryQty / unitDivisor) * 100) / 100;
+  const totalRejKg = Math.round(totals.partScrapKg * 100) / 100;
   const totalProcScrapKg = Math.round(totals.processScrapKg * 100) / 100;
-  const grandTotalScrapKg = Math.round(totals.scrapKg * 100) / 100;
-  const partRejRateKgPct = totalProdKg > 0 ? Math.round((totalRejKg / totalProdKg) * 10000) / 100 : 0;
-  const partRejRatePcsPct = totalProdPcs > 0 ? Math.round((totalRejPcs / totalProdPcs) * 10000) / 100 : 0;
-  const procScrapRatePct = totalProdKg > 0 ? Math.round((totalProcScrapKg / totalProdKg) * 10000) / 100 : 0;
-  const overallScrapRatePct = Math.round(totals.wastagePct * 100) / 100;
+  const grandTotalScrapKg = Math.round(totals.totalScrapKg * 100) / 100;
+  const partRejRateKgPct = Math.round(totals.partScrapRatePct * 100) / 100;
+  const partRejRatePcsPct = Math.round(totals.partScrapPrimaryRatePct * 100) / 100;
+  const procScrapRatePct = Math.round(totals.processScrapRatePct * 100) / 100;
+  const overallScrapRatePct = Math.round(totals.scrapRatePct * 100) / 100;
 
   // Append Grand Total row to table
   const tableRowsWithTotal = [
@@ -2123,23 +2123,22 @@ function aggregateByRejection(
       processScrapKg: totalProcScrapKg,
       totalScrapKg: grandTotalScrapKg,
       rejectionRatePct: overallScrapRatePct,
-      topDefectReason: topDefect ? `${topDefect.reason} (${topDefect.pct.toFixed(1)}%)` : '—',
+      topDefectReason: topDefect ? `${topDefect.reason} (${topDefect.sharePct.toFixed(1)}%)` : '—',
     },
   ];
 
   const deptLines = deptRollup
-    .map((d) => {
-      const dPartPct = d.actualKg > 0 ? ((d.partRejectKg / d.actualKg) * 100).toFixed(2) : '0.00';
-      const dProcPct = d.actualKg > 0 ? ((d.processScrapKg / d.actualKg) * 100).toFixed(2) : '0.00';
-      return `• **${d.department} Department:** Actual Produced = **${formatQty(Math.round(d.actualUnits / unitDivisor))} ${division.uom}** (${formatQty(Math.round(d.actualKg * 100) / 100)} KG) | Part Rejection = **${formatQty(Math.round(d.partRejectUnits / unitDivisor))} ${division.uom}** (**${formatQty(Math.round(d.partRejectKg * 100) / 100)} KG**, ${dPartPct}%) | Process Scrap = **${formatQty(Math.round(d.processScrapKg * 100) / 100)} KG** (${dProcPct}%) | Total Loss = **${formatQty(Math.round(d.scrapKg * 100) / 100)} KG** (**${d.wastagePct.toFixed(2)}%**)`;
-    })
+    .map(
+      (d) =>
+        `• **${d.department} Department:** Actual Produced = **${formatQty(Math.round(d.producedPrimaryQty / unitDivisor))} ${division.uom}** (${formatQty(Math.round(d.producedKg * 100) / 100)} KG) | Part Rejection = **${formatQty(Math.round(d.partScrapPrimaryQty / unitDivisor))} ${division.uom}** (**${formatQty(Math.round(d.partScrapKg * 100) / 100)} KG**, ${d.partScrapRatePct.toFixed(2)}%) | Process Scrap = **${formatQty(Math.round(d.processScrapKg * 100) / 100)} KG** (${d.processScrapRatePct.toFixed(2)}%) | Total Loss = **${formatQty(Math.round(d.totalScrapKg * 100) / 100)} KG** (**${d.scrapRatePct.toFixed(2)}%**)`,
+    )
     .join('\n');
 
   const machineScrapLines = matrixRows
     .slice(0, 10)
     .map(
       (m) =>
-        `• **${m.machine}** (${m.department}): Produced **${formatQty(Math.round(m.actualUnits / unitDivisor))} ${division.uom}** (${formatQty(Math.round(m.actualKg * 100) / 100)} KG) | Part Rejection: **${formatQty(Math.round(m.partRejectUnits / unitDivisor))} ${division.uom}** (**${formatQty(Math.round(m.partRejectKg * 100) / 100)} KG**) | Process Scrap: **${formatQty(Math.round(m.processScrapKg * 100) / 100)} KG** | Total Loss: **${formatQty(Math.round(m.scrapKg * 100) / 100)} KG** (${m.wastagePct.toFixed(2)}%)`,
+        `• **${m.machineNo}** (${m.department}): Produced **${formatQty(Math.round(m.producedPrimaryQty / unitDivisor))} ${division.uom}** (${formatQty(Math.round(m.producedKg * 100) / 100)} KG) | Part Rejection: **${formatQty(Math.round(m.partScrapPrimaryQty / unitDivisor))} ${division.uom}** (**${formatQty(Math.round(m.partScrapKg * 100) / 100)} KG**) | Process Scrap: **${formatQty(Math.round(m.processScrapKg * 100) / 100)} KG** | Total Loss: **${formatQty(Math.round(m.totalScrapKg * 100) / 100)} KG** (${m.scrapRatePct.toFixed(2)}%)`,
     )
     .join('\n');
 
@@ -2215,10 +2214,10 @@ function aggregateByRejection(
   ];
 
   const chartData = matrixRows.slice(0, 12).map((m) => ({
-    name: m.machine,
-    'Part Rejection (KG)': Math.round(m.partRejectKg * 100) / 100,
+    name: m.machineNo,
+    'Part Rejection (KG)': Math.round(m.partScrapKg * 100) / 100,
     'Process Scrap (KG)': Math.round(m.processScrapKg * 100) / 100,
-    'Total Loss (KG)': Math.round(m.scrapKg * 100) / 100,
+    'Total Loss (KG)': Math.round(m.totalScrapKg * 100) / 100,
   }));
 
   return {
@@ -2232,7 +2231,7 @@ function aggregateByRejection(
       `• **Process Scrap (Waste):** **${formatQty(totalProcScrapKg)} KG** (**${procScrapRatePct}%**)\n` +
       `• **Total Loss (Rejection + Scrap):** **${formatQty(grandTotalScrapKg)} KG** (**${overallScrapRatePct}%**)\n` +
       (topDefect
-        ? `• **Top Defect Reason:** **${topDefect.reason}** (${topDefect.pct.toFixed(2)}% of total scrap — ${formatQty(Math.round(topDefect.scrapKg * 100) / 100)} KG · ${formatQty(Math.round(topDefect.units))} PCS)\n`
+        ? `• **Top Defect Reason:** **${topDefect.reason}** (${topDefect.sharePct.toFixed(2)}% of total scrap — ${formatQty(Math.round(topDefect.scrapKg * 100) / 100)} KG · ${formatQty(Math.round(topDefect.scrapPcs))} PCS)\n`
         : '') +
       (deptLines ? `\n**Department Summary:**\n${deptLines}\n` : '') +
       (machineScrapLines ? `\n**Machine-wise Scrap Breakdown:**\n${machineScrapLines}` : ''),
@@ -2315,12 +2314,12 @@ function aggregateByDowntime(
     const otHrs = Number(e.overtimeHours ?? entryOvertimeHours(e));
     const runHrs = Number(
       e.runningHours ??
-        effectiveRunning(
-          toNum(e.running_hours),
-          downHrs,
-          toNum((e.shift as any)?.plannedHours ?? stdHrs),
-          otHrs,
-        ),
+      effectiveRunning(
+        toNum(e.running_hours),
+        downHrs,
+        toNum((e.shift as any)?.plannedHours ?? stdHrs),
+        otHrs,
+      ),
     );
     const rawReason =
       e.downtimeReason?.name ||
@@ -2410,7 +2409,7 @@ function aggregateByDowntime(
       downtimeHours: totalDowntime,
       availabilityPct: fleetAvailability,
       stoppageCount: totalStoppages,
-      reasonsText: causeBuckets[0] ? `Top Cause: ${causeBuckets[0].reason} (${causeBuckets[0].hours}h)` : '—',
+      reasonsText: causeBuckets[0] ? `Top Cause: ${causeBuckets[0].label} (${causeBuckets[0].hours}h)` : '—',
       datesText: `${entries.length} Entries Examined`,
     },
   ];
@@ -2456,10 +2455,7 @@ function aggregateByDowntime(
 
   const causeLines = causeBuckets
     .slice(0, 5)
-    .map((c) => {
-      const sharePct = totalDowntime > 0 ? ((c.hours / totalDowntime) * 100).toFixed(1) : '0.0';
-      return `• **${c.reason}:** **${c.hours} hrs** (${sharePct}% share across ${c.entries} stoppages)`;
-    })
+    .map((c) => `• **${c.label}:** **${c.hours} hrs** (${c.sharePct}% share across ${c.entries} stoppages)`)
     .join('\n');
 
   const chartData = (machineRankings.length > 0 ? machineRankings : rows).slice(0, 12).map((r: any) => ({
@@ -2550,12 +2546,12 @@ function aggregateByOvertime(
     const downHrs = Number(e.downtimeHours ?? e.downtime_hours ?? Number(e.downtimeMinutes || 0) / 60);
     const runHrs = Number(
       e.runningHours ??
-        effectiveRunning(
-          toNum(e.running_hours),
-          downHrs,
-          toNum((e.shift as any)?.plannedHours ?? e.standardHours ?? 8),
-          otHrs,
-        ),
+      effectiveRunning(
+        toNum(e.running_hours),
+        downHrs,
+        toNum((e.shift as any)?.plannedHours ?? e.standardHours ?? 8),
+        otHrs,
+      ),
     );
     const prodQty = Number(e.actualQuantity ?? e.producedQty ?? 0);
 
@@ -2964,7 +2960,7 @@ async function handlePeriodComparisonReport(
   try {
     const res: any = await apiService.get('/production/entries', { limit: 5000 });
     allEntries = Array.isArray(res) ? res : res?.data || res?.items || [];
-  } catch {}
+  } catch { }
 
   const divEntries = convertEntriesForUnit(
     allEntries.filter((e) => {
@@ -3099,25 +3095,25 @@ async function handleCustomerDispatchReport(
   try {
     const res: any = await apiService.get('/sales/invoices', { limit: 500 });
     salesInvoices = Array.isArray(res) ? res : res?.data || res?.items || [];
-  } catch {}
+  } catch { }
 
   let salesOrders: any[] = [];
   try {
     const res: any = await apiService.get('/sales/orders', { limit: 500 });
     salesOrders = Array.isArray(res) ? res : res?.data || res?.items || [];
-  } catch {}
+  } catch { }
 
   let packages: any[] = [];
   try {
     const res: any = await apiService.get('/dispatch/packages', { limit: 500 });
     packages = Array.isArray(res) ? res : res?.data || res?.items || [];
-  } catch {}
+  } catch { }
 
   let customersMaster: any[] = [];
   try {
     const res: any = await apiService.get('/customer/customers', { limit: 200 });
     customersMaster = Array.isArray(res) ? res : res?.data || res?.items || [];
-  } catch {}
+  } catch { }
 
   const custMap: Record<string, {
     customer: string;
@@ -3307,14 +3303,14 @@ async function handleMaintenanceToolingReport(
   try {
     const res: any = await apiService.get('/master-data/maintenance/job-cards', { limit: 500 });
     jobCards = Array.isArray(res) ? res : res?.data || res?.items || [];
-  } catch {}
+  } catch { }
 
   let changes: any[] = [];
   if (intent.dimension === 'tooling') {
     try {
       const res: any = await apiService.get('/machine-tooling/changes', { limit: 200 });
       changes = Array.isArray(res) ? res : res?.data || res?.items || [];
-    } catch {}
+    } catch { }
   }
 
   if (intent.dimension === 'tooling' && changes.length > 0) {
@@ -3423,7 +3419,7 @@ async function handleMaintenanceToolingReport(
           createdAt: pe.date || pe.createdAt,
         }));
       }
-    } catch {}
+    } catch { }
   }
 
   const rows = filteredCards.map((jc: any) => ({
@@ -3508,7 +3504,7 @@ async function handleAllDivisionsComparisonReport(
   try {
     const res: any = await apiService.get('/production/entries', { limit: 5000 });
     entries = Array.isArray(res) ? res : res?.data || res?.items || [];
-  } catch {}
+  } catch { }
 
   entries = convertEntriesForUnit(entries, isGrossMode);
 
@@ -3912,18 +3908,18 @@ async function handleGranularDailyLedgerReport(
       Array.isArray(e.nestedItems) && e.nestedItems.length > 0
         ? e.nestedItems
         : [
-            {
-              lineNumber: 1,
-              itemCode: e.item?.itemCode || e.item_code || e.itemCode || 'SKU',
-              itemName: e.item?.name || e.item_name || e.itemName || 'Standard Manufactured Item',
-              uomCode: e.uom?.code || e.uom?.name || e.uomCode || divInfo.uom,
-              targetQuantity: e.targetQuantity ?? e.target_quantity ?? 0,
-              actualQuantity: e.actualQuantity ?? e.actual_quantity ?? e.producedQty ?? 0,
-              scrapQuantity: e.scrapQuantity ?? e.scrap_quantity ?? 0,
-              weightPerPiece: e.item?.weightPerPiece ?? e.item?.weight_per_piece ?? null,
-              weightPerMeter: e.item?.weightPerMeter ?? e.item?.weight_per_meter ?? null,
-            },
-          ];
+          {
+            lineNumber: 1,
+            itemCode: e.item?.itemCode || e.item_code || e.itemCode || 'SKU',
+            itemName: e.item?.name || e.item_name || e.itemName || 'Standard Manufactured Item',
+            uomCode: e.uom?.code || e.uom?.name || e.uomCode || divInfo.uom,
+            targetQuantity: e.targetQuantity ?? e.target_quantity ?? 0,
+            actualQuantity: e.actualQuantity ?? e.actual_quantity ?? e.producedQty ?? 0,
+            scrapQuantity: e.scrapQuantity ?? e.scrap_quantity ?? 0,
+            weightPerPiece: e.item?.weightPerPiece ?? e.item?.weight_per_piece ?? null,
+            weightPerMeter: e.item?.weightPerMeter ?? e.item?.weight_per_meter ?? null,
+          },
+        ];
 
     const entryProcessScrapKg = Number(e.processScrapKg ?? e.process_scrap_kg ?? 0);
     const totalEntryActual = nestedLines.reduce((sum, l) => sum + Number(l.actualQuantity ?? 0), 0);
@@ -3952,8 +3948,8 @@ async function handleGranularDailyLedgerReport(
         explicitPerHour > 0
           ? Math.round(explicitPerHour * 100) / 100
           : standardHours > 0
-          ? Math.round((baseTarget / standardHours) * 100) / 100
-          : 0;
+            ? Math.round((baseTarget / standardHours) * 100) / 100
+            : 0;
 
       const rawLineCalcTarget = Number(line.calculatedTarget ?? 0);
       const rawEntryCalcTarget = Number(e.calculatedTarget ?? e.calculated_target ?? 0);
@@ -3963,8 +3959,8 @@ async function handleGranularDailyLedgerReport(
         explicitDynamicTarget > 0
           ? Math.round(explicitDynamicTarget * 100) / 100
           : runningHours > 0 && targetPerHour > 0
-          ? Math.round(targetPerHour * runningHours * 100) / 100
-          : Math.round(baseTarget * 100) / 100;
+            ? Math.round(targetPerHour * runningHours * 100) / 100
+            : Math.round(baseTarget * 100) / 100;
 
       const actualProduction = Math.round((lineActualRaw / unitDivisor) * 100) / 100;
       const targetBasis = runtimeDynamicTarget > 0 ? runtimeDynamicTarget : baseTarget;
@@ -3976,10 +3972,10 @@ async function handleGranularDailyLedgerReport(
       // Weight conversion factor (KG per piece/unit)
       const unitWeightKg = Number(
         line.weightPerPiece ??
-          e.item?.weightPerPiece ??
-          line.weightPerMeter ??
-          e.item?.weightPerMeter ??
-          0,
+        e.item?.weightPerPiece ??
+        line.weightPerMeter ??
+        e.item?.weightPerMeter ??
+        0,
       );
 
       // Product Scrap in both PCS (or Gross) and KG (using authoritative ERP entryPartRejectPrimaryQty / entryPartRejectKg)
@@ -3995,8 +3991,8 @@ async function handleGranularDailyLedgerReport(
         unitWeightKg > 0
           ? Math.round(processScrapKg / unitWeightKg)
           : processScrapKg > 0
-          ? Math.round(processScrapKg / 0.015)
-          : 0;
+            ? Math.round(processScrapKg / 0.015)
+            : 0;
       const processScrapPcs = isGrossMode
         ? Math.round((rawProcessScrapPcs / PCS_PER_GROSS) * 100) / 100
         : rawProcessScrapPcs;

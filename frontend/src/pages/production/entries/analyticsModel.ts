@@ -49,9 +49,11 @@ export interface DowntimeLineLite {
 /** Hours per reason across the whole sample, newest split included. */
 export interface DowntimeBucket {
   reason: string;
+  label: string;
   hours: number;
   /** Distinct entries that contributed to this reason. */
   entries: number;
+  sharePct: number;
 }
 
 /** A machine row of the downtime audit grid, already sorted worst-first. */
@@ -134,20 +136,27 @@ export interface ScrapMatrixRow {
   key: string;
   machineProduct: string;
   machine: string;
+  machineNo: string;
   product: string;
   department: string;
   actualKg: number;
+  producedKg: number;
   actualUnits: number;
+  producedPrimaryQty: number;
   uomCode: string;
   /** Product Rejection (part rejects) in KG */
   partRejectKg: number;
+  partScrapKg: number;
   partRejectUnits: number;
+  partScrapPrimaryQty: number;
   /** Process Cutting Scrap (trimmings/off-cuts) in KG */
   processScrapKg: number;
   /** Total Rejection (KG) = partRejectKg + processScrapKg */
   scrapKg: number;
+  totalScrapKg: number;
   /** (Rejected KG / Actual KG) × 100 — the grid's Rejection % denominator. */
   wastagePct: number;
+  scrapRatePct: number;
   defectReason: string;
   entries: number;
 }
@@ -168,13 +177,21 @@ export interface ScrapDayPoint {
 export interface DepartmentScrapRow {
   department: string;
   actualKg: number;
+  producedKg: number;
   actualUnits: number;
+  producedPrimaryQty: number;
   partRejectKg: number;
+  partScrapKg: number;
   partRejectUnits: number;
+  partScrapPrimaryQty: number;
+  partScrapRatePct: number;
   primaryUom: string;
   processScrapKg: number;
+  processScrapRatePct: number;
   scrapKg: number;
+  totalScrapKg: number;
   wastagePct: number;
+  scrapRatePct: number;
   entries: number;
   downtimeHours: number;
 }
@@ -183,13 +200,22 @@ export interface DepartmentScrapRow {
 export interface AnalyticsTotals {
   entries: number;
   actualKg: number;
+  producedKg: number;
   actualUnits: number;
+  producedPrimaryQty: number;
   partRejectKg: number;
+  partScrapKg: number;
   partRejectUnits: number;
+  partScrapPrimaryQty: number;
+  partScrapRatePct: number;
+  partScrapPrimaryRatePct: number;
   dominantUom: string;
   processScrapKg: number;
+  processScrapRatePct: number;
   scrapKg: number;
+  totalScrapKg: number;
   wastagePct: number;
+  scrapRatePct: number;
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -380,8 +406,15 @@ export function downtimeBuckets(
       byReason.set(key, cur);
     }
   }
+  const totalBucketHours = [...byReason.values()].reduce((s, v) => s + v.hours, 0);
   return [...byReason.entries()]
-    .map(([reason, v]) => ({ reason, hours: v.hours, entries: v.rows.size }))
+    .map(([reason, v]) => ({
+      reason,
+      label: reason,
+      hours: v.hours,
+      entries: v.rows.size,
+      sharePct: totalBucketHours > 0 ? round2((v.hours / totalBucketHours) * 100) : 0,
+    }))
     .sort((a, b) => b.hours - a.hours || a.reason.localeCompare(b.reason));
 }
 
@@ -1220,30 +1253,40 @@ export function scrapMatrix(rows: readonly ProductionEntryRow[]): ScrapMatrixRow
     }
   }
   return [...byKey.values()]
-    .map((r) => ({
-      key: r.key,
-      machineProduct: r.machineProduct,
-      machine: r.machine,
-      product: r.product,
-      department: r.department,
-      actualKg: r.actualKg,
-      actualUnits: r.actualUnits,
-      uomCode: r.uomCode,
-      partRejectKg: r.partRejectKg,
-      partRejectUnits: r.partRejectUnits,
-      processScrapKg: r.processScrapKg,
-      scrapKg: r.scrapKg,
-      wastagePct: r.actualKg > 0 ? (r.scrapKg / r.actualKg) * 100 : 0,
-      defectReason:
-        r.defectReason !== '—'
-          ? r.defectReason
-          : r.partRejectKg > 0
-          ? 'Product Rejection'
-          : r.processScrapKg > 0
-          ? 'Process Scrap'
-          : '—',
-      entries: r.entries,
-    }))
+    .map((r) => {
+      const wastagePct = r.actualKg > 0 ? (r.scrapKg / r.actualKg) * 100 : 0;
+      return {
+        key: r.key,
+        machineProduct: r.machineProduct,
+        machine: r.machine,
+        machineNo: r.machine,
+        product: r.product,
+        department: r.department,
+        actualKg: r.actualKg,
+        producedKg: r.actualKg,
+        actualUnits: r.actualUnits,
+        producedPrimaryQty: r.actualUnits,
+        uomCode: r.uomCode,
+        partRejectKg: r.partRejectKg,
+        partScrapKg: r.partRejectKg,
+        partRejectUnits: r.partRejectUnits,
+        partScrapPrimaryQty: r.partRejectUnits,
+        processScrapKg: r.processScrapKg,
+        scrapKg: r.scrapKg,
+        totalScrapKg: r.scrapKg,
+        wastagePct,
+        scrapRatePct: wastagePct,
+        defectReason:
+          r.defectReason !== '—'
+            ? r.defectReason
+            : r.partRejectKg > 0
+            ? 'Product Rejection'
+            : r.processScrapKg > 0
+            ? 'Process Scrap'
+            : '—',
+        entries: r.entries,
+      };
+    })
     .sort((a, b) => b.scrapKg - a.scrapKg || b.actualKg - a.actualKg || a.machineProduct.localeCompare(b.machineProduct));
 }
 
@@ -1405,19 +1448,32 @@ export function departmentScrapRollup(rows: readonly ProductionEntryRow[]): Depa
     cur.downtimeHours = round2(cur.downtimeHours + toNum(row.downtimeHours));
   }
   return [...byDept.values()]
-    .map((d) => ({
-      department: d.department,
-      actualKg: d.actualKg,
-      actualUnits: d.actualUnits,
-      partRejectKg: d.partRejectKg,
-      partRejectUnits: d.partRejectUnits,
-      primaryUom: getDominantUom(d.uomCounts),
-      processScrapKg: d.processScrapKg,
-      scrapKg: d.scrapKg,
-      wastagePct: d.actualKg > 0 ? round2((d.scrapKg / d.actualKg) * 100) : 0,
-      entries: d.entries,
-      downtimeHours: d.downtimeHours,
-    }))
+    .map((d) => {
+      const wastagePct = d.actualKg > 0 ? round2((d.scrapKg / d.actualKg) * 100) : 0;
+      const partScrapRatePct = d.actualKg > 0 ? round2((d.partRejectKg / d.actualKg) * 100) : 0;
+      const processScrapRatePct = d.actualKg > 0 ? round2((d.processScrapKg / d.actualKg) * 100) : 0;
+      return {
+        department: d.department,
+        actualKg: d.actualKg,
+        producedKg: d.actualKg,
+        actualUnits: d.actualUnits,
+        producedPrimaryQty: d.actualUnits,
+        partRejectKg: d.partRejectKg,
+        partScrapKg: d.partRejectKg,
+        partRejectUnits: d.partRejectUnits,
+        partScrapPrimaryQty: d.partRejectUnits,
+        partScrapRatePct,
+        primaryUom: getDominantUom(d.uomCounts),
+        processScrapKg: d.processScrapKg,
+        processScrapRatePct,
+        scrapKg: d.scrapKg,
+        totalScrapKg: d.scrapKg,
+        wastagePct,
+        scrapRatePct: wastagePct,
+        entries: d.entries,
+        downtimeHours: d.downtimeHours,
+      };
+    })
     .sort((a, b) => b.scrapKg - a.scrapKg || b.actualKg - a.actualKg || a.department.localeCompare(b.department));
 }
 
@@ -1465,16 +1521,29 @@ export function scrapTotals(rows: readonly ProductionEntryRow[]): AnalyticsTotal
     processScrapKg = round2(processScrapKg + entryProcessScrapKg(row));
   }
   const scrapKg = round2(partRejectKg + processScrapKg);
+  const wastagePct = actualKg > 0 ? (scrapKg / actualKg) * 100 : 0;
+  const partScrapRatePct = actualKg > 0 ? (partRejectKg / actualKg) * 100 : 0;
+  const partScrapPrimaryRatePct = actualUnits > 0 ? (partRejectUnits / actualUnits) * 100 : 0;
+  const processScrapRatePct = actualKg > 0 ? (processScrapKg / actualKg) * 100 : 0;
   return {
     entries: rows.length,
     actualKg,
+    producedKg: actualKg,
     actualUnits,
+    producedPrimaryQty: actualUnits,
     partRejectKg,
+    partScrapKg: partRejectKg,
     partRejectUnits,
+    partScrapPrimaryQty: partRejectUnits,
+    partScrapRatePct,
+    partScrapPrimaryRatePct,
     dominantUom: getDominantUom(uomCounts),
     processScrapKg,
+    processScrapRatePct,
     scrapKg,
-    wastagePct: actualKg > 0 ? (scrapKg / actualKg) * 100 : 0,
+    totalScrapKg: scrapKg,
+    wastagePct,
+    scrapRatePct: wastagePct,
   };
 }
 
@@ -1488,8 +1557,10 @@ export interface DefectReasonSlice {
   reason: string;
   scrapKg: number;
   units: number;
+  scrapPcs: number;
   entries: number;
   pct: number;
+  sharePct: number;
 }
 
 export function defectReasonDistribution(
@@ -1532,13 +1603,18 @@ export function defectReasonDistribution(
   if (totalScrap <= 0 && byReason.size === 0) return [];
 
   const sorted = [...byReason.entries()]
-    .map(([reason, val]) => ({
-      reason,
-      scrapKg: val.scrapKg,
-      units: val.units,
-      entries: val.entries,
-      pct: totalScrap > 0 ? round2((val.scrapKg / totalScrap) * 100) : 0,
-    }))
+    .map(([reason, val]) => {
+      const pct = totalScrap > 0 ? round2((val.scrapKg / totalScrap) * 100) : 0;
+      return {
+        reason,
+        scrapKg: val.scrapKg,
+        units: val.units,
+        scrapPcs: val.units,
+        entries: val.entries,
+        pct,
+        sharePct: pct,
+      };
+    })
     .sort((a, b) => b.scrapKg - a.scrapKg || b.units - a.units);
 
   if (sorted.length <= topCount) {
@@ -1560,8 +1636,10 @@ export function defectReasonDistribution(
       reason: `Other Defects (${remaining.length} Minor Faults)`,
       scrapKg: otherKg,
       units: otherUnits,
+      scrapPcs: otherUnits,
       entries: otherEntries,
       pct: otherPct,
+      sharePct: otherPct,
     });
   }
 
