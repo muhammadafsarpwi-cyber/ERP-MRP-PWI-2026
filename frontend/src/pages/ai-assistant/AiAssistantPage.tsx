@@ -283,7 +283,7 @@ const AiAssistantPage: React.FC = () => {
     setVoiceLang((prev) => {
       const next = prev === 'ur-PK' ? 'en-US' : 'ur-PK';
       try { localStorage.setItem('pwi-ai-voice-lang', next); } catch {}
-      message.info(next === 'ur-PK' ? 'Voice language: اردو (Urdu)' : 'Voice language: English');
+      message.info(next === 'ur-PK' ? 'Voice language: Urdu (UR)' : 'Voice language: English (EN)');
       return next;
     });
   };
@@ -1019,7 +1019,7 @@ const AiAssistantPage: React.FC = () => {
     const target = resolveSourceReportMessage(msg);
     try {
       const filename = exportAiReportToPdf(target);
-      message.success(`PDF ڈاؤن لوڈ ہو گئی: ${filename}`);
+      message.success(`PDF downloaded: ${filename}`);
     } catch {
       message.error('Failed to generate PDF report');
     }
@@ -1029,7 +1029,7 @@ const AiAssistantPage: React.FC = () => {
     const target = resolveSourceReportMessage(msg);
     try {
       const filename = exportAiReportToExcel(target);
-      message.success(`Excel فائل ڈاؤن لوڈ ہو گئی: ${filename}`);
+      message.success(`Excel file downloaded: ${filename}`);
     } catch {
       message.error('Failed to generate Excel report');
     }
@@ -1042,7 +1042,7 @@ const AiAssistantPage: React.FC = () => {
     setWhatsappModalMsg(target);
     try {
       navigator.clipboard.writeText(waText);
-      message.success('واٹس ایپ رپورٹ کاپی ہو گئی ہے! (Copied for WhatsApp)');
+      message.success('Report formatted and copied for WhatsApp');
     } catch {}
   };
 
@@ -1051,7 +1051,7 @@ const AiAssistantPage: React.FC = () => {
     const copyContent = target.whatsappText || buildAiReportWhatsAppText(target);
     navigator.clipboard.writeText(copyContent);
     setCopiedId(msg.id);
-    message.success('پروفیشنل رپورٹ کاپی ہو گئی! (Copied to clipboard)');
+    message.success('Report copied to clipboard');
     setTimeout(() => setCopiedId(null), 2000);
   };
 
@@ -1079,11 +1079,21 @@ const AiAssistantPage: React.FC = () => {
   };
 
   const handleSend = async (customText?: string, overrideCode?: string, overrideDept?: string) => {
-    const query = (customText || inputText).trim();
-    if (!query || loading) return;
+    if (loading) return;
 
     const effectiveCode = overrideCode || selectedDivisionCode;
     const effectiveDept = overrideDept !== undefined ? overrideDept : selectedDepartment;
+    const divMeta = divisionsList.find((d) => d.code === effectiveCode) || DEFAULT_DIVISIONS[1];
+    const deptMeta = activeDepartments.find((d) => d.code === effectiveDept);
+    const deptLabel = effectiveDept !== 'ALL' ? (deptMeta?.name || effectiveDept) : '';
+    const dateSuffix = selectedDate ? ` — ${dayjs(selectedDate).format('DD MMMM YYYY')}` : '';
+
+    const rawTyped = (customText || inputText).trim();
+    const query =
+      rawTyped ||
+      (effectiveCode === 'ALL'
+        ? `Show division-wise production comparison for all divisions${dateSuffix}`
+        : `Show ${divMeta.name}${deptLabel ? ` ${deptLabel}` : ''} machine-wise production report${dateSuffix}`);
 
     const userMsg: ChatMessage = {
       id: `u-${Date.now()}`,
@@ -1116,9 +1126,9 @@ const AiAssistantPage: React.FC = () => {
             periodLabel: latestReport.periodLabel,
             sourceReportMsgId: latestReport.id,
             text:
-              `✅ آپ کی اوپر والی رپورٹ پروفیشنل **PDF** فارمیٹ میں تیار کر کے ڈاؤن لوڈ کر دی گئی ہے:\n` +
+              `✅ Your report has been exported and downloaded in **PDF** format:\n` +
               `📁 **File:** ${filename}\n\n` +
-              `آپ نیچے دیے گئے بٹنوں سے اسے دوبارہ **PDF**، **Excel** یا **WhatsApp** میں بھی شیئر کر سکتے ہیں۔`,
+              `You can also share or download it again using the **WhatsApp**, **PDF**, or **Excel** buttons below.`,
             timestamp: dayjs().format('hh:mm A'),
           };
           setMessages((prev) => [...prev, botMsg]);
@@ -1136,9 +1146,9 @@ const AiAssistantPage: React.FC = () => {
             periodLabel: latestReport.periodLabel,
             sourceReportMsgId: latestReport.id,
             text:
-              `✅ آپ کی اوپر والی رپورٹ پروفیشنل **Microsoft Excel (.xls)** فارمیٹ میں تیار کر کے ڈاؤن لوڈ کر دی گئی ہے:\n` +
+              `✅ Your report has been exported and downloaded in **Microsoft Excel (.xls)** format:\n` +
               `📁 **File:** ${filename}\n\n` +
-              `آپ نیچے دیے گئے بٹنوں سے اسے **PDF** یا **WhatsApp** میں بھی حاصل کر سکتے ہیں۔`,
+              `You can also share or download it in **PDF** or **WhatsApp** format using the buttons below.`,
             timestamp: dayjs().format('hh:mm A'),
           };
           setMessages((prev) => [...prev, botMsg]);
@@ -1149,7 +1159,7 @@ const AiAssistantPage: React.FC = () => {
           const waText = buildAiReportWhatsAppText(latestReport);
           try {
             navigator.clipboard.writeText(waText);
-            message.success('واٹس ایپ فارمیٹ کاپی ہو گیا! (Copied for WhatsApp)');
+            message.success('WhatsApp report copied to clipboard');
           } catch {}
           const botMsg: ChatMessage = {
             id: `b-${Date.now()}`,
@@ -1161,7 +1171,7 @@ const AiAssistantPage: React.FC = () => {
             sourceReportMsgId: latestReport.id,
             whatsappText: waText,
             text:
-              `✅ آپ کی اوپر والی رپورٹ **پروفیشنل واٹس ایپ فارمیٹ** میں تیار کر کے خودکار طور پر **Copy** کر دی گئی ہے! نیچے سے سیدھا واٹس ایپ پر بھیجیں یا کاپی کریں:`,
+              `✅ Your report has been formatted for **WhatsApp** and automatically **copied to your clipboard**! Click **Send on WhatsApp** or **Copy Text** below:`,
             timestamp: dayjs().format('hh:mm A'),
           };
           setMessages((prev) => [...prev, botMsg]);
@@ -1177,8 +1187,14 @@ const AiAssistantPage: React.FC = () => {
         conversationContextRef.current,
       );
 
-      // If the user picked a date in the bottom DatePicker and did not specify another date in text, apply it
-      if (selectedDate && intent.period.type === 'this_month') {
+      // If the user picked a date in the bottom DatePicker and did not specify an explicit month/date in text, apply it
+      const hasExplicitMonthPhrase =
+        /\b(this month|current month|whole month|full month|monthly)\b/i.test(rawTyped) ||
+        rawTyped.includes('اس منتھ') ||
+        rawTyped.includes('اس مہینے') ||
+        rawTyped.includes('اس ماہ') ||
+        rawTyped.includes('پورے مہینے');
+      if (selectedDate && intent.period.type === 'this_month' && !hasExplicitMonthPhrase) {
         const d = dayjs(selectedDate);
         if (d.isValid()) {
           intent.period = {
@@ -1295,19 +1311,19 @@ const AiAssistantPage: React.FC = () => {
       if (exportCmd.format === 'pdf') {
         try {
           const filename = exportAiReportToPdf(botMsg);
-          message.success(`PDF ڈاؤن لوڈ ہو گئی: ${filename}`);
+          message.success(`PDF downloaded: ${filename}`);
         } catch {}
       } else if (exportCmd.format === 'excel') {
         try {
           const filename = exportAiReportToExcel(botMsg);
-          message.success(`Excel فائل ڈاؤن لوڈ ہو گئی: ${filename}`);
+          message.success(`Excel file downloaded: ${filename}`);
         } catch {}
       } else if (exportCmd.format === 'whatsapp') {
         const waText = buildAiReportWhatsAppText(botMsg);
         botMsg.whatsappText = waText;
         try {
           navigator.clipboard.writeText(waText);
-          message.success('واٹس ایپ فارمیٹ کاپی ہو گیا! (Copied for WhatsApp)');
+          message.success('WhatsApp report copied to clipboard');
         } catch {}
       }
 
@@ -1346,9 +1362,7 @@ const AiAssistantPage: React.FC = () => {
             id: `err-${Date.now()}-v`,
             sender: 'assistant',
             text:
-              '🎙️ آواز سمجھ نہیں آئی — براہ کرم مائیک کے قریب واضح بولیں اور دوبارہ کوشش کریں۔\n' +
-              '(No speech was recognised. Use Google Chrome / Microsoft Edge, allow microphone access, ' +
-              'and check the voice language toggle next to the mic.)',
+              '🎙️ No speech was recognised. Please speak clearly near the microphone using Google Chrome or Microsoft Edge, allow microphone access, and check the UR / EN voice language toggle next to the mic.',
             timestamp: dayjs().format('hh:mm A'),
           },
         ]);
@@ -1444,32 +1458,19 @@ const AiAssistantPage: React.FC = () => {
     setSelectedDivisionCode(code);
     setSelectedDepartment('ALL');
     const meta = divisionsList.find((d) => d.code === code) || DEFAULT_DIVISIONS[1];
-    message.success(`Plant filter set to: ${meta.name}`);
+    message.info(`Division selected: ${meta.name}. Type your question or click Send (→) to run.`);
 
     conversationContextRef.current.lastDivisionCode = code;
     conversationContextRef.current.lastDepartmentCode = 'ALL';
-
-    const autoQuery = code === 'ALL'
-      ? 'Show division wise production and units comparison for all divisions'
-      : `Show ${meta.name} machine-wise production, target and average report`;
-
-    handleSend(autoQuery, code, 'ALL');
   };
 
   const handleDepartmentSwitch = (deptCode: string) => {
     setSelectedDepartment(deptCode);
-    const divMeta = divisionsList.find((d) => d.code === selectedDivisionCode) || DEFAULT_DIVISIONS[1];
     const deptMeta = activeDepartments.find((d) => d.code === deptCode);
     const deptLabel = deptMeta?.name || deptCode;
-    message.success(`Department filter set to: ${deptLabel}`);
+    message.info(`Department selected: ${deptLabel}. Type your question or click Send (→) to run.`);
 
     conversationContextRef.current.lastDepartmentCode = deptCode;
-
-    const autoQuery = deptCode === 'ALL'
-      ? `Show ${divMeta.name} machine-wise production, target and average report`
-      : `Show ${divMeta.name} ${deptLabel} machine-wise production, target and average report`;
-
-    handleSend(autoQuery, selectedDivisionCode, deptCode);
   };
 
   // ── Render Chart with Theme Adaptive Styles ────────────────────────────────
@@ -2085,7 +2086,7 @@ const AiAssistantPage: React.FC = () => {
                               <Tag color="purple" style={{ margin: 0 }}>📅 {msg.periodLabel}</Tag>
                             )}
                             {/* Executive Export Action Suite: WhatsApp, PDF, Excel, Copy */}
-                            <Tooltip title="واٹس ایپ فارمیٹ میں کاپی اور شیئر کریں (WhatsApp Report)">
+                            <Tooltip title="Format & share on WhatsApp">
                               <Button
                                 size="small"
                                 icon={<WhatsAppOutlined />}
@@ -2102,7 +2103,7 @@ const AiAssistantPage: React.FC = () => {
                                 WhatsApp
                               </Button>
                             </Tooltip>
-                            <Tooltip title="پی ڈی ایف ڈاؤن لوڈ کریں (Download PDF)">
+                            <Tooltip title="Download PDF Report">
                               <Button
                                 size="small"
                                 icon={<FilePdfOutlined />}
@@ -2119,7 +2120,7 @@ const AiAssistantPage: React.FC = () => {
                                 PDF
                               </Button>
                             </Tooltip>
-                            <Tooltip title="ایکسل فائل ڈاؤن لوڈ کریں (Download Excel)">
+                            <Tooltip title="Download Excel (.xls) Report">
                               <Button
                                 size="small"
                                 icon={<FileExcelOutlined />}
@@ -2177,7 +2178,7 @@ const AiAssistantPage: React.FC = () => {
                                 icon={<CopyOutlined />}
                                 onClick={() => {
                                   navigator.clipboard.writeText(msg.whatsappText || '');
-                                  message.success('واٹس ایپ میسج کاپی ہو گیا! (Copied)');
+                                  message.success('WhatsApp message copied to clipboard');
                                 }}
                                 style={{ fontWeight: 600 }}
                               >
@@ -2418,7 +2419,7 @@ const AiAssistantPage: React.FC = () => {
                     <span>{msg.timestamp}</span>
                     {msg.sender === 'assistant' && (
                       <>
-                        <Tooltip title="واٹس ایپ فارمیٹ میں کاپی اور شیئر کریں (WhatsApp)">
+                        <Tooltip title="Format & share on WhatsApp">
                           <Button
                             type="text"
                             size="small"
@@ -2429,7 +2430,7 @@ const AiAssistantPage: React.FC = () => {
                             WhatsApp
                           </Button>
                         </Tooltip>
-                        <Tooltip title="پی ڈی ایف ڈاؤن لوڈ کریں (Download PDF)">
+                        <Tooltip title="Download PDF Report">
                           <Button
                             type="text"
                             size="small"
@@ -2440,7 +2441,7 @@ const AiAssistantPage: React.FC = () => {
                             PDF
                           </Button>
                         </Tooltip>
-                        <Tooltip title="ایکسل فائل ڈاؤن لوڈ کریں (Download Excel)">
+                        <Tooltip title="Download Excel (.xls) Report">
                           <Button
                             type="text"
                             size="small"
@@ -2451,7 +2452,7 @@ const AiAssistantPage: React.FC = () => {
                             Excel
                           </Button>
                         </Tooltip>
-                        <Tooltip title="پوری رپورٹ کاپی کریں (Copy Report)">
+                        <Tooltip title="Copy Report">
                           <Button
                             type="text"
                             size="small"
@@ -2592,7 +2593,7 @@ const AiAssistantPage: React.FC = () => {
               />
             </div>
 
-            {/* Bottom-Anchored Specific Date Picker (1-click date machine-wise report) */}
+            {/* Bottom-Anchored Specific Date Picker (select date, then click Send to run) */}
             <div
               style={{
                 display: 'flex',
@@ -2603,7 +2604,7 @@ const AiAssistantPage: React.FC = () => {
                 borderRight: isDark ? '1px solid #334155' : '1px solid #cbd5e1',
               }}
             >
-              <Tooltip title="کسی بھی تاریخ کی مشین وائز رپورٹ کے لیے تاریخ منتخب کریں (Select Date for Machine-wise Report)">
+              <Tooltip title="Select Date (then type your question or click Send →)">
                 <DatePicker
                   size="small"
                   format="DD-MMM-YYYY"
@@ -2614,11 +2615,7 @@ const AiAssistantPage: React.FC = () => {
                     const iso = d ? d.format('YYYY-MM-DD') : null;
                     setSelectedDate(iso);
                     if (d) {
-                      handleSend(
-                        `Machine-wise Performance Report — ${d.format('DD MMMM YYYY')}`,
-                        selectedDivisionCode,
-                        selectedDepartment,
-                      );
+                      message.info(`Date selected: ${d.format('DD-MMM-YYYY')}. Type your question or click Send (→) to run.`);
                     }
                   }}
                   style={{ width: 128, fontSize: 12 }}
@@ -2632,7 +2629,7 @@ const AiAssistantPage: React.FC = () => {
               placeholder={
                 isListening
                   ? `Recording ${elapsedSeconds}s${liveTranscript ? ` — "${liveTranscript}"` : '… click mic to stop & send'}`
-                  : `Ask anything about ${activeDivisionMeta.name} (machines, target, average, customers, sales volume)...`
+                  : `Ask anything about ${activeDivisionMeta.name} (items, rejection, downtime, machines, operators)...`
               }
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
@@ -2700,8 +2697,8 @@ const AiAssistantPage: React.FC = () => {
               </Tooltip>
             </Popover>
 
-            {/* Voice language toggle (browser speech recognition): اردو ↔ EN */}
-            <Tooltip title={voiceLang === 'ur-PK' ? 'Voice language: Urdu (click for English)' : 'Voice language: English (click for Urdu)'}>
+            {/* Voice language toggle (browser speech recognition): UR ↔ EN */}
+            <Tooltip title={voiceLang === 'ur-PK' ? 'Voice language: Urdu (click to switch to English)' : 'Voice language: English (click to switch to Urdu)'}>
               <Button
                 type="text"
                 size="small"
@@ -2709,16 +2706,16 @@ const AiAssistantPage: React.FC = () => {
                 disabled={loading || isListening}
                 style={{ fontWeight: 700, fontSize: 12, padding: '0 6px', flexShrink: 0 }}
               >
-                {voiceLang === 'ur-PK' ? 'اردو' : 'EN'}
+                {voiceLang === 'ur-PK' ? 'UR' : 'EN'}
               </Button>
             </Tooltip>
 
-            {/* Voice Input Microphone Button — Compressed MediaRecorder → OpenAI Whisper pipeline */}
+            {/* Voice Input Microphone Button — Supports Urdu & English voice input */}
             <Tooltip
               title={
                 isListening
                   ? `Stop & send (${elapsedSeconds}s)`
-                  : 'Record a voice question (Whisper STT)'
+                  : `Record a voice question (${voiceLang === 'ur-PK' ? 'Urdu' : 'English'})`
               }
             >
               <Button
@@ -2744,23 +2741,25 @@ const AiAssistantPage: React.FC = () => {
               />
             </Tooltip>
 
-            {/* Send Button */}
-            <Button
-              type="primary"
-              shape="circle"
-              icon={<SendOutlined />}
-              onClick={() => handleSend()}
-              loading={loading}
-              disabled={!inputText.trim()}
-              style={{
-                background: inputText.trim() ? '#2563eb' : isDark ? '#334155' : '#cbd5e1',
-                borderColor: inputText.trim() ? '#2563eb' : isDark ? '#334155' : '#cbd5e1',
-                width: 36,
-                height: 36,
-                flexShrink: 0,
-                transition: 'all 0.2s ease',
-              }}
-            />
+            {/* Send Button — Click to submit typed question OR run report for selected Division/Dept/Date */}
+            <Tooltip title="Send query or run report for selected filters">
+              <Button
+                type="primary"
+                shape="circle"
+                icon={<SendOutlined />}
+                onClick={() => handleSend()}
+                loading={loading}
+                disabled={loading}
+                style={{
+                  background: '#2563eb',
+                  borderColor: '#2563eb',
+                  width: 36,
+                  height: 36,
+                  flexShrink: 0,
+                  transition: 'all 0.2s ease',
+                }}
+              />
+            </Tooltip>
           </div>
 
           <div
@@ -2822,7 +2821,7 @@ const AiAssistantPage: React.FC = () => {
               icon={<CopyOutlined />}
               onClick={() => {
                 navigator.clipboard.writeText(whatsappDraftText);
-                message.success('واٹس ایپ رپورٹ کلپ بورڈ پر کاپی ہو گئی! (Copied)');
+                message.success('WhatsApp report copied to clipboard');
               }}
             >
               Copy for WhatsApp
@@ -2840,7 +2839,7 @@ const AiAssistantPage: React.FC = () => {
       }
     >
       <div style={{ marginBottom: 8, fontSize: 12.5, color: isDark ? '#94a3b8' : '#475569' }}>
-        یہ رپورٹ واٹس ایپ کے پروفیشنل فارمیٹ میں تیار ہے اور خودکار طور پر کاپی بھی ہو چکی ہے۔ آپ چاہیں تو نیچے ٹیکسٹ میں تبدیلی بھی کر سکتے ہیں یا سیدھا <strong>Open WhatsApp &amp; Send</strong> دبا کر بھیج سکتے ہیں:
+        This report is formatted for WhatsApp and has been automatically copied to your clipboard. You can edit the text below if needed, or click <strong>Open WhatsApp &amp; Send</strong> to share directly:
       </div>
       <Input.TextArea
         value={whatsappDraftText}

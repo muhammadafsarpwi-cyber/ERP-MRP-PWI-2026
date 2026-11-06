@@ -120,7 +120,13 @@ export async function generateReportData(
     intent.period.type === 'yesterday' ||
     (Boolean(intent.period.startDate) && intent.period.startDate === intent.period.endDate);
 
-  if (isSpecificSingleDate) {
+  if (
+    isSpecificSingleDate &&
+    intent.dimension !== 'rejection' &&
+    intent.dimension !== 'downtime' &&
+    intent.dimension !== 'item' &&
+    intent.dimension !== 'operator'
+  ) {
     return handleGranularDailyLedgerReport(intent, divisionsList, targetDivision, filterDept, isDark, isGrossMode);
   }
 
@@ -160,9 +166,18 @@ export async function generateReportData(
       const mNo = (e.machine?.machineCode || e.machineNo || '').toUpperCase();
 
       if (targetDivision.code === 'DIV-CCD') {
-        // Exclude Spoke division machines (ST-, SPK-, SW-, BL-)
+        // Exclude Spoke division machines (ST-, SPK-, SW-, BL-, HAND-PACK, PKS-)
         if (eCode === 'DIV-SPD' || eId.includes('0001')) return false;
-        if (mNo.startsWith('ST-') || mNo.startsWith('SPK-') || mNo.startsWith('SW-') || mNo.startsWith('BL-')) return false;
+        if (
+          mNo.startsWith('ST-') ||
+          mNo.startsWith('SPK-') ||
+          mNo.startsWith('SW-') ||
+          mNo.startsWith('BL-') ||
+          mNo.startsWith('HAND-PACK') ||
+          mNo.startsWith('PKS-')
+        ) {
+          return false;
+        }
         return (
           eCode === 'DIV-CCD' ||
           eId.includes('0002') ||
@@ -188,7 +203,9 @@ export async function generateReportData(
           mNo.startsWith('BL-') ||
           mNo.startsWith('SPL-') ||
           mNo.startsWith('APS-') ||
-          mNo.startsWith('NP-')
+          mNo.startsWith('NP-') ||
+          mNo.startsWith('PKS-') ||
+          mNo.startsWith('HAND-PACK')
         );
       }
 
@@ -203,14 +220,46 @@ export async function generateReportData(
       return true;
     });
 
-    // Apply Department filter if specified and department has entries
+    // Apply Date Range / Period filter on client side (since /production/entries returns all dates)
+    if (intent.period.startDate && intent.period.endDate && intent.period.type !== 'all') {
+      const sDate = intent.period.startDate;
+      const eDate = intent.period.endDate;
+      const dateFiltered = entries.filter((row: any) => {
+        const rawDate = row.entryDate || row.productionDate || row.date || row.createdAt;
+        if (!rawDate) return false;
+        const dStr = dayjs(rawDate).format('YYYY-MM-DD');
+        return dStr >= sDate && dStr <= eDate;
+      });
+      // For explicit periods (specific_date, specific_month, today, yesterday, custom), strictly apply the date filter.
+      // Only fallback to all dates if the user queried a specificItem with default 'this_month' and no entries matched this month.
+      if (dateFiltered.length > 0 || intent.period.type !== 'this_month' || !intent.specificItem) {
+        entries = dateFiltered;
+      }
+    }
+
+    // Apply Department filter if specified
     if (filterDept !== 'ALL') {
       const deptFiltered = entries.filter((row: any) => {
         const m = (row.machine?.machineCode || row.machineNo || '').toUpperCase();
         const dName = resolveRecordDepartment(row, targetDivision.code, m);
-        return dName.toLowerCase() === filterDept.toLowerCase();
+        return matchesDepartmentFilter(dName, row.machine?.category || '', filterDept);
       });
-      if (deptFiltered.length > 0) {
+      if (intent.specificItem) {
+        // Check if deptFiltered contains the requested item; if not, keep division-wide entries so item search finds all stages
+        const hasItemInDept = deptFiltered.some((row: any) => {
+          const lines = Array.isArray(row.nestedItems) && row.nestedItems.length > 0 ? row.nestedItems : [row];
+          return lines.some((l: any) =>
+            matchesSpecificItem(
+              String(l.itemCode || row.item?.itemCode || ''),
+              String(l.itemName || row.item?.name || row.itemName || ''),
+              intent.specificItem,
+            ),
+          );
+        });
+        if (hasItemInDept) {
+          entries = deptFiltered;
+        }
+      } else {
         entries = deptFiltered;
       }
     }
@@ -221,9 +270,9 @@ export async function generateReportData(
       const numOnly = mTarget.replace(/[^0-9]/g, '');
       const machineFiltered = entries.filter((row: any) => {
         const m = (row.machine?.machineCode || row.machineNo || '').toUpperCase().replace(/\s+/g, '');
-        return m.includes(mTarget) || (numOnly && (m.endsWith(numOnly) || m.endsWith(`0${numOnly}`)));
+        return m.includes(mTarget) || (numOnly && (m.endsWith(`-${numOnly}`) || m.endsWith(`-0${numOnly}`)));
       });
-      if (machineFiltered.length > 0) {
+      if (machineFiltered.length > 0 || mTarget.includes('-')) {
         entries = machineFiltered;
       }
     }
@@ -234,7 +283,7 @@ export async function generateReportData(
   if (entries.length === 0) {
     return {
       title: `${targetDivision.name} — No Records Found`,
-      summaryText: `No production records found for **${targetDivision.name}**${filterDept !== 'ALL' ? ` [${filterDept} Department]` : ''} in ${intent.period.label}.\n\nApplied Filters: Division = ${targetDivision.name}, Department = ${filterDept}, Period = ${intent.period.label}.`,
+      summaryText: `No production records found for **${targetDivision.name}**${filterDept !== 'ALL' ? ` [${filterDept} Department]` : ''} in **${intent.period.label}**.\n\n• **Division:** ${targetDivision.name}\n• **Department:** ${filterDept}\n• **Period:** ${intent.period.label}${intent.specificMachine ? `\n• **Machine Filter:** ${intent.specificMachine}` : ''}${intent.specificItem ? `\n• **Item Filter:** ${intent.specificItem}` : ''}`,
       divisionScope: targetDivision.code,
       departmentScope: filterDept,
       periodLabel: intent.period.label,
@@ -254,6 +303,10 @@ export async function generateReportData(
 
   // Route to the appropriate dimensional aggregator
   switch (intent.dimension) {
+    case 'rejection':
+      return aggregateByRejection(entries, targetDivision, filterDept, intent, isDark);
+    case 'downtime':
+      return aggregateByDowntime(entries, targetDivision, filterDept, intent, isDark);
     case 'operator':
       return aggregateByOperator(entries, targetDivision, filterDept, intent, isDark);
     case 'operator_machine':
@@ -289,6 +342,31 @@ export async function generateReportData(
     default:
       return aggregateByMachine(entries, targetDivision, filterDept, intent, isDark);
   }
+}
+
+// ── Specific Item Matcher Helper ────────────────────────────────────────────
+function normalizeItemToken(str: string): string {
+  return str
+    .toUpperCase()
+    .replace(/\s+/g, '')
+    .replace(/[*×xX]/g, 'X');
+}
+
+function matchesSpecificItem(itemCode: string, itemName: string, targetItem?: string): boolean {
+  if (!targetItem) return true;
+  const normTarget = normalizeItemToken(targetItem);
+  const normCode = normalizeItemToken(itemCode);
+  const normName = normalizeItemToken(itemName);
+  if (normCode.includes(normTarget) || normName.includes(normTarget)) return true;
+  const tokens = targetItem
+    .toUpperCase()
+    .replace(/[*×xX]/g, 'X')
+    .split(/[\s_-]+/)
+    .filter(Boolean);
+  if (tokens.length > 1) {
+    return tokens.every((t) => normCode.includes(t) || normName.includes(t));
+  }
+  return false;
 }
 
 // ── Department Resolver Helper ──────────────────────────────────────────────
@@ -1550,7 +1628,7 @@ function aggregateByDepartment(
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// 8. ITEM / PRODUCT-WISE REPORTING
+// 8. ITEM / PRODUCT-WISE REPORTING (Supports Specific Item Queries + Multi-Item Machines)
 // ═════════════════════════════════════════════════════════════════════════════
 function aggregateByItem(
   entries: any[],
@@ -1559,78 +1637,228 @@ function aggregateByItem(
   intent: QueryIntent,
   isDark: boolean,
 ): NormalizedReportResult {
-  const map: Record<string, { code: string; name: string; dept: string; production: number; target: number; scrap: number }> = {};
+  const map: Record<
+    string,
+    {
+      code: string;
+      name: string;
+      dept: string;
+      machines: Set<string>;
+      dates: Set<string>;
+      production: number;
+      target: number;
+      scrap: number;
+    }
+  > = {};
+
   entries.forEach((e) => {
-    const code = e.item?.itemCode || 'SKU';
-    const name = e.item?.name || e.itemName || 'Standard Product';
-    const m = (e.machine?.machineCode || e.machineNo || '').toUpperCase();
-    const dept = resolveRecordDepartment(e, division.code, m);
-    const key = `${code}__${name}`;
-    if (!map[key]) map[key] = { code, name, dept, production: 0, target: 0, scrap: 0 };
-    map[key].production += Number(e.actualQuantity ?? e.producedQty ?? 0);
-    map[key].target += Number(e.targetQuantity ?? 0);
-    map[key].scrap += Number(e.scrapQuantity ?? 0);
+    const rawM = (e.machine?.machineCode || e.machineNo || '').toUpperCase();
+    const m = normalizeMachineDisplayCode(rawM || 'MACHINE');
+    const dept = resolveRecordDepartment(e, division.code, rawM);
+    const rawDate = e.entryDate || e.productionDate || e.date || e.createdAt;
+    const dStr = rawDate ? dayjs(rawDate).format('DD-MMM-YYYY') : '';
+
+    const nestedLines: any[] =
+      Array.isArray(e.nestedItems) && e.nestedItems.length > 0
+        ? e.nestedItems
+        : [
+            {
+              itemCode: e.item?.itemCode || e.item_code || e.itemCode || 'SKU',
+              itemName: e.item?.name || e.item_name || e.itemName || 'Standard Product',
+              actualQuantity: e.actualQuantity ?? e.producedQty ?? 0,
+              targetQuantity: e.targetQuantity ?? 0,
+              scrapQuantity: e.scrapQuantity ?? 0,
+            },
+          ];
+
+    const totalEntryActual = nestedLines.reduce((s, l) => s + Number(l.actualQuantity ?? 0), 0);
+
+    nestedLines.forEach((line: any) => {
+      const code = String(line.itemCode || e.item?.itemCode || 'SKU').trim();
+      const name = String(line.itemName || e.item?.name || e.itemName || 'Standard Product').trim();
+      if (!matchesSpecificItem(code, name, intent.specificItem)) return;
+
+      const lineActual = Number(line.actualQuantity ?? (nestedLines.length === 1 ? e.actualQuantity : 0) ?? 0);
+      const lineWeight =
+        nestedLines.length > 1
+          ? totalEntryActual > 0
+            ? lineActual / totalEntryActual
+            : 1 / nestedLines.length
+          : 1;
+      const lineTarget =
+        Number(line.targetQuantity ?? 0) > 0
+          ? Number(line.targetQuantity)
+          : Number(e.targetQuantity ?? 0) * lineWeight;
+      const lineScrap = Number(line.scrapQuantity ?? (nestedLines.length === 1 ? e.scrapQuantity : 0) ?? 0);
+
+      const key = intent.specificItem ? `${code}__${name}__${dept}` : `${code}__${name}`;
+      if (!map[key]) {
+        map[key] = {
+          code,
+          name,
+          dept,
+          machines: new Set(),
+          dates: new Set(),
+          production: 0,
+          target: 0,
+          scrap: 0,
+        };
+      }
+      if (m) map[key].machines.add(m);
+      if (dStr) map[key].dates.add(dStr);
+      map[key].production += lineActual;
+      map[key].target += lineTarget;
+      map[key].scrap += lineScrap;
+    });
   });
 
-  let rows = Object.values(map).sort((a, b) => b.production - a.production);
+  let rows = Object.values(map)
+    .map((r) => ({
+      ...r,
+      machinesList: Array.from(r.machines).sort(naturalSortMachines).join(', ') || '—',
+      datesList: Array.from(r.dates).sort().join(', ') || intent.period.label,
+      achievement: r.target > 0 ? Math.round((r.production / r.target) * 1000) / 10 : 100,
+    }))
+    .sort((a, b) => b.production - a.production);
+
   const isTopQuery = Boolean(intent.limit && intent.limit > 0);
   if (isTopQuery) {
     rows = rows.slice(0, intent.limit);
   }
   const totalProd = rows.reduce((s, r) => s + r.production, 0);
+  const totalTarget = rows.reduce((s, r) => s + r.target, 0);
+  const totalScrap = rows.reduce((s, r) => s + r.scrap, 0);
+
+  if (intent.specificItem && rows.length === 0) {
+    return {
+      title: `Item Query: "${intent.specificItem}" — ${intent.period.label}`,
+      summaryText:
+        `📦 **No production records found for item "${intent.specificItem}"** in **${division.name}** during **${intent.period.label}**.\n\n` +
+        `• **Division:** ${division.name}\n` +
+        `• **Department Scope:** ${department}\n` +
+        `• **Period:** ${intent.period.label}`,
+      divisionScope: division.code,
+      departmentScope: department,
+      periodLabel: intent.period.label,
+      recordsCount: 0,
+      auditTrail: {
+        dataSource: 'Production Entries (Live ERP Database)',
+        filters: [`Division: ${division.name}`, `Item: ${intent.specificItem}`, `Period: ${intent.period.label}`],
+        period: intent.period.label,
+        timestamp: dayjs().format('YYYY-MM-DD HH:mm:ss'),
+        recordsExamined: entries.length,
+      },
+    };
+  }
 
   const columns: AiColumn[] = [
-    ...(isTopQuery ? [{
-      title: 'Rank',
-      dataIndex: 'rank',
-      key: 'rank',
-      width: 80,
-      render: (_: any, __: any, idx?: any) => idx === 0 ? '🥇 #1' : idx === 1 ? '🥈 #2' : idx === 2 ? '🥉 #3' : `#${(idx || 0) + 1}`,
-    }] : []),
+    ...(isTopQuery
+      ? [
+          {
+            title: 'Rank',
+            dataIndex: 'rank',
+            key: 'rank',
+            width: 80,
+            render: (_: any, __: any, idx?: any) =>
+              idx === 0 ? '🥇 #1' : idx === 1 ? '🥈 #2' : idx === 2 ? '🥉 #3' : `#${(idx || 0) + 1}`,
+          },
+        ]
+      : []),
     { title: 'Item Code', dataIndex: 'code', key: 'code', render: (v: string) => React.createElement(Tag, { color: 'geekblue' }, '🔖 ' + v) },
     { title: 'Item / Product Name', dataIndex: 'name', key: 'name', render: (v: string) => React.createElement('strong', null, v) },
     { title: 'Department', dataIndex: 'dept', key: 'dept' },
-    { title: `Produced (${division.uom})`, dataIndex: 'production', key: 'production', render: (v: number) => React.createElement('span', { style: { color: '#3b82f6', fontWeight: 700 } }, formatQty(v)) },
+    { title: 'Machines', dataIndex: 'machinesList', key: 'machinesList' },
+    ...(intent.specificItem ? [{ title: 'Active Dates', dataIndex: 'datesList', key: 'datesList' }] : []),
+    {
+      title: `Produced (${division.uom})`,
+      dataIndex: 'production',
+      key: 'production',
+      render: (v: number) => React.createElement('span', { style: { color: '#3b82f6', fontWeight: 700 } }, formatQty(v)),
+    },
     { title: `Target (${division.uom})`, dataIndex: 'target', key: 'target', render: (v: number) => formatQty(v) },
-    { title: 'Scrap (KG)', dataIndex: 'scrap', key: 'scrap', render: (v: number) => formatQty(v) },
+    {
+      title: 'Achievement (%)',
+      dataIndex: 'achievement',
+      key: 'achievement',
+      render: (v: number) => React.createElement(Tag, { color: v >= 90 ? 'green' : 'orange' }, `${v}%`),
+    },
+    { title: `Rejection (${division.uom})`, dataIndex: 'scrap', key: 'scrap', render: (v: number) => formatQty(v) },
   ];
 
-  let summaryText = isTopQuery
-    ? `📦🏆 **Top ${intent.limit} Manufactured Products by Volume (${intent.period.label})**:\n\n`
-    : `📦 **${division.name} — Product Output Ranking (${intent.period.label})**:\n\n` +
-      `• Total Manufactured Items: ${rows.length} product codes\n` +
-      `• Aggregate Production: ${formatQty(totalProd)} ${division.uom}`;
-
-  if (isTopQuery) {
+  let summaryText = '';
+  if (intent.specificItem) {
+    summaryText =
+      `📦 **Specific Product Production Report — "${intent.specificItem}" (${intent.period.label})**:\n\n` +
+      `• **Total Production:** **${formatQty(totalProd)} ${division.uom}** (Target: ${formatQty(totalTarget)} ${division.uom})\n` +
+      `• **Total Product Rejection:** ${formatQty(totalScrap)} ${division.uom}\n` +
+      `• **Matching Item Variants / Stages:** ${rows.length}\n\n` +
+      `**Breakdown by Item & Department:**\n` +
+      rows
+        .map(
+          (r) =>
+            `• **[${r.code}] ${r.name}** (${r.dept} — Machines: ${r.machinesList}): **${formatQty(r.production)} ${division.uom}** [Dates: ${r.datesList}]`,
+        )
+        .join('\n');
+  } else if (isTopQuery) {
+    summaryText = `📦🏆 **Top ${intent.limit} Manufactured Products by Volume (${intent.period.label})**:\n\n`;
     rows.forEach((r, idx) => {
       const medal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx + 1}`;
       summaryText += `• **${medal} [${r.code}] ${r.name}**: **${formatQty(r.production)} ${division.uom}** (${r.dept})\n`;
     });
+  } else {
+    summaryText =
+      `📦 **${division.name} — Product Output Ranking (${intent.period.label})**:\n\n` +
+      `• **Total Manufactured Items:** ${rows.length} product codes\n` +
+      `• **Aggregate Production:** **${formatQty(totalProd)} ${division.uom}**\n` +
+      `• **Total Target:** ${formatQty(totalTarget)} ${division.uom}`;
   }
 
   const chartData = rows.map((r) => ({
-    name: r.code || r.name,
-    Production: r.production,
-    Target: r.target,
+    name: intent.specificItem ? `${r.code} (${r.dept})` : r.code || r.name,
+    Production: Math.round(r.production * 100) / 100,
+    Target: Math.round(r.target * 100) / 100,
   }));
 
   return {
-    title: isTopQuery ? `🏆 Top ${intent.limit} Manufactured Products — ${intent.period.label}` : `Product & Item Production Volume — ${intent.period.label}`,
+    title: intent.specificItem
+      ? `📦 Item Production Report: ${intent.specificItem} — ${intent.period.label}`
+      : isTopQuery
+      ? `🏆 Top ${intent.limit} Manufactured Products — ${intent.period.label}`
+      : `Product & Item Production Volume — ${intent.period.label}`,
     summaryText,
     divisionScope: division.code,
     departmentScope: department,
     periodLabel: intent.period.label,
     recordsCount: entries.length,
     kpiCards: [
-      { title: isTopQuery ? `Top ${intent.limit} Output` : 'Total Output', value: formatQty(totalProd), unit: division.uom, color: '#3b82f6' },
-      { title: isTopQuery ? 'Top Products Count' : 'Unique Products', value: rows.length, color: '#10b981' },
-      ...(isTopQuery && rows[0] ? [{ title: '#1 Top Produced', value: rows[0].code, color: '#f59e0b', subtitle: `${formatQty(rows[0].production)} ${division.uom}` }] : []),
+      {
+        title: intent.specificItem ? `${intent.specificItem} Produced` : isTopQuery ? `Top ${intent.limit} Output` : 'Total Output',
+        value: formatQty(totalProd),
+        unit: division.uom,
+        color: '#3b82f6',
+      },
+      { title: 'Total Target', value: formatQty(totalTarget), unit: division.uom, color: '#10b981' },
+      { title: isTopQuery ? 'Top Products Count' : 'Matching Items', value: rows.length, color: '#8b5cf6' },
+      ...(rows[0]
+        ? [
+            {
+              title: intent.specificItem ? 'Primary Stage' : '#1 Top Produced',
+              value: rows[0].code,
+              color: '#f59e0b',
+              subtitle: `${formatQty(rows[0].production)} ${division.uom} (${rows[0].dept})`,
+            },
+          ]
+        : []),
     ],
     chartData: {
       type: 'bar',
       data: chartData,
       xKey: 'name',
-      title: isTopQuery ? `Top ${intent.limit} Produced Products (${division.uom})` : `Product Volume Share`,
+      title: intent.specificItem
+        ? `${intent.specificItem} Production by Stage (${division.uom})`
+        : isTopQuery
+        ? `Top ${intent.limit} Produced Products (${division.uom})`
+        : `Product Volume Share`,
       dataKeys: [
         { key: 'Production', color: '#3b82f6', name: `Produced (${division.uom})` },
         { key: 'Target', color: '#10b981', name: `Target (${division.uom})` },
@@ -1638,8 +1866,432 @@ function aggregateByItem(
     },
     tableData: { columns, rows },
     auditTrail: {
-      dataSource: 'Production Entries',
-      filters: [`Division: ${division.name}`, `Period: ${intent.period.label}`],
+      dataSource: 'Production Entries (Live ERP Database)',
+      filters: [
+        `Division: ${division.name}`,
+        ...(department !== 'ALL' ? [`Department: ${department}`] : []),
+        ...(intent.specificItem ? [`Item Filter: ${intent.specificItem}`] : []),
+        `Period: ${intent.period.label}`,
+      ],
+      period: intent.period.label,
+      timestamp: dayjs().format('YYYY-MM-DD HH:mm:ss'),
+      recordsExamined: entries.length,
+    },
+  };
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 8B. REJECTION & SCRAP ANALYTICS REPORTING
+// ═════════════════════════════════════════════════════════════════════════════
+function aggregateByRejection(
+  entries: any[],
+  division: DivisionMeta,
+  department: string,
+  intent: QueryIntent,
+  isDark: boolean,
+): NormalizedReportResult {
+  const isGrossMode = division.uom.toLowerCase() === 'gross';
+  const unitDivisor = isGrossMode ? PCS_PER_GROSS : 1;
+
+  interface RejectionRow {
+    id: string;
+    date: string;
+    department: string;
+    machine: string;
+    itemCode: string;
+    itemName: string;
+    production: number;
+    productRejectionPcs: number;
+    productRejectionKg: number;
+    processScrapKg: number;
+    totalScrapKg: number;
+    rejectionRatePct: number;
+  }
+
+  const rowsMap: Record<string, RejectionRow> = {};
+
+  entries.forEach((e, idx) => {
+    const rawM = (e.machine?.machineCode || e.machineNo || 'MACHINE').toUpperCase();
+    const machine = normalizeMachineDisplayCode(rawM);
+    const dept = resolveRecordDepartment(e, division.code, rawM);
+    const rawDate = e.entryDate || e.productionDate || e.date || e.createdAt;
+    const dateStr = rawDate ? dayjs(rawDate).format('DD-MMM-YYYY') : intent.period.label;
+
+    const nestedLines: any[] =
+      Array.isArray(e.nestedItems) && e.nestedItems.length > 0
+        ? e.nestedItems
+        : [
+            {
+              itemCode: e.item?.itemCode || e.item_code || e.itemCode || 'SKU',
+              itemName: e.item?.name || e.item_name || e.itemName || 'Standard Product',
+              actualQuantity: e.actualQuantity ?? e.producedQty ?? 0,
+              scrapQuantity: e.scrapQuantity ?? e.scrap_quantity ?? 0,
+              weightPerPiece: e.item?.weightPerPiece ?? e.item?.weight_per_piece ?? null,
+              weightPerMeter: e.item?.weightPerMeter ?? e.item?.weight_per_meter ?? null,
+            },
+          ];
+
+    const entryProcessScrapKg = Number(e.processScrapKg ?? e.process_scrap_kg ?? 0);
+    const lineShare = nestedLines.length > 1 ? 1 / nestedLines.length : 1;
+
+    nestedLines.forEach((line: any, lIdx: number) => {
+      const itemCode = String(line.itemCode || e.item?.itemCode || 'SKU').trim();
+      const itemName = String(line.itemName || e.item?.name || e.itemName || 'Standard Product').trim();
+      if (!matchesSpecificItem(itemCode, itemName, intent.specificItem)) return;
+
+      const prodQty = Number(line.actualQuantity ?? (nestedLines.length === 1 ? e.actualQuantity : 0) ?? 0);
+      const rawScrapQty = Number(line.scrapQuantity ?? (nestedLines.length === 1 ? e.scrapQuantity : 0) ?? 0);
+      const scrapPcs = isGrossMode ? rawScrapQty / unitDivisor : rawScrapQty;
+
+      const unitWeightKg = Number(
+        line.weightPerPiece ?? e.item?.weightPerPiece ?? line.weightPerMeter ?? e.item?.weightPerMeter ?? 0,
+      );
+      const rawScrapPiecesCount = isGrossMode ? rawScrapQty * PCS_PER_GROSS : rawScrapQty;
+      const productScrapKg =
+        unitWeightKg > 0
+          ? Math.round(rawScrapPiecesCount * unitWeightKg * 1000) / 1000
+          : Math.round(rawScrapPiecesCount * 0.0115 * 1000) / 1000;
+      const procScrapKg = Math.round(entryProcessScrapKg * lineShare * 1000) / 1000;
+
+      const key = `${dept}__${machine}__${itemCode}`;
+      if (!rowsMap[key]) {
+        rowsMap[key] = {
+          id: `rej-${idx}-${lIdx}`,
+          date: dateStr,
+          department: dept,
+          machine,
+          itemCode,
+          itemName,
+          production: 0,
+          productRejectionPcs: 0,
+          productRejectionKg: 0,
+          processScrapKg: 0,
+          totalScrapKg: 0,
+          rejectionRatePct: 0,
+        };
+      }
+      rowsMap[key].production += prodQty;
+      rowsMap[key].productRejectionPcs += scrapPcs;
+      rowsMap[key].productRejectionKg += productScrapKg;
+      rowsMap[key].processScrapKg += procScrapKg;
+      rowsMap[key].totalScrapKg += productScrapKg + procScrapKg;
+    });
+  });
+
+  const allRows = Object.values(rowsMap).map((r) => {
+    const totalAttempted = r.production + r.productRejectionPcs;
+    const rate = totalAttempted > 0 ? Math.round((r.productRejectionPcs / totalAttempted) * 10000) / 100 : 0;
+    return {
+      ...r,
+      production: Math.round(r.production * 100) / 100,
+      productRejectionPcs: Math.round(r.productRejectionPcs * 100) / 100,
+      productRejectionKg: Math.round(r.productRejectionKg * 1000) / 1000,
+      processScrapKg: Math.round(r.processScrapKg * 1000) / 1000,
+      totalScrapKg: Math.round(r.totalScrapKg * 1000) / 1000,
+      rejectionRatePct: rate,
+    };
+  });
+
+  // Sort rows with rejection first, then by machine
+  allRows.sort((a, b) => {
+    if (b.totalScrapKg !== a.totalScrapKg) return b.totalScrapKg - a.totalScrapKg;
+    if (b.productRejectionPcs !== a.productRejectionPcs) return b.productRejectionPcs - a.productRejectionPcs;
+    return naturalSortMachines(a.machine, b.machine);
+  });
+
+  const totalProd = allRows.reduce((s, r) => s + r.production, 0);
+  const totalRejPcs = allRows.reduce((s, r) => s + r.productRejectionPcs, 0);
+  const totalRejKg = Math.round(allRows.reduce((s, r) => s + r.productRejectionKg, 0) * 1000) / 1000;
+  const totalProcScrapKg = Math.round(allRows.reduce((s, r) => s + r.processScrapKg, 0) * 1000) / 1000;
+  const grandTotalScrapKg = Math.round((totalRejKg + totalProcScrapKg) * 1000) / 1000;
+  const overallRejRate =
+    totalProd + totalRejPcs > 0 ? Math.round((totalRejPcs / (totalProd + totalRejPcs)) * 10000) / 100 : 0;
+
+  // Department-wise summary lines for conversational text
+  const deptRejSummary: Record<string, { pcs: number; rejKg: number; procKg: number }> = {};
+  allRows.forEach((r) => {
+    if (!deptRejSummary[r.department]) deptRejSummary[r.department] = { pcs: 0, rejKg: 0, procKg: 0 };
+    deptRejSummary[r.department].pcs += r.productRejectionPcs;
+    deptRejSummary[r.department].rejKg += r.productRejectionKg;
+    deptRejSummary[r.department].procKg += r.processScrapKg;
+  });
+
+  const deptLines = Object.entries(deptRejSummary)
+    .map(
+      ([dName, v]) =>
+        `• **${dName} Department:** Product Rejection = **${formatQty(v.pcs)} ${division.uom}** (${formatQty(v.rejKg)} KG) | Process Scrap = **${formatQty(v.procKg)} KG**`,
+    )
+    .join('\n');
+
+  const columns: AiColumn[] = [
+    { title: 'Department', dataIndex: 'department', key: 'department', render: (v: string) => React.createElement('strong', null, v) },
+    { title: 'Machine', dataIndex: 'machine', key: 'machine', render: (v: string) => React.createElement(Tag, { color: 'blue' }, '⚙️ ' + v) },
+    { title: 'Item Code', dataIndex: 'itemCode', key: 'itemCode', render: (v: string) => React.createElement(Tag, { color: 'geekblue' }, v) },
+    { title: 'Product Name', dataIndex: 'itemName', key: 'itemName' },
+    { title: `Good Output (${division.uom})`, dataIndex: 'production', key: 'production', render: (v: number) => formatQty(v) },
+    {
+      title: `Product Rejection (${division.uom})`,
+      dataIndex: 'productRejectionPcs',
+      key: 'productRejectionPcs',
+      render: (v: number) =>
+        React.createElement('span', { style: { color: v > 0 ? '#ef4444' : '#10b981', fontWeight: 700 } }, formatQty(v)),
+    },
+    {
+      title: 'Rejection Weight (KG)',
+      dataIndex: 'productRejectionKg',
+      key: 'productRejectionKg',
+      render: (v: number) =>
+        React.createElement('span', { style: { color: v > 0 ? '#f97316' : undefined, fontWeight: v > 0 ? 700 : 400 } }, `${formatQty(v)} KG`),
+    },
+    {
+      title: 'Process Scrap (KG)',
+      dataIndex: 'processScrapKg',
+      key: 'processScrapKg',
+      render: (v: number) => `${formatQty(v)} KG`,
+    },
+    {
+      title: 'Rejection Rate (%)',
+      dataIndex: 'rejectionRatePct',
+      key: 'rejectionRatePct',
+      render: (v: number) => React.createElement(Tag, { color: v > 1 ? 'volcano' : 'green' }, `${v}%`),
+    },
+  ];
+
+  const chartData = allRows.slice(0, 12).map((r) => ({
+    name: `${r.machine} (${r.itemCode})`,
+    'Rejection (PCS)': r.productRejectionPcs,
+    'Total Scrap (KG)': r.totalScrapKg,
+  }));
+
+  return {
+    title: `🗑️ Rejection & Scrap Analysis — ${department !== 'ALL' ? `${department} Department` : division.name} (${intent.period.label})`,
+    summaryText:
+      `🗑️ **${division.name}${department !== 'ALL' ? ` [${department} Department]` : ''} — Rejection & Scrap Report (${intent.period.label})**:\n\n` +
+      `• **Total Product Rejection (${division.uom}):** **${formatQty(totalRejPcs)} ${division.uom}**\n` +
+      `• **Total Product Rejection (KG):** **${formatQty(totalRejKg)} KG**\n` +
+      `• **Total Process Scrap (KG):** **${formatQty(totalProcScrapKg)} KG**\n` +
+      `• **Combined Total Scrap Weight:** **${formatQty(grandTotalScrapKg)} KG**\n` +
+      `• **Good Production Output:** ${formatQty(totalProd)} ${division.uom} (Rejection Rate: **${overallRejRate}%**)\n\n` +
+      (deptLines ? `**Department Breakdown:**\n${deptLines}` : ''),
+    divisionScope: division.code,
+    departmentScope: department,
+    periodLabel: intent.period.label,
+    recordsCount: entries.length,
+    kpiCards: [
+      { title: `Product Rejection (${division.uom})`, value: formatQty(totalRejPcs), unit: division.uom, color: '#ef4444' },
+      { title: 'Product Rejection (KG)', value: formatQty(totalRejKg), unit: 'KG', color: '#f97316' },
+      { title: 'Process Scrap (KG)', value: formatQty(totalProcScrapKg), unit: 'KG', color: '#eab308' },
+      { title: 'Rejection Rate', value: `${overallRejRate}%`, color: overallRejRate > 1 ? '#ef4444' : '#10b981' },
+    ],
+    chartData: {
+      type: 'bar',
+      data: chartData,
+      xKey: 'name',
+      title: `Rejection & Scrap by Machine / Product (${intent.period.label})`,
+      dataKeys: [
+        { key: 'Rejection (PCS)', color: '#ef4444', name: `Product Rejection (${division.uom})` },
+        { key: 'Total Scrap (KG)', color: '#f97316', name: 'Total Scrap (KG)' },
+      ],
+    },
+    tableData: { columns, rows: allRows },
+    auditTrail: {
+      dataSource: 'Production Entries (Live ERP Database)',
+      filters: [
+        `Division: ${division.name}`,
+        `Department: ${department}`,
+        ...(intent.specificMachine ? [`Machine: ${intent.specificMachine}`] : []),
+        `Period: ${intent.period.label}`,
+      ],
+      period: intent.period.label,
+      timestamp: dayjs().format('YYYY-MM-DD HH:mm:ss'),
+      recordsExamined: entries.length,
+    },
+  };
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 8C. DOWNTIME & STOPPAGE ANALYTICS REPORTING
+// ═════════════════════════════════════════════════════════════════════════════
+function aggregateByDowntime(
+  entries: any[],
+  division: DivisionMeta,
+  department: string,
+  intent: QueryIntent,
+  isDark: boolean,
+): NormalizedReportResult {
+  interface DowntimeRow {
+    id: string;
+    machine: string;
+    department: string;
+    standardHours: number;
+    runningHours: number;
+    downtimeHours: number;
+    availabilityPct: number;
+    stoppageCount: number;
+    reasons: Set<string>;
+    dates: Set<string>;
+  }
+
+  const machineMap: Record<string, DowntimeRow> = {};
+
+  entries.forEach((e, idx) => {
+    const rawM = (e.machine?.machineCode || e.machineNo || 'MACHINE').toUpperCase();
+    const machine = normalizeMachineDisplayCode(rawM);
+    const dept = resolveRecordDepartment(e, division.code, rawM);
+    const rawDate = e.entryDate || e.productionDate || e.date || e.createdAt;
+    const dStr = rawDate ? dayjs(rawDate).format('DD-MMM-YYYY') : '';
+
+    const stdHrs = Number(e.standardHours ?? e.standard_hours ?? 8);
+    const downHrs = Number(e.downtimeHours ?? e.downtime_hours ?? Number(e.downtimeMinutes || 0) / 60);
+    const runHrs =
+      e.runningHours !== undefined && e.runningHours !== null
+        ? Number(e.runningHours)
+        : Math.max(0, stdHrs - downHrs);
+    const rawReason =
+      e.downtimeReason?.name ||
+      e.downtimeReason?.reason ||
+      e.downtimeReasonText ||
+      e.downtime_reason ||
+      e.remarks ||
+      '';
+
+    const key = `${dept}__${machine}`;
+    if (!machineMap[key]) {
+      machineMap[key] = {
+        id: `dt-${idx}-${machine}`,
+        machine,
+        department: dept,
+        standardHours: 0,
+        runningHours: 0,
+        downtimeHours: 0,
+        availabilityPct: 100,
+        stoppageCount: 0,
+        reasons: new Set(),
+        dates: new Set(),
+      };
+    }
+
+    machineMap[key].standardHours += stdHrs;
+    machineMap[key].runningHours += runHrs;
+    machineMap[key].downtimeHours += downHrs;
+    if (downHrs > 0) {
+      machineMap[key].stoppageCount += 1;
+      if (rawReason.trim()) {
+        machineMap[key].reasons.add(rawReason.trim());
+      } else {
+        machineMap[key].reasons.add('Operational / Maintenance Stoppage');
+      }
+      if (dStr) machineMap[key].dates.add(`${dStr} (${downHrs.toFixed(1)}h)`);
+    } else if (rawReason.trim()) {
+      machineMap[key].reasons.add(rawReason.trim());
+    }
+  });
+
+  const rows = Object.values(machineMap)
+    .map((r) => {
+      const avail =
+        r.standardHours > 0
+          ? Math.max(0, Math.min(100, Math.round(((r.standardHours - r.downtimeHours) / r.standardHours) * 1000) / 10))
+          : 100;
+      return {
+        ...r,
+        standardHours: parseFloat(r.standardHours.toFixed(2)),
+        runningHours: parseFloat(r.runningHours.toFixed(2)),
+        downtimeHours: parseFloat(r.downtimeHours.toFixed(2)),
+        availabilityPct: avail,
+        reasonsText: Array.from(r.reasons).join('; ') || (r.downtimeHours > 0 ? 'Unclassified Stoppage' : 'No Downtime'),
+        datesText: Array.from(r.dates).join(', ') || '0 hrs across period',
+      };
+    })
+    .sort((a, b) => {
+      if (b.downtimeHours !== a.downtimeHours) return b.downtimeHours - a.downtimeHours;
+      return naturalSortMachines(a.machine, b.machine);
+    });
+
+  const totalDowntime = parseFloat(rows.reduce((s, r) => s + r.downtimeHours, 0).toFixed(2));
+  const totalRunning = parseFloat(rows.reduce((s, r) => s + r.runningHours, 0).toFixed(2));
+  const totalStandard = parseFloat(rows.reduce((s, r) => s + r.standardHours, 0).toFixed(2));
+  const totalStoppages = rows.reduce((s, r) => s + r.stoppageCount, 0);
+  const fleetAvailability =
+    totalStandard > 0 ? Math.max(0, Math.min(100, Math.round(((totalStandard - totalDowntime) / totalStandard) * 1000) / 10)) : 100;
+
+  const columns: AiColumn[] = [
+    { title: 'Machine Code', dataIndex: 'machine', key: 'machine', render: (v: string) => React.createElement(Tag, { color: 'blue' }, '⚙️ ' + v) },
+    { title: 'Department', dataIndex: 'department', key: 'department', render: (v: string) => React.createElement('strong', null, v) },
+    {
+      title: 'Downtime (hrs)',
+      dataIndex: 'downtimeHours',
+      key: 'downtimeHours',
+      render: (v: number) =>
+        React.createElement(Tag, { color: v > 0 ? 'volcano' : 'green' }, `${v} hrs`),
+    },
+    { title: 'Running Hours', dataIndex: 'runningHours', key: 'runningHours', render: (v: number) => `${v} hrs` },
+    { title: 'Standard Hours', dataIndex: 'standardHours', key: 'standardHours', render: (v: number) => `${v} hrs` },
+    {
+      title: 'Availability (%)',
+      dataIndex: 'availabilityPct',
+      key: 'availabilityPct',
+      render: (v: number) => React.createElement(Tag, { color: v >= 90 ? 'green' : 'orange' }, `${v}%`),
+    },
+    { title: 'Stoppage Events', dataIndex: 'stoppageCount', key: 'stoppageCount' },
+    { title: 'Downtime Reasons / Remarks', dataIndex: 'reasonsText', key: 'reasonsText' },
+    { title: 'Stoppage Dates', dataIndex: 'datesText', key: 'datesText' },
+  ];
+
+  const topDowntimeLines = rows
+    .filter((r) => r.downtimeHours > 0 || intent.specificMachine)
+    .slice(0, 8)
+    .map(
+      (r) =>
+        `• **${r.machine}** (${r.department}): **${r.downtimeHours} hrs** downtime | Running: ${r.runningHours} hrs | Availability: **${r.availabilityPct}%** | Reason: ${r.reasonsText}`,
+    )
+    .join('\n');
+
+  const chartData = rows.map((r) => ({
+    name: r.machine,
+    'Downtime (hrs)': r.downtimeHours,
+    'Running (hrs)': r.runningHours,
+  }));
+
+  return {
+    title: `⏱️ Downtime & Machine Availability Report — ${intent.specificMachine || (department !== 'ALL' ? department : division.name)} (${intent.period.label})`,
+    summaryText:
+      `⏱️ **${division.name}${department !== 'ALL' ? ` [${department} Department]` : ''} — Downtime & Availability Analysis (${intent.period.label})**:\n\n` +
+      `• **Total Recorded Downtime:** **${totalDowntime} hrs** (${totalStoppages} stoppage events)\n` +
+      `• **Total Running Hours:** **${totalRunning} hrs** (out of ${totalStandard} scheduled hrs)\n` +
+      `• **Fleet Availability:** **${fleetAvailability}%**\n\n` +
+      (topDowntimeLines
+        ? `**Machine-wise Downtime Breakdown:**\n${topDowntimeLines}`
+        : `✅ **Zero Downtime Recorded:** All ${rows.length} machines operated at 100% availability with 0 hrs stoppage during ${intent.period.label}.`),
+    divisionScope: division.code,
+    departmentScope: department,
+    periodLabel: intent.period.label,
+    recordsCount: entries.length,
+    kpiCards: [
+      { title: 'Total Downtime', value: `${totalDowntime}`, unit: 'hrs', color: totalDowntime > 0 ? '#ef4444' : '#10b981' },
+      { title: 'Running Hours', value: `${totalRunning}`, unit: 'hrs', color: '#3b82f6' },
+      { title: 'Fleet Availability', value: `${fleetAvailability}%`, color: fleetAvailability >= 90 ? '#10b981' : '#f59e0b' },
+      { title: 'Stoppage Events', value: totalStoppages, color: '#8b5cf6' },
+    ],
+    chartData: {
+      type: 'bar',
+      data: chartData,
+      xKey: 'name',
+      title: `Machine Downtime vs Running Hours (${intent.period.label})`,
+      dataKeys: [
+        { key: 'Downtime (hrs)', color: '#ef4444', name: 'Downtime (hrs)' },
+        { key: 'Running (hrs)', color: '#10b981', name: 'Running Hours (hrs)' },
+      ],
+    },
+    tableData: { columns, rows },
+    auditTrail: {
+      dataSource: 'Production Entries (Live ERP Database)',
+      filters: [
+        `Division: ${division.name}`,
+        `Department: ${department}`,
+        ...(intent.specificMachine ? [`Machine: ${intent.specificMachine}`] : []),
+        `Period: ${intent.period.label}`,
+      ],
       period: intent.period.label,
       timestamp: dayjs().format('YYYY-MM-DD HH:mm:ss'),
       recordsExamined: entries.length,

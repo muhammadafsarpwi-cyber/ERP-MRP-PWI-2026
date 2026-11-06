@@ -139,5 +139,52 @@ describe('nlQueryParser — Date & Urdu/English Natural Language Resolution', ()
     expect(wa).toContain('*ITEM-WISE TOTAL SUMMARY:*');
     expect(wa).toContain('*250X17 Inner Butted:* *56,501 PCS*');
   });
+
+  it('parses specific item production queries in Urdu and English', () => {
+    const q1 = parseNaturalLanguageQuery('یہ آئٹم 250X17 پروڈکشن میں کتنا بن چکا ہے؟', 'DIV-SPD', 'ALL');
+    expect(q1.dimension).toBe('item');
+    expect(q1.specificItem).toBe('250X17');
+
+    const q2 = parseNaturalLanguageQuery('SPI-FG-SPK-007 پانچ تاریخ کو کتنا بنا؟', 'DIV-SPD', 'ALL');
+    expect(q2.dimension).toBe('item');
+    expect(q2.specificItem).toBe('SPI-FG-SPK-007');
+    expect(q2.period.type).toBe('specific_date');
+    expect(q2.period.dayOfMonth).toBe(5);
+
+    const q3 = parseNaturalLanguageQuery('یہ آئٹم 250 ضرب 17 کتنا بنا؟', 'DIV-SPD', 'ALL');
+    expect(q3.dimension).toBe('item');
+    expect(q3.specificItem).toBe('250X17');
+  });
+
+  it('parses rejection and scrap queries across departments and months', () => {
+    const r1 = parseNaturalLanguageQuery(
+      'اس منتھ میں اس کوک ڈویژن میں سپورٹ ڈیپارٹمنٹ میں کتنی ریجیکشن ہوئی ہے؟',
+      'DIV-CCD',
+      'ALL',
+    );
+    expect(r1.dimension).toBe('rejection');
+    expect(r1.divisionCode).toBe('DIV-SPD');
+    expect(r1.departmentCode).toBe('Spoke');
+    expect(r1.period.type).toBe('this_month');
+
+    const r2 = parseNaturalLanguageQuery('سویجنگ ڈیپارٹمنٹ میں کتنی ریجیکشن ہوئی ہے؟', 'DIV-SPD', 'ALL');
+    expect(r2.dimension).toBe('rejection');
+    expect(r2.departmentCode).toBe('Swagging');
+
+    const r3 = parseNaturalLanguageQuery('پریویس منتھ کی ریجیکشن بتائیں', 'DIV-SPD', 'ALL');
+    expect(r3.dimension).toBe('rejection');
+    expect(r3.period.type).toBe('specific_month');
+  });
+
+  it('parses downtime queries for previous month and specific machine numbers', () => {
+    const d1 = parseNaturalLanguageQuery('پریویس منتھ کا ڈاؤن ٹائم', 'DIV-SPD', 'ALL');
+    expect(d1.dimension).toBe('downtime');
+    expect(d1.period.type).toBe('specific_month');
+
+    const d2 = parseNaturalLanguageQuery('پانچ امر مشین کا ڈونٹ', 'DIV-SPD', 'Swagging');
+    expect(d2.dimension).toBe('downtime');
+    expect(d2.specificMachine).toBe('SW-05');
+  });
 });
+
 

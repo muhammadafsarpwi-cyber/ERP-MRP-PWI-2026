@@ -22,6 +22,8 @@ export type ReportingDimension =
   | 'machine_item'
   | 'department_machine'
   | 'department_operator'
+  | 'rejection'
+  | 'downtime'
   | 'maintenance'
   | 'tooling'
   | 'division_comparison'

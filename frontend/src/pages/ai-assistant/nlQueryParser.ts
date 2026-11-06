@@ -42,7 +42,9 @@ const URDU_DAY_WORDS: Record<string, number> = {
 export function normalizeUrduDateText(input: string): string {
   let s = input
     .replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 0x06f0))
-    .replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660));
+    .replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660))
+    // Convert Urdu "ضرب" between dimensions: "250 ضرب 17" -> "250X17"
+    .replace(/(\d{2,3})\s*ضرب\s*(\d{2})/g, '$1X$2');
   const words = Object.keys(URDU_DAY_WORDS).sort((a, b) => b.length - a.length).join('|');
   const monthPat = [...URDU_MONTHS, ...EN_MONTHS].join('|');
   const anchors = [
@@ -50,15 +52,46 @@ export function normalizeUrduDateText(input: string): string {
     'تاریخ',
     'tarikh',
     'tareekh',
-    'کی\\s+(?:پروڈکشن|رپورٹ|مشین)',
-    'کا\\s+ڈیٹا',
+    'نمبر',
+    'امر',
+    'number',
+    'مشین',
+    'machine',
+    'سوگ',
+    'swag',
+    'کی\\s+(?:پروڈکشن|رپورٹ|مشین|ریجیکشن|انجیکشن|سکریپ)',
+    'کا\\s+(?:ڈیٹا|ڈاؤن|ڈون|ڈاؤ)',
   ].join('|');
-  const beforeRe = new RegExp(`(^|[\\s—–,-])(${words})(?=\\s+(?:تاریخ\\s+|tarikh\\s+|tareekh\\s+)?(?:${anchors}))`, 'gi');
+  const beforeRe = new RegExp(`(^|[\\s—–,-])(${words})(?=\\s+(?:تاریخ\\s+|tarikh\\s+|tareekh\\s+|نمبر\\s+|امر\\s+|number\\s+)?(?:${anchors}))`, 'gi');
   s = s.replace(beforeRe, (_m, pre: string, w: string) => `${pre}${URDU_DAY_WORDS[w.toLowerCase()] ?? w}`);
 
   const afterMonthRe = new RegExp(`(${monthPat})(\\s+(?:کی\\s+)?)(${words})(?=$|\\s|[،,.-])`, 'gi');
   s = s.replace(afterMonthRe, (_m, mName: string, sep: string, w: string) => `${mName}${sep}${URDU_DAY_WORDS[w.toLowerCase()] ?? w}`);
   return s;
+}
+
+/**
+ * Extracts a specific Item Code or Item Size/Spec mentioned in a natural-language question,
+ * e.g. "SPI-FG-SPK-003", "WIP-SPK-001", "250X17", "125-300*17", "300X18 S9", "CD-250*17".
+ */
+export function extractSpecificItem(query: string): string | undefined {
+  const q = query.trim();
+
+  // 1. Explicit SKU / Item Code (3+ digits or multi-segment so machine codes like SPK-01 aren't matched)
+  const skuMatch = q.match(/\b((?:spi-fg|wip|rm|fg)-[a-z0-9-]+|(?:spk|spl|st|sw)-\d{3,}[a-z0-9-]*)\b/i);
+  if (skuMatch) {
+    return skuMatch[1].toUpperCase();
+  }
+
+  // 2. Dimension/size spec like "125-300X17", "250X17", "250*17", "300X18 S9", "CD-250*17", "S9-300*18"
+  const sizeMatch = q.match(
+    /\b((?:125-|cd-|cg-|s9-)?\d{2,3}\s*[x*×]\s*\d{2}(?:\s+s9)?(?:\s+(?:inn(?:er)?|out(?:er)?|butted|straight))*)\b/i,
+  );
+  if (sizeMatch) {
+    return sizeMatch[1].trim().toUpperCase();
+  }
+
+  return undefined;
 }
 
 function resolveRequestedUnit(query: string): ReportingUnit | undefined {
@@ -183,12 +216,21 @@ export function parseNaturalLanguageQuery(
   }
 
   // 3. Resolve Division Scope
-  let divisionCode = currentDivisionCode || 'DIV-CCD';
+  let divisionCode = currentDivisionCode || context?.lastDivisionCode || 'DIV-CCD';
   let explicitDivision = false;
   if (q.includes('control cable') || q.includes('ccd') || q.includes('کیبل') || q.includes('کنٹرول')) {
     divisionCode = 'DIV-CCD';
     explicitDivision = true;
-  } else if (q.includes('spoke') || q.includes('spd') || q.includes('سپوک') || q.includes('سوک')) {
+  } else if (
+    q.includes('spoke') ||
+    q.includes('spd') ||
+    q.includes('سپوک') ||
+    q.includes('اسپوک') ||
+    q.includes('سوک') ||
+    q.includes('اس کوک') ||
+    q.includes('کوک ڈویژن') ||
+    q.includes('سپورٹ ڈویژن')
+  ) {
     divisionCode = 'DIV-SPD';
     explicitDivision = true;
   } else if (q.includes('main division') || q.includes('e-51') || q.includes('div-pwi') || q.includes('مین') || q.includes('وائر ڈرائنگ')) {
@@ -203,7 +245,17 @@ export function parseNaturalLanguageQuery(
   }
 
   // If swagging or spoke machines mentioned, lock into Spoke Division
-  if (q.includes('swag') || q.includes('سوگ') || q.includes('straightener') || q.includes('سٹریٹنر')) {
+  if (
+    q.includes('swag') ||
+    q.includes('سوگ') ||
+    q.includes('سویجنگ') ||
+    q.includes('سواجنگ') ||
+    q.includes('straightener') ||
+    q.includes('سٹریٹنر') ||
+    q.includes('اسٹریٹنر') ||
+    q.includes('سپورٹ ڈیپارٹمنٹ') ||
+    q.includes('سپوک ڈیپارٹمنٹ')
+  ) {
     divisionCode = 'DIV-SPD';
     explicitDivision = true;
   }
@@ -230,19 +282,29 @@ export function parseNaturalLanguageQuery(
     limit = 5;
   }
 
-  // 6. Detect Specific Machine (e.g. "5 number swag", "سوگ 5", "مشین 5", "sw-05")
+  // 6. Detect Specific Machine (e.g. "5 number swag", "سوگ 5", "مشین 5", "پانچ امر مشین", "sw-05")
   let specificMachine: string | undefined;
-  const numBeforeMatch = q.match(/(\d+)\s*(?:number|نمبر)?\s*(?:swag|machine|سوگ|مشین)/i);
-  const numAfterMatch = q.match(/(?:machine|swag|سوگ|مشین)\s*(?:number|نمبر)?\s*#?\s*(\d+)/i);
-  const directCodeMatch = q.match(/\b(sw|ft|fl|st|spk|sp|bl|pl)[-_ ]?(\d+)\b/i);
+  const numBeforeMatch = q.match(/(\d+)\s*(?:number|نمبر|امر)?\s*(?:swag|machine|سوگ|مشین)/i);
+  const numAfterMatch = q.match(/(?:machine|swag|سوگ|مشین)\s*(?:number|نمبر|امر)?\s*#?\s*(\d+)/i);
+  const directCodeMatch = q.match(/\b(sw|ft|fl|st|spk|sp|bl|pl)[-_ ]?(\d{1,2})\b/i);
+
+  const inferMachinePrefix = (): string => {
+    if (q.includes('swag') || q.includes('سوگ') || q.includes('سویجنگ') || q.includes('سواجنگ') || departmentCode === 'Swagging') return 'SW';
+    if (q.includes('straight') || q.includes('سٹریٹنر') || departmentCode === 'Straightener') return 'ST';
+    if (q.includes('plat') || q.includes('پلیٹنگ') || departmentCode === 'Spoke Plating') return 'BL';
+    if (q.includes('ft') || q.includes('flattening') || departmentCode === 'Flattening') return 'FT';
+    if (departmentCode === 'Spiral') return 'SP';
+    if (departmentCode === 'Spoke') return 'SPK';
+    return 'M';
+  };
 
   if (numBeforeMatch) {
     const num = parseInt(numBeforeMatch[1], 10);
-    const prefix = q.includes('swag') || q.includes('سوگ') ? 'SW' : q.includes('ft') || q.includes('flattening') ? 'FT' : 'M';
+    const prefix = inferMachinePrefix();
     specificMachine = `${prefix}-${String(num).padStart(2, '0')}`;
   } else if (numAfterMatch) {
     const num = parseInt(numAfterMatch[1], 10);
-    const prefix = q.includes('swag') || q.includes('سوگ') ? 'SW' : q.includes('ft') || q.includes('flattening') ? 'FT' : 'M';
+    const prefix = inferMachinePrefix();
     specificMachine = `${prefix}-${String(num).padStart(2, '0')}`;
   } else if (directCodeMatch) {
     const prefix = directCodeMatch[1].toUpperCase();
@@ -250,8 +312,21 @@ export function parseNaturalLanguageQuery(
     specificMachine = `${prefix}-${String(num).padStart(2, '0')}`;
   }
 
+  // 6b. Detect Specific Item (e.g. "250X17", "SPI-FG-SPK-003", "300X18 S9", or inherited "یہ والا آئٹم")
+  let specificItem = extractSpecificItem(rawQuery) || extractSpecificItem(q);
+  if (
+    !specificItem &&
+    context?.lastIntent?.specificItem &&
+    (q.includes('یہ آئٹم') || q.includes('یہ ایٹم') || q.includes('یہ والا آئٹم') || q.includes('یہ والا ایٹم') || q.includes('this item') || q.includes('that item'))
+  ) {
+    specificItem = context.lastIntent.specificItem;
+  }
+
   // 7. Resolve Time Period
-  const period = resolveDatePeriod(q, Boolean(limit));
+  const isCumulativeItemQuestion =
+    Boolean(specificItem) &&
+    (q.includes('بن چکا') || q.includes('اب تک') || q.includes('ٹوٹل کتنا') || q.includes('total produced') || q.includes('so far'));
+  const period = resolveDatePeriod(q, Boolean(limit) || isCumulativeItemQuestion);
   const isSpecificSingleDate =
     period.type === 'specific_date' ||
     period.type === 'today' ||
@@ -267,6 +342,29 @@ export function parseNaturalLanguageQuery(
   // 8. Resolve Reporting Dimension
   let dimension: ReportingDimension = isSpecificSingleDate ? 'daily_granular_ledger' : 'machine';
 
+  const isRejectionOrScrapQuery =
+    /\b(rejection|rejections|reject|rejected|scrap|scraps|wastage|defective|rework)\b/i.test(q) ||
+    q.includes('ریجیکشن') ||
+    q.includes('رجیکشن') ||
+    q.includes('ریجیکٹ') ||
+    q.includes('ریجکٹ') ||
+    q.includes('انجیکشن') ||
+    q.includes('سکریپ') ||
+    q.includes('اسکریپ') ||
+    q.includes('ضائع') ||
+    q.includes('خراب مال') ||
+    q.includes('کچرا');
+
+  const isDowntimeQuery =
+    /\b(downtime|down\s+time|stoppage|stoppages|idle\s+time)\b/i.test(q) ||
+    q.includes('ڈاؤن ٹائم') ||
+    q.includes('ڈاون ٹائم') ||
+    q.includes('ڈون ٹائم') ||
+    q.includes('ڈاؤ ٹائم') ||
+    q.includes('ڈونٹ') ||
+    q.includes('رکاوٹ') ||
+    q.includes('مشین بند');
+
   const isTargetOrAverageQuery =
     /\b(target|targets|average|averages|avg)\b/i.test(q) ||
     q.includes('ٹارگٹ') ||
@@ -275,6 +373,7 @@ export function parseNaturalLanguageQuery(
     q.includes('target & average');
 
   const isExplicitItemBreakdown =
+    Boolean(specificItem) ||
     /\b(item-wise|item wise|product-wise|product wise|sku-wise|by item|by product|top\s+\d*\s*(?:items|products|skus))\b/i.test(q) ||
     q.includes('پانچ ایٹم') ||
     q.includes('ٹاپ ایٹم');
@@ -318,9 +417,13 @@ export function parseNaturalLanguageQuery(
     q.includes('خرابی') ||
     q.includes('مرمت') ||
     q.includes('preventive maintenance') ||
-    (specificMachine && (q.includes('کتنے') || q.includes('kitne') || q.includes('کارڈ')))
+    (specificMachine && (q.includes('کارڈ') || q.includes('مرمت')))
   ) {
     dimension = 'maintenance';
+  } else if (isRejectionOrScrapQuery) {
+    dimension = 'rejection';
+  } else if (isDowntimeQuery) {
+    dimension = 'downtime';
   } else if (
     (q.includes('compare') && (q.includes('august') && q.includes('september'))) ||
     period.type === 'comparison'
@@ -328,6 +431,8 @@ export function parseNaturalLanguageQuery(
     dimension = 'period_comparison';
   } else if (isCustomerOrSalesVolumeQuery) {
     dimension = 'customer';
+  } else if (specificItem) {
+    dimension = 'item';
   } else if (isSpecificSingleDate && !q.includes('operator') && !q.includes('اپریٹر')) {
     // Granular Breakdown vs Grand Totals: any production/data query for a specific date
     // generates the detailed item-wise, machine-wise, and department-wise ledger for that exact date.
@@ -404,8 +509,8 @@ export function parseNaturalLanguageQuery(
   if (q.includes('target') || q.includes('planned') || q.includes('ٹارگٹ')) metrics.push('target');
   if (q.includes('achievement') || q.includes('حصول')) metrics.push('achievement');
   if (q.includes('efficiency') || q.includes('performance') || q.includes('کارکردگی') || q.includes('average') || q.includes('avg') || q.includes('اوسط')) metrics.push('efficiency');
-  if (q.includes('downtime') || q.includes('down time') || q.includes('breakdown') || q.includes('رکاوٹ')) metrics.push('downtime');
-  if (q.includes('scrap') || q.includes('reject') || q.includes('wastage') || q.includes('سکریپ')) metrics.push('scrap');
+  if (isDowntimeQuery || q.includes('breakdown')) metrics.push('downtime');
+  if (isRejectionOrScrapQuery) metrics.push('scrap');
   if (q.includes('running hours') || q.includes('operating hours') || q.includes('run time')) metrics.push('running_hours');
   if (q.includes('variance') || q.includes('difference')) metrics.push('variance');
 
@@ -430,6 +535,7 @@ export function parseNaturalLanguageQuery(
     divisionCode,
     departmentCode,
     specificMachine,
+    specificItem,
     requestedUnit: detectedUnit,
     sortBy,
     limit,
@@ -445,12 +551,24 @@ function resolveDepartmentCode(query: string, divisionCode?: string): string | u
   if (q.includes('packing') || q.includes('packaging') || q.includes('پیکنگ')) {
     return divisionCode === 'DIV-SPD' ? 'Spoke Packing' : 'Packing';
   }
-  if (q.includes('straightener') || q.includes('سٹریٹنر') || /\bst\b/.test(q)) return 'Straightener';
-  if (q.includes('swagging') || q.includes('سویجنگ') || q.includes('سوگ') || q.includes('swag') || /\bsw\b/.test(q)) return 'Swagging';
+  if (q.includes('straightener') || q.includes('سٹریٹنر') || q.includes('اسٹریٹنر') || q.includes('سٹیٹنر') || /\bst\b/.test(q)) return 'Straightener';
+  if (q.includes('swagging') || q.includes('سویجنگ') || q.includes('سواجنگ') || q.includes('سواگنگ') || q.includes('سوگ') || q.includes('swag') || /\bsw\b/.test(q)) return 'Swagging';
   if (q.includes('plating') || q.includes('electroplating') || q.includes('پلیٹنگ')) {
     return divisionCode === 'DIV-SPD' ? 'Spoke Plating' : 'Plating';
   }
-  if (q.includes('spoke heading') || (q.includes('heading') && !q.includes('swag')) || /\bspk\b/.test(q)) return 'Spoke';
+  if (
+    q.includes('spoke heading') ||
+    q.includes('spoke department') ||
+    q.includes('spoke section') ||
+    q.includes('سپوک ڈیپارٹمنٹ') ||
+    q.includes('اسپوک ڈیپارٹمنٹ') ||
+    q.includes('سپورٹ ڈیپارٹمنٹ') ||
+    q.includes('سپوک ہیڈنگ') ||
+    (q.includes('heading') && !q.includes('swag')) ||
+    /\bspk\b/.test(q)
+  ) {
+    return 'Spoke';
+  }
   if (q.includes('drawing') || q.includes('wire drawing') || q.includes('ڈراؤنگ')) return 'Drawing';
   if (q.includes('galvanizing') || q.includes('گلوینائزنگ')) return 'Galvanizing';
   if (q.includes('annealing') || q.includes('اینیلنگ')) return 'Annealing';
@@ -592,7 +710,7 @@ function resolveDatePeriod(query: string, isTopQuery = false): DateRangePeriod {
     q.match(/(?:^|[^\d-])(0?[1-9]|[12]\d|3[01])\s*(?:tarikh|tareekh|تاریخ)/i) ||
     (!hasNonDateNumberContext
       ? q.match(/\b(0?[1-9]|[12]\d|3[01])\s+(?:production\s+report|production\s+data|production|report|data)\b/i) ||
-        q.match(/(?:^|\s)(0?[1-9]|[12]\d|3[01])\s*(?:کی|کا)\s*(?:پروڈکشن|رپورٹ|ڈیٹا|مشین)/i)
+        q.match(/(?:^|\s)(0?[1-9]|[12]\d|3[01])\s*(?:کی|کا|کو)\s*(?:پروڈکشن|رپورٹ|ڈیٹا|مشین|کتنا|ریجیکشن|ڈاؤن)/i)
       : null);
 
   if (ordinalDayMatch) {
@@ -682,7 +800,20 @@ function resolveDatePeriod(query: string, isTopQuery = false): DateRangePeriod {
     };
   }
 
-  if (q.includes('last month') || q.includes('previous month') || q.includes('پچھلے مہینے') || q.includes('گزشتہ ماہ')) {
+  if (
+    q.includes('last month') ||
+    q.includes('previous month') ||
+    q.includes('pichle mahine') ||
+    q.includes('pichla mahina') ||
+    q.includes('پچھلے مہینے') ||
+    q.includes('پچھلا مہینہ') ||
+    q.includes('پچھلے ماہ') ||
+    q.includes('گزشتہ ماہ') ||
+    q.includes('پریویس منتھ') ||
+    q.includes('پریویس منت') ||
+    q.includes('لاسٹ منتھ') ||
+    q.includes('لاسٹ منت')
+  ) {
     const lm = now.subtract(1, 'month');
     return {
       type: 'specific_month',
@@ -692,35 +823,33 @@ function resolveDatePeriod(query: string, isTopQuery = false): DateRangePeriod {
     };
   }
 
-  if (q.includes('august') || q.includes('اگست')) {
-    return {
-      type: 'specific_month',
-      label: 'August 2026',
-      startDate: '2026-08-01',
-      endDate: '2026-08-31',
-    };
-  }
-
-  if (q.includes('september') || q.includes('ستمبر')) {
-    return {
-      type: 'specific_month',
-      label: 'September 2026',
-      startDate: '2026-09-01',
-      endDate: '2026-09-30',
-    };
-  }
-
-  if (q.includes('october') || q.includes('اکتوبر')) {
-    return {
-      type: 'specific_month',
-      label: 'October 2026',
-      startDate: '2026-10-01',
-      endDate: '2026-10-31',
-    };
+  // Named month without a day (e.g. "October", "نومبر", "September")
+  const namedMonthMatch = q.match(
+    /(?:^|[^a-zA-Z\u0600-\u06FF])(january|february|march|april|may|june|july|august|september|october|november|december|جنوری|فروری|مارچ|اپریل|مئی|جون|جولائی|اگست|ستمبر|اکتوبر|نومبر|دسمبر)(?=$|[^a-zA-Z\u0600-\u06FF])/i
+  );
+  if (namedMonthMatch) {
+    const mKey = namedMonthMatch[1].toLowerCase();
+    const mIdx = monthNamesMap[mKey];
+    if (mIdx !== undefined) {
+      const mDate = now.month(mIdx);
+      return {
+        type: 'specific_month',
+        label: mDate.format('MMMM YYYY'),
+        startDate: mDate.startOf('month').format('YYYY-MM-DD'),
+        endDate: mDate.endOf('month').format('YYYY-MM-DD'),
+      };
+    }
   }
 
   // If asking for Top N without a specific month, check across all data
-  if (isTopQuery && !q.includes('month') && !q.includes('مہینے') && !q.includes('mahine')) {
+  if (
+    isTopQuery &&
+    !q.includes('month') &&
+    !q.includes('مہینے') &&
+    !q.includes('مہینہ') &&
+    !q.includes('منتھ') &&
+    !q.includes('mahine')
+  ) {
     return {
       type: 'all',
       label: 'Cumulative / All Time',
@@ -729,7 +858,7 @@ function resolveDatePeriod(query: string, isTopQuery = false): DateRangePeriod {
     };
   }
 
-  // Default: Current active month
+  // Default: Current active month ("this month", "اس منتھ", "اس مہینے", or unspecified)
   return {
     type: 'this_month',
     label: now.format('MMMM YYYY'),
