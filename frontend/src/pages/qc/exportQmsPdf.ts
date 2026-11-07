@@ -99,7 +99,7 @@ export function exportQmsToPdf(inspection: QmsInProcessInspection): string {
   const sampleHeaders = [
     '#',
     'Characteristic',
-    'Spec Req (Nominal & Tol)',
+    'Dimension Req (Nominal & Tol)',
     'S-1',
     'S-2',
     'S-3',

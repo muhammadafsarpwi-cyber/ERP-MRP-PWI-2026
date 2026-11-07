@@ -83,7 +83,7 @@ export const QmsPrintableSheet: React.FC<QmsPrintableSheetProps> = ({ visible, o
     lines.push('📏 *DIMENSIONAL CHECKS (5 SAMPLES):*');
     inspection.samples.forEach((s, idx) => {
       const tolStr = `(±${s.tolPlus}${s.unit})`;
-      lines.push(`${idx + 1}. *${s.charName}* [Spec Req: ${s.nominal} ${tolStr}]`);
+      lines.push(`${idx + 1}. *${s.charName}* [Dimension: ${s.nominal} ${tolStr}]`);
       lines.push(`   Samples: [${[s.s1, s.s2, s.s3, s.s4, s.s5].filter((v) => v !== undefined && v !== null).join(', ')}]`);
       lines.push(`   Avg: *${s.average} ${s.unit}* ➔ *${s.status}*`);
     });
@@ -255,7 +255,7 @@ export const QmsPrintableSheet: React.FC<QmsPrintableSheetProps> = ({ visible, o
               <tr style={{ backgroundColor: token.colorFillAlter, textAlign: 'left' }}>
                 <th style={{ padding: '8px', border: `1px solid ${token.colorBorder}` }}>#</th>
                 <th style={{ padding: '8px', border: `1px solid ${token.colorBorder}` }}>Characteristic</th>
-                <th style={{ padding: '8px', border: `1px solid ${token.colorBorder}` }}>Spec Req (Nominal &amp; Tol)</th>
+                <th style={{ padding: '8px', border: `1px solid ${token.colorBorder}` }}>Dimension Requirement (Nominal &amp; Tol)</th>
                 <th style={{ padding: '8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>S-1</th>
                 <th style={{ padding: '8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>S-2</th>
                 <th style={{ padding: '8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>S-3</th>
