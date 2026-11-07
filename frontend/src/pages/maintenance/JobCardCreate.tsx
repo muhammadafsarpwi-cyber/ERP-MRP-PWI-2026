@@ -31,6 +31,7 @@ import {
   CloseOutlined,
   ClusterOutlined,
   CopyOutlined,
+  DownOutlined,
   EyeInvisibleOutlined,
   EyeOutlined,
   FileTextOutlined,
@@ -42,6 +43,7 @@ import {
   ScanOutlined,
   ThunderboltOutlined,
   ToolOutlined,
+  UpOutlined,
   UserOutlined,
   WarningOutlined,
 } from '@ant-design/icons';
@@ -167,6 +169,7 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
   const isResizingRef = useRef(false);
   const resizeStartRef = useRef({ x: 0, y: 0, startW: 0, startH: 0 });
   const modalContainerRef = useRef<HTMLDivElement>(null);
+  const formPaneRef = useRef<HTMLDivElement>(null);
 
   const toggleMaximize = useCallback(() => {
     setIsMaximized((prev) => {
@@ -915,9 +918,10 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
             overflow: 'hidden',
           },
           body: {
-            flex: '1 1 0%',
-            height: 0,
+            flex: '1 1 auto',
+            height: '100%',
             minHeight: 0,
+            maxHeight: '100%',
             display: 'flex',
             flexDirection: 'column',
             padding: 0,
@@ -1097,16 +1101,17 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
             style={{
               display: 'flex',
               flexDirection: isMobile ? 'column' : 'row',
-              flex: '1 1 0%',
-              height: 0,
+              flex: '1 1 auto',
+              height: 'calc(100% - 118px)',
+              maxHeight: 'calc(100% - 118px)',
               minHeight: 0,
-              maxHeight: '100%',
               overflow: 'hidden',
             }}
           >
             {/* ── Left Form Pane ────────────────────────────────────────── */}
             {(!isMobile || mobileActiveTab === 'form') && (
               <div
+                ref={formPaneRef}
                 className="erp-jc-form-pane"
                 style={{
                   flex: isMobile ? '1 1 0%' : (showPreviewPane ? '1 1 60%' : '1 1 100%'),
@@ -1523,6 +1528,58 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
                   )}
                 </div>
               </Form>
+
+              {/* Floating Quick Mouse Slide Controller */}
+              {!isMobile && (
+                <div
+                  style={{
+                    position: 'sticky',
+                    bottom: 4,
+                    display: 'flex',
+                    justifyContent: 'flex-end',
+                    pointerEvents: 'none',
+                    zIndex: 25,
+                    marginTop: -38,
+                  }}
+                >
+                  <div
+                    style={{
+                      pointerEvents: 'auto',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      background: 'rgba(15, 23, 42, 0.92)',
+                      border: '1.5px solid #3b82f6',
+                      borderRadius: 20,
+                      padding: '3px 10px',
+                      boxShadow: '0 4px 16px rgba(0, 0, 0, 0.6)',
+                      backdropFilter: 'blur(8px)',
+                    }}
+                  >
+                    <Button
+                      size="small"
+                      type="primary"
+                      shape="circle"
+                      icon={<DownOutlined style={{ fontSize: 11 }} />}
+                      onClick={() => formPaneRef.current?.scrollBy({ top: 320, behavior: 'smooth' })}
+                      title="Click to slide down with mouse"
+                      style={{ width: 24, height: 24, minWidth: 24, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                    />
+                    <Button
+                      size="small"
+                      type="default"
+                      shape="circle"
+                      icon={<UpOutlined style={{ fontSize: 11 }} />}
+                      onClick={() => formPaneRef.current?.scrollBy({ top: -320, behavior: 'smooth' })}
+                      title="Click to slide up with mouse"
+                      style={{ width: 24, height: 24, minWidth: 24, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                    />
+                    <span style={{ fontSize: 11, fontWeight: 700, color: '#60a5fa', userSelect: 'none', paddingRight: 2 }}>
+                      Mouse Slide
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
             )}
 
@@ -1706,6 +1763,9 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
             className="erp-jc-footer"
             style={{
               flexShrink: 0,
+              flex: '0 0 64px',
+              height: 64,
+              boxSizing: 'border-box',
               marginTop: 0,
               position: 'relative',
               width: '100%',
