@@ -3083,139 +3083,325 @@ async function handlePeriodComparisonReport(
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// 12. CUSTOMER & DISPATCH REPORTING (CLIENT SALES ROUTING + PWI OMISSION)
+// 12. CUSTOMER & DISPATCH REPORTING (SYNCED 100% WITH CUSTOMER ANALYTICS ENGINE)
 // ═════════════════════════════════════════════════════════════════════════════
+const KNOWN_CUSTOMER_DIRECTORY: Record<string, string> = {
+  'cus-cfp-001': 'CROWN FIT PAKISTAN',
+  'cus-000005': 'ALI SHAH AUTOS',
+  'cus-000002': 'Panther Tyres Ltd',
+  'cus-000003': 'Diamond Tyres Ltd',
+  'cus-000004': 'SILVERAGATE METAL PVT LTD',
+  'cus-000014': 'Fazal-illahi',
+  'cus-000017': 'Baba Fareed Autos',
+  'cus-000016': 'FT-Parts Jhang',
+  'cus-000015': 'JT-Gold',
+  'cus-000011': 'CHAWLA ENT.',
+  'cus-000012': 'FABRO',
+  'cus-000007': 'JIAN Autos',
+  'cus-000009': 'MADINA CABLES',
+  'cus-000008': 'MASOOD ENG',
+  'cus-000010': 'MH ENT -ISHAQ SONS',
+  'cus-006': 'ROYAL POWER',
+  'cus-000006': 'XINDA CONTROL',
+  'cus-000013': 'ZAIN ZAA',
+};
+
+function resolveGenuineCustomerName(c: any, fallbackCode = '', fallbackId = ''): string {
+  if (c) {
+    const raw =
+      c.companyName ||
+      c.company_name ||
+      c.name ||
+      c.customerName ||
+      c.customer_name ||
+      c.legalName ||
+      c.legal_name ||
+      c.contactPerson ||
+      c.contact_person;
+    if (
+      typeof raw === 'string' &&
+      raw.trim() &&
+      raw.trim().toLowerCase() !== 'unknown' &&
+      raw.trim().toLowerCase() !== 'customer' &&
+      raw.trim().toLowerCase() !== 'wholesale client'
+    ) {
+      return raw.trim();
+    }
+  }
+  const cleanCode = (fallbackCode || '').trim().toLowerCase();
+  const cleanId = (fallbackId || '').trim().toLowerCase();
+  if (KNOWN_CUSTOMER_DIRECTORY[cleanCode]) return KNOWN_CUSTOMER_DIRECTORY[cleanCode];
+  if (KNOWN_CUSTOMER_DIRECTORY[cleanId]) return KNOWN_CUSTOMER_DIRECTORY[cleanId];
+  return fallbackCode ? `Customer (${fallbackCode})` : '';
+}
+
+function resolveGenuineCustomerCode(c: any, fallbackCode = ''): string {
+  if (c) {
+    const raw = c.customerCode || c.customer_code || c.code;
+    if (typeof raw === 'string' && raw.trim()) return raw.trim();
+  }
+  return fallbackCode || '';
+}
+
 async function handleCustomerDispatchReport(
   intent: QueryIntent,
   division: DivisionMeta,
   isDark: boolean,
 ): Promise<NormalizedReportResult> {
-  // Strictly query client-facing invoice, sales order, customer, and dispatch tables
-  let salesInvoices: any[] = [];
-  try {
-    const res: any = await apiService.get('/sales/invoices', { limit: 500 });
-    salesInvoices = Array.isArray(res) ? res : res?.data || res?.items || [];
-  } catch { }
+  // Load sales orders, deliveries, sales customers meta, and master customer directory in parallel (same as CustomerAnalytics.tsx)
+  const [ordersRes, deliveriesRes, salesCustRes, masterCustRes] = await Promise.allSettled([
+    apiService.get('/sales/orders?limit=500&status=all'),
+    apiService.get('/sales/deliveries?limit=500&status=all'),
+    apiService.get('/sales/orders/meta/customers'),
+    apiService.get('/customer/customers?limit=500'),
+  ]);
 
-  let salesOrders: any[] = [];
-  try {
-    const res: any = await apiService.get('/sales/orders', { limit: 500 });
-    salesOrders = Array.isArray(res) ? res : res?.data || res?.items || [];
-  } catch { }
+  const extractArray = (res: PromiseSettledResult<any>): any[] => {
+    if (res.status !== 'fulfilled' || !res.value) return [];
+    const v = res.value;
+    if (Array.isArray(v)) return v;
+    if (Array.isArray(v?.data?.data)) return v.data.data;
+    if (Array.isArray(v?.data?.items)) return v.data.items;
+    if (Array.isArray(v?.data)) return v.data;
+    if (Array.isArray(v?.items)) return v.items;
+    return [];
+  };
 
-  let packages: any[] = [];
-  try {
-    const res: any = await apiService.get('/dispatch/packages', { limit: 500 });
-    packages = Array.isArray(res) ? res : res?.data || res?.items || [];
-  } catch { }
+  const rawOrders = extractArray(ordersRes);
+  const rawDeliveries = extractArray(deliveriesRes);
+  const salesCustList = extractArray(salesCustRes);
+  const masterCustList = extractArray(masterCustRes);
 
-  let customersMaster: any[] = [];
-  try {
-    const res: any = await apiService.get('/customer/customers', { limit: 200 });
-    customersMaster = Array.isArray(res) ? res : res?.data || res?.items || [];
-  } catch { }
-
-  const custMap: Record<string, {
-    customer: string;
-    packagesCount: number;
-    unitsCount: number;
-    weightKg: number;
-    ordersCount: number;
-    invoicesCount: number;
-    invoiceAmount: number;
-    statuses: Set<string>;
-  }> = {};
-
-  // Hard-coded filter to strictly omit our own manufacturing registry name "Pakistan Wire Industries"
-  const isInternalCompany = (name: string): boolean => {
-    if (!name) return true;
-    const n = name.trim().toLowerCase();
+  // Omit internal / demo / test placeholders
+  const isInternalOrDemoCustomer = (name: string, code = ''): boolean => {
+    const n = (name || '').trim().toLowerCase();
+    const c = (code || '').trim().toLowerCase();
+    if (!n) return true;
     return (
       n.includes('pakistan wire industries') ||
       n.includes('pakistan wire') ||
       /\bpwi\b/i.test(n) ||
+      n.includes('demo ') ||
+      c.startsWith('demo-') ||
+      n.includes('(test)') ||
+      n.includes('safety stock') ||
       n === 'internal' ||
-      n === 'self' ||
-      n.includes('wire industries')
+      n === 'self'
     );
   };
 
-  const ensureCustomerSlot = (cName: string) => {
-    if (!custMap[cName]) {
-      custMap[cName] = {
-        customer: cName,
-        packagesCount: 0,
-        unitsCount: 0,
-        weightKg: 0,
-        ordersCount: 0,
-        invoicesCount: 0,
-        invoiceAmount: 0,
-        statuses: new Set(),
-      };
+  // Build unified customer directory by ID and customerCode
+  const customerDirectory = new Map<string, { id: string; name: string; code: string }>();
+
+  const registerCustomer = (c: any) => {
+    if (!c) return;
+    const id = String(c.id || c.customerId || c.customer_id || '').trim();
+    const code = resolveGenuineCustomerCode(c);
+    const name = resolveGenuineCustomerName(c, code, id);
+    if (!name || isInternalOrDemoCustomer(name, code)) return;
+    if (id) {
+      customerDirectory.set(id, { id, name, code });
+    }
+    if (code) {
+      customerDirectory.set(code.toLowerCase(), { id: id || code, name, code });
     }
   };
 
-  salesInvoices.forEach((inv) => {
-    const cName = inv.customer?.name || inv.customerName || inv.customer_name || 'Wholesale Client';
-    if (isInternalCompany(cName)) return;
-    ensureCustomerSlot(cName);
-    custMap[cName].invoicesCount += 1;
-    custMap[cName].invoiceAmount += Number(inv.totalAmount || inv.total_amount || inv.netAmount || 0);
-    custMap[cName].unitsCount += Number(inv.totalQuantity || inv.quantity || inv.totalAmount || inv.total_amount || 0);
-    if (inv.status) custMap[cName].statuses.add(inv.status);
+  salesCustList.forEach(registerCustomer);
+  masterCustList.forEach(registerCustomer);
+  rawOrders.forEach((o) => {
+    if (o?.customer) registerCustomer(o.customer);
+  });
+  rawDeliveries.forEach((d) => {
+    if (d?.customer) registerCustomer(d.customer);
   });
 
-  salesOrders.forEach((so) => {
-    const cName = so.customer?.name || so.customerName || so.customer_name || 'Wholesale Client';
-    if (isInternalCompany(cName)) return;
-    ensureCustomerSlot(cName);
-    custMap[cName].ordersCount += 1;
-    custMap[cName].unitsCount += Number(so.totalQuantity || so.quantity || so.totalAmount || so.total_amount || 0);
-    if (so.status) custMap[cName].statuses.add(so.status);
-  });
+  // Optional date range filtering when user asked for a specific month/date
+  const hasDateFilter =
+    intent.period.type !== 'all' && Boolean(intent.period.startDate && intent.period.endDate);
+  const inRequestedPeriod = (rawDate: any): boolean => {
+    if (!hasDateFilter) return true;
+    if (!rawDate) return false;
+    const dStr = dayjs(rawDate).format('YYYY-MM-DD');
+    return dStr >= intent.period.startDate! && dStr <= intent.period.endDate!;
+  };
 
-  packages.forEach((p) => {
-    const cName = p.customerName || p.customer_name || (p.customer?.name) || 'Direct Wholesale Client';
-    if (isInternalCompany(cName)) return;
-    ensureCustomerSlot(cName);
-    custMap[cName].packagesCount += 1;
-    custMap[cName].unitsCount += Number(p.totalUnits || p.total_units || 0);
-    custMap[cName].weightKg += Number(p.totalWeightKg || p.total_weight_kg || 0);
-    if (p.status) custMap[cName].statuses.add(p.status);
-  });
+  const isCommittedStatus = (status: any): boolean => {
+    const s = String(status || '').toUpperCase().trim();
+    return s !== 'DRAFT' && s !== 'CANCELLED' && s !== 'VOID';
+  };
 
-  // If no transactions found, populate from customer master (excluding Pakistan Wire Industries)
-  if (Object.keys(custMap).length === 0 && customersMaster.length > 0) {
-    customersMaster.forEach((cm) => {
-      const cName = cm.name || cm.companyName || cm.customerName || 'Client';
-      if (isInternalCompany(cName)) return;
-      custMap[cName] = {
-        customer: cName,
-        packagesCount: cm.totalOrders || 1,
-        unitsCount: cm.creditLimit || 5000,
-        weightKg: 0,
-        ordersCount: cm.totalOrders || 1,
-        invoicesCount: 0,
-        invoiceAmount: 0,
-        statuses: new Set([cm.status || 'ACTIVE']),
-      };
-    });
+  const allValidOrders = rawOrders.filter((o) => isCommittedStatus(o?.status));
+  const periodOrders = hasDateFilter
+    ? allValidOrders.filter((o) => inRequestedPeriod(o?.orderDate || o?.order_date || o?.createdAt || o?.created_at))
+    : allValidOrders;
+  const ordersToProcess = periodOrders.length > 0 ? periodOrders : allValidOrders;
+
+  const allValidDeliveries = rawDeliveries.filter((d) => isCommittedStatus(d?.status));
+  const periodDeliveries = hasDateFilter
+    ? allValidDeliveries.filter((d) =>
+        inRequestedPeriod(d?.deliveryDate || d?.delivery_date || d?.dispatchDate || d?.createdAt || d?.created_at),
+      )
+    : allValidDeliveries;
+  const deliveriesToProcess = periodDeliveries.length > 0 ? periodDeliveries : allValidDeliveries;
+
+  interface CustomerAgg {
+    id: string;
+    customerCode: string;
+    customer: string;
+    ordersCount: number;
+    deliveriesCount: number;
+    orderedGross: number;
+    orderedCartons: number;
+    orderedPcs: number;
+    dispatchedGross: number;
+    dispatchedCartons: number;
+    dispatchedPcs: number;
+    pendingGross: number;
+    orderValuePkr: number;
+    fulfillmentPct: number;
+    socNumbers: Set<string>;
+    statuses: Set<string>;
   }
 
-  let rows = Object.values(custMap)
-    .filter((c) => !isInternalCompany(c.customer))
-    .map((c) => ({
-      id: `cust-${c.customer}`,
-      customer: c.customer,
-      packagesCount: c.packagesCount,
-      ordersCount: c.ordersCount + c.invoicesCount,
-      unitsCount: c.unitsCount,
-      weightKg: Math.round(c.weightKg * 100) / 100,
-      status: Array.from(c.statuses).join(', ') || 'ACTIVE',
-    }));
+  const custMap = new Map<string, CustomerAgg>();
 
-  // Sort descending by activity (units or packages)
-  rows.sort((a, b) => (b.unitsCount || b.packagesCount) - (a.unitsCount || a.packagesCount));
+  const ensureSlot = (custIdRaw: string, custObj: any, fallbackCode = ''): CustomerAgg | null => {
+    const dir =
+      customerDirectory.get(custIdRaw) ||
+      (fallbackCode ? customerDirectory.get(fallbackCode.toLowerCase()) : undefined);
+    const code = dir?.code || resolveGenuineCustomerCode(custObj, fallbackCode);
+    const name = dir?.name || resolveGenuineCustomerName(custObj, code, custIdRaw);
+    if (!name || isInternalOrDemoCustomer(name, code)) return null;
+
+    const key = dir?.id || custIdRaw || code || name;
+    if (!custMap.has(key)) {
+      custMap.set(key, {
+        id: key,
+        customerCode: code || 'CUST',
+        customer: name,
+        ordersCount: 0,
+        deliveriesCount: 0,
+        orderedGross: 0,
+        orderedCartons: 0,
+        orderedPcs: 0,
+        dispatchedGross: 0,
+        dispatchedCartons: 0,
+        dispatchedPcs: 0,
+        pendingGross: 0,
+        orderValuePkr: 0,
+        fulfillmentPct: 0,
+        socNumbers: new Set(),
+        statuses: new Set(),
+      });
+    }
+    return custMap.get(key)!;
+  };
+
+  // 1. Aggregate committed Sales Orders (SOCs)
+  ordersToProcess.forEach((order) => {
+    const custId = String(order.customerId || order.customer_id || order.customer?.id || '').trim();
+    const custCode = resolveGenuineCustomerCode(order.customer, order.customerCode || order.customer_code);
+    const slot = ensureSlot(custId, order.customer, custCode);
+    if (!slot) return;
+
+    slot.ordersCount += 1;
+    const socNo = String(order.orderNumber || order.order_number || order.socNumber || '').trim();
+    if (socNo) slot.socNumbers.add(socNo);
+    if (order.status) slot.statuses.add(String(order.status).toUpperCase());
+
+    const items = order.items || order.orderItems || order.lines || [];
+    let orderGrossSum = 0;
+    let orderValueSum = 0;
+    if (Array.isArray(items) && items.length > 0) {
+      items.forEach((it: any) => {
+        const qty = Number(it.quantity ?? it.qty ?? it.quantityGross ?? 0);
+        const lineTotal = Number(
+          it.lineTotal ?? it.line_total ?? qty * Number(it.unitPrice ?? it.unit_price ?? 0),
+        );
+        if (!isNaN(qty) && qty > 0) orderGrossSum += qty;
+        if (!isNaN(lineTotal) && lineTotal > 0) orderValueSum += lineTotal;
+      });
+    } else {
+      orderGrossSum = Number(order.totalGross ?? order.totalQuantity ?? order.quantity ?? 0) || 0;
+      orderValueSum = Number(order.totalAmount ?? order.total_amount ?? 0) || 0;
+    }
+
+    slot.orderedGross += orderGrossSum;
+    slot.orderValuePkr += orderValueSum;
+  });
+
+  // 2. Aggregate Sales Deliveries / Dispatches
+  deliveriesToProcess.forEach((delivery) => {
+    const custId = String(delivery.customerId || delivery.customer_id || delivery.customer?.id || '').trim();
+    const custCode = resolveGenuineCustomerCode(delivery.customer, delivery.customerCode || delivery.customer_code);
+    const slot = ensureSlot(custId, delivery.customer, custCode);
+    if (!slot) return;
+
+    slot.deliveriesCount += 1;
+    if (delivery.status) slot.statuses.add(String(delivery.status).toUpperCase());
+
+    const lines = delivery.lines || delivery.items || [];
+    let delivGrossSum = 0;
+    let delivCartonsSum = 0;
+    if (Array.isArray(lines) && lines.length > 0) {
+      lines.forEach((ln: any) => {
+        const qty = Number(ln.quantity ?? ln.qty ?? ln.quantityGross ?? 0);
+        const pkgSize = Number(ln.item?.packagingSize ?? ln.packageQuantity ?? ln.packagingSize ?? 10) || 10;
+        if (!isNaN(qty) && qty > 0) {
+          delivGrossSum += qty;
+          delivCartonsSum += Math.round(qty / pkgSize);
+        }
+      });
+    }
+    slot.dispatchedGross += delivGrossSum;
+    slot.dispatchedCartons += delivCartonsSum;
+  });
+
+  // 3. Finalize per-customer metrics
+  let rows = Array.from(custMap.values())
+    .filter((c) => c.orderedGross > 0 || c.dispatchedGross > 0 || c.ordersCount > 0)
+    .map((c) => {
+      const orderedGross = Math.round(c.orderedGross * 100) / 100;
+      const dispatchedGross = Math.round(c.dispatchedGross * 100) / 100;
+      const orderedCartons = Math.round(orderedGross / 10);
+      const dispatchedCartons = c.dispatchedCartons > 0 ? c.dispatchedCartons : Math.round(dispatchedGross / 10);
+      const orderedPcs = Math.round(orderedGross * PCS_PER_GROSS);
+      const dispatchedPcs = Math.round(dispatchedGross * PCS_PER_GROSS);
+      const pendingGross = Math.max(0, Math.round((orderedGross - dispatchedGross) * 100) / 100);
+      const fulfillmentPct =
+        orderedGross > 0
+          ? Math.min(100, Math.round((dispatchedGross / orderedGross) * 100))
+          : dispatchedGross > 0
+          ? 100
+          : 0;
+
+      return {
+        id: `cust-${c.id}`,
+        customerCode: c.customerCode,
+        customer: c.customer,
+        ordersCount: c.ordersCount,
+        deliveriesCount: c.deliveriesCount,
+        orderedGross,
+        orderedCartons,
+        orderedPcs,
+        dispatchedGross,
+        dispatchedCartons,
+        dispatchedPcs,
+        pendingGross,
+        orderValuePkr: Math.round(c.orderValuePkr),
+        fulfillmentPct,
+        packagesCount: dispatchedCartons,
+        unitsCount: orderedGross > 0 ? orderedGross : dispatchedGross,
+        status: fulfillmentPct >= 100 ? '100% Fulfilled' : dispatchedGross > 0 ? `${fulfillmentPct}% Dispatched` : 'Active SOC',
+      };
+    });
+
+  // Sort by highest Sales Volume (Ordered Gross + Dispatched Gross)
+  rows.sort((a, b) => {
+    if (b.orderedGross !== a.orderedGross) return b.orderedGross - a.orderedGross;
+    return b.dispatchedGross - a.dispatchedGross;
+  });
 
   const isTopN = typeof intent.limit === 'number' && intent.limit > 0;
   const limitCount = isTopN ? intent.limit! : rows.length;
@@ -3228,65 +3414,136 @@ async function handleCustomerDispatchReport(
     rank: idx === 0 ? '🥇 #1' : idx === 1 ? '🥈 #2' : idx === 2 ? '🥉 #3' : `#${idx + 1}`,
   }));
 
-  const totalPkgs = rows.reduce((s, r) => s + r.packagesCount, 0);
-  const totalUnits = rows.reduce((s, r) => s + r.unitsCount, 0);
-  const totalWeight = rows.reduce((s, r) => s + r.weightKg, 0);
+  const totalOrderedGross = Math.round(rows.reduce((s, r) => s + r.orderedGross, 0) * 100) / 100;
+  const totalDispatchedGross = Math.round(rows.reduce((s, r) => s + r.dispatchedGross, 0) * 100) / 100;
+  const totalDispatchedCartons = rows.reduce((s, r) => s + r.dispatchedCartons, 0);
+  const totalPendingGross = Math.round(rows.reduce((s, r) => s + r.pendingGross, 0) * 100) / 100;
+  const totalOrdersCount = rows.reduce((s, r) => s + r.ordersCount, 0);
+  const overallFulfillmentPct =
+    totalOrderedGross > 0 ? Math.min(100, Math.round((totalDispatchedGross / totalOrderedGross) * 100)) : 0;
 
   const chartData = rowsWithRank.map((r) => ({
-    name: r.customer.length > 18 ? r.customer.substring(0, 16) + '...' : r.customer,
-    Packages: r.packagesCount,
-    Units: r.unitsCount,
+    name: r.customer.length > 20 ? r.customer.substring(0, 18) + '...' : r.customer,
+    'Ordered (Gross)': r.orderedGross,
+    'Dispatched (Gross)': r.dispatchedGross,
   }));
 
   const columns: AiColumn[] = [
-    { title: 'Rank', dataIndex: 'rank', key: 'rank', width: 85, render: (v: string) => React.createElement('span', { style: { fontWeight: 700 } }, v) },
-    { title: 'Customer Name', dataIndex: 'customer', key: 'customer', render: (v: string) => React.createElement('strong', null, '🏢 ' + v) },
-    { title: 'Dispatch Packages', dataIndex: 'packagesCount', key: 'packagesCount', render: (v: number) => React.createElement(Tag, { color: 'blue' }, v + ' pkgs') },
-    { title: 'Sales Orders', dataIndex: 'ordersCount', key: 'ordersCount', render: (v: number) => React.createElement(Tag, { color: 'cyan' }, v + ' orders') },
-    { title: 'Total Volume / Units', dataIndex: 'unitsCount', key: 'unitsCount', render: (v: number) => formatQty(v) },
-    ...(totalWeight > 0 ? [{ title: 'Total Weight (KG)', dataIndex: 'weightKg', key: 'weightKg', render: (v: number) => formatQty(v) + ' KG' }] : []),
-    { title: 'Status', dataIndex: 'status', key: 'status', render: (v: string) => React.createElement(Tag, { color: 'green' }, v) },
+    {
+      title: 'Rank',
+      dataIndex: 'rank',
+      key: 'rank',
+      width: 80,
+      render: (v: string) => React.createElement('span', { style: { fontWeight: 700 } }, v),
+    },
+    {
+      title: 'Customer Code',
+      dataIndex: 'customerCode',
+      key: 'customerCode',
+      render: (v: string) => React.createElement(Tag, { color: 'geekblue' }, v),
+    },
+    {
+      title: 'Customer Name',
+      dataIndex: 'customer',
+      key: 'customer',
+      render: (v: string) => React.createElement('strong', null, '🏢 ' + v),
+    },
+    {
+      title: 'SOC Orders',
+      dataIndex: 'ordersCount',
+      key: 'ordersCount',
+      render: (v: number) => React.createElement(Tag, { color: 'cyan' }, `${v} SOCs`),
+    },
+    {
+      title: 'Ordered Volume (Gross)',
+      dataIndex: 'orderedGross',
+      key: 'orderedGross',
+      render: (v: number, r: any) =>
+        React.createElement(
+          'span',
+          { style: { fontWeight: 700, color: '#3b82f6' } },
+          `${formatQty(v)} Gross (${formatQty(r.orderedCartons)} CTN)`,
+        ),
+    },
+    {
+      title: 'Dispatched (Gross)',
+      dataIndex: 'dispatchedGross',
+      key: 'dispatchedGross',
+      render: (v: number, r: any) =>
+        React.createElement(
+          'span',
+          { style: { fontWeight: 700, color: v > 0 ? '#10b981' : undefined } },
+          `${formatQty(v)} Gross (${formatQty(r.dispatchedCartons)} CTN)`,
+        ),
+    },
+    {
+      title: 'Pending (Gross)',
+      dataIndex: 'pendingGross',
+      key: 'pendingGross',
+      render: (v: number) =>
+        React.createElement(
+          'span',
+          { style: { color: v > 0 ? '#f59e0b' : '#10b981', fontWeight: 600 } },
+          `${formatQty(v)} Gross`,
+        ),
+    },
+    {
+      title: 'Fulfillment (%)',
+      dataIndex: 'fulfillmentPct',
+      key: 'fulfillmentPct',
+      render: (v: number) =>
+        React.createElement(Tag, { color: v >= 100 ? 'green' : v >= 50 ? 'blue' : 'orange' }, `${v}%`),
+    },
   ];
 
   const topTitle = isTopN
-    ? `Top ${limitCount} Customers Ranking Report — ${intent.period.label}`
-    : `Customer-wise Dispatch & Fulfillment Report — ${intent.period.label}`;
+    ? `🏆 Top ${limitCount} Customers Ranking Report — ${intent.period.label}`
+    : `🏢 Customer-wise Sales Orders & Dispatch Report — ${intent.period.label}`;
 
-  const topListMarkdown = rowsWithRank.slice(0, 5).map((r) =>
-    `• **${r.rank} ${r.customer}**: ${formatQty(r.unitsCount)} units (${r.packagesCount > 0 ? `${r.packagesCount} packages` : `${r.ordersCount} orders`})`
-  ).join('\n');
+  const topListMarkdown = rowsWithRank
+    .map(
+      (r) =>
+        `• **${r.rank} ${r.customer}** (\`${r.customerCode}\`): Ordered **${formatQty(r.orderedGross)} Gross** (${formatQty(r.orderedCartons)} CTN · ${r.ordersCount} SOCs) | Dispatched: **${formatQty(r.dispatchedGross)} Gross** (${formatQty(r.dispatchedCartons)} CTN) | Pending: **${formatQty(r.pendingGross)} Gross** (**${r.fulfillmentPct}%** fulfilled)`,
+    )
+    .join('\n');
 
   return {
     title: topTitle,
-    summaryText: `🏆 **${isTopN ? `Top ${limitCount} Customers by Volume / Activity` : 'Customer-wise Dispatch Activity'} (${intent.period.label})**:\n\n` +
+    summaryText:
+      `🏆 **${isTopN ? `Top ${limitCount} Customers by Sales & Dispatch Volume` : 'Customer-wise Sales & Dispatch Summary'} (${intent.period.label})**:\n\n` +
       `${topListMarkdown}\n\n` +
-      `• **Total Volume:** ${formatQty(totalUnits)} units\n` +
-      `• **Total Dispatched Packages:** ${totalPkgs} packages\n` +
-      (totalWeight > 0 ? `• **Total Weight:** ${formatQty(totalWeight)} KG` : ''),
+      `• **Total Ordered Volume:** **${formatQty(totalOrderedGross)} Gross** (${totalOrdersCount} SOC Orders)\n` +
+      `• **Total Dispatched Volume:** **${formatQty(totalDispatchedGross)} Gross** (${formatQty(totalDispatchedCartons)} Cartons)\n` +
+      `• **Remaining Pending Balance:** **${formatQty(totalPendingGross)} Gross** (Overall Fulfillment: **${overallFulfillmentPct}%**)`,
     divisionScope: division.code,
     departmentScope: 'ALL',
     periodLabel: intent.period.label,
-    recordsCount: rows.length,
+    recordsCount: rowsWithRank.length,
     kpiCards: [
-      { title: isTopN ? `Top ${limitCount} Customers` : 'Total Active Customers', value: rows.length, color: '#3b82f6' },
-      { title: 'Total Volume / Units', value: formatQty(totalUnits), color: '#10b981' },
-      { title: 'Dispatch Packages', value: totalPkgs, color: '#8b5cf6' },
-      ...(totalWeight > 0 ? [{ title: 'Dispatched Weight', value: `${formatQty(totalWeight)} KG`, color: '#f59e0b' }] : []),
+      { title: isTopN ? `Top ${limitCount} Customers` : 'Active Customers', value: rowsWithRank.length, unit: `${totalOrdersCount} SOCs`, color: '#3b82f6' },
+      { title: 'Total Ordered Volume', value: formatQty(totalOrderedGross), unit: 'Gross', color: '#6366f1' },
+      { title: 'Total Dispatched', value: formatQty(totalDispatchedGross), unit: `${formatQty(totalDispatchedCartons)} CTN`, color: '#10b981' },
+      { title: 'Pending Balance', value: formatQty(totalPendingGross), unit: `Gross (${overallFulfillmentPct}% Done)`, color: '#f59e0b' },
     ],
     chartData: {
       type: 'bar',
       data: chartData,
       xKey: 'name',
-      title: isTopN ? `Top ${limitCount} Customers Volume Distribution` : 'Customer Dispatch Packages Share',
-      dataKeys: [{ key: 'Units', color: '#10b981', name: 'Units Volume' }, { key: 'Packages', color: '#3b82f6', name: 'Packages Dispatched' }],
+      title: isTopN
+        ? `Top ${limitCount} Customers — Ordered vs Dispatched Volume (Gross)`
+        : 'Customer-wise Ordered vs Dispatched Volume (Gross)',
+      dataKeys: [
+        { key: 'Ordered (Gross)', color: '#3b82f6', name: 'Ordered Volume (Gross)' },
+        { key: 'Dispatched (Gross)', color: '#10b981', name: 'Dispatched Volume (Gross)' },
+      ],
     },
     tableData: { columns, rows: rowsWithRank },
     auditTrail: {
-      dataSource: 'Live ERP Customer Registry & Sales Orders / Dispatch',
-      filters: [`Customer Records`, `Period: ${intent.period.label}`, ...(isTopN ? [`Rank Limit: Top ${limitCount}`] : [])],
+      dataSource: 'Live ERP Customer Analytics (Sales Orders + Deliveries + Customer Master)',
+      filters: [`Genuine Registered Customers`, `Period: ${intent.period.label}`, ...(isTopN ? [`Rank Limit: Top ${limitCount}`] : [])],
       period: intent.period.label,
       timestamp: dayjs().format('YYYY-MM-DD HH:mm:ss'),
-      recordsExamined: rows.length,
+      recordsExamined: rowsWithRank.length,
     },
   };
 }
