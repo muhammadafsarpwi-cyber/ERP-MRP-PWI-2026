@@ -158,7 +158,7 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
 
   // Window State: Draggable, Resizable, Maximizable, Minimizable, Toggle Detail Sheet
   const DEFAULT_DESKTOP_WIDTH = 1140;
-  const DEFAULT_DESKTOP_HEIGHT = 740;
+  const DEFAULT_DESKTOP_HEIGHT = 540;
   const [customSize, setCustomSize] = useState<{ width: number; height: number } | null>(null);
   const [isMaximized, setIsMaximized] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
@@ -910,7 +910,7 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
         styles={{
           content: {
             height: isMobile ? '100dvh' : isMaximized ? '92vh' : `${customSize?.height || DEFAULT_DESKTOP_HEIGHT}px`,
-            maxHeight: isMobile ? '100dvh' : isMaximized ? '95vh' : '92vh',
+            maxHeight: isMobile ? '100dvh' : isMaximized ? '95vh' : '82vh',
             display: 'flex',
             flexDirection: 'column',
             padding: 0,
@@ -951,9 +951,9 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
                 position: 'relative',
               }
             : {
-                top: 24,
+                top: 28,
                 height: customSize?.height || DEFAULT_DESKTOP_HEIGHT,
-                maxHeight: '92vh',
+                maxHeight: '82vh',
                 margin: '0 auto',
                 transform: `translate(${modalPos.x}px, ${modalPos.y}px)`,
                 maxWidth: 'calc(100vw - 48px)',
@@ -1017,15 +1017,15 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
               )}
 
               {!isMobile && !isMaximized && (
-                <Tooltip title={customSize?.height && customSize.height > 600 ? 'Switch to Compact Height (580px)' : 'Expand Window Height (800px)'}>
+                <Tooltip title={customSize?.height && customSize.height > 600 ? 'Switch to Compact Height (540px)' : 'Expand Window Height (780px)'}>
                   <button
                     type="button"
                     className="erp-jc-header-ctrl-btn"
                     onClick={() => {
                       if (customSize?.height && customSize.height > 600) {
-                        setCustomSize({ width: customSize?.width || DEFAULT_DESKTOP_WIDTH, height: 580 });
+                        setCustomSize({ width: customSize?.width || DEFAULT_DESKTOP_WIDTH, height: 540 });
                       } else {
-                        setCustomSize({ width: customSize?.width || DEFAULT_DESKTOP_WIDTH, height: 800 });
+                        setCustomSize({ width: customSize?.width || DEFAULT_DESKTOP_WIDTH, height: 780 });
                       }
                     }}
                     aria-label="Toggle Window Height"

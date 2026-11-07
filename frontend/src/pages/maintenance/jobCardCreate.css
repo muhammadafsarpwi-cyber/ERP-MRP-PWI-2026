@@ -23,17 +23,19 @@
 }
 
 @media (min-width: 769px) {
-  /* Default spacious, comfortable modal size */
+  /* Default spacious, comfortable modal size with ample scroll room */
   .erp-jc-modal-wrap .ant-modal:not(.erp-jc-modal-custom-size):not(.erp-jc-modal-maximized) {
     margin-left: auto !important;
     margin-right: auto !important;
     width: 1140px !important;
     max-width: calc(100vw - 48px) !important;
-    height: min(740px, 88vh) !important;
-    max-height: 88vh !important;
-    top: 24px !important;
+    height: 540px !important;
+    max-height: 82vh !important;
+    top: 28px !important;
     padding-bottom: 0 !important;
     margin-bottom: 0 !important;
+    display: flex !important;
+    flex-direction: column !important;
     transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
   }
 
