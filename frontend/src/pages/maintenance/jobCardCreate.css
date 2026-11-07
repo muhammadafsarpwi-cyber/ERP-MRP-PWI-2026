@@ -810,7 +810,7 @@ html[data-theme='dark'] .erp-jc-view-solution-box,
 }
 
 .erp-jc-ticket-header {
-  padding: 13px 16px;
+  padding: 9px 14px;
   background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
   color: #ffffff;
   display: flex;
@@ -830,21 +830,21 @@ html[data-theme='dark'] .erp-jc-view-solution-box,
 }
 
 .erp-jc-ticket-body {
-  padding: 16px;
+  padding: 11px 14px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 8px;
   background: var(--theme-surface, #ffffff);
 }
 
 .erp-jc-ticket-row {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
 }
 
 .erp-jc-ticket-label {
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 600;
   color: var(--theme-text-muted, #64748b);
   text-transform: uppercase;
@@ -852,7 +852,7 @@ html[data-theme='dark'] .erp-jc-view-solution-box,
 }
 
 .erp-jc-ticket-val {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--theme-text, #1e293b);
 }
@@ -862,11 +862,11 @@ html[data-theme='dark'] .erp-jc-view-solution-box,
   border: 1px solid rgba(239, 68, 68, 0.25);
   border-left: 4px solid #ef4444;
   border-radius: 8px;
-  padding: 10px 12px;
-  font-size: 13px;
+  padding: 6px 10px;
+  font-size: 12px;
   color: #b91c1c;
   font-style: italic;
-  min-height: 48px;
+  min-height: 30px;
   white-space: pre-wrap;
 }
 
@@ -881,8 +881,8 @@ html[data-theme='dark'] .erp-jc-view-solution-box,
 .erp-jc-ticket-meta-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  padding: 10px 12px;
+  gap: 8px;
+  padding: 7px 10px;
   background: var(--theme-surface-alt, #f8fafc);
   border-radius: 8px;
   border: 1px solid var(--theme-border, #e2e8f0);

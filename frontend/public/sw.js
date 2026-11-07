@@ -1,5 +1,5 @@
 // PWI ERP & MRP Progressive Web App Service Worker
-const CACHE_NAME = 'pwi-erp-cache-v3';
+const CACHE_NAME = 'pwi-erp-cache-v4';
 const PRECACHE_ASSETS = [
   '/',
   '/index.html',
