@@ -82,3 +82,4 @@ export function shareQmsOnWhatsApp(insp: QmsInProcessInspection): void {
   const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
   window.open(url, '_blank');
 }
+

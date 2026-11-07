@@ -2,7 +2,26 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Modal, Form, Input, Select, Row, Col, Table, InputNumber, Tag, Button, Space, theme, App } from 'antd';
 import { SaveOutlined } from '@ant-design/icons';
 import { QmsInProcessInspection, InspectionSampleRow, AttributeCheckItem } from './types';
-import { loadAllSpecs } from './qcSpecsStore';
+import { loadAllSpecs, loadInProcessInspections } from './qcSpecsStore';
+
+// Calculate next automatic sequential Document Reference (e.g. SPD/QMS/06, SPD/QMS/07...)
+const getNextDocRef = (divisionCode: string): string => {
+  const existing = loadInProcessInspections();
+  const pfx = divisionCode === 'DIV-CCD' ? 'CCD/QMS/' : 'SPD/QMS/';
+  let maxNum = 5; // Initial reference starts at 05
+  existing.forEach((insp) => {
+    const doc = (insp.docRef || '').trim();
+    const regex = new RegExp(`^${pfx.replace('/', '\\/')}(\\d+)`, 'i');
+    const match = doc.match(regex);
+    if (match && match[1]) {
+      const n = parseInt(match[1], 10);
+      if (!isNaN(n) && n > maxNum) {
+        maxNum = n;
+      }
+    }
+  });
+  return `${pfx}${String(maxNum + 1).padStart(2, '0')}`;
+};
 
 // Department-wise machine definitions (from authoritative Supabase database)
 const DEPARTMENT_MACHINES: Record<string, Array<{ code: string; name: string }>> = {
@@ -227,58 +246,81 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
       setAttributeRows(initialInspection.attributes || []);
       setOverallResult(initialInspection.overallResult || 'PASS');
     } else {
-      // New Inspection defaults
+      // New Inspection defaults - blank operator, inspector, and itemCode
       const today = new Date().toISOString().slice(0, 10);
-      const firstDeptItem = (groupedItemOptions[0]?.options as any)?.[0]?.value;
-      const defaultItem = firstDeptItem || itemsList[0]?.itemCode || 'WIP-ST-001';
+      const nextDoc = getNextDocRef(divisionCode);
       const defaultMachine = machinesForDept[0]?.code || '01';
       form.setFieldsValue({
         inspectionDate: today,
         shift: 'G',
         machineNo: defaultMachine,
-        operatorName: 'Ashfaq',
-        itemCode: defaultItem,
-        inspectorName: 'Mairaj',
+        operatorName: undefined,
+        itemCode: undefined, // Blank part/item selection
+        inspectorName: '', // Blank inspector name (user enters own name)
         approvedBy: 'Quality Control Incharge',
-        docRef: 'SPD/QMS/05',
+        docRef: nextDoc, // Automatic next sequential doc reference
         revNo: '02',
         issueDate: '09-Jun-2022',
         remarks: 'Ok',
       });
-      loadSpecsForItem(defaultItem);
+      setSampleRows([]); // Empty table until item is selected
+      setAttributeRows([]);
+      setOverallResult('PENDING');
     }
-  }, [visible, initialInspection, departmentCode, machinesForDept, groupedItemOptions]);
+  }, [visible, initialInspection, departmentCode, machinesForDept, divisionCode]);
 
-  // Load item specs into the 5-sample rows
-  const loadSpecsForItem = (code: string) => {
+  // Load item specs into the 5-sample rows with BLANK sample boxes
+  const loadSpecsForItem = (code?: string) => {
+    if (!code) {
+      setSampleRows([]);
+      setAttributeRows([]);
+      setOverallResult('PENDING');
+      return;
+    }
+
     const allSpecs = loadAllSpecs();
-    const match = allSpecs.find((s) => s.itemCode === code) || allSpecs[0];
+    const match = allSpecs.find((s) => s.itemCode === code);
 
-    if (match) {
-      const rows: InspectionSampleRow[] = match.characteristics.map((c) => ({
-        ...c,
-        s1: c.charName === 'Total Length' ? 159.0 : c.charName === 'Head Dia' ? 6.7 : c.charName === 'Bending Length' ? 9.7 : c.charName === 'Thread Length' ? 14.0 : 30,
-        s2: c.charName === 'Total Length' ? 159.0 : c.charName === 'Head Dia' ? 6.7 : c.charName === 'Bending Length' ? 9.7 : c.charName === 'Thread Length' ? 14.0 : 30,
-        s3: c.charName === 'Total Length' ? 159.1 : c.charName === 'Head Dia' ? 6.6 : c.charName === 'Bending Length' ? 9.7 : c.charName === 'Thread Length' ? 14.1 : 30,
-        s4: c.charName === 'Total Length' ? 159.0 : c.charName === 'Head Dia' ? 6.6 : c.charName === 'Bending Length' ? 9.7 : c.charName === 'Thread Length' ? 14.0 : 31,
-        s5: c.charName === 'Total Length' ? 159.1 : c.charName === 'Head Dia' ? 6.7 : c.charName === 'Bending Length' ? 9.7 : c.charName === 'Thread Length' ? 14.1 : 31,
-        average: 0,
-        status: 'PASS',
-      }));
+    const chars = match ? match.characteristics : [
+      { id: 'c1', charName: 'Total Length', nominal: 159.5, tolPlus: 0.5, tolMinus: 0.5, unit: 'mm', isCritical: true },
+      { id: 'c2', charName: 'Head Dia', nominal: 6.6, tolPlus: 0.15, tolMinus: 0.15, unit: 'mm', isCritical: true },
+      { id: 'c3', charName: 'Bending Length', nominal: 9.8, tolPlus: 0.15, tolMinus: 0.15, unit: 'mm', isCritical: true },
+      { id: 'c4', charName: 'Thread Length', nominal: 14.0, tolPlus: 0.25, tolMinus: 0.25, unit: 'mm', isCritical: true },
+      { id: 'c5', charName: 'Thread Pressure', nominal: 30.0, tolPlus: 2.0, tolMinus: 2.0, unit: 'PSI', isCritical: false },
+    ];
 
-      // Calculate averages and statuses
-      const evaluated = rows.map((r) => evaluateRow(r));
-      setSampleRows(evaluated);
+    // All sample boxes are initialized blank (undefined)
+    const rows: InspectionSampleRow[] = chars.map((c) => ({
+      ...c,
+      s1: undefined,
+      s2: undefined,
+      s3: undefined,
+      s4: undefined,
+      s5: undefined,
+      average: null,
+      status: 'PENDING',
+    }));
 
-      const attrs: AttributeCheckItem[] = match.attributes.map((a) => ({
-        id: a.id,
-        checkName: a.checkName,
-        checkedQty: a.sampleSize || 10,
-        defectsQty: 0,
-        status: 'PASS',
-      }));
-      setAttributeRows(attrs);
-    }
+    setSampleRows(rows);
+
+    const rawAttrs = match && match.attributes && match.attributes.length > 0
+      ? match.attributes
+      : [
+          { id: 'a1', checkName: 'Thread Checking', sampleSize: 10, maxAllowedDefects: 0 },
+          { id: 'a2', checkName: 'Bending Broken', sampleSize: 10, maxAllowedDefects: 0 },
+          { id: 'a3', checkName: 'Head Crack', sampleSize: 10, maxAllowedDefects: 0 },
+        ];
+
+    const attrs: AttributeCheckItem[] = rawAttrs.map((a: any) => ({
+      id: a.id,
+      checkName: a.checkName,
+      checkedQty: a.sampleSize || a.checkedQty || 10,
+      defectsQty: 0,
+      status: 'PASS',
+    }));
+
+    setAttributeRows(attrs);
+    setOverallResult('PENDING');
   };
 
   const evaluateRow = (row: InspectionSampleRow): InspectionSampleRow => {
@@ -330,7 +372,16 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
   const recalcOverall = (samples: InspectionSampleRow[], attrs: AttributeCheckItem[]) => {
     const samplesFailed = samples.some((s) => s.status === 'FAIL');
     const attrsFailed = attrs.some((a) => a.status === 'FAIL');
-    setOverallResult(samplesFailed || attrsFailed ? 'FAIL' : 'PASS');
+    if (samplesFailed || attrsFailed) {
+      setOverallResult('FAIL');
+      return;
+    }
+    const hasPending = samples.some((s) => s.status === 'PENDING' || s.average === null);
+    if (hasPending || samples.length === 0) {
+      setOverallResult('PENDING');
+      return;
+    }
+    setOverallResult('PASS');
   };
 
   const handleFinish = async () => {
@@ -379,17 +430,20 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
               {initialInspection ? 'Edit Running Production Inspection' : 'New In-Process Quality Inspection (QMS)'}
             </div>
             <div style={{ fontSize: '12px', color: token.colorPrimary, fontWeight: 600 }}>
-              {divisionName} • {departmentName} • SPD/QMS/05 (Rev: 02)
+              {divisionName} • {departmentName} • {form.getFieldValue('docRef') || 'SPD/QMS/05'} (Rev: 02)
             </div>
           </div>
-          <Tag color={overallResult === 'PASS' ? 'success' : 'error'} style={{ fontSize: '13px', padding: '4px 10px', fontWeight: 700 }}>
+          <Tag
+            color={overallResult === 'PASS' ? 'success' : overallResult === 'FAIL' ? 'error' : 'default'}
+            style={{ fontSize: '13px', padding: '4px 10px', fontWeight: 700 }}
+          >
             OVERALL: {overallResult}
           </Tag>
         </div>
       }
       open={visible}
       onCancel={onClose}
-      width={950}
+      width={1020}
       footer={[
         <Button key="cancel" onClick={onClose}>
           Cancel
@@ -411,14 +465,15 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
           }}
         >
           <Row gutter={12}>
-            <Col span={6}>
+            <Col xs={24} sm={12} md={4}>
               <Form.Item name="inspectionDate" label="Date" rules={[{ required: true }]}>
                 <Input type="date" />
               </Form.Item>
             </Col>
-            <Col span={4}>
+            <Col xs={24} sm={12} md={5}>
               <Form.Item name="shift" label="Shift" rules={[{ required: true }]}>
                 <Select
+                  style={{ width: '100%' }}
                   options={[
                     { value: 'G', label: 'Shift G (General)' },
                     { value: 'A', label: 'Shift A (Morning)' },
@@ -428,10 +483,11 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
                 />
               </Form.Item>
             </Col>
-            <Col span={6}>
+            <Col xs={24} sm={12} md={5}>
               <Form.Item name="machineNo" label={`Machine (${departmentName})`} rules={[{ required: true }]}>
                 <Select
                   showSearch
+                  placeholder="Select machine..."
                   options={machinesForDept.map((m) => ({
                     value: m.code,
                     label: m.name,
@@ -439,10 +495,12 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
                 />
               </Form.Item>
             </Col>
-            <Col span={4}>
-              <Form.Item name="operatorName" label="Operator" rules={[{ required: true }]}>
+            <Col xs={24} sm={12} md={5}>
+              <Form.Item name="operatorName" label="Operator" rules={[{ required: true, message: 'Please select or enter operator' }]}>
                 <Select
                   showSearch
+                  allowClear
+                  placeholder="Select Operator..."
                   options={[
                     { value: 'Ashfaq', label: 'Ashfaq' },
                     { value: 'Ali Asghar', label: 'Ali Asghar' },
@@ -454,20 +512,21 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
                 />
               </Form.Item>
             </Col>
-            <Col span={4}>
-              <Form.Item name="inspectorName" label="Inspector" rules={[{ required: true }]}>
-                <Input placeholder="Mairaj" />
+            <Col xs={24} sm={12} md={5}>
+              <Form.Item name="inspectorName" label="Inspector" rules={[{ required: true, message: 'Please enter inspector name' }]}>
+                <Input placeholder="Enter your name..." />
               </Form.Item>
             </Col>
           </Row>
 
           <Row gutter={12}>
-            <Col span={10}>
-              <Form.Item name="itemCode" label="Part / Item" rules={[{ required: true }]}>
+            <Col xs={24} sm={12} md={10}>
+              <Form.Item name="itemCode" label="Part / Item" rules={[{ required: true, message: 'Please select part/item' }]}>
                 <Select
                   showSearch
+                  allowClear
                   optionFilterProp="label"
-                  placeholder="Select item or type code..."
+                  placeholder="Select Part / Item from list..."
                   filterOption={(input, option) => {
                     const label = String(option?.label || '');
                     const value = String(option?.value || '');
@@ -479,19 +538,19 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
                 />
               </Form.Item>
             </Col>
-            <Col span={5}>
-              <Form.Item name="docRef" label="Doc Ref">
-                <Input />
+            <Col xs={24} sm={6} md={5}>
+              <Form.Item name="docRef" label="Doc Ref" rules={[{ required: true }]}>
+                <Input placeholder="e.g. SPD/QMS/06" />
               </Form.Item>
             </Col>
-            <Col span={4}>
+            <Col xs={24} sm={6} md={4}>
               <Form.Item name="revNo" label="Revision No">
-                <Input />
+                <Input placeholder="02" />
               </Form.Item>
             </Col>
-            <Col span={5}>
+            <Col xs={24} sm={12} md={5}>
               <Form.Item name="approvedBy" label="Approved By">
-                <Input />
+                <Input placeholder="Quality Control Incharge" />
               </Form.Item>
             </Col>
           </Row>
@@ -499,81 +558,129 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
 
         {/* 5-Sample Dimensional Measurements Matrix */}
         <div style={{ marginBottom: '16px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap', gap: '8px' }}>
             <span style={{ fontSize: '13px', fontWeight: 700, color: token.colorTextHeading }}>
               DIMENSIONAL INSPECTION DATA (5 SAMPLES)
             </span>
-            <span style={{ fontSize: '11px', color: token.colorTextSecondary }}>
-              Auto-calculates Mean &amp; verifies tolerance in real-time
-            </span>
+            <Space size="middle" style={{ fontSize: '11px' }}>
+              <span style={{ color: '#10b981', fontWeight: 600 }}>● Green = Entered</span>
+              <span style={{ color: '#ef4444', fontWeight: 600 }}>● Red = Empty Box</span>
+              <span style={{ color: token.colorTextSecondary }}>| Auto-calculates Mean &amp; Tolerance</span>
+            </Space>
           </div>
 
-          <table
-            style={{
-              width: '100%',
-              borderCollapse: 'collapse',
-              border: `1px solid ${token.colorBorder}`,
-              fontSize: '12px',
-            }}
-          >
-            <thead>
-              <tr style={{ backgroundColor: token.colorFillAlter, textAlign: 'left' }}>
-                <th style={{ padding: '8px', border: `1px solid ${token.colorBorder}` }}>Characteristic</th>
-                <th style={{ padding: '8px', border: `1px solid ${token.colorBorder}` }}>Dimension Requirement (Nominal &amp; Tol)</th>
-                <th style={{ padding: '8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>S-1</th>
-                <th style={{ padding: '8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>S-2</th>
-                <th style={{ padding: '8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>S-3</th>
-                <th style={{ padding: '8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>S-4</th>
-                <th style={{ padding: '8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>S-5</th>
-                <th style={{ padding: '8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>Average</th>
-                <th style={{ padding: '8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sampleRows.map((row) => {
-                const min = row.nominal - row.tolMinus;
-                const max = row.nominal + row.tolPlus;
-                const isOutOfSpec = (val: number | null | undefined) =>
-                  typeof val === 'number' && (val < min - 0.0001 || val > max + 0.0001);
+          {sampleRows.length === 0 ? (
+            <div
+              style={{
+                padding: '36px 16px',
+                textAlign: 'center',
+                border: `1.5px dashed ${token.colorBorder}`,
+                borderRadius: '8px',
+                backgroundColor: token.colorFillAlter,
+              }}
+            >
+              <div style={{ fontSize: '26px', marginBottom: '8px' }}>🔍</div>
+              <div style={{ fontSize: '14px', fontWeight: 700, color: token.colorTextHeading }}>
+                Please select a Part / Item above
+              </div>
+              <div style={{ fontSize: '12px', color: token.colorTextSecondary, marginTop: '4px' }}>
+                Select an item from the dropdown to automatically load its dimensional quality specifications and tolerances.
+              </div>
+            </div>
+          ) : (
+            <table
+              style={{
+                width: '100%',
+                borderCollapse: 'collapse',
+                border: `1px solid ${token.colorBorder}`,
+                fontSize: '12px',
+              }}
+            >
+              <thead>
+                <tr style={{ backgroundColor: token.colorFillAlter, textAlign: 'left' }}>
+                  <th style={{ padding: '8px', border: `1px solid ${token.colorBorder}` }}>Characteristic</th>
+                  <th style={{ padding: '8px', border: `1px solid ${token.colorBorder}` }}>Dimension Requirement (Nominal &amp; Tol)</th>
+                  <th style={{ padding: '8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>S-1</th>
+                  <th style={{ padding: '8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>S-2</th>
+                  <th style={{ padding: '8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>S-3</th>
+                  <th style={{ padding: '8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>S-4</th>
+                  <th style={{ padding: '8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>S-5</th>
+                  <th style={{ padding: '8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>Average</th>
+                  <th style={{ padding: '8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sampleRows.map((row) => {
+                  const min = row.nominal - row.tolMinus;
+                  const max = row.nominal + row.tolPlus;
+                  const isOutOfSpec = (val: number | null | undefined) =>
+                    typeof val === 'number' && (val < min - 0.0001 || val > max + 0.0001);
 
-                return (
-                  <tr key={row.id}>
-                    <td style={{ padding: '6px 8px', border: `1px solid ${token.colorBorder}`, fontWeight: 600 }}>{row.charName}</td>
-                    <td style={{ padding: '6px 8px', border: `1px solid ${token.colorBorder}` }}>
-                      {row.nominal} (±{row.tolPlus} {row.unit})
-                    </td>
-                    {(['s1', 's2', 's3', 's4', 's5'] as const).map((key) => {
-                      const val = row[key];
-                      const out = isOutOfSpec(val);
-                      return (
-                        <td key={key} style={{ padding: '4px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>
-                          <InputNumber
-                            size="small"
-                            value={val}
-                            step={0.05}
-                            style={{
-                              width: '74px',
-                              borderColor: out ? token.colorError : undefined,
-                              backgroundColor: out ? token.colorErrorBg : undefined,
-                            }}
-                            onChange={(nv) => handleSampleChange(row.id, key, nv !== null ? Number(nv) : null)}
-                          />
-                        </td>
-                      );
-                    })}
-                    <td style={{ padding: '6px 8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center', fontWeight: 700 }}>
-                      {row.average ? `${row.average} ${row.unit}` : '-'}
-                    </td>
-                    <td style={{ padding: '6px 8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>
-                      <Tag color={row.status === 'PASS' ? 'success' : 'error'} style={{ fontWeight: 600 }}>
-                        {row.status}
-                      </Tag>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                  return (
+                    <tr key={row.id}>
+                      <td style={{ padding: '6px 8px', border: `1px solid ${token.colorBorder}`, fontWeight: 600 }}>{row.charName}</td>
+                      <td style={{ padding: '6px 8px', border: `1px solid ${token.colorBorder}` }}>
+                        {row.nominal} (±{row.tolPlus} {row.unit})
+                      </td>
+                      {(['s1', 's2', 's3', 's4', 's5'] as const).map((key) => {
+                        const val = row[key];
+                        const isFilled = typeof val === 'number' && !isNaN(val);
+                        const out = isFilled && isOutOfSpec(val);
+
+                        let boxBorder = '1.5px solid #ef4444';
+                        let boxBg = 'rgba(239, 68, 68, 0.08)';
+                        let boxColor: string | undefined = undefined;
+
+                        if (isFilled) {
+                          if (out) {
+                            boxBorder = '1.5px solid #dc2626';
+                            boxBg = 'rgba(220, 38, 38, 0.18)';
+                            boxColor = '#dc2626';
+                          } else {
+                            boxBorder = '1.5px solid #10b981';
+                            boxBg = 'rgba(16, 185, 129, 0.12)';
+                            boxColor = '#059669';
+                          }
+                        }
+
+                        return (
+                          <td key={key} style={{ padding: '4px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>
+                            <InputNumber
+                              size="small"
+                              value={val}
+                              step={0.05}
+                              placeholder="—"
+                              style={{
+                                width: '74px',
+                                border: boxBorder,
+                                backgroundColor: boxBg,
+                                color: boxColor,
+                                fontWeight: isFilled ? 700 : 400,
+                                borderRadius: '4px',
+                                transition: 'all 0.2s ease',
+                              }}
+                              onChange={(nv) => handleSampleChange(row.id, key, nv !== null && !isNaN(Number(nv)) ? Number(nv) : null)}
+                            />
+                          </td>
+                        );
+                      })}
+                      <td style={{ padding: '6px 8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center', fontWeight: 700 }}>
+                        {row.average !== null && row.average !== undefined ? `${row.average} ${row.unit}` : '-'}
+                      </td>
+                      <td style={{ padding: '6px 8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>
+                        <Tag
+                          color={row.status === 'PASS' ? 'success' : row.status === 'FAIL' ? 'error' : 'default'}
+                          style={{ fontWeight: 600 }}
+                        >
+                          {row.status}
+                        </Tag>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
         </div>
 
         {/* Attribute Checks */}
