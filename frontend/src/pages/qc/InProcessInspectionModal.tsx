@@ -336,7 +336,14 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
     const max = row.nominal + row.tolPlus;
 
     const anyFailed = samples.some((v) => v < min - 0.0001 || v > max + 0.0001);
-    const status: 'PASS' | 'FAIL' = anyFailed ? 'FAIL' : 'PASS';
+    let status: 'PASS' | 'FAIL' | 'PENDING' = 'PENDING';
+    if (anyFailed) {
+      status = 'FAIL';
+    } else if (samples.length === 5) {
+      status = 'PASS';
+    } else {
+      status = 'PENDING';
+    }
 
     return { ...row, average: avg, status };
   };
@@ -434,7 +441,7 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
             </div>
           </div>
           <Tag
-            color={overallResult === 'PASS' ? 'success' : overallResult === 'FAIL' ? 'error' : 'default'}
+            color={overallResult === 'PASS' ? 'success' : overallResult === 'FAIL' ? 'error' : 'blue'}
             style={{ fontSize: '13px', padding: '4px 10px', fontWeight: 700 }}
           >
             OVERALL: {overallResult}
@@ -563,8 +570,9 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
               DIMENSIONAL INSPECTION DATA (5 SAMPLES)
             </span>
             <Space size="middle" style={{ fontSize: '11px' }}>
-              <span style={{ color: '#10b981', fontWeight: 600 }}>● Green = Entered</span>
-              <span style={{ color: '#ef4444', fontWeight: 600 }}>● Red = Empty Box</span>
+              <span style={{ color: '#10b981', fontWeight: 700 }}>● Green = PASS / Filled</span>
+              <span style={{ color: '#1677ff', fontWeight: 700 }}>● Blue = PENDING</span>
+              <span style={{ color: '#ef4444', fontWeight: 700 }}>● Red = FAIL / Empty</span>
               <span style={{ color: token.colorTextSecondary }}>| Auto-calculates Mean &amp; Tolerance</span>
             </Space>
           </div>
@@ -669,8 +677,8 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
                       </td>
                       <td style={{ padding: '6px 8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>
                         <Tag
-                          color={row.status === 'PASS' ? 'success' : row.status === 'FAIL' ? 'error' : 'default'}
-                          style={{ fontWeight: 600 }}
+                          color={row.status === 'PASS' ? 'success' : row.status === 'FAIL' ? 'error' : 'blue'}
+                          style={{ fontWeight: 700 }}
                         >
                           {row.status}
                         </Tag>

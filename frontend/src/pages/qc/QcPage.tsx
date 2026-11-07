@@ -567,10 +567,10 @@ const QcPage: React.FC = () => {
             <div style={{ fontSize: '11px', color: token.colorTextSecondary, textTransform: 'uppercase' }}>Status:</div>
             <div>
               <Tag
-                color={insp.overallResult === 'PASS' ? 'success' : 'error'}
+                color={insp.overallResult === 'PASS' ? 'success' : insp.overallResult === 'FAIL' ? 'error' : 'blue'}
                 style={{ fontSize: '12px', fontWeight: 800, padding: '2px 10px' }}
               >
-                {insp.overallResult} / ACCEPTED
+                {insp.overallResult}
               </Tag>
             </div>
           </div>
@@ -628,7 +628,7 @@ const QcPage: React.FC = () => {
                     {s.average ? `${s.average} ${s.unit}` : '-'}
                   </td>
                   <td style={{ padding: '8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>
-                    <Tag color={s.status === 'PASS' ? 'success' : 'error'} style={{ fontWeight: 700 }}>
+                    <Tag color={s.status === 'PASS' ? 'success' : s.status === 'FAIL' ? 'error' : 'blue'} style={{ fontWeight: 700 }}>
                       {s.status}
                     </Tag>
                   </td>

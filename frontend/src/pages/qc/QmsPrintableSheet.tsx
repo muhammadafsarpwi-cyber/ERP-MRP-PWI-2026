@@ -194,7 +194,7 @@ export const QmsPrintableSheet: React.FC<QmsPrintableSheetProps> = ({ visible, o
           <div>
             <div style={{ fontSize: '11px', color: token.colorTextSecondary }}>Overall Result:</div>
             <div>
-              <Tag color={inspection.overallResult === 'PASS' ? 'success' : 'error'} style={{ fontSize: '12px', fontWeight: 700 }}>
+              <Tag color={inspection.overallResult === 'PASS' ? 'success' : inspection.overallResult === 'FAIL' ? 'error' : 'blue'} style={{ fontSize: '12px', fontWeight: 700 }}>
                 {inspection.overallResult}
               </Tag>
             </div>
@@ -246,7 +246,7 @@ export const QmsPrintableSheet: React.FC<QmsPrintableSheetProps> = ({ visible, o
                     {s.average ? `${s.average} ${s.unit}` : '-'}
                   </td>
                   <td style={{ padding: '6px 8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>
-                    <Tag color={s.status === 'PASS' ? 'success' : 'error'}>{s.status}</Tag>
+                    <Tag color={s.status === 'PASS' ? 'success' : s.status === 'FAIL' ? 'error' : 'blue'}>{s.status}</Tag>
                   </td>
                 </tr>
               ))}

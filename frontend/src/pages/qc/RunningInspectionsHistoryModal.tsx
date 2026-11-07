@@ -177,7 +177,7 @@ export const RunningInspectionsHistoryModal: React.FC<RunningInspectionsHistoryM
       align: 'center',
       render: (res: string) => (
         <Tag
-          color={res === 'PASS' ? 'success' : res === 'FAIL' ? 'error' : 'warning'}
+          color={res === 'PASS' ? 'success' : res === 'FAIL' ? 'error' : 'blue'}
           style={{ fontWeight: 700, padding: '3px 10px', fontSize: '12px', borderRadius: '4px' }}
         >
           {res}
