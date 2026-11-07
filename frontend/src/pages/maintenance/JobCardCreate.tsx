@@ -456,20 +456,6 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
   }, [activeMachineIdForHistory, resolvedCompanyId, selectedMachine?.machineCode, context?.machineCode]);
 
   const machineHistoryStats = useMemo(() => {
-    const URDU_MONTHS: Record<string, string> = {
-      Jan: 'جنوری',
-      Feb: 'فروری',
-      Mar: 'مارچ',
-      Apr: 'اپریل',
-      May: 'مئی',
-      Jun: 'جون',
-      Jul: 'جولائی',
-      Aug: 'اگست',
-      Sep: 'ستمبر',
-      Oct: 'اکتوبر',
-      Nov: 'نومبر',
-      Dec: 'دسمبر',
-    };
     const totalCount = machineHistoryCards.length;
     const lastCard = machineHistoryCards[0] || null;
     let lastCardDaysAgo = '';
@@ -478,12 +464,12 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
       if (dt.isValid()) {
         const diffDays = Math.max(0, dayjs().startOf('day').diff(dt.startOf('day'), 'day'));
         lastCardDaysAgo =
-          diffDays === 0 ? 'Today (آج)' : diffDays === 1 ? 'Yesterday (کل)' : `${diffDays} days ago (${diffDays} دن پہلے)`;
+          diffDays === 0 ? 'Today' : diffDays === 1 ? 'Yesterday' : `${diffDays} days ago`;
       }
     }
 
     // Monthly breakdown (e.g. Nov 2026: 2, Oct 2026: 4, Sep 2026: 5)
-    const monthMap = new Map<string, { monthKey: string; label: string; urduLabel: string; count: number }>();
+    const monthMap = new Map<string, { monthKey: string; label: string; count: number }>();
     for (const card of machineHistoryCards) {
       const d = dayjs(card.requestedAt || card.createdAt);
       if (!d.isValid()) continue;
@@ -497,7 +483,6 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
         monthMap.set(monthKey, {
           monthKey,
           label: `${shortMon} ${yr}`,
-          urduLabel: `${URDU_MONTHS[shortMon] || shortMon} ${yr}`,
           count: 1,
         });
       }
@@ -1633,11 +1618,11 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
                     >
                       <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--theme-text-secondary)' }}>
                         <ScanOutlined style={{ marginRight: 5, color: 'var(--maint-info-fg)' }} />
-                        Scan Machine Barcode / QR Code (اختیاری — کوڈ یا گن سے مشین ڈھونڈنے کے لیے)
+                        Scan Machine Barcode / QR Code (Optional Quick Lookup)
                       </span>
                       <Tag color={selectedMachine ? 'success' : 'default'} style={{ margin: 0, fontSize: 11 }}>
                         {selectedMachine
-                          ? '✓ مشین اوپر لسٹ سے سلیکٹ ہو چکی ہے — اسے بھرنے کی ضرورت نہیں'
+                          ? '✓ Machine Selected Above — No Scan Required'
                           : 'Optional: Use only if not selecting from list above'}
                       </Tag>
                     </div>
@@ -2213,7 +2198,7 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
                     <ClockCircleOutlined style={{ color: '#38bdf8', fontSize: 15 }} />
                     <div>
                       <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.02em', color: '#ffffff' }}>
-                        MACHINE JOB CARD HISTORY (مشین ہسٹری)
+                        MACHINE JOB CARD HISTORY
                       </div>
                       <div style={{ fontSize: 10, color: '#94a3b8' }}>
                         {selectedMachine
@@ -2260,7 +2245,7 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
                       }}
                     >
                       <BuildOutlined style={{ fontSize: 22, color: 'var(--maint-info-fg)', marginBottom: 6, display: 'block' }} />
-                      <div>بائیں جانب سے مشین سلیکٹ کریں تاکہ اس مشین کے پچھلے تمام جاب کارڈز، ماہانہ ریکارڈ اور بار بار آنے والے مسائل کی مکمل ہسٹری یہاں نظر آئے۔</div>
+                      <div style={{ fontWeight: 600 }}>No Machine Selected Yet</div>
                       <div style={{ fontSize: 11, marginTop: 4 }}>
                         Select a machine on the left to inspect its past Job Cards, monthly counts, and repeated issues.
                       </div>
@@ -2284,12 +2269,12 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
                       <CheckCircleOutlined style={{ fontSize: 20, color: '#10b981', marginBottom: 4, display: 'block' }} />
                       <strong>No previous Job Cards found for this machine.</strong>
                       <div style={{ fontSize: 11, color: 'var(--theme-text-muted)', marginTop: 2 }}>
-                        اس مشین کا پہلے کوئی جاب کارڈ ریکارڈ میں موجود نہیں ہے (یہ پہلا جاب کارڈ ہو گا)۔
+                        This will be the first Job Card logged for this machine.
                       </div>
                     </div>
                   ) : (
                     <>
-                      {/* 1. Last Job Card Summary Box ("آخری دفعہ کب جاب کارڈ پہ آئی تھی") */}
+                      {/* 1. Last Job Card Summary Box */}
                       {machineHistoryStats.lastCard && (
                         <div
                           onClick={() => {
@@ -2309,7 +2294,7 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
                         >
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
                             <span style={{ fontSize: 11, fontWeight: 700, color: '#3b82f6', textTransform: 'uppercase' }}>
-                              ⏱️ Last Job Card (آخری جاب کارڈ):
+                              ⏱️ Last Job Card:
                             </span>
                             <Tag color="geekblue" style={{ margin: 0, fontSize: 10, fontWeight: 600 }}>
                               {machineHistoryStats.lastCardDaysAgo}
@@ -2348,7 +2333,7 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
                         </div>
                       )}
 
-                      {/* 2. Monthly Breakdown Pills ("اکتوبر میں 4 جاب کارڈ، ستمبر میں 5 جاب کارڈ، نومبر میں 2 جاب کارڈ") */}
+                      {/* 2. Monthly Breakdown Pills */}
                       <div>
                         <div
                           style={{
@@ -2362,7 +2347,7 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
                             alignItems: 'center',
                           }}
                         >
-                          <span>📅 Monthly Job Card Breakdown (ماہانہ تعداد)</span>
+                          <span>📅 Monthly Job Card Breakdown</span>
                           {(historyMonthFilter || historyRepeatFilter) && (
                             <Button
                               type="link"
@@ -2399,7 +2384,7 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
                                 }}
                                 title={`Click to filter job cards for ${m.label}`}
                               >
-                                <span>{m.urduLabel}</span>
+                                <span>{m.label}</span>
                                 <Tag color={isSelected ? 'blue' : 'cyan'} style={{ margin: 0, fontWeight: 700, fontSize: 11 }}>
                                   {m.count} {m.count === 1 ? 'Job Card' : 'Job Cards'}
                                 </Tag>
@@ -2409,7 +2394,7 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
                         </div>
                       </div>
 
-                      {/* 3. Repeated / Recurring Faults Alert at Top ("اگر ایک ہی چیز پہ بار بار ہوا ہے تو وہ اوپر آ جائے") */}
+                      {/* 3. Repeated / Recurring Faults Alert at Top */}
                       {machineHistoryStats.repeatedIssues.length > 0 && (
                         <div
                           style={{
@@ -2433,7 +2418,7 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
                             }}
                           >
                             <WarningOutlined />
-                            <span>REPEATED FAULTS ON THIS MACHINE (بار بار آنے والا مسئلہ — سب سے اوپر)</span>
+                            <span>REPEATED FAULTS ON THIS MACHINE</span>
                           </div>
                           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                             {machineHistoryStats.repeatedIssues.map((rep) => {
@@ -2463,7 +2448,7 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
                                       {rep.title}
                                     </span>
                                     <Tag color="red" style={{ margin: 0, fontWeight: 800, fontSize: 10 }}>
-                                      {rep.count}x Repeated ({rep.count} بار)
+                                      {rep.count}x Repeated
                                     </Tag>
                                   </div>
                                   <div style={{ fontSize: 10, color: 'var(--theme-text-muted)', fontFamily: 'monospace' }}>
@@ -2476,7 +2461,7 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
                         </div>
                       )}
 
-                      {/* 4. Complete Clickable List of Previous Job Cards ("پچھلے جاب کارڈز کے نمبر — جس کو بھی کلک کریں پاپ اپ کھلے") */}
+                      {/* 4. Complete Clickable List of Previous Job Cards */}
                       <div>
                         <div
                           style={{
@@ -2961,14 +2946,19 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
         </div>
       </Modal>
 
-      {/* ── Machine Job Card Complete History & Detail Popup Modal ── */}
+      {/* ── Machine Job Card Complete History & Detail Popup Modal (2028 Executive Bento Design) ── */}
       <Modal
         wrapClassName="erp-jc-dialog-wrap"
         open={historyModalOpen}
         zIndex={1550}
         onCancel={() => setHistoryModalOpen(false)}
         footer={[
-          <Button key="close" type="primary" onClick={() => setHistoryModalOpen(false)}>
+          <Button
+            key="close"
+            type="primary"
+            style={{ fontWeight: 700, borderRadius: 8, padding: '0 20px', height: 36 }}
+            onClick={() => setHistoryModalOpen(false)}
+          >
             Close History Popup
           </Button>,
         ]}
@@ -2982,34 +2972,56 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
                 {selectedMachine?.machineName || selectedMachine?.name || selectedHistoryCard?.machine?.name || ''}
               </span>
             </Space>
-            <Tag color="cyan" style={{ margin: 0, fontWeight: 700 }}>
+            <Tag color="cyan" style={{ margin: 0, fontWeight: 700, borderRadius: 12, padding: '2px 10px' }}>
               Total: {machineHistoryStats.totalCount} Job Cards
             </Tag>
           </div>
         }
-        width={isMobile ? 'calc(100vw - 20px)' : 760}
-        style={isMobile ? { top: 16, margin: '0 auto' } : { top: 36 }}
+        width={isMobile ? 'calc(100vw - 20px)' : 840}
+        style={isMobile ? { top: 16, margin: '0 auto' } : { top: 28 }}
       >
         {selectedHistoryCard ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14, maxHeight: '72vh', overflowY: 'auto', paddingRight: 4 }}>
-            {/* Selected Job Card Hero Summary */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14, maxHeight: '74vh', overflowY: 'auto', paddingRight: 4 }}>
+            {/* 1. Selected Job Card Executive Hero Card */}
             <div
               style={{
-                padding: '12px 16px',
-                borderRadius: 12,
+                padding: '14px 16px',
+                borderRadius: 14,
                 background: 'var(--theme-surface-alt)',
                 border: '1.5px solid var(--theme-border)',
                 display: 'flex',
                 flexDirection: 'column',
-                gap: 10,
+                gap: 12,
               }}
             >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-                <Space size={8}>
-                  <span style={{ fontFamily: 'monospace', fontSize: 16, fontWeight: 800, color: 'var(--maint-info-fg)' }}>
+              {/* Top Meta Strip */}
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  gap: 8,
+                  paddingBottom: 10,
+                  borderBottom: '1px solid var(--theme-border)',
+                }}
+              >
+                <Space size={8} wrap>
+                  <span
+                    style={{
+                      fontFamily: 'monospace',
+                      fontSize: 15,
+                      fontWeight: 800,
+                      color: '#38bdf8',
+                      background: '#0f172a',
+                      padding: '3px 10px',
+                      borderRadius: 7,
+                      border: '1px solid rgba(56, 189, 248, 0.35)',
+                    }}
+                  >
                     {selectedHistoryCard.jobCardNo || selectedHistoryCard.jobCardNumber || selectedHistoryCard.code || '#JC'}
                   </span>
-                  <Tag color="blue" style={{ fontWeight: 700, margin: 0 }}>
+                  <Tag color="blue" style={{ fontWeight: 700, margin: 0, borderRadius: 6 }}>
                     {selectedHistoryCard.currentStatus || selectedHistoryCard.status || 'OPEN'}
                   </Tag>
                   <Tag
@@ -3020,109 +3032,210 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
                         ? 'orange'
                         : 'geekblue'
                     }
-                    style={{ fontWeight: 700, margin: 0 }}
+                    style={{ fontWeight: 700, margin: 0, borderRadius: 6 }}
                   >
                     {selectedHistoryCard.priority || 'MEDIUM'}
                   </Tag>
-                  <Tag color="purple" style={{ fontWeight: 600, margin: 0 }}>
+                  <Tag color="purple" style={{ fontWeight: 600, margin: 0, borderRadius: 6 }}>
                     {label(selectedHistoryCard.maintenanceType || 'BREAKDOWN')}
                   </Tag>
                 </Space>
                 <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--theme-text-secondary)' }}>
+                  <ClockCircleOutlined style={{ marginRight: 5, color: 'var(--maint-info-fg)' }} />
                   Opened: {dayjs(selectedHistoryCard.requestedAt || selectedHistoryCard.createdAt).format('DD-MMM-YYYY hh:mm A')}
                 </span>
               </div>
 
-              {/* Complaint & Fault Box */}
+              {/* Reported Fault / Complaint Banner */}
               <div
                 style={{
-                  padding: '10px 12px',
-                  borderRadius: 8,
+                  padding: '10px 14px',
+                  borderRadius: 10,
                   background: 'rgba(239, 68, 68, 0.08)',
+                  border: '1px solid rgba(239, 68, 68, 0.25)',
                   borderLeft: '4px solid #ef4444',
-                  fontSize: 13,
                   color: 'var(--theme-text)',
                 }}
               >
-                <div style={{ fontSize: 11, fontWeight: 700, color: '#ef4444', textTransform: 'uppercase', marginBottom: 3 }}>
-                  Reported Fault / Complaint (شکایت / مسئلہ):
+                <div style={{ fontSize: 10, fontWeight: 800, color: '#ef4444', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 3 }}>
+                  Reported Fault / Complaint
                 </div>
-                <div style={{ fontWeight: 600 }}>{selectedHistoryCard.complaint || '—'}</div>
+                <div style={{ fontSize: 13, fontWeight: 700 }}>{selectedHistoryCard.complaint || '—'}</div>
               </div>
 
-              {/* Technical Details & Timeline Grid */}
-              <Descriptions
-                bordered
-                size="small"
-                column={{ xs: 1, sm: 2 }}
-                styles={{
-                  label: { fontWeight: 600, fontSize: 12, width: 150 },
-                  content: { fontSize: 12 },
+              {/* 2028 Executive Bento Spec Grid (Clean 3-Column Stacked Cards — Zero Table Wrapping) */}
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, minmax(0, 1fr))',
+                  gap: 10,
                 }}
               >
-                <Descriptions.Item label="Machine Code & Name">
-                  {selectedMachine?.machineCode || selectedHistoryCard.machine?.machineCode || '—'} —{' '}
-                  {selectedMachine?.machineName || selectedMachine?.name || selectedHistoryCard.machine?.name || '—'}
-                </Descriptions.Item>
-                <Descriptions.Item label="Complaint Category">
-                  {selectedHistoryCard.complaintCategory?.name || '—'}
-                </Descriptions.Item>
-                <Descriptions.Item label="Root Cause">
-                  {selectedHistoryCard.rootCauseCategory?.name || selectedHistoryCard.diagnosis || '—'}
-                </Descriptions.Item>
-                <Descriptions.Item label="Failure Category">
-                  {selectedHistoryCard.failureCategory?.name || '—'}
-                </Descriptions.Item>
-                <Descriptions.Item label="Work Started At">
-                  {selectedHistoryCard.startedAt
-                    ? dayjs(selectedHistoryCard.startedAt).format('DD-MMM-YYYY hh:mm A')
-                    : 'Not started yet'}
-                </Descriptions.Item>
-                <Descriptions.Item label="Completed / Closed At">
-                  {selectedHistoryCard.completedAt || selectedHistoryCard.closedAt
-                    ? dayjs(selectedHistoryCard.completedAt || selectedHistoryCard.closedAt).format('DD-MMM-YYYY hh:mm A')
-                    : 'In Progress / Open'}
-                </Descriptions.Item>
-                <Descriptions.Item label="Assigned Technicians" span={2}>
-                  {Array.isArray(selectedHistoryCard.technicians) && selectedHistoryCard.technicians.length > 0
-                    ? selectedHistoryCard.technicians
-                        .map(
-                          (t: any) =>
-                            t.technician?.technicianName ||
-                            t.technicianUser?.displayName ||
-                            t.technicianUser?.fullName ||
-                            t.technicianUser?.email ||
-                            'Technician',
-                        )
-                        .join(', ')
-                    : 'Unassigned'}
-                </Descriptions.Item>
-                {(selectedHistoryCard.correctiveAction || selectedHistoryCard.description || selectedHistoryCard.remarks) && (
-                  <Descriptions.Item label="Resolution / Technical Notes" span={2}>
-                    {selectedHistoryCard.correctiveAction || selectedHistoryCard.description || selectedHistoryCard.remarks}
-                  </Descriptions.Item>
-                )}
-              </Descriptions>
+                {/* Card 1: Machine Code & Name */}
+                <div
+                  style={{
+                    padding: '10px 12px',
+                    borderRadius: 10,
+                    background: 'var(--theme-surface)',
+                    border: '1px solid var(--theme-border)',
+                  }}
+                >
+                  <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--theme-text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 4 }}>
+                    <BuildOutlined style={{ marginRight: 4, color: 'var(--maint-info-fg)' }} />
+                    Target Machine
+                  </div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--theme-text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {selectedMachine?.machineCode || selectedHistoryCard.machine?.machineCode || '—'} —{' '}
+                    {selectedMachine?.machineName || selectedMachine?.name || selectedHistoryCard.machine?.name || '—'}
+                  </div>
+                </div>
+
+                {/* Card 2: Work Started At */}
+                <div
+                  style={{
+                    padding: '10px 12px',
+                    borderRadius: 10,
+                    background: 'var(--theme-surface)',
+                    border: '1px solid var(--theme-border)',
+                  }}
+                >
+                  <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--theme-text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 4 }}>
+                    <ClockCircleOutlined style={{ marginRight: 4, color: '#3b82f6' }} />
+                    Work Started At
+                  </div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--theme-text)' }}>
+                    {selectedHistoryCard.startedAt
+                      ? dayjs(selectedHistoryCard.startedAt).format('DD-MMM-YYYY hh:mm A')
+                      : 'Pending Start'}
+                  </div>
+                </div>
+
+                {/* Card 3: Completed / Closed At */}
+                <div
+                  style={{
+                    padding: '10px 12px',
+                    borderRadius: 10,
+                    background: 'var(--theme-surface)',
+                    border: '1px solid var(--theme-border)',
+                  }}
+                >
+                  <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--theme-text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 4 }}>
+                    <CheckCircleOutlined style={{ marginRight: 4, color: '#10b981' }} />
+                    Completed / Closed At
+                  </div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--theme-text)' }}>
+                    {selectedHistoryCard.completedAt || selectedHistoryCard.closedAt
+                      ? dayjs(selectedHistoryCard.completedAt || selectedHistoryCard.closedAt).format('DD-MMM-YYYY hh:mm A')
+                      : 'Active / Open'}
+                  </div>
+                </div>
+
+                {/* Card 4: Assigned Technicians */}
+                <div
+                  style={{
+                    padding: '10px 12px',
+                    borderRadius: 10,
+                    background: 'var(--theme-surface)',
+                    border: '1px solid var(--theme-border)',
+                  }}
+                >
+                  <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--theme-text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 4 }}>
+                    <UserOutlined style={{ marginRight: 4, color: 'var(--maint-info-fg)' }} />
+                    Assigned Technicians
+                  </div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--theme-text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {Array.isArray(selectedHistoryCard.technicians) && selectedHistoryCard.technicians.length > 0
+                      ? selectedHistoryCard.technicians
+                          .map(
+                            (t: any) =>
+                              t.technician?.technicianName ||
+                              t.technicianUser?.displayName ||
+                              t.technicianUser?.fullName ||
+                              t.technicianUser?.email ||
+                              'Technician',
+                          )
+                          .join(', ')
+                      : 'Unassigned'}
+                  </div>
+                </div>
+
+                {/* Card 5: Complaint & Failure Category */}
+                <div
+                  style={{
+                    padding: '10px 12px',
+                    borderRadius: 10,
+                    background: 'var(--theme-surface)',
+                    border: '1px solid var(--theme-border)',
+                  }}
+                >
+                  <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--theme-text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 4 }}>
+                    <ToolOutlined style={{ marginRight: 4, color: '#f59e0b' }} />
+                    Fault Classification
+                  </div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--theme-text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {selectedHistoryCard.complaintCategory?.name ||
+                      selectedHistoryCard.failureCategory?.name ||
+                      label(selectedHistoryCard.maintenanceType || 'BREAKDOWN')}
+                  </div>
+                </div>
+
+                {/* Card 6: Root Cause / Diagnosis */}
+                <div
+                  style={{
+                    padding: '10px 12px',
+                    borderRadius: 10,
+                    background: 'var(--theme-surface)',
+                    border: '1px solid var(--theme-border)',
+                  }}
+                >
+                  <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--theme-text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 4 }}>
+                    <FileTextOutlined style={{ marginRight: 4, color: '#8b5cf6' }} />
+                    Root Cause / Diagnosis
+                  </div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--theme-text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {selectedHistoryCard.rootCauseCategory?.name ||
+                      selectedHistoryCard.diagnosis ||
+                      selectedHistoryCard.correctiveAction ||
+                      'Pending Diagnosis'}
+                  </div>
+                </div>
+              </div>
+
+              {(selectedHistoryCard.correctiveAction || selectedHistoryCard.description || selectedHistoryCard.remarks) && (
+                <div
+                  style={{
+                    padding: '9px 12px',
+                    borderRadius: 9,
+                    background: 'var(--theme-surface)',
+                    border: '1px solid var(--theme-border)',
+                    fontSize: 12,
+                    color: 'var(--theme-text-secondary)',
+                  }}
+                >
+                  <strong style={{ color: 'var(--theme-text)' }}>Resolution / Technical Notes: </strong>
+                  {selectedHistoryCard.correctiveAction || selectedHistoryCard.description || selectedHistoryCard.remarks}
+                </div>
+              )}
             </div>
 
-            {/* Monthly Summary inside Popup */}
+            {/* 2. Monthly Summary Strip inside Popup */}
             <div>
-              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--theme-text-secondary)', marginBottom: 6 }}>
-                📅 Monthly Job Card Summary for This Machine (ماہانہ ریکارڈ):
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--theme-text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 6 }}>
+                📅 Monthly Job Card Summary for This Machine
               </div>
-              <Space wrap size={[6, 6]}>
+              <Space wrap size={[8, 8]}>
                 {machineHistoryStats.monthlyBreakdown.map((m) => (
-                  <Tag key={m.monthKey} color="blue" style={{ fontSize: 12, padding: '3px 10px', borderRadius: 6, margin: 0 }}>
-                    <strong>{m.urduLabel}:</strong> {m.count} {m.count === 1 ? 'Job Card' : 'Job Cards'}
+                  <Tag key={m.monthKey} color="blue" style={{ fontSize: 12, padding: '4px 12px', borderRadius: 8, margin: 0, fontWeight: 600 }}>
+                    <strong>{m.label}:</strong> {m.count} {m.count === 1 ? 'Job Card' : 'Job Cards'}
                   </Tag>
                 ))}
               </Space>
             </div>
 
-            {/* All Job Cards of This Machine Switcher List */}
+            {/* 3. All Job Cards of This Machine Switcher List */}
             <div>
-              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--theme-text-secondary)', marginBottom: 6 }}>
-                📋 All Job Cards for This Machine — Click any row to view its details ({machineHistoryStats.totalCount}):
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--theme-text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 6 }}>
+                📋 All Job Cards for This Machine — Click any row to view its details ({machineHistoryStats.totalCount})
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 220, overflowY: 'auto' }}>
                 {machineHistoryCards.map((c, idx) => {
@@ -3134,8 +3247,8 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
                       key={c.id || idx}
                       onClick={() => setSelectedHistoryCard(c)}
                       style={{
-                        padding: '8px 12px',
-                        borderRadius: 8,
+                        padding: '9px 12px',
+                        borderRadius: 9,
                         background: isCurrent ? 'rgba(37, 99, 235, 0.14)' : 'var(--theme-surface-alt)',
                         border: isCurrent ? '1.5px solid #3b82f6' : '1px solid var(--theme-border)',
                         cursor: 'pointer',
@@ -3150,7 +3263,7 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
                           {jcNo}
                         </span>
                         {isRep && (
-                          <Tag color="volcano" style={{ margin: 0, fontSize: 10, flexShrink: 0 }}>
+                          <Tag color="volcano" style={{ margin: 0, fontSize: 10, flexShrink: 0, fontWeight: 700 }}>
                             Repeated
                           </Tag>
                         )}
@@ -3170,7 +3283,7 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
                         <Tag color="default" style={{ margin: 0, fontSize: 10 }}>
                           {c.currentStatus || c.status || 'OPEN'}
                         </Tag>
-                        <span style={{ fontSize: 11, color: 'var(--theme-text-muted)' }}>
+                        <span style={{ fontSize: 11, color: 'var(--theme-text-muted)', fontWeight: 600 }}>
                           {dayjs(c.requestedAt || c.createdAt).format('DD-MMM-YYYY')}
                         </span>
                       </Space>
