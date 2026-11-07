@@ -12,12 +12,13 @@ interface PasswordFieldProps {
   rules?: FormRule[];
   extra?: React.ReactNode;
   disabled?: boolean;
+  className?: string;
 }
 
 /**
  * Accessible password input with a real button toggle (Show/Hide password).
  * Toggling visibility only switches the input type — the submitted value is
- * never altered.
+ * never altered. Matches the height, border radius and icon tokens of email inputs.
  */
 const PasswordField: React.FC<PasswordFieldProps> = ({
   name,
@@ -28,6 +29,7 @@ const PasswordField: React.FC<PasswordFieldProps> = ({
   rules,
   extra,
   disabled,
+  className = 'erp-2027-input',
 }) => {
   const [visible, setVisible] = useState(false);
 
@@ -40,7 +42,9 @@ const PasswordField: React.FC<PasswordFieldProps> = ({
       extra={extra}
     >
       <Input
-        prefix={<LockOutlined style={{ color: '#8c94a6' }} />}
+        size="large"
+        className={className}
+        prefix={<LockOutlined className="erp-field-icon" />}
         placeholder={placeholder}
         autoComplete={autoComplete}
         disabled={disabled}

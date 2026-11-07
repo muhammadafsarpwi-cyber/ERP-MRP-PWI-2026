@@ -163,7 +163,7 @@ describe('auth screens smoke', () => {
     expect(emailInput).toHaveAttribute('autocomplete', 'username');
     expect(passwordInput).toHaveAttribute('autocomplete', 'current-password');
     expect(container.querySelector('.erp-auth-panel-brand .erp-brand-mark')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /sign in/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /secure login|sign in/i })).toBeInTheDocument();
   });
 
   it('renders ForgotPassword form', () => {
@@ -218,7 +218,7 @@ describe('auth screens smoke', () => {
         <Login />
       </MemoryRouter>
     );
-    await user.click(screen.getByRole('button', { name: /sign in/i }));
+    await user.click(screen.getByRole('button', { name: /secure login|sign in/i }));
     expect(await screen.findByText('Operator credentials required')).toBeInTheDocument();
     expect(screen.getByText('Security key required')).toBeInTheDocument();
   });

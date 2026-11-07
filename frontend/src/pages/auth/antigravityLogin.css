@@ -1,0 +1,545 @@
+/* =====================================================================
+   PWI — Pakistan Wire Industries (Pvt.) LTD.
+   Next-Gen "Google Antigravity" Interactive Particle Login Experience
+   100% Multi-Theme Adaptive (Light, Dark, Crystal Glass & Custom Accents)
+   ===================================================================== */
+
+/* ---------------------------------------------------------------------
+   1. SCOPED MULTI-THEME TOKENS (Derived from Central ERP Theme Engine)
+   --------------------------------------------------------------------- */
+.erp-auth-root.is-antigravity {
+  --ag-ambient-blue: rgba(66, 133, 244, 0.12);
+  --ag-ambient-red: rgba(234, 67, 53, 0.08);
+  --ag-shield-gradient: radial-gradient(
+    ellipse 58% 62% at 50% 50%,
+    color-mix(in srgb, var(--theme-background) 88%, transparent) 0%,
+    color-mix(in srgb, var(--theme-background) 48%, transparent) 52%,
+    transparent 80%
+  );
+  --ag-card-bg: color-mix(in srgb, var(--theme-surface) 82%, transparent);
+  --ag-card-border: color-mix(in srgb, var(--theme-border-strong) 85%, rgba(66, 133, 244, 0.22));
+  --ag-card-shadow:
+    0 28px 68px -16px rgba(2, 6, 23, 0.58),
+    0 8px 24px -6px rgba(2, 6, 23, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  --ag-pill-bg: color-mix(in srgb, var(--theme-surface-elevated) 76%, transparent);
+  --ag-pill-border: var(--theme-border-strong);
+  --ag-org-badge-bg: color-mix(in srgb, var(--theme-accent) 12%, transparent);
+  --ag-org-badge-border: color-mix(in srgb, var(--theme-accent) 32%, transparent);
+  --ag-input-bg: color-mix(in srgb, var(--theme-surface-elevated) 72%, var(--theme-background));
+  --ag-input-bg-hover: color-mix(in srgb, var(--theme-surface-elevated) 90%, var(--theme-background));
+  --ag-input-border: var(--theme-border-strong);
+  --ag-focus-ring: color-mix(in srgb, var(--theme-accent) 22%, transparent);
+  --ag-btn-gradient: linear-gradient(
+    135deg,
+    var(--theme-accent) 0%,
+    var(--theme-accent-active, var(--theme-primary)) 100%
+  );
+  --ag-btn-shadow:
+    0 12px 28px -6px color-mix(in srgb, var(--theme-accent) 46%, transparent),
+    0 4px 12px -2px color-mix(in srgb, var(--theme-accent) 26%, transparent);
+  --ag-btn-shadow-hover:
+    0 16px 34px -6px color-mix(in srgb, var(--theme-accent) 58%, transparent),
+    0 6px 16px -2px color-mix(in srgb, var(--theme-accent) 34%, transparent);
+  --ag-dot-blue: #4285f4;
+  --ag-dot-red: #ea4335;
+
+  /* Align autofill background token cleanly with our themed input surface */
+  --theme-input-bg: var(--ag-input-bg);
+  background-color: var(--theme-background);
+}
+
+html[data-theme='light'] .erp-auth-root.is-antigravity {
+  --ag-ambient-blue: rgba(66, 133, 244, 0.075);
+  --ag-ambient-red: rgba(234, 67, 53, 0.055);
+  --ag-card-bg: color-mix(in srgb, var(--theme-surface) 88%, transparent);
+  --ag-card-border: color-mix(in srgb, var(--theme-border-strong) 78%, rgba(37, 99, 235, 0.16));
+  --ag-card-shadow:
+    0 24px 60px -14px rgba(15, 23, 42, 0.13),
+    0 6px 20px -4px rgba(15, 23, 42, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.85);
+  --ag-pill-bg: color-mix(in srgb, var(--theme-surface) 86%, transparent);
+  --ag-input-bg: var(--theme-surface);
+  --ag-input-bg-hover: var(--theme-surface-alt);
+  --ag-btn-shadow:
+    0 12px 26px -6px color-mix(in srgb, var(--theme-accent) 36%, transparent),
+    0 4px 10px -2px color-mix(in srgb, var(--theme-accent) 20%, transparent);
+  --ag-btn-shadow-hover:
+    0 16px 32px -6px color-mix(in srgb, var(--theme-accent) 48%, transparent),
+    0 6px 14px -2px color-mix(in srgb, var(--theme-accent) 28%, transparent);
+}
+
+/* ---------------------------------------------------------------------
+   2. STRICT Z-INDEX BACKGROUND LAYERING
+   Layer 0: Weightless Floating Blue & Red Particles Canvas
+   Layer 1: Soft Radial Readability Cushion (pointer-events: none)
+   Layer 5: Top Bar, Centered Frosted-Glass Login Card & Footer
+   --------------------------------------------------------------------- */
+.erp-antigravity-bg {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+  background-color: var(--theme-background);
+  background-image:
+    radial-gradient(circle at 16% 18%, var(--ag-ambient-blue) 0%, transparent 46%),
+    radial-gradient(circle at 84% 82%, var(--ag-ambient-red) 0%, transparent 46%);
+  transition: background-color 0.45s ease;
+}
+
+.erp-antigravity-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.erp-antigravity-shield {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: var(--ag-shield-gradient);
+}
+
+/* ---------------------------------------------------------------------
+   3. CENTERED RESPONSIVE VIEWPORT LAYOUT
+   --------------------------------------------------------------------- */
+.erp-auth-root.is-antigravity .erp-auth-top {
+  position: relative;
+  z-index: 5;
+  padding: 20px 36px 0;
+}
+
+.erp-auth-root.has-top-ribbon {
+  padding-top: 56px;
+}
+
+.erp-auth-root.has-top-ribbon .erp-auth-body.is-centered {
+  min-height: calc(100vh - 100px);
+  min-height: calc(100dvh - 100px);
+}
+
+.erp-auth-body.is-centered {
+  position: relative;
+  z-index: 5;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 20px 20px 28px;
+}
+
+.erp-auth-root.is-antigravity .erp-auth-footer {
+  position: relative;
+  z-index: 5;
+  justify-content: center;
+  text-align: center;
+  padding: 0 24px 20px;
+}
+
+/* ---------------------------------------------------------------------
+   4. MODERN FROSTED-GLASS CONTAINER & COMPLETE ERP BRANDING
+   --------------------------------------------------------------------- */
+.erp-auth-panel.erp-ag-login-card {
+  position: relative;
+  width: 100%;
+  max-width: 510px;
+  padding: 32px 36px 28px;
+  border-radius: 24px;
+  background: var(--ag-card-bg);
+  border: 1px solid var(--ag-card-border);
+  box-shadow: var(--ag-card-shadow);
+  backdrop-filter: blur(22px) saturate(1.35);
+  -webkit-backdrop-filter: blur(22px) saturate(1.35);
+  animation: erp-ag-card-rise 0.55s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  transition:
+    background-color 0.4s ease,
+    border-color 0.4s ease,
+    box-shadow 0.4s ease;
+}
+
+@keyframes erp-ag-card-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.988);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Subtle top telemetry status bar inside card */
+.erp-ag-telemetry-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-bottom: 14px;
+  margin-bottom: 18px;
+  border-bottom: 1px solid var(--theme-border);
+}
+
+.erp-ag-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--theme-text-muted);
+  background: var(--ag-pill-bg);
+  border: 1px solid var(--ag-pill-border);
+}
+
+.erp-ag-status-pill.is-clock {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: var(--theme-accent);
+}
+
+.erp-ag-icon-online {
+  color: var(--theme-success);
+}
+
+.erp-ag-icon-standby {
+  color: var(--theme-warning);
+}
+
+/* Brand Emblem + Organization Lockup */
+.erp-auth-panel.erp-ag-login-card .erp-auth-panel-brand.erp-ag-brand-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding-bottom: 0;
+  border-bottom: none;
+  text-align: center;
+}
+
+.erp-ag-logo-medallion {
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  padding: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--theme-surface-elevated);
+  border: 1px solid var(--ag-pill-border);
+  box-shadow: 0 8px 20px -6px rgba(15, 23, 42, 0.18);
+}
+
+.erp-ag-logo-medallion .erp-brand-mark {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.erp-ag-org-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 14px;
+  border-radius: 999px;
+  background: var(--ag-org-badge-bg);
+  border: 1px solid var(--ag-org-badge-border);
+  color: var(--theme-accent);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.erp-ag-agent-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.erp-ag-agent-dots .dot-blue,
+.erp-ag-agent-dots .dot-red {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.erp-ag-agent-dots .dot-blue {
+  background-color: var(--ag-dot-blue);
+}
+
+.erp-ag-agent-dots .dot-red {
+  background-color: var(--ag-dot-red);
+}
+
+/* Primary Heading & Core Tagline */
+.erp-ag-branding-copy {
+  text-align: center;
+  margin-bottom: 22px;
+}
+
+.erp-ag-heading {
+  margin: 0 0 8px;
+  font-size: clamp(21px, 2.3vw, 25px);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.22;
+  color: var(--theme-heading);
+}
+
+.erp-ag-tagline {
+  margin: 0 auto;
+  max-width: 430px;
+  font-size: 13px;
+  line-height: 1.58;
+  color: var(--theme-text-muted);
+}
+
+/* ---------------------------------------------------------------------
+   5. SECURE INPUT CONTROLS & SMOOTH TRANSITIONS
+   --------------------------------------------------------------------- */
+.erp-ag-field-label {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--theme-text);
+}
+
+.erp-auth-panel.erp-ag-login-card .ant-form-item {
+  margin-bottom: 16px;
+}
+
+.erp-auth-panel.erp-ag-login-card .erp-ag-input.ant-input,
+.erp-auth-panel.erp-ag-login-card .erp-ag-input.ant-input-affix-wrapper {
+  height: 48px;
+  padding: 0 14px;
+  border-radius: 12px;
+  background-color: var(--ag-input-bg);
+  border: 1.5px solid var(--ag-input-border);
+  color: var(--theme-heading);
+  display: inline-flex;
+  align-items: center;
+  box-shadow: none;
+  transition:
+    border-color 0.22s ease,
+    background-color 0.22s ease,
+    box-shadow 0.22s ease,
+    transform 0.18s ease;
+}
+
+.erp-auth-panel.erp-ag-login-card .erp-ag-input.ant-input-affix-wrapper > input.ant-input {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  color: var(--theme-heading);
+  font-size: 14.5px;
+  height: 100%;
+}
+
+.erp-auth-panel.erp-ag-login-card .erp-ag-input .erp-field-icon {
+  color: var(--theme-text-muted);
+  font-size: 15px;
+  margin-right: 6px;
+  transition: color 0.22s ease;
+}
+
+.erp-auth-panel.erp-ag-login-card .erp-ag-input.ant-input:hover,
+.erp-auth-panel.erp-ag-login-card .erp-ag-input.ant-input-affix-wrapper:hover {
+  background-color: var(--ag-input-bg-hover);
+  border-color: var(--theme-accent);
+}
+
+.erp-auth-panel.erp-ag-login-card .erp-ag-input.ant-input:focus,
+.erp-auth-panel.erp-ag-login-card .erp-ag-input.ant-input-focused,
+.erp-auth-panel.erp-ag-login-card .erp-ag-input.ant-input-affix-wrapper:focus,
+.erp-auth-panel.erp-ag-login-card .erp-ag-input.ant-input-affix-wrapper-focused {
+  background-color: var(--ag-input-bg);
+  border-color: var(--theme-accent);
+  box-shadow: 0 0 0 4px var(--ag-focus-ring);
+}
+
+.erp-auth-panel.erp-ag-login-card
+  .erp-ag-input.ant-input-affix-wrapper:focus-within
+  .erp-field-icon {
+  color: var(--theme-accent);
+}
+
+/* Remember & Forgot Row */
+.erp-ag-options-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 2px 0 18px;
+}
+
+.erp-ag-checkbox.ant-checkbox-wrapper {
+  font-size: 13px;
+  color: var(--theme-text-muted);
+}
+
+.erp-ag-forgot-link {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--theme-accent);
+  transition: opacity 0.2s ease;
+}
+
+.erp-ag-forgot-link:hover {
+  opacity: 0.82;
+  text-decoration: underline;
+}
+
+/* Prominent "Secure Login" Submission Button */
+.erp-auth-panel.erp-ag-login-card .erp-ag-submit-btn.ant-btn {
+  height: 50px;
+  border-radius: 12px;
+  border: 1px solid var(--theme-border-strong);
+  background: var(--ag-btn-gradient);
+  color: var(--theme-on-accent);
+  font-size: 14.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  box-shadow: var(--ag-btn-shadow);
+  transition:
+    transform 0.22s cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 0.22s ease,
+    filter 0.22s ease;
+}
+
+.erp-auth-panel.erp-ag-login-card .erp-ag-submit-btn.ant-btn:hover,
+.erp-auth-panel.erp-ag-login-card .erp-ag-submit-btn.ant-btn:focus-visible {
+  transform: translateY(-1.5px);
+  box-shadow: var(--ag-btn-shadow-hover);
+  filter: brightness(1.05);
+  color: var(--theme-on-accent);
+}
+
+.erp-auth-panel.erp-ag-login-card .erp-ag-submit-btn.ant-btn:active {
+  transform: translateY(0.5px) scale(0.992);
+}
+
+.erp-ag-submit-arrow {
+  font-size: 13px;
+  transition: transform 0.2s ease;
+}
+
+.erp-auth-panel.erp-ag-login-card .erp-ag-submit-btn.ant-btn:hover .erp-ag-submit-arrow {
+  transform: translateX(3px);
+}
+
+/* Secondary Return Link & Protected Session Footer */
+.erp-ag-secondary-nav {
+  text-align: center;
+  margin-top: 14px;
+}
+
+.erp-ag-welcome-link {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--theme-text-muted);
+  transition: color 0.2s ease;
+}
+
+.erp-ag-welcome-link:hover {
+  color: var(--theme-accent);
+}
+
+.erp-ag-security-strip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--theme-border);
+  font-size: 11px;
+  color: var(--theme-text-muted);
+  letter-spacing: 0.02em;
+  text-align: center;
+}
+
+/* ---------------------------------------------------------------------
+   6. WORKSTATION, LAPTOP & MOBILE RESPONSIVE SCALING
+   --------------------------------------------------------------------- */
+@media (min-width: 1600px) {
+  .erp-auth-panel.erp-ag-login-card {
+    max-width: 536px;
+    padding: 36px 40px 32px;
+  }
+}
+
+@media (max-height: 780px) and (min-width: 768px) {
+  .erp-auth-root.is-antigravity .erp-auth-top {
+    padding-top: 14px;
+  }
+  .erp-auth-body.is-centered {
+    padding: 12px 20px 16px;
+  }
+  .erp-auth-panel.erp-ag-login-card {
+    padding: 24px 32px 22px;
+  }
+  .erp-ag-branding-copy {
+    margin-bottom: 16px;
+  }
+  .erp-ag-logo-medallion {
+    width: 48px;
+    height: 48px;
+  }
+}
+
+@media (max-width: 767px) {
+  .erp-auth-root.is-antigravity .erp-auth-top {
+    padding: 16px 18px 0;
+  }
+  .erp-auth-body.is-centered {
+    padding: 16px 14px 24px;
+  }
+  .erp-auth-panel.erp-ag-login-card {
+    padding: 26px 20px 22px;
+    border-radius: 20px;
+  }
+  .erp-ag-telemetry-row {
+    justify-content: center;
+  }
+  .erp-ag-tagline {
+    font-size: 12.5px;
+  }
+}
+
+@media (max-width: 390px) {
+  .erp-auth-panel.erp-ag-login-card {
+    padding: 22px 16px 20px;
+  }
+  .erp-ag-org-pill {
+    font-size: 10.5px;
+    padding: 4px 10px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .erp-auth-panel.erp-ag-login-card,
+  .erp-auth-panel.erp-ag-login-card .erp-ag-submit-btn.ant-btn,
+  .erp-auth-panel.erp-ag-login-card .erp-ag-input.ant-input,
+  .erp-auth-panel.erp-ag-login-card .erp-ag-input.ant-input-affix-wrapper {
+    animation: none;
+    transition: none;
+  }
+}

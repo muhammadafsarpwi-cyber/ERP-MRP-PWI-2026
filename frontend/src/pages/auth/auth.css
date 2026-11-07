@@ -619,24 +619,23 @@ html[data-theme='light'] .erp-auth-brand .erp-brand-mark {
   inset: 0;
   z-index: 1;
   box-sizing: border-box;
-  padding: 2px;
+  padding: 1.5px;
   border-radius: inherit;
   pointer-events: none;
   background: conic-gradient(
     from var(--welcome-beam),
-    transparent 0deg 240deg,
-    color-mix(in srgb, #eab308 30%, transparent) 272deg,
-    color-mix(in srgb, #ec4899 44%, transparent) 300deg,
-    color-mix(in srgb, #8b5cf6 56%, #f4f5ff) 328deg,
-    color-mix(in srgb, #3b82f6 66%, #eaf2ff) 354deg,
+    transparent 0deg 235deg,
+    rgba(2, 132, 199, 0.35) 270deg,
+    rgba(56, 189, 248, 0.78) 312deg,
+    rgba(250, 226, 156, 0.88) 344deg,
     transparent 360deg
   );
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
   mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   mask-composite: exclude;
-  filter: drop-shadow(0 0 5px color-mix(in srgb, #ffffff 30%, transparent));
-  animation: erp-welcome-beam 7s linear infinite;
+  filter: drop-shadow(0 0 6px rgba(56, 189, 248, 0.35));
+  animation: erp-welcome-beam 8s linear infinite;
 }
 
 .erp-auth-panel-heading {
@@ -914,6 +913,16 @@ html[data-theme='light'] .erp-auth-brand .erp-brand-mark {
   background: var(--auth-sky-wash);
 }
 
+.erp-hud-icon-secure {
+  color: var(--auth-good-ink);
+}
+.erp-hud-icon-standby {
+  color: var(--theme-warning);
+}
+.erp-hud-icon-clock {
+  color: var(--auth-sky-ink);
+}
+
 /* Centered Medallion Logo */
 .erp-auth-logo-center {
   display: flex;
@@ -1090,22 +1099,36 @@ html[data-theme='light'] .erp-auth-brand .erp-brand-mark {
   font-size: 14px;
 }
 
-.erp-2027-input.ant-input {
+.erp-2027-input.ant-input,
+.erp-2027-input.ant-input-affix-wrapper {
   background: var(--auth-input-bg) !important;
   border: 1px solid var(--auth-input-line) !important;
   border-radius: 10px !important;
   color: var(--auth-input-ink) !important;
-  height: 44px !important;
+  height: 46px !important;
+  padding: 0 12px !important;
+  display: inline-flex !important;
+  align-items: center !important;
   transition: all 0.25s ease !important;
 }
-.erp-2027-input.ant-input:hover {
-  border-color: rgba(246, 212, 123, 0.5) !important;
+.erp-2027-input.ant-input-affix-wrapper > input.ant-input {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  color: var(--auth-input-ink) !important;
+  height: 100% !important;
+}
+.erp-2027-input.ant-input:hover,
+.erp-2027-input.ant-input-affix-wrapper:hover {
+  border-color: var(--auth-gold-line) !important;
   background: var(--auth-input-bg-hover) !important;
 }
 .erp-2027-input.ant-input:focus,
-.erp-2027-input.ant-input-focused {
+.erp-2027-input.ant-input-focused,
+.erp-2027-input.ant-input-affix-wrapper:focus,
+.erp-2027-input.ant-input-affix-wrapper-focused {
   border-color: rgba(246, 212, 123, 0.9) !important;
-  box-shadow: 0 0 16px rgba(246, 212, 123, 0.35) !important;
+  box-shadow: 0 0 16px rgba(246, 212, 123, 0.3) !important;
   background: var(--auth-input-bg-focus) !important;
 }
 

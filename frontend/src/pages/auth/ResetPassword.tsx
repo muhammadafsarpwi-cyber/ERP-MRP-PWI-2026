@@ -3,7 +3,6 @@ import { Button, Form, Result } from 'antd';
 import { ArrowLeftOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
 import { Link, useSearchParams } from 'react-router-dom';
 import apiService from '../../services/api';
-import AuthBrand from '../../components/auth/AuthBrand';
 import AuthBrandPane from '../../components/auth/AuthBrandPane';
 import AuthError from '../../components/auth/AuthError';
 import AuthShell from '../../components/auth/AuthShell';
@@ -52,13 +51,22 @@ const ResetPassword: React.FC = () => {
   };
 
   return (
-    <AuthShell footer="Secure Enterprise Operations Platform">
+    <AuthShell footer="PWI Enterprise Manufacturing & MRP Platform • Pakistan Wire Industries (Pvt.) LTD">
       <AuthBrandPane />
 
-      <section className="erp-auth-panel" aria-labelledby="reset-heading">
-        <div className="erp-auth-panel-brand">
-          <AuthBrand variant="theme" />
+      <section className="erp-auth-panel erp-2027-login-card" aria-labelledby="reset-heading">
+        <div className="erp-auth-panel-brand erp-auth-logo-center">
+          <div className="erp-welcome-logo-wrap" title="Pakistan Wire Industries (Pvt.) LTD">
+            <div className="erp-welcome-logo-badge">
+              <img
+                className="erp-welcome-logo erp-brand-mark"
+                src={`${process.env.PUBLIC_URL}/logo.png`}
+                alt="PWI Logo"
+              />
+            </div>
+          </div>
         </div>
+
         {!token ? (
           <div className="erp-auth-result">
             <Result
@@ -67,7 +75,9 @@ const ResetPassword: React.FC = () => {
               subTitle="This password reset link is invalid or has expired. Please request a new one."
               extra={
                 <Link to="/forgot-password">
-                  <Button type="primary">Request New Reset Link</Button>
+                  <Button type="primary" className="erp-auth-button erp-2027-auth-button">
+                    Request New Reset Link
+                  </Button>
                 </Link>
               }
             />
@@ -80,7 +90,7 @@ const ResetPassword: React.FC = () => {
               subTitle="Your password has been updated. You can now sign in with your new password."
               extra={
                 <Link to="/login">
-                  <Button type="primary">
+                  <Button type="primary" className="erp-auth-button erp-2027-auth-button">
                     <SafetyCertificateOutlined />
                     Sign In
                   </Button>
@@ -90,12 +100,15 @@ const ResetPassword: React.FC = () => {
           </div>
         ) : (
           <>
-            <h2 id="reset-heading" className="erp-auth-panel-heading">
-              Set New Password
-            </h2>
-            <p className="erp-auth-panel-sub">
-              Enter a new password for your account.
-            </p>
+            <div className="erp-auth-header-block">
+              <div className="erp-auth-tagline-badge">CREDENTIAL UPDATE</div>
+              <h2 id="reset-heading" className="erp-auth-panel-heading">
+                Set New Password
+              </h2>
+              <p className="erp-auth-panel-sub">
+                Choose a strong new password for your PWI enterprise account.
+              </p>
+            </div>
 
             <AuthError message={error} onClose={() => setError(null)} />
 
@@ -108,21 +121,20 @@ const ResetPassword: React.FC = () => {
             >
               <PasswordField
                 name="password"
-                label="New Password"
+                label={<span className="erp-2027-field-label">NEW PASSWORD</span>}
                 placeholder="New password"
                 autoComplete="new-password"
                 rules={PASSWORD_RULES}
                 extra={
                   <span className="erp-password-help">
-                    Minimum 8 characters with at least one uppercase letter, one
-                    lowercase letter, and one number.
+                    Minimum 8 characters with uppercase, lowercase, and a number.
                   </span>
                 }
               />
 
               <PasswordField
                 name="confirmPassword"
-                label="Confirm New Password"
+                label={<span className="erp-2027-field-label">CONFIRM NEW PASSWORD</span>}
                 placeholder="Confirm new password"
                 autoComplete="new-password"
                 dependencies={['password']}
@@ -140,7 +152,7 @@ const ResetPassword: React.FC = () => {
               />
 
               <Button
-                className="erp-auth-button"
+                className="erp-auth-button erp-2027-auth-button"
                 type="primary"
                 htmlType="submit"
                 block
@@ -151,12 +163,11 @@ const ResetPassword: React.FC = () => {
               </Button>
             </Form>
 
-            <p className="erp-auth-note">
-              <Link className="erp-auth-link" to="/login">
-                <ArrowLeftOutlined />
-                Back to Sign In
+            <div className="erp-2027-back-wrap">
+              <Link className="erp-auth-link erp-2027-back-link" to="/login">
+                <ArrowLeftOutlined /> Back to Sign In
               </Link>
-            </p>
+            </div>
           </>
         )}
       </section>

@@ -31,6 +31,14 @@ import {
 } from '@ant-design/icons';
 import apiService from '../../services/api';
 import { usePermission } from '../../hooks/usePermission';
+import {
+  COMPANY_SETTINGS_STORAGE_KEY,
+  DEFAULT_WELCOME_PORTAL_CONFIG,
+  WelcomePortalConfig,
+  normalizeWelcomePortalConfig,
+} from '../../config/companyWelcomeConfig';
+import { useCompanyWelcomeStore } from '../../store/companyWelcomeStore';
+import WelcomeDivisionSettings from './WelcomeDivisionSettings';
 import './companySettings.css';
 
 const { TextArea } = Input;
@@ -68,6 +76,7 @@ export interface CompanySettingsData {
   website: string;
   fiscalYearStart: string;
   timezone: string;
+  welcomePortal: WelcomePortalConfig;
 }
 
 const DEFAULT_SETTINGS: CompanySettingsData = {
@@ -82,10 +91,11 @@ const DEFAULT_SETTINGS: CompanySettingsData = {
   website: 'https://demo.pwi-erp.com',
   fiscalYearStart: '01-01',
   timezone: 'Asia/Karachi',
+  welcomePortal: normalizeWelcomePortalConfig(DEFAULT_WELCOME_PORTAL_CONFIG),
 };
 
 const DEFAULT_COMPANY_ID = '7725aa04-a270-4314-9e82-90949cbe7791';
-const STORAGE_KEY = 'erp_company_settings_v1';
+const STORAGE_KEY = COMPANY_SETTINGS_STORAGE_KEY;
 
 export const CompanySettings: React.FC = () => {
   const { user, can } = usePermission();
@@ -149,6 +159,7 @@ export const CompanySettings: React.FC = () => {
             website: localData?.website || apiCompany.website || DEFAULT_SETTINGS.website,
             fiscalYearStart: localData?.fiscalYearStart || apiCompany.fiscalYearStart || DEFAULT_SETTINGS.fiscalYearStart,
             timezone: localData?.timezone || apiCompany.timezone || DEFAULT_SETTINGS.timezone,
+            welcomePortal: normalizeWelcomePortalConfig(localData?.welcomePortal),
           };
           setSettings(mapped);
           setInitialSettings(mapped);
@@ -160,10 +171,17 @@ export const CompanySettings: React.FC = () => {
       }
 
       if (isMounted) {
-        const fallback = localData || {
-          ...DEFAULT_SETTINGS,
-          companyName: (user as any)?.defaultCompany?.name || DEFAULT_SETTINGS.companyName,
-        };
+        const fallback: CompanySettingsData = localData
+          ? {
+              ...DEFAULT_SETTINGS,
+              ...localData,
+              welcomePortal: normalizeWelcomePortalConfig(localData.welcomePortal),
+            }
+          : {
+              ...DEFAULT_SETTINGS,
+              companyName: (user as any)?.defaultCompany?.name || DEFAULT_SETTINGS.companyName,
+              welcomePortal: normalizeWelcomePortalConfig(DEFAULT_WELCOME_PORTAL_CONFIG),
+            };
         setSettings(fallback);
         setInitialSettings(fallback);
         setLoading(false);
@@ -239,36 +257,40 @@ export const CompanySettings: React.FC = () => {
   const handleSave = async () => {
     setSaving(true);
     try {
-      // 1. Save to local storage for instant persistence across reloads
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+      // 1. Persist centralized Company + Welcome Divisions config & notify all consumers
+      const normalizedSaved = {
+        ...settings,
+        welcomePortal: normalizeWelcomePortalConfig(settings.welcomePortal),
+      };
+      useCompanyWelcomeStore.getState().saveConfig(normalizedSaved);
 
       // 2. Try persisting to backend if company ID exists
       const targetCompanyId = settings.id || user?.defaultCompanyId || (user as any)?.defaultCompany?.id || DEFAULT_COMPANY_ID;
       if (targetCompanyId) {
         try {
           await apiService.patch(`/companies/${targetCompanyId}`, {
-            legalName: settings.companyName,
-            tradeName: settings.companyName,
-            email: settings.billingEmail,
-            phone: settings.phone,
-            taxRegistrationNumber: settings.taxNumber,
-            addressLine1: settings.address,
-            baseCurrency: settings.currency,
-            website: settings.website,
-            fiscalYearStart: settings.fiscalYearStart,
-            timezone: settings.timezone,
-            logoUrl: settings.logoUrl,
+            legalName: normalizedSaved.companyName,
+            tradeName: normalizedSaved.companyName,
+            email: normalizedSaved.billingEmail,
+            phone: normalizedSaved.phone,
+            taxRegistrationNumber: normalizedSaved.taxNumber,
+            addressLine1: normalizedSaved.address,
+            baseCurrency: normalizedSaved.currency,
+            website: normalizedSaved.website,
+            fiscalYearStart: normalizedSaved.fiscalYearStart,
+            timezone: normalizedSaved.timezone,
+            logoUrl: normalizedSaved.logoUrl,
           });
         } catch (apiErr) {
           console.warn('Backend update error, saved in local cache:', apiErr);
         }
       }
 
-      setInitialSettings(settings);
-      window.dispatchEvent(new CustomEvent('erp-company-settings-updated', { detail: settings }));
+      setSettings(normalizedSaved);
+      setInitialSettings(normalizedSaved);
       message.success({
-        content: 'Company Settings saved successfully!',
-        icon: <CheckCircleOutlined style={{ color: '#10b981' }} />,
+        content: 'Company Settings & Welcome Division Lifecycles saved successfully!',
+        icon: <CheckCircleOutlined style={{ color: 'var(--theme-success, #10b981)' }} />,
       });
     } catch (err: any) {
       message.error('Failed to save company settings: ' + (err.message || 'Unknown error'));
@@ -491,6 +513,12 @@ export const CompanySettings: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* ── Centralized Welcome Screen & Division Lifecycles Configuration ── */}
+      <WelcomeDivisionSettings
+        value={settings.welcomePortal}
+        onChange={(nextPortal) => handleChange('welcomePortal', nextPortal)}
+      />
 
       {/* ── Footer Action Bar ── */}
       <div className="company-settings-action-bar">

@@ -1,68 +1,57 @@
-import React from 'react';
-import AuthBrand from './AuthBrand';
+import React, { useMemo } from 'react';
+import {
+  formatDivisionFlowSummary,
+  parseCompanyBrandParts,
+} from '../../config/companyWelcomeConfig';
+import { useCompanyWelcomeConfig } from '../../store/companyWelcomeStore';
 
-/** Left-hand 2027 industrial identity column used by Login / Forgot / Reset screens. */
+/** Left-hand corporate division column used by Login / Forgot / Reset screens. */
 const AuthBrandPane: React.FC = () => {
+  const { config, enabledDivisions } = useCompanyWelcomeConfig();
+  const brand = useMemo(
+    () => parseCompanyBrandParts(config.companyName),
+    [config.companyName],
+  );
+
   return (
     <section className="erp-auth-brand-pane erp-2027-brand-pane">
-      <AuthBrand size="lg" />
-
       <div className="erp-pane-badge-2027">
         <span className="erp-pane-badge-dot" />
-        ENTERPRISE MRP ECOSYSTEM 2027
+        {brand.monogram} ENTERPRISE ERP &amp; MRP • 2026
       </div>
 
       <h2 className="erp-auth-pane-title erp-2027-pane-title">
-        Manufacturing
+        Integrated Manufacturing
         <br />
         &amp; Operations Platform
       </h2>
 
       <p className="erp-auth-pane-text">
-        Real-time production scheduling, automated quality control, inventory
-        and high-speed dispatch for Pakistan Wire Industries (Pvt.) LTD.
+        Centralized production planning, material requirements, batch quality
+        traceability, inventory control, and dispatch operations for{' '}
+        {brand.fullName}.
       </p>
 
-      {/* 2027 Live Plant Division Telemetry Cards */}
+      {/* Dynamically rendered Operational Manufacturing Divisions from Company Settings */}
       <div className="erp-2027-telemetry-grid">
-        <div className="erp-telemetry-card">
-          <div className="telemetry-top">
-            <span className="telemetry-tag">SPD DIVISION</span>
-            <span className="telemetry-val">99.8%</span>
+        {enabledDivisions.map((div, idx) => (
+          <div className="erp-telemetry-card" key={div.id}>
+            <div className="telemetry-top">
+              <span className="telemetry-tag">{div.name.toUpperCase()}</span>
+              <span className="telemetry-val">
+                {div.code || `DIV 0${idx + 1}`}
+              </span>
+            </div>
+            <div className="telemetry-name">{formatDivisionFlowSummary(div)}</div>
           </div>
-          <div className="telemetry-name">Spoke &amp; Nipple Processing</div>
-        </div>
-
-        <div className="erp-telemetry-card">
-          <div className="telemetry-top">
-            <span className="telemetry-tag">WIRE DRAWING</span>
-            <span className="telemetry-val">ACTIVE</span>
-          </div>
-          <div className="telemetry-name">Continuous Annealing &amp; Sizing</div>
-        </div>
-
-        <div className="erp-telemetry-card">
-          <div className="telemetry-top">
-            <span className="telemetry-tag">PLATING PLANT</span>
-            <span className="telemetry-val">AUTOMATED</span>
-          </div>
-          <div className="telemetry-name">Nickel-Chrome Mirror Auto-Finish</div>
-        </div>
-
-        <div className="erp-telemetry-card">
-          <div className="telemetry-top">
-            <span className="telemetry-tag">QUALITY ASSURANCE</span>
-            <span className="telemetry-val">ISO 9001</span>
-          </div>
-          <div className="telemetry-name">Batch-Level Lot Traceability</div>
-        </div>
+        ))}
       </div>
 
       <div className="erp-auth-status erp-2027-auth-status">
         <span className="erp-auth-status-dot" aria-hidden="true" />
-        <span className="status-strong">Enterprise Cluster Online</span>
+        <span className="status-strong">{brand.fullName}</span>
         <span className="status-sep">•</span>
-        <span className="status-meta">Zero Latency Sync</span>
+        <span className="status-meta">Established Industrial Excellence</span>
       </div>
     </section>
   );

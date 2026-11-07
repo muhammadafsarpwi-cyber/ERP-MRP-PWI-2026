@@ -1,26 +1,54 @@
 /* =====================================================================
    PWI — Pakistan Wire Industries (Pvt.) LTD
-   Compact Industrial Welcome / Splash Experience (100% English)
-   Enhanced with:
-   - Festive Fireworks, Bursts, Flash & Confetti Celebration
-   - Top Header Slide Ribbon (Pakistan Wire Industries (Pvt.) LTD Showcase + Logo)
-   - Rounded, Merged Metallic Medallion Logo Styling
-   - Soft Classical Ambient Music Visualizer & Controls
+   Executive Industrial Welcome & Division Showcase Experience
+   Multi-Theme Architecture (Light, Dark & Crystal Glass)
    ===================================================================== */
 
-/* Outer container */
-.erp-welcome-root {
-  /* Premium light-tech palette (scoped house tokens: slate / silver / gold) */
-  --w-ink: #22303f;
-  --w-ink-soft: #55647a;
-  --w-ink-faint: #7b8798;
-  --w-silver: rgba(96, 112, 134, 0.26);
-  --w-gold: #a97b12;
-  --w-gold-mid: #d4a017;
-  --w-gold-deep: #8a6410;
-  --w-gold-soft: #f2d48a;
-  --w-glass: rgba(255, 255, 255, 0.62);
-  --w-glass-hi: rgba(255, 255, 255, 0.86);
+/* Outer container — Unified Futuristic Dark Corporate Theme (Purple & Neon Blue Accents)
+   Ensures luminous white writing text & handwriting calligraphy remain razor-sharp
+   across all synchronized department background transitions. */
+.erp-welcome-root,
+html[data-theme='dark'] .erp-welcome-root,
+html[data-theme='light'] .erp-welcome-root {
+  --w-ink: #f8fafc;
+  --w-ink-soft: rgba(226, 232, 240, 0.88);
+  --w-ink-faint: rgba(148, 163, 184, 0.82);
+  --w-ribbon-bg: rgba(7, 12, 26, 0.84);
+  --w-ribbon-border: rgba(56, 189, 248, 0.24);
+  --w-panel-bg: linear-gradient(
+    165deg,
+    rgba(9, 15, 32, 0.78) 0%,
+    rgba(7, 11, 25, 0.72) 50%,
+    rgba(16, 14, 40, 0.78) 100%
+  );
+  --w-panel-border: rgba(56, 189, 248, 0.32);
+  --w-panel-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, 0.14),
+    0 28px 72px rgba(2, 6, 18, 0.78),
+    0 0 42px rgba(14, 165, 233, 0.18),
+    0 0 56px rgba(168, 85, 247, 0.14);
+  --w-subcard-bg: linear-gradient(180deg, rgba(13, 22, 44, 0.74) 0%, rgba(10, 15, 34, 0.72) 100%);
+  --w-subcard-border: rgba(139, 92, 246, 0.28);
+  --w-chip-bg: rgba(255, 255, 255, 0.06);
+  --w-chip-hover: rgba(56, 189, 248, 0.18);
+  --w-chip-border: rgba(148, 163, 184, 0.28);
+  --w-gold: #38bdf8;
+  --w-gold-mid: #a855f7;
+  --w-gold-deep: #7dd3fc;
+  --w-brand-gradient: linear-gradient(
+    118deg,
+    #ffffff 0%,
+    #e0f2fe 20%,
+    #7dd3fc 42%,
+    #ffffff 54%,
+    #e9d5ff 76%,
+    #f8fafc 100%
+  );
+  --w-brand-shadow:
+    drop-shadow(0 2px 8px rgba(2, 6, 23, 0.94))
+    drop-shadow(0 0 18px rgba(56, 189, 248, 0.48))
+    drop-shadow(0 0 28px rgba(168, 85, 247, 0.34));
+  --w-dot-idle: rgba(226, 232, 240, 0.28);
 
   position: relative;
   width: 100%;
@@ -28,22 +56,22 @@
   min-height: 100vh;
   min-height: 100dvh;
   margin: 0;
-  padding: 64px 16px 20px;
+  padding: 64px 16px 24px;
   border: 0;
   box-sizing: border-box;
   overflow: hidden;
-  background:
-    radial-gradient(1200px 760px at 50% 30%, #f5f8fc 0%, #e9eef4 55%, #d5dde9 100%);
+  background: #060b18;
   color: var(--w-ink);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  transition: color 0.5s ease, background-color 0.5s ease;
 }
 
 /* =====================================================================
-   TOP SLIDE RIBBON (PWI Showcase, Logo & Classical Audio Control)
+   TOP CORPORATE RIBBON (Brand, Marquee Showcase, Install, Theme, Audio)
    ===================================================================== */
 .erp-welcome-top-ribbon {
   position: fixed;
@@ -55,18 +83,19 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 16px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.85) 0%, rgba(238, 243, 249, 0.78) 100%);
-  backdrop-filter: blur(14px) saturate(1.25);
-  -webkit-backdrop-filter: blur(14px) saturate(1.25);
-  border-bottom: 1px solid rgba(96, 112, 134, 0.24);
-  box-shadow: 0 4px 20px rgba(34, 48, 63, 0.12);
+  padding: 0 18px;
+  background: var(--w-ribbon-bg);
+  backdrop-filter: blur(16px) saturate(1.3);
+  -webkit-backdrop-filter: blur(16px) saturate(1.3);
+  border-bottom: 1px solid var(--w-ribbon-border);
+  box-shadow: 0 4px 20px rgba(2, 6, 23, 0.14);
+  transition: background 0.4s ease, border-color 0.4s ease;
 }
 
 .erp-top-ribbon-brand {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 9px;
   flex-shrink: 0;
 }
 
@@ -75,8 +104,8 @@
   height: 32px;
   border-radius: 50%;
   overflow: hidden;
-  border: 1.5px solid rgba(169, 123, 18, 0.5);
-  background: radial-gradient(circle at center, #ffffff 65%, #fef3c7 100%);
+  border: 1.5px solid rgba(212, 160, 23, 0.65);
+  background: radial-gradient(circle at center, #ffffff 68%, #fef3c7 100%);
   box-shadow: 0 0 10px rgba(212, 160, 23, 0.28);
   display: flex;
   align-items: center;
@@ -94,37 +123,47 @@
 .erp-top-brand-text {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
 }
 
 .erp-top-brand-code {
   font-weight: 800;
   font-size: 14px;
-  letter-spacing: 1.5px;
-  color: var(--w-gold-deep);
-  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.8);
+  letter-spacing: 1.6px;
+  color: var(--w-ink);
 }
 
 .erp-top-live-dot {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #10b981;
-  box-shadow: 0 0 8px #10b981;
+  background: var(--theme-success, #10b981);
+  box-shadow: 0 0 8px var(--theme-success, #10b981);
   animation: erp-dot-pulse 2s infinite ease-in-out;
 }
 
 @keyframes erp-dot-pulse {
-  0%, 100% { opacity: 0.9; transform: scale(1); }
-  50% { opacity: 0.4; transform: scale(0.8); }
+  0%, 100% { opacity: 0.95; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(0.82); }
 }
 
-/* Center Continuous Marquee Showcase (Never cuts off text, flows infinitely) */
+.erp-top-live-label {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  color: var(--theme-success, #10b981);
+  background: rgba(16, 185, 129, 0.14);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+/* Continuous Marquee Showcase */
 .erp-top-ticker-wrap {
   flex: 1;
   overflow: hidden;
   position: relative;
-  margin: 0 16px;
+  margin: 0 18px;
   height: 32px;
   display: flex;
   align-items: center;
@@ -140,7 +179,7 @@
   white-space: nowrap;
   width: max-content;
   will-change: transform;
-  animation: erp-ribbon-marquee 36s linear infinite;
+  animation: erp-ribbon-marquee 38s linear infinite;
 }
 
 .erp-top-ticker-track.is-paused {
@@ -166,22 +205,21 @@
   text-transform: uppercase;
   padding: 2.5px 8px;
   border-radius: 999px;
-  background: rgba(212, 160, 23, 0.12);
-  border: 1px solid rgba(169, 123, 18, 0.4);
+  background: rgba(212, 160, 23, 0.15);
+  border: 1px solid rgba(212, 160, 23, 0.42);
   color: var(--w-gold-deep);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.7);
 }
 
 .erp-ticker-title {
   font-size: 11.5px;
   font-weight: 700;
-  letter-spacing: 0.8px;
+  letter-spacing: 0.7px;
   color: var(--w-ink);
   text-transform: uppercase;
 }
 
 .erp-ticker-sep {
-  color: rgba(169, 123, 18, 0.65);
+  color: var(--w-gold);
   font-size: 11px;
 }
 
@@ -198,39 +236,7 @@
   opacity: 0.75;
 }
 
-.erp-top-live-label {
-  font-size: 9px;
-  font-weight: 800;
-  letter-spacing: 1px;
-  color: #0f8f66;
-  background: rgba(16, 185, 129, 0.12);
-  border: 1px solid rgba(16, 185, 129, 0.35);
-  padding: 1px 5px;
-  border-radius: 4px;
-}
-
-.erp-top-action-btn {
-  background: rgba(255, 255, 255, 0.7);
-  border: 1px solid rgba(96, 112, 134, 0.3);
-  color: var(--w-ink-soft);
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 13px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-.erp-top-action-btn:hover {
-  background: rgba(255, 255, 255, 0.95);
-  border-color: rgba(169, 123, 18, 0.55);
-  color: var(--w-gold-deep);
-  transform: scale(1.1);
-}
-
-/* Classical Audio Toggle Pill */
+/* Right Ribbon Controls */
 .erp-top-ribbon-actions {
   display: flex;
   align-items: center;
@@ -238,138 +244,115 @@
   flex-shrink: 0;
 }
 
-.erp-top-music-btn {
+/* Fixed Pill Style for Install App Button (Never clips or squashes) */
+.erp-top-install-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 30px;
+  width: auto;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #1d4ed8 0%, #0284c7 100%);
+  color: #ffffff;
+  border: 1px solid rgba(56, 189, 248, 0.45);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: 0 2px 10px rgba(2, 132, 199, 0.32);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
+}
+.erp-top-install-pill:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(2, 132, 199, 0.48);
+  filter: brightness(1.06);
+}
+
+/* ThemeToggle button harmonized inside Welcome Ribbon */
+.erp-welcome-top-ribbon .erp-auth-theme-btn {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 10px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.5px;
-  cursor: pointer;
-  background: rgba(255, 255, 255, 0.7);
-  border: 1px solid rgba(96, 112, 134, 0.3);
-  color: var(--w-ink-soft);
-  transition: all 0.25s ease;
-}
-
-.erp-top-music-btn:hover {
-  background: rgba(255, 255, 255, 0.95);
-  border-color: rgba(169, 123, 18, 0.55);
-  color: var(--w-gold-deep);
-  transform: translateY(-1px);
-}
-
-.erp-top-music-btn.is-playing {
-  background: linear-gradient(135deg, rgba(255, 250, 232, 0.95) 0%, rgba(250, 236, 199, 0.9) 100%);
-  border-color: rgba(169, 123, 18, 0.55);
-  color: var(--w-gold-deep);
-  box-shadow: 0 0 12px rgba(212, 160, 23, 0.3);
-}
-
-.erp-top-music-icon {
-  font-size: 12px;
-}
-
-/* Live Sound Wave Animation */
-.erp-top-soundwave {
-  display: inline-flex;
-  align-items: flex-end;
-  gap: 2px;
-  height: 12px;
-  margin-left: 2px;
-}
-.wave-bar {
-  width: 2.5px;
-  background: #b8860b;
-  border-radius: 1px;
-  animation: erp-wave-dance 1s ease-in-out infinite alternate;
-}
-.bar-1 { height: 6px; animation-delay: 0.1s; }
-.bar-2 { height: 12px; animation-delay: 0.3s; }
-.bar-3 { height: 8px; animation-delay: 0.2s; }
-
-@keyframes erp-wave-dance {
-  0% { height: 3px; }
-  100% { height: 12px; }
-}
-
-/* =====================================================================
-   CELEBRATION: FIREWORKS, FLASH & CONFETTI OVERLAYS
-   ===================================================================== */
-.erp-celebration-canvas {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-  z-index: 3;
-}
-
-/* Ambient Flash when fireworks explode */
-.erp-celebration-flash {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  z-index: 2;
-  background: radial-gradient(circle at 50% 30%, rgba(254, 240, 138, 0.45) 0%, rgba(245, 212, 122, 0.22) 40%, transparent 80%);
-  opacity: 0;
-  transition: opacity 0.12s ease-out;
-}
-
-/* Festive Fairy Lights Garland */
-.erp-festive-lights-bar {
-  position: fixed;
-  top: 48px;
-  left: 0;
-  right: 0;
-  height: 14px;
-  z-index: 11;
-  display: flex;
-  justify-content: space-around;
-  pointer-events: none;
+  height: 30px;
   padding: 0 10px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--w-ink-soft);
+  background: var(--w-chip-bg);
+  border: 1px solid var(--w-chip-border);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.erp-welcome-top-ribbon .erp-auth-theme-btn:hover {
+  background: var(--w-chip-hover);
+  color: var(--w-ink);
+  border-color: var(--w-gold);
 }
 
-.erp-festive-bulb {
-  width: 6px;
-  height: 8px;
-  border-radius: 50% 50% 40% 40%;
-  animation: erp-festive-twinkle 1.6s ease-in-out infinite alternate;
+.erp-top-action-btn {
+  background: var(--w-chip-bg);
+  border: 1px solid var(--w-chip-border);
+  color: var(--w-ink-soft);
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
 }
-.bulb-0 { background: #fbbf24; box-shadow: 0 0 8px 2px #fbbf24; }
-.bulb-1 { background: #38bdf8; box-shadow: 0 0 8px 2px #38bdf8; }
-.bulb-2 { background: #f43f5e; box-shadow: 0 0 8px 2px #f43f5e; }
-.bulb-3 { background: #34d399; box-shadow: 0 0 8px 2px #34d399; }
-.bulb-4 { background: #ffffff; box-shadow: 0 0 8px 2px #ffffff; }
-
-@keyframes erp-festive-twinkle {
-  0% { opacity: 0.35; transform: scale(0.85); }
-  100% { opacity: 1; transform: scale(1.15); }
+.erp-top-action-btn:hover {
+  background: var(--w-chip-hover);
+  border-color: var(--w-gold);
+  color: var(--w-ink);
+  transform: scale(1.06);
 }
 
 /* =====================================================================
-   BACKGROUND SLIDESHOW & PARTICLES
+   DEPARTMENT-SYNCHRONIZED FULLSCREEN HOLOGRAPHIC BACKGROUND ENGINE
    ===================================================================== */
 .erp-welcome-bg {
   position: absolute;
   inset: 0;
   z-index: 0;
   overflow: hidden;
-  background: #8b98a6;
+  background: #060b18;
 }
+
 .erp-welcome-slide {
   position: absolute;
   inset: 0;
   opacity: 0;
-  transition: opacity 1.2s ease-in-out;
+  transition: opacity 0.95s cubic-bezier(0.22, 1, 0.36, 1);
   pointer-events: none;
+  will-change: opacity;
 }
+
+.erp-welcome-slide.is-exiting-slide {
+  opacity: 1;
+  z-index: 0;
+}
+
 .erp-welcome-slide.is-active {
   opacity: 1;
   z-index: 1;
+  animation: erp-slide-crossfade-in 0.95s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
+
+@keyframes erp-slide-crossfade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
 .erp-welcome-img {
   position: absolute;
   inset: 0;
@@ -378,43 +361,96 @@
   object-fit: cover;
   object-position: center;
   transform: scale(1.02);
-}
-.erp-welcome-slide.is-active .erp-welcome-img {
-  animation: erp-welcome-kenburns-a 17s ease-out forwards;
-}
-/* Alternate slow pan direction per slide for a living, cinematic drift */
-.erp-welcome-slide:nth-child(3n + 2).is-active .erp-welcome-img {
-  animation-name: erp-welcome-kenburns-b;
-}
-.erp-welcome-slide:nth-child(3n).is-active .erp-welcome-img {
-  animation-name: erp-welcome-kenburns-c;
-}
-@keyframes erp-welcome-kenburns-a {
-  from { transform: scale(1.02) translate(0, 0); }
-  to   { transform: scale(1.12) translate(-1.6%, -1.2%); }
-}
-@keyframes erp-welcome-kenburns-b {
-  from { transform: scale(1.04) translate(1.4%, 0.6%); }
-  to   { transform: scale(1.12) translate(-0.8%, -1.4%); }
-}
-@keyframes erp-welcome-kenburns-c {
-  from { transform: scale(1.02) translate(-1.2%, 1%); }
-  to   { transform: scale(1.11) translate(1.2%, -0.8%); }
+  filter: brightness(0.88) contrast(1.06) saturate(1.1);
 }
 
-/* Alpha wash tuned for the 3D panel gallery: the centre is nearly clear so the
-   active machine frames stay razor-sharp behind the card; only a gentle
-   premium vignette survives at the edges (no blur blockers). */
+.erp-welcome-slide.kb-a .erp-welcome-img {
+  animation: erp-welcome-kenburns-a 16s ease-in-out infinite alternate;
+}
+.erp-welcome-slide.kb-b .erp-welcome-img {
+  animation: erp-welcome-kenburns-b 16s ease-in-out infinite alternate;
+}
+.erp-welcome-slide .erp-welcome-img.is-static {
+  animation: none;
+}
+
+/* Synchronized Machine Telemetry Watermark Pill (Bottom-Left) */
+.erp-welcome-bg-hud {
+  position: absolute;
+  left: 18px;
+  bottom: 14px;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: rgba(7, 12, 26, 0.72);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(56, 189, 248, 0.28);
+  box-shadow: 0 4px 16px rgba(2, 6, 23, 0.55), 0 0 18px rgba(168, 85, 247, 0.18);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(226, 232, 240, 0.88);
+  pointer-events: none;
+}
+
+.erp-bg-hud-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #38bdf8;
+  box-shadow: 0 0 8px #38bdf8, 0 0 14px #a855f7;
+  animation: erp-dot-pulse 2s infinite ease-in-out;
+}
+
+.erp-bg-hud-code {
+  font-weight: 800;
+  color: #38bdf8;
+}
+
+.erp-bg-hud-stage {
+  font-weight: 700;
+  color: #f8fafc;
+}
+
+.erp-bg-hud-sep {
+  color: #a855f7;
+  font-weight: 700;
+}
+
+.erp-bg-hud-tag {
+  color: rgba(196, 181, 253, 0.88);
+  font-weight: 600;
+}
+
+@keyframes erp-welcome-kenburns-a {
+  from { transform: scale(1.015) translate(0, 0); }
+  to   { transform: scale(1.075) translate(-1.1%, -0.7%); }
+}
+@keyframes erp-welcome-kenburns-b {
+  from { transform: scale(1.025) translate(0.9%, 0.4%); }
+  to   { transform: scale(1.075) translate(-0.8%, -0.8%); }
+}
+@keyframes erp-welcome-kenburns-c {
+  from { transform: scale(1.015) translate(-0.9%, 0.8%); }
+  to   { transform: scale(1.085) translate(0.9%, -0.6%); }
+}
+
+/* Dark corporate contrast scrim + purple & neon-blue atmospheric framing */
 .erp-welcome-overlay {
   position: absolute;
   inset: 0;
   z-index: 2;
+  pointer-events: none;
   background:
-    radial-gradient(ellipse at center, rgba(244, 247, 251, 0.02) 0%, rgba(226, 233, 243, 0.09) 62%, rgba(203, 214, 228, 0.22) 100%),
-    linear-gradient(180deg, rgba(246, 249, 252, 0.07) 0%, rgba(228, 235, 244, 0.04) 46%, rgba(206, 216, 230, 0.14) 100%);
+    radial-gradient(ellipse at center, rgba(6, 11, 24, 0.34) 0%, rgba(6, 11, 24, 0.54) 64%, rgba(4, 8, 20, 0.78) 100%),
+    linear-gradient(180deg, rgba(6, 10, 24, 0.42) 0%, transparent 28%, transparent 72%, rgba(16, 10, 36, 0.58) 100%);
 }
 
-/* Golden ambient light flares (soft drifting blooms) */
+/* Ambient Neon Blue & Deep Purple Holographic Blooms */
 .erp-welcome-flares {
   position: absolute;
   inset: 0;
@@ -425,50 +461,32 @@
 .erp-welcome-flare {
   position: absolute;
   border-radius: 50%;
-  filter: blur(2px);
+  filter: blur(22px);
   will-change: transform, opacity;
-  animation: erp-welcome-flare-drift linear infinite;
+  animation: erp-welcome-flare-drift 20s ease-in-out infinite alternate;
 }
 .erp-welcome-flare-1 {
-  width: 46vw;
-  height: 46vw;
-  min-width: 420px;
-  min-height: 420px;
-  top: -14vw;
-  right: -10vw;
-  background: radial-gradient(circle at center, rgba(242, 212, 138, 0.34) 0%, rgba(242, 212, 138, 0.12) 42%, transparent 70%);
-  animation-duration: 22s;
+  width: 460px;
+  height: 460px;
+  left: -8%;
+  bottom: -10%;
+  background: radial-gradient(circle at center, rgba(168, 85, 247, 0.24) 0%, rgba(56, 189, 248, 0.1) 48%, transparent 72%);
 }
 .erp-welcome-flare-2 {
-  width: 38vw;
-  height: 38vw;
-  min-width: 340px;
-  min-height: 340px;
-  bottom: -12vw;
-  left: -8vw;
-  background: radial-gradient(circle at center, rgba(214, 226, 242, 0.4) 0%, rgba(214, 226, 242, 0.14) 45%, transparent 72%);
-  animation-duration: 28s;
-  animation-direction: reverse;
-}
-.erp-welcome-flare-3 {
-  width: 26vw;
-  height: 26vw;
-  min-width: 240px;
-  min-height: 240px;
-  top: 32%;
-  left: 12%;
-  background: radial-gradient(circle at center, rgba(250, 227, 158, 0.22) 0%, rgba(250, 227, 158, 0.08) 48%, transparent 74%);
-  animation-duration: 34s;
-}
-@keyframes erp-welcome-flare-drift {
-  0%   { transform: translate3d(0, 0, 0) scale(1); opacity: 0.65; }
-  25%  { opacity: 1; }
-  50%  { transform: translate3d(-3vw, 2.5vh, 0) scale(1.08); opacity: 0.8; }
-  75%  { opacity: 1; }
-  100% { transform: translate3d(0, 0, 0) scale(1); opacity: 0.65; }
+  width: 480px;
+  height: 480px;
+  right: -8%;
+  top: 6%;
+  background: radial-gradient(circle at center, rgba(14, 165, 233, 0.22) 0%, rgba(139, 92, 246, 0.12) 48%, transparent 72%);
+  animation-delay: -7s;
 }
 
-/* Golden floating particles */
+@keyframes erp-welcome-flare-drift {
+  0%   { transform: translate3d(0, 0, 0) scale(1); opacity: 0.7; }
+  100% { transform: translate3d(28px, -22px, 0) scale(1.08); opacity: 1; }
+}
+
+/* Subtle floating high-tech data nodes */
 .erp-welcome-particles {
   position: absolute;
   inset: 0;
@@ -478,49 +496,44 @@
 }
 .erp-welcome-particle {
   position: absolute;
-  width: 4px;
-  height: 4px;
+  bottom: -12px;
   border-radius: 50%;
-  background: rgba(169, 123, 18, 0.45);
-  box-shadow: 0 0 8px 1px rgba(212, 160, 23, 0.35);
-  animation: erp-welcome-float linear infinite;
+  background: rgba(56, 189, 248, 0.55);
+  box-shadow: 0 0 8px rgba(56, 189, 248, 0.5);
+  opacity: 0;
+  animation: erp-welcome-particle-rise linear infinite;
 }
-@keyframes erp-welcome-float {
-  0%   { transform: translateY(105vh); opacity: 0; }
-  15%  { opacity: 0.85; }
-  85%  { opacity: 0.65; }
-  100% { transform: translateY(-8vh); opacity: 0; }
+@keyframes erp-welcome-particle-rise {
+  0%   { transform: translateY(0) translateX(0); opacity: 0; }
+  18%  { opacity: 0.65; }
+  82%  { opacity: 0.45; }
+  100% { transform: translateY(-104vh) translateX(18px); opacity: 0; }
 }
 
 /* =====================================================================
-   CENTER STAGE CONSOLE PANEL
+   CENTER STAGE EXECUTIVE GLASS CONSOLE
    ===================================================================== */
 .erp-welcome-panel {
   position: relative;
   z-index: 4;
-  width: min(88vw, 530px);
+  width: min(94vw, 850px);
   text-align: center;
-  padding: 22px 24px 20px;
+  padding: 20px 24px 18px;
   box-sizing: border-box;
-  border-radius: 20px;
-  background:
-    linear-gradient(165deg, rgba(255, 255, 255, 0.74) 0%, rgba(249, 251, 254, 0.6) 44%, rgba(232, 238, 246, 0.68) 100%),
-    rgba(255, 255, 255, 0.55);
-  backdrop-filter: blur(8px) saturate(1.25);
-  -webkit-backdrop-filter: blur(8px) saturate(1.25);
-  border: 1px solid rgba(255, 255, 255, 0.85);
-  box-shadow:
-    inset 0 1px 1px rgba(255, 255, 255, 0.9),
-    0 24px 60px rgba(34, 48, 63, 0.22),
-    0 4px 14px rgba(34, 48, 63, 0.1),
-    0 0 0 1px rgba(169, 123, 18, 0.12);
-  animation: erp-panel-enter 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  border-radius: 22px;
+  background: var(--w-panel-bg);
+  backdrop-filter: blur(14px) saturate(1.3);
+  -webkit-backdrop-filter: blur(14px) saturate(1.3);
+  border: 1px solid var(--w-panel-border);
+  box-shadow: var(--w-panel-shadow);
+  animation: erp-panel-enter 0.65s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  transition: background 0.5s ease, border-color 0.5s ease, box-shadow 0.5s ease;
 }
 
 @keyframes erp-panel-enter {
   from {
     opacity: 0;
-    transform: translateY(20px) scale(0.97);
+    transform: translateY(18px) scale(0.975);
   }
   to {
     opacity: 1;
@@ -528,44 +541,45 @@
   }
 }
 
-/* Perimeter light streak beam */
+/* Executive Cyan-Sapphire & Gold Perimeter Beam (shared property with Login) */
 @property --welcome-beam {
   syntax: "<angle>";
   inherits: false;
   initial-value: 0deg;
 }
+
 .erp-welcome-panel::before {
   content: "";
   position: absolute;
   inset: 0;
   z-index: 1;
   box-sizing: border-box;
-  padding: 2px;
+  padding: 1.5px;
   border-radius: inherit;
   pointer-events: none;
   background: conic-gradient(
     from var(--welcome-beam),
-    transparent 0deg 240deg,
-    rgba(184, 139, 12, 0.38) 275deg,
-    rgba(217, 173, 60, 0.7) 310deg,
-    rgba(255, 245, 205, 0.9) 340deg,
+    transparent 0deg 225deg,
+    rgba(139, 92, 246, 0.48) 268deg,
+    rgba(56, 189, 248, 0.86) 316deg,
+    rgba(196, 181, 253, 0.92) 346deg,
     transparent 360deg
   );
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
   mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   mask-composite: exclude;
-  filter: drop-shadow(0 0 6px rgba(245, 212, 122, 0.55));
+  filter: drop-shadow(0 0 8px rgba(56, 189, 248, 0.42)) drop-shadow(0 0 12px rgba(168, 85, 247, 0.28));
   animation: erp-welcome-beam 8s linear infinite;
 }
+
 @keyframes erp-welcome-beam {
   from { --welcome-beam: 0deg; }
   to   { --welcome-beam: 360deg; }
 }
 
 /* =====================================================================
-   ROUNDED METALLIC MEDALLION LOGO (SEAMLESSLY INTEGRATED)
-   Fixes the square white edges and merges smoothly with card shading
+   ROUNDED METALLIC MEDALLION LOGO (Shared by Welcome & Login)
    ===================================================================== */
 .erp-welcome-logo-wrap {
   position: relative;
@@ -573,14 +587,14 @@
   margin-bottom: 6px;
   padding: 4px;
   border-radius: 50%;
-  background: radial-gradient(circle at center, rgba(246, 212, 123, 0.35) 0%, rgba(246, 212, 123, 0.12) 55%, transparent 75%);
-  box-shadow: 0 0 24px rgba(246, 212, 123, 0.35);
+  background: radial-gradient(circle at center, rgba(246, 212, 123, 0.34) 0%, rgba(56, 189, 248, 0.14) 58%, transparent 76%);
+  box-shadow: 0 0 22px rgba(246, 212, 123, 0.28);
   animation: erp-logo-glow 4s ease-in-out infinite alternate;
 }
 
 @keyframes erp-logo-glow {
-  0% { transform: scale(1); filter: drop-shadow(0 0 10px rgba(246, 212, 123, 0.4)); }
-  100% { transform: scale(1.02); filter: drop-shadow(0 0 18px rgba(251, 191, 36, 0.65)); }
+  0%   { transform: scale(1); filter: drop-shadow(0 0 8px rgba(246, 212, 123, 0.32)); }
+  100% { transform: scale(1.02); filter: drop-shadow(0 0 16px rgba(56, 189, 248, 0.42)); }
 }
 
 .erp-welcome-logo-badge {
@@ -589,12 +603,12 @@
   height: 62px;
   border-radius: 50%;
   overflow: hidden;
-  border: 2.2px solid rgba(212, 160, 23, 0.8);
-  background: radial-gradient(circle at 50% 50%, #ffffff 58%, #fffbf0 80%, #fde68a 100%);
+  border: 2.2px solid rgba(212, 160, 23, 0.85);
+  background: radial-gradient(circle at 50% 50%, #ffffff 60%, #fffbf0 82%, #fde68a 100%);
   box-shadow:
-    inset 0 2px 6px rgba(34, 48, 63, 0.14),
-    0 8px 20px rgba(34, 48, 63, 0.2),
-    0 0 16px rgba(212, 160, 23, 0.32);
+    inset 0 2px 6px rgba(15, 23, 42, 0.14),
+    0 8px 20px rgba(15, 23, 42, 0.24),
+    0 0 16px rgba(212, 160, 23, 0.28);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -602,7 +616,7 @@
 }
 
 .erp-welcome-logo-badge:hover {
-  transform: rotate(4deg) scale(1.04);
+  transform: scale(1.04);
 }
 
 .erp-welcome-logo {
@@ -615,7 +629,7 @@
 }
 
 /* =====================================================================
-   LIVE HANDWRITING HEADLINE
+   EXECUTIVE BRAND REVEAL & SHADED ROYAL-BLUE / CYAN CALLIGRAPHY
    ===================================================================== */
 .erp-welcome-write {
   position: relative;
@@ -625,110 +639,93 @@
   width: 100%;
   margin: 4px 0 14px;
 }
+
 .pwi-phrases {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2px;
+  gap: 3px;
   width: 100%;
 }
+
 .pwi-phrase {
   display: flex;
   justify-content: center;
   width: 100%;
 }
+
 .pwi-line {
   display: inline-block;
   white-space: nowrap;
   text-align: center;
-  font-family: 'Dancing Script', 'Caveat', 'Segoe Script', cursive;
+  font-family: 'Dancing Script', 'Segoe Script', cursive;
   font-weight: 700;
   letter-spacing: 0.02em;
-  line-height: 1.15;
+  line-height: 1.18;
   margin: 0;
-  padding: 0 0.15em;
-  color: var(--w-gold);
+  padding: 0 0.16em;
+  color: #f8fafc;
   will-change: clip-path;
-  /* Neutral edge + shadow so every phase of the metal cycle (gold, silver-white,
-     deep platinum) stays legible on the light frosted panel */
-  filter: drop-shadow(0 0 1.5px rgba(30, 40, 58, 0.5)) drop-shadow(0 2px 9px rgba(46, 58, 78, 0.34)) drop-shadow(0 6px 18px rgba(52, 64, 84, 0.24));
+  filter: var(--w-brand-shadow);
 }
+
 @keyframes erp-write-stroke-shift {
-  from { background-position: 0% 55%; }
-  to   { background-position: 100% 55%; }
+  from { background-position: 0% 50%; }
+  to   { background-position: 100% 50%; }
 }
+
 @supports ((-webkit-background-clip: text) or (background-clip: text)) {
   .pwi-line {
     color: transparent;
-    /* Metal-flow gradient: metallic gold (#d4af37) -> premium silver-white
-       (#f5f5f7) -> deep platinum (#8e939d) -> silver-white -> gold.
-       With background-clip:text and the slow background-position drift, the
-       brush strokes continuously cycle through the three tones as they unfold. */
-    background-image: linear-gradient(
-      115deg,
-      #d4af37 0%,
-      #ecd482 7%,
-      #f5f5f7 15%,
-      #eceef1 22%,
-      #d5d9e0 30%,
-      #b4b8c0 39%,
-      #8e939d 50%,
-      #b4b8c0 61%,
-      #d5d9e0 70%,
-      #eceef1 78%,
-      #f5f5f7 85%,
-      #ecd482 93%,
-      #d4af37 100%
-    );
-    background-size: 340% 100%;
-    background-position: 0% 55%;
-    animation: erp-write-stroke-shift 9s ease-in-out infinite alternate;
+    background-image: var(--w-brand-gradient);
+    background-size: 240% 100%;
+    background-position: 0% 50%;
+    animation: erp-write-stroke-shift 6s ease-in-out infinite alternate;
     -webkit-background-clip: text;
     background-clip: text;
     -webkit-text-fill-color: transparent;
   }
 }
 
-/* Proportionate PWI title */
+/* Authoritative Corporate Monogram for PWI */
 .pwi-line--primary {
-  font-size: clamp(34px, 5.5vw, 48px);
-  font-weight: 700;
-  letter-spacing: 0.04em;
+  font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  font-size: clamp(32px, 5vw, 44px);
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  line-height: 1.08;
 }
 
-/* Pakistan Wire Industries (Pvt.) LTD */
+/* Pakistan Wire Industries */
 .pwi-line--company {
-  font-size: clamp(19px, 3.2vw, 26px);
-  font-weight: 600;
+  font-size: clamp(22px, 3.6vw, 30px);
+  font-weight: 700;
   letter-spacing: 0.02em;
 }
 
-/* (Private) Limited */
+/* (Pvt.) LTD */
 .pwi-line--sub {
-  font-size: clamp(14px, 2.2vw, 18px);
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  color: #8a6410;
+  font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  font-size: clamp(12px, 1.9vw, 15px);
+  font-weight: 800;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
 }
 
-/* Live golden stylus / pen nib */
+/* Precision Cyan-Gold Stylus Nib */
 .erp-write-pen {
   position: absolute;
-  width: 18px;
-  height: 28px;
+  width: 16px;
+  height: 26px;
   transform: translate(-50%, -100%) rotate(-18deg);
   transform-origin: 50% 100%;
   pointer-events: none;
   z-index: 10;
-  background:
-    radial-gradient(circle at 50% 10%, #ffffff 0%, #f5f5f7 24%, #e5e4de 44%, #d4af37 72%, #9a7212 100%);
+  background: radial-gradient(circle at 50% 15%, #ffffff 0%, #bae6fd 35%, #0284c7 75%, #1e3a8a 100%);
   clip-path: polygon(50% 0%, 92% 38%, 68% 100%, 32% 100%, 8% 38%);
-  box-shadow:
-    0 0 14px rgba(233, 226, 200, 0.85),
-    0 0 16px rgba(212, 175, 55, 0.5),
-    0 0 4px rgba(255, 255, 255, 0.95);
-  filter: drop-shadow(0 3px 6px rgba(90, 70, 20, 0.32));
+  filter: drop-shadow(0 2px 8px rgba(56, 189, 248, 0.65));
 }
+
 .erp-write-pen-glow {
   position: absolute;
   bottom: -2px;
@@ -738,20 +735,20 @@
   height: 6px;
   border-radius: 50%;
   background: #ffffff;
-  box-shadow: 0 0 10px 3px #fbbf24;
+  box-shadow: 0 0 10px 3px #38bdf8;
 }
 
-/* Sub copy */
+/* Subtitle */
 .erp-write-sub {
-  font-size: 12px;
+  font-size: 11px;
+  font-weight: 700;
   color: var(--w-ink-soft);
-  letter-spacing: 1.5px;
+  letter-spacing: 1.8px;
   text-transform: uppercase;
-  margin: 6px auto 0;
-  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+  margin: 8px auto 0;
   opacity: 0;
-  transform: translateY(6px);
-  transition: opacity 0.6s ease, transform 0.6s ease;
+  transform: translateY(5px);
+  transition: opacity 0.55s ease, transform 0.55s ease;
 }
 .erp-write-sub.is-visible {
   opacity: 1;
@@ -759,21 +756,18 @@
 }
 
 /* =====================================================================
-   6-PHOTO INDUSTRIAL SHOWCASE CARD
+   OPERATIONAL DIVISION SHOWCASE CARD
    ===================================================================== */
 .erp-welcome-showcase-card {
   position: relative;
   width: 100%;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.62) 0%, rgba(240, 245, 250, 0.55) 100%);
-  border: 1px solid rgba(96, 112, 134, 0.24);
+  background: var(--w-subcard-bg);
+  border: 1px solid var(--w-subcard-border);
   border-radius: 14px;
-  padding: 10px 14px 10px;
+  padding: 11px 14px 10px;
   margin: 0 auto 16px;
   box-sizing: border-box;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.85),
-    0 8px 24px rgba(34, 48, 63, 0.12),
-    0 0 0 1px rgba(169, 123, 18, 0.08);
+  transition: background 0.4s ease, border-color 0.4s ease;
 }
 
 .erp-welcome-showcase-nav {
@@ -790,20 +784,19 @@
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  border: 1px solid rgba(169, 123, 18, 0.4);
-  background: rgba(255, 255, 255, 0.8);
-  color: var(--w-gold-deep);
+  border: 1px solid var(--w-chip-border);
+  background: var(--w-chip-bg);
+  color: var(--w-ink);
   font-size: 13px;
   cursor: pointer;
   transition: all 0.2s ease;
   flex-shrink: 0;
 }
 .erp-welcome-nav-arrow:hover {
-  background: #ffffff;
-  border-color: rgba(169, 123, 18, 0.75);
+  background: var(--w-chip-hover);
+  border-color: var(--w-gold);
   color: var(--w-gold);
   transform: scale(1.08);
-  box-shadow: 0 4px 12px rgba(34, 48, 63, 0.14);
 }
 .erp-welcome-nav-arrow:active {
   transform: scale(0.95);
@@ -833,11 +826,11 @@
   color: var(--w-ink-faint);
 }
 .erp-welcome-slide-divider {
-  color: rgba(169, 123, 18, 0.55);
+  color: var(--w-gold);
   font-size: 11px;
 }
 .erp-welcome-slide-caption-en {
-  font-size: 12px;
+  font-size: 12.5px;
   font-weight: 700;
   color: var(--w-ink);
   letter-spacing: 0.02em;
@@ -852,18 +845,354 @@
   text-overflow: ellipsis;
 }
 
-/* Interactive Dots Bar */
+/* =====================================================================
+   CENTRALIZED DIVISION & DEPARTMENT LIFECYCLE PIPELINE SHOWCASE
+   ===================================================================== */
+.erp-lifecycle-showcase {
+  padding: 12px 14px 10px;
+  margin: 0 auto 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+/* Dynamic Division Selector Tabs */
+.erp-lifecycle-tabs {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--w-subcard-border);
+}
+
+.erp-lifecycle-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 11px;
+  border-radius: 999px;
+  border: 1px solid var(--w-chip-border);
+  background: var(--w-chip-bg);
+  color: var(--w-ink-soft);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.22s ease;
+}
+
+.erp-lifecycle-tab:hover {
+  background: var(--w-chip-hover);
+  color: var(--w-ink);
+  border-color: var(--theme-primary, #0284c7);
+}
+
+.erp-lifecycle-tab.is-active {
+  background: linear-gradient(135deg, rgba(2, 132, 199, 0.22) 0%, rgba(56, 189, 248, 0.18) 100%);
+  border-color: rgba(56, 189, 248, 0.68);
+  color: var(--w-ink);
+  box-shadow: 0 0 14px rgba(56, 189, 248, 0.24);
+}
+
+.erp-lifecycle-tab-num {
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--w-gold);
+}
+
+.erp-lifecycle-tab-name {
+  white-space: nowrap;
+}
+
+.erp-lifecycle-nav-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.erp-lifecycle-code-pill {
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  padding: 1.5px 7px;
+  border-radius: 999px;
+  background: rgba(212, 160, 23, 0.16);
+  border: 1px solid rgba(212, 160, 23, 0.45);
+  color: var(--w-gold);
+}
+
+.erp-lifecycle-mode-pill {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 1.5px 7px;
+  border-radius: 999px;
+  background: rgba(2, 132, 199, 0.15);
+  border: 1px solid rgba(56, 189, 248, 0.4);
+  color: var(--w-ink);
+}
+
+/* Flow Track Container */
+.erp-lifecycle-track-box {
+  background: var(--w-chip-bg);
+  border: 1px solid var(--w-subcard-border);
+  border-radius: 11px;
+  padding: 9px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.erp-lifecycle-track-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--w-gold);
+}
+
+/* Sequential Department Pipeline Chain */
+.erp-lifecycle-seq-chain {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.erp-lifecycle-stage-node {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 9px;
+  border-radius: 8px;
+  border: 1px solid var(--w-chip-border);
+  background: var(--w-subcard-bg);
+  color: var(--w-ink-soft);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.25s ease;
+}
+
+.erp-lifecycle-stage-node:hover {
+  border-color: rgba(56, 189, 248, 0.55);
+  color: var(--w-ink);
+  transform: translateY(-1px);
+}
+
+.erp-lifecycle-stage-node.is-passed {
+  border-color: rgba(56, 189, 248, 0.42);
+  color: var(--w-ink);
+}
+
+.erp-lifecycle-stage-node.is-current {
+  background: linear-gradient(135deg, rgba(2, 132, 199, 0.26) 0%, rgba(56, 189, 248, 0.2) 100%);
+  border-color: rgba(56, 189, 248, 0.85);
+  color: var(--w-ink);
+  box-shadow: 0 0 14px rgba(56, 189, 248, 0.34);
+  transform: translateY(-1px);
+}
+
+.erp-lifecycle-stage-node.is-terminal.is-current {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.24) 0%, rgba(56, 189, 248, 0.2) 100%);
+  border-color: rgba(16, 185, 129, 0.78);
+  box-shadow: 0 0 14px rgba(16, 185, 129, 0.32);
+}
+
+.erp-stage-index {
+  font-size: 9.5px;
+  font-weight: 800;
+  color: var(--w-gold);
+  opacity: 0.9;
+}
+
+.erp-stage-title {
+  line-height: 1.2;
+}
+
+.erp-lifecycle-connector {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  color: var(--w-ink-faint);
+  transition: color 0.25s ease, transform 0.25s ease;
+}
+
+.erp-lifecycle-connector.is-lit {
+  color: #38bdf8;
+  transform: translateX(1px);
+}
+
+/* Converging Multi-Strand Stranding Schematic */
+.erp-stranding-diagram {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.erp-stranding-inputs {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 5px 7px;
+  border-radius: 9px;
+  border: 1px dashed var(--w-chip-border);
+  background: var(--w-subcard-bg);
+  cursor: pointer;
+  transition: all 0.25s ease;
+}
+
+.erp-stranding-inputs.is-current {
+  border-style: solid;
+  border-color: rgba(56, 189, 248, 0.85);
+  box-shadow: 0 0 12px rgba(56, 189, 248, 0.28);
+}
+
+.erp-strand-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--w-ink);
+  white-space: nowrap;
+}
+
+.erp-strand-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #38bdf8;
+  box-shadow: 0 0 6px rgba(56, 189, 248, 0.6);
+  flex-shrink: 0;
+}
+
+.erp-stranding-converge-svg {
+  width: 44px;
+  height: 58px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+
+.erp-stranding-converge-svg svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.erp-stranding-converge-svg .strand-wire-path {
+  fill: none;
+  stroke: var(--w-chip-border);
+  stroke-width: 1.8;
+  stroke-dasharray: 3 2;
+  transition: stroke 0.3s ease;
+}
+
+.erp-stranding-converge-svg.is-lit .strand-wire-path {
+  stroke: #38bdf8;
+  stroke-dasharray: none;
+  filter: drop-shadow(0 0 4px rgba(56, 189, 248, 0.55));
+}
+
+.erp-stranding-node {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 6px 10px;
+  border-radius: 9px;
+  border: 1px solid var(--w-chip-border);
+  background: var(--w-subcard-bg);
+  cursor: pointer;
+  transition: all 0.25s ease;
+  min-width: 122px;
+}
+
+.erp-stranding-node:hover {
+  border-color: rgba(56, 189, 248, 0.55);
+}
+
+.erp-stranding-node.is-passed {
+  border-color: rgba(56, 189, 248, 0.42);
+}
+
+.erp-stranding-node.is-bundle {
+  border-color: rgba(212, 160, 23, 0.5);
+}
+
+.erp-stranding-node.is-current {
+  background: linear-gradient(135deg, rgba(2, 132, 199, 0.26) 0%, rgba(56, 189, 248, 0.2) 100%);
+  border-color: rgba(56, 189, 248, 0.85);
+  box-shadow: 0 0 14px rgba(56, 189, 248, 0.34);
+  transform: translateY(-1px);
+}
+
+.erp-stranding-node.is-bundle.is-current {
+  background: linear-gradient(135deg, rgba(212, 160, 23, 0.24) 0%, rgba(56, 189, 248, 0.18) 100%);
+  border-color: rgba(251, 191, 36, 0.85);
+  box-shadow: 0 0 14px rgba(251, 191, 36, 0.3);
+}
+
+.erp-stranding-node-tag {
+  font-size: 8.5px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--w-gold);
+}
+
+.erp-stranding-node-name {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--w-ink);
+  text-align: center;
+  line-height: 1.22;
+}
+
+/* Progress Rail */
+.erp-lifecycle-progress-rail {
+  width: 100%;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--w-chip-bg);
+  overflow: hidden;
+}
+
+.erp-lifecycle-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #0284c7 0%, #38bdf8 55%, var(--w-gold) 100%);
+  transition: width 0.35s ease;
+}
+
+/* Interactive Gallery Dots */
 .erp-welcome-dots {
   display: flex;
   justify-content: center;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   margin-top: 8px;
 }
 .erp-welcome-dot {
   background: transparent;
   border: none;
-  padding: 3px;
+  padding: 2.5px;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -871,24 +1200,24 @@
 }
 .erp-welcome-dot-inner {
   display: block;
-  width: 7px;
-  height: 7px;
+  width: 6.5px;
+  height: 6.5px;
   border-radius: 999px;
-  background: rgba(85, 100, 122, 0.32);
+  background: var(--w-dot-idle);
   transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 .erp-welcome-dot:hover .erp-welcome-dot-inner {
-  background: rgba(169, 123, 18, 0.55);
+  background: var(--w-gold);
   transform: scale(1.2);
 }
 .erp-welcome-dot.is-active .erp-welcome-dot-inner {
-  width: 22px;
-  background: linear-gradient(90deg, #d4a017, #a97b12);
-  box-shadow: 0 0 8px rgba(169, 123, 18, 0.45);
+  width: 20px;
+  background: linear-gradient(90deg, #0284c7, #38bdf8);
+  box-shadow: 0 0 8px rgba(56, 189, 248, 0.55);
 }
 
 /* =====================================================================
-   PRIMARY OK / ENTER ACTION
+   PRIMARY ENTERPRISE ENTRY BUTTON
    ===================================================================== */
 .erp-welcome-action-wrap {
   display: flex;
@@ -897,153 +1226,120 @@
   gap: 8px;
 }
 
-.erp-welcome-enter {
-  height: 48px !important;
-  padding: 0 38px !important;
-  font-size: 14px !important;
-  letter-spacing: 2px !important;
-  font-weight: 700 !important;
-  border-radius: 999px !important;
-  background: linear-gradient(135deg, #fae29c 0%, #dca936 50%, #b3821d 100%) !important;
-  border: 1px solid rgba(255, 240, 190, 0.5) !important;
-  color: #0c1424 !important;
+.erp-welcome-enter.ant-btn {
+  height: 48px;
+  padding: 0 36px;
+  font-size: 13px;
+  letter-spacing: 1.8px;
+  font-weight: 800;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #fae29c 0%, #dca936 52%, #b3821d 100%);
+  border: 1px solid rgba(255, 240, 190, 0.55);
+  color: #0b1220;
   box-shadow:
-    0 6px 22px rgba(220, 169, 54, 0.45),
-    0 0 24px rgba(246, 212, 123, 0.25),
-    inset 0 1px 1px rgba(255, 255, 255, 0.6) !important;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
-  display: inline-flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  gap: 8px !important;
-  cursor: pointer !important;
+    0 8px 24px rgba(220, 169, 54, 0.42),
+    inset 0 1px 1px rgba(255, 255, 255, 0.65);
+  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
 }
 
-.erp-welcome-enter:hover {
-  transform: translateY(-2px) scale(1.02) !important;
+.erp-welcome-enter.ant-btn:hover,
+.erp-welcome-enter.ant-btn:focus {
+  transform: translateY(-2px) scale(1.015);
+  background: linear-gradient(135deg, #fff0b8 0%, #e6b744 50%, #c49126 100%);
+  color: #0b1220;
+  border-color: rgba(255, 245, 210, 0.8);
   box-shadow:
-    0 10px 30px rgba(220, 169, 54, 0.6),
-    0 0 32px rgba(246, 212, 123, 0.4),
-    inset 0 1px 1px rgba(255, 255, 255, 0.8) !important;
-  background: linear-gradient(135deg, #fff0b8 0%, #e6b744 50%, #c49126 100%) !important;
+    0 12px 30px rgba(220, 169, 54, 0.58),
+    0 0 28px rgba(246, 212, 123, 0.32),
+    inset 0 1px 1px rgba(255, 255, 255, 0.82);
 }
-.erp-welcome-enter:active {
-  transform: translateY(1px) scale(0.98) !important;
-}
-.erp-welcome-enter:focus-visible {
-  outline: 3px solid rgba(246, 212, 123, 0.9);
-  outline-offset: 3px;
+
+.erp-welcome-enter.ant-btn:active {
+  transform: translateY(1px) scale(0.985);
 }
 
 .erp-welcome-enter-arrow {
-  font-size: 15px;
+  font-size: 14px;
   transition: transform 0.2s ease;
 }
 .erp-welcome-enter:hover .erp-welcome-enter-arrow {
-  transform: translateX(3px);
+  transform: translateX(4px);
 }
 
 .erp-welcome-login-hint {
   font-size: 11px;
   color: var(--w-ink-faint);
-  letter-spacing: 0.02em;
-  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.7);
+  letter-spacing: 0.03em;
 }
 
-/* Secondary/Corner sound button fallback */
-.erp-welcome-sound {
-  position: absolute;
-  top: 60px;
-  right: 18px;
-  z-index: 5;
-  color: var(--w-ink-soft) !important;
-  background: rgba(255, 255, 255, 0.75) !important;
-  border: 1px solid rgba(96, 112, 134, 0.3) !important;
-  border-radius: 50% !important;
-  width: 36px !important;
-  height: 36px !important;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  backdrop-filter: blur(8px) !important;
-  transition: all 0.2s ease !important;
-}
-.erp-welcome-sound:hover {
-  color: var(--w-gold-deep) !important;
-  border-color: rgba(169, 123, 18, 0.55) !important;
-  background: rgba(255, 255, 255, 0.95) !important;
-  transform: scale(1.08) !important;
-}
-
-/* Exit transition */
+/* Smooth Exit Transition to Login Command Center */
 .erp-welcome-root.is-exiting {
   opacity: 0;
-  transform: scale(1.02);
-  transition: opacity 0.4s ease, transform 0.4s ease;
+  transform: scale(1.015);
+  transition: opacity 0.38s ease, transform 0.38s ease;
 }
 
-/* Reduced motion */
+/* Reduced Motion Accessibility */
 @media (prefers-reduced-motion: reduce) {
   .erp-welcome-img,
   .erp-welcome-slide.is-active .erp-welcome-img { animation: none !important; }
   .erp-welcome-particle { animation: none !important; opacity: 0; }
-  .erp-welcome-flares .erp-welcome-flare { animation: none !important; opacity: 0.55; }
+  .erp-welcome-flares .erp-welcome-flare { animation: none !important; opacity: 0.5; }
   .erp-welcome-panel::before { display: none; }
   .erp-write-pen { display: none; }
-  .pwi-line { animation: none !important; background-position: 0% 55%; }
-  .erp-celebration-canvas { display: none; }
-  .erp-celebration-flash { display: none; }
-  .erp-festive-lights-bar { display: none; }
+  .pwi-line { animation: none !important; background-position: 0% 50%; }
 }
 
-/* Responsive */
+/* Mobile & Compact Screen Responsiveness */
 @media (max-width: 767px) {
   .erp-welcome-root {
-    padding-top: 54px;
+    padding-top: 56px;
   }
   .erp-welcome-top-ribbon {
     padding: 0 10px;
     height: 44px;
   }
-  .erp-top-slide-tagline {
+  .erp-top-install-label {
     display: none;
   }
-  .erp-top-slide-sep {
-    display: none;
+  .erp-top-install-pill {
+    padding: 0 9px;
   }
-  .erp-top-music-label {
+  .erp-welcome-top-ribbon .erp-auth-theme-btn span:last-child {
     display: none;
-  }
-  .erp-festive-lights-bar {
-    top: 44px;
   }
   .erp-welcome-panel {
     width: 94vw;
     padding: 20px 16px 18px;
   }
   .erp-welcome-logo-badge {
-    width: 52px;
-    height: 52px;
+    width: 54px;
+    height: 54px;
   }
   .pwi-line--primary {
-    font-size: clamp(28px, 8vw, 40px);
+    font-size: clamp(26px, 7.5vw, 36px);
   }
   .pwi-line--company {
-    font-size: clamp(16px, 4.5vw, 22px);
+    font-size: clamp(19px, 5vw, 25px);
   }
-  .erp-welcome-slide-desc {
+  .erp-welcome-slide-desc,
+  .erp-welcome-bg-hud {
     display: none;
   }
-  /* 16 gallery dots must fit the narrow card with zero overflow */
   .erp-welcome-dots {
-    gap: 4px;
+    gap: 3px;
   }
   .erp-welcome-dot {
-    padding: 2px;
+    padding: 1.5px;
   }
-  .erp-welcome-enter {
-    height: 44px !important;
-    padding: 0 28px !important;
-    font-size: 13px !important;
+  .erp-welcome-enter.ant-btn {
+    height: 44px;
+    padding: 0 26px;
+    font-size: 12px;
   }
 }

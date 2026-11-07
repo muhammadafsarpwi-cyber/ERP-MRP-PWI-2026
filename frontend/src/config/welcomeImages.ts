@@ -29,6 +29,12 @@ export interface WelcomeSlideItem {
  *      stranding → braided core macro → meter-cutting & tinning → bundles
  */
 export const WELCOME_SLIDE_ITEMS: WelcomeSlideItem[] = [
+  /* 0. GLOBAL ECOSYSTEM & HIGH-TECH HERO OVERVIEW */
+  {
+    src: `${process.env.PUBLIC_URL}/images/welcome/welcome-00.jpg`,
+    title: 'Global Futuristic Ecosystem',
+    subtitle: 'Autonomous MRP & Intelligent High-Tech Industrial Network',
+  },
   /* 1. WIRE ROD DRAWING DIVISION (01–04) */
   {
     src: `${process.env.PUBLIC_URL}/images/welcome/welcome-01.jpg`,

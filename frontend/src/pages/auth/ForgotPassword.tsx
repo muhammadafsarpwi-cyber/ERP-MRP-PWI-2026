@@ -3,7 +3,6 @@ import { Button, Form, Input, Result } from 'antd';
 import { ArrowLeftOutlined, MailOutlined, SendOutlined } from '@ant-design/icons';
 import { Link } from 'react-router-dom';
 import apiService from '../../services/api';
-import AuthBrand from '../../components/auth/AuthBrand';
 import AuthBrandPane from '../../components/auth/AuthBrandPane';
 import AuthError from '../../components/auth/AuthError';
 import AuthShell from '../../components/auth/AuthShell';
@@ -38,13 +37,22 @@ const ForgotPassword: React.FC = () => {
   };
 
   return (
-    <AuthShell footer="Secure Enterprise Operations Platform">
+    <AuthShell footer="PWI Enterprise Manufacturing & MRP Platform • Pakistan Wire Industries (Pvt.) LTD">
       <AuthBrandPane />
 
-      <section className="erp-auth-panel" aria-labelledby="forgot-heading">
-        <div className="erp-auth-panel-brand">
-          <AuthBrand variant="theme" />
+      <section className="erp-auth-panel erp-2027-login-card" aria-labelledby="forgot-heading">
+        <div className="erp-auth-panel-brand erp-auth-logo-center">
+          <div className="erp-welcome-logo-wrap" title="Pakistan Wire Industries (Pvt.) LTD">
+            <div className="erp-welcome-logo-badge">
+              <img
+                className="erp-welcome-logo erp-brand-mark"
+                src={`${process.env.PUBLIC_URL}/logo.png`}
+                alt="PWI Logo"
+              />
+            </div>
+          </div>
         </div>
+
         {sent ? (
           <div className="erp-auth-result">
             <Result
@@ -58,7 +66,7 @@ const ForgotPassword: React.FC = () => {
               }
               extra={
                 <Link to="/login">
-                  <Button type="primary">
+                  <Button type="primary" className="erp-auth-button erp-2027-auth-button">
                     <ArrowLeftOutlined />
                     Back to Sign In
                   </Button>
@@ -68,13 +76,15 @@ const ForgotPassword: React.FC = () => {
           </div>
         ) : (
           <>
-            <h2 id="forgot-heading" className="erp-auth-panel-heading">
-              Reset Password
-            </h2>
-            <p className="erp-auth-panel-sub">
-              Enter your email address and we&apos;ll send you a secure link to reset
-              your password.
-            </p>
+            <div className="erp-auth-header-block">
+              <div className="erp-auth-tagline-badge">ACCOUNT RECOVERY</div>
+              <h2 id="forgot-heading" className="erp-auth-panel-heading">
+                Reset Password
+              </h2>
+              <p className="erp-auth-panel-sub">
+                Enter your registered email address and we&apos;ll send a secure link to reset your password.
+              </p>
+            </div>
 
             <AuthError message={error} onClose={() => setError(null)} />
 
@@ -87,23 +97,24 @@ const ForgotPassword: React.FC = () => {
             >
               <Form.Item
                 name="email"
-                label="Email"
+                label={<span className="erp-2027-field-label">REGISTERED EMAIL</span>}
                 rules={[
                   { required: true, message: 'Please enter your email' },
                   { type: 'email', message: 'Please enter a valid email' },
                 ]}
               >
                 <Input
-                  prefix={<MailOutlined style={{ color: '#8c94a6' }} />}
-                  placeholder="Email address"
+                  prefix={<MailOutlined className="erp-field-icon" />}
+                  placeholder="name@pwi.com.pk"
                   size="large"
                   autoComplete="email"
                   autoFocus
+                  className="erp-2027-input"
                 />
               </Form.Item>
 
               <Button
-                className="erp-auth-button"
+                className="erp-auth-button erp-2027-auth-button"
                 type="primary"
                 htmlType="submit"
                 block
@@ -114,12 +125,11 @@ const ForgotPassword: React.FC = () => {
               </Button>
             </Form>
 
-            <p className="erp-auth-note">
-              <Link className="erp-auth-link" to="/login">
-                <ArrowLeftOutlined />
-                Back to Sign In
+            <div className="erp-2027-back-wrap">
+              <Link className="erp-auth-link erp-2027-back-link" to="/login">
+                <ArrowLeftOutlined /> Back to Sign In
               </Link>
-            </p>
+            </div>
           </>
         )}
       </section>

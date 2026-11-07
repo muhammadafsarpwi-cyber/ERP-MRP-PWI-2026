@@ -157,10 +157,19 @@ export const PwaInstallProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   );
 };
 
+const FALLBACK_PWA_CONTEXT: PwaInstallContextType = {
+  isInstallable: false,
+  isInstalled: false,
+  isIos: false,
+  showBanner: false,
+  promptInstall: async () => {},
+  dismissBanner: () => {},
+  openInstallModal: () => {},
+  closeInstallModal: () => {},
+  isInstallModalOpen: false,
+};
+
 export const usePwaInstall = (): PwaInstallContextType => {
   const context = useContext(PwaInstallContext);
-  if (!context) {
-    throw new Error('usePwaInstall must be used within a PwaInstallProvider');
-  }
-  return context;
+  return context ?? FALLBACK_PWA_CONTEXT;
 };

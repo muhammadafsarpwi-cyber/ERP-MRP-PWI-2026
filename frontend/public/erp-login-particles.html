@@ -1,0 +1,877 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ERP System Login</title>
+
+  <!-- Modern Clean Typography (Inter) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+    rel="stylesheet"
+  />
+
+  <style>
+    /* =====================================================================
+       1. THEME DESIGN TOKENS (Multi-Theme Ready: Light & Dark)
+       Compatible with existing ERP CSS custom-property architectures.
+       ===================================================================== */
+    :root,
+    [data-theme="light"] {
+      --bg-canvas: #f8fafc;
+      --bg-radial-1: rgba(66, 133, 244, 0.07);
+      --bg-radial-2: rgba(234, 67, 53, 0.05);
+      --center-shield: radial-gradient(
+        circle at center,
+        rgba(248, 250, 252, 0.92) 0%,
+        rgba(248, 250, 252, 0.55) 42%,
+        transparent 72%
+      );
+
+      --card-surface: rgba(255, 255, 255, 0.88);
+      --card-border: rgba(15, 23, 42, 0.09);
+      --card-shadow:
+        0 20px 50px -12px rgba(15, 23, 42, 0.1),
+        0 4px 16px -2px rgba(15, 23, 42, 0.04);
+
+      --text-heading: #0f172a;
+      --text-primary: #1e293b;
+      --text-secondary: #64748b;
+      --text-muted: #94a3b8;
+
+      --input-bg: #ffffff;
+      --input-bg-hover: #f8fafc;
+      --input-border: #cbd5e1;
+      --input-border-hover: #94a3b8;
+      --input-focus-border: #2563eb;
+      --input-focus-ring: rgba(37, 99, 235, 0.16);
+
+      --brand-blue: #2563eb;
+      --brand-blue-hover: #1d4ed8;
+      --brand-red: #ea4335;
+      --btn-text: #ffffff;
+      --btn-shadow: 0 10px 24px -6px rgba(37, 99, 235, 0.42);
+      --btn-shadow-hover: 0 14px 28px -6px rgba(37, 99, 235, 0.54);
+
+      --badge-bg: rgba(37, 99, 235, 0.08);
+      --badge-border: rgba(37, 99, 235, 0.18);
+      --badge-text: #1d4ed8;
+      --error-bg: rgba(239, 68, 68, 0.08);
+      --error-border: rgba(239, 68, 68, 0.28);
+      --error-text: #dc2626;
+    }
+
+    [data-theme="dark"] {
+      --bg-canvas: #090d16;
+      --bg-radial-1: rgba(66, 133, 244, 0.12);
+      --bg-radial-2: rgba(234, 67, 53, 0.08);
+      --center-shield: radial-gradient(
+        circle at center,
+        rgba(9, 13, 22, 0.88) 0%,
+        rgba(9, 13, 22, 0.48) 44%,
+        transparent 74%
+      );
+
+      --card-surface: rgba(15, 23, 42, 0.82);
+      --card-border: rgba(148, 163, 184, 0.16);
+      --card-shadow:
+        0 24px 60px -12px rgba(0, 0, 0, 0.65),
+        0 0 0 1px rgba(255, 255, 255, 0.04);
+
+      --text-heading: #f8fafc;
+      --text-primary: #e2e8f0;
+      --text-secondary: #94a3b8;
+      --text-muted: #64748b;
+
+      --input-bg: rgba(15, 23, 42, 0.72);
+      --input-bg-hover: rgba(30, 41, 59, 0.78);
+      --input-border: rgba(148, 163, 184, 0.24);
+      --input-border-hover: rgba(148, 163, 184, 0.42);
+      --input-focus-border: #3b82f6;
+      --input-focus-ring: rgba(59, 130, 246, 0.24);
+
+      --brand-blue: #3b82f6;
+      --brand-blue-hover: #2563eb;
+      --brand-red: #f87171;
+      --btn-text: #ffffff;
+      --btn-shadow: 0 10px 26px -6px rgba(59, 130, 246, 0.45);
+      --btn-shadow-hover: 0 14px 32px -6px rgba(59, 130, 246, 0.6);
+
+      --badge-bg: rgba(59, 130, 246, 0.14);
+      --badge-border: rgba(59, 130, 246, 0.3);
+      --badge-text: #93c5fd;
+      --error-bg: rgba(239, 68, 68, 0.14);
+      --error-border: rgba(248, 113, 113, 0.35);
+      --error-text: #fca5a5;
+    }
+
+    /* =====================================================================
+       2. RESET & BASE LAYOUT
+       ===================================================================== */
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html,
+    body {
+      width: 100%;
+      min-height: 100vh;
+      min-height: 100dvh;
+      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: var(--bg-canvas);
+      background-image:
+        radial-gradient(circle at 18% 18%, var(--bg-radial-1) 0%, transparent 45%),
+        radial-gradient(circle at 82% 82%, var(--bg-radial-2) 0%, transparent 45%);
+      color: var(--text-primary);
+      overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
+      transition: background-color 0.35s ease, color 0.35s ease;
+    }
+
+    /* =====================================================================
+       3. STRICT Z-INDEX BACKGROUND LAYERING
+       Layer 0: tsParticles interactive floating dots canvas
+       Layer 1: Soft radial readability shield (pointer-events: none)
+       Layer 2: Foreground login form & UI controls
+       ===================================================================== */
+    #tsparticles {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 0;
+    }
+
+    .readability-shield {
+      position: fixed;
+      inset: 0;
+      z-index: 1;
+      background: var(--center-shield);
+      pointer-events: none;
+    }
+
+    /* Optional top-right theme switcher for testing Light/Dark ERP integration */
+    .top-bar {
+      position: fixed;
+      top: 20px;
+      right: 24px;
+      z-index: 3;
+    }
+
+    .theme-toggle-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 14px;
+      border-radius: 999px;
+      border: 1px solid var(--card-border);
+      background: var(--card-surface);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      color: var(--text-secondary);
+      font-family: inherit;
+      font-size: 12.5px;
+      font-weight: 600;
+      cursor: pointer;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+      transition: color 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+    }
+
+    .theme-toggle-btn:hover {
+      color: var(--text-heading);
+      border-color: var(--input-border-hover);
+      transform: translateY(-1px);
+    }
+
+    /* =====================================================================
+       4. FOREGROUND LOGIN CONTAINER & CARD
+       ===================================================================== */
+    .login-viewport {
+      position: relative;
+      z-index: 2;
+      min-height: 100vh;
+      min-height: 100dvh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px 16px;
+      pointer-events: none; /* Allows subtle mouse interaction with background outside card */
+    }
+
+    .login-card {
+      pointer-events: auto;
+      width: 100%;
+      max-width: 420px;
+      padding: 40px 36px 36px;
+      border-radius: 24px;
+      background: var(--card-surface);
+      backdrop-filter: blur(18px) saturate(1.3);
+      -webkit-backdrop-filter: blur(18px) saturate(1.3);
+      border: 1px solid var(--card-border);
+      box-shadow: var(--card-shadow);
+      animation: card-float-in 0.55s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+      transition: background 0.35s ease, border-color 0.35s ease, box-shadow 0.35s ease;
+    }
+
+    @keyframes card-float-in {
+      from {
+        opacity: 0;
+        transform: translateY(16px) scale(0.985);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+    }
+
+    /* Brand Header */
+    .login-header {
+      text-align: center;
+      margin-bottom: 28px;
+    }
+
+    .platform-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 5px 12px;
+      border-radius: 999px;
+      background: var(--badge-bg);
+      border: 1px solid var(--badge-border);
+      color: var(--badge-text);
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-bottom: 16px;
+    }
+
+    .platform-dots {
+      display: inline-flex;
+      gap: 4px;
+    }
+
+    .platform-dots span {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+    }
+
+    .platform-dots .dot-blue {
+      background: var(--brand-blue);
+    }
+
+    .platform-dots .dot-red {
+      background: var(--brand-red);
+    }
+
+    .login-title {
+      font-size: 26px;
+      font-weight: 700;
+      letter-spacing: -0.025em;
+      color: var(--text-heading);
+      line-height: 1.2;
+      margin-bottom: 8px;
+    }
+
+    .login-subtitle {
+      font-size: 14px;
+      color: var(--text-secondary);
+      line-height: 1.5;
+    }
+
+    /* Validation Banner */
+    .form-alert {
+      display: none;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 12px;
+      margin-bottom: 18px;
+      border-radius: 10px;
+      background: var(--error-bg);
+      border: 1px solid var(--error-border);
+      color: var(--error-text);
+      font-size: 13px;
+      font-weight: 500;
+    }
+
+    .form-alert.is-visible {
+      display: flex;
+    }
+
+    /* =====================================================================
+       5. FORM CONTROLS & SMOOTH INTERACTION TRANSITIONS
+       ===================================================================== */
+    .login-form {
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .field-group {
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+    }
+
+    .field-label-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .field-label {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .forgot-link {
+      font-size: 12.5px;
+      font-weight: 500;
+      color: var(--brand-blue);
+      text-decoration: none;
+      transition: opacity 0.2s ease;
+    }
+
+    .forgot-link:hover {
+      opacity: 0.8;
+      text-decoration: underline;
+    }
+
+    .input-wrapper {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+
+    .input-icon {
+      position: absolute;
+      left: 14px;
+      width: 18px;
+      height: 18px;
+      color: var(--text-muted);
+      pointer-events: none;
+      transition: color 0.22s ease;
+    }
+
+    .form-input {
+      width: 100%;
+      height: 46px;
+      padding: 0 42px 0 42px;
+      border-radius: 12px;
+      border: 1.5px solid var(--input-border);
+      background: var(--input-bg);
+      color: var(--text-heading);
+      font-family: inherit;
+      font-size: 14.5px;
+      outline: none;
+      transition:
+        border-color 0.22s ease,
+        background-color 0.22s ease,
+        box-shadow 0.22s ease,
+        transform 0.18s ease;
+    }
+
+    .form-input::placeholder {
+      color: var(--text-muted);
+    }
+
+    .form-input:hover {
+      background: var(--input-bg-hover);
+      border-color: var(--input-border-hover);
+    }
+
+    .form-input:focus {
+      background: var(--input-bg);
+      border-color: var(--input-focus-border);
+      box-shadow: 0 0 0 4px var(--input-focus-ring);
+    }
+
+    .input-wrapper:focus-within .input-icon {
+      color: var(--brand-blue);
+    }
+
+    /* Password Visibility Toggle */
+    .password-toggle {
+      position: absolute;
+      right: 10px;
+      width: 30px;
+      height: 30px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: none;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: color 0.2s ease, background-color 0.2s ease;
+    }
+
+    .password-toggle:hover {
+      color: var(--text-primary);
+      background: rgba(148, 163, 184, 0.12);
+    }
+
+    /* Remember Session Row */
+    .remember-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: -2px;
+    }
+
+    .remember-checkbox {
+      width: 16px;
+      height: 16px;
+      accent-color: var(--brand-blue);
+      cursor: pointer;
+    }
+
+    .remember-label {
+      font-size: 13px;
+      color: var(--text-secondary);
+      cursor: pointer;
+      user-select: none;
+    }
+
+    /* Stylized Primary Login Button */
+    .login-btn {
+      position: relative;
+      width: 100%;
+      height: 48px;
+      margin-top: 4px;
+      border: none;
+      border-radius: 12px;
+      background: linear-gradient(135deg, var(--brand-blue) 0%, #1d4ed8 100%);
+      color: var(--btn-text);
+      font-family: inherit;
+      font-size: 15px;
+      font-weight: 600;
+      letter-spacing: 0.01em;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      cursor: pointer;
+      box-shadow: var(--btn-shadow);
+      overflow: hidden;
+      transition:
+        transform 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+        box-shadow 0.22s ease,
+        filter 0.22s ease;
+    }
+
+    .login-btn:hover {
+      transform: translateY(-1.5px);
+      box-shadow: var(--btn-shadow-hover);
+      filter: brightness(1.04);
+    }
+
+    .login-btn:active {
+      transform: translateY(0.5px);
+    }
+
+    .login-btn:disabled {
+      opacity: 0.72;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .btn-arrow {
+      width: 17px;
+      height: 17px;
+      transition: transform 0.2s ease;
+    }
+
+    .login-btn:hover .btn-arrow {
+      transform: translateX(3px);
+    }
+
+    /* Footer Metadata */
+    .login-footer {
+      margin-top: 24px;
+      padding-top: 18px;
+      border-top: 1px solid var(--card-border);
+      text-align: center;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    /* Mobile Responsiveness */
+    @media (max-width: 480px) {
+      .login-card {
+        padding: 32px 22px 28px;
+        border-radius: 20px;
+      }
+
+      .login-title {
+        font-size: 23px;
+      }
+
+      .top-bar {
+        top: 14px;
+        right: 14px;
+      }
+    }
+
+    /* Reduced Motion Accessibility */
+    @media (prefers-reduced-motion: reduce) {
+      .login-card,
+      .login-btn,
+      .form-input {
+        animation: none;
+        transition: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <!-- LAYER 0: Interactive Floating Particles Background (Strictly in background) -->
+  <div id="tsparticles" aria-hidden="true"></div>
+
+  <!-- LAYER 1: Subtle Radial Contrast Shield so particles never hinder readability -->
+  <div class="readability-shield" aria-hidden="true"></div>
+
+  <!-- Optional Theme Toggle for ERP Multi-Theme Preview -->
+  <div class="top-bar">
+    <button type="button" class="theme-toggle-btn" id="themeToggle" aria-label="Toggle color theme">
+      <span id="themeIcon">🌙</span>
+      <span id="themeLabel">Dark Theme</span>
+    </button>
+  </div>
+
+  <!-- LAYER 2: Centered Responsive Login Form -->
+  <main class="login-viewport">
+    <section class="login-card" aria-labelledby="erpLoginHeading">
+      <header class="login-header">
+        <div class="platform-pill">
+          <span class="platform-dots" aria-hidden="true">
+            <span class="dot-blue"></span>
+            <span class="dot-red"></span>
+          </span>
+          Enterprise Resource Platform
+        </div>
+        <h1 id="erpLoginHeading" class="login-title">ERP System Login</h1>
+        <p class="login-subtitle">Sign in with your operator credentials to continue</p>
+      </header>
+
+      <div id="formAlert" class="form-alert" role="alert"></div>
+
+      <form id="erpLoginForm" class="login-form" novalidate>
+        <!-- Username / Email Field -->
+        <div class="field-group">
+          <div class="field-label-row">
+            <label for="username" class="field-label">Username or Email</label>
+          </div>
+          <div class="input-wrapper">
+            <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
+            </svg>
+            <input
+              type="text"
+              id="username"
+              name="username"
+              class="form-input"
+              placeholder="operator@company.com"
+              autocomplete="username"
+              required
+            />
+          </div>
+        </div>
+
+        <!-- Password Field -->
+        <div class="field-group">
+          <div class="field-label-row">
+            <label for="password" class="field-label">Password</label>
+            <a href="/forgot-password" class="forgot-link">Forgot password?</a>
+          </div>
+          <div class="input-wrapper">
+            <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
+            </svg>
+            <input
+              type="password"
+              id="password"
+              name="password"
+              class="form-input"
+              placeholder="Enter your password"
+              autocomplete="current-password"
+              required
+            />
+            <button
+              type="button"
+              id="togglePassword"
+              class="password-toggle"
+              aria-label="Show password"
+              title="Toggle password visibility"
+            >
+              <svg id="eyeIcon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Session Option -->
+        <div class="remember-row">
+          <input type="checkbox" id="rememberMe" name="rememberMe" class="remember-checkbox" />
+          <label for="rememberMe" class="remember-label">Keep me signed in on this workstation</label>
+        </div>
+
+        <!-- Submit Action -->
+        <button type="submit" id="loginSubmitBtn" class="login-btn">
+          <span id="loginBtnText">Login</span>
+          <svg class="btn-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
+          </svg>
+        </button>
+      </form>
+
+      <footer class="login-footer">
+        Protected Enterprise Session &bull; Role-Based Access Control
+      </footer>
+    </section>
+  </main>
+
+  <!-- tsParticles Slim Bundle (Official lightweight successor to particles.js) -->
+  <script src="https://cdn.jsdelivr.net/npm/@tsparticles/slim@3.5.0/tsparticles.slim.bundle.min.js"></script>
+
+  <script>
+    /**
+     * =========================================================================
+     * 1. ANTIGRAVITY-STYLE FLOATING BLUE & RED PARTICLES INITIALIZATION
+     * Uses tsParticles with an automatic offline HTML5 Canvas fallback for
+     * air-gapped factory / local intranet ERP deployments.
+     * =========================================================================
+     */
+    const PARTICLE_PALETTE = [
+      "#4285F4", // Google / Platform Blue
+      "#2563EB", // Royal Blue
+      "#60A5FA", // Soft Sky Blue
+      "#EA4335", // Platform Coral Red
+      "#EF4444", // Crisp Red Accent
+      "#F87171"  // Soft Rose Red
+    ];
+
+    async function initParticlesBackground() {
+      const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+      // Primary path: tsParticles engine
+      if (window.tsParticles && typeof window.tsParticles.load === "function") {
+        await window.tsParticles.load({
+          id: "tsparticles",
+          options: {
+            fullScreen: { enable: false },
+            fpsLimit: 60,
+            detectRetina: true,
+            background: { color: { value: "transparent" } },
+            particles: {
+              number: {
+                value: 68,
+                density: { enable: true, width: 1200, height: 800 }
+              },
+              color: { value: PARTICLE_PALETTE },
+              shape: { type: "circle" },
+              opacity: {
+                value: { min: 0.22, max: 0.68 },
+                animation: {
+                  enable: !prefersReducedMotion,
+                  speed: 0.6,
+                  sync: false
+                }
+              },
+              size: {
+                value: { min: 1.8, max: 4.6 }
+              },
+              links: {
+                enable: false // Clean weightless floating dots ("Antigravity" style)
+              },
+              move: {
+                enable: !prefersReducedMotion,
+                speed: 0.65,
+                direction: "top",
+                random: true,
+                straight: false,
+                outModes: { default: "out" }
+              }
+            },
+            interactivity: {
+              detectsOn: "window",
+              events: {
+                onHover: {
+                  enable: !prefersReducedMotion,
+                  mode: "repulse"
+                },
+                resize: { enable: true }
+              },
+              modes: {
+                repulse: {
+                  distance: 110,
+                  duration: 0.6,
+                  speed: 0.35
+                }
+              }
+            }
+          }
+        });
+        return;
+      }
+
+      // Offline fallback: lightweight native Canvas renderer if CDN is unreachable
+      initOfflineCanvasFallback(prefersReducedMotion);
+    }
+
+    function initOfflineCanvasFallback(reducedMotion) {
+      const host = document.getElementById("tsparticles");
+      if (!host) return;
+      const canvas = document.createElement("canvas");
+      canvas.style.width = "100%";
+      canvas.style.height = "100%";
+      host.appendChild(canvas);
+
+      const ctx = canvas.getContext("2d");
+      let width = (canvas.width = window.innerWidth);
+      let height = (canvas.height = window.innerHeight);
+
+      const dots = Array.from({ length: 64 }, (_, i) => ({
+        x: Math.random() * width,
+        y: Math.random() * height,
+        r: 1.8 + Math.random() * 2.8,
+        vx: (Math.random() - 0.5) * 0.35,
+        vy: -0.25 - Math.random() * 0.45,
+        alpha: 0.25 + Math.random() * 0.4,
+        color: PARTICLE_PALETTE[i % PARTICLE_PALETTE.length]
+      }));
+
+      window.addEventListener("resize", () => {
+        width = canvas.width = window.innerWidth;
+        height = canvas.height = window.innerHeight;
+      });
+
+      function renderFrame() {
+        ctx.clearRect(0, 0, width, height);
+        for (const d of dots) {
+          if (!reducedMotion) {
+            d.x += d.vx;
+            d.y += d.vy;
+            if (d.y < -10) d.y = height + 10;
+            if (d.x < -10) d.x = width + 10;
+            if (d.x > width + 10) d.x = -10;
+          }
+          ctx.globalAlpha = d.alpha;
+          ctx.fillStyle = d.color;
+          ctx.beginPath();
+          ctx.arc(d.x, d.y, d.r, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        if (!reducedMotion) requestAnimationFrame(renderFrame);
+      }
+
+      renderFrame();
+    }
+
+    /**
+     * =========================================================================
+     * 2. UI CONTROLS & ERP AUTHENTICATION INTEGRATION HOOK
+     * Configure `window.ERP_AUTH_ENDPOINT` or attach a custom event listener
+     * on `erp:login-submit` to connect directly to your ERP backend API.
+     * =========================================================================
+     */
+    (function setupLoginInteractions() {
+      const htmlEl = document.documentElement;
+      const themeBtn = document.getElementById("themeToggle");
+      const themeIcon = document.getElementById("themeIcon");
+      const themeLabel = document.getElementById("themeLabel");
+
+      themeBtn.addEventListener("click", () => {
+        const next = htmlEl.getAttribute("data-theme") === "dark" ? "light" : "dark";
+        htmlEl.setAttribute("data-theme", next);
+        themeIcon.textContent = next === "dark" ? "☀️" : "🌙";
+        themeLabel.textContent = next === "dark" ? "Light Theme" : "Dark Theme";
+      });
+
+      // Password show / hide toggle
+      const passwordInput = document.getElementById("password");
+      const togglePasswordBtn = document.getElementById("togglePassword");
+      togglePasswordBtn.addEventListener("click", () => {
+        const isHidden = passwordInput.type === "password";
+        passwordInput.type = isHidden ? "text" : "password";
+        togglePasswordBtn.setAttribute("aria-label", isHidden ? "Hide password" : "Show password");
+      });
+
+      // Login submission handler
+      const form = document.getElementById("erpLoginForm");
+      const usernameInput = document.getElementById("username");
+      const alertBox = document.getElementById("formAlert");
+      const submitBtn = document.getElementById("loginSubmitBtn");
+      const btnText = document.getElementById("loginBtnText");
+
+      function showError(msg) {
+        alertBox.textContent = msg;
+        alertBox.classList.add("is-visible");
+      }
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        alertBox.classList.remove("is-visible");
+
+        const identity = usernameInput.value.trim();
+        const password = passwordInput.value;
+
+        if (!identity || !password) {
+          showError("Please enter both your username/email and password.");
+          return;
+        }
+
+        submitBtn.disabled = true;
+        btnText.textContent = "Authenticating...";
+
+        try {
+          // Dispatch custom integration event for SPA / ERP wrapper hooks
+          const payload = {
+            email: identity,
+            password,
+            rememberMe: document.getElementById("rememberMe").checked
+          };
+          window.dispatchEvent(new CustomEvent("erp:login-submit", { detail: payload }));
+
+          // Optional direct REST endpoint integration (e.g., '/api/v1/auth/login')
+          if (window.ERP_AUTH_ENDPOINT) {
+            const response = await fetch(window.ERP_AUTH_ENDPOINT, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payload)
+            });
+
+            if (!response.ok) {
+              const errData = await response.json().catch(() => ({}));
+              throw new Error(errData.message || "Invalid credentials. Please try again.");
+            }
+          } else {
+            // Demo simulation delay when running standalone
+            await new Promise((resolve) => setTimeout(resolve, 650));
+          }
+
+          btnText.textContent = "Signed In";
+        } catch (err) {
+          showError(err.message || "Unable to sign in right now.");
+          btnText.textContent = "Login";
+        } finally {
+          submitBtn.disabled = false;
+        }
+      });
+    })();
+
+    initParticlesBackground();
+  </script>
+</body>
+</html>

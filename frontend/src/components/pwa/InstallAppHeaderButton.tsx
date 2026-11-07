@@ -22,12 +22,13 @@ export const InstallAppHeaderButton: React.FC<Props> = ({ variant = 'header', st
             alignItems: 'center',
             gap: 4,
             fontSize: 11,
-            color: '#10b981',
-            background: 'rgba(16, 185, 129, 0.1)',
+            color: 'var(--theme-success)',
+            background: 'var(--theme-success-soft)',
             padding: '2px 8px',
             borderRadius: 12,
-            border: '1px solid rgba(16, 185, 129, 0.25)',
+            border: '1px solid var(--theme-border)',
             fontWeight: 600,
+            whiteSpace: 'nowrap',
             ...style,
           }}
         >
@@ -42,35 +43,12 @@ export const InstallAppHeaderButton: React.FC<Props> = ({ variant = 'header', st
       <button
         type="button"
         onClick={promptInstall}
-        className="erp-top-action-btn"
+        className="erp-top-install-pill"
         title="Install PWI ERP as a Desktop / Mobile Web App"
-        style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: 6,
-          background: 'linear-gradient(135deg, #1e3a8a 0%, #2563eb 100%)',
-          color: '#ffffff',
-          border: '1px solid rgba(255, 255, 255, 0.25)',
-          borderRadius: 16,
-          padding: '4px 12px',
-          fontSize: 11,
-          fontWeight: 700,
-          cursor: 'pointer',
-          boxShadow: '0 2px 8px rgba(37, 99, 235, 0.35)',
-          transition: 'all 0.2s ease',
-          ...style,
-        }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.transform = 'translateY(-1px)';
-          e.currentTarget.style.boxShadow = '0 4px 12px rgba(37, 99, 235, 0.5)';
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.transform = 'none';
-          e.currentTarget.style.boxShadow = '0 2px 8px rgba(37, 99, 235, 0.35)';
-        }}
+        style={style}
       >
         <DownloadOutlined style={{ fontSize: 13 }} />
-        <span>Install App</span>
+        <span className="erp-top-install-label">Install App</span>
       </button>
     );
   }
@@ -83,8 +61,6 @@ export const InstallAppHeaderButton: React.FC<Props> = ({ variant = 'header', st
         icon={<DownloadOutlined />}
         onClick={promptInstall}
         style={{
-          background: 'linear-gradient(135deg, #0284c7 0%, #2563eb 100%)',
-          borderColor: '#38bdf8',
           fontWeight: 700,
           fontSize: 11,
           borderRadius: 14,
@@ -93,7 +69,7 @@ export const InstallAppHeaderButton: React.FC<Props> = ({ variant = 'header', st
           display: 'inline-flex',
           alignItems: 'center',
           gap: 4,
-          boxShadow: '0 2px 8px rgba(2, 132, 199, 0.3)',
+          whiteSpace: 'nowrap',
           ...style,
         }}
       >

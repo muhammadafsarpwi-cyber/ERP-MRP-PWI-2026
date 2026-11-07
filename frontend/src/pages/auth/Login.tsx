@@ -5,19 +5,20 @@ import {
   UserOutlined,
   ArrowRightOutlined,
   SafetyCertificateOutlined,
-  ThunderboltOutlined,
+  CheckCircleOutlined,
   GlobalOutlined,
   WarningOutlined,
 } from '@ant-design/icons';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import apiService from '../../services/api';
 import { prefetchAllLookups } from '../../services/lookupsCache';
-import AuthBrandPane from '../../components/auth/AuthBrandPane';
 import AuthError from '../../components/auth/AuthError';
 import AuthShell from '../../components/auth/AuthShell';
 import PasswordField from '../../components/auth/PasswordField';
+import { useCompanyWelcomeConfig } from '../../store/companyWelcomeStore';
 import { useUserStore } from '../../store/userStore';
 import './auth.css';
+import './antigravityLogin.css';
 
 interface LoginFormValues {
   email: string;
@@ -84,31 +85,24 @@ export const buildMasterAdminProfile = (emailInput?: string) => {
   };
 };
 
-const DEPARTMENTS = [
-  { label: 'Plant Production', icon: '🏭', desc: 'Shopfloor & SPD' },
-  { label: 'Inventory / Dispatch', icon: '📦', desc: 'Finished Goods & Raw' },
-  { label: 'Executive & Finance', icon: '💼', desc: 'Orders & Analytics' },
-  { label: 'System Admin', icon: '⚙️', desc: 'Security & Master Data' },
-];
+const REMEMBERED_EMAIL_KEY = 'pwi_remembered_email';
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const USERNAME_PATTERN = /^[a-zA-Z0-9._-]{3,64}$/;
 
 const Login: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [capsLockActive, setCapsLockActive] = useState(false);
-  const [selectedDept, setSelectedDept] = useState<number | null>(null);
   const [systemTime, setSystemTime] = useState('');
+  const [serverOnline, setServerOnline] = useState<boolean | null>(null);
+  const { config } = useCompanyWelcomeConfig();
 
   const [initialEmail] = useState(() => {
     try {
-      const stored = localStorage.getItem('erp_user');
-      if (stored) {
-        const user = JSON.parse(stored);
-        if (user.email && user.email !== 'admin@pwi.com.pk') {
-          return user.email;
-        }
-      }
-    } catch {}
-    return 'muhammadafsarpwi@gmail.com';
+      return localStorage.getItem(REMEMBERED_EMAIL_KEY) || '';
+    } catch {
+      return '';
+    }
   });
 
   const navigate = useNavigate();
@@ -124,41 +118,15 @@ const Login: React.FC = () => {
           localStorage.removeItem('erp_user');
           return false;
         }
-      } catch {}
+      } catch {
+        /* ignore */
+      }
       return true;
     }
     return false;
   });
 
-  const mountMasterAdminSession = (targetEmail: string) => {
-    try {
-      sessionStorage.clear();
-      sessionStorage.setItem('pwi_welcome_passed', '1');
-    } catch {}
-
-    const masterProfile = buildMasterAdminProfile(targetEmail);
-    const token = 'offline-preview-token-2027';
-
-    localStorage.setItem('token', token);
-    localStorage.setItem('access_token', token);
-    localStorage.setItem('refresh_token', token);
-    localStorage.setItem('erp_user', JSON.stringify(masterProfile));
-    localStorage.setItem('erp_permissions_ts', Date.now().toString());
-
-    useUserStore.getState().setUser(masterProfile as any);
-    apiService.markSessionActive();
-    void prefetchAllLookups(true);
-
-    const from = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname;
-    const destination =
-      from && from.startsWith('/') && from !== '/login' && !from.startsWith('/forgot')
-        ? from
-        : '/production/inventory-report';
-
-    navigate(destination, { replace: true });
-  };
-
-  // Live 2027 enterprise digital clock
+  // Live enterprise PKT clock
   useEffect(() => {
     const updateTime = () => {
       const now = new Date();
@@ -177,7 +145,8 @@ const Login: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    document.title = '2027 Enterprise Command Access | PWI — Pakistan Wire Industries (Pvt.) LTD';
+    document.title =
+      'Manufacturing & Operations Platform | Pakistan Wire Industries (Pvt.) LTD.';
 
     // If starting a fresh session without passing the Welcome screen first, redirect to Welcome (/)
     if (process.env.NODE_ENV !== 'test') {
@@ -187,16 +156,19 @@ const Login: React.FC = () => {
           navigate('/', { replace: true });
           return;
         }
-      } catch {}
+      } catch {
+        /* ignore */
+      }
     }
 
     if (redirecting) {
       navigate('/dashboard', { replace: true });
-    } else {
-      // Pre-warm backend container if cold-started on Render/cloud
-      apiService.get('/health').catch(() => {
-        /* silent warm-up ping */
-      });
+    } else if (process.env.NODE_ENV !== 'test') {
+      // Pre-warm backend container and reflect real health status
+      apiService
+        .get('/health')
+        .then(() => setServerOnline(true))
+        .catch(() => setServerOnline(false));
     }
   }, [redirecting, navigate]);
 
@@ -213,7 +185,9 @@ const Login: React.FC = () => {
     setError(null);
 
     const emailInput = (values.email || '').trim();
-    const isOwnerEmail = emailInput.toLowerCase() === 'muhammadafsarpwi@gmail.com';
+    const isOwnerEmail =
+      emailInput.toLowerCase() === 'muhammadafsarpwi@gmail.com' ||
+      emailInput.toLowerCase() === 'muhammadafsarpwi';
 
     try {
       const response = await apiService.post<{
@@ -224,6 +198,16 @@ const Login: React.FC = () => {
         email: emailInput,
         password: values.password,
       });
+
+      try {
+        if (values.remember) {
+          localStorage.setItem(REMEMBERED_EMAIL_KEY, emailInput);
+        } else {
+          localStorage.removeItem(REMEMBERED_EMAIL_KEY);
+        }
+      } catch {
+        /* ignore */
+      }
 
       localStorage.setItem('token', response.token);
       if (response.refreshToken) {
@@ -253,28 +237,14 @@ const Login: React.FC = () => {
     } catch (err: any) {
       const status = err.response?.status;
       if (status === 401) {
-        if (isOwnerEmail) {
-          mountMasterAdminSession(emailInput);
-          return;
-        }
-        setError('Authentication failed. Invalid email credentials or security key.');
+        setError('Authentication failed. Invalid operator credentials or security key.');
       } else if (status === 403) {
-        setError('Security restriction: Account deactivated. Contact Enterprise Security Administrator.');
-      } else if (
-        status === 0 ||
-        !err.response ||
-        err.code === 'ECONNABORTED' ||
-        err.message?.includes('timeout') ||
-        err.message?.includes('Network Error') ||
-        (status && status >= 500) ||
-        isOwnerEmail
-      ) {
-        // Automatic local bypass during server cold node / cloud maintenance
-        mountMasterAdminSession(emailInput);
-        return;
+        setError('Security restriction: Account deactivated. Contact System Administrator.');
+      } else if (status === 0 || !err.response || err.message?.includes('Network Error')) {
+        setError('Unable to reach the ERP server. Please check your connection and try again.');
       } else {
         const serverMessage = err.response?.data?.message || err.response?.data?.error;
-        setError(serverMessage || 'System authentication failed. Please verify credentials.');
+        setError(serverMessage || 'System authentication failed. Please verify your credentials.');
       }
     } finally {
       setLoading(false);
@@ -285,67 +255,74 @@ const Login: React.FC = () => {
     return null;
   }
 
+  const logoSrc = config.logoUrl || `${process.env.PUBLIC_URL || ''}/logo.png`;
+
   return (
-    <AuthShell footer="2027 Enterprise Manufacturing Platform • Quantum-Ready Zero-Trust Architecture">
-      <AuthBrandPane />
-
-      <section className="erp-auth-panel erp-2027-login-card" aria-labelledby="login-heading">
-        {/* Top 2027 High-Tech Status HUD */}
-        <div className="erp-2027-hud-bar" aria-hidden="true">
-          <span className="erp-hud-pill">
-            <SafetyCertificateOutlined style={{ color: '#34d399' }} />
-            TLS 1.3 QUANTUM-READY
+    <AuthShell
+      centered
+      backgroundVariant="antigravity"
+      footer="Manufacturing & Operations Platform • Pakistan Wire Industries (Pvt.) LTD."
+    >
+      <section
+        className="erp-auth-panel erp-ag-login-card"
+        aria-labelledby="login-heading"
+        data-testid="pwi-antigravity-login-card"
+      >
+        {/* Subtle Enterprise Telemetry Strip */}
+        <div className="erp-ag-telemetry-row" aria-hidden="true">
+          <span className="erp-ag-status-pill">
+            <SafetyCertificateOutlined className="erp-ag-icon-online" />
+            TLS Encrypted
           </span>
-          <span className="erp-hud-pill">
-            <ThunderboltOutlined style={{ color: '#fbbf24' }} />
-            NODE ONLINE
+          <span className="erp-ag-status-pill">
+            <CheckCircleOutlined
+              className={
+                serverOnline === false ? 'erp-ag-icon-standby' : 'erp-ag-icon-online'
+              }
+            />
+            {serverOnline === true
+              ? 'Server Online'
+              : serverOnline === false
+              ? 'Standby'
+              : 'Platform Ready'}
           </span>
-          <span className="erp-hud-pill erp-hud-clock">
-            <GlobalOutlined style={{ color: '#38bdf8' }} />
-            {systemTime || '2027 ENTERPRISE TIME'}
+          <span className="erp-ag-status-pill is-clock">
+            <GlobalOutlined />
+            {systemTime || 'PKT'}
           </span>
         </div>
 
-        {/* Circular Gold Medallion Logo (Brand Mark included for test compatibility) */}
-        <div className="erp-auth-panel-brand erp-auth-logo-center">
-          <div className="erp-welcome-logo-wrap" title="Pakistan Wire Industries (Pvt.) LTD">
-            <div className="erp-welcome-logo-badge">
-              <img
-                className="erp-welcome-logo erp-brand-mark"
-                src={`${process.env.PUBLIC_URL}/logo.png`}
-                alt="PWI Logo"
-              />
-            </div>
+        {/* Official PWI Emblem + Organization Pill */}
+        <div className="erp-auth-panel-brand erp-ag-brand-header">
+          <div
+            className="erp-ag-logo-medallion"
+            title="Pakistan Wire Industries (Pvt.) LTD."
+          >
+            <img
+              className="erp-brand-mark"
+              src={logoSrc}
+              alt="Pakistan Wire Industries (Pvt.) LTD."
+            />
+          </div>
+
+          <div className="erp-ag-org-pill" data-testid="login-organization">
+            <span className="erp-ag-agent-dots" aria-hidden="true">
+              <span className="dot-blue" />
+              <span className="dot-red" />
+            </span>
+            <span>Pakistan Wire Industries (Pvt.) LTD.</span>
           </div>
         </div>
 
-        <div className="erp-auth-header-block">
-          <div className="erp-auth-tagline-badge">2027 NEXT-GEN AUTHENTICATION</div>
-          <h2 id="login-heading" className="erp-auth-panel-heading">
-            Enterprise Command Center
-          </h2>
-          <p className="erp-auth-panel-sub">
-            Unified MRP intelligence, Spoke Division &amp; Plant Floor operations.
+        {/* Primary Heading & Core Tagline */}
+        <div className="erp-ag-branding-copy">
+          <h1 id="login-heading" className="erp-ag-heading">
+            Manufacturing &amp; Operations Platform
+          </h1>
+          <p className="erp-ag-tagline" data-testid="login-core-tagline">
+            Centralized production planning, material requirements, batch quality
+            traceability, inventory control, and dispatch operations.
           </p>
-        </div>
-
-        {/* Department / Role Selector Quick Chips */}
-        <div className="erp-2027-dept-selector">
-          <span className="erp-dept-label">ACCESS PROFILE</span>
-          <div className="erp-dept-chips" role="radiogroup" aria-label="Access Profile">
-            {DEPARTMENTS.map((dept, idx) => (
-              <button
-                key={dept.label}
-                type="button"
-                className={`erp-dept-chip${selectedDept === idx ? ' is-selected' : ''}`}
-                onClick={() => setSelectedDept(selectedDept === idx ? null : idx)}
-                title={dept.desc}
-              >
-                <span className="dept-icon">{dept.icon}</span>
-                <span className="dept-name">{dept.label}</span>
-              </button>
-            ))}
-          </div>
         </div>
 
         <AuthError message={error} onClose={() => setError(null)} />
@@ -360,92 +337,82 @@ const Login: React.FC = () => {
           name="login"
           onFinish={onFinish}
           layout="vertical"
-          initialValues={{ email: initialEmail, remember: true }}
+          initialValues={{ email: initialEmail, remember: Boolean(initialEmail) }}
           requiredMark={false}
           disabled={loading}
           onKeyDown={handleKeyDown}
         >
           <Form.Item
             name="email"
-            label={<span className="erp-2027-field-label">OPERATOR EMAIL / SYSTEM ID</span>}
+            label={<span className="erp-ag-field-label">Operator Username / Email</span>}
             rules={[
               { required: true, message: 'Operator credentials required' },
-              { type: 'email', message: 'Enter a valid enterprise email' },
+              {
+                validator: (_, value) => {
+                  const trimmed = (value || '').trim();
+                  if (!trimmed) return Promise.resolve();
+                  if (EMAIL_PATTERN.test(trimmed) || USERNAME_PATTERN.test(trimmed)) {
+                    return Promise.resolve();
+                  }
+                  return Promise.reject(
+                    new Error('Enter a valid operator username or enterprise email'),
+                  );
+                },
+              },
             ]}
           >
             <Input
               prefix={<UserOutlined className="erp-field-icon" />}
-              placeholder="e.g. operator@pwi.com.pk"
+              placeholder="operator@pwi.com.pk or username"
               size="large"
               autoComplete="username"
               autoFocus
-              className="erp-2027-input"
+              className="erp-ag-input"
             />
           </Form.Item>
 
           <PasswordField
             name="password"
-            label={<span className="erp-2027-field-label">ACCESS KEY / PASSWORD</span>}
-            placeholder="••••••••••••"
+            label={<span className="erp-ag-field-label">Password</span>}
+            placeholder="Enter your password"
             autoComplete="current-password"
+            className="erp-ag-input"
             rules={[{ required: true, message: 'Security key required' }]}
           />
 
-          <div className="erp-auth-panel-row erp-2027-row">
+          <div className="erp-ag-options-row">
             <Form.Item name="remember" valuePropName="checked" noStyle>
-              <Checkbox className="erp-2027-checkbox">
-                Trust terminal for 30 days
+              <Checkbox className="erp-ag-checkbox">
+                Remember operator on this workstation
               </Checkbox>
             </Form.Item>
-            <Link className="erp-auth-link erp-2027-forgot" to="/forgot-password">
-              Forgot security key?
+            <Link className="erp-ag-forgot-link" to="/forgot-password">
+              Forgot password?
             </Link>
           </div>
 
           <Button
-            className="erp-auth-button erp-2027-auth-button"
+            className="erp-auth-button erp-ag-submit-btn"
             type="primary"
             htmlType="submit"
             block
             loading={loading}
-            icon={<ArrowRightOutlined className="erp-cta-arrow" />}
+            icon={<SafetyCertificateOutlined />}
           >
-            {loading ? 'Authenticating Secure Session...' : 'Sign In — Enter Command Center'}
+            <span>{loading ? 'Authenticating...' : 'Secure Login'}</span>
+            {!loading && <ArrowRightOutlined className="erp-ag-submit-arrow" />}
           </Button>
 
-          <Button
-            type="dashed"
-            block
-            style={{
-              marginTop: 10,
-              height: 42,
-              borderRadius: 8,
-              borderColor: '#38BDF8',
-              color: '#38BDF8',
-              fontWeight: 700,
-              background: 'rgba(56, 189, 248, 0.08)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 8,
-            }}
-            onClick={() => {
-              mountMasterAdminSession('muhammadafsarpwi@gmail.com');
-            }}
-          >
-            ⚡ Enter UI Audit Mode (Bypass Auth Guard — Muhammad Afsar)
-          </Button>
-
-          <div className="erp-2027-back-wrap">
-            <Link className="erp-auth-link erp-2027-back-link" to="/">
-              ← Return to Welcome Console
+          <div className="erp-ag-secondary-nav">
+            <Link className="erp-ag-welcome-link" to="/">
+              ← Return to Welcome Showcase
             </Link>
           </div>
         </Form>
 
-        <div className="erp-2027-footer-security">
-          <LockOutlined className="erp-lock-icon" />
-          <span>Biometric &amp; Smart-Token Ready • Monitored 24/7 by Enterprise Security</span>
+        <div className="erp-ag-security-strip">
+          <LockOutlined className="erp-ag-icon-online" />
+          <span>Role-Based Access Control • Protected Enterprise Session</span>
         </div>
       </section>
     </AuthShell>

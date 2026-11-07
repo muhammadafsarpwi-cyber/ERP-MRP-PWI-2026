@@ -1,97 +1,105 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { Button } from 'antd';
-import {
-  ArrowRightOutlined,
-  LeftOutlined,
-  RightOutlined,
-} from '@ant-design/icons';
+import { ArrowRightOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import WelcomeBackground from '../../components/auth/WelcomeBackground';
-import WelcomeCableScene from '../../components/auth/WelcomeCableScene';
 import WelcomeAnimation from '../../components/auth/WelcomeAnimation';
-import WelcomeCelebration from '../../components/auth/WelcomeCelebration';
 import WelcomeTopRibbon from '../../components/auth/WelcomeTopRibbon';
-import { classicalAmbientMusic } from '../../utils/classicalAmbientMusic';
-import { WELCOME_SLIDE_ITEMS } from '../../config/welcomeImages';
+import WelcomeLifecycleShowcase from '../../components/auth/WelcomeLifecycleShowcase';
+import {
+  collectDivisionImageUrls,
+  parseCompanyBrandParts,
+  resolveDivisionStageVisual,
+} from '../../config/companyWelcomeConfig';
+import { useCompanyWelcomeConfig } from '../../store/companyWelcomeStore';
+import { useMusicStore } from '../../store/musicStore';
 import './welcome.css';
 
-/**
- * 3D cinematic background layer (WebGL). Renders the 16 division tracks as
- * volumetric floating panels in a circular gallery; the camera glides to the
- * active panel on the shared 6-second cadence (see webglCableScene.ts).
- * When off — or when WebGL/reduced-motion prevent init — the cinematic image
- * slideshow remains the visible background (automatic fallback).
- */
-const ENABLE_3D_CABLE_LAYER = true;
-
-/** Floating particles count */
-const PARTICLE_COUNT = 22;
+/** Subtle ambient particles count */
+const PARTICLE_COUNT = 16;
 
 const Welcome: React.FC = () => {
   const navigate = useNavigate();
+  const { config, welcomePortal, enabledDivisions } = useCompanyWelcomeConfig();
   const [exiting, setExiting] = useState(false);
-  const [activeSlide, setActiveSlide] = useState(0);
-  const [isMusicPlaying, setIsMusicPlaying] = useState(false);
+  const [activeDivisionIdx, setActiveDivisionIdx] = useState(0);
+  const [activeStageIdx, setActiveStageIdx] = useState(0);
+
+  const brand = useMemo(
+    () => parseCompanyBrandParts(config.companyName),
+    [config.companyName],
+  );
+  const logoSrc = config.logoUrl || `${process.env.PUBLIC_URL || ''}/logo.png`;
 
   const reducedMotion = useMemo(
-    () => typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+    () =>
+      typeof window !== 'undefined' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches,
     [],
   );
 
   const particles = useMemo(
     () =>
       Array.from({ length: PARTICLE_COUNT }, (_, i) => ({
-        left: `${(i * 37) % 100}%`,
-        delay: `${(i * 0.9) % 12}s`,
-        duration: `${9 + (i % 7)}s`,
+        left: `${(i * 37 + 9) % 100}%`,
+        delay: `${(i * 1.1) % 12}s`,
+        duration: `${11 + (i % 7)}s`,
         size: 2 + (i % 3),
       })),
     [],
   );
 
-  const slides = useMemo(() => WELCOME_SLIDE_ITEMS, []);
-
+  // Keep activeDivisionIdx & activeStageIdx within valid bounds if divisions are dynamically modified
   useEffect(() => {
-    document.title = 'Welcome | PWI — Pakistan Wire Industries (Pvt.) LTD';
-  }, []);
-
-  const handleNextSlide = useCallback(() => {
-    setActiveSlide((prev) => (prev + 1) % slides.length);
-  }, [slides.length]);
-
-  const handlePrevSlide = useCallback(() => {
-    setActiveSlide((prev) => (prev - 1 + slides.length) % slides.length);
-  }, [slides.length]);
-
-  const handleToggleMusic = useCallback(() => {
-    if (isMusicPlaying) {
-      classicalAmbientMusic.stop(300);
-      setIsMusicPlaying(false);
-    } else {
-      const ok = classicalAmbientMusic.start();
-      if (ok) setIsMusicPlaying(true);
+    if (enabledDivisions.length > 0 && activeDivisionIdx >= enabledDivisions.length) {
+      setActiveDivisionIdx(0);
+      setActiveStageIdx(0);
     }
-  }, [isMusicPlaying]);
+  }, [activeDivisionIdx, enabledDivisions.length]);
 
-  // Gentle unlock of classical ambient music on first user interaction anywhere
+  const safeDivisionIdx =
+    enabledDivisions.length > 0 ? activeDivisionIdx % enabledDivisions.length : 0;
+  const currentDivision = enabledDivisions[safeDivisionIdx];
+
+  // Exact department-level synchronized visual for WelcomeBackground
+  const activeVisual = useMemo(
+    () =>
+      resolveDivisionStageVisual(
+        currentDivision,
+        activeStageIdx,
+        welcomePortal.heroBannerUrl,
+      ),
+    [activeStageIdx, currentDivision, welcomePortal.heroBannerUrl],
+  );
+
+  // Preload all department background scenes for zero-latency crossfades
+  const preloadUrls = useMemo(
+    () => collectDivisionImageUrls(enabledDivisions, welcomePortal.heroBannerUrl),
+    [enabledDivisions, welcomePortal.heroBannerUrl],
+  );
+
   useEffect(() => {
-    const handleFirstGesture = () => {
-      if (!classicalAmbientMusic.getIsPlaying() && process.env.NODE_ENV !== 'test') {
-        const ok = classicalAmbientMusic.start();
-        if (ok) setIsMusicPlaying(true);
-      }
-    };
+    document.title = `Welcome | ${brand.monogram} — ${brand.fullName}`;
+  }, [brand.fullName, brand.monogram]);
 
-    window.addEventListener('click', handleFirstGesture, { once: true });
-    window.addEventListener('keydown', handleFirstGesture, { once: true });
-    return () => {
-      window.removeEventListener('click', handleFirstGesture);
-      window.removeEventListener('keydown', handleFirstGesture);
-    };
-  }, []);
+  const handleNextDivision = useCallback(() => {
+    if (enabledDivisions.length === 0) return;
+    setActiveStageIdx(0);
+    setActiveDivisionIdx((prev) => (prev + 1) % enabledDivisions.length);
+  }, [enabledDivisions.length]);
+
+  const handlePrevDivision = useCallback(() => {
+    if (enabledDivisions.length === 0) return;
+    setActiveStageIdx(0);
+    setActiveDivisionIdx(
+      (prev) => (prev - 1 + enabledDivisions.length) % enabledDivisions.length,
+    );
+  }, [enabledDivisions.length]);
 
   const handleEnter = useCallback(() => {
-    classicalAmbientMusic.stop(400);
+    if (useMusicStore.getState().isPlaying) {
+      useMusicStore.getState().pause();
+    }
     setExiting(true);
 
     try {
@@ -103,7 +111,7 @@ const Welcome: React.FC = () => {
     if (process.env.NODE_ENV === 'test') {
       navigate('/login', { replace: true });
     } else {
-      window.setTimeout(() => navigate('/login', { replace: true }), 400);
+      window.setTimeout(() => navigate('/login', { replace: true }), 380);
     }
   }, [navigate]);
 
@@ -112,49 +120,35 @@ const Welcome: React.FC = () => {
       if (e.key === 'Enter' || e.key === 'Escape') {
         handleEnter();
       } else if (e.key === 'ArrowRight') {
-        handleNextSlide();
+        handleNextDivision();
       } else if (e.key === 'ArrowLeft') {
-        handlePrevSlide();
+        handlePrevDivision();
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [handleEnter, handleNextSlide, handlePrevSlide]);
-
-  const currentSlide = slides[activeSlide] || slides[0];
+  }, [handleEnter, handleNextDivision, handlePrevDivision]);
 
   return (
     <div className={`erp-welcome-root${exiting ? ' is-exiting' : ''}`}>
-      {/* Top Slide Ribbon (Pakistan Wire Industries (Pvt.) LTD Showcase + Logo + Classical Music Toggle) */}
-      <WelcomeTopRibbon
-        isMusicPlaying={isMusicPlaying}
-        onToggleMusic={handleToggleMusic}
-      />
+      {/* Top Corporate Ribbon: Brand Identity, Dynamic Division Marquee, Install App, Theme & Audio Controls */}
+      <WelcomeTopRibbon />
 
-      {/* Background Slideshow */}
+      {/* Department-Synchronized Fullscreen Holographic Manufacturing Background */}
       <WelcomeBackground
+        activeVisual={activeVisual}
+        preloadUrls={preloadUrls}
         reducedMotion={reducedMotion}
-        activeIndex={activeSlide}
-        onIndexChange={setActiveSlide}
       />
 
-      {/* Optional WebGL layer: 16-panel 3D cinematic gallery (see ENABLE_3D_CABLE_LAYER) */}
-      {ENABLE_3D_CABLE_LAYER ? (
-        <WelcomeCableScene reducedMotion={reducedMotion} activeIndex={activeSlide} />
-      ) : null}
-
-      {/* Premium light wash + golden ambient flares */}
+      {/* Dark Corporate Cinema Vignette & Purple / Neon-Blue Ambient Glows */}
       <div className="erp-welcome-overlay" aria-hidden="true" />
       <div className="erp-welcome-flares" aria-hidden="true">
         <span className="erp-welcome-flare erp-welcome-flare-1" />
         <span className="erp-welcome-flare erp-welcome-flare-2" />
-        <span className="erp-welcome-flare erp-welcome-flare-3" />
       </div>
 
-      {/* Festive Fireworks, Flash, Fairy Lights & Confetti Celebration Overlays */}
-      <WelcomeCelebration reducedMotion={reducedMotion} />
-
-      {/* Subtle floating gold particles */}
+      {/* Subtle Floating High-Tech Data Nodes */}
       <div className="erp-welcome-particles" aria-hidden="true">
         {particles.map((p, i) => (
           <span
@@ -171,86 +165,39 @@ const Welcome: React.FC = () => {
         ))}
       </div>
 
-      {/* Center Stage Compact Glass Console */}
+      {/* Center Stage Executive Dark-Corporate Glass Console */}
       <div className="erp-welcome-panel">
         {/* Seamless Rounded Metallic Medallion Logo */}
-        <div className="erp-welcome-logo-wrap" title="Pakistan Wire Industries (Pvt.) LTD">
+        <div className="erp-welcome-logo-wrap" title={brand.fullName}>
           <div className="erp-welcome-logo-badge">
             <img
               className="erp-welcome-logo"
-              src={`${process.env.PUBLIC_URL}/logo.png`}
-              alt="PWI — Pakistan Wire Industries (Pvt.) LTD logo"
+              src={logoSrc}
+              alt={`${brand.monogram} — ${brand.fullName} logo`}
             />
           </div>
         </div>
 
-        {/* Live Handwriting Headline Animation */}
+        {/* Executive Brand Reveal & Luminous White / Neon-Cyan-Purple Calligraphy */}
         <WelcomeAnimation
           reducedMotion={reducedMotion}
           onAnimationComplete={() => {}}
         />
 
-        {/* 16-Photo Industrial Showcase Card (100% English) */}
-        <div className="erp-welcome-showcase-card">
-          <div className="erp-welcome-showcase-nav">
-            <button
-              type="button"
-              className="erp-welcome-nav-arrow prev"
-              onClick={handlePrevSlide}
-              aria-label="Previous Slide"
-              title="Previous Photo (←)"
-            >
-              <LeftOutlined />
-            </button>
+        {/* Synchronized Dynamic Division & Department Lifecycle Showcase */}
+        <WelcomeLifecycleShowcase
+          divisions={enabledDivisions}
+          activeDivisionIndex={safeDivisionIdx}
+          onDivisionChange={setActiveDivisionIdx}
+          activeStage={activeStageIdx}
+          onStageChange={setActiveStageIdx}
+          autoCycle={welcomePortal.autoCycleDivisions}
+          divisionCycleIntervalMs={welcomePortal.divisionCycleIntervalMs}
+          stagePulseIntervalMs={welcomePortal.stagePulseIntervalMs}
+          reducedMotion={reducedMotion}
+        />
 
-            <div className="erp-welcome-showcase-content">
-              <div className="erp-welcome-slide-badge">
-                <span className="erp-welcome-slide-num">
-                  {String(activeSlide + 1).padStart(2, '0')}
-                </span>
-                <span className="erp-welcome-slide-total">
-                  / {String(slides.length).padStart(2, '0')}
-                </span>
-                <span className="erp-welcome-slide-divider">•</span>
-                <span className="erp-welcome-slide-caption-en">{currentSlide.title}</span>
-              </div>
-              <p className="erp-welcome-slide-desc">{currentSlide.subtitle}</p>
-            </div>
-
-            <button
-              type="button"
-              className="erp-welcome-nav-arrow next"
-              onClick={handleNextSlide}
-              aria-label="Next Slide"
-              title="Next Photo (→)"
-            >
-              <RightOutlined />
-            </button>
-          </div>
-
-          {/* Dots Indicator */}
-          <div
-            className="erp-welcome-dots"
-            role="tablist"
-            aria-label="Company gallery navigation"
-          >
-            {slides.map((s, idx) => (
-              <button
-                key={s.src}
-                type="button"
-                role="tab"
-                aria-selected={idx === activeSlide}
-                aria-label={`Slide ${idx + 1}: ${s.title}`}
-                className={`erp-welcome-dot${idx === activeSlide ? ' is-active' : ''}`}
-                onClick={() => setActiveSlide(idx)}
-              >
-                <span className="erp-welcome-dot-inner" />
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* OK / Enter Button (100% English) */}
+        {/* Primary Enterprise Entry Action */}
         <div className="erp-welcome-action-wrap">
           <Button
             type="primary"
@@ -263,11 +210,11 @@ const Welcome: React.FC = () => {
             }}
             aria-label="Enter System"
           >
-            OK — ENTER SYSTEM
+            ENTER ENTERPRISE SYSTEM
           </Button>
 
           <div className="erp-welcome-login-hint">
-            Press Enter or click OK to sign in
+            Press Enter to proceed to Sign-In Console
           </div>
         </div>
       </div>
