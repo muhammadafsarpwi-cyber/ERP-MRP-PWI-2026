@@ -108,6 +108,103 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
     ];
   }, [departmentCode]);
 
+  // Group items by active department, followed by entire division
+  const groupedItemOptions = useMemo(() => {
+    if (!itemsList || itemsList.length === 0) {
+      return [
+        {
+          label: 'Default Specifications',
+          options: [
+            { value: 'WIP-ST-001', label: 'WIP-ST-001 — CD-250*17 Butted Straightener' },
+            { value: 'WIP-ST-006', label: 'WIP-ST-006 — S9-300*18 Inner Straight' },
+            { value: 'WIP-SPK-014', label: 'WIP-SPK-014 — S9 (Outer) - 300*17 Outer Straight' },
+            { value: 'WIP-SPK-002', label: 'WIP-SPK-002 — CD-250*17 Outer Butted' },
+          ],
+        },
+      ];
+    }
+
+    let deptPrefixes: string[] = [];
+    if (departmentCode === 'SPD-DEPT001') {
+      deptPrefixes = ['WIP-ST', 'ST-'];
+    } else if (departmentCode === 'SPD-DEPT002') {
+      deptPrefixes = ['WIP-SW', 'SW-'];
+    } else if (departmentCode === 'SPD-DEPT003') {
+      deptPrefixes = ['WIP-SPK', 'SPK-'];
+    } else if (departmentCode === 'SPD-DEPT004') {
+      deptPrefixes = ['WIP-HD', 'HD-'];
+    } else if (departmentCode === 'SPD-DEPT005') {
+      deptPrefixes = ['WIP-NP', 'WIP-NPL', 'FG-NP', 'NP-'];
+    } else if (departmentCode === 'SPD-DEPT006') {
+      deptPrefixes = ['WIP-SPL', 'SPL-'];
+    } else if (departmentCode === 'SPD-DEPT008') {
+      deptPrefixes = ['PKS', 'SPI-FG', 'SP-'];
+    } else if (departmentCode === 'CCD-DEPT001') {
+      deptPrefixes = ['FLAT', 'FL-', 'FT-'];
+    } else if (departmentCode === 'CCD-DEPT002') {
+      deptPrefixes = ['CCD-FGR', 'CCD-CAS', 'CAS-'];
+    } else if (departmentCode === 'CCD-DEPT003') {
+      deptPrefixes = ['CCD-IN', 'IN-'];
+    } else if (departmentCode === 'CCD-DEPT004') {
+      deptPrefixes = ['CCD-FG', 'CA-'];
+    }
+
+    // Filter out cross-division items strictly
+    const divisionCleanItems = itemsList.filter((it) => {
+      const code = (it.itemCode || '').toUpperCase();
+      if (divisionCode === 'DIV-SPD') {
+        if (code.startsWith('CCD-') || code.startsWith('FLAT')) return false;
+      } else if (divisionCode === 'DIV-CCD') {
+        if (
+          code.startsWith('WIP-SPK') ||
+          code.startsWith('WIP-ST') ||
+          code.startsWith('WIP-SW') ||
+          code.startsWith('WIP-HD') ||
+          code.startsWith('WIP-NPL') ||
+          code.startsWith('WIP-SPL')
+        )
+          return false;
+      }
+      return true;
+    });
+
+    const deptMatches: any[] = [];
+    const otherItems: any[] = [];
+
+    divisionCleanItems.forEach((it) => {
+      const code = (it.itemCode || '').toUpperCase();
+      const isDept = deptPrefixes.some((pfx) => code.startsWith(pfx));
+      if (isDept) {
+        deptMatches.push(it);
+      } else {
+        otherItems.push(it);
+      }
+    });
+
+    const groups: any[] = [];
+    if (deptMatches.length > 0) {
+      groups.push({
+        label: `★ ${departmentName} Department Items (${deptMatches.length})`,
+        options: deptMatches.map((i) => ({
+          value: i.itemCode,
+          label: `${i.itemCode} — ${i.name}`,
+        })),
+      });
+    }
+
+    if (otherItems.length > 0) {
+      groups.push({
+        label: `All ${divisionName} Items (${otherItems.length})`,
+        options: otherItems.map((i) => ({
+          value: i.itemCode,
+          label: `${i.itemCode} — ${i.name}`,
+        })),
+      });
+    }
+
+    return groups;
+  }, [itemsList, departmentCode, departmentName, divisionName, divisionCode]);
+
   // Load specs or existing inspection data
   useEffect(() => {
     if (!visible) return;
@@ -132,7 +229,8 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
     } else {
       // New Inspection defaults
       const today = new Date().toISOString().slice(0, 10);
-      const defaultItem = itemsList[0]?.itemCode || 'WIP-SPK-014';
+      const firstDeptItem = (groupedItemOptions[0]?.options as any)?.[0]?.value;
+      const defaultItem = firstDeptItem || itemsList[0]?.itemCode || 'WIP-ST-001';
       const defaultMachine = machinesForDept[0]?.code || '01';
       form.setFieldsValue({
         inspectionDate: today,
@@ -149,7 +247,7 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
       });
       loadSpecsForItem(defaultItem);
     }
-  }, [visible, initialInspection, departmentCode, machinesForDept]);
+  }, [visible, initialInspection, departmentCode, machinesForDept, groupedItemOptions]);
 
   // Load item specs into the 5-sample rows
   const loadSpecsForItem = (code: string) => {
@@ -369,16 +467,15 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
                 <Select
                   showSearch
                   optionFilterProp="label"
+                  placeholder="Select item or type code..."
+                  filterOption={(input, option) => {
+                    const label = String(option?.label || '');
+                    const value = String(option?.value || '');
+                    const term = input.toLowerCase();
+                    return label.toLowerCase().includes(term) || value.toLowerCase().includes(term);
+                  }}
                   onChange={(code) => loadSpecsForItem(code)}
-                  options={
-                    itemsList.length > 0
-                      ? itemsList.map((i) => ({ value: i.itemCode, label: `${i.itemCode} — ${i.name}` }))
-                      : [
-                          { value: 'WIP-SPK-014', label: 'WIP-SPK-014 — S9 (Outer) - 300*17 Outer Straight' },
-                          { value: 'WIP-ST-006', label: 'WIP-ST-006 — S9 (Inner) - 300*18 Inner Straight' },
-                          { value: 'WIP-SPK-002', label: 'WIP-SPK-002 — CD-250*17 Outer Butted' },
-                        ]
-                  }
+                  options={groupedItemOptions}
                 />
               </Form.Item>
             </Col>

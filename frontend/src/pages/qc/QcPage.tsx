@@ -265,12 +265,6 @@ const QcPage: React.FC = () => {
       } catch {
         /* ignore */
       }
-      try {
-        const it = await apiService.get<{ data: Array<{ id: string; itemCode: string; name: string }> }>('/master-data/items', { limit: 100 });
-        setItems(it.data || []);
-      } catch {
-        /* ignore */
-      }
     })();
   }, [companyId, fetchData, page]);
 
@@ -278,6 +272,43 @@ const QcPage: React.FC = () => {
   const activeDivision = useMemo(() => {
     return PWI_DIVISIONS.find((d) => d.code === selectedDivisionCode) || PWI_DIVISIONS[0];
   }, [selectedDivisionCode]);
+
+  // Dynamically fetch items for active division (loads up to 2000 items, cleans cross-division)
+  const fetchItemsForDivision = useCallback(async (divId?: string, divCode?: string) => {
+    try {
+      const targetDiv = divId || activeDivision?.id;
+      const res = await apiService.get<{ data: Array<{ id: string; itemCode: string; name: string; divisionId?: string }> }>(
+        '/master-data/items',
+        { divisionId: targetDiv, limit: 2000 }
+      );
+      let list = res.data || [];
+      const code = divCode || selectedDivisionCode;
+      if (code === 'DIV-SPD') {
+        list = list.filter(
+          (i) => !i.itemCode?.toUpperCase().startsWith('CCD-') && !i.itemCode?.toUpperCase().startsWith('FLAT')
+        );
+      } else if (code === 'DIV-CCD') {
+        list = list.filter(
+          (i) =>
+            !i.itemCode?.toUpperCase().startsWith('WIP-SPK') &&
+            !i.itemCode?.toUpperCase().startsWith('WIP-ST') &&
+            !i.itemCode?.toUpperCase().startsWith('WIP-SW') &&
+            !i.itemCode?.toUpperCase().startsWith('WIP-HD') &&
+            !i.itemCode?.toUpperCase().startsWith('WIP-NPL') &&
+            !i.itemCode?.toUpperCase().startsWith('WIP-SPL')
+        );
+      }
+      setItems(list);
+    } catch {
+      // Soft fallback
+    }
+  }, [activeDivision?.id, selectedDivisionCode]);
+
+  useEffect(() => {
+    if (activeDivision?.id) {
+      fetchItemsForDivision(activeDivision.id, activeDivision.code);
+    }
+  }, [activeDivision?.id, activeDivision?.code, fetchItemsForDivision]);
 
   const activeDepartmentsList = useMemo(() => {
     return PWI_DEPARTMENTS[selectedDivisionCode] || [];

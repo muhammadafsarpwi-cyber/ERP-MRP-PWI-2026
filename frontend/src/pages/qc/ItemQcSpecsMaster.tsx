@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Card, Table, Button, Space, Modal, Form, Input, InputNumber, Select, App, Row, Col, Tag, Typography, Upload, Divider, theme } from 'antd';
 import { PlusOutlined, DownloadOutlined, UploadOutlined, EditOutlined, DeleteOutlined, FileExcelOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
@@ -37,6 +37,99 @@ export const ItemQcSpecsMaster: React.FC<ItemQcSpecsMasterProps> = ({
   const filteredSpecs = specs.filter(
     (s) => !divisionCode || s.divisionCode === divisionCode || s.divisionCode === 'DIV-SPD'
   );
+
+  // Group items by Department affinity
+  const groupedItemOptions = useMemo(() => {
+    if (!itemsList || itemsList.length === 0) {
+      return [
+        {
+          label: `Standard ${departmentName} Items`,
+          options: [
+            { value: 'WIP-ST-001', label: 'WIP-ST-001 — CD-250*17 Butted' },
+            { value: 'WIP-ST-004', label: 'WIP-ST-004 — S9-300*17 Outer Straight' },
+            { value: 'WIP-ST-006', label: 'WIP-ST-006 — S9-300*18 Inner Straight' },
+            { value: 'WIP-SPK-014', label: 'WIP-SPK-014 — S9 (Outer) - 300*17 Outer Straight' },
+            { value: 'WIP-SPK-002', label: 'WIP-SPK-002 — CD-250*17 Outer Butted' },
+          ],
+        },
+      ];
+    }
+
+    // Determine departmental prefixes
+    let deptPrefixes: string[] = [];
+    if (departmentCode === 'SPD-DEPT001') { // Straightener
+      deptPrefixes = ['WIP-ST', 'ST-'];
+    } else if (departmentCode === 'SPD-DEPT002') { // Swagging
+      deptPrefixes = ['WIP-SW', 'SW-'];
+    } else if (departmentCode === 'SPD-DEPT003') { // Spoke
+      deptPrefixes = ['WIP-SPK', 'SPK-'];
+    } else if (departmentCode === 'SPD-DEPT004') { // Header
+      deptPrefixes = ['WIP-HD', 'HD-'];
+    } else if (departmentCode === 'SPD-DEPT005') { // Nipple
+      deptPrefixes = ['WIP-NP', 'WIP-NPL', 'FG-NP', 'NP-'];
+    } else if (departmentCode === 'SPD-DEPT006') { // Spoke Plating
+      deptPrefixes = ['WIP-SPL', 'SPL-'];
+    } else if (departmentCode === 'SPD-DEPT008') { // Spoke Packing
+      deptPrefixes = ['PKS', 'SPI-FG', 'SP-'];
+    } else if (departmentCode === 'CCD-DEPT001') { // Flattening
+      deptPrefixes = ['FLAT', 'FL-', 'FT-'];
+    } else if (departmentCode === 'CCD-DEPT002') { // Outer Casing
+      deptPrefixes = ['CCD-FGR', 'CCD-CAS', 'CAS-'];
+    } else if (departmentCode === 'CCD-DEPT003') { // Inner Wire
+      deptPrefixes = ['CCD-IN', 'IN-'];
+    } else if (departmentCode === 'CCD-DEPT004') { // Assembly
+      deptPrefixes = ['CCD-FG', 'CA-'];
+    }
+
+    // Filter out foreign division items strictly
+    const divisionCleanItems = itemsList.filter((it) => {
+      const code = (it.itemCode || '').toUpperCase();
+      if (divisionCode === 'DIV-SPD') {
+        // Spoke division should never have CCD cable items
+        if (code.startsWith('CCD-') || code.startsWith('FLAT')) return false;
+      } else if (divisionCode === 'DIV-CCD') {
+        // Control cable division should never have Spoke WIP items
+        if (code.startsWith('WIP-SPK') || code.startsWith('WIP-ST') || code.startsWith('WIP-SW') || code.startsWith('WIP-HD') || code.startsWith('WIP-NPL') || code.startsWith('WIP-SPL')) return false;
+      }
+      return true;
+    });
+
+    const deptMatches: any[] = [];
+    const otherItems: any[] = [];
+
+    divisionCleanItems.forEach((it) => {
+      const code = (it.itemCode || '').toUpperCase();
+      const isDept = deptPrefixes.some((pfx) => code.startsWith(pfx));
+      if (isDept) {
+        deptMatches.push(it);
+      } else {
+        otherItems.push(it);
+      }
+    });
+
+    const groups: any[] = [];
+    if (deptMatches.length > 0) {
+      groups.push({
+        label: `★ ${departmentName} Department Items (${deptMatches.length})`,
+        options: deptMatches.map((i) => ({
+          value: i.itemCode,
+          label: `${i.itemCode} — ${i.name}`,
+        })),
+      });
+    }
+
+    if (otherItems.length > 0) {
+      groups.push({
+        label: `All ${divisionName} Items (${otherItems.length})`,
+        options: otherItems.map((i) => ({
+          value: i.itemCode,
+          label: `${i.itemCode} — ${i.name}`,
+        })),
+      });
+    }
+
+    return groups;
+  }, [itemsList, departmentCode, departmentName, divisionName, divisionCode]);
 
   const handleOpenAdd = () => {
     setEditingSpec(null);
@@ -309,15 +402,20 @@ export const ItemQcSpecsMaster: React.FC<ItemQcSpecsMasterProps> = ({
                 <Select
                   showSearch
                   optionFilterProp="label"
-                  options={
-                    itemsList.length > 0
-                      ? itemsList.map((i) => ({ value: i.itemCode, label: `${i.itemCode} — ${i.name}` }))
-                      : [
-                          { value: 'WIP-SPK-014', label: 'WIP-SPK-014 — S9 (Outer) - 300*17 Outer Straight' },
-                          { value: 'WIP-ST-006', label: 'WIP-ST-006 — S9 (Inner) - 300*18 Inner Straight' },
-                          { value: 'WIP-SPK-002', label: 'WIP-SPK-002 — CD-250*17 Outer Butted' },
-                        ]
-                  }
+                  placeholder="Select item or type code..."
+                  filterOption={(input, option) => {
+                    const label = String(option?.label || '');
+                    const value = String(option?.value || '');
+                    const term = input.toLowerCase();
+                    return label.toLowerCase().includes(term) || value.toLowerCase().includes(term);
+                  }}
+                  onChange={(val) => {
+                    const found = itemsList.find((i) => i.itemCode === val);
+                    if (found) {
+                      form.setFieldsValue({ itemName: found.name });
+                    }
+                  }}
+                  options={groupedItemOptions}
                 />
               </Form.Item>
             </Col>
