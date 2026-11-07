@@ -352,7 +352,7 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
             <thead>
               <tr style={{ backgroundColor: token.colorFillAlter, textAlign: 'left' }}>
                 <th style={{ padding: '8px', border: `1px solid ${token.colorBorder}` }}>Characteristic</th>
-                <th style={{ padding: '8px', border: `1px solid ${token.colorBorder}` }}>Nominal Spec</th>
+                <th style={{ padding: '8px', border: `1px solid ${token.colorBorder}` }}>Spec Req (Nominal &amp; Tol)</th>
                 <th style={{ padding: '8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>S-1</th>
                 <th style={{ padding: '8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>S-2</th>
                 <th style={{ padding: '8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>S-3</th>

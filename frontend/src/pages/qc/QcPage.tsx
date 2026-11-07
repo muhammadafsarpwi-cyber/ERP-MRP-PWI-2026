@@ -11,6 +11,7 @@ import {
   SettingOutlined,
   FilterOutlined,
   ReloadOutlined,
+  FilePdfOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
@@ -25,6 +26,7 @@ import {
 import { InProcessInspectionModal } from './InProcessInspectionModal';
 import { QmsPrintableSheet } from './QmsPrintableSheet';
 import { ItemQcSpecsMaster } from './ItemQcSpecsMaster';
+import { exportQmsToPdf } from './exportQmsPdf';
 
 interface LegacyInspection {
   id: string;
@@ -333,11 +335,26 @@ const QcPage: React.FC = () => {
     {
       title: 'Actions',
       key: 'actions',
-      width: 170,
+      width: 220,
       render: (_, r) => (
         <Space size={4}>
           <Button size="small" icon={<FileTextOutlined />} onClick={() => handleOpenSheet(r)}>
             QMS Sheet
+          </Button>
+          <Button
+            size="small"
+            danger
+            icon={<FilePdfOutlined />}
+            onClick={() => {
+              try {
+                const fname = exportQmsToPdf(r);
+                message.success(`Downloaded ${fname}`);
+              } catch {
+                message.error('Failed to generate PDF');
+              }
+            }}
+          >
+            PDF
           </Button>
           <Button
             size="small"

@@ -1,7 +1,8 @@
 import React from 'react';
 import { Modal, Button, Space, Tag, theme, App } from 'antd';
-import { PrinterOutlined, WhatsAppOutlined, CopyOutlined } from '@ant-design/icons';
+import { PrinterOutlined, WhatsAppOutlined, CopyOutlined, FilePdfOutlined } from '@ant-design/icons';
 import { QmsInProcessInspection } from './types';
+import { exportQmsToPdf } from './exportQmsPdf';
 
 interface QmsPrintableSheetProps {
   visible: boolean;
@@ -15,8 +16,55 @@ export const QmsPrintableSheet: React.FC<QmsPrintableSheetProps> = ({ visible, o
 
   if (!inspection) return null;
 
+  const handleDownloadPdf = () => {
+    try {
+      const filename = exportQmsToPdf(inspection);
+      message.success(`Official QMS PDF generated: ${filename}`);
+    } catch (err) {
+      message.error('Failed to generate PDF. Please try again.');
+    }
+  };
+
   const handlePrint = () => {
-    window.print();
+    // Generate clean print window so modal portal styles never cause blank pages
+    const printContent = document.getElementById('qms-printable-area');
+    if (!printContent) return;
+
+    const printWindow = window.open('', '_blank', 'width=900,height=750');
+    if (!printWindow) {
+      // Popup blocked, fallback to direct PDF
+      handleDownloadPdf();
+      return;
+    }
+
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>${inspection.docRef} - ${inspection.inspectionNo}</title>
+          <style>
+            body { font-family: 'Segoe UI', Arial, sans-serif; margin: 24px; color: #000000; background: #ffffff; }
+            table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 12px; }
+            th, td { border: 1px solid #000000; padding: 6px 8px; }
+            th { background-color: #f1f5f9; text-align: left; }
+            .no-print { display: none !important; }
+            @media print {
+              @page { size: A4 portrait; margin: 12mm; }
+              body { margin: 0; }
+            }
+          </style>
+        </head>
+        <body>
+          ${printContent.innerHTML}
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+    printWindow.focus();
+    setTimeout(() => {
+      printWindow.print();
+      printWindow.close();
+    }, 400);
   };
 
   const buildWhatsAppText = () => {
@@ -35,7 +83,7 @@ export const QmsPrintableSheet: React.FC<QmsPrintableSheetProps> = ({ visible, o
     lines.push('📏 *DIMENSIONAL CHECKS (5 SAMPLES):*');
     inspection.samples.forEach((s, idx) => {
       const tolStr = `(±${s.tolPlus}${s.unit})`;
-      lines.push(`${idx + 1}. *${s.charName}* [Target: ${s.nominal} ${tolStr}]`);
+      lines.push(`${idx + 1}. *${s.charName}* [Spec Req: ${s.nominal} ${tolStr}]`);
       lines.push(`   Samples: [${[s.s1, s.s2, s.s3, s.s4, s.s5].filter((v) => v !== undefined && v !== null).join(', ')}]`);
       lines.push(`   Avg: *${s.average} ${s.unit}* ➔ *${s.status}*`);
     });
@@ -79,8 +127,17 @@ export const QmsPrintableSheet: React.FC<QmsPrintableSheetProps> = ({ visible, o
         <Button key="wa-copy" icon={<CopyOutlined />} onClick={handleCopyWhatsApp}>
           Copy WhatsApp
         </Button>,
-        <Button key="wa" type="default" style={{ color: '#25D366', borderColor: '#25D366' }} icon={<WhatsAppOutlined />} onClick={handleOpenWhatsApp}>
+        <Button
+          key="wa"
+          type="default"
+          style={{ color: '#25D366', borderColor: '#25D366' }}
+          icon={<WhatsAppOutlined />}
+          onClick={handleOpenWhatsApp}
+        >
           WhatsApp Share
+        </Button>,
+        <Button key="pdf" danger type="primary" icon={<FilePdfOutlined />} onClick={handleDownloadPdf}>
+          Download PDF
         </Button>,
         <Button key="print" type="primary" icon={<PrinterOutlined />} onClick={handlePrint}>
           Print QMS Sheet
@@ -88,34 +145,6 @@ export const QmsPrintableSheet: React.FC<QmsPrintableSheetProps> = ({ visible, o
       ]}
     >
       <div id="qms-printable-area" style={{ padding: '8px' }}>
-        {/* Printable CSS style block specifically for print media */}
-        <style>{`
-          @media print {
-            body * {
-              visibility: hidden;
-            }
-            #qms-printable-area, #qms-printable-area * {
-              visibility: visible;
-            }
-            #qms-printable-area {
-              position: absolute;
-              left: 0;
-              top: 0;
-              width: 100%;
-              background: #ffffff !important;
-              color: #000000 !important;
-              padding: 20px;
-            }
-            .no-print {
-              display: none !important;
-            }
-            .qms-table th, .qms-table td {
-              border: 1px solid #000000 !important;
-              color: #000000 !important;
-            }
-          }
-        `}</style>
-
         {/* QMS Official Document Header */}
         <div
           style={{
@@ -226,7 +255,7 @@ export const QmsPrintableSheet: React.FC<QmsPrintableSheetProps> = ({ visible, o
               <tr style={{ backgroundColor: token.colorFillAlter, textAlign: 'left' }}>
                 <th style={{ padding: '8px', border: `1px solid ${token.colorBorder}` }}>#</th>
                 <th style={{ padding: '8px', border: `1px solid ${token.colorBorder}` }}>Characteristic</th>
-                <th style={{ padding: '8px', border: `1px solid ${token.colorBorder}` }}>Nominal &amp; Tol</th>
+                <th style={{ padding: '8px', border: `1px solid ${token.colorBorder}` }}>Spec Req (Nominal &amp; Tol)</th>
                 <th style={{ padding: '8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>S-1</th>
                 <th style={{ padding: '8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>S-2</th>
                 <th style={{ padding: '8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>S-3</th>
@@ -331,4 +360,3 @@ export const QmsPrintableSheet: React.FC<QmsPrintableSheetProps> = ({ visible, o
     </Modal>
   );
 };
-

@@ -187,7 +187,7 @@ export function exportSpecsToExcel(specs: ItemQcSpecification[], divisionName: s
     <th>Item Code</th>
     <th>Item Name</th>
     <th>Characteristic</th>
-    <th>Nominal Target</th>
+    <th>Standard Spec</th>
     <th>Tolerance (+)</th>
     <th>Tolerance (-)</th>
     <th>Unit</th>

@@ -341,7 +341,7 @@ export const ItemQcSpecsMaster: React.FC<ItemQcSpecsMasterProps> = ({
             <thead>
               <tr style={{ backgroundColor: token.colorFillAlter, textAlign: 'left' }}>
                 <th style={{ padding: '6px 8px', border: `1px solid ${token.colorBorder}` }}>Characteristic</th>
-                <th style={{ padding: '6px 8px', border: `1px solid ${token.colorBorder}` }}>Target Value</th>
+                <th style={{ padding: '6px 8px', border: `1px solid ${token.colorBorder}` }}>Spec Req (Standard)</th>
                 <th style={{ padding: '6px 8px', border: `1px solid ${token.colorBorder}` }}>Tol (+)</th>
                 <th style={{ padding: '6px 8px', border: `1px solid ${token.colorBorder}` }}>Tol (-)</th>
                 <th style={{ padding: '6px 8px', border: `1px solid ${token.colorBorder}` }}>Unit</th>
