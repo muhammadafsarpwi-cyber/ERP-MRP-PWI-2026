@@ -268,10 +268,119 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
 
   // Embedded Parts / Items Request Grid state
   const [gridItemId, setGridItemId] = useState<string>('');
+  const [gridCustomPartName, setGridCustomPartName] = useState<string>('');
   const [gridQty, setGridQty] = useState<number>(1);
+  const [gridUnitCost, setGridUnitCost] = useState<number | undefined>(undefined);
   const [gridStockStatus, setGridStockStatus] = useState<'IN_STOCK' | 'OUT_OF_STOCK' | 'PENDING_PROCUREMENT'>('IN_STOCK');
   const [gridRemarks, setGridRemarks] = useState<string>('');
   const [gridAdding, setGridAdding] = useState<boolean>(false);
+
+  // Dual Independent Vertical Blue Slider Refs & State (for Form Pane & Right Preview Pane)
+  const formPaneRef = useRef<HTMLDivElement | null>(null);
+  const sliderTrackRef = useRef<HTMLDivElement | null>(null);
+  const [scrollProgress, setScrollProgress] = useState(0);
+
+  const previewPaneRef = useRef<HTMLDivElement | null>(null);
+  const previewSliderTrackRef = useRef<HTMLDivElement | null>(null);
+  const [previewScrollProgress, setPreviewScrollProgress] = useState(0);
+
+  const handleFormScroll = useCallback(() => {
+    const el = formPaneRef.current;
+    if (!el) return;
+    const maxScroll = Math.max(1, el.scrollHeight - el.clientHeight);
+    setScrollProgress(Math.min(1, Math.max(0, el.scrollTop / maxScroll)));
+  }, []);
+
+  const handlePreviewScroll = useCallback(() => {
+    const el = previewPaneRef.current;
+    if (!el) return;
+    const maxScroll = Math.max(1, el.scrollHeight - el.clientHeight);
+    setPreviewScrollProgress(Math.min(1, Math.max(0, el.scrollTop / maxScroll)));
+  }, []);
+
+  const handleSliderThumbMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const el = formPaneRef.current;
+    const track = sliderTrackRef.current;
+    if (!el || !track) return;
+    const startY = e.clientY;
+    const startScrollTop = el.scrollTop;
+    const trackRect = track.getBoundingClientRect();
+    const usableTrackPx = Math.max(1, trackRect.height * (1 - 0.26));
+    const maxScroll = Math.max(1, el.scrollHeight - el.clientHeight);
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const deltaY = moveEvent.clientY - startY;
+      const scrollDelta = (deltaY / usableTrackPx) * maxScroll;
+      el.scrollTop = Math.min(maxScroll, Math.max(0, startScrollTop + scrollDelta));
+    };
+    const onMouseUp = () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  }, []);
+
+  const handleSliderTrackMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const el = formPaneRef.current;
+    const track = sliderTrackRef.current;
+    if (!el || !track) return;
+    const rect = track.getBoundingClientRect();
+    const clickY = e.clientY - rect.top;
+    const thumbHalf = (rect.height * 0.26) / 2;
+    const usableTrackPx = Math.max(1, rect.height * (1 - 0.26));
+    const ratio = Math.min(1, Math.max(0, (clickY - thumbHalf) / usableTrackPx));
+    const maxScroll = Math.max(1, el.scrollHeight - el.clientHeight);
+    el.scrollTo({ top: ratio * maxScroll, behavior: 'smooth' });
+  }, []);
+
+  const handlePreviewSliderThumbMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const el = previewPaneRef.current;
+    const track = previewSliderTrackRef.current;
+    if (!el || !track) return;
+    const startY = e.clientY;
+    const startScrollTop = el.scrollTop;
+    const trackRect = track.getBoundingClientRect();
+    const usableTrackPx = Math.max(1, trackRect.height * (1 - 0.26));
+    const maxScroll = Math.max(1, el.scrollHeight - el.clientHeight);
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const deltaY = moveEvent.clientY - startY;
+      const scrollDelta = (deltaY / usableTrackPx) * maxScroll;
+      el.scrollTop = Math.min(maxScroll, Math.max(0, startScrollTop + scrollDelta));
+    };
+    const onMouseUp = () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  }, []);
+
+  const handlePreviewSliderTrackMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const el = previewPaneRef.current;
+    const track = previewSliderTrackRef.current;
+    if (!el || !track) return;
+    const rect = track.getBoundingClientRect();
+    const clickY = e.clientY - rect.top;
+    const thumbHalf = (rect.height * 0.26) / 2;
+    const usableTrackPx = Math.max(1, rect.height * (1 - 0.26));
+    const ratio = Math.min(1, Math.max(0, (clickY - thumbHalf) / usableTrackPx));
+    const maxScroll = Math.max(1, el.scrollHeight - el.clientHeight);
+    el.scrollTo({ top: ratio * maxScroll, behavior: 'smooth' });
+  }, []);
+
+  const totalPartsCost = useMemo(() => {
+    return (cardParts || []).reduce((sum: number, p: any) => {
+      const explicitTotal = Number(p?.totalCost);
+      if (!Number.isNaN(explicitTotal) && explicitTotal > 0) return sum + explicitTotal;
+      const qty = Number(p?.quantity ?? p?.quantityConsumed ?? p?.quantityIssued ?? p?.quantityRequested ?? 1);
+      const unit = Number(p?.unitCost ?? p?.item?.standardCost ?? p?.item?.costPrice ?? 0);
+      return sum + (Number.isNaN(qty * unit) ? 0 : qty * unit);
+    }, 0);
+  }, [cardParts]);
 
   // Master Items & Org Options fetching for Spare Parts (via Singleton Cache for 0ms loading)
   useEffect(() => {
@@ -597,9 +706,14 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
 
   // Fast Selection & Stock Check for Embedded Parts Grid
   const handleSelectGridItem = (itemId: string) => {
-    setGridItemId(itemId);
+    setGridItemId(itemId || '');
     const item = itemsList.find((i) => i.id === itemId);
     if (item) {
+      setGridCustomPartName(item.name || item.itemName || '');
+      const defaultCost = Number(item.standardCost ?? item.costPrice ?? item.unitCost ?? item.purchasePrice ?? 0);
+      if (defaultCost > 0) {
+        setGridUnitCost(defaultCost);
+      }
       const stock = partStockMap[itemId] || {
         onHand: Number(item.onHand ?? item.currentStock ?? 0),
         available: Number(item.available ?? item.onHand ?? item.currentStock ?? 0),
@@ -615,8 +729,10 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
 
   // Embedded Parts / Items Request Grid Handlers
   const handleAddPartFromGrid = async () => {
-    if (!gridItemId) {
-      message.warning('Please select a master item from the dropdown.');
+    const selectedItem = itemsList.find((i) => i.id === gridItemId);
+    const resolvedName = (selectedItem?.name || selectedItem?.itemName || gridCustomPartName || '').trim();
+    if (!gridItemId && !resolvedName) {
+      message.warning('Please select a master item or type a custom spare part name (e.g. Bearing, Shaft).');
       return;
     }
     if (!gridQty || gridQty <= 0) {
@@ -624,27 +740,31 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
       return;
     }
 
-    const selectedItem = itemsList.find((i) => i.id === gridItemId);
-    const pName = selectedItem?.name || selectedItem?.itemName || 'Selected Part';
+    const pName = resolvedName || 'Selected Part';
     const pCode = selectedItem?.itemCode || selectedItem?.code || '';
     const pUom = selectedItem?.uom?.code || selectedItem?.uom || 'Pcs';
-    const pCost = selectedItem?.standardCost ? Number(selectedItem.standardCost) : undefined;
+    const pCost =
+      gridUnitCost !== undefined && gridUnitCost !== null
+        ? Number(gridUnitCost)
+        : selectedItem?.standardCost
+        ? Number(selectedItem.standardCost)
+        : 0;
     const isOut = gridStockStatus === 'OUT_OF_STOCK' || gridStockStatus === 'PENDING_PROCUREMENT';
     const delayMins = isOut ? 60 : 0;
 
     const newPart: JobCardPartRequest = {
       id: `temp-${Date.now()}`,
-      itemId: gridItemId,
+      itemId: gridItemId || undefined,
       partName: pName,
       partCode: pCode,
       quantity: Number(gridQty),
       uom: pUom,
       unitCost: pCost,
-      totalCost: pCost ? pCost * Number(gridQty) : undefined,
+      totalCost: pCost * Number(gridQty),
       stockStatus: gridStockStatus,
       isProcurementHold: isOut,
       delayMinutes: delayMins,
-      remarks: gridRemarks.trim() || (isOut ? 'Awaiting procurement hold' : 'Available in stock'),
+      remarks: gridRemarks.trim() || (isOut ? 'Awaiting procurement hold' : 'Fitted during maintenance repair'),
       requestedAt: new Date().toISOString(),
     };
 
@@ -653,12 +773,14 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
       if (selectedCardId) {
         try {
           const res: any = await apiService.post(`${JOB_CARD_BASE}/${selectedCardId}/parts`, {
-            itemId: gridItemId,
+            itemId: gridItemId || undefined,
             partName: pName,
             partCode: pCode || undefined,
             quantity: Number(gridQty),
             uom: pUom,
             unitCost: pCost,
+            totalCost: pCost * Number(gridQty),
+            stockStatus: gridStockStatus,
             remarks: newPart.remarks,
           });
           if (res && res.data && res.data.id) {
@@ -675,11 +797,13 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
       if (isOut) {
         message.warning(`"${pName}" added as ${gridStockStatus.replace(/_/g, ' ')}. Parts Delay counter incremented & Procurement Hold active.`);
       } else {
-        message.success(`"${pName}" (Qty: ${gridQty} ${pUom}) added to parts request!`);
+        message.success(`"${pName}" (Qty: ${gridQty} ${pUom} • Rs. ${(pCost * Number(gridQty)).toLocaleString('en-PK')}) added to Job Card!`);
       }
 
       setGridItemId('');
+      setGridCustomPartName('');
       setGridQty(1);
+      setGridUnitCost(undefined);
       setGridStockStatus('IN_STOCK');
       setGridRemarks('');
     } finally {
@@ -704,7 +828,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
           marginBottom: 16,
         }}
       >
-        {/* Header with Counter & Status Summary */}
+        {/* Header with Counter, Cost Rollup & Status Summary */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span
@@ -723,11 +847,14 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
               <BuildOutlined />
             </span>
             <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--theme-text, #ffffff)' }}>
-              Parts &amp; Items Request Grid ({cardParts.length})
+              Spare Parts Fitted &amp; Repair Cost Grid ({cardParts.length})
             </span>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <Tag color="green" style={{ margin: 0, fontWeight: 800, fontSize: 12, padding: '2px 10px', borderRadius: 8 }}>
+              Total Parts Cost: Rs. {totalPartsCost.toLocaleString('en-PK')}
+            </Tag>
             {outOfStockCount > 0 ? (
               <span
                 className="erp-pill-badge erp-pill-badge--warning"
@@ -747,7 +874,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
           </div>
         </div>
 
-        {/* Embedded High-Density Row Input Bar */}
+        {/* Embedded High-Density Row Input Bar (Master Item OR Custom Part Name + Qty + Unit Cost Rs.) */}
         <div
           style={{
             background: 'var(--theme-surface-alt)',
@@ -758,14 +885,15 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
           }}
         >
           <Row gutter={[8, 8]} align="middle">
-            <Col xs={24} sm={10} md={10}>
+            <Col xs={24} sm={8} md={7}>
               <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--theme-text-secondary)', marginBottom: 3 }}>
-                Select Master Item:
+                Select Store Item (Optional):
               </div>
               <Select
                 showSearch
+                allowClear
                 size="small"
-                placeholder="Search master items by code, name..."
+                placeholder="Search store inventory..."
                 style={{ width: '100%' }}
                 value={gridItemId || undefined}
                 onChange={handleSelectGridItem}
@@ -786,9 +914,21 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
               />
             </Col>
 
-            <Col xs={12} sm={4} md={3}>
+            <Col xs={24} sm={8} md={6}>
               <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--theme-text-secondary)', marginBottom: 3 }}>
-                Quantity:
+                Or Type Custom Part Name:
+              </div>
+              <Input
+                size="small"
+                placeholder="e.g. Bearing 6205, Main Shaft..."
+                value={gridCustomPartName}
+                onChange={(e) => setGridCustomPartName(e.target.value)}
+              />
+            </Col>
+
+            <Col xs={8} sm={4} md={2}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--theme-text-secondary)', marginBottom: 3 }}>
+                Qty:
               </div>
               <InputNumber
                 size="small"
@@ -800,7 +940,22 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
               />
             </Col>
 
-            <Col xs={12} sm={6} md={5}>
+            <Col xs={16} sm={6} md={4}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--theme-text-secondary)', marginBottom: 3 }}>
+                Unit Cost (Rs.):
+              </div>
+              <InputNumber
+                size="small"
+                min={0}
+                step={100}
+                placeholder="e.g. 2500"
+                value={gridUnitCost}
+                onChange={(v) => setGridUnitCost(v !== null && v !== undefined ? Number(v) : undefined)}
+                style={{ width: '100%' }}
+              />
+            </Col>
+
+            <Col xs={12} sm={6} md={3}>
               <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--theme-text-secondary)', marginBottom: 3 }}>
                 Stock Status:
               </div>
@@ -810,42 +965,38 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                 value={gridStockStatus}
                 onChange={(v) => setGridStockStatus(v)}
                 options={[
-                  { value: 'IN_STOCK', label: '🟢 In Stock (Store)' },
-                  { value: 'OUT_OF_STOCK', label: '🔴 Out of Stock (+Delay)' },
-                  { value: 'PENDING_PROCUREMENT', label: '🟡 Pending Procurement (+Delay)' },
+                  { value: 'IN_STOCK', label: '🟢 In Stock' },
+                  { value: 'OUT_OF_STOCK', label: '🔴 Out (+Hold)' },
+                  { value: 'PENDING_PROCUREMENT', label: '🟡 Order (+Hold)' },
                 ]}
               />
             </Col>
 
-            <Col xs={24} sm={4} md={6} style={{ display: 'flex', alignItems: 'flex-end', gap: 6, marginTop: 17 }}>
+            <Col xs={12} sm={4} md={2} style={{ display: 'flex', alignItems: 'flex-end', gap: 6, marginTop: 17 }}>
               <Button
                 type="primary"
                 size="small"
                 icon={<PlusOutlined />}
                 loading={gridAdding}
                 onClick={handleAddPartFromGrid}
+                block
                 style={{
                   backgroundColor: '#2563eb',
                   borderColor: '#1d4ed8',
                   color: '#ffffff',
-                  fontWeight: 600,
+                  fontWeight: 700,
                   height: 28,
-                  padding: '0 12px',
+                  padding: '0 8px',
                   borderRadius: 6,
                 }}
               >
-                Add Part
+                Add
               </Button>
-              {gridStockStatus !== 'IN_STOCK' && (
-                <span style={{ fontSize: 10, color: '#f59e0b', display: 'flex', alignItems: 'center', gap: 3 }}>
-                  <ClockCircleOutlined /> Auto-delays
-                </span>
-              )}
             </Col>
           </Row>
         </div>
 
-        {/* High-Density Row List Table of Requested Parts */}
+        {/* High-Density Row List Table of Requested / Fitted Parts */}
         <Table
           size="small"
           pagination={false}
@@ -854,7 +1005,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
           locale={{
             emptyText: (
               <div style={{ padding: '12px 0', color: 'var(--theme-text-muted, #94a3b8)', textAlign: 'center' }}>
-                No parts requested yet. Select an item above and click <strong>[Add Part]</strong>.
+                No spare parts recorded yet. Select or type a part above, enter Unit Cost (Rs.), and click <strong>[Add]</strong>.
               </div>
             ),
           }}
@@ -882,17 +1033,41 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
             {
               title: 'Qty & UOM',
               key: 'qty',
-              width: 110,
+              width: 90,
               render: (_: any, r: any) => (
                 <span style={{ fontWeight: 600, fontSize: 12 }}>
-                  {r.quantity} {r.uom || r.item?.uom?.code || 'Pcs'}
+                  {r.quantity ?? r.quantityConsumed ?? r.quantityRequested ?? 1} {r.uom || r.uomCode || r.item?.uom?.code || 'Pcs'}
                 </span>
               ),
             },
             {
-              title: 'Stock & Delay Status',
+              title: 'Unit Cost (Rs.)',
+              key: 'unitCost',
+              width: 110,
+              render: (_: any, r: any) => {
+                const u = Number(r.unitCost ?? r.item?.standardCost ?? 0);
+                return <span style={{ fontSize: 12 }}>Rs. {u.toLocaleString('en-PK')}</span>;
+              },
+            },
+            {
+              title: 'Total Cost (Rs.)',
+              key: 'totalCost',
+              width: 120,
+              render: (_: any, r: any) => {
+                const q = Number(r.quantity ?? r.quantityConsumed ?? r.quantityRequested ?? 1);
+                const u = Number(r.unitCost ?? r.item?.standardCost ?? 0);
+                const tot = Number(r.totalCost) > 0 ? Number(r.totalCost) : q * u;
+                return (
+                  <strong style={{ color: '#10b981', fontSize: 12 }}>
+                    Rs. {tot.toLocaleString('en-PK')}
+                  </strong>
+                );
+              },
+            },
+            {
+              title: 'Stock Status',
               key: 'stockStatus',
-              width: 190,
+              width: 150,
               render: (_: any, r: any) => {
                 const isOut = r.stockStatus === 'OUT_OF_STOCK';
                 const isProc = r.stockStatus === 'PENDING_PROCUREMENT';
@@ -906,7 +1081,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                 if (isProc) {
                   return (
                     <span className="erp-pill-badge erp-pill-badge--warning" style={{ fontSize: 10 }}>
-                      Procurement Hold (+Delay)
+                      Procurement Hold
                     </span>
                   );
                 }
@@ -920,7 +1095,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
             {
               title: 'Action',
               key: 'action',
-              width: 65,
+              width: 55,
               render: (_: any, r: any) => (
                 <Button
                   size="small"
@@ -1173,7 +1348,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
           />
         </Col>
 
-        <Col xs={12} sm={6}>
+        <Col xs={12} sm={4}>
           <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
             Quantity <span style={{ color: 'var(--maint-danger-fg)' }}>*</span>:
           </label>
@@ -1185,7 +1360,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
           />
         </Col>
 
-        <Col xs={12} sm={6}>
+        <Col xs={12} sm={4}>
           <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
             UOM:
           </label>
@@ -1204,7 +1379,21 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
           />
         </Col>
 
-        <Col xs={24} sm={12}>
+        <Col xs={24} sm={6}>
+          <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
+            Unit Cost (Rs.):
+          </label>
+          <InputNumber
+            min={0}
+            step={100}
+            style={{ width: '100%' }}
+            placeholder="e.g. 2500"
+            value={newPartUnitCost}
+            onChange={(v) => setNewPartUnitCost(v !== null && v !== undefined ? Number(v) : undefined)}
+          />
+        </Col>
+
+        <Col xs={24} sm={10}>
           <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
             Remarks / Application Note:
           </label>
@@ -1216,20 +1405,25 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
         </Col>
       </Row>
 
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
-        <Button size="small" onClick={() => setShowAddPartInline(false)}>
-          Cancel
-        </Button>
-        <Button
-          size="small"
-          type="primary"
-          loading={addingPart}
-          icon={<PlusOutlined />}
-          style={{ backgroundColor: '#10b981', borderColor: '#10b981', color: '#ffffff', fontWeight: 600 }}
-          onClick={handleAddConsumedPart}
-        >
-          Save Part to Job Card
-        </Button>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginTop: 12 }}>
+        <Tag color="green" style={{ margin: 0, fontWeight: 700 }}>
+          Line Total: Rs. {((Number(newPartUnitCost || 0) * Number(newPartQty || 1)) || 0).toLocaleString('en-PK')}
+        </Tag>
+        <Space size={8}>
+          <Button size="small" onClick={() => setShowAddPartInline(false)}>
+            Cancel
+          </Button>
+          <Button
+            size="small"
+            type="primary"
+            loading={addingPart}
+            icon={<PlusOutlined />}
+            style={{ backgroundColor: '#10b981', borderColor: '#10b981', color: '#ffffff', fontWeight: 600 }}
+            onClick={handleAddConsumedPart}
+          >
+            Save Part to Job Card
+          </Button>
+        </Space>
       </div>
     </div>
   );
@@ -1813,13 +2007,18 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
       } else if (currentMode === 'close') {
         const compiledParts: JobCardPartRequest[] = cardParts.map((p) => ({
           id: p.id && !String(p.id).startsWith('temp-') ? p.id : undefined,
-          itemId: p.itemId || (p as any).id,
+          itemId: p.itemId || undefined,
           partName: p.partName || (p as any).name || 'Spare Part',
           partCode: p.partCode || (p as any).code || undefined,
-          quantity: Number(p.quantity || 1),
-          uom: p.uom || 'Pcs',
-          unitCost: p.unitCost ? Number(p.unitCost) : undefined,
-          totalCost: (p.unitCost && p.quantity) ? Number(p.unitCost) * Number(p.quantity) : undefined,
+          quantity: Number(p.quantity ?? (p as any).quantityConsumed ?? (p as any).quantityRequested ?? 1),
+          uom: p.uom || (p as any).uomCode || 'Pcs',
+          unitCost: p.unitCost !== undefined && p.unitCost !== null ? Number(p.unitCost) : undefined,
+          totalCost:
+            p.totalCost !== undefined && p.totalCost !== null
+              ? Number(p.totalCost)
+              : p.unitCost
+              ? Number(p.unitCost) * Number(p.quantity || 1)
+              : undefined,
           stockStatus: p.stockStatus || 'IN_STOCK',
           isProcurementHold: !!p.isProcurementHold,
           delayMinutes: p.delayMinutes || 0,
@@ -1843,13 +2042,18 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
       } else if (currentMode === 'rework') {
         const compiledParts: JobCardPartRequest[] = cardParts.map((p) => ({
           id: p.id && !String(p.id).startsWith('temp-') ? p.id : undefined,
-          itemId: p.itemId || (p as any).id,
+          itemId: p.itemId || undefined,
           partName: p.partName || (p as any).name || 'Spare Part',
           partCode: p.partCode || (p as any).code || undefined,
-          quantity: Number(p.quantity || 1),
-          uom: p.uom || 'Pcs',
-          unitCost: p.unitCost ? Number(p.unitCost) : undefined,
-          totalCost: (p.unitCost && p.quantity) ? Number(p.unitCost) * Number(p.quantity) : undefined,
+          quantity: Number(p.quantity ?? (p as any).quantityConsumed ?? (p as any).quantityRequested ?? 1),
+          uom: p.uom || (p as any).uomCode || 'Pcs',
+          unitCost: p.unitCost !== undefined && p.unitCost !== null ? Number(p.unitCost) : undefined,
+          totalCost:
+            p.totalCost !== undefined && p.totalCost !== null
+              ? Number(p.totalCost)
+              : p.unitCost
+              ? Number(p.unitCost) * Number(p.quantity || 1)
+              : undefined,
           stockStatus: p.stockStatus || 'IN_STOCK',
           isProcurementHold: !!p.isProcurementHold,
           delayMinutes: p.delayMinutes || 0,
@@ -2844,6 +3048,8 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
               <>
                 {/* Left Form Pane */}
                 <div
+                  ref={formPaneRef}
+                  onScroll={handleFormScroll}
                   className="erp-jc-form-pane"
                   style={{
                     display: mobileTab === 'preview' ? undefined : 'block',
@@ -3737,7 +3943,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                           </div>
                         </div>
 
-                        <div>
+                        <div style={{ marginBottom: 12 }}>
                           <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--theme-text-muted)' }}>
                             CORRECTIVE ACTION REPORTED:
                           </span>
@@ -3752,6 +3958,63 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                             }}
                           >
                             {activeCard?.correctiveAction || 'No corrective action recorded.'}
+                          </div>
+                        </div>
+
+                        <div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                            <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--theme-text-muted)' }}>
+                              CONSUMED SPARE PARTS &amp; REPAIR COST SUMMARY:
+                            </span>
+                            <Tag color="green" style={{ margin: 0, fontWeight: 800 }}>
+                              Total Parts Cost: Rs. {totalPartsCost.toLocaleString('en-PK')}
+                            </Tag>
+                          </div>
+                          <div
+                            style={{
+                              padding: '8px 12px',
+                              background: 'var(--theme-surface-alt)',
+                              border: '1px solid var(--theme-border)',
+                              borderRadius: 8,
+                            }}
+                          >
+                            {cardParts.length > 0 ? (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                                {cardParts.map((p: any, idx: number) => {
+                                  const q = Number(p.quantity ?? p.quantityConsumed ?? p.quantityRequested ?? 1);
+                                  const u = Number(p.unitCost ?? p.item?.standardCost ?? 0);
+                                  const tot = Number(p.totalCost) > 0 ? Number(p.totalCost) : q * u;
+                                  return (
+                                    <div
+                                      key={p.id || idx}
+                                      style={{
+                                        display: 'flex',
+                                        justifyContent: 'space-between',
+                                        alignItems: 'center',
+                                        fontSize: 12,
+                                        padding: '4px 0',
+                                        borderBottom: idx < cardParts.length - 1 ? '1px dashed var(--theme-border)' : 'none',
+                                      }}
+                                    >
+                                      <span>
+                                        <strong>{p.partName || p.item?.name || p.item?.itemName || 'Spare Part'}</strong>
+                                        {p.partCode ? ` (${p.partCode})` : ''}
+                                      </span>
+                                      <Space size={8}>
+                                        <Tag color="blue" style={{ margin: 0, fontSize: 11 }}>
+                                          {q} {p.uom || p.uomCode || 'Pcs'}
+                                        </Tag>
+                                        <strong style={{ color: '#10b981' }}>Rs. {tot.toLocaleString('en-PK')}</strong>
+                                      </Space>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            ) : (
+                              <span style={{ fontSize: 12, color: 'var(--theme-text-muted)' }}>
+                                No spare parts recorded on this Job Card (Rs. 0).
+                              </span>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -4089,9 +4352,52 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
               )}
             </div>
 
+            {/* ── Dedicated Interactive Vertical Slider Rail (Between Left Form Pane & Right Preview Pane) ── */}
+            <div className="erp-jc-custom-slider-rail" style={{ height: '100%' }}>
+              <button
+                type="button"
+                className="erp-jc-slider-arrow-btn"
+                onClick={() => formPaneRef.current?.scrollBy({ top: -200, behavior: 'smooth' })}
+                title="Slide Form Up"
+                aria-label="Slide Form Up"
+              >
+                ▲
+              </button>
+              <div
+                ref={sliderTrackRef}
+                className="erp-jc-slider-track"
+                onMouseDown={handleSliderTrackMouseDown}
+                title="Click or drag blue slider to move form up and down"
+              >
+                <div
+                  className="erp-jc-slider-thumb"
+                  onMouseDown={handleSliderThumbMouseDown}
+                  style={{
+                    height: '26%',
+                    top: `${scrollProgress * 74}%`,
+                  }}
+                >
+                  <span className="erp-jc-slider-grip-line" />
+                  <span className="erp-jc-slider-grip-line" />
+                  <span className="erp-jc-slider-grip-line" />
+                </div>
+              </div>
+              <button
+                type="button"
+                className="erp-jc-slider-arrow-btn"
+                onClick={() => formPaneRef.current?.scrollBy({ top: 200, behavior: 'smooth' })}
+                title="Slide Form Down"
+                aria-label="Slide Form Down"
+              >
+                ▼
+              </button>
+            </div>
+
             {/* Right Live Detail Sheet */}
             {showPreviewPane && (
               <div
+                ref={previewPaneRef}
+                onScroll={handlePreviewScroll}
                 className="erp-jc-preview-pane"
                 style={{
                   display: mobileTab === 'form' ? undefined : 'flex',
@@ -4200,19 +4506,36 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                       </div>
                     </div>
 
-                    {/* Consumed Parts in Live Sheet */}
-                    {cardParts.length > 0 && (
-                      <div className="erp-jc-ticket-row">
-                        <div className="erp-jc-ticket-label">CONSUMED SPARE PARTS ({cardParts.length})</div>
-                        <Space wrap size={4}>
-                          {cardParts.map((p: any) => (
-                            <Tag key={p.id} color="cyan" style={{ margin: 0, fontSize: 11 }}>
-                              {p.partName || p.item?.name || 'Part'} &times; {p.quantity} {p.uom || ''}
-                            </Tag>
-                          ))}
-                        </Space>
+                    {/* Consumed Parts & Total Cost in Live Sheet */}
+                    <div className="erp-jc-ticket-row">
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                        <div className="erp-jc-ticket-label" style={{ marginBottom: 0 }}>
+                          CONSUMED SPARE PARTS ({cardParts.length})
+                        </div>
+                        <Tag color="green" style={{ margin: 0, fontWeight: 800, fontSize: 11 }}>
+                          Total: Rs. {totalPartsCost.toLocaleString('en-PK')}
+                        </Tag>
                       </div>
-                    )}
+                      {cardParts.length > 0 ? (
+                        <Space wrap size={4}>
+                          {cardParts.map((p: any, idx: number) => {
+                            const q = Number(p.quantity ?? p.quantityConsumed ?? p.quantityRequested ?? 1);
+                            const u = Number(p.unitCost ?? p.item?.standardCost ?? 0);
+                            const tot = Number(p.totalCost) > 0 ? Number(p.totalCost) : q * u;
+                            return (
+                              <Tag key={p.id || idx} color="cyan" style={{ margin: 0, fontSize: 11 }}>
+                                {p.partName || p.item?.name || 'Part'} &times; {q} {p.uom || ''}
+                                {tot > 0 ? ` (Rs. ${tot.toLocaleString('en-PK')})` : ''}
+                              </Tag>
+                            );
+                          })}
+                        </Space>
+                      ) : (
+                        <div style={{ fontSize: 11, color: 'var(--theme-text-muted)' }}>
+                          No spare parts recorded yet (Rs. 0)
+                        </div>
+                      )}
+                    </div>
 
                     {/* Live Updates from Left Pane */}
                     {currentMode === 'start' && selectedTechIds.length > 0 && (
@@ -4288,6 +4611,49 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                     </div>
                   </div>
                 </div>
+              </div>
+            )}
+
+            {/* ── Dedicated Interactive Vertical Slider Rail for Right Preview Pane (Far Right Edge) ── */}
+            {showPreviewPane && (
+              <div className="erp-jc-custom-slider-rail erp-jc-preview-slider-rail" style={{ height: '100%' }}>
+                <button
+                  type="button"
+                  className="erp-jc-slider-arrow-btn"
+                  onClick={() => previewPaneRef.current?.scrollBy({ top: -180, behavior: 'smooth' })}
+                  title="Slide Preview Up"
+                  aria-label="Slide Preview Up"
+                >
+                  ▲
+                </button>
+                <div
+                  ref={previewSliderTrackRef}
+                  className="erp-jc-slider-track"
+                  onMouseDown={handlePreviewSliderTrackMouseDown}
+                  title="Click or drag blue slider to move ticket sheet up and down"
+                >
+                  <div
+                    className="erp-jc-slider-thumb"
+                    onMouseDown={handlePreviewSliderThumbMouseDown}
+                    style={{
+                      height: '26%',
+                      top: `${previewScrollProgress * 74}%`,
+                    }}
+                  >
+                    <span className="erp-jc-slider-grip-line" />
+                    <span className="erp-jc-slider-grip-line" />
+                    <span className="erp-jc-slider-grip-line" />
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="erp-jc-slider-arrow-btn"
+                  onClick={() => previewPaneRef.current?.scrollBy({ top: 180, behavior: 'smooth' })}
+                  title="Slide Preview Down"
+                  aria-label="Slide Preview Down"
+                >
+                  ▼
+                </button>
               </div>
             )}
               </>

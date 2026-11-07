@@ -1054,21 +1054,35 @@ export const JobCardList: React.FC<JobCardListProps> = ({ initialCreateOpen = fa
   const columns: ColumnsType<JobCard> = [
     {
       title: 'Job Card', key: 'job', width: isMobile ? 130 : 155, fixed: isMobile ? undefined : 'left',
-      render: (_: any, r: JobCard) => (
-        <div className="jc-id-cell">
-          <a
-            href={`#/maintenance/job-cards/${r.id}`}
-            onClick={(e) => {
-              e.preventDefault();
-              openViewModal(r);
-            }}
-            className="jc-code-link"
-          >
-            {r.jobCardNo || r.id}
-          </a>
-          <div className="jc-sub-date">{r.requestedAt ? new Date(r.requestedAt).toLocaleDateString() : '—'}</div>
-        </div>
-      ),
+      render: (_: any, r: JobCard) => {
+        const partsArr = Array.isArray((r as any).parts) ? (r as any).parts : [];
+        const partsCost = partsArr.reduce((acc: number, p: any) => {
+          const lineTotal = Number(p.totalCost) || (Number(p.quantity || 0) * Number(p.unitCost || 0));
+          return acc + (Number.isFinite(lineTotal) ? lineTotal : 0);
+        }, 0);
+        return (
+          <div className="jc-id-cell">
+            <a
+              href={`#/maintenance/job-cards/${r.id}`}
+              onClick={(e) => {
+                e.preventDefault();
+                openViewModal(r);
+              }}
+              className="jc-code-link"
+            >
+              {r.jobCardNo || r.id}
+            </a>
+            <div className="jc-sub-date" style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              <span>{r.requestedAt ? new Date(r.requestedAt).toLocaleDateString() : '—'}</span>
+              {partsCost > 0 && (
+                <Tag color="green" style={{ margin: 0, fontSize: 10, lineHeight: '16px', padding: '0 5px', fontWeight: 700 }}>
+                  Rs. {partsCost.toLocaleString()}
+                </Tag>
+              )}
+            </div>
+          </div>
+        );
+      },
     },
     {
       title: 'Machine', key: 'machine', width: isMobile ? 140 : 170,

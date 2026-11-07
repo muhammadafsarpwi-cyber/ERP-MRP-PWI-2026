@@ -455,6 +455,21 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
     };
   }, [activeMachineIdForHistory, resolvedCompanyId, selectedMachine?.machineCode, context?.machineCode]);
 
+  const getCardPartsCost = useCallback((card: any): number => {
+    if (!card) return 0;
+    if (typeof card.totalPartsCost === 'number' && !Number.isNaN(card.totalPartsCost)) {
+      return card.totalPartsCost;
+    }
+    const partsList = Array.isArray(card.parts) ? card.parts : [];
+    return partsList.reduce((sum: number, p: any) => {
+      const explicitTotal = Number(p?.totalCost);
+      if (!Number.isNaN(explicitTotal) && explicitTotal > 0) return sum + explicitTotal;
+      const qty = Number(p?.quantityConsumed ?? p?.quantityIssued ?? p?.quantityRequested ?? p?.qty ?? 0);
+      const unit = Number(p?.unitCost ?? p?.item?.standardCost ?? p?.item?.purchasePrice ?? 0);
+      return sum + (Number.isNaN(qty * unit) ? 0 : qty * unit);
+    }, 0);
+  }, []);
+
   const machineHistoryStats = useMemo(() => {
     const totalCount = machineHistoryCards.length;
     const lastCard = machineHistoryCards[0] || null;
@@ -468,26 +483,72 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
       }
     }
 
-    // Monthly breakdown (e.g. Nov 2026: 2, Oct 2026: 4, Sep 2026: 5)
-    const monthMap = new Map<string, { monthKey: string; label: string; count: number }>();
+    const now = dayjs();
+    const currentMonthKey = now.format('YYYY-MM');
+    const currentQuarter = Math.floor(now.month() / 3) + 1;
+    const currentQuarterKey = `${now.year()}-Q${currentQuarter}`;
+
+    let lifetimeSpend = 0;
+    let thisMonthSpend = 0;
+    let thisQuarterSpend = 0;
+    const cardCostMap = new Map<string, number>();
+
+    // Monthly breakdown (e.g. Nov 2026: 2, Oct 2026: 4, Sep 2026: 5) + Cost Rollup
+    const monthMap = new Map<string, { monthKey: string; label: string; count: number; totalCost: number }>();
+    // Quarterly breakdown (e.g. Q4 2026, Q3 2026) + Cost Rollup
+    const quarterMap = new Map<string, { quarterKey: string; label: string; count: number; totalCost: number }>();
+
     for (const card of machineHistoryCards) {
+      const cardCost = getCardPartsCost(card);
+      if (card.id) {
+        cardCostMap.set(String(card.id), cardCost);
+      }
+      lifetimeSpend += cardCost;
+
       const d = dayjs(card.requestedAt || card.createdAt);
       if (!d.isValid()) continue;
       const monthKey = d.format('YYYY-MM');
       const shortMon = d.format('MMM');
       const yr = d.format('YYYY');
-      const existing = monthMap.get(monthKey);
-      if (existing) {
-        existing.count += 1;
+      const qNum = Math.floor(d.month() / 3) + 1;
+      const quarterKey = `${yr}-Q${qNum}`;
+      const quarterLabel = `Q${qNum} ${yr}`;
+
+      if (monthKey === currentMonthKey) {
+        thisMonthSpend += cardCost;
+      }
+      if (quarterKey === currentQuarterKey) {
+        thisQuarterSpend += cardCost;
+      }
+
+      const existingMonth = monthMap.get(monthKey);
+      if (existingMonth) {
+        existingMonth.count += 1;
+        existingMonth.totalCost += cardCost;
       } else {
         monthMap.set(monthKey, {
           monthKey,
           label: `${shortMon} ${yr}`,
           count: 1,
+          totalCost: cardCost,
+        });
+      }
+
+      const existingQuarter = quarterMap.get(quarterKey);
+      if (existingQuarter) {
+        existingQuarter.count += 1;
+        existingQuarter.totalCost += cardCost;
+      } else {
+        quarterMap.set(quarterKey, {
+          quarterKey,
+          label: quarterLabel,
+          count: 1,
+          totalCost: cardCost,
         });
       }
     }
     const monthlyBreakdown = Array.from(monthMap.values()).sort((a, b) => b.monthKey.localeCompare(a.monthKey));
+    const quarterlyBreakdown = Array.from(quarterMap.values()).sort((a, b) => b.quarterKey.localeCompare(a.quarterKey));
 
     // Repeated / Recurring Fault detection (same complaint / category occurring >= 2 times)
     const issueMap = new Map<
@@ -568,13 +629,18 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
       totalCount,
       lastCard,
       lastCardDaysAgo,
+      lifetimeSpend,
+      thisMonthSpend,
+      thisQuarterSpend,
+      cardCostMap,
       monthlyBreakdown,
+      quarterlyBreakdown,
       repeatedIssues,
       repeatedCardIds,
       cardRepeatCountMap,
       filteredCards,
     };
-  }, [machineHistoryCards, historyMonthFilter, historyRepeatFilter]);
+  }, [machineHistoryCards, historyMonthFilter, historyRepeatFilter, getCardPartsCost]);
 
   // Load Divisions - unconditional mount fetch of the authoritative Division
   // master (Organization module) filtered to ACTIVE rows, narrowed to the
@@ -905,13 +971,8 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
     setLookupLoading(true);
     try {
       const machine = await apiService.get<JobCard>(`/machines/by-code/${encodeURIComponent(code)}`);
-      if (
-        (companyId && machine.companyId !== companyId) ||
-        (divisionId && machine.divisionId !== divisionId) ||
-        (sectionId && machine.sectionId !== sectionId) ||
-        (departmentId && machine.departmentId !== departmentId)
-      ) {
-        throw new Error('Machine is outside the selected organizational context');
+      if (companyId && machine.companyId && machine.companyId !== companyId) {
+        throw new Error('Machine is outside the selected company');
       }
       setSelectedMachine(machine);
       // The entered code resolved this exact record → it is verified.
@@ -1799,48 +1860,21 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
                   </Row>
                 </div>
 
-                {/* 3. Classification & Work Scope */}
+                {/* 3. Additional Technical Notes & Observations (Optional) */}
                 <div className="erp-jc-form-section">
                   <div className="erp-jc-section-header">
                     <span className="erp-jc-section-badge">3</span>
-                    <h5 className="erp-jc-section-title">Root Cause &amp; Technical Notes</h5>
+                    <h5 className="erp-jc-section-title">Additional Technical Notes &amp; Observations (Optional)</h5>
                   </div>
-
-                  <Row gutter={12}>
-                    <Col xs={24} sm={12}>
-                      <Form.Item name="rootCauseCategoryId" label="Root Cause Category (Optional)">
-                        <Select
-                          allowClear
-                          showSearch
-                          optionFilterProp="label"
-                          options={rootCategories.map((c) => ({ value: c.id, label: categoryLabel(c) }))}
-                          classNames={{ popup: { root: 'erp-jc-select-dropdown' } }}
-                          placeholder="Select root cause"
-                        />
-                      </Form.Item>
-                    </Col>
-                    <Col xs={24} sm={12}>
-                      <Form.Item name="failureCategoryId" label="Failure Category (Optional)">
-                        <Select
-                          allowClear
-                          showSearch
-                          optionFilterProp="label"
-                          options={failureCategories.map((c) => ({ value: c.id, label: categoryLabel(c) }))}
-                          classNames={{ popup: { root: 'erp-jc-select-dropdown' } }}
-                          placeholder="Select failure category"
-                        />
-                      </Form.Item>
-                    </Col>
-                  </Row>
 
                   <Form.Item
                     name="description"
-                    label={<span><FileTextOutlined style={{ marginRight: 4 }} />Additional Technical Notes / Observations</span>}
+                    label={<span><FileTextOutlined style={{ marginRight: 4 }} />Operator / Supervisor Notes (Optional)</span>}
                     style={{ marginBottom: 4 }}
                   >
                     <Input.TextArea
-                      rows={3}
-                      placeholder="Any supplementary technical observations, safety precautions, or parts required..."
+                      rows={2}
+                      placeholder="Any supplementary technical observations, safety precautions, or symptoms..."
                     />
                   </Form.Item>
 
@@ -2274,6 +2308,61 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
                     </div>
                   ) : (
                     <>
+                      {/* 0. Machine Maintenance Cost & Spend Rollup (Monthly / Quarterly / Total) */}
+                      <div
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+                          gap: 8,
+                        }}
+                      >
+                        <div
+                          style={{
+                            padding: '8px 10px',
+                            borderRadius: 9,
+                            background: 'var(--theme-surface-alt)',
+                            border: '1px solid var(--theme-border)',
+                          }}
+                        >
+                          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--theme-text-muted)', textTransform: 'uppercase' }}>
+                            This Month Spend
+                          </div>
+                          <div style={{ fontSize: 13, fontWeight: 800, color: '#38bdf8', marginTop: 2 }}>
+                            Rs. {machineHistoryStats.thisMonthSpend.toLocaleString('en-PK')}
+                          </div>
+                        </div>
+                        <div
+                          style={{
+                            padding: '8px 10px',
+                            borderRadius: 9,
+                            background: 'var(--theme-surface-alt)',
+                            border: '1px solid var(--theme-border)',
+                          }}
+                        >
+                          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--theme-text-muted)', textTransform: 'uppercase' }}>
+                            This Quarter (3M)
+                          </div>
+                          <div style={{ fontSize: 13, fontWeight: 800, color: '#f59e0b', marginTop: 2 }}>
+                            Rs. {machineHistoryStats.thisQuarterSpend.toLocaleString('en-PK')}
+                          </div>
+                        </div>
+                        <div
+                          style={{
+                            padding: '8px 10px',
+                            borderRadius: 9,
+                            background: 'var(--theme-surface-alt)',
+                            border: '1px solid var(--theme-border)',
+                          }}
+                        >
+                          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--theme-text-muted)', textTransform: 'uppercase' }}>
+                            Total Machine Spend
+                          </div>
+                          <div style={{ fontSize: 13, fontWeight: 800, color: '#10b981', marginTop: 2 }}>
+                            Rs. {machineHistoryStats.lifetimeSpend.toLocaleString('en-PK')}
+                          </div>
+                        </div>
+                      </div>
+
                       {/* 1. Last Job Card Summary Box */}
                       {machineHistoryStats.lastCard && (
                         <div
@@ -2296,9 +2385,14 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
                             <span style={{ fontSize: 11, fontWeight: 700, color: '#3b82f6', textTransform: 'uppercase' }}>
                               ⏱️ Last Job Card:
                             </span>
-                            <Tag color="geekblue" style={{ margin: 0, fontSize: 10, fontWeight: 600 }}>
-                              {machineHistoryStats.lastCardDaysAgo}
-                            </Tag>
+                            <Space size={4}>
+                              <Tag color="green" style={{ margin: 0, fontSize: 10, fontWeight: 700 }}>
+                                Rs. {getCardPartsCost(machineHistoryStats.lastCard).toLocaleString('en-PK')}
+                              </Tag>
+                              <Tag color="geekblue" style={{ margin: 0, fontSize: 10, fontWeight: 600 }}>
+                                {machineHistoryStats.lastCardDaysAgo}
+                              </Tag>
+                            </Space>
                           </div>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 5 }}>
                             <span style={{ fontFamily: 'monospace', fontWeight: 800, fontSize: 13, color: 'var(--theme-text)' }}>
@@ -2333,7 +2427,7 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
                         </div>
                       )}
 
-                      {/* 2. Monthly Breakdown Pills */}
+                      {/* 2. Monthly & Quarterly Breakdown Pills */}
                       <div>
                         <div
                           style={{
@@ -2347,7 +2441,7 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
                             alignItems: 'center',
                           }}
                         >
-                          <span>📅 Monthly Job Card Breakdown</span>
+                          <span>📅 Monthly &amp; Quarterly Job Card Breakdown</span>
                           {(historyMonthFilter || historyRepeatFilter) && (
                             <Button
                               type="link"
@@ -2388,6 +2482,11 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
                                 <Tag color={isSelected ? 'blue' : 'cyan'} style={{ margin: 0, fontWeight: 700, fontSize: 11 }}>
                                   {m.count} {m.count === 1 ? 'Job Card' : 'Job Cards'}
                                 </Tag>
+                                {m.totalCost > 0 && (
+                                  <Tag color="green" style={{ margin: 0, fontWeight: 700, fontSize: 10 }}>
+                                    Rs. {m.totalCost.toLocaleString('en-PK')}
+                                  </Tag>
+                                )}
                               </div>
                             );
                           })}
@@ -2480,6 +2579,7 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
                             const isRepeated = card.id && machineHistoryStats.repeatedCardIds.has(String(card.id));
                             const repeatCount = card.id ? machineHistoryStats.cardRepeatCountMap.get(String(card.id)) : 0;
                             const statusStr = card.currentStatus || card.status || 'OPEN';
+                            const cardCost = getCardPartsCost(card);
                             return (
                               <div
                                 key={card.id || idx}
@@ -2509,6 +2609,9 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
                                         ↻ Repeated ({repeatCount}x)
                                       </Tag>
                                     )}
+                                    <Tag color={cardCost > 0 ? 'green' : 'default'} style={{ margin: 0, fontSize: 10, fontWeight: 700 }}>
+                                      Rs. {cardCost.toLocaleString('en-PK')}
+                                    </Tag>
                                   </Space>
                                   <Space size={4}>
                                     <Tag
@@ -3039,6 +3142,9 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
                   <Tag color="purple" style={{ fontWeight: 600, margin: 0, borderRadius: 6 }}>
                     {label(selectedHistoryCard.maintenanceType || 'BREAKDOWN')}
                   </Tag>
+                  <Tag color="green" style={{ fontWeight: 800, margin: 0, borderRadius: 6, fontSize: 12 }}>
+                    Job Card Cost: Rs. {getCardPartsCost(selectedHistoryCard).toLocaleString('en-PK')}
+                  </Tag>
                 </Space>
                 <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--theme-text-secondary)' }}>
                   <ClockCircleOutlined style={{ marginRight: 5, color: 'var(--maint-info-fg)' }} />
@@ -3201,6 +3307,76 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
                 </div>
               </div>
 
+              {/* Spare Parts Consumed & Cost Breakdown for This Job Card */}
+              <div
+                style={{
+                  padding: '10px 12px',
+                  borderRadius: 10,
+                  background: 'var(--theme-surface)',
+                  border: '1px solid var(--theme-border)',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <span style={{ fontSize: 11, fontWeight: 800, color: 'var(--theme-text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    🔩 Spare Parts Fitted &amp; Repair Cost Breakdown
+                  </span>
+                  <Tag color="green" style={{ margin: 0, fontWeight: 800 }}>
+                    Total Ticket Cost: Rs. {getCardPartsCost(selectedHistoryCard).toLocaleString('en-PK')}
+                  </Tag>
+                </div>
+                {Array.isArray(selectedHistoryCard.parts) && selectedHistoryCard.parts.length > 0 ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                    {selectedHistoryCard.parts.map((pt: any, pIdx: number) => {
+                      const pName = pt.partName || pt.item?.itemName || pt.item?.name || 'Spare Part';
+                      const pCode = pt.partCode || pt.item?.itemCode || pt.item?.code || '';
+                      const pQty = Number(pt.quantityConsumed ?? pt.quantityIssued ?? pt.quantityRequested ?? pt.qty ?? 1);
+                      const pUom = pt.uomCode || pt.uom?.uomCode || pt.uom?.name || 'Pcs';
+                      const pUnit = Number(pt.unitCost || 0);
+                      const pTotal = Number(pt.totalCost || pQty * pUnit);
+                      return (
+                        <div
+                          key={pt.id || pIdx}
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            padding: '6px 10px',
+                            borderRadius: 7,
+                            background: 'var(--theme-surface-alt)',
+                            border: '1px solid var(--theme-border)',
+                            fontSize: 12,
+                          }}
+                        >
+                          <div>
+                            <strong style={{ color: 'var(--theme-text)' }}>{pName}</strong>
+                            {pCode && (
+                              <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--theme-text-muted)', fontFamily: 'monospace' }}>
+                                ({pCode})
+                              </span>
+                            )}
+                          </div>
+                          <Space size={10}>
+                            <Tag color="blue" style={{ margin: 0, fontSize: 11 }}>
+                              Qty: {pQty} {pUom}
+                            </Tag>
+                            <span style={{ fontSize: 11, color: 'var(--theme-text-secondary)' }}>
+                              @ Rs. {pUnit.toLocaleString('en-PK')}
+                            </span>
+                            <strong style={{ color: '#10b981', fontSize: 12 }}>
+                              Rs. {pTotal.toLocaleString('en-PK')}
+                            </strong>
+                          </Space>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 12, color: 'var(--theme-text-muted)', fontStyle: 'italic' }}>
+                    No spare parts recorded on this Job Card yet (Rs. 0).
+                  </div>
+                )}
+              </div>
+
               {(selectedHistoryCard.correctiveAction || selectedHistoryCard.description || selectedHistoryCard.remarks) && (
                 <div
                   style={{
@@ -3218,15 +3394,43 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
               )}
             </div>
 
-            {/* 2. Monthly Summary Strip inside Popup */}
-            <div>
-              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--theme-text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 6 }}>
-                📅 Monthly Job Card Summary for This Machine
+            {/* 2. Monthly & Quarterly Machine Spend Summary Strip inside Popup */}
+            <div
+              style={{
+                padding: '12px 14px',
+                borderRadius: 12,
+                background: 'var(--theme-surface-alt)',
+                border: '1px solid var(--theme-border)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 10,
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                <span style={{ fontSize: 11, fontWeight: 800, color: 'var(--theme-text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  💰 Machine Maintenance Cost &amp; Frequency Summary (Monthly &amp; Quarterly)
+                </span>
+                <Space size={8} wrap>
+                  <Tag color="cyan" style={{ margin: 0, fontWeight: 700 }}>
+                    This Month: Rs. {machineHistoryStats.thisMonthSpend.toLocaleString('en-PK')}
+                  </Tag>
+                  <Tag color="gold" style={{ margin: 0, fontWeight: 700 }}>
+                    This Quarter (3M): Rs. {machineHistoryStats.thisQuarterSpend.toLocaleString('en-PK')}
+                  </Tag>
+                  <Tag color="green" style={{ margin: 0, fontWeight: 800 }}>
+                    Total Machine Spend: Rs. {machineHistoryStats.lifetimeSpend.toLocaleString('en-PK')}
+                  </Tag>
+                </Space>
               </div>
               <Space wrap size={[8, 8]}>
+                {machineHistoryStats.quarterlyBreakdown.map((q) => (
+                  <Tag key={q.quarterKey} color="purple" style={{ fontSize: 12, padding: '4px 12px', borderRadius: 8, margin: 0, fontWeight: 600 }}>
+                    <strong>{q.label}:</strong> {q.count} {q.count === 1 ? 'Job Card' : 'Job Cards'} &bull; Rs. {q.totalCost.toLocaleString('en-PK')}
+                  </Tag>
+                ))}
                 {machineHistoryStats.monthlyBreakdown.map((m) => (
                   <Tag key={m.monthKey} color="blue" style={{ fontSize: 12, padding: '4px 12px', borderRadius: 8, margin: 0, fontWeight: 600 }}>
-                    <strong>{m.label}:</strong> {m.count} {m.count === 1 ? 'Job Card' : 'Job Cards'}
+                    <strong>{m.label}:</strong> {m.count} {m.count === 1 ? 'Job Card' : 'Job Cards'} &bull; Rs. {m.totalCost.toLocaleString('en-PK')}
                   </Tag>
                 ))}
               </Space>
@@ -3242,6 +3446,7 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
                   const isCurrent = c.id === selectedHistoryCard.id;
                   const jcNo = c.jobCardNo || c.jobCardNumber || c.code || `#JC-${idx + 1}`;
                   const isRep = c.id && machineHistoryStats.repeatedCardIds.has(String(c.id));
+                  const rowCost = getCardPartsCost(c);
                   return (
                     <div
                       key={c.id || idx}
@@ -3267,6 +3472,9 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
                             Repeated
                           </Tag>
                         )}
+                        <Tag color={rowCost > 0 ? 'green' : 'default'} style={{ margin: 0, fontSize: 10, flexShrink: 0, fontWeight: 700 }}>
+                          Rs. {rowCost.toLocaleString('en-PK')}
+                        </Tag>
                         <span
                           style={{
                             fontSize: 12,

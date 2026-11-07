@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { isUUID } from 'class-validator';
 import { Repository, DataSource, EntityManager, MoreThanOrEqual } from 'typeorm';
@@ -41,8 +41,23 @@ import {
 } from '../dto';
 
 @Injectable()
-export class MaintenanceJobCardService {
+export class MaintenanceJobCardService implements OnModuleInit {
   private readonly logger = new Logger(MaintenanceJobCardService.name);
+
+  async onModuleInit(): Promise<void> {
+    try {
+      await this.dataSource.query(`
+        ALTER TABLE maintenance_job_card_parts ALTER COLUMN item_id DROP NOT NULL;
+        ALTER TABLE maintenance_job_card_parts ALTER COLUMN uom_id DROP NOT NULL;
+        ALTER TABLE maintenance_job_card_parts ADD COLUMN IF NOT EXISTS part_name VARCHAR(255);
+        ALTER TABLE maintenance_job_card_parts ADD COLUMN IF NOT EXISTS part_code VARCHAR(100);
+        ALTER TABLE maintenance_job_card_parts ADD COLUMN IF NOT EXISTS uom_code VARCHAR(30) DEFAULT 'Pcs';
+        ALTER TABLE maintenance_job_card_parts ADD COLUMN IF NOT EXISTS stock_status VARCHAR(40) DEFAULT 'IN_STOCK';
+      `);
+    } catch (err) {
+      this.logger.warn(`Could not auto-migrate maintenance_job_card_parts columns: ${err}`);
+    }
+  }
 
   constructor(
     @InjectRepository(MaintenanceJobCard)
@@ -464,6 +479,9 @@ export class MaintenanceJobCardService {
     qb.leftJoinAndSelect('jc.technicians', 'technicians');
     qb.leftJoinAndSelect('technicians.technicianUser', 'technicianUser');
     qb.leftJoinAndSelect('technicians.technician', 'technicianMaster');
+    qb.leftJoinAndSelect('jc.parts', 'parts');
+    qb.leftJoinAndSelect('parts.item', 'partItem');
+    qb.leftJoinAndSelect('parts.uom', 'partUom');
 
     if (allowedDivisionIds && allowedDivisionIds.length > 0) {
       qb.andWhere('(jc.divisionId IN (:...allowedDivisionIds) OR machine.divisionId IN (:...allowedDivisionIds))', { allowedDivisionIds });
@@ -534,6 +552,12 @@ export class MaintenanceJobCardService {
         'startedByUser', 'completedByUser', 'closedByUser', 'verifiedByUser', 'approvedByUser',
         'company',
         'team',
+        'technicians',
+        'technicians.technicianUser',
+        'technicians.technician',
+        'parts',
+        'parts.item',
+        'parts.uom',
       ],
     });
     if (!jobCard) {
@@ -779,7 +803,60 @@ export class MaintenanceJobCardService {
     return this.findOne(id);
   }
 
-  async complete(id: string, dto: { diagnosis?: string; correctiveAction?: string; preventiveAction?: string; rootCauseCategoryId?: string; failureCategoryId?: string; remarks?: string }, userId: string): Promise<MaintenanceJobCard> {
+  private async syncPartsListTx(manager: EntityManager, jobCardId: string, partsList: any[] | undefined, erpUserId: string): Promise<void> {
+    if (!Array.isArray(partsList) || partsList.length === 0) return;
+    const partRepo = manager.getRepository(MaintenanceJobCardPart);
+    const existing = await partRepo.find({ where: { jobCardId } });
+    const existingIds = new Set(existing.map((e) => e.id));
+
+    for (const p of partsList) {
+      if (p.id && !String(p.id).startsWith('temp-') && existingIds.has(String(p.id))) {
+        const found = existing.find((e) => e.id === String(p.id));
+        if (found) {
+          const qty = Number(p.quantity || found.quantity || 1);
+          const uCost = p.unitCost != null ? Number(p.unitCost) : (found.unitCost != null ? Number(found.unitCost) : null);
+          found.quantity = qty;
+          found.unitCost = uCost;
+          found.totalCost = uCost != null ? uCost * qty : (p.totalCost != null ? Number(p.totalCost) : found.totalCost);
+          if (p.partName) found.partName = p.partName;
+          if (p.partCode) found.partCode = p.partCode;
+          if (p.uom) found.uomCode = p.uom;
+          if (p.stockStatus) found.stockStatus = p.stockStatus;
+          if (p.remarks) found.remarks = p.remarks;
+          found.updatedBy = erpUserId;
+          await partRepo.save(found);
+        }
+        continue;
+      }
+
+      const validItemId = p.itemId && isUUID(String(p.itemId)) ? String(p.itemId) : null;
+      const validUomId = p.uomId && isUUID(String(p.uomId)) ? String(p.uomId) : null;
+      const qty = Math.max(0.0001, Number(p.quantity || 1));
+      const uCost = p.unitCost != null && !Number.isNaN(Number(p.unitCost)) ? Number(p.unitCost) : null;
+      const tCost = uCost != null ? uCost * qty : (p.totalCost != null && !Number.isNaN(Number(p.totalCost)) ? Number(p.totalCost) : null);
+
+      const created = partRepo.create({
+        jobCardId,
+        itemId: validItemId,
+        partName: p.partName || p.name || 'Spare Part',
+        partCode: p.partCode || p.code || null,
+        quantity: qty,
+        uomId: validUomId,
+        uomCode: p.uom || p.uomCode || 'Pcs',
+        unitCost: uCost,
+        totalCost: tCost,
+        stockStatus: p.stockStatus || 'IN_STOCK',
+        issuedAt: new Date(),
+        issuedBy: erpUserId,
+        createdBy: erpUserId,
+        updatedBy: erpUserId,
+        remarks: p.remarks || 'Consumed during maintenance repair',
+      });
+      await partRepo.save(created);
+    }
+  }
+
+  async complete(id: string, dto: { diagnosis?: string; correctiveAction?: string; preventiveAction?: string; rootCauseCategoryId?: string; failureCategoryId?: string; remarks?: string; parts?: any[] }, userId: string): Promise<MaintenanceJobCard> {
     const jobCard = await this.findOne(id);
     this.validateTransition(jobCard.currentStatus, JobCardStatus.PENDING_VERIFICATION);
     const previousStatus = jobCard.currentStatus;
@@ -805,6 +882,7 @@ export class MaintenanceJobCardService {
       }
 
       await manager.save(jobCard);
+      await this.syncPartsListTx(manager, id, dto.parts, erpUserId);
 
       const history = manager.create(MaintenanceJobCardStatusHistory, {
         jobCardId: id,
@@ -841,17 +919,23 @@ export class MaintenanceJobCardService {
 
   async verify(id: string, userId: string, remarks?: string): Promise<MaintenanceJobCard> {
     const jobCard = await this.findOne(id);
-    this.validateTransition(jobCard.currentStatus, JobCardStatus.VERIFIED);
+    this.validateTransition(jobCard.currentStatus, JobCardStatus.CLOSED);
+    const previousStatus = jobCard.currentStatus;
     const erpUserId = await this.userResolver.resolve(userId);
 
-    jobCard.currentStatus = JobCardStatus.VERIFIED;
-    jobCard.verifiedAt = new Date();
+    const now = new Date();
+    jobCard.currentStatus = JobCardStatus.CLOSED;
+    jobCard.verifiedAt = now;
     jobCard.verifiedBy = erpUserId;
+    jobCard.approvedAt = now;
+    jobCard.approvedBy = erpUserId;
+    jobCard.closedAt = now;
+    jobCard.closedBy = erpUserId;
     jobCard.updatedBy = erpUserId;
     if (remarks) jobCard.remarks = remarks;
     await this.jobCardRepo.save(jobCard);
 
-    await this.recordHistory(id, JobCardStatus.PENDING_VERIFICATION, JobCardStatus.VERIFIED, erpUserId, remarks || 'Job verified');
+    await this.recordHistory(id, previousStatus, JobCardStatus.CLOSED, erpUserId, remarks || 'Job verified & approved (Closed)');
     await this.logActivity(erpUserId, 'JOB_CARD_VERIFIED', id, jobCard.jobCardNo);
     this.emitJobCardEvent('MAINT_JOB_CARD_VERIFIED', id, userId);
     return this.findOne(id);
@@ -896,16 +980,27 @@ export class MaintenanceJobCardService {
     return this.findOne(id);
   }
 
-  async submitForVerification(id: string, userId: string, remarks?: string): Promise<MaintenanceJobCard> {
+  async submitForVerification(id: string, userId: string, remarks?: string, dto?: any): Promise<MaintenanceJobCard> {
     const jobCard = await this.findOne(id);
     this.validateTransition(jobCard.currentStatus, JobCardStatus.PENDING_VERIFICATION);
     const previousStatus = jobCard.currentStatus;
     const erpUserId = await this.userResolver.resolve(userId);
 
-    jobCard.currentStatus = JobCardStatus.PENDING_VERIFICATION;
-    jobCard.updatedBy = erpUserId;
-    if (remarks) jobCard.remarks = remarks;
-    await this.jobCardRepo.save(jobCard);
+    await withTransaction(this.dataSource, async (manager) => {
+      jobCard.currentStatus = JobCardStatus.PENDING_VERIFICATION;
+      jobCard.updatedBy = erpUserId;
+      if (dto?.diagnosis) jobCard.diagnosis = dto.diagnosis;
+      if (dto?.correctiveAction) jobCard.correctiveAction = dto.correctiveAction;
+      if (dto?.preventiveAction) jobCard.preventiveAction = dto.preventiveAction;
+      if (dto?.rootCauseCategoryId) jobCard.rootCauseCategoryId = dto.rootCauseCategoryId;
+      if (dto?.failureCategoryId) jobCard.failureCategoryId = dto.failureCategoryId;
+      if (remarks) jobCard.remarks = remarks;
+      await manager.save(jobCard);
+
+      if (dto?.parts) {
+        await this.syncPartsListTx(manager, id, dto.parts, erpUserId);
+      }
+    });
 
     await this.recordHistory(id, previousStatus, JobCardStatus.PENDING_VERIFICATION, erpUserId, remarks || 'Submitted for verification');
     await this.logActivity(erpUserId, 'JOB_CARD_SUBMITTED_FOR_VERIFICATION', id, jobCard.jobCardNo);
@@ -918,17 +1013,45 @@ export class MaintenanceJobCardService {
     if (jobCard.currentStatus === JobCardStatus.APPROVED) {
       throw new BadRequestException('Cannot add parts to an approved job card');
     }
+    if (!dto.itemId && !dto.partName?.trim()) {
+      throw new BadRequestException('Either Item ID or Part Name is required');
+    }
     const erpUserId = await this.userResolver.resolve(userId);
 
     const saved = await this.dataSource.transaction(async (manager) => {
-      if (dto.issuedFrom) {
+      let resolvedPartName = dto.partName?.trim() || null;
+      let resolvedPartCode = dto.partCode?.trim() || null;
+      let resolvedUomId = dto.uomId && isUUID(dto.uomId) ? dto.uomId : null;
+      let resolvedUomCode = dto.uom?.trim() || 'Pcs';
+      let resolvedUnitCost = dto.unitCost != null ? Number(dto.unitCost) : null;
+
+      if (dto.itemId && isUUID(dto.itemId)) {
+        const itemRows = await manager.query(
+          `SELECT i.name, i.item_code, i.uom_id, i.standard_cost, u.code AS uom_code
+             FROM items i
+             LEFT JOIN uoms u ON u.id = i.uom_id
+            WHERE i.id = $1 LIMIT 1`,
+          [dto.itemId],
+        ).catch(() => []);
+        if (itemRows && itemRows[0]) {
+          resolvedPartName = resolvedPartName || itemRows[0].name;
+          resolvedPartCode = resolvedPartCode || itemRows[0].item_code;
+          resolvedUomId = resolvedUomId || itemRows[0].uom_id || null;
+          resolvedUomCode = dto.uom?.trim() || itemRows[0].uom_code || 'Pcs';
+          if (resolvedUnitCost == null && itemRows[0].standard_cost != null) {
+            resolvedUnitCost = Number(itemRows[0].standard_cost);
+          }
+        }
+      }
+
+      if (dto.issuedFrom && dto.itemId && resolvedUomId) {
         await this.writeStockMovementTx(manager, {
           companyId: jobCard.companyId,
           transactionType: 'MAINTENANCE_ISSUE',
           itemId: dto.itemId,
           warehouseId: dto.issuedFrom,
           quantity: dto.quantity,
-          uomId: dto.uomId,
+          uomId: resolvedUomId,
           direction: 'OUT',
           referenceType: 'JOB_CARD',
           referenceId: id,
@@ -938,13 +1061,24 @@ export class MaintenanceJobCardService {
         });
       }
 
+      const computedTotalCost =
+        resolvedUnitCost != null
+          ? resolvedUnitCost * Number(dto.quantity)
+          : dto.totalCost != null
+          ? Number(dto.totalCost)
+          : null;
+
       const part = manager.create(MaintenanceJobCardPart, {
         jobCardId: id,
-        itemId: dto.itemId,
+        itemId: dto.itemId && isUUID(dto.itemId) ? dto.itemId : null,
+        partName: resolvedPartName || 'Spare Part',
+        partCode: resolvedPartCode,
         quantity: dto.quantity,
-        uomId: dto.uomId,
-        unitCost: dto.unitCost || null,
-        totalCost: dto.unitCost ? dto.unitCost * dto.quantity : null,
+        uomId: resolvedUomId,
+        uomCode: resolvedUomCode,
+        unitCost: resolvedUnitCost,
+        totalCost: computedTotalCost,
+        stockStatus: dto.stockStatus || 'IN_STOCK',
         issuedFrom: dto.issuedFrom || null,
         issuedAt: new Date(),
         issuedBy: erpUserId,
@@ -967,15 +1101,17 @@ export class MaintenanceJobCardService {
     const issuedFrom = part.issuedFrom;
     const erpUserId = userId ? await this.userResolver.resolve(userId) : null;
 
-    if (issuedFrom) {
+    if (issuedFrom && part.itemId && part.uomId) {
+      const validItemId = part.itemId;
+      const validUomId = part.uomId;
       await this.dataSource.transaction(async (manager) => {
         await this.writeStockMovementTx(manager, {
           companyId: jobCard.companyId,
           transactionType: 'MAINTENANCE_RETURN',
-          itemId: part.itemId,
+          itemId: validItemId,
           warehouseId: issuedFrom,
           quantity: part.quantity,
-          uomId: part.uomId,
+          uomId: validUomId,
           direction: 'IN',
           referenceType: 'JOB_CARD',
           referenceId: jobCardId,
@@ -1266,6 +1402,41 @@ export class MaintenanceJobCardService {
       mtbf = Math.round(totalMinutesBetween / (approvedCards.length - 1) / 60);
     }
 
+    // Calculate Spare Parts Cost Rollups (Total, This Month, This Quarter)
+    const nowDate = new Date();
+    const curYear = nowDate.getFullYear();
+    const curMonth = nowDate.getMonth();
+    const curQuarter = Math.floor(curMonth / 3) + 1;
+    let totalCost = 0;
+    let thisMonthCost = 0;
+    let thisQuarterCost = 0;
+
+    const allMachineCards = await this.jobCardRepo.find({
+      where: { machineId, isActive: true },
+      relations: ['parts'],
+      order: { requestedAt: 'DESC' },
+    });
+
+    for (const c of allMachineCards) {
+      const d = c.requestedAt ? new Date(c.requestedAt) : null;
+      const cardYear = d ? d.getFullYear() : 0;
+      const cardMonth = d ? d.getMonth() : -1;
+      const cardQuarter = d ? Math.floor(cardMonth / 3) + 1 : 0;
+
+      const cardSpend = (c.parts || []).reduce((sum, p) => {
+        const tc = p.totalCost != null ? Number(p.totalCost) : (p.unitCost != null ? Number(p.unitCost) * Number(p.quantity || 1) : 0);
+        return sum + (Number.isNaN(tc) ? 0 : tc);
+      }, 0);
+
+      totalCost += cardSpend;
+      if (cardYear === curYear && cardMonth === curMonth) {
+        thisMonthCost += cardSpend;
+      }
+      if (cardYear === curYear && cardQuarter === curQuarter) {
+        thisQuarterCost += cardSpend;
+      }
+    }
+
     return {
       machine,
       total,
@@ -1276,6 +1447,9 @@ export class MaintenanceJobCardService {
       totalDowntimeMinutes: parseInt(downtimeResult?.totalDowntimeMinutes || '0', 10),
       avgDowntimeMinutes: Math.round(parseFloat(downtimeResult?.avgDowntimeMinutes || '0')),
       mtbfHours: mtbf,
+      totalCost,
+      thisMonthCost,
+      thisQuarterCost,
       byType,
       recentCards,
     };

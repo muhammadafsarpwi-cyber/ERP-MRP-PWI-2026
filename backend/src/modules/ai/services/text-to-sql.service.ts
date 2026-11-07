@@ -353,6 +353,39 @@ I) SPECIFIC DATE PRODUCTION REPORT / GRANULAR LEDGER (e.g. "23rd production repo
      - COALESCE(dr.name, pe.downtime_reason, pe.remarks, 'No Downtime') AS downtime_details
    • Set "chartType": "table" in the response JSON so the raw granular rows are the primary focus.
 
+J) MAINTENANCE JOB CARDS, BREAKDOWNS & SPARE PARTS COST (e.g. "How many job cards in Spoke department?", "machine maintenance cost this quarter", "open job cards", "اس ڈیپارٹمنٹ میں کتنے جاب کارڈ ہیں", "مشین پر کتنا خرچہ ہوا"):
+   • Query \`maintenance_job_cards jc\` (NEVER query \`production_entries\` for job cards or maintenance!).
+   • Remember \`maintenance_job_cards\` is [DIVISION-SCOPED], so \`jc.division_id\` MUST be the FIRST column in SELECT (and in GROUP BY if aggregating).
+   • Key joins:
+     - \`LEFT JOIN machines m ON m.id = jc.machine_id\`
+     - \`LEFT JOIN departments d ON d.id = COALESCE(jc.assigned_department_id, m.department_id)\`
+     - \`LEFT JOIN divisions dv ON dv.id = jc.division_id\`
+     - \`LEFT JOIN maintenance_job_card_parts jcp ON jcp.job_card_id = jc.id AND jcp.deleted_at IS NULL\`
+   • Always filter \`WHERE jc.is_active = true AND jc.deleted_at IS NULL\`.
+   • Status mapping (\`jc.current_status\`):
+     - Open / Started queue: \`'OPEN', 'ASSIGNED'\`
+     - In Work / Active repair: \`'IN_PROGRESS', 'ON_HOLD', 'WAITING_FOR_PARTS'\`
+     - Pending Review: \`'PENDING_VERIFICATION'\`
+     - Returned / Rework: \`'REJECTED'\`
+     - Complete / Closed: \`'CLOSED', 'COMPLETED', 'APPROVED', 'VERIFIED'\`
+   • Spare Parts Cost formula (no labor cost, only spare parts cost in PKR):
+     \`COALESCE(SUM(COALESCE(jcp.total_cost, jcp.unit_cost * jcp.quantity, 0)), 0) AS total_repair_cost\`
+   • For quarterly cost queries ("this quarter", "quarterly spend", "سہ ماہی خرچہ"), use \`DATE_TRUNC('quarter', jc.requested_at)\` or \`EXTRACT(QUARTER FROM jc.requested_at)\`.
+   • Department-wise Job Card & Cost template:
+     SELECT jc.division_id, COALESCE(d.name, 'Unassigned') AS department_name,
+            COUNT(DISTINCT jc.id) AS total_job_cards,
+            COUNT(DISTINCT CASE WHEN jc.current_status IN ('OPEN','ASSIGNED','IN_PROGRESS','WAITING_FOR_PARTS') THEN jc.id END) AS active_job_cards,
+            COUNT(DISTINCT CASE WHEN jc.current_status IN ('CLOSED','COMPLETED','APPROVED','VERIFIED') THEN jc.id END) AS closed_job_cards,
+            COALESCE(SUM(COALESCE(jcp.total_cost, jcp.unit_cost * jcp.quantity, 0)), 0) AS total_parts_cost
+       FROM maintenance_job_cards jc
+       LEFT JOIN machines m ON m.id = jc.machine_id
+       LEFT JOIN departments d ON d.id = COALESCE(jc.assigned_department_id, m.department_id)
+       LEFT JOIN maintenance_job_card_parts jcp ON jcp.job_card_id = jc.id AND jcp.deleted_at IS NULL
+      WHERE jc.is_active = true AND jc.deleted_at IS NULL
+      GROUP BY jc.division_id, d.name
+      ORDER BY total_job_cards DESC
+      LIMIT 100
+
 # RESPONSE FORMAT (JSON only, no prose)
 {
   "sql": "SELECT ...",
@@ -416,8 +449,24 @@ ${this.catalogService.renderDepartmentsPrompt(catalog, allowedDivisionIds)}`;
     repairHint: string;
   }> = [
     {
+      // Maintenance Job Cards, Breakdowns & Spare Parts Cost
+      pattern: /\b(job[\s-]?cards?|maintenance(\s+cost|\s+spend|\s+report|\s+history)?|spare[\s-]?parts?\s+cost|repair\s+cost)\b|جاب\s*کارڈ|مینٹیننس/i,
+      requireAll: [
+        /\bFROM\s+maintenance_job_cards\b/i,
+      ],
+      forbidAny: [
+        /\bFROM\s+production_entries\b/i,
+      ],
+      repairHint:
+        'SHAPE REPAIR REQUIRED: The user asked about Maintenance Job Cards or Maintenance/Repair Cost. ' +
+        'You MUST query FROM maintenance_job_cards jc (with jc.division_id as the FIRST column in SELECT), ' +
+        'LEFT JOIN machines m ON m.id = jc.machine_id, LEFT JOIN departments d ON d.id = COALESCE(jc.assigned_department_id, m.department_id), ' +
+        'and LEFT JOIN maintenance_job_card_parts jcp ON jcp.job_card_id = jc.id AND jcp.deleted_at IS NULL. ' +
+        'NEVER query production_entries for job card or maintenance questions.',
+    },
+    {
       // "machine-wise production", "machine target", "machine average", "target/average", "per machine", "machine ka production"
-      pattern: /\b(machine[\s-]?(wise|wise production|target|average|performance|report|efficiency)|target[\s/&-]+average|average[\s/&-]+target|per[\s-]?machine|each machine|all machines|machine production|by machine|machine ka (production|output|target|average)|machineon ka)\b|مشین/i,
+      pattern: /^(?!.*(\bjob[\s-]?cards?\b|\bmaintenance\b|\brepair\b|\bbreakdown\b|جاب\s*کارڈ|مینٹیننس|خرچہ)).*(\b(machine[\s-]?(wise|wise production|target|average|performance|report|efficiency)|target[\s/&-]+average|average[\s/&-]+target|per[\s-]?machine|each machine|all machines|machine production|by machine|machine ka (production|output|target|average)|machineon ka)\b|مشین)/i,
       requireAll: [
         /\bJOIN\s+machines\b/i, // must join the machines dimension table
         /\bm\.id\s*=\s*pe\.machine_id\b|\bpe\.machine_id\s*=\s*m\.id\b/i, // correct FK

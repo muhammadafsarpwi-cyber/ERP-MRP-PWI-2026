@@ -102,12 +102,12 @@ export const SparePartsPanel: React.FC<{
     {
       title: 'Unit Cost',
       dataIndex: 'unitCost',
-      render: (v: number) => v ? `₹${v.toFixed(2)}` : '—',
+      render: (v: number) => v ? `Rs. ${Number(v).toLocaleString()}` : '—',
     },
     {
       title: 'Total Cost',
       dataIndex: 'totalCost',
-      render: (v: number) => v ? <Typography.Text type="success">₹{v.toFixed(2)}</Typography.Text> : '—',
+      render: (v: number) => v ? <Typography.Text type="success">Rs. {Number(v).toLocaleString()}</Typography.Text> : '—',
     },
     {
       title: 'Warehouse',
@@ -164,7 +164,7 @@ export const SparePartsPanel: React.FC<{
               <Typography.Text strong>Total ({parts.length} items)</Typography.Text>
             </Table.Summary.Cell>
             <Table.Summary.Cell index={3} colSpan={2}>
-              <Typography.Text type="success" strong>₹{totalCost.toFixed(2)}</Typography.Text>
+              <Typography.Text type="success" strong>Rs. {totalCost.toLocaleString()}</Typography.Text>
             </Table.Summary.Cell>
           </Table.Summary.Row>
         ) : null}

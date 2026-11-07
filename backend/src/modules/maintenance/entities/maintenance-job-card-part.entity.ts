@@ -17,22 +17,34 @@ export class MaintenanceJobCardPart extends SoftDeletableEntity {
   @JoinColumn({ name: 'job_card_id' })
   jobCard: MaintenanceJobCard;
 
-  @Column({ name: 'item_id', type: 'uuid' })
-  itemId: string;
+  @Column({ name: 'item_id', type: 'uuid', nullable: true })
+  itemId: string | null;
 
-  @ManyToOne(() => Item)
+  @ManyToOne(() => Item, { nullable: true })
   @JoinColumn({ name: 'item_id' })
-  item: Item;
+  item: Item | null;
+
+  @Column({ name: 'part_name', type: 'varchar', length: 255, nullable: true })
+  partName: string | null;
+
+  @Column({ name: 'part_code', type: 'varchar', length: 100, nullable: true })
+  partCode: string | null;
 
   @Column({ name: 'quantity', type: 'decimal', precision: 15, scale: 4 })
   quantity: number;
 
-  @Column({ name: 'uom_id', type: 'uuid' })
-  uomId: string;
+  @Column({ name: 'uom_id', type: 'uuid', nullable: true })
+  uomId: string | null;
 
-  @ManyToOne(() => Uom)
+  @ManyToOne(() => Uom, { nullable: true })
   @JoinColumn({ name: 'uom_id' })
-  uom: Uom;
+  uom: Uom | null;
+
+  @Column({ name: 'uom_code', type: 'varchar', length: 30, nullable: true, default: 'Pcs' })
+  uomCode: string | null;
+
+  @Column({ name: 'stock_status', type: 'varchar', length: 40, nullable: true, default: 'IN_STOCK' })
+  stockStatus: string | null;
 
   @Column({ name: 'unit_cost', type: 'decimal', precision: 15, scale: 4, nullable: true })
   unitCost: number | null;

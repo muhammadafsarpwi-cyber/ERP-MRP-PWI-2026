@@ -210,7 +210,7 @@ export class MaintenanceJobCardController {
   @RequirePermission('maintenance.job_card.complete')
   @ApiOperation({ summary: 'Complete job card' })
   @ApiParam({ name: 'id', type: String })
-  complete(@Param('id') id: string, @Body() dto: { diagnosis?: string; correctiveAction?: string; preventiveAction?: string; rootCauseCategoryId?: string; failureCategoryId?: string; remarks?: string }, @CurrentUser() user: any) {
+  complete(@Param('id') id: string, @Body() dto: { diagnosis?: string; correctiveAction?: string; preventiveAction?: string; rootCauseCategoryId?: string; failureCategoryId?: string; remarks?: string; parts?: any[] }, @CurrentUser() user: any) {
     return this.jobCardService.complete(id, dto, user.id);
   }
 
@@ -226,8 +226,9 @@ export class MaintenanceJobCardController {
   @RequirePermission('maintenance.job_card.close')
   @ApiOperation({ summary: 'Submit job card for verification (also used to resubmit a returned job card)' })
   @ApiParam({ name: 'id', type: String })
-  submitForVerification(@Param('id') id: string, @CurrentUser() user: any, @Body('remarks') remarks?: string) {
-    return this.jobCardService.submitForVerification(id, user.id, remarks);
+  submitForVerification(@Param('id') id: string, @CurrentUser() user: any, @Body() body?: any) {
+    const remarks = typeof body === 'string' ? body : body?.remarks;
+    return this.jobCardService.submitForVerification(id, user.id, remarks, typeof body === 'object' ? body : undefined);
   }
 
   @Post(':id/verify')

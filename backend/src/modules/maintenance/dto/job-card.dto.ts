@@ -187,10 +187,20 @@ export class StartJobCardDto {
 }
 
 export class AddJobCardPartDto {
-  @ApiProperty({ description: 'Item ID (must be SPARE_PART type)' })
+  @ApiPropertyOptional({ description: 'Item ID (optional if custom partName is provided)' })
+  @IsOptional()
   @IsUuid()
-  @IsNotEmpty()
-  itemId: string;
+  itemId?: string;
+
+  @ApiPropertyOptional({ description: 'Part / item name (auto-filled from item or entered manually)' })
+  @IsOptional()
+  @IsString()
+  partName?: string;
+
+  @ApiPropertyOptional({ description: 'Part / OEM code' })
+  @IsOptional()
+  @IsString()
+  partCode?: string;
 
   @ApiProperty({ description: 'Quantity consumed' })
   @Type(() => Number)
@@ -198,16 +208,34 @@ export class AddJobCardPartDto {
   @Min(0.0001)
   quantity: number;
 
-  @ApiProperty({ description: 'UOM ID' })
-  @IsUuid()
-  @IsNotEmpty()
-  uomId: string;
-
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ description: 'UOM ID (optional if uom code string is provided)' })
   @IsOptional()
+  @IsUuid()
+  uomId?: string;
+
+  @ApiPropertyOptional({ description: 'UOM display code (e.g. Pcs, Set, Kg, Mtr)' })
+  @IsOptional()
+  @IsString()
+  uom?: string;
+
+  @ApiPropertyOptional({ description: 'Unit cost in PKR' })
+  @IsOptional()
+  @Type(() => Number)
   @IsNumber({ maxDecimalPlaces: 4 })
   @Min(0)
   unitCost?: number;
+
+  @ApiPropertyOptional({ description: 'Total cost in PKR' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 4 })
+  @Min(0)
+  totalCost?: number;
+
+  @ApiPropertyOptional({ description: 'Stock status (IN_STOCK, OUT_OF_STOCK, PENDING_PROCUREMENT)' })
+  @IsOptional()
+  @IsString()
+  stockStatus?: string;
 
   @ApiPropertyOptional()
   @IsOptional()

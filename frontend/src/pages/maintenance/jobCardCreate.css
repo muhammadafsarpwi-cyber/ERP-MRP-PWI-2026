@@ -1500,9 +1500,14 @@ html[data-theme='dark'] .erp-jc-dialog-wrap .ant-modal-title,
     flex-shrink: 0 !important;
   }
 
-  .erp-jc-mobile-tab-bar {
+  .erp-jc-mobile-tab-bar,
+  .erp-jc-mobile-tabs {
     display: block !important;
     flex-shrink: 0 !important;
+  }
+
+  .erp-jc-custom-slider-rail {
+    display: none !important;
   }
 
   .erp-jc-header-title-text h4 {
