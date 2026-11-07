@@ -27,6 +27,7 @@ import {
   ToolOutlined,
   UnorderedListOutlined,
   WarningOutlined,
+  PlusOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { useNavigate } from 'react-router-dom';
@@ -35,6 +36,7 @@ import { LoadingState } from '../../components/shared';
 import { usePermission } from '../../hooks/usePermission';
 import { label, OrgOption } from './jobCards.types';
 import { useHeaderActions } from '../../components/layout/headerActionsStore';
+import { JobCardCreate } from './JobCardCreate';
 import {
   useMaintenanceHierarchy, divisionLabel, sectionLabel, departmentLabel,
 } from './useMaintenanceHierarchy';
@@ -127,6 +129,7 @@ const PENDING_ACTIONS: Array<{ status: string; label: string; key: string; icon:
 const USER_PERMISSIONS = {
   view: 'maintenance.job_card.view',
   reports: 'maintenance.reports.view',
+  create: 'maintenance.job_card.create',
 };
 
 const formatDuration = (minutes: number | null | undefined): string => {
@@ -261,6 +264,8 @@ const MaintenanceDashboard: React.FC = () => {
 
   const canView = can(USER_PERMISSIONS.view);
   const canReports = can(USER_PERMISSIONS.reports);
+  const canCreate = can(USER_PERMISSIONS.create);
+  const [createModalOpen, setCreateModalOpen] = useState(false);
 
   const machinesReq = useRef(0);
   useEffect(() => {
@@ -498,6 +503,16 @@ const MaintenanceDashboard: React.FC = () => {
           </Button>
         ),
       },
+      ...(canCreate
+        ? [{
+            key: 'create-job-card',
+            node: (
+              <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateModalOpen(true)}>
+                Create Job Card
+              </Button>
+            ),
+          }]
+        : []),
       ...(canReports
         ? [{
             key: 'reports',
@@ -512,7 +527,7 @@ const MaintenanceDashboard: React.FC = () => {
         ? [{
             key: 'view-job-cards',
             node: (
-              <Button type="primary" icon={<UnorderedListOutlined />} onClick={() => navigate('/maintenance/job-cards')}>
+              <Button icon={<UnorderedListOutlined />} onClick={() => navigate('/maintenance/job-cards')}>
                 View Job Cards
               </Button>
             ),
@@ -520,7 +535,7 @@ const MaintenanceDashboard: React.FC = () => {
         : []),
     ]);
     return () => clearHeaderActions();
-  }, [setHeaderActions, clearHeaderActions, load, loading, navigate, canReports, canView]);
+  }, [setHeaderActions, clearHeaderActions, load, loading, navigate, canReports, canView, canCreate]);
 
   return (
     <div>
@@ -1002,6 +1017,15 @@ const MaintenanceDashboard: React.FC = () => {
           )}
         </>
       )}
+
+      <JobCardCreate
+        open={createModalOpen}
+        onClose={() => setCreateModalOpen(false)}
+        onSuccess={() => {
+          setCreateModalOpen(false);
+          void load();
+        }}
+      />
     </div>
   );
 };

@@ -11,7 +11,7 @@ import {
   EditOutlined, StopOutlined, ClockCircleOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import apiService from '../../services/api';
@@ -29,6 +29,7 @@ import { STATUS_COLORS, shadowSm, panelCard } from './maintTheme';
 import { useMaintenanceHierarchy, divisionLabel, sectionLabel, departmentLabel } from './useMaintenanceHierarchy';
 import { JobCardWorkflowModal, WorkflowModalMode } from './JobCardWorkflowModal';
 import { EditJobCardModal } from './EditJobCardModal';
+import { JobCardCreate } from './JobCardCreate';
 import { maintenanceCache } from './maintenanceCache';
 import './maintTheme.css';
 
@@ -304,12 +305,35 @@ export const clearJobCardCache = () => {
 
 maintenanceCache.onClearJobCards(clearJobCardCache);
 
-export const JobCardList: React.FC = () => {
+export interface JobCardListProps {
+  initialCreateOpen?: boolean;
+}
+
+export const JobCardList: React.FC<JobCardListProps> = ({ initialCreateOpen = false }) => {
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const { message } = AntApp.useApp();
   const { user, can } = usePermission();
   const { token } = theme.useToken();
+
+  // Create Job Card Modal State (opens directly over list with no blank page)
+  const [createModalOpen, setCreateModalOpen] = useState<boolean>(() => {
+    return Boolean(initialCreateOpen || (typeof window !== 'undefined' && window.location.pathname === '/maintenance/job-cards/new'));
+  });
+
+  const handleCloseCreateModal = useCallback(() => {
+    setCreateModalOpen(false);
+    if (location.pathname === '/maintenance/job-cards/new') {
+      navigate('/maintenance/job-cards', { replace: true });
+    }
+  }, [location.pathname, navigate]);
+
+  useEffect(() => {
+    if (location.pathname === '/maintenance/job-cards/new') {
+      setCreateModalOpen(true);
+    }
+  }, [location.pathname]);
 
   const [visibleCols, setVisibleCols] = useState<Record<string, boolean>>({
     job: true,
@@ -1374,7 +1398,7 @@ export const JobCardList: React.FC = () => {
             ? [{
                 key: 'create-job-card',
                 node: (
-                  <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/maintenance/job-cards/new', { state: { context: createContext() } })}>
+                  <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateModalOpen(true)}>
                     Create Job Card
                   </Button>
                 ),
@@ -1674,7 +1698,7 @@ export const JobCardList: React.FC = () => {
         emptyTitle="No Job Cards Found"
         emptyDescription="Create a new job card to begin maintenance tracking."
         emptyActionLabel={canCreate ? 'Create Job Card' : undefined}
-        onEmptyAction={() => navigate('/maintenance/job-cards/new', { state: { context: createContext() } })}
+        onEmptyAction={() => setCreateModalOpen(true)}
       />
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, justifyContent: 'space-between', flexWrap: 'wrap', padding: '12px 16px', borderTop: '1px solid var(--theme-border)' }}>
         <div>
@@ -1772,6 +1796,19 @@ export const JobCardList: React.FC = () => {
         load(true);
         loadQueue();
       }}
+    />
+
+    {/* Dedicated Create Job Card Modal (layered directly on top of this list) */}
+    <JobCardCreate
+      open={createModalOpen}
+      onClose={handleCloseCreateModal}
+      onSuccess={() => {
+        handleCloseCreateModal();
+        clearJobCardCache();
+        load(true);
+        loadQueue();
+      }}
+      context={createContext()}
     />
 
     <div style={{ height: 16 }} />

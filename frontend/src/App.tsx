@@ -222,7 +222,7 @@ const App: React.FC = () => {
                   <Route path="/production/*" element={<Production />} />
                   <Route path="/maintenance" element={<MaintenanceDashboard />} />
                   <Route path="/maintenance/job-cards" element={<JobCardList />} />
-                  <Route path="/maintenance/job-cards/new" element={<JobCardCreate />} />
+                  <Route path="/maintenance/job-cards/new" element={<JobCardList initialCreateOpen={true} />} />
                   <Route path="/maintenance/job-cards/:id" element={<JobCardDetail />} />
                   <Route path="/maintenance/teams" element={<TeamsList />} />
                   <Route path="/maintenance/categories" element={<CategoriesList />} />

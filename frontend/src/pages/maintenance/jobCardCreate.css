@@ -23,22 +23,37 @@
 }
 
 @media (min-width: 769px) {
-  /* Default compact, comfortable modal size matching user red line */
-  .erp-jc-modal-wrap .ant-modal:not(.erp-jc-modal-custom-size) {
+  /* Default spacious, comfortable modal size */
+  .erp-jc-modal-wrap .ant-modal:not(.erp-jc-modal-custom-size):not(.erp-jc-modal-maximized) {
     margin-left: auto !important;
     margin-right: auto !important;
-    width: 960px !important;
+    width: 1140px !important;
     max-width: calc(100vw - 48px) !important;
-    height: 440px !important;
-    max-height: 82vh !important;
-    top: 28px !important;
+    height: min(740px, 88vh) !important;
+    max-height: 88vh !important;
+    top: 24px !important;
     padding-bottom: 0 !important;
     margin-bottom: 0 !important;
-    transition: width 0.18s ease !important;
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  }
+
+  /* Maximized Fullscreen Window */
+  .erp-jc-modal-wrap.erp-jc-modal-maximized .ant-modal,
+  .erp-jc-modal-wrap .ant-modal.erp-jc-modal-maximized {
+    margin-left: auto !important;
+    margin-right: auto !important;
+    width: 96vw !important;
+    max-width: 96vw !important;
+    height: 92vh !important;
+    max-height: 94vh !important;
+    top: 20px !important;
+    padding-bottom: 0 !important;
+    margin-bottom: 0 !important;
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
   }
 
   /* When user is resizing with mouse or has set custom size */
-  .erp-jc-modal-wrap .ant-modal.erp-jc-modal-custom-size {
+  .erp-jc-modal-wrap .ant-modal.erp-jc-modal-custom-size:not(.erp-jc-modal-maximized) {
     margin-left: auto !important;
     margin-right: auto !important;
     max-width: calc(100vw - 30px) !important;
@@ -193,7 +208,7 @@
   display: flex;
   flex: 1 1 0%;
   min-height: 0;
-  height: 100%;
+  height: auto;
   overflow: hidden;
   background: var(--theme-background, #f8fafc);
 }
@@ -205,11 +220,11 @@
   height: 100% !important;
   max-height: 100% !important;
   padding: 18px 22px 28px !important;
-  overflow-y: scroll !important;
+  overflow-y: auto !important;
   overflow-x: hidden !important;
   border-right: 1px solid var(--theme-border, #e2e8f0);
   scrollbar-gutter: stable;
-  scrollbar-width: auto !important;
+  scrollbar-width: thin !important;
   scrollbar-color: #2563eb rgba(148, 163, 184, 0.22);
   box-sizing: border-box !important;
 }

@@ -129,11 +129,25 @@ const QUICK_COMPLAINTS = [
   { label: '🔧 Sensor / Limit Switch Fault', text: 'Proximity sensor / limit switch not sensing, cycle stopped.' },
 ];
 
-export const JobCardCreate: React.FC = () => {
+export interface JobCardCreateProps {
+  open?: boolean;
+  onClose?: () => void;
+  onSuccess?: (card?: JobCard) => void;
+  context?: JobCardContext | null;
+}
+
+export const JobCardCreate: React.FC<JobCardCreateProps> = ({
+  open: controlledOpen,
+  onClose: controlledOnClose,
+  onSuccess: controlledOnSuccess,
+  context: propContext,
+}) => {
   const navigate = useNavigate();
   const location = useLocation();
   const { message } = AntApp.useApp();
-  const context = (location.state as { context?: JobCardContext } | null)?.context;
+  const context = propContext !== undefined
+    ? propContext
+    : (location.state as { context?: JobCardContext } | null)?.context;
   const { user, can } = usePermission();
 
   const [form] = Form.useForm();
@@ -141,8 +155,8 @@ export const JobCardCreate: React.FC = () => {
   const [loading, setLoading] = useState(false);
 
   // Window State: Draggable, Resizable, Maximizable, Minimizable, Toggle Detail Sheet
-  const DEFAULT_DESKTOP_WIDTH = 960;
-  const DEFAULT_DESKTOP_HEIGHT = 440;
+  const DEFAULT_DESKTOP_WIDTH = 1140;
+  const DEFAULT_DESKTOP_HEIGHT = 740;
   const [customSize, setCustomSize] = useState<{ width: number; height: number } | null>(null);
   const [isMaximized, setIsMaximized] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
@@ -154,6 +168,15 @@ export const JobCardCreate: React.FC = () => {
   const resizeStartRef = useRef({ x: 0, y: 0, startW: 0, startH: 0 });
   const modalContainerRef = useRef<HTMLDivElement>(null);
 
+  const toggleMaximize = useCallback(() => {
+    setIsMaximized((prev) => {
+      if (!prev) {
+        setModalPos({ x: 0, y: 0 });
+      }
+      return !prev;
+    });
+  }, []);
+
   const activeTabId = useWorkspaceTabStore((s) => s.activeTabId);
   const isRouteActive =
     !activeTabId ||
@@ -162,13 +185,19 @@ export const JobCardCreate: React.FC = () => {
 
   const handleClose = useCallback(() => {
     setIsMinimized(false);
+    if (controlledOnClose) {
+      controlledOnClose();
+      return;
+    }
     try {
       useWorkspaceTabStore.getState().closeTab('/maintenance/job-cards/new');
     } catch {
       // ignore
     }
     navigate('/maintenance/job-cards', { replace: true });
-  }, [navigate]);
+  }, [controlledOnClose, navigate]);
+
+  const isModalOpen = controlledOpen !== undefined ? controlledOpen : (!isMinimized && isRouteActive);
 
   useEffect(() => {
     if (location.pathname === '/maintenance/job-cards/new') {
@@ -756,6 +785,9 @@ export const JobCardCreate: React.FC = () => {
       setCreatedTicket(created);
       setConfirmModalOpen(false);
       setSuccessModalOpen(true);
+      if (controlledOnSuccess) {
+        controlledOnSuccess(created);
+      }
       message.success('Job card created successfully');
     } catch (e) {
       setSubmitError(errorText(e));
@@ -864,9 +896,10 @@ export const JobCardCreate: React.FC = () => {
 
       {/* Main Draggable & Resizable Popup Modal */}
       <Modal
-        wrapClassName={`erp-jc-modal-wrap ${isMobile ? 'erp-jc-mobile-view' : ''} ${customSize ? 'erp-jc-modal-custom-size' : ''}`}
+        wrapClassName={`erp-jc-modal-wrap ${isMobile ? 'erp-jc-mobile-view' : ''} ${isMaximized ? 'erp-jc-modal-maximized' : ''} ${customSize ? 'erp-jc-modal-custom-size' : ''}`}
         rootClassName={isMobile ? 'erp-jc-mobile-root' : undefined}
-        open={!isMinimized && isRouteActive}
+        className={isMaximized ? 'erp-jc-modal-maximized' : undefined}
+        open={isModalOpen && !isMinimized}
         closable={false}
         footer={null}
         zIndex={1250}
@@ -914,7 +947,7 @@ export const JobCardCreate: React.FC = () => {
                 position: 'relative',
               }
             : {
-                top: 28,
+                top: 24,
                 height: customSize?.height || DEFAULT_DESKTOP_HEIGHT,
                 maxHeight: '92vh',
                 margin: '0 auto',
@@ -980,21 +1013,21 @@ export const JobCardCreate: React.FC = () => {
               )}
 
               {!isMobile && !isMaximized && (
-                <Tooltip title={customSize?.height && customSize.height > 480 ? 'Switch to Compact Height (440px)' : 'Expand Window Height (600px)'}>
+                <Tooltip title={customSize?.height && customSize.height > 600 ? 'Switch to Compact Height (580px)' : 'Expand Window Height (800px)'}>
                   <button
                     type="button"
                     className="erp-jc-header-ctrl-btn"
                     onClick={() => {
-                      if (customSize?.height && customSize.height > 480) {
-                        setCustomSize({ width: customSize?.width || DEFAULT_DESKTOP_WIDTH, height: 440 });
+                      if (customSize?.height && customSize.height > 600) {
+                        setCustomSize({ width: customSize?.width || DEFAULT_DESKTOP_WIDTH, height: 580 });
                       } else {
-                        setCustomSize({ width: customSize?.width || DEFAULT_DESKTOP_WIDTH, height: 600 });
+                        setCustomSize({ width: customSize?.width || DEFAULT_DESKTOP_WIDTH, height: 800 });
                       }
                     }}
                     aria-label="Toggle Window Height"
-                    style={{ fontSize: 11, fontWeight: 700, padding: '0 8px', width: 'auto' }}
+                    style={{ fontSize: 11, fontWeight: 700, padding: '0 10px', width: 'auto' }}
                   >
-                    {customSize?.height && customSize.height > 480 ? '↕ Compact' : '↕ Expand'}
+                    {customSize?.height && customSize.height > 600 ? '↕ Compact' : '↕ Expand'}
                   </button>
                 </Tooltip>
               )}
@@ -1004,8 +1037,8 @@ export const JobCardCreate: React.FC = () => {
                   <button
                     type="button"
                     className="erp-jc-header-ctrl-btn"
-                    onClick={() => setIsMaximized(!isMaximized)}
-                    aria-label="Maximize"
+                    onClick={toggleMaximize}
+                    aria-label={isMaximized ? 'Restore Window Size' : 'Maximize Fullscreen'}
                   >
                     {isMaximized ? <FullscreenExitOutlined /> : <FullscreenOutlined />}
                   </button>
@@ -1065,7 +1098,6 @@ export const JobCardCreate: React.FC = () => {
               display: 'flex',
               flexDirection: isMobile ? 'column' : 'row',
               flex: '1 1 0%',
-              height: '100%',
               minHeight: 0,
               maxHeight: '100%',
               overflow: 'hidden',
@@ -1080,7 +1112,7 @@ export const JobCardCreate: React.FC = () => {
                   height: '100%',
                   maxHeight: '100%',
                   minHeight: 0,
-                  overflowY: 'scroll',
+                  overflowY: 'auto',
                   overflowX: 'hidden',
                   WebkitOverflowScrolling: 'touch',
                   borderRight: !isMobile && showPreviewPane ? '1px solid var(--theme-border)' : 'none',
