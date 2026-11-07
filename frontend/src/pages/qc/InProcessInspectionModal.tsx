@@ -1,8 +1,73 @@
-import React, { useState, useEffect } from 'react';
-import { Modal, Form, Input, Select, Row, Col, Table, InputNumber, Tag, Button, Space, theme, App, Divider } from 'antd';
-import { CheckCircleOutlined, CloseCircleOutlined, SaveOutlined } from '@ant-design/icons';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Modal, Form, Input, Select, Row, Col, Table, InputNumber, Tag, Button, Space, theme, App } from 'antd';
+import { SaveOutlined } from '@ant-design/icons';
 import { QmsInProcessInspection, InspectionSampleRow, AttributeCheckItem } from './types';
 import { loadAllSpecs } from './qcSpecsStore';
+
+// Department-wise machine definitions (from authoritative Supabase database)
+const DEPARTMENT_MACHINES: Record<string, Array<{ code: string; name: string }>> = {
+  // Spoke Division
+  'SPD-DEPT003': [
+    { code: '01', name: 'SPK-01 (Machine 01)' },
+    { code: '02', name: 'SPK-02 (Machine 02)' },
+    { code: '03', name: 'SPK-03 (Machine 03)' },
+    { code: '04', name: 'SPK-04 (Machine 04)' },
+    { code: '05', name: 'SPK-05 (Machine 05)' },
+    { code: '06', name: 'SPK-06 (Machine 06)' },
+    { code: '07', name: 'SPK-07 (Machine 07)' },
+  ],
+  'SPD-DEPT001': [
+    { code: 'ST-01', name: 'ST-01 (Straightener Machine 01)' },
+    { code: 'ST-02', name: 'ST-02 (Straightener Machine 02)' },
+    { code: 'ST-03', name: 'ST-03 (Straightener Machine 03)' },
+    { code: 'ST-04', name: 'ST-04 (Straightener Machine 04)' },
+    { code: 'ST-05', name: 'ST-05 (Straightener Machine 05)' },
+  ],
+  'SPD-DEPT002': [
+    { code: 'SW-01', name: 'SW-01 (Swagging Machine 01)' },
+    { code: 'SW-02', name: 'SW-02 (Swagging Machine 02)' },
+    { code: 'SW-03', name: 'SW-03 (Swagging Machine 03)' },
+    { code: 'SW-04', name: 'SW-04 (Swagging Machine 04)' },
+    { code: 'SW-05', name: 'SW-05 (Swagging Machine 05)' },
+    { code: 'SW-06', name: 'SW-06 (Swagging Machine 06)' },
+  ],
+  'SPD-DEPT004': [
+    { code: 'HD-01', name: 'HD-01 (Header Machine 01)' },
+    { code: 'HD-02', name: 'HD-02 (Header Machine 02)' },
+  ],
+  'SPD-DEPT005': [
+    { code: 'NP-01', name: 'NP-01 (Nipple Machine 01)' },
+    { code: 'NP-02', name: 'NP-02 (Nipple Machine 02)' },
+  ],
+  'SPD-DEPT006': [
+    { code: 'SPL-01', name: 'SPL-01 (Spoke Plating Line 01)' },
+    { code: 'BL-01', name: 'BL-01 (Barrel Machine 01)' },
+    { code: 'BL-02', name: 'BL-02 (Barrel Machine 02)' },
+    { code: 'BL-03', name: 'BL-03 (Barrel Machine 03)' },
+    { code: 'BL-04', name: 'BL-04 (Barrel Machine 04)' },
+  ],
+  'SPD-DEPT008': [
+    { code: 'PKS-01', name: 'PKS-01 (Spoke Packing Station 01)' },
+    { code: 'PKS-02', name: 'PKS-02 (Spoke Packing Station 02)' },
+  ],
+  // Control Cable Division
+  'CCD-DEPT001': [
+    { code: 'FL-01', name: 'FL-01 (Flattening Machine 01)' },
+    { code: 'FL-02', name: 'FL-02 (Flattening Machine 02)' },
+    { code: 'FT-01', name: 'FT-01 (Flattening Machine FT-01)' },
+    { code: 'FT-02', name: 'FT-02 (Flattening Machine FT-02)' },
+    { code: 'FT-03', name: 'FT-03 (Flattening Machine FT-03)' },
+    { code: 'FT-04', name: 'FT-04 (Flattening Machine FT-04)' },
+  ],
+  'CCD-DEPT004': [
+    { code: 'CPK-01', name: 'CPK-01 (CCD Packing Station 01)' },
+    { code: 'PK-01', name: 'PK-01 (Packing Station PK-01)' },
+    { code: 'PK-02', name: 'PK-02 (Packing Station PK-02)' },
+  ],
+  'CCD-DEPT003': [
+    { code: 'PV-01', name: 'PV-01 (PVC Coating Line 01)' },
+  ],
+};
 
 interface InProcessInspectionModalProps {
   visible: boolean;
@@ -35,6 +100,14 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
   const [attributeRows, setAttributeRows] = useState<AttributeCheckItem[]>([]);
   const [overallResult, setOverallResult] = useState<'PASS' | 'FAIL' | 'PENDING'>('PASS');
 
+  // Cascading machines list strictly for the active department
+  const machinesForDept = useMemo(() => {
+    return DEPARTMENT_MACHINES[departmentCode] || [
+      { code: '01', name: 'Machine 01' },
+      { code: '02', name: 'Machine 02' },
+    ];
+  }, [departmentCode]);
+
   // Load specs or existing inspection data
   useEffect(() => {
     if (!visible) return;
@@ -60,10 +133,11 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
       // New Inspection defaults
       const today = new Date().toISOString().slice(0, 10);
       const defaultItem = itemsList[0]?.itemCode || 'WIP-SPK-014';
+      const defaultMachine = machinesForDept[0]?.code || '01';
       form.setFieldsValue({
         inspectionDate: today,
         shift: 'G',
-        machineNo: '01',
+        machineNo: defaultMachine,
         operatorName: 'Ashfaq',
         itemCode: defaultItem,
         inspectorName: 'Mairaj',
@@ -75,7 +149,7 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
       });
       loadSpecsForItem(defaultItem);
     }
-  }, [visible, initialInspection]);
+  }, [visible, initialInspection, departmentCode, machinesForDept]);
 
   // Load item specs into the 5-sample rows
   const loadSpecsForItem = (code: string) => {
@@ -256,22 +330,18 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
                 />
               </Form.Item>
             </Col>
-            <Col span={5}>
-              <Form.Item name="machineNo" label="Machine No" rules={[{ required: true }]}>
+            <Col span={6}>
+              <Form.Item name="machineNo" label={`Machine (${departmentName})`} rules={[{ required: true }]}>
                 <Select
                   showSearch
-                  options={[
-                    { value: '01', label: 'Machine 01 (SPK-01)' },
-                    { value: '02', label: 'Machine 02 (SPK-02)' },
-                    { value: '03', label: 'Machine 03 (SPK-03)' },
-                    { value: '04', label: 'Machine 04 (SPK-04)' },
-                    { value: '05', label: 'Machine 05 (SPK-05)' },
-                    { value: '06', label: 'Machine 06 (SPK-06)' },
-                  ]}
+                  options={machinesForDept.map((m) => ({
+                    value: m.code,
+                    label: m.name,
+                  }))}
                 />
               </Form.Item>
             </Col>
-            <Col span={5}>
+            <Col span={4}>
               <Form.Item name="operatorName" label="Operator" rules={[{ required: true }]}>
                 <Select
                   showSearch
@@ -458,4 +528,3 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
     </Modal>
   );
 };
-
