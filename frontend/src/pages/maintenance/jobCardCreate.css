@@ -314,18 +314,28 @@
 }
 
 .erp-jc-preview-pane {
-  flex: 1 1 40% !important;
-  min-width: 340px !important;
-  max-width: 460px !important;
+  flex: 1 1 38% !important;
+  min-width: 320px !important;
+  max-width: 445px !important;
   min-height: 0 !important;
-  padding: 18px 20px !important;
-  overflow-y: auto !important;
+  padding: 18px 18px 28px 18px !important;
+  overflow-y: scroll !important;
   overflow-x: hidden !important;
   background: var(--theme-surface, #ffffff);
-  display: flex !important;
-  flex-direction: column !important;
-  gap: 16px;
+  display: block !important;
   box-sizing: border-box !important;
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+
+.erp-jc-preview-pane::-webkit-scrollbar {
+  width: 0 !important;
+  height: 0 !important;
+  display: none !important;
+}
+
+.erp-jc-preview-pane .erp-jc-completion-card {
+  margin-bottom: 14px !important;
 }
 
 /* ── 2027 Executive View Layout (Cockpit & Spec Sheet) ─────────── */

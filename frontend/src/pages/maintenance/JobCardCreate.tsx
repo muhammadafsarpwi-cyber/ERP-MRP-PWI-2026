@@ -173,12 +173,24 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
   const sliderTrackRef = useRef<HTMLDivElement>(null);
   const [scrollProgress, setScrollProgress] = useState(0);
 
+  const previewPaneRef = useRef<HTMLDivElement>(null);
+  const previewSliderTrackRef = useRef<HTMLDivElement>(null);
+  const [previewScrollProgress, setPreviewScrollProgress] = useState(0);
+
   const handleFormScroll = useCallback(() => {
     const el = formPaneRef.current;
     if (!el) return;
     const maxScroll = Math.max(1, el.scrollHeight - el.clientHeight);
     const ratio = Math.min(1, Math.max(0, el.scrollTop / maxScroll));
     setScrollProgress(ratio);
+  }, []);
+
+  const handlePreviewScroll = useCallback(() => {
+    const el = previewPaneRef.current;
+    if (!el) return;
+    const maxScroll = Math.max(1, el.scrollHeight - el.clientHeight);
+    const ratio = Math.min(1, Math.max(0, el.scrollTop / maxScroll));
+    setPreviewScrollProgress(ratio);
   }, []);
 
   const handleSliderThumbMouseDown = useCallback((e: React.MouseEvent) => {
@@ -212,6 +224,47 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
   const handleSliderTrackMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const el = formPaneRef.current;
     const track = sliderTrackRef.current;
+    if (!el || !track) return;
+    const rect = track.getBoundingClientRect();
+    const clickY = e.clientY - rect.top;
+    const thumbHalf = (rect.height * 0.26) / 2;
+    const usableTrackPx = Math.max(1, rect.height * (1 - 0.26));
+    const ratio = Math.min(1, Math.max(0, (clickY - thumbHalf) / usableTrackPx));
+    const maxScroll = Math.max(1, el.scrollHeight - el.clientHeight);
+    el.scrollTo({ top: ratio * maxScroll, behavior: 'smooth' });
+  }, []);
+
+  const handlePreviewSliderThumbMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const el = previewPaneRef.current;
+    const track = previewSliderTrackRef.current;
+    if (!el || !track) return;
+
+    const startY = e.clientY;
+    const startScrollTop = el.scrollTop;
+    const trackRect = track.getBoundingClientRect();
+    const usableTrackPx = Math.max(1, trackRect.height * (1 - 0.26));
+    const maxScroll = Math.max(1, el.scrollHeight - el.clientHeight);
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const deltaY = moveEvent.clientY - startY;
+      const scrollDelta = (deltaY / usableTrackPx) * maxScroll;
+      el.scrollTop = Math.min(maxScroll, Math.max(0, startScrollTop + scrollDelta));
+    };
+
+    const onMouseUp = () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  }, []);
+
+  const handlePreviewSliderTrackMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const el = previewPaneRef.current;
+    const track = previewSliderTrackRef.current;
     if (!el || !track) return;
     const rect = track.getBoundingClientRect();
     const clickY = e.clientY - rect.top;
@@ -1712,6 +1765,8 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
             {/* ── Right Live Sheet Preview Pane (Collapsible via Toggle Button) ── */}
             {(!isMobile ? showPreviewPane : mobileActiveTab === 'preview') && (
               <div
+                ref={previewPaneRef}
+                onScroll={handlePreviewScroll}
                 className="erp-jc-preview-pane"
                 style={{
                   flex: isMobile ? '1 1 0%' : undefined,
@@ -1726,12 +1781,13 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
                     : isMaximized
                     ? 'calc(min(90vh, calc(100vh - 40px)) - 136px)'
                     : `calc(min(${customSize?.height || DEFAULT_DESKTOP_HEIGHT}px, 82vh) - 136px)`,
-                  overflowY: 'auto',
+                  overflowY: 'scroll',
                   overflowX: 'hidden',
                   WebkitOverflowScrolling: 'touch',
                   width: isMobile ? '100%' : undefined,
-                  maxWidth: isMobile ? '100%' : 460,
-                  display: isMobile && mobileActiveTab !== 'preview' ? 'none' : 'flex',
+                  maxWidth: isMobile ? '100%' : 445,
+                  display: isMobile && mobileActiveTab !== 'preview' ? 'none' : 'block',
+                  boxSizing: 'border-box',
                 }}
               >
               {/* Readiness Progress Meter */}
@@ -1888,8 +1944,62 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
                   </div>
                 </div>
               </div>
+              <div style={{ height: 150 }} aria-hidden="true" />
             </div>
           )}
+
+            {/* ── Dedicated Interactive Vertical Slider Rail for Right Preview Pane (Far Right Edge) ── */}
+            {!isMobile && showPreviewPane && (
+              <div
+                className="erp-jc-custom-slider-rail erp-jc-preview-slider-rail"
+                style={{
+                  height: isMaximized
+                    ? 'calc(min(90vh, calc(100vh - 40px)) - 136px)'
+                    : `calc(min(${customSize?.height || DEFAULT_DESKTOP_HEIGHT}px, 82vh) - 136px)`,
+                  maxHeight: isMaximized
+                    ? 'calc(min(90vh, calc(100vh - 40px)) - 136px)'
+                    : `calc(min(${customSize?.height || DEFAULT_DESKTOP_HEIGHT}px, 82vh) - 136px)`,
+                }}
+              >
+                <button
+                  type="button"
+                  className="erp-jc-slider-arrow-btn"
+                  onClick={() => previewPaneRef.current?.scrollBy({ top: -180, behavior: 'smooth' })}
+                  title="Slide Preview Up"
+                  aria-label="Slide Preview Up"
+                >
+                  ▲
+                </button>
+                <div
+                  ref={previewSliderTrackRef}
+                  className="erp-jc-slider-track"
+                  onMouseDown={handlePreviewSliderTrackMouseDown}
+                  title="Click or drag blue slider to move ticket sheet up and down"
+                >
+                  <div
+                    className="erp-jc-slider-thumb"
+                    onMouseDown={handlePreviewSliderThumbMouseDown}
+                    style={{
+                      height: '26%',
+                      top: `${previewScrollProgress * 74}%`,
+                    }}
+                  >
+                    <span className="erp-jc-slider-grip-line" />
+                    <span className="erp-jc-slider-grip-line" />
+                    <span className="erp-jc-slider-grip-line" />
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="erp-jc-slider-arrow-btn"
+                  onClick={() => previewPaneRef.current?.scrollBy({ top: 180, behavior: 'smooth' })}
+                  title="Slide Preview Down"
+                  aria-label="Slide Preview Down"
+                >
+                  ▼
+                </button>
+              </div>
+            )}
         </div>
 
           {/* Modal Bottom Footer Actions */}
