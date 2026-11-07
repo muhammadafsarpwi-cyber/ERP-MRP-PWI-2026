@@ -50,6 +50,7 @@ import { InProcessInspectionModal } from './InProcessInspectionModal';
 import { QmsPrintableSheet } from './QmsPrintableSheet';
 import { ItemQcSpecsMaster } from './ItemQcSpecsMaster';
 import { exportQmsToPdf } from './exportQmsPdf';
+import { shareQmsOnWhatsApp } from './exportQmsWhatsApp';
 import { RunningInspectionsHistoryModal } from './RunningInspectionsHistoryModal';
 
 interface LegacyInspection {
@@ -411,41 +412,7 @@ const QcPage: React.FC = () => {
   // Quick WhatsApp Share for active inspection
   const handleShareActiveWhatsApp = () => {
     if (!currentHeroInspection) return;
-    const lines: string[] = [];
-    lines.push('🏭 *PAKISTAN WIRE INDUSTRIES (PVT.) LTD*');
-    lines.push('📋 *IN-PROCESS QUALITY INSPECTION REPORT (QMS)*');
-    lines.push(`📄 *Doc Ref:* ${currentHeroInspection.docRef} | *Rev:* ${currentHeroInspection.revNo} | *Date:* ${currentHeroInspection.issueDate}`);
-    lines.push('━━━━━━━━━━━━━━━━━━━━');
-    lines.push(`🏢 *Division:* ${currentHeroInspection.divisionName}`);
-    lines.push(`🏭 *Department:* ${currentHeroInspection.departmentName}`);
-    lines.push(`📅 *Date:* ${currentHeroInspection.inspectionDate} | *Shift:* ${currentHeroInspection.shift}`);
-    lines.push(`⚙️ *Machine:* ${currentHeroInspection.machineNo} | *Operator:* ${currentHeroInspection.operatorName}`);
-    lines.push(`📦 *Part / Item:* *${currentHeroInspection.itemName}* (${currentHeroInspection.itemCode})`);
-    lines.push(`👨‍🔬 *Prepared By:* ${currentHeroInspection.inspectorName}`);
-    lines.push('━━━━━━━━━━━━━━━━━━━━');
-    lines.push('📏 *DIMENSIONAL CHECKS (5 SAMPLES):*');
-    currentHeroInspection.samples.forEach((s, idx) => {
-      const tolStr = `(±${s.tolPlus}${s.unit})`;
-      lines.push(`${idx + 1}. *${s.charName}* [Dimension: ${s.nominal} ${tolStr}]`);
-      lines.push(`   Samples: [${[s.s1, s.s2, s.s3, s.s4, s.s5].filter((v) => v !== undefined && v !== null).join(', ')}]`);
-      lines.push(`   Avg: *${s.average} ${s.unit}* ➔ *${s.status}*`);
-    });
-    lines.push('━━━━━━━━━━━━━━━━━━━━');
-    lines.push('👁️ *ATTRIBUTE / VISUAL CHECKS:*');
-    currentHeroInspection.attributes.forEach((a) => {
-      lines.push(`• *${a.checkName}:* [${a.checkedQty}/${a.defectsQty}] ➔ *${a.status}*`);
-    });
-    lines.push('━━━━━━━━━━━━━━━━━━━━');
-    lines.push(`🏆 *OVERALL RESULT:* *${currentHeroInspection.overallResult}*`);
-    if (currentHeroInspection.remarks) {
-      lines.push(`📝 *Remarks:* ${currentHeroInspection.remarks}`);
-    }
-    lines.push('━━━━━━━━━━━━━━━━━━━━');
-    lines.push('📱 _Verified via PWI ERP QMS System_');
-
-    const text = lines.join('\n');
-    const url = `https://wa.me/?text=${encodeURIComponent(text)}`;
-    window.open(url, '_blank');
+    shareQmsOnWhatsApp(currentHeroInspection);
   };
 
   // Direct PDF Download

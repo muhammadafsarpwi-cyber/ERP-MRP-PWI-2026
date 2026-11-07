@@ -30,6 +30,7 @@ import {
 import type { ColumnsType } from 'antd/es/table';
 import { QmsInProcessInspection, InspectionSampleRow } from './types';
 import { exportQmsToPdf } from './exportQmsPdf';
+import { shareQmsOnWhatsApp } from './exportQmsWhatsApp';
 
 interface RunningInspectionsHistoryModalProps {
   visible: boolean;
@@ -81,31 +82,7 @@ export const RunningInspectionsHistoryModal: React.FC<RunningInspectionsHistoryM
 
   // Handle direct WhatsApp share
   const handleShareWhatsApp = (insp: QmsInProcessInspection) => {
-    const lines = [
-      `*PAKISTAN WIRE INDUSTRIES (PVT.) LTD*`,
-      `*IN-PROCESS QUALITY INSPECTION REPORT (QMS)*`,
-      `Doc Ref: ${insp.docRef} | Rev: ${insp.revNo} | Date: ${insp.issueDate}`,
-      `---------------------------------------`,
-      `Inspection #: ${insp.inspectionNo}`,
-      `Date: ${insp.inspectionDate} | Shift: ${insp.shift}`,
-      `Machine: ${insp.machineNo} | Operator: ${insp.operatorName}`,
-      `Part: ${insp.itemName} (${insp.itemCode})`,
-      `Inspector: ${insp.inspectorName}`,
-      `---------------------------------------`,
-      `*DIMENSIONAL CHECKS (5 SAMPLES):*`,
-    ];
-
-    insp.samples.forEach((s, idx) => {
-      const avg = Number(s.average || 0).toFixed(2);
-      lines.push(`${idx + 1}. *${s.charName}* [Dimension: ${s.nominal} (±${s.tolPlus}${s.unit})] -> Avg: ${avg}${s.unit}`);
-    });
-
-    lines.push(`---------------------------------------`);
-    lines.push(`Overall Result: *${insp.overallResult}*`);
-    lines.push(`Remarks: ${insp.remarks || 'Ok'}`);
-
-    const text = encodeURIComponent(lines.join('\n'));
-    window.open(`https://api.whatsapp.com/send?text=${text}`, '_blank');
+    shareQmsOnWhatsApp(insp);
   };
 
   const columns: ColumnsType<QmsInProcessInspection> = [
