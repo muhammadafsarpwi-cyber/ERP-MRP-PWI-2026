@@ -340,11 +340,15 @@
 
 /* ── 2027 Executive View Layout (Cockpit & Spec Sheet) ─────────── */
 .erp-jc-detail-pane {
-  flex: 1 1 100%;
-  width: 100%;
-  padding: 18px 22px;
-  overflow-y: auto;
-  scrollbar-width: thin;
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  width: 100% !important;
+  padding: 18px 22px !important;
+  overflow-y: scroll !important;
+  overflow-x: hidden !important;
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
   background: var(--theme-background, #f8fafc);
   color: var(--theme-text, #0f172a);
   display: flex;
@@ -352,10 +356,16 @@
   gap: 14px;
 }
 
+.erp-jc-detail-pane::-webkit-scrollbar {
+  width: 0 !important;
+  height: 0 !important;
+  display: none !important;
+}
+
 html[data-theme='dark'] .erp-jc-detail-pane,
 [data-theme='dark'] .erp-jc-detail-pane {
-  background: #080d1a !important;
-  color: #f1f5f9 !important;
+  background: var(--theme-background, #0b1120) !important;
+  color: var(--theme-text, #f1f5f9) !important;
 }
 
 /* Executive Micro-Card Panels */

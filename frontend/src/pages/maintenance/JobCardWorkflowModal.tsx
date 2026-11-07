@@ -284,6 +284,55 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
   const previewSliderTrackRef = useRef<HTMLDivElement | null>(null);
   const [previewScrollProgress, setPreviewScrollProgress] = useState(0);
 
+  // 360° Inspection Detail Pane Vertical Slider Ref & State
+  const detailPaneRef = useRef<HTMLDivElement | null>(null);
+  const detailSliderTrackRef = useRef<HTMLDivElement | null>(null);
+  const [detailScrollProgress, setDetailScrollProgress] = useState(0);
+
+  const handleDetailScroll = useCallback(() => {
+    const el = detailPaneRef.current;
+    if (!el) return;
+    const maxScroll = Math.max(1, el.scrollHeight - el.clientHeight);
+    setDetailScrollProgress(Math.min(1, Math.max(0, el.scrollTop / maxScroll)));
+  }, []);
+
+  const handleDetailSliderThumbMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const el = detailPaneRef.current;
+    const track = detailSliderTrackRef.current;
+    if (!el || !track) return;
+    const startY = e.clientY;
+    const startScrollTop = el.scrollTop;
+    const trackRect = track.getBoundingClientRect();
+    const usableTrackPx = Math.max(1, trackRect.height * (1 - 0.26));
+    const maxScroll = Math.max(1, el.scrollHeight - el.clientHeight);
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const deltaY = moveEvent.clientY - startY;
+      const scrollDelta = (deltaY / usableTrackPx) * maxScroll;
+      el.scrollTop = Math.min(maxScroll, Math.max(0, startScrollTop + scrollDelta));
+    };
+    const onMouseUp = () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  }, []);
+
+  const handleDetailSliderTrackMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const el = detailPaneRef.current;
+    const track = detailSliderTrackRef.current;
+    if (!el || !track) return;
+    const rect = track.getBoundingClientRect();
+    const clickY = e.clientY - rect.top;
+    const thumbHalf = (rect.height * 0.26) / 2;
+    const usableTrackPx = Math.max(1, rect.height * (1 - 0.26));
+    const ratio = Math.min(1, Math.max(0, (clickY - thumbHalf) / usableTrackPx));
+    const maxScroll = Math.max(1, el.scrollHeight - el.clientHeight);
+    el.scrollTo({ top: ratio * maxScroll, behavior: 'smooth' });
+  }, []);
+
   const handleFormScroll = useCallback(() => {
     const el = formPaneRef.current;
     if (!el) return;
@@ -2347,9 +2396,28 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
           </div>
 
           {/* Body Container (Two-Pane or Full Detail View) */}
-          <div className="erp-jc-body-container">
+          <div
+            className="erp-jc-body-container"
+            style={{
+              flex: '1 1 auto',
+              minHeight: 0,
+              height: isMaximized
+                ? 'calc(100vh - 120px)'
+                : (customSize ? `calc(${customSize.height}px - 120px)` : 'calc(86vh - 120px)'),
+              maxHeight: isMaximized
+                ? 'calc(100vh - 120px)'
+                : (customSize ? `calc(${customSize.height}px - 120px)` : 'calc(86vh - 120px)'),
+              display: 'flex',
+              overflow: 'hidden',
+            }}
+          >
             {currentMode === 'view' && viewLayout === 'detail' ? (
-              <div className="erp-jc-detail-pane">
+              <>
+                <div
+                  ref={detailPaneRef}
+                  onScroll={handleDetailScroll}
+                  className="erp-jc-detail-pane"
+                >
                 {loadingCardDetails ? (
                   <div style={{ textAlign: 'center', padding: '80px 0' }}>
                     <Spin size="large" />
@@ -3043,7 +3111,49 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                         </div>
                       </>
                 )}
-              </div>
+                </div>
+
+                {/* ── Dedicated Interactive Vertical Slider Rail for 360° Inspection Pane ── */}
+                <div className="erp-jc-custom-slider-rail erp-jc-detail-slider-rail" style={{ height: '100%' }}>
+                  <button
+                    type="button"
+                    className="erp-jc-slider-arrow-btn"
+                    onClick={() => detailPaneRef.current?.scrollBy({ top: -200, behavior: 'smooth' })}
+                    title="Slide Inspection Up"
+                    aria-label="Slide Inspection Up"
+                  >
+                    ▲
+                  </button>
+                  <div
+                    ref={detailSliderTrackRef}
+                    className="erp-jc-slider-track"
+                    onMouseDown={handleDetailSliderTrackMouseDown}
+                    title="Click or drag blue slider to move 360 inspection view up and down"
+                  >
+                    <div
+                      className="erp-jc-slider-thumb"
+                      onMouseDown={handleDetailSliderThumbMouseDown}
+                      style={{
+                        height: '26%',
+                        top: `${detailScrollProgress * 74}%`,
+                      }}
+                    >
+                      <span className="erp-jc-slider-grip-line" />
+                      <span className="erp-jc-slider-grip-line" />
+                      <span className="erp-jc-slider-grip-line" />
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="erp-jc-slider-arrow-btn"
+                    onClick={() => detailPaneRef.current?.scrollBy({ top: 200, behavior: 'smooth' })}
+                    title="Slide Inspection Down"
+                    aria-label="Slide Inspection Down"
+                  >
+                    ▼
+                  </button>
+                </div>
+              </>
             ) : (
               <>
                 {/* Left Form Pane */}
