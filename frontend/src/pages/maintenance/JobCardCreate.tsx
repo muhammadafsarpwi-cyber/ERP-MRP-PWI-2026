@@ -158,7 +158,7 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
 
   // Window State: Draggable, Resizable, Maximizable, Minimizable, Toggle Detail Sheet
   const DEFAULT_DESKTOP_WIDTH = 1140;
-  const DEFAULT_DESKTOP_HEIGHT = 540;
+  const DEFAULT_DESKTOP_HEIGHT = 580;
   const [customSize, setCustomSize] = useState<{ width: number; height: number } | null>(null);
   const [isMaximized, setIsMaximized] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
@@ -170,6 +170,57 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
   const resizeStartRef = useRef({ x: 0, y: 0, startW: 0, startH: 0 });
   const modalContainerRef = useRef<HTMLDivElement>(null);
   const formPaneRef = useRef<HTMLDivElement>(null);
+  const sliderTrackRef = useRef<HTMLDivElement>(null);
+  const [scrollProgress, setScrollProgress] = useState(0);
+
+  const handleFormScroll = useCallback(() => {
+    const el = formPaneRef.current;
+    if (!el) return;
+    const maxScroll = Math.max(1, el.scrollHeight - el.clientHeight);
+    const ratio = Math.min(1, Math.max(0, el.scrollTop / maxScroll));
+    setScrollProgress(ratio);
+  }, []);
+
+  const handleSliderThumbMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const el = formPaneRef.current;
+    const track = sliderTrackRef.current;
+    if (!el || !track) return;
+
+    const startY = e.clientY;
+    const startScrollTop = el.scrollTop;
+    const trackRect = track.getBoundingClientRect();
+    const usableTrackPx = Math.max(1, trackRect.height * (1 - 0.26));
+    const maxScroll = Math.max(1, el.scrollHeight - el.clientHeight);
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const deltaY = moveEvent.clientY - startY;
+      const scrollDelta = (deltaY / usableTrackPx) * maxScroll;
+      el.scrollTop = Math.min(maxScroll, Math.max(0, startScrollTop + scrollDelta));
+    };
+
+    const onMouseUp = () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  }, []);
+
+  const handleSliderTrackMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const el = formPaneRef.current;
+    const track = sliderTrackRef.current;
+    if (!el || !track) return;
+    const rect = track.getBoundingClientRect();
+    const clickY = e.clientY - rect.top;
+    const thumbHalf = (rect.height * 0.26) / 2;
+    const usableTrackPx = Math.max(1, rect.height * (1 - 0.26));
+    const ratio = Math.min(1, Math.max(0, (clickY - thumbHalf) / usableTrackPx));
+    const maxScroll = Math.max(1, el.scrollHeight - el.clientHeight);
+    el.scrollTo({ top: ratio * maxScroll, behavior: 'smooth' });
+  }, []);
 
   const toggleMaximize = useCallback(() => {
     setIsMaximized((prev) => {
@@ -909,8 +960,8 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
         width={isMobile ? '100vw' : isMaximized ? '96vw' : (customSize?.width || DEFAULT_DESKTOP_WIDTH)}
         styles={{
           content: {
-            height: isMobile ? '100dvh' : isMaximized ? '92vh' : `${customSize?.height || DEFAULT_DESKTOP_HEIGHT}px`,
-            maxHeight: isMobile ? '100dvh' : isMaximized ? '95vh' : '82vh',
+            height: isMobile ? '100dvh' : isMaximized ? 'min(90vh, calc(100vh - 40px))' : `min(${customSize?.height || DEFAULT_DESKTOP_HEIGHT}px, 82vh)`,
+            maxHeight: isMobile ? '100dvh' : isMaximized ? 'min(90vh, calc(100vh - 40px))' : '82vh',
             display: 'flex',
             flexDirection: 'column',
             padding: 0,
@@ -918,10 +969,10 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
             overflow: 'hidden',
           },
           body: {
-            flex: '1 1 auto',
-            height: '100%',
-            minHeight: 0,
-            maxHeight: '100%',
+            flex: '0 0 auto',
+            height: isMobile ? '100dvh' : isMaximized ? 'min(90vh, calc(100vh - 40px))' : `min(${customSize?.height || DEFAULT_DESKTOP_HEIGHT}px, 82vh)`,
+            minHeight: isMobile ? '100dvh' : isMaximized ? 'min(90vh, calc(100vh - 40px))' : `min(${customSize?.height || DEFAULT_DESKTOP_HEIGHT}px, 82vh)`,
+            maxHeight: isMobile ? '100dvh' : isMaximized ? 'min(90vh, calc(100vh - 40px))' : '82vh',
             display: 'flex',
             flexDirection: 'column',
             padding: 0,
@@ -947,12 +998,12 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
                 padding: 0,
                 width: '96vw',
                 maxWidth: '96vw',
-                height: '92vh',
+                height: 'min(90vh, calc(100vh - 40px))',
                 position: 'relative',
               }
             : {
                 top: 28,
-                height: customSize?.height || DEFAULT_DESKTOP_HEIGHT,
+                height: `min(${customSize?.height || DEFAULT_DESKTOP_HEIGHT}px, 82vh)`,
                 maxHeight: '82vh',
                 margin: '0 auto',
                 transform: `translate(${modalPos.x}px, ${modalPos.y}px)`,
@@ -967,9 +1018,10 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
           style={{
             display: 'flex',
             flexDirection: 'column',
-            flex: '1 1 0%',
-            height: '100%',
-            minHeight: 0,
+            flex: '0 0 auto',
+            height: isMobile ? '100dvh' : isMaximized ? 'min(90vh, calc(100vh - 40px))' : `min(${customSize?.height || DEFAULT_DESKTOP_HEIGHT}px, 82vh)`,
+            maxHeight: isMobile ? '100dvh' : isMaximized ? 'min(90vh, calc(100vh - 40px))' : '82vh',
+            minHeight: isMobile ? '100dvh' : isMaximized ? 'min(90vh, calc(100vh - 40px))' : `min(${customSize?.height || DEFAULT_DESKTOP_HEIGHT}px, 82vh)`,
             overflow: 'hidden',
             position: 'relative',
           }}
@@ -1101,10 +1153,22 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
             style={{
               display: 'flex',
               flexDirection: isMobile ? 'column' : 'row',
-              flex: '1 1 auto',
-              height: 'calc(100% - 118px)',
-              maxHeight: 'calc(100% - 118px)',
-              minHeight: 0,
+              flex: '0 0 auto',
+              height: isMobile
+                ? 'calc(100dvh - 160px)'
+                : isMaximized
+                ? 'calc(min(90vh, calc(100vh - 40px)) - 136px)'
+                : `calc(min(${customSize?.height || DEFAULT_DESKTOP_HEIGHT}px, 82vh) - 136px)`,
+              maxHeight: isMobile
+                ? 'calc(100dvh - 160px)'
+                : isMaximized
+                ? 'calc(min(90vh, calc(100vh - 40px)) - 136px)'
+                : `calc(min(${customSize?.height || DEFAULT_DESKTOP_HEIGHT}px, 82vh) - 136px)`,
+              minHeight: isMobile
+                ? 'calc(100dvh - 160px)'
+                : isMaximized
+                ? 'calc(min(90vh, calc(100vh - 40px)) - 136px)'
+                : `calc(min(${customSize?.height || DEFAULT_DESKTOP_HEIGHT}px, 82vh) - 136px)`,
               overflow: 'hidden',
             }}
           >
@@ -1112,16 +1176,24 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
             {(!isMobile || mobileActiveTab === 'form') && (
               <div
                 ref={formPaneRef}
+                onScroll={handleFormScroll}
                 className="erp-jc-form-pane"
                 style={{
-                  flex: isMobile ? '1 1 0%' : (showPreviewPane ? '1 1 60%' : '1 1 100%'),
-                  height: '100%',
-                  maxHeight: '100%',
+                  flex: isMobile ? '1 1 0%' : (showPreviewPane ? '1 1 58%' : '1 1 100%'),
+                  height: isMobile
+                    ? 'calc(100dvh - 160px)'
+                    : isMaximized
+                    ? 'calc(min(90vh, calc(100vh - 40px)) - 136px)'
+                    : `calc(min(${customSize?.height || DEFAULT_DESKTOP_HEIGHT}px, 82vh) - 136px)`,
+                  maxHeight: isMobile
+                    ? 'calc(100dvh - 160px)'
+                    : isMaximized
+                    ? 'calc(min(90vh, calc(100vh - 40px)) - 136px)'
+                    : `calc(min(${customSize?.height || DEFAULT_DESKTOP_HEIGHT}px, 82vh) - 136px)`,
                   minHeight: 0,
                   overflowY: 'scroll',
                   overflowX: 'hidden',
                   WebkitOverflowScrolling: 'touch',
-                  borderRight: !isMobile && showPreviewPane ? '1px solid var(--theme-border)' : 'none',
                   width: isMobile ? '100%' : undefined,
                   display: isMobile && mobileActiveTab !== 'form' ? 'none' : 'block',
                   boxSizing: 'border-box',
@@ -1527,6 +1599,7 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
                     </div>
                   )}
                 </div>
+                <div style={{ height: 180 }} aria-hidden="true" />
               </Form>
 
               {/* Floating Quick Mouse Slide Controller */}
@@ -1561,7 +1634,7 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
                       type="primary"
                       shape="circle"
                       icon={<DownOutlined style={{ fontSize: 11 }} />}
-                      onClick={() => formPaneRef.current?.scrollBy({ top: 320, behavior: 'smooth' })}
+                      onClick={() => formPaneRef.current?.scrollBy({ top: 240, behavior: 'smooth' })}
                       title="Click to slide down with mouse"
                       style={{ width: 24, height: 24, minWidth: 24, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                     />
@@ -1570,7 +1643,7 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
                       type="default"
                       shape="circle"
                       icon={<UpOutlined style={{ fontSize: 11 }} />}
-                      onClick={() => formPaneRef.current?.scrollBy({ top: -320, behavior: 'smooth' })}
+                      onClick={() => formPaneRef.current?.scrollBy({ top: -240, behavior: 'smooth' })}
                       title="Click to slide up with mouse"
                       style={{ width: 24, height: 24, minWidth: 24, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                     />
@@ -1583,20 +1656,81 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
             </div>
             )}
 
+            {/* ── Dedicated Interactive Vertical Slider Rail (Between Left & Right Panes) ── */}
+            {!isMobile && (
+              <div
+                className="erp-jc-custom-slider-rail"
+                style={{
+                  height: isMaximized
+                    ? 'calc(min(90vh, calc(100vh - 40px)) - 136px)'
+                    : `calc(min(${customSize?.height || DEFAULT_DESKTOP_HEIGHT}px, 82vh) - 136px)`,
+                  maxHeight: isMaximized
+                    ? 'calc(min(90vh, calc(100vh - 40px)) - 136px)'
+                    : `calc(min(${customSize?.height || DEFAULT_DESKTOP_HEIGHT}px, 82vh) - 136px)`,
+                }}
+              >
+                <button
+                  type="button"
+                  className="erp-jc-slider-arrow-btn"
+                  onClick={() => formPaneRef.current?.scrollBy({ top: -200, behavior: 'smooth' })}
+                  title="Slide Up"
+                  aria-label="Slide Up"
+                >
+                  ▲
+                </button>
+                <div
+                  ref={sliderTrackRef}
+                  className="erp-jc-slider-track"
+                  onMouseDown={handleSliderTrackMouseDown}
+                  title="Click or drag blue slider to move form up and down"
+                >
+                  <div
+                    className="erp-jc-slider-thumb"
+                    onMouseDown={handleSliderThumbMouseDown}
+                    style={{
+                      height: '26%',
+                      top: `${scrollProgress * 74}%`,
+                    }}
+                  >
+                    <span className="erp-jc-slider-grip-line" />
+                    <span className="erp-jc-slider-grip-line" />
+                    <span className="erp-jc-slider-grip-line" />
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="erp-jc-slider-arrow-btn"
+                  onClick={() => formPaneRef.current?.scrollBy({ top: 200, behavior: 'smooth' })}
+                  title="Slide Down"
+                  aria-label="Slide Down"
+                >
+                  ▼
+                </button>
+              </div>
+            )}
+
             {/* ── Right Live Sheet Preview Pane (Collapsible via Toggle Button) ── */}
             {(!isMobile ? showPreviewPane : mobileActiveTab === 'preview') && (
               <div
                 className="erp-jc-preview-pane"
                 style={{
                   flex: isMobile ? '1 1 0%' : undefined,
-                  height: '100%',
+                  height: isMobile
+                    ? 'calc(100dvh - 160px)'
+                    : isMaximized
+                    ? 'calc(min(90vh, calc(100vh - 40px)) - 136px)'
+                    : `calc(min(${customSize?.height || DEFAULT_DESKTOP_HEIGHT}px, 82vh) - 136px)`,
                   minHeight: 0,
-                  maxHeight: '100%',
-                  overflowY: 'scroll',
+                  maxHeight: isMobile
+                    ? 'calc(100dvh - 160px)'
+                    : isMaximized
+                    ? 'calc(min(90vh, calc(100vh - 40px)) - 136px)'
+                    : `calc(min(${customSize?.height || DEFAULT_DESKTOP_HEIGHT}px, 82vh) - 136px)`,
+                  overflowY: 'auto',
                   overflowX: 'hidden',
                   WebkitOverflowScrolling: 'touch',
                   width: isMobile ? '100%' : undefined,
-                  maxWidth: isMobile ? '100%' : 480,
+                  maxWidth: isMobile ? '100%' : 460,
                   display: isMobile && mobileActiveTab !== 'preview' ? 'none' : 'flex',
                 }}
               >

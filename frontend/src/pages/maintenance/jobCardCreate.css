@@ -29,13 +29,10 @@
     margin-right: auto !important;
     width: 1140px !important;
     max-width: calc(100vw - 48px) !important;
-    height: 540px !important;
-    max-height: 82vh !important;
-    top: 28px !important;
+    height: auto !important;
+    top: 24px !important;
     padding-bottom: 0 !important;
     margin-bottom: 0 !important;
-    display: flex !important;
-    flex-direction: column !important;
     transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
   }
 
@@ -68,22 +65,16 @@
 .erp-jc-modal-wrap .ant-modal-content {
   padding: 0 !important;
   border-radius: 16px !important;
-  overflow: hidden;
+  overflow: hidden !important;
   box-shadow: 0 24px 64px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.25) !important;
   border: 1px solid var(--theme-border, #e2e8f0) !important;
   background: var(--theme-surface, #ffffff) !important;
   color: var(--theme-text, #0f172a) !important;
   display: flex !important;
   flex-direction: column !important;
-  height: 100% !important;
-  max-height: 100% !important;
 }
 
 .erp-jc-modal-wrap .ant-modal-body {
-  flex: 1 1 auto !important;
-  min-height: 0 !important;
-  height: 100% !important;
-  max-height: 100% !important;
   display: flex !important;
   flex-direction: column !important;
   overflow: hidden !important;
@@ -94,10 +85,6 @@
 .erp-jc-modal-root-container {
   display: flex !important;
   flex-direction: column !important;
-  flex: 1 1 auto !important;
-  min-height: 0 !important;
-  max-height: 100% !important;
-  height: 100% !important;
   overflow: hidden !important;
   position: relative !important;
 }
@@ -220,111 +207,125 @@
 /* ── Modal Body Layout (Two Pane) ───────────────────────────────────────── */
 .erp-jc-body-container {
   display: flex !important;
-  flex: 1 1 auto !important;
-  min-height: 0 !important;
-  height: calc(100% - 118px) !important;
-  max-height: calc(100% - 118px) !important;
+  flex: 0 0 auto !important;
   overflow: hidden !important;
   background: var(--theme-background, #f8fafc);
 }
 
-/* Left Form Pane - Highly Visible Permanent Slide (Scrollbar) */
+/* Left Form Pane - Paired with Dedicated Interactive Vertical Slider Rail */
 .erp-jc-form-pane {
   flex: 1 1 58% !important;
   min-width: 0 !important;
-  height: 100% !important;
-  max-height: 100% !important;
   min-height: 0 !important;
-  padding: 18px 22px 28px !important;
+  padding: 18px 18px 28px 22px !important;
   overflow-y: scroll !important;
   overflow-x: hidden !important;
-  border-right: 1px solid var(--theme-border, #e2e8f0);
   box-sizing: border-box !important;
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
 }
 
 .erp-jc-form-pane::-webkit-scrollbar {
-  width: 14px !important;
-  display: block !important;
+  width: 0 !important;
+  height: 0 !important;
+  display: none !important;
 }
 
-.erp-jc-form-pane::-webkit-scrollbar-track {
-  background: #0f172a !important;
-  border-left: 2px solid #1e293b !important;
-  border-right: 1px solid rgba(255, 255, 255, 0.05) !important;
-  box-shadow: inset 0 0 6px rgba(0, 0, 0, 0.6) !important;
+/* Dedicated Custom Vertical Slide Rail between Left & Right Panes */
+.erp-jc-custom-slider-rail {
+  flex: 0 0 18px !important;
+  width: 18px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  background: #0b1120 !important;
+  border-left: 1px solid rgba(59, 130, 246, 0.28) !important;
+  border-right: 1px solid rgba(59, 130, 246, 0.28) !important;
+  user-select: none !important;
+  z-index: 30 !important;
 }
 
-.erp-jc-form-pane::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, #3b82f6 0%, #1d4ed8 100%) !important;
-  border-radius: 7px !important;
-  border: 2px solid #0f172a !important;
-  min-height: 60px !important;
-  box-shadow: 0 0 10px rgba(59, 130, 246, 0.6) !important;
+.erp-jc-slider-arrow-btn {
+  flex: 0 0 24px !important;
+  height: 24px !important;
+  width: 100% !important;
+  border: none !important;
+  background: #141d33 !important;
+  color: #60a5fa !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  cursor: pointer !important;
+  font-size: 10px !important;
+  padding: 0 !important;
+  transition: background 0.15s ease, color 0.15s ease !important;
+}
+
+.erp-jc-slider-arrow-btn:hover {
+  background: #2563eb !important;
+  color: #ffffff !important;
+}
+
+.erp-jc-slider-arrow-btn:active {
+  background: #1d4ed8 !important;
+}
+
+.erp-jc-slider-track {
+  flex: 1 1 0% !important;
+  position: relative !important;
+  width: 100% !important;
+  background: #090d16 !important;
+  cursor: pointer !important;
+  box-shadow: inset 0 0 6px rgba(0, 0, 0, 0.8) !important;
+}
+
+.erp-jc-slider-thumb {
+  position: absolute !important;
+  left: 2px !important;
+  right: 2px !important;
+  border-radius: 6px !important;
+  background: linear-gradient(180deg, #3b82f6 0%, #2563eb 100%) !important;
+  border: 1px solid rgba(147, 197, 253, 0.65) !important;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.65) !important;
   cursor: grab !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 3px !important;
+  transition: background 0.12s ease, box-shadow 0.12s ease !important;
 }
 
-.erp-jc-form-pane::-webkit-scrollbar-thumb:hover {
+.erp-jc-slider-thumb:hover {
   background: linear-gradient(180deg, #60a5fa 0%, #3b82f6 100%) !important;
-  box-shadow: 0 0 14px rgba(96, 165, 250, 0.9) !important;
+  box-shadow: 0 0 12px rgba(96, 165, 250, 0.95) !important;
 }
 
-.erp-jc-form-pane::-webkit-scrollbar-thumb:active {
-  background: #1e40af !important;
+.erp-jc-slider-thumb:active {
+  background: #1d4ed8 !important;
   cursor: grabbing !important;
 }
 
-@supports (-moz-appearance: none) {
-  .erp-jc-form-pane {
-    scrollbar-width: auto !important;
-    scrollbar-color: #3b82f6 #0f172a !important;
-  }
+.erp-jc-slider-grip-line {
+  width: 8px !important;
+  height: 1.5px !important;
+  background: rgba(255, 255, 255, 0.85) !important;
+  border-radius: 1px !important;
+  pointer-events: none !important;
 }
 
 .erp-jc-preview-pane {
-  flex: 1 1 42% !important;
-  min-width: 360px !important;
-  max-width: 480px !important;
-  height: 100% !important;
+  flex: 1 1 40% !important;
+  min-width: 340px !important;
+  max-width: 460px !important;
   min-height: 0 !important;
-  max-height: 100% !important;
   padding: 18px 20px !important;
-  overflow-y: scroll !important;
+  overflow-y: auto !important;
   overflow-x: hidden !important;
   background: var(--theme-surface, #ffffff);
   display: flex !important;
   flex-direction: column !important;
   gap: 16px;
-  border-left: 1px solid var(--theme-border, #e2e8f0);
   box-sizing: border-box !important;
-}
-
-.erp-jc-preview-pane::-webkit-scrollbar {
-  width: 12px !important;
-  display: block !important;
-}
-
-.erp-jc-preview-pane::-webkit-scrollbar-track {
-  background: #0f172a !important;
-  border-left: 1px solid rgba(255, 255, 255, 0.08) !important;
-}
-
-.erp-jc-preview-pane::-webkit-scrollbar-thumb {
-  background: #3b82f6 !important;
-  border-radius: 6px !important;
-  border: 2px solid #0f172a !important;
-  min-height: 40px !important;
-  cursor: grab !important;
-}
-
-.erp-jc-preview-pane::-webkit-scrollbar-thumb:hover {
-  background: #60a5fa !important;
-}
-
-@supports (-moz-appearance: none) {
-  .erp-jc-preview-pane {
-    scrollbar-width: auto !important;
-    scrollbar-color: #3b82f6 #0f172a !important;
-  }
 }
 
 /* ── 2027 Executive View Layout (Cockpit & Spec Sheet) ─────────── */
