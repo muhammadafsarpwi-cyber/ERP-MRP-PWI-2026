@@ -462,48 +462,51 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
     }
   };
 
+  const modalTitle = (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingRight: '24px' }}>
+      <div>
+        <div style={{ fontSize: '16px', fontWeight: 700, color: token.colorTextHeading }}>
+          {initialInspection
+            ? `Edit & Revise Inspection ${initialInspection.inspectionNo} (Revision: ${form.getFieldValue('revNo') || '02'})`
+            : 'New In-Process Quality Inspection (QMS)'}
+        </div>
+        <div style={{ fontSize: '12px', color: token.colorPrimary, fontWeight: 600 }}>
+          {divisionName} • {departmentName} • {form.getFieldValue('docRef') || 'SPD/QMS/05'} (Rev: {form.getFieldValue('revNo') || '01'})
+        </div>
+      </div>
+      <span
+        style={{
+          display: 'inline-block',
+          backgroundColor: overallResult === 'PASS' ? '#10b981' : overallResult === 'FAIL' ? '#ef4444' : '#2563eb',
+          color: '#ffffff',
+          fontWeight: 800,
+          fontSize: '12px',
+          padding: '4px 14px',
+          borderRadius: '6px',
+          letterSpacing: '0.5px',
+        }}
+      >
+        OVERALL: {overallResult}
+      </span>
+    </div>
+  );
+
+  const modalFooter = [
+    <Button key="cancel" onClick={onClose}>
+      Cancel
+    </Button>,
+    <Button key="save" type="primary" icon={<SaveOutlined />} onClick={handleFinish}>
+      Save Inspection Record
+    </Button>,
+  ];
+
   return (
     <Modal
-      title={
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingRight: '24px' }}>
-          <div>
-            <div style={{ fontSize: '16px', fontWeight: 700, color: token.colorTextHeading }}>
-              {initialInspection
-                ? `Edit & Revise Inspection ${initialInspection.inspectionNo} (Revision: ${form.getFieldValue('revNo') || '02'})`
-                : 'New In-Process Quality Inspection (QMS)'}
-            </div>
-            <div style={{ fontSize: '12px', color: token.colorPrimary, fontWeight: 600 }}>
-              {divisionName} • {departmentName} • {form.getFieldValue('docRef') || 'SPD/QMS/05'} (Rev: {form.getFieldValue('revNo') || '01'})
-            </div>
-          </div>
-          <span
-            style={{
-              display: 'inline-block',
-              backgroundColor: overallResult === 'PASS' ? '#10b981' : overallResult === 'FAIL' ? '#ef4444' : '#2563eb',
-              color: '#ffffff',
-              fontWeight: 800,
-              fontSize: '12px',
-              padding: '4px 14px',
-              borderRadius: '6px',
-              letterSpacing: '0.5px',
-              boxShadow: `0 2px 6px ${overallResult === 'PASS' ? 'rgba(16, 185, 129, 0.4)' : overallResult === 'FAIL' ? 'rgba(239, 68, 68, 0.4)' : 'rgba(37, 99, 235, 0.4)'}`,
-            }}
-          >
-            OVERALL: {overallResult}
-          </span>
-        </div>
-      }
+      title={modalTitle}
       open={visible}
       onCancel={onClose}
       width={1020}
-      footer={[
-        <Button key="cancel" onClick={onClose}>
-          Cancel
-        </Button>,
-        <Button key="save" type="primary" icon={<SaveOutlined />} onClick={handleFinish}>
-          Save Inspection Record
-        </Button>,
-      ]}
+      footer={modalFooter}
     >
       <Form form={form} layout="vertical">
         {/* Header Grid */}
