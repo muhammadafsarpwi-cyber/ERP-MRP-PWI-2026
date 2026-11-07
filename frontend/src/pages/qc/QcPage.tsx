@@ -50,6 +50,7 @@ import { InProcessInspectionModal } from './InProcessInspectionModal';
 import { QmsPrintableSheet } from './QmsPrintableSheet';
 import { ItemQcSpecsMaster } from './ItemQcSpecsMaster';
 import { exportQmsToPdf } from './exportQmsPdf';
+import { RunningInspectionsHistoryModal } from './RunningInspectionsHistoryModal';
 
 interface LegacyInspection {
   id: string;
@@ -746,75 +747,6 @@ const QcPage: React.FC = () => {
     );
   };
 
-  // Columns for History Drawer table
-  const historyColumns: ColumnsType<QmsInProcessInspection> = [
-    {
-      title: 'Inspection #',
-      dataIndex: 'inspectionNo',
-      key: 'inspectionNo',
-      render: (no: string, r) => (
-        <a
-          style={{ fontWeight: 700, color: token.colorPrimary }}
-          onClick={() => {
-            setActiveInspectionId(r.id);
-            setHistoryDrawerVisible(false);
-          }}
-        >
-          {no}
-        </a>
-      ),
-    },
-    {
-      title: 'Date & Shift',
-      key: 'dt',
-      render: (_, r) => (
-        <span>
-          {r.inspectionDate} (Shift {r.shift})
-        </span>
-      ),
-    },
-    {
-      title: 'Machine & Operator',
-      key: 'mo',
-      render: (_, r) => (
-        <span>
-          {r.machineNo} • {r.operatorName}
-        </span>
-      ),
-    },
-    {
-      title: 'Part',
-      dataIndex: 'itemName',
-      key: 'item',
-      render: (name: string) => <strong>{name}</strong>,
-    },
-    {
-      title: 'Result',
-      dataIndex: 'overallResult',
-      key: 'res',
-      render: (res: string) => <Tag color={res === 'PASS' ? 'success' : 'error'}>{res}</Tag>,
-    },
-    {
-      title: 'Actions',
-      key: 'act',
-      render: (_, r) => (
-        <Space size={4}>
-          <Button
-            size="small"
-            type="primary"
-            onClick={() => {
-              setActiveInspectionId(r.id);
-              setHistoryDrawerVisible(false);
-            }}
-          >
-            Load
-          </Button>
-          <Button size="small" icon={<FileTextOutlined />} onClick={() => handleOpenSheet(r)} />
-        </Space>
-      ),
-    },
-  ];
-
   // Tab definitions
   const tabItems = [
     {
@@ -1048,22 +980,18 @@ const QcPage: React.FC = () => {
       {/* Main Tabs Container */}
       <Tabs items={tabItems} defaultActiveKey="running" />
 
-      {/* History Drawer to browse and load previous inspections */}
-      <Drawer
-        title="Running Production Inspections Register"
-        placement="right"
-        width={720}
-        open={historyDrawerVisible}
+      {/* Running Inspections History Modal (Centered Popup) */}
+      <RunningInspectionsHistoryModal
+        visible={historyDrawerVisible}
         onClose={() => setHistoryDrawerVisible(false)}
-      >
-        <Table
-          size="small"
-          columns={historyColumns}
-          dataSource={filteredInspections}
-          rowKey="id"
-          pagination={{ pageSize: 8 }}
-        />
-      </Drawer>
+        inspections={inProcessInspections}
+        onSelectInspection={(insp) => {
+          setActiveInspectionId(insp.id);
+        }}
+        onOpenSheet={(insp) => {
+          handleOpenSheet(insp);
+        }}
+      />
 
       {/* In-Process Inspection Modal (Add / Edit) */}
       <InProcessInspectionModal
