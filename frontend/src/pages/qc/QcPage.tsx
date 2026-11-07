@@ -191,6 +191,32 @@ const QcPage: React.FC = () => {
   const [sheetModalVisible, setSheetModalVisible] = useState(false);
   const [historyDrawerVisible, setHistoryDrawerVisible] = useState(false);
   const [selectedInspectionForSheet, setSelectedInspectionForSheet] = useState<QmsInProcessInspection | null>(null);
+  const [editingInspection, setEditingInspection] = useState<QmsInProcessInspection | null>(null);
+
+  const renderSolidStatusBadge = (status: 'PASS' | 'FAIL' | 'PENDING' | string) => {
+    const isFail = status === 'FAIL';
+    const isPass = status === 'PASS';
+    const bg = isFail ? '#ef4444' : isPass ? '#10b981' : '#2563eb';
+    return (
+      <span
+        style={{
+          display: 'inline-block',
+          backgroundColor: bg,
+          color: '#ffffff',
+          fontWeight: 800,
+          fontSize: '11px',
+          padding: '3px 10px',
+          borderRadius: '4px',
+          letterSpacing: '0.5px',
+          minWidth: '58px',
+          textAlign: 'center',
+          boxShadow: `0 1px 3px ${isFail ? 'rgba(239, 68, 68, 0.4)' : isPass ? 'rgba(16, 185, 129, 0.4)' : 'rgba(37, 99, 235, 0.4)'}`,
+        }}
+      >
+        {status || 'PENDING'}
+      </span>
+    );
+  };
 
   // Filter state for In-Process inspections
   const [filterShift, setFilterShift] = useState<string>('ALL');
@@ -505,6 +531,15 @@ const QcPage: React.FC = () => {
             <Button icon={<HistoryOutlined />} onClick={() => setHistoryDrawerVisible(true)}>
               History ({inProcessInspections.length})
             </Button>
+            <Button
+              icon={<EditOutlined />}
+              onClick={() => {
+                setEditingInspection(insp);
+                setRunningModalVisible(true);
+              }}
+            >
+              Edit / Revise
+            </Button>
             <Button icon={<PrinterOutlined />} onClick={handlePrintActiveSheet}>
               Print Sheet
             </Button>
@@ -518,7 +553,14 @@ const QcPage: React.FC = () => {
             >
               WhatsApp
             </Button>
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => setRunningModalVisible(true)}>
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={() => {
+                setEditingInspection(null);
+                setRunningModalVisible(true);
+              }}
+            >
               + New Running Inspection
             </Button>
           </div>
@@ -565,13 +607,8 @@ const QcPage: React.FC = () => {
           </div>
           <div>
             <div style={{ fontSize: '11px', color: token.colorTextSecondary, textTransform: 'uppercase' }}>Status:</div>
-            <div>
-              <Tag
-                color={insp.overallResult === 'PASS' ? 'success' : insp.overallResult === 'FAIL' ? 'error' : 'blue'}
-                style={{ fontSize: '12px', fontWeight: 800, padding: '2px 10px' }}
-              >
-                {insp.overallResult}
-              </Tag>
+            <div style={{ marginTop: '2px' }}>
+              {renderSolidStatusBadge(insp.overallResult)}
             </div>
           </div>
         </div>
@@ -628,9 +665,7 @@ const QcPage: React.FC = () => {
                     {s.average ? `${s.average} ${s.unit}` : '-'}
                   </td>
                   <td style={{ padding: '8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>
-                    <Tag color={s.status === 'PASS' ? 'success' : s.status === 'FAIL' ? 'error' : 'blue'} style={{ fontWeight: 700 }}>
-                      {s.status}
-                    </Tag>
+                    {renderSolidStatusBadge(s.status)}
                   </td>
                 </tr>
               ))}
@@ -663,9 +698,7 @@ const QcPage: React.FC = () => {
                       Sample: <strong>{a.checkedQty}</strong> | Defects: <strong>{a.defectsQty}</strong>
                     </div>
                   </div>
-                  <Tag color={a.status === 'PASS' ? 'success' : 'error'} style={{ fontWeight: 800, padding: '2px 8px' }}>
-                    {a.status === 'PASS' ? 'OK (10/0)' : 'DEFECT'}
-                  </Tag>
+                  {renderSolidStatusBadge(a.status)}
                 </div>
               </Col>
             ))}
@@ -958,13 +991,21 @@ const QcPage: React.FC = () => {
         onOpenSheet={(insp) => {
           handleOpenSheet(insp);
         }}
+        onEditInspection={(insp) => {
+          setEditingInspection(insp);
+          setRunningModalVisible(true);
+        }}
       />
 
-      {/* In-Process Inspection Modal (Add / Edit) */}
+      {/* In-Process Inspection Modal (Add / Edit / Revise) */}
       <InProcessInspectionModal
         visible={runningModalVisible}
-        onClose={() => setRunningModalVisible(false)}
+        onClose={() => {
+          setRunningModalVisible(false);
+          setEditingInspection(null);
+        }}
         onSave={handleSaveInspection}
+        initialInspection={editingInspection}
         divisionName={activeDivision.name}
         departmentName={activeDepartment?.name || 'Spoke'}
         divisionCode={activeDivision.code}

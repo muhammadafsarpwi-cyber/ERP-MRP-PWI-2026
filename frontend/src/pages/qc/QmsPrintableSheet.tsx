@@ -15,6 +15,31 @@ export const QmsPrintableSheet: React.FC<QmsPrintableSheetProps> = ({ visible, o
   const { token } = theme.useToken();
   const { message } = App.useApp();
 
+  const renderSolidBadge = (status: string) => {
+    const isFail = status === 'FAIL';
+    const isPass = status === 'PASS';
+    const bg = isFail ? '#ef4444' : isPass ? '#10b981' : '#2563eb';
+    return (
+      <span
+        style={{
+          display: 'inline-block',
+          backgroundColor: bg,
+          color: '#ffffff',
+          fontWeight: 800,
+          fontSize: '11px',
+          padding: '3px 10px',
+          borderRadius: '4px',
+          letterSpacing: '0.5px',
+          minWidth: '58px',
+          textAlign: 'center',
+          boxShadow: `0 1px 3px ${isFail ? 'rgba(239, 68, 68, 0.4)' : isPass ? 'rgba(16, 185, 129, 0.4)' : 'rgba(37, 99, 235, 0.4)'}`,
+        }}
+      >
+        {status || 'PENDING'}
+      </span>
+    );
+  };
+
   if (!inspection) return null;
 
   const handleDownloadPdf = () => {
@@ -193,10 +218,8 @@ export const QmsPrintableSheet: React.FC<QmsPrintableSheetProps> = ({ visible, o
           </div>
           <div>
             <div style={{ fontSize: '11px', color: token.colorTextSecondary }}>Overall Result:</div>
-            <div>
-              <Tag color={inspection.overallResult === 'PASS' ? 'success' : inspection.overallResult === 'FAIL' ? 'error' : 'blue'} style={{ fontSize: '12px', fontWeight: 700 }}>
-                {inspection.overallResult}
-              </Tag>
+            <div style={{ marginTop: '2px' }}>
+              {renderSolidBadge(inspection.overallResult)}
             </div>
           </div>
         </div>
@@ -246,7 +269,7 @@ export const QmsPrintableSheet: React.FC<QmsPrintableSheetProps> = ({ visible, o
                     {s.average ? `${s.average} ${s.unit}` : '-'}
                   </td>
                   <td style={{ padding: '6px 8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>
-                    <Tag color={s.status === 'PASS' ? 'success' : s.status === 'FAIL' ? 'error' : 'blue'}>{s.status}</Tag>
+                    {renderSolidBadge(s.status)}
                   </td>
                 </tr>
               ))}
@@ -280,9 +303,7 @@ export const QmsPrintableSheet: React.FC<QmsPrintableSheetProps> = ({ visible, o
                     Checked: {a.checkedQty} | Defects: {a.defectsQty}
                   </div>
                 </div>
-                <Tag color={a.status === 'PASS' ? 'success' : 'error'} style={{ fontWeight: 700 }}>
-                  {a.status}
-                </Tag>
+                {renderSolidBadge(a.status)}
               </div>
             ))}
           </div>

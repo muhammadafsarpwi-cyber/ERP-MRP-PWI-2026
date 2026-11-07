@@ -26,6 +26,7 @@ import {
   ArrowRightOutlined,
   EyeOutlined,
   PrinterOutlined,
+  EditOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { QmsInProcessInspection, InspectionSampleRow } from './types';
@@ -38,6 +39,7 @@ interface RunningInspectionsHistoryModalProps {
   inspections: QmsInProcessInspection[];
   onSelectInspection: (inspection: QmsInProcessInspection) => void;
   onOpenSheet: (inspection: QmsInProcessInspection) => void;
+  onEditInspection?: (inspection: QmsInProcessInspection) => void;
 }
 
 export const RunningInspectionsHistoryModal: React.FC<RunningInspectionsHistoryModalProps> = ({
@@ -46,8 +48,34 @@ export const RunningInspectionsHistoryModal: React.FC<RunningInspectionsHistoryM
   inspections,
   onSelectInspection,
   onOpenSheet,
+  onEditInspection,
 }) => {
   const { token } = theme.useToken();
+
+  const renderSolidBadge = (status: string) => {
+    const isFail = status === 'FAIL';
+    const isPass = status === 'PASS';
+    const bg = isFail ? '#ef4444' : isPass ? '#10b981' : '#2563eb';
+    return (
+      <span
+        style={{
+          display: 'inline-block',
+          backgroundColor: bg,
+          color: '#ffffff',
+          fontWeight: 800,
+          fontSize: '11px',
+          padding: '3px 10px',
+          borderRadius: '4px',
+          letterSpacing: '0.5px',
+          minWidth: '58px',
+          textAlign: 'center',
+          boxShadow: `0 1px 3px ${isFail ? 'rgba(239, 68, 68, 0.4)' : isPass ? 'rgba(16, 185, 129, 0.4)' : 'rgba(37, 99, 235, 0.4)'}`,
+        }}
+      >
+        {status || 'PENDING'}
+      </span>
+    );
+  };
 
   const [searchText, setSearchText] = useState('');
   const [filterShift, setFilterShift] = useState('ALL');
@@ -175,22 +203,30 @@ export const RunningInspectionsHistoryModal: React.FC<RunningInspectionsHistoryM
       key: 'result',
       width: 100,
       align: 'center',
-      render: (res: string) => (
-        <Tag
-          color={res === 'PASS' ? 'success' : res === 'FAIL' ? 'error' : 'blue'}
-          style={{ fontWeight: 700, padding: '3px 10px', fontSize: '12px', borderRadius: '4px' }}
-        >
-          {res}
-        </Tag>
-      ),
+      render: (res: string) => renderSolidBadge(res),
     },
     {
       title: 'Actions',
       key: 'actions',
-      width: 250,
+      width: 310,
       align: 'right',
       render: (_, r) => (
         <Space size={4} wrap style={{ justifyContent: 'flex-end' }}>
+          {onEditInspection && (
+            <Tooltip title="Edit / Revise this inspection">
+              <Button
+                size="small"
+                icon={<EditOutlined />}
+                onClick={() => {
+                  onEditInspection(r);
+                  onClose();
+                }}
+              >
+                Edit
+              </Button>
+            </Tooltip>
+          )}
+
           <Tooltip title="Load this inspection into main view">
             <Button
               size="small"
@@ -258,6 +294,18 @@ export const RunningInspectionsHistoryModal: React.FC<RunningInspectionsHistoryM
             </div>
           </div>
           <Space>
+            {onEditInspection && (
+              <Button
+                size="small"
+                icon={<EditOutlined />}
+                onClick={() => {
+                  onEditInspection(record);
+                  onClose();
+                }}
+              >
+                Edit / Revise
+              </Button>
+            )}
             <Button
               size="small"
               icon={<EyeOutlined />}
@@ -324,9 +372,7 @@ export const RunningInspectionsHistoryModal: React.FC<RunningInspectionsHistoryM
                     {avg.toFixed(2)} {s.unit}
                   </td>
                   <td style={{ padding: '6px 8px', textAlign: 'center' }}>
-                    <Tag color={isPass ? 'success' : 'error'} style={{ fontSize: '11px', margin: 0 }}>
-                      {isPass ? 'PASS' : 'FAIL'}
-                    </Tag>
+                    {renderSolidBadge(isPass ? 'PASS' : 'FAIL')}
                   </td>
                 </tr>
               );

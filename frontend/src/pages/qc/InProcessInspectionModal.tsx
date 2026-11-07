@@ -229,6 +229,13 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
     if (!visible) return;
 
     if (initialInspection) {
+      // Auto-increment Revision Number when editing/revising:
+      // If previous was '01' -> becomes '02'
+      // If previous was '02' -> becomes '03', etc.
+      const prevRevNum = parseInt(initialInspection.revNo || '1', 10);
+      const nextRevNum = isNaN(prevRevNum) ? 2 : prevRevNum + 1;
+      const nextRev = String(nextRevNum).padStart(2, '0');
+
       form.setFieldsValue({
         inspectionDate: initialInspection.inspectionDate,
         shift: initialInspection.shift,
@@ -239,12 +246,12 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
         approvedBy: initialInspection.approvedBy,
         remarks: initialInspection.remarks,
         docRef: initialInspection.docRef,
-        revNo: initialInspection.revNo,
+        revNo: nextRev, // Automatically incremented revision!
         issueDate: initialInspection.issueDate,
       });
       setSampleRows(initialInspection.samples || []);
       setAttributeRows(initialInspection.attributes || []);
-      setOverallResult(initialInspection.overallResult || 'PASS');
+      recalcOverall(initialInspection.samples || [], initialInspection.attributes || []);
     } else {
       // New Inspection defaults - blank operator, inspector, and itemCode
       const today = new Date().toISOString().slice(0, 10);
@@ -259,7 +266,7 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
         inspectorName: '', // Blank inspector name (user enters own name)
         approvedBy: 'Quality Control Incharge',
         docRef: nextDoc, // Automatic next sequential doc reference
-        revNo: '02',
+        revNo: '01', // Initial revision starts at 01
         issueDate: '09-Jun-2022',
         remarks: 'Ok',
       });
@@ -391,6 +398,33 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
     setOverallResult('PASS');
   };
 
+  const renderStatusBadge = (status: 'PASS' | 'FAIL' | 'PENDING' | string) => {
+    const isFail = status === 'FAIL';
+    const isPass = status === 'PASS';
+    const bg = isFail ? '#ef4444' : isPass ? '#10b981' : '#2563eb';
+    const label = isFail ? 'FAIL' : isPass ? 'PASS' : 'PENDING';
+
+    return (
+      <span
+        style={{
+          display: 'inline-block',
+          backgroundColor: bg,
+          color: '#ffffff',
+          fontWeight: 800,
+          fontSize: '11px',
+          padding: '3px 10px',
+          borderRadius: '4px',
+          letterSpacing: '0.5px',
+          minWidth: '58px',
+          textAlign: 'center',
+          boxShadow: `0 1px 3px ${isFail ? 'rgba(239, 68, 68, 0.4)' : isPass ? 'rgba(16, 185, 129, 0.4)' : 'rgba(37, 99, 235, 0.4)'}`,
+        }}
+      >
+        {label}
+      </span>
+    );
+  };
+
   const handleFinish = async () => {
     try {
       const values = await form.validateFields();
@@ -434,18 +468,29 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingRight: '24px' }}>
           <div>
             <div style={{ fontSize: '16px', fontWeight: 700, color: token.colorTextHeading }}>
-              {initialInspection ? 'Edit Running Production Inspection' : 'New In-Process Quality Inspection (QMS)'}
+              {initialInspection
+                ? `Edit & Revise Inspection ${initialInspection.inspectionNo} (Revision: ${form.getFieldValue('revNo') || '02'})`
+                : 'New In-Process Quality Inspection (QMS)'}
             </div>
             <div style={{ fontSize: '12px', color: token.colorPrimary, fontWeight: 600 }}>
-              {divisionName} • {departmentName} • {form.getFieldValue('docRef') || 'SPD/QMS/05'} (Rev: 02)
+              {divisionName} • {departmentName} • {form.getFieldValue('docRef') || 'SPD/QMS/05'} (Rev: {form.getFieldValue('revNo') || '01'})
             </div>
           </div>
-          <Tag
-            color={overallResult === 'PASS' ? 'success' : overallResult === 'FAIL' ? 'error' : 'blue'}
-            style={{ fontSize: '13px', padding: '4px 10px', fontWeight: 700 }}
+          <span
+            style={{
+              display: 'inline-block',
+              backgroundColor: overallResult === 'PASS' ? '#10b981' : overallResult === 'FAIL' ? '#ef4444' : '#2563eb',
+              color: '#ffffff',
+              fontWeight: 800,
+              fontSize: '12px',
+              padding: '4px 14px',
+              borderRadius: '6px',
+              letterSpacing: '0.5px',
+              boxShadow: `0 2px 6px ${overallResult === 'PASS' ? 'rgba(16, 185, 129, 0.4)' : overallResult === 'FAIL' ? 'rgba(239, 68, 68, 0.4)' : 'rgba(37, 99, 235, 0.4)'}`,
+            }}
           >
             OVERALL: {overallResult}
-          </Tag>
+          </span>
         </div>
       }
       open={visible}
@@ -676,12 +721,7 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
                         {row.average !== null && row.average !== undefined ? `${row.average} ${row.unit}` : '-'}
                       </td>
                       <td style={{ padding: '6px 8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>
-                        <Tag
-                          color={row.status === 'PASS' ? 'success' : row.status === 'FAIL' ? 'error' : 'blue'}
-                          style={{ fontWeight: 700 }}
-                        >
-                          {row.status}
-                        </Tag>
+                        {renderStatusBadge(row.status)}
                       </td>
                     </tr>
                   );
@@ -724,7 +764,7 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
                       style={{ width: '60px' }}
                       onChange={(nv) => handleAttributeChange(attr.id, Number(nv || 0))}
                     />
-                    <Tag color={attr.status === 'PASS' ? 'success' : 'error'}>{attr.status}</Tag>
+                    {renderStatusBadge(attr.status)}
                   </Space>
                 </div>
               </Col>
