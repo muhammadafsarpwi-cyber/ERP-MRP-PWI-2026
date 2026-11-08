@@ -64,6 +64,17 @@ export class ProductionReworkReturnController {
     return this.service.getSummary(companyId, divisionId);
   }
 
+  @Get('stage-items')
+  @ApiOperation({ summary: 'Get stage components and WIP items for returns routing' })
+  async getStageItems(
+    @Query('divisionId') divisionId?: string,
+    @Query('fromDepartmentId') fromDepartmentId?: string,
+    @Query('toDepartmentId') toDepartmentId?: string,
+  ) {
+    const data = await this.service.getStageItems({ divisionId, fromDepartmentId, toDepartmentId });
+    return { success: true, data };
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Get rework return detail by ID' })
   async findOne(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {

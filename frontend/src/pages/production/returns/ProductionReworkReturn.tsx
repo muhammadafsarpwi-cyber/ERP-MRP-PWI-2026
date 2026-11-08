@@ -15,6 +15,7 @@ import apiService from '../../../services/api';
 import { formatNumber, formatDecimal } from '../../../utils/numberFormat';
 import GlobalLoading from '../../../components/shared/GlobalLoading';
 import PageHeader from '../../../components/shared/PageHeader';
+import { CANONICAL_STAGE_ITEMS } from './spokeStageItems';
 
 const { Text } = Typography;
 
@@ -102,6 +103,19 @@ const CANONICAL_DIVISIONS = [
   { id: '0653339b-94d0-4cc5-b880-e07908b2015f', divisionCode: 'DIV-NB', name: 'NB Division' },
 ];
 
+const CANONICAL_DEPARTMENTS = [
+  { id: 'd3000000-0000-0000-0000-000000000008', name: 'Spoke Packing', departmentCode: 'SPD-DEPT008', divisionId: 'd1000000-0000-0000-0000-000000000001' },
+  { id: 'd3000000-0000-0000-0000-000000000006', name: 'Spoke Plating', departmentCode: 'SPD-DEPT006', divisionId: 'd1000000-0000-0000-0000-000000000001' },
+  { id: 'd3000000-0000-0000-0000-000000000003', name: 'Spoke', departmentCode: 'SPD-DEPT003', divisionId: 'd1000000-0000-0000-0000-000000000001' },
+  { id: 'd3000000-0000-0000-0000-000000000004', name: 'Header', departmentCode: 'SPD-DEPT004', divisionId: 'd1000000-0000-0000-0000-000000000001' },
+  { id: 'd3000000-0000-0000-0000-000000000002', name: 'Swagging', departmentCode: 'SPD-DEPT002', divisionId: 'd1000000-0000-0000-0000-000000000001' },
+  { id: 'd3000000-0000-0000-0000-000000000001', name: 'Straightener', departmentCode: 'SPD-DEPT001', divisionId: 'd1000000-0000-0000-0000-000000000001' },
+  { id: 'd3000000-0000-0000-0000-000000000007', name: 'Nipple Plating', departmentCode: 'SPD-DEPT007', divisionId: 'd1000000-0000-0000-0000-000000000001' },
+  { id: 'd3000000-0000-0000-0000-000000000005', name: 'Nipple', departmentCode: 'SPD-DEPT005', divisionId: 'd1000000-0000-0000-0000-000000000001' },
+  { id: 'fd474329-e796-4343-831b-f95a9add41f0', name: 'Nipple Packing', departmentCode: 'SPI-NP-002', divisionId: 'd1000000-0000-0000-0000-000000000001' },
+  { id: 'f8312f0c-ba1e-401a-80cd-43d6b5cc8c05', name: 'Raw Material (RM)', departmentCode: 'SPI-DEPT112', divisionId: 'd1000000-0000-0000-0000-000000000001' },
+];
+
 const DEFAULT_UOMS = [
   { id: 'b932052f-141f-4d78-9baf-7025e5302442', code: 'PCS', name: 'Pieces' },
   { id: 'c3f9c90e-1e97-4564-8e4e-36a676bdc57e', code: 'GRS', name: 'Gross' },
@@ -110,8 +124,9 @@ const DEFAULT_UOMS = [
 
   // Dropdown reference options
   const [divisions, setDivisions] = useState<any[]>(CANONICAL_DIVISIONS);
-  const [departments, setDepartments] = useState<any[]>([]);
+  const [departments, setDepartments] = useState<any[]>(CANONICAL_DEPARTMENTS);
   const [items, setItems] = useState<any[]>([]);
+  const [stageItems, setStageItems] = useState<any[]>(CANONICAL_STAGE_ITEMS);
   const [uoms, setUoms] = useState<any[]>(DEFAULT_UOMS);
 
   // Modals
@@ -129,6 +144,29 @@ const DEFAULT_UOMS = [
   const modalFromDeptId = Form.useWatch('fromDepartmentId', createForm);
   const modalToDeptId = Form.useWatch('toDepartmentId', createForm);
   const modalItemId = Form.useWatch('itemId', createForm);
+
+  // Fetch Stage Components & WIP Items tailored to Division & Routing
+  const fetchStageItems = useCallback(async (divId?: string, fromId?: string, toId?: string) => {
+    try {
+      const res = await apiService.get<any>('/production/rework-returns/stage-items', {
+        divisionId: divId,
+        fromDepartmentId: fromId,
+        toDepartmentId: toId,
+      });
+      if (res && res.success && Array.isArray(res.data) && res.data.length > 0) {
+        setStageItems(res.data);
+      }
+    } catch (err) {
+      console.warn('Failed to load stage items from API:', err);
+    }
+  }, []);
+
+  // Trigger stage items fetch when modal routing changes
+  useEffect(() => {
+    if (createModalOpen) {
+      fetchStageItems(modalDivisionId, modalFromDeptId, modalToDeptId);
+    }
+  }, [createModalOpen, modalDivisionId, modalFromDeptId, modalToDeptId, fetchStageItems]);
 
   // Departments for modal (strictly filtered to selected Division, shopfloor only)
   const modalDepartments = useMemo(() => {
@@ -154,24 +192,152 @@ const DEFAULT_UOMS = [
     return filtered.length > 0 ? filtered : departments.filter(d => !d.departmentCode?.startsWith('CENT-'));
   }, [departments, selectedDivision]);
 
-  // Items for modal (filtered to selected Division, with fallback so it is never empty)
-  const modalItems = useMemo(() => {
-    if (!modalDivisionId) return items;
-    const isSpoke = divisions.find(d => d.id === modalDivisionId)?.divisionCode === 'DIV-SPD' ||
-                    modalDivisionId === 'd1000000-0000-0000-0000-000000000001';
-    const filtered = items.filter(i => {
-      if (i.divisionId === modalDivisionId) return true;
-      if (i.processes?.some((p: any) => p.divisionId === modalDivisionId)) return true;
-      if (isSpoke && (i.itemCode?.startsWith('SPI') || i.itemCode?.startsWith('WIP-S') || i.itemCode?.startsWith('FG-NP'))) return true;
-      return false;
+  // All combined item pool for modal
+  const allItemPool = useMemo(() => {
+    const map = new Map<string, any>();
+    stageItems.forEach(i => map.set(i.id, i));
+    items.forEach(i => {
+      if (!map.has(i.id)) map.set(i.id, i);
     });
-    return filtered.length > 0 ? filtered : items;
-  }, [items, modalDivisionId, divisions]);
+    return Array.from(map.values());
+  }, [stageItems, items]);
+
+  // Grouped Item Options for Modal Select
+  const groupedModalItemOptions = useMemo(() => {
+    const pool = allItemPool;
+    const fromDept = modalDepartments.find(d => d.id === modalFromDeptId);
+    const toDept = modalDepartments.find(d => d.id === modalToDeptId);
+    const fromName = (fromDept?.name || '').toLowerCase();
+    const toName = (toDept?.name || '').toLowerCase();
+
+    // Recommendation logic
+    const isRecommended = (item: any) => {
+      if (item.isRecommended) return true;
+      const code = item.itemCode || '';
+      if ((fromName.includes('packing') || fromDept?.departmentCode === 'SPD-DEPT008') &&
+          (toName.includes('plating') || toDept?.departmentCode === 'SPD-DEPT006')) {
+        return code.startsWith('WIP-SPL') || code.startsWith('FG-NP') || code.startsWith('WIP-NPL');
+      }
+      if ((fromName.includes('plating') || fromDept?.departmentCode === 'SPD-DEPT006') &&
+          (toName.includes('spoke') || toName.includes('header') || toDept?.departmentCode === 'SPD-DEPT003')) {
+        return code.startsWith('WIP-SPK');
+      }
+      if ((fromName.includes('spoke') || fromName.includes('header')) &&
+          (toName.includes('swag') || toName.includes('straight'))) {
+        return code.startsWith('WIP-SW') || code.startsWith('WIP-ST');
+      }
+      return false;
+    };
+
+    const recommendedList: any[] = [];
+    const platedList: any[] = [];
+    const headingList: any[] = [];
+    const wireList: any[] = [];
+    const cartonList: any[] = [];
+    const otherList: any[] = [];
+
+    pool.forEach(item => {
+      const code = item.itemCode || '';
+      const name = item.name || '';
+      const nameLower = name.toLowerCase();
+
+      let stageLabel = item.stageLabel || '';
+      if (!stageLabel) {
+        if (code.startsWith('WIP-SPL')) {
+          stageLabel = nameLower.includes('inner') ? 'Plated Inner Spoke' : nameLower.includes('outer') ? 'Plated Outer Spoke' : 'Plated Spoke';
+        } else if (code.startsWith('FG-NP') || code.startsWith('WIP-NPL')) {
+          stageLabel = 'Plated Nipple';
+        } else if (code.startsWith('WIP-SPK')) {
+          stageLabel = nameLower.includes('inner') ? 'Heading Inner Spoke' : nameLower.includes('outer') ? 'Heading Outer Spoke' : 'Heading Spoke';
+        } else if (code.startsWith('WIP-SW')) {
+          stageLabel = 'Swagged Wire';
+        } else if (code.startsWith('WIP-ST')) {
+          stageLabel = 'Straightened Wire';
+        } else if (code.startsWith('SPI-FG-SPK')) {
+          stageLabel = 'Packed Carton (FG)';
+        }
+      }
+
+      const formattedOption = {
+        label: `[${code}] ${name} ${stageLabel ? `(${stageLabel})` : ''}`,
+        value: item.id,
+        itemCode: code,
+        name: name,
+        stageLabel: stageLabel,
+        raw: item,
+      };
+
+      if (isRecommended(item)) {
+        recommendedList.push(formattedOption);
+      } else if (code.startsWith('WIP-SPL') || code.startsWith('FG-NP') || code.startsWith('WIP-NPL')) {
+        platedList.push(formattedOption);
+      } else if (code.startsWith('WIP-SPK')) {
+        headingList.push(formattedOption);
+      } else if (code.startsWith('WIP-SW') || code.startsWith('WIP-ST')) {
+        wireList.push(formattedOption);
+      } else if (code.startsWith('SPI-FG')) {
+        cartonList.push(formattedOption);
+      } else {
+        otherList.push(formattedOption);
+      }
+    });
+
+    // Prioritize WIP-SPL (Inner & Outer Spokes) at the top of recommendations & plated groups
+    const sortByWipSpl = (a: any, b: any) => {
+      const aIsSpl = (a.itemCode || '').startsWith('WIP-SPL');
+      const bIsSpl = (b.itemCode || '').startsWith('WIP-SPL');
+      if (aIsSpl && !bIsSpl) return -1;
+      if (!aIsSpl && bIsSpl) return 1;
+      return (a.itemCode || '').localeCompare(b.itemCode || '');
+    };
+    recommendedList.sort(sortByWipSpl);
+    platedList.sort(sortByWipSpl);
+
+    const groups: any[] = [];
+    if (recommendedList.length > 0) {
+      groups.push({
+        label: `⭐ RECOMMENDED FOR THIS HANDOVER (${recommendedList.length})`,
+        options: recommendedList,
+      });
+    }
+    if (platedList.length > 0) {
+      groups.push({
+        label: `✨ PLATED COMPONENTS (SPOKES & NIPPLES) (${platedList.length})`,
+        options: platedList,
+      });
+    }
+    if (headingList.length > 0) {
+      groups.push({
+        label: `⚙️ UNPLATED HEADING COMPONENTS (${headingList.length})`,
+        options: headingList,
+      });
+    }
+    if (wireList.length > 0) {
+      groups.push({
+        label: `⛓️ WIRE PROCESSING WIP (STRAIGHT & SWAGGED) (${wireList.length})`,
+        options: wireList,
+      });
+    }
+    if (cartonList.length > 0) {
+      groups.push({
+        label: `📦 PACKED FINISHED GOODS (FULL CARTONS) (${cartonList.length})`,
+        options: cartonList,
+      });
+    }
+    if (otherList.length > 0 && groups.length === 0) {
+      groups.push({
+        label: `OTHER SHOPFLOOR ITEMS (${otherList.length})`,
+        options: otherList.slice(0, 100),
+      });
+    }
+
+    return groups;
+  }, [allItemPool, modalDepartments, modalFromDeptId, modalToDeptId]);
 
   // Selected item object in modal
   const modalItemObj = useMemo(() => {
-    return items.find(i => i.id === modalItemId);
-  }, [items, modalItemId]);
+    return allItemPool.find(i => i.id === modalItemId);
+  }, [allItemPool, modalItemId]);
 
   // Fetch Lookups (Divisions, Departments, Items, UOMs)
   useEffect(() => {
@@ -296,9 +462,9 @@ const DEFAULT_UOMS = [
 
   // Item select in modal -> auto populate UOM
   const handleItemSelect = (itemId: string) => {
-    const sel = items.find(i => i.id === itemId);
+    const sel = allItemPool.find(i => i.id === itemId);
     if (sel) {
-      const uomId = sel.baseUomId || sel.baseUom?.id || uoms.find(u => u.code === 'PCS')?.id || uoms[0]?.id;
+      const uomId = sel.uomId || sel.baseUomId || sel.baseUom?.id || uoms.find(u => u.code === 'PCS')?.id || uoms[0]?.id;
       createForm.setFieldsValue({
         itemId,
         uomId,
@@ -486,17 +652,49 @@ const DEFAULT_UOMS = [
     {
       title: 'ITEM (WIP / FG)',
       key: 'item',
-      render: (_, r) => (
-        <div>
-          <div style={{ fontWeight: 700, fontSize: 13, color: token.colorText }}>
-            {r.item?.name || 'Unknown Item'}
+      render: (_, r) => {
+        const code = r.item?.itemCode || '';
+        const name = r.item?.name || 'Unknown Item';
+        const nameLower = name.toLowerCase();
+
+        let stageTag = <Tag color="default" style={{ fontSize: 10, margin: 0 }}>WIP STAGE</Tag>;
+        if (code.startsWith('WIP-SPL')) {
+          if (nameLower.includes('inner')) {
+            stageTag = <Tag color="blue" style={{ fontSize: 10, margin: 0, fontWeight: 700 }}>INNER SPOKE (PLATED)</Tag>;
+          } else if (nameLower.includes('outer')) {
+            stageTag = <Tag color="cyan" style={{ fontSize: 10, margin: 0, fontWeight: 700 }}>OUTER SPOKE (PLATED)</Tag>;
+          } else {
+            stageTag = <Tag color="blue" style={{ fontSize: 10, margin: 0, fontWeight: 700 }}>PLATED SPOKE</Tag>;
+          }
+        } else if (code.startsWith('FG-NP') || code.startsWith('WIP-NPL')) {
+          stageTag = <Tag color="purple" style={{ fontSize: 10, margin: 0, fontWeight: 700 }}>PLATED NIPPLE</Tag>;
+        } else if (code.startsWith('WIP-SPK')) {
+          if (nameLower.includes('inner')) {
+            stageTag = <Tag color="geekblue" style={{ fontSize: 10, margin: 0 }}>INNER HEADING SPOKE</Tag>;
+          } else if (nameLower.includes('outer')) {
+            stageTag = <Tag color="geekblue" style={{ fontSize: 10, margin: 0 }}>OUTER HEADING SPOKE</Tag>;
+          } else {
+            stageTag = <Tag color="geekblue" style={{ fontSize: 10, margin: 0 }}>HEADING SPOKE</Tag>;
+          }
+        } else if (code.startsWith('WIP-SW') || code.startsWith('WIP-ST')) {
+          stageTag = <Tag color="orange" style={{ fontSize: 10, margin: 0 }}>WIRE WIP</Tag>;
+        } else if (code.startsWith('SPI-FG')) {
+          stageTag = <Tag color="green" style={{ fontSize: 10, margin: 0, fontWeight: 700 }}>PACKED CARTON (FG)</Tag>;
+        }
+
+        return (
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 13, color: token.colorText }}>
+              {name}
+            </div>
+            <div style={{ display: 'flex', gap: 6, marginTop: 3, flexWrap: 'wrap', alignItems: 'center' }}>
+              <Tag style={{ fontSize: 10.5, margin: 0 }}>{code}</Tag>
+              {stageTag}
+              <Tag color="volcano" style={{ fontSize: 10, margin: 0 }}>REWORK (NON-COUNT)</Tag>
+            </div>
           </div>
-          <div style={{ display: 'flex', gap: 6, marginTop: 2 }}>
-            <Tag style={{ fontSize: 10.5, margin: 0 }}>{r.item?.itemCode}</Tag>
-            <Tag color="cyan" style={{ fontSize: 10, margin: 0 }}>REWORK (NON-COUNT)</Tag>
-          </div>
-        </div>
-      ),
+        );
+      },
     },
     {
       title: 'RETURN QTY',
@@ -947,27 +1145,64 @@ const DEFAULT_UOMS = [
             <Col xs={24} sm={16}>
               <Form.Item 
                 name="itemId" 
-                label="Defective Item (WIP or FG)" 
+                label="Defective Item (WIP Stage Component or FG)" 
                 rules={[{ required: true, message: 'Please select defective item' }]}
                 extra={
                   modalItemObj ? (
-                    <span style={{ fontSize: 11, color: token.colorTextSecondary }}>
-                      Selected: <strong>{modalItemObj.itemCode}</strong> - {modalItemObj.name}
-                    </span>
+                    <div style={{
+                      marginTop: 6,
+                      padding: '8px 12px',
+                      borderRadius: 6,
+                      background: 'var(--theme-surface-alt, rgba(0,0,0,0.02))',
+                      border: `1px solid ${token.colorBorderSecondary}`,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 4,
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+                        <Space size={6}>
+                          <Tag color={
+                            modalItemObj.itemCode?.startsWith('WIP-SPL') ? (modalItemObj.name?.toLowerCase().includes('inner') ? 'blue' : 'cyan') :
+                            modalItemObj.itemCode?.startsWith('FG-NP') || modalItemObj.itemCode?.startsWith('WIP-NPL') ? 'purple' :
+                            modalItemObj.itemCode?.startsWith('WIP-SPK') ? 'geekblue' :
+                            modalItemObj.itemCode?.startsWith('SPI-FG') ? 'green' : 'default'
+                          } style={{ fontWeight: 700, margin: 0 }}>
+                            {modalItemObj.stageLabel || (
+                              modalItemObj.itemCode?.startsWith('WIP-SPL') ? (modalItemObj.name?.toLowerCase().includes('inner') ? 'Plated Inner Spoke' : 'Plated Outer Spoke') :
+                              modalItemObj.itemCode?.startsWith('FG-NP') ? 'Plated Nipple' :
+                              modalItemObj.itemCode?.startsWith('WIP-SPK') ? 'Heading Spoke' :
+                              modalItemObj.itemCode?.startsWith('SPI-FG') ? 'Packed Carton FG' : 'WIP Component'
+                            )}
+                          </Tag>
+                          <strong style={{ color: token.colorText }}>{modalItemObj.name}</strong>
+                        </Space>
+                        <Tag color="volcano" style={{ fontWeight: 700, margin: 0 }}>REWORK (NON-COUNT)</Tag>
+                      </div>
+                      <div style={{ fontSize: 11, color: token.colorTextSecondary }}>
+                        {modalItemObj.itemCode?.startsWith('WIP-SPL') ? (
+                          'Inter-department component returned to Spoke Plating for chemical strip & re-plating. Carton packaging happens only after plating is verified.'
+                        ) : modalItemObj.itemCode?.startsWith('FG-NP') ? (
+                          'Plated nipple returned to Nipple Plating for rework. Does not affect carton finished goods assembly until rectified.'
+                        ) : modalItemObj.itemCode?.startsWith('WIP-SPK') ? (
+                          'Unplated heading spoke returned to Header shop for burr / thread rectification.'
+                        ) : modalItemObj.itemCode?.startsWith('SPI-FG') ? (
+                          'Fully packed finished carton returned for disassembly / rework.'
+                        ) : (
+                          'Shopfloor material tracked independently with zero double counting.'
+                        )}
+                      </div>
+                    </div>
                   ) : null
                 }
               >
                 <Select
                   showSearch
-                  placeholder="Search item by code or name..."
+                  placeholder="Select defective WIP component (e.g. WIP-SPL Inner/Outer, FG-NP Nipple)..."
                   optionFilterProp="label"
                   filterOption={(input, option) =>
                     (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
                   }
-                  options={modalItems.map(i => ({ 
-                    label: `[${i.itemCode}] ${i.name}`, 
-                    value: i.id 
-                  }))}
+                  options={groupedModalItemOptions}
                   onChange={handleItemSelect}
                 />
               </Form.Item>

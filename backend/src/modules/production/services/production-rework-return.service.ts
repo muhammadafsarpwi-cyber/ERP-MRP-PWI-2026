@@ -236,4 +236,141 @@ export class ProductionReworkReturnService {
       },
     };
   }
+
+  async getStageItems(params: {
+    divisionId?: string;
+    fromDepartmentId?: string;
+    toDepartmentId?: string;
+  }): Promise<any[]> {
+    const rawItems: any[] = await this.returnRepo.manager.query(`
+      SELECT 
+        i.id,
+        i.item_code AS "itemCode",
+        i.name,
+        i.item_type AS "itemType",
+        i.department_id AS "departmentId",
+        i.division_id AS "divisionId",
+        i.base_uom_id AS "baseUomId",
+        u.id AS "uomId",
+        u.code AS "uomCode",
+        u.name AS "uomName"
+      FROM items i
+      LEFT JOIN uoms u ON u.id = i.base_uom_id
+      WHERE (
+        i.item_code LIKE 'WIP-%' 
+        OR i.item_code LIKE 'FG-NP%' 
+        OR i.item_code LIKE 'SPI-FG%'
+        OR i.division_id = 'd1000000-0000-0000-0000-000000000001'
+      )
+      ORDER BY i.item_code ASC
+      LIMIT 500;
+    `);
+
+    let fromDeptCode = '';
+    let toDeptCode = '';
+    let fromDeptName = '';
+    let toDeptName = '';
+    if (params.fromDepartmentId || params.toDepartmentId) {
+      const p1 = params.fromDepartmentId || '00000000-0000-0000-0000-000000000000';
+      const p2 = params.toDepartmentId || '00000000-0000-0000-0000-000000000000';
+      const depts: any[] = await this.returnRepo.manager.query(`
+        SELECT id, department_code, name FROM departments 
+        WHERE id = $1 OR id = $2
+      `, [p1, p2]);
+      const fromDept = depts.find(d => d.id === params.fromDepartmentId);
+      const toDept = depts.find(d => d.id === params.toDepartmentId);
+      if (fromDept) {
+        fromDeptCode = fromDept.department_code || '';
+        fromDeptName = (fromDept.name || '').toLowerCase();
+      }
+      if (toDept) {
+        toDeptCode = toDept.department_code || '';
+        toDeptName = (toDept.name || '').toLowerCase();
+      }
+    }
+
+    return rawItems.map((item) => {
+      let componentType = 'OTHER';
+      let stageLabel = 'Shopfloor Material';
+      let category = 'OTHER';
+
+      const code = item.itemCode || '';
+      const name = item.name || '';
+      const nameLower = name.toLowerCase();
+
+      if (code.startsWith('WIP-SPL')) {
+        if (nameLower.includes('inner')) {
+          componentType = 'INNER_SPOKE';
+          stageLabel = 'Plated Inner Spoke';
+        } else if (nameLower.includes('outer')) {
+          componentType = 'OUTER_SPOKE';
+          stageLabel = 'Plated Outer Spoke';
+        } else {
+          componentType = 'PLATED_SPOKE';
+          stageLabel = 'Plated Spoke';
+        }
+        category = 'PLATED_COMPONENTS';
+      } else if (code.startsWith('FG-NP') || code.startsWith('WIP-NPL')) {
+        componentType = 'NIPPLE';
+        stageLabel = 'Plated Nipple';
+        category = 'PLATED_COMPONENTS';
+      } else if (code.startsWith('WIP-SPK')) {
+        if (nameLower.includes('inner')) {
+          componentType = 'HEADING_INNER_SPOKE';
+          stageLabel = 'Heading Inner Spoke (Unplated)';
+        } else if (nameLower.includes('outer')) {
+          componentType = 'HEADING_OUTER_SPOKE';
+          stageLabel = 'Heading Outer Spoke (Unplated)';
+        } else {
+          componentType = 'HEADING_SPOKE';
+          stageLabel = 'Heading Spoke (Unplated)';
+        }
+        category = 'HEADING_COMPONENTS';
+      } else if (code.startsWith('WIP-SW')) {
+        componentType = 'SWAGGED_WIRE';
+        stageLabel = 'Swagged Wire';
+        category = 'WIRE_PROCESSING';
+      } else if (code.startsWith('WIP-ST')) {
+        componentType = 'STRAIGHT_WIRE';
+        stageLabel = 'Straightened Cut Wire';
+        category = 'WIRE_PROCESSING';
+      } else if (code.startsWith('SPI-FG-SPK')) {
+        componentType = 'PACKED_CARTON';
+        stageLabel = 'Packed Finished Good Carton';
+        category = 'PACKED_CARTONS';
+      } else if (code.startsWith('WIP-CS') || code.startsWith('WIP-PVC') || code.startsWith('WIP-PVS') || code.startsWith('WIP-FLAT')) {
+        componentType = 'CABLE_WIP';
+        stageLabel = 'Cable WIP Component';
+        category = 'CABLE_WIP';
+      }
+
+      // Check recommendation based on from/to departments
+      let isRecommended = false;
+      const isPackingToPlating =
+        (fromDeptName.includes('packing') || fromDeptCode === 'SPD-DEPT008') &&
+        (toDeptName.includes('plating') || toDeptCode === 'SPD-DEPT006');
+      const isPlatingToHeader =
+        (fromDeptName.includes('plating') || fromDeptCode === 'SPD-DEPT006') &&
+        (toDeptName.includes('spoke') || toDeptName.includes('header') || toDeptCode === 'SPD-DEPT003' || toDeptCode === 'SPD-DEPT004');
+      const isHeaderToSwagOrStraight =
+        (fromDeptName.includes('spoke') || fromDeptName.includes('header')) &&
+        (toDeptName.includes('swag') || toDeptName.includes('straight') || toDeptCode === 'SPD-DEPT001' || toDeptCode === 'SPD-DEPT002');
+
+      if (isPackingToPlating && category === 'PLATED_COMPONENTS') {
+        isRecommended = true;
+      } else if (isPlatingToHeader && category === 'HEADING_COMPONENTS') {
+        isRecommended = true;
+      } else if (isHeaderToSwagOrStraight && category === 'WIRE_PROCESSING') {
+        isRecommended = true;
+      }
+
+      return {
+        ...item,
+        componentType,
+        stageLabel,
+        category,
+        isRecommended,
+      };
+    });
+  }
 }
