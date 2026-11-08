@@ -202,41 +202,65 @@ const DEFAULT_UOMS = [
     return Array.from(map.values());
   }, [stageItems, items]);
 
-  // Grouped Item Options for Modal Select
+  // Grouped Item Options for Modal Select (Strictly filtered by target "To Department")
   const groupedModalItemOptions = useMemo(() => {
-    const pool = allItemPool;
-    const fromDept = modalDepartments.find(d => d.id === modalFromDeptId);
     const toDept = modalDepartments.find(d => d.id === modalToDeptId);
-    const fromName = (fromDept?.name || '').toLowerCase();
+    const toCode = toDept?.departmentCode || '';
     const toName = (toDept?.name || '').toLowerCase();
 
-    // Recommendation logic
-    const isRecommended = (item: any) => {
-      if (item.isRecommended) return true;
-      const code = item.itemCode || '';
-      if ((fromName.includes('packing') || fromDept?.departmentCode === 'SPD-DEPT008') &&
-          (toName.includes('plating') || toDept?.departmentCode === 'SPD-DEPT006')) {
-        return code.startsWith('WIP-SPL') || code.startsWith('FG-NP') || code.startsWith('WIP-NPL');
-      }
-      if ((fromName.includes('plating') || fromDept?.departmentCode === 'SPD-DEPT006') &&
-          (toName.includes('spoke') || toName.includes('header') || toDept?.departmentCode === 'SPD-DEPT003')) {
-        return code.startsWith('WIP-SPK');
-      }
-      if ((fromName.includes('spoke') || fromName.includes('header')) &&
-          (toName.includes('swag') || toName.includes('straight'))) {
-        return code.startsWith('WIP-SW') || code.startsWith('WIP-ST');
-      }
-      return false;
-    };
+    // Determine strict target department component prefix & category
+    let targetCategoryTitle = 'REWORK WIP COMPONENTS';
+    let filteredItems: any[] = [];
 
-    const recommendedList: any[] = [];
-    const platedList: any[] = [];
-    const headingList: any[] = [];
-    const wireList: any[] = [];
-    const cartonList: any[] = [];
-    const otherList: any[] = [];
+    // 1. Target is SPOKE PLATING (SPD-DEPT006) -> Strictly Plated Inner & Outer Spokes (WIP-SPL)
+    if (toCode === 'SPD-DEPT006' || (toName.includes('plating') && toName.includes('spoke')) || (toName.includes('plating') && !toName.includes('nipple'))) {
+      targetCategoryTitle = '🎯 SPOKE PLATING REWORK ITEMS — PLATED INNER & OUTER SPOKES';
+      filteredItems = allItemPool.filter(i => (i.itemCode || '').startsWith('WIP-SPL'));
+    }
+    // 2. Target is NIPPLE PLATING (SPD-DEPT007) -> Strictly Plated Nipples (FG-NP & WIP-NPL)
+    else if (toCode === 'SPD-DEPT007' || (toName.includes('plating') && toName.includes('nipple'))) {
+      targetCategoryTitle = '🎯 NIPPLE PLATING REWORK ITEMS — PLATED NIPPLES';
+      filteredItems = allItemPool.filter(i => {
+        const c = i.itemCode || '';
+        return c.startsWith('FG-NP') || c.startsWith('WIP-NPL');
+      });
+    }
+    // 3. Target is SPOKE / HEADER (SPD-DEPT003 / SPD-DEPT004) -> Strictly Unplated Heading Spokes (WIP-SPK)
+    else if (toCode === 'SPD-DEPT003' || toCode === 'SPD-DEPT004' || toName.includes('spoke') || toName.includes('header')) {
+      targetCategoryTitle = '🎯 HEADER & SPOKE REWORK ITEMS — UNPLATED HEADING SPOKES';
+      filteredItems = allItemPool.filter(i => (i.itemCode || '').startsWith('WIP-SPK'));
+    }
+    // 4. Target is SWAGGING (SPD-DEPT002) -> Strictly Swagged Wires (WIP-SW)
+    else if (toCode === 'SPD-DEPT002' || toName.includes('swag')) {
+      targetCategoryTitle = '🎯 SWAGGING REWORK ITEMS — SWAGGED WIRES';
+      filteredItems = allItemPool.filter(i => (i.itemCode || '').startsWith('WIP-SW'));
+    }
+    // 5. Target is STRAIGHTENER (SPD-DEPT001) -> Strictly Straightened Cut Wires (WIP-ST)
+    else if (toCode === 'SPD-DEPT001' || toName.includes('straight')) {
+      targetCategoryTitle = '🎯 STRAIGHTENER REWORK ITEMS — STRAIGHT WIRES';
+      filteredItems = allItemPool.filter(i => (i.itemCode || '').startsWith('WIP-ST'));
+    }
+    // 6. Target is NIPPLE (SPD-DEPT005) -> Unplated Nipples
+    else if (toCode === 'SPD-DEPT005' || toName.includes('nipple')) {
+      targetCategoryTitle = '🎯 NIPPLE SHOP REWORK ITEMS — NIPPLES';
+      filteredItems = allItemPool.filter(i => {
+        const c = i.itemCode || '';
+        return c.startsWith('WIP-NPL') || c.startsWith('FG-NP');
+      });
+    }
+    // 7. Target is PACKING (SPD-DEPT008) -> Finished Good Cartons (SPI-FG)
+    else if (toCode === 'SPD-DEPT008' || toName.includes('packing')) {
+      targetCategoryTitle = '📦 PACKING DEPARTMENT — FINISHED CARTONS (FG)';
+      filteredItems = allItemPool.filter(i => (i.itemCode || '').startsWith('SPI-FG'));
+    }
+    // Default fallback: intermediate WIP components only (NEVER Finished Goods cartons)
+    else {
+      targetCategoryTitle = `🎯 ${toDept?.name?.toUpperCase() || 'SHOPFLOOR'} REWORK ITEMS`;
+      filteredItems = allItemPool.filter(i => (i.itemCode || '').startsWith('WIP-'));
+    }
 
-    pool.forEach(item => {
+    // Format options with clear Inner / Outer / Stage labels
+    const formattedOptions = filteredItems.map(item => {
       const code = item.itemCode || '';
       const name = item.name || '';
       const nameLower = name.toLowerCase();
@@ -253,12 +277,10 @@ const DEFAULT_UOMS = [
           stageLabel = 'Swagged Wire';
         } else if (code.startsWith('WIP-ST')) {
           stageLabel = 'Straightened Wire';
-        } else if (code.startsWith('SPI-FG-SPK')) {
-          stageLabel = 'Packed Carton (FG)';
         }
       }
 
-      const formattedOption = {
+      return {
         label: `[${code}] ${name} ${stageLabel ? `(${stageLabel})` : ''}`,
         value: item.id,
         itemCode: code,
@@ -266,73 +288,18 @@ const DEFAULT_UOMS = [
         stageLabel: stageLabel,
         raw: item,
       };
-
-      if (isRecommended(item)) {
-        recommendedList.push(formattedOption);
-      } else if (code.startsWith('WIP-SPL') || code.startsWith('FG-NP') || code.startsWith('WIP-NPL')) {
-        platedList.push(formattedOption);
-      } else if (code.startsWith('WIP-SPK')) {
-        headingList.push(formattedOption);
-      } else if (code.startsWith('WIP-SW') || code.startsWith('WIP-ST')) {
-        wireList.push(formattedOption);
-      } else if (code.startsWith('SPI-FG')) {
-        cartonList.push(formattedOption);
-      } else {
-        otherList.push(formattedOption);
-      }
     });
 
-    // Prioritize WIP-SPL (Inner & Outer Spokes) at the top of recommendations & plated groups
-    const sortByWipSpl = (a: any, b: any) => {
-      const aIsSpl = (a.itemCode || '').startsWith('WIP-SPL');
-      const bIsSpl = (b.itemCode || '').startsWith('WIP-SPL');
-      if (aIsSpl && !bIsSpl) return -1;
-      if (!aIsSpl && bIsSpl) return 1;
-      return (a.itemCode || '').localeCompare(b.itemCode || '');
-    };
-    recommendedList.sort(sortByWipSpl);
-    platedList.sort(sortByWipSpl);
+    // Sort so WIP-SPL-001 (Inner) and WIP-SPL-002 (Outer) appear in clean sequential order
+    formattedOptions.sort((a, b) => (a.itemCode || '').localeCompare(b.itemCode || ''));
 
-    const groups: any[] = [];
-    if (recommendedList.length > 0) {
-      groups.push({
-        label: `⭐ RECOMMENDED FOR THIS HANDOVER (${recommendedList.length})`,
-        options: recommendedList,
-      });
-    }
-    if (platedList.length > 0) {
-      groups.push({
-        label: `✨ PLATED COMPONENTS (SPOKES & NIPPLES) (${platedList.length})`,
-        options: platedList,
-      });
-    }
-    if (headingList.length > 0) {
-      groups.push({
-        label: `⚙️ UNPLATED HEADING COMPONENTS (${headingList.length})`,
-        options: headingList,
-      });
-    }
-    if (wireList.length > 0) {
-      groups.push({
-        label: `⛓️ WIRE PROCESSING WIP (STRAIGHT & SWAGGED) (${wireList.length})`,
-        options: wireList,
-      });
-    }
-    if (cartonList.length > 0) {
-      groups.push({
-        label: `📦 PACKED FINISHED GOODS (FULL CARTONS) (${cartonList.length})`,
-        options: cartonList,
-      });
-    }
-    if (otherList.length > 0 && groups.length === 0) {
-      groups.push({
-        label: `OTHER SHOPFLOOR ITEMS (${otherList.length})`,
-        options: otherList.slice(0, 100),
-      });
-    }
-
-    return groups;
-  }, [allItemPool, modalDepartments, modalFromDeptId, modalToDeptId]);
+    return [
+      {
+        label: `${targetCategoryTitle} (${formattedOptions.length})`,
+        options: formattedOptions,
+      },
+    ];
+  }, [allItemPool, modalDepartments, modalToDeptId]);
 
   // Selected item object in modal
   const modalItemObj = useMemo(() => {
@@ -1105,6 +1072,13 @@ const DEFAULT_UOMS = [
                   placeholder="Select Rework Department"
                   showSearch
                   optionFilterProp="label"
+                  onChange={(val) => {
+                    createForm.setFieldsValue({
+                      toDepartmentId: val,
+                      itemId: undefined,
+                      uomId: undefined,
+                    });
+                  }}
                   options={modalDepartments.map(d => ({ 
                     label: `${d.name} (${d.departmentCode || ''})`, 
                     value: d.id 
@@ -1145,7 +1119,7 @@ const DEFAULT_UOMS = [
             <Col xs={24} sm={16}>
               <Form.Item 
                 name="itemId" 
-                label="Defective Item (WIP Stage Component or FG)" 
+                label={`Defective Component for Target Department (${modalDepartments.find(d => d.id === modalToDeptId)?.name || 'Destination'})`}
                 rules={[{ required: true, message: 'Please select defective item' }]}
                 extra={
                   modalItemObj ? (
