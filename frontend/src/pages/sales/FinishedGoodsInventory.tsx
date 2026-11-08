@@ -610,17 +610,19 @@ const FinishedGoodsInventory: React.FC = () => {
     return (
       <div
         style={{
-          padding: '12px 16px',
+          padding: '10px 14px',
           background: 'var(--theme-surface-alt, rgba(148, 163, 184, 0.05))',
           borderRadius: 8,
           border: `1px solid ${token.colorBorderSecondary}`,
-          margin: '6px 0',
+          margin: '4px 0',
+          width: 'fit-content',
+          maxWidth: '100%',
         }}
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <ThunderboltOutlined style={{ color: token.colorPrimary, fontSize: 15 }} />
-            <span style={{ fontWeight: 700, fontSize: 13, color: token.colorText }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, gap: 12, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <ThunderboltOutlined style={{ color: token.colorPrimary, fontSize: 14 }} />
+            <span style={{ fontWeight: 700, fontSize: 12.5, color: token.colorText }}>
               SHOPFLOOR COMPONENT PIPELINE &amp; PACKING STAGE: {record.itemCode}
             </span>
           </div>
@@ -630,31 +632,37 @@ const FinishedGoodsInventory: React.FC = () => {
             danger={isHoldActive}
             icon={<ClockCircleOutlined />}
             onClick={() => handleOpenHoldModal(record)}
-            style={{ fontWeight: 600, borderRadius: 6 }}
+            style={{ fontWeight: 600, borderRadius: 6, fontSize: 11 }}
           >
             {isHoldActive ? 'Update / Release Hold' : 'Set Packing Stage Hold'}
           </Button>
         </div>
 
-        <Row gutter={[12, 12]}>
+        {/* 4 Equal Compact Cards snug side-by-side with no empty gaps */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'stretch' }}>
           {/* Card 1: Inner Spoke */}
-          <Col xs={24} sm={12} lg={6}>
-            <div
-              style={{
-                padding: '10px 12px',
-                background: token.colorBgContainer,
-                borderRadius: 8,
-                border: `1px solid ${token.colorBorderSecondary}`,
-                height: '100%',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+          <div
+            style={{
+              width: 255,
+              padding: '9px 12px',
+              background: token.colorBgContainer,
+              borderRadius: 8,
+              border: `1px solid ${token.colorBorderSecondary}`,
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'space-between',
+            }}
+          >
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
                 <Tag color="blue" style={{ fontWeight: 700, margin: 0 }}>INNER SPOKE</Tag>
                 <Tag style={{ fontSize: 10.5, margin: 0 }}>{p.innerSpoke.code}</Tag>
               </div>
-              <div style={{ fontSize: 11.5, fontWeight: 600, color: token.colorText, marginBottom: 6, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              <div style={{ fontSize: 11.5, fontWeight: 600, color: token.colorText, marginBottom: 5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {p.innerSpoke.name}
               </div>
+            </div>
+            <div>
               <div style={{ fontSize: 11.5, marginBottom: 3 }}>
                 <span style={{ color: token.colorTextSecondary }}>In Heading (SPK): </span>
                 <strong style={{ color: token.colorText }}>{formatDecimal(innerHeading)} PCS</strong>
@@ -664,26 +672,31 @@ const FinishedGoodsInventory: React.FC = () => {
                 <strong style={{ color: '#16a34a' }}>{formatDecimal(innerPlated)} PCS</strong>
               </div>
             </div>
-          </Col>
+          </div>
 
           {/* Card 2: Outer Spoke */}
-          <Col xs={24} sm={12} lg={6}>
-            <div
-              style={{
-                padding: '10px 12px',
-                background: token.colorBgContainer,
-                borderRadius: 8,
-                border: `1px solid ${token.colorBorderSecondary}`,
-                height: '100%',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+          <div
+            style={{
+              width: 255,
+              padding: '9px 12px',
+              background: token.colorBgContainer,
+              borderRadius: 8,
+              border: `1px solid ${token.colorBorderSecondary}`,
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'space-between',
+            }}
+          >
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
                 <Tag color="cyan" style={{ fontWeight: 700, margin: 0 }}>OUTER SPOKE</Tag>
                 <Tag style={{ fontSize: 10.5, margin: 0 }}>{p.outerSpoke.code}</Tag>
               </div>
-              <div style={{ fontSize: 11.5, fontWeight: 600, color: token.colorText, marginBottom: 6, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              <div style={{ fontSize: 11.5, fontWeight: 600, color: token.colorText, marginBottom: 5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {p.outerSpoke.name}
               </div>
+            </div>
+            <div>
               <div style={{ fontSize: 11.5, marginBottom: 3 }}>
                 <span style={{ color: token.colorTextSecondary }}>In Heading (SPK): </span>
                 <strong style={{ color: token.colorText }}>{formatDecimal(outerHeading)} PCS</strong>
@@ -693,29 +706,33 @@ const FinishedGoodsInventory: React.FC = () => {
                 <strong style={{ color: '#16a34a' }}>{formatDecimal(outerPlated)} PCS</strong>
               </div>
             </div>
-          </Col>
+          </div>
 
           {/* Card 3: Inner vs Outer Variance / Backup Gap */}
-          <Col xs={24} sm={12} lg={6}>
-            <div
-              style={{
-                padding: '10px 12px',
-                background: token.colorBgContainer,
-                borderRadius: 8,
-                border: `1px solid ${token.colorBorderSecondary}`,
-                height: '100%',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+          <div
+            style={{
+              width: 255,
+              padding: '9px 12px',
+              background: token.colorBgContainer,
+              borderRadius: 8,
+              border: `1px solid ${token.colorBorderSecondary}`,
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'space-between',
+            }}
+          >
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
                 <Tag color="orange" style={{ fontWeight: 700, margin: 0 }}>INNER vs OUTER VARIANCE</Tag>
               </div>
-              <div style={{ fontSize: 11, fontWeight: 600, color: token.colorTextSecondary, marginBottom: 6 }}>
+              <div style={{ fontSize: 10.5, color: token.colorTextSecondary, marginBottom: 5 }}>
                 Shopfloor Backup &amp; Balance Gap
               </div>
-
+            </div>
+            <div>
               {/* Heading Diff */}
-              <div style={{ fontSize: 11.5, marginBottom: 4 }}>
-                <span style={{ color: token.colorTextSecondary }}>Heading (SPK) Diff: </span>
+              <div style={{ fontSize: 11.5, marginBottom: 3 }}>
+                <span style={{ color: token.colorTextSecondary }}>Heading Diff: </span>
                 {headingDiff === 0 ? (
                   <Tag color="success" style={{ fontSize: 10, padding: '0 4px', margin: 0 }}>Balanced</Tag>
                 ) : headingDiff > 0 ? (
@@ -731,7 +748,7 @@ const FinishedGoodsInventory: React.FC = () => {
 
               {/* Plated Diff */}
               <div style={{ fontSize: 11.5 }}>
-                <span style={{ color: token.colorTextSecondary }}>Plated (SPL) Diff: </span>
+                <span style={{ color: token.colorTextSecondary }}>Plated Diff: </span>
                 {platedDiff === 0 ? (
                   <Tag color="success" style={{ fontSize: 10, padding: '0 4px', margin: 0 }}>Matched</Tag>
                 ) : platedDiff > 0 ? (
@@ -745,50 +762,55 @@ const FinishedGoodsInventory: React.FC = () => {
                 )}
               </div>
             </div>
-          </Col>
+          </div>
 
           {/* Card 4: Packing Floor Stage */}
-          <Col xs={24} sm={12} lg={6}>
-            <div
-              style={{
-                padding: '10px 12px',
-                background: token.colorBgContainer,
-                borderRadius: 8,
-                border: `1px solid ${token.colorBorderSecondary}`,
-                height: '100%',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+          <div
+            style={{
+              width: 255,
+              padding: '9px 12px',
+              background: token.colorBgContainer,
+              borderRadius: 8,
+              border: `1px solid ${token.colorBorderSecondary}`,
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'space-between',
+            }}
+          >
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
                 <Tag color="purple" style={{ fontWeight: 700, margin: 0 }}>PACKING FLOOR</Tag>
                 {p.nippleCode && <Tag color="geekblue" style={{ fontSize: 10, margin: 0 }}>{p.nippleCode}</Tag>}
               </div>
               <div style={{ fontSize: 11.5, marginBottom: 3 }}>
-                <span style={{ color: token.colorTextSecondary }}>In Packing (Ready): </span>
+                <span style={{ color: token.colorTextSecondary }}>In Packing: </span>
                 <strong style={{ color: token.colorPrimary }}>
-                  {formatDecimal(p.readyPairsGrs)} GRS ({formatDecimal(p.readyPairsPcs)} Pairs)
+                  {formatDecimal(p.readyPairsGrs)} GRS ({formatDecimal(p.readyPairsPcs)} Prs)
                 </strong>
               </div>
               <div style={{ fontSize: 11.5, marginBottom: 5 }}>
                 <span style={{ color: token.colorTextSecondary }}>Nipple Stock: </span>
                 <strong>{formatDecimal(p.nippleAvailableStock || 0)} PCS</strong>
               </div>
+            </div>
 
+            <div>
               {isHoldActive ? (
                 <div style={{ padding: '3px 6px', borderRadius: 5, background: 'rgba(234, 179, 8, 0.12)', border: '1px solid #eab308' }}>
-                  <div style={{ fontSize: 10.5, fontWeight: 700, color: '#ca8a04', display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: '#ca8a04', display: 'flex', alignItems: 'center', gap: 4 }}>
                     <ClockCircleOutlined />
                     <span>HOLD: {hold.status === 'POLYBAG_AWAITED' ? 'Polybag Awaited' : hold.status === 'BOX_AWAITED' ? 'Box Awaited' : 'Packing Hold'}</span>
                   </div>
-                  {hold.customerName && <div style={{ fontSize: 10, color: token.colorTextSecondary }}>Customer: <strong>{hold.customerName}</strong></div>}
+                  {hold.customerName && <div style={{ fontSize: 9.5, color: token.colorTextSecondary }}>Customer: <strong>{hold.customerName}</strong></div>}
                 </div>
               ) : (
-                <div style={{ padding: '3px 6px', borderRadius: 5, background: 'rgba(34, 197, 94, 0.12)', border: '1px solid #22c55e', fontSize: 10.5, color: '#16a34a', fontWeight: 600 }}>
+                <div style={{ padding: '3px 6px', borderRadius: 5, background: 'rgba(34, 197, 94, 0.12)', border: '1px solid #22c55e', fontSize: 10, color: '#16a34a', fontWeight: 600 }}>
                   ✓ Stage Clear: Ready to Pack
                 </div>
               )}
             </div>
-          </Col>
-        </Row>
+          </div>
+        </div>
       </div>
     );
   };
