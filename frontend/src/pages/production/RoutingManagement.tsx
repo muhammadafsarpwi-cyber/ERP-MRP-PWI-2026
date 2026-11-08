@@ -8,7 +8,7 @@ import {
 import {
   PlusOutlined, EditOutlined, DeleteOutlined, EyeOutlined, ReloadOutlined, ArrowLeftOutlined,
   ArrowUpOutlined, ArrowDownOutlined, CopyOutlined, UnorderedListOutlined, ApartmentOutlined,
-  CheckCircleFilled, CheckCircleOutlined, ThunderboltOutlined, FilterOutlined,
+  CheckCircleFilled, CheckCircleOutlined, ThunderboltOutlined, FilterOutlined, SortAscendingOutlined, SortDescendingOutlined, StarOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import OperationEditor, {
@@ -98,6 +98,8 @@ const RoutingManagement: React.FC = () => {
   const [search, setSearch] = useState<string>(() => cachedTab?.search ?? '');
   const [filterStatus, setFilterStatus] = useState<string | undefined>(() => cachedTab?.filterStatus ?? undefined);
   const [filterDivision, setFilterDivision] = useState<string>(() => cachedTab?.filterDivision ?? '');
+  const [sortBy, setSortBy] = useState<string>('updatedAt');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [selectedDivisionTemplate, setSelectedDivisionTemplate] = useState<string | undefined>(undefined);
   const [viewMode, setViewMode] = useState<'table' | 'flow'>('table');
 
@@ -284,7 +286,7 @@ const RoutingManagement: React.FC = () => {
   }, [routings]);
 
   const filteredRoutings = useMemo(() => {
-    return (routings || []).filter((r) => {
+    const list = (routings || []).filter((r) => {
       const matchSearch =
         !search ||
         r.routingCode.toLowerCase().includes(search.toLowerCase()) ||
@@ -337,7 +339,39 @@ const RoutingManagement: React.FC = () => {
       }
       return matchSearch && matchStatus && matchDiv;
     });
-  }, [routings, search, filterStatus, filterDivision]);
+
+    return [...list].sort((a, b) => {
+      let cmp = 0;
+      if (sortBy === 'updatedAt') {
+        const timeA = new Date(a.updatedAt || a.createdAt || 0).getTime();
+        const timeB = new Date(b.updatedAt || b.createdAt || 0).getTime();
+        cmp = timeA - timeB;
+      } else if (sortBy === 'createdAt') {
+        const timeA = new Date(a.createdAt || 0).getTime();
+        const timeB = new Date(b.createdAt || 0).getTime();
+        cmp = timeA - timeB;
+      } else if (sortBy === 'routingCode') {
+        cmp = (a.routingCode || '').localeCompare(b.routingCode || '');
+      } else if (sortBy === 'name') {
+        cmp = (a.name || '').localeCompare(b.name || '');
+      } else if (sortBy === 'product') {
+        const pA = a.product ? `${a.product.itemCode} ${a.product.name}` : (a.productId || '');
+        const pB = b.product ? `${b.product.itemCode} ${b.product.name}` : (b.productId || '');
+        cmp = pA.localeCompare(pB);
+      } else if (sortBy === 'routeType') {
+        const rtA = a.routeType?.name || '';
+        const rtB = b.routeType?.name || '';
+        cmp = rtA.localeCompare(rtB);
+      } else if (sortBy === 'status') {
+        cmp = (a.status || '').localeCompare(b.status || '');
+      } else if (sortBy === 'isDefault') {
+        cmp = (a.isDefault === b.isDefault ? 0 : a.isDefault ? 1 : -1);
+      } else if (sortBy === 'ops') {
+        cmp = (a.operations?.length || 0) - (b.operations?.length || 0);
+      }
+      return sortOrder === 'desc' ? -cmp : cmp;
+    });
+  }, [routings, search, filterStatus, filterDivision, sortBy, sortOrder]);
 
   const refreshDetail = useCallback(async (id: string) => {
     try {
@@ -350,14 +384,21 @@ const RoutingManagement: React.FC = () => {
 
   const handleSetDefault = async (r: Routing) => {
     try {
+      setLoading(true);
+      // If status is not ACTIVE, auto-activate as well so it becomes fully active default
+      if (r.status !== 'ACTIVE') {
+        await apiService.put(`/production/routings/${r.id}/status`, { status: 'ACTIVE' });
+      }
       await apiService.put(`/production/routings/${r.id}`, { isDefault: true });
-      message.success(`Set ${r.routingCode} as primary default routing for ${r.product?.itemCode || 'product'}`);
+      message.success(`Set ${r.routingCode} as primary default active routing (Yes)!`);
       await fetchRoutings();
       if (selectedRouting?.id === r.id) {
         await refreshDetail(r.id);
       }
     } catch (err: any) {
       message.error(describeRequestError(err) || 'Failed to update default status');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -817,59 +858,164 @@ const RoutingManagement: React.FC = () => {
   };
 
   const columns: ColumnsType<Routing> = [
-    { title: 'Code', dataIndex: 'routingCode', key: 'routingCode', width: 130, fixed: 'left' },
-    { title: 'Name', dataIndex: 'name', key: 'name', width: 220 },
-    { title: 'Product', key: 'product', width: 220, render: (_, r) => r.product ? `${r.product.itemCode} - ${r.product.name}` : (r.productId || '-') },
-    { title: 'Route Type', key: 'routeType', width: 150, render: (_, r) => r.routeType ? `${r.routeType.routeCode} - ${r.routeType.name}` : (r.routeTypeId ? (routeTypes.find(rt => rt.id === r.routeTypeId)?.name || '-') : '-') },
-    { title: 'BOM', key: 'bom', width: 130, render: (_, r) => r.bom ? `${r.bom.bomCode}` : '-' },
-    { title: 'Status', dataIndex: 'status', key: 'status', width: 100, render: (s: string) => <Tag color={STATUS_COLORS[s]}>{s}</Tag> },
-    { title: 'Ops', key: 'ops', width: 60, align: 'center', render: (_, r) => r.operations?.length || 0 },
+    {
+      title: 'Code',
+      dataIndex: 'routingCode',
+      key: 'routingCode',
+      width: 140,
+      fixed: 'left',
+      sorter: (a, b) => (a.routingCode || '').localeCompare(b.routingCode || ''),
+      render: (code: string) => (
+        <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: 13, color: token.colorPrimary }}>
+          {code}
+        </span>
+      ),
+    },
+    {
+      title: 'Name',
+      dataIndex: 'name',
+      key: 'name',
+      width: 220,
+      sorter: (a, b) => (a.name || '').localeCompare(b.name || ''),
+      render: (text: string) => (
+        <span style={{ fontWeight: 600, color: token.colorText }}>
+          {text}
+        </span>
+      ),
+    },
+    {
+      title: 'Product',
+      key: 'product',
+      width: 240,
+      sorter: (a, b) => {
+        const pA = a.product ? `${a.product.itemCode} ${a.product.name}` : (a.productId || '');
+        const pB = b.product ? `${b.product.itemCode} ${b.product.name}` : (b.productId || '');
+        return pA.localeCompare(pB);
+      },
+      render: (_, r) =>
+        r.product ? (
+          <div>
+            <div style={{ fontWeight: 600, color: token.colorText }}>{r.product.itemCode}</div>
+            <div style={{ fontSize: 11, color: token.colorTextSecondary }}>{r.product.name}</div>
+          </div>
+        ) : (
+          r.productId || '—'
+        ),
+    },
+    {
+      title: 'Route Type',
+      key: 'routeType',
+      width: 160,
+      sorter: (a, b) => {
+        const rtA = a.routeType?.name || '';
+        const rtB = b.routeType?.name || '';
+        return rtA.localeCompare(rtB);
+      },
+      render: (_, r) =>
+        r.routeType ? `${r.routeType.routeCode} - ${r.routeType.name}` : (r.routeTypeId ? (routeTypes.find(rt => rt.id === r.routeTypeId)?.name || '—') : '—'),
+    },
+    {
+      title: 'BOM',
+      key: 'bom',
+      width: 120,
+      sorter: (a, b) => (a.bom?.bomCode || '').localeCompare(b.bom?.bomCode || ''),
+      render: (_, r) => (r.bom ? <Tag color="blue">{r.bom.bomCode}</Tag> : <span style={{ color: token.colorTextTertiary }}>—</span>),
+    },
+    {
+      title: 'Status',
+      dataIndex: 'status',
+      key: 'status',
+      width: 110,
+      sorter: (a, b) => (a.status || '').localeCompare(b.status || ''),
+      render: (s: string, r: Routing) => (
+        <Tooltip title={s === 'DRAFT' ? 'Click to Activate this routing' : `Status: ${s}`}>
+          <Tag
+            color={STATUS_COLORS[s]}
+            style={{ fontWeight: 700, borderRadius: 6, cursor: s === 'DRAFT' ? 'pointer' : 'default' }}
+            onClick={() => {
+              if (s === 'DRAFT') {
+                handleStatusChange(r.id, 'ACTIVE');
+              }
+            }}
+          >
+            {s}
+          </Tag>
+        </Tooltip>
+      ),
+    },
+    {
+      title: 'Ops',
+      key: 'ops',
+      width: 70,
+      align: 'center',
+      sorter: (a, b) => (a.operations?.length || 0) - (b.operations?.length || 0),
+      render: (_, r) => (
+        <Tag style={{ borderRadius: 10, fontWeight: 700 }}>
+          {r.operations?.length || 0}
+        </Tag>
+      ),
+    },
     {
       title: 'Default',
       dataIndex: 'isDefault',
       key: 'isDefault',
-      width: 105,
+      width: 140,
       align: 'center',
+      sorter: (a, b) => (a.isDefault === b.isDefault ? 0 : a.isDefault ? 1 : -1),
       render: (v: boolean, r: Routing) =>
         v ? (
-          <Tag color="success" style={{ fontWeight: 700, borderRadius: 12, padding: '2px 8px' }}>
-            ✔ Yes
-          </Tag>
+          <Tooltip title="This is currently the Active Default Routing (Yes) for this product">
+            <Tag
+              color="success"
+              style={{
+                fontWeight: 700,
+                borderRadius: 14,
+                padding: '3px 10px',
+                fontSize: 12,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+                cursor: 'default',
+              }}
+            >
+              <CheckCircleFilled /> Yes
+            </Tag>
+          </Tooltip>
         ) : (
-          <Popconfirm
-            title="Set as Default Routing?"
-            description={`Set ${r.routingCode} as the primary default routing for this product?`}
-            onConfirm={() => handleSetDefault(r)}
-            okText="Set Default"
-            cancelText="Cancel"
-          >
-            <Tooltip title="Click to make this the active default routing">
-              <Tag
-                color="default"
-                style={{
-                  cursor: 'pointer',
-                  borderRadius: 12,
-                  padding: '2px 8px',
-                  border: '1px dashed #64748b',
-                  color: '#94a3b8',
-                }}
-              >
-                No (Set)
-              </Tag>
-            </Tooltip>
-          </Popconfirm>
+          <Tooltip title={`Click to make ${r.routingCode} the Primary Active Default Routing (Yes)`}>
+            <Button
+              size="small"
+              type="primary"
+              ghost
+              icon={<CheckCircleOutlined />}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSetDefault(r);
+              }}
+              style={{
+                borderRadius: 12,
+                fontWeight: 700,
+                fontSize: 12,
+                height: 26,
+                padding: '0 10px',
+              }}
+            >
+              Set as Yes
+            </Button>
+          </Tooltip>
         ),
     },
     {
       title: 'Created By / Date',
       key: 'created',
-      width: 160,
+      width: 165,
+      sorter: (a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime(),
       render: (_, r) => (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <span style={{ fontWeight: 600, color: '#f1f5f9' }}>
-            {r.createdByName || (r.createdBy ? 'Muhammad Afsar' : '-')}
+          <span style={{ fontWeight: 600, color: token.colorText }}>
+            {r.createdByName || (r.createdBy ? 'Muhammad Afsar' : '—')}
           </span>
-          <span style={{ fontSize: 11, color: '#94a3b8' }}>
+          <span style={{ fontSize: 11, color: token.colorTextSecondary }}>
             {formatDateTime(r.createdAt)}
           </span>
         </div>
@@ -878,25 +1024,47 @@ const RoutingManagement: React.FC = () => {
     {
       title: 'Updated By / Date',
       key: 'updated',
-      width: 160,
+      width: 165,
+      sorter: (a, b) => new Date(a.updatedAt || 0).getTime() - new Date(b.updatedAt || 0).getTime(),
       render: (_, r) => (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <span style={{ fontWeight: 600, color: '#f1f5f9' }}>
-            {r.updatedByName || (r.updatedBy ? 'Muhammad Afsar' : '-')}
+          <span style={{ fontWeight: 600, color: token.colorText }}>
+            {r.updatedByName || (r.updatedBy ? 'Muhammad Afsar' : '—')}
           </span>
-          <span style={{ fontSize: 11, color: '#94a3b8' }}>
+          <span style={{ fontSize: 11, color: token.colorTextSecondary }}>
             {formatDateTime(r.updatedAt)}
           </span>
         </div>
       ),
     },
     {
-      title: 'Actions', key: 'actions', width: 160, fixed: 'right', render: (_, r) => (
+      title: 'Actions',
+      key: 'actions',
+      width: 190,
+      fixed: 'right',
+      render: (_, r) => (
         <Space size="small">
-          <Tooltip title="View Details"><Button size="small" icon={<EyeOutlined />} onClick={() => handleViewDetail(r)} /></Tooltip>
-          <Tooltip title="Edit Routing"><Button size="small" icon={<EditOutlined />} onClick={() => handleEdit(r)} /></Tooltip>
-          <Tooltip title="Copy Routing"><Button size="small" icon={<CopyOutlined />} onClick={() => handleCopyRouting(r.id, r.routingCode)} /></Tooltip>
-          <Tooltip title="Delete Routing"><Button size="small" danger icon={<DeleteOutlined />} onClick={() => handleDelete(r.id, r.routingCode)} /></Tooltip>
+          <Tooltip title="View Details">
+            <Button size="small" icon={<EyeOutlined />} onClick={() => handleViewDetail(r)} />
+          </Tooltip>
+          {!r.isDefault && (
+            <Tooltip title="Set as Active Default Routing (Yes)">
+              <Button
+                size="small"
+                icon={<CheckCircleOutlined style={{ color: '#10b981' }} />}
+                onClick={() => handleSetDefault(r)}
+              />
+            </Tooltip>
+          )}
+          <Tooltip title="Edit Routing">
+            <Button size="small" icon={<EditOutlined />} onClick={() => handleEdit(r)} />
+          </Tooltip>
+          <Tooltip title="Copy Routing">
+            <Button size="small" icon={<CopyOutlined />} onClick={() => handleCopyRouting(r.id, r.routingCode)} />
+          </Tooltip>
+          <Tooltip title="Delete Routing">
+            <Button size="small" danger icon={<DeleteOutlined />} onClick={() => handleDelete(r.id, r.routingCode)} />
+          </Tooltip>
         </Space>
       ),
     },
@@ -1179,6 +1347,22 @@ const RoutingManagement: React.FC = () => {
             </div>
 
             <Space size={8}>
+              {!selectedRouting.isDefault && (
+                <Button
+                  type="primary"
+                  ghost
+                  icon={<CheckCircleOutlined />}
+                  onClick={() => handleSetDefault(selectedRouting)}
+                  style={{
+                    borderRadius: 8,
+                    fontWeight: 600,
+                    borderColor: '#10b981',
+                    color: '#10b981',
+                  }}
+                >
+                  Set as Default (Yes)
+                </Button>
+              )}
               <Button
                 icon={<CopyOutlined />}
                 onClick={() => handleCopyRouting(selectedRouting.id, selectedRouting.routingCode)}
@@ -1526,6 +1710,37 @@ const RoutingManagement: React.FC = () => {
                 <Select.Option value="ACTIVE">Active</Select.Option>
                 <Select.Option value="OBSOLETE">Obsolete</Select.Option>
               </Select>
+              <Select
+                placeholder="Sort By"
+                value={sortBy}
+                onChange={setSortBy}
+                style={{ width: 175 }}
+                options={[
+                  { label: 'Sort: Updated Date', value: 'updatedAt' },
+                  { label: 'Sort: Created Date', value: 'createdAt' },
+                  { label: 'Sort: Routing Code', value: 'routingCode' },
+                  { label: 'Sort: Name', value: 'name' },
+                  { label: 'Sort: Product', value: 'product' },
+                  { label: 'Sort: Default First', value: 'isDefault' },
+                  { label: 'Sort: Ops Count', value: 'ops' },
+                ]}
+              />
+              <Tooltip title={sortOrder === 'asc' ? 'Order: Ascending (Click for Descending / Newest first)' : 'Order: Descending (Click for Ascending / Oldest first)'}>
+                <Button
+                  icon={sortOrder === 'asc' ? <SortAscendingOutlined /> : <SortDescendingOutlined />}
+                  onClick={() => setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
+                  style={{
+                    fontWeight: 600,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    borderColor: token.colorPrimary,
+                    color: token.colorPrimary,
+                  }}
+                >
+                  {sortOrder === 'asc' ? 'Ascending (A-Z)' : 'Descending (Z-A)'}
+                </Button>
+              </Tooltip>
               <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate} style={{ fontWeight: 600 }}>
                 New Routing
               </Button>
