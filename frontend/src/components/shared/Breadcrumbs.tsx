@@ -107,6 +107,7 @@ const PARENT_LABELS: Record<string, string> = {
   qc: 'QC',
   hr: 'HR',
   settings: 'Company Settings',
+  maintenance: 'Maintenance',
 };
 
 /** Prefix-based overrides: when the next child path starts with the key, show the value as parent label. */
@@ -150,10 +151,22 @@ const Breadcrumbs: React.FC<BreadcrumbsProps> = ({ style }) => {
   for (let i = 0; i < builtPaths.length; i++) {
     const path = builtPaths[i];
     const segment = segments[i];
+    const isLast = i === builtPaths.length - 1;
 
     let label = getLabelForPath(path);
-    // "/maintenance" is the Maintenance Dashboard when it is the page itself, but a
-    // plain "Maintenance" parent crumb for deeper maintenance pages.
+    // When on the root maintenance dashboard (/maintenance), display hierarchy: Home / Maintenance / Maintenance Dashboard
+    if (path === '/maintenance' && isLast) {
+      if (prevLabel !== 'Maintenance') {
+        items.push({
+          title: <Link to="/maintenance">Maintenance</Link>,
+        });
+      }
+      items.push({
+        title: <span style={{ color: 'var(--theme-text, #222)', fontWeight: 500 }}>Maintenance Dashboard</span>,
+      });
+      continue;
+    }
+    // "/maintenance" is a plain "Maintenance" parent crumb for deeper maintenance pages.
     if (path === '/maintenance' && i < builtPaths.length - 1) label = 'Maintenance';
     if (!label && i < builtPaths.length - 1) {
       const nextPath = builtPaths[i + 1];
@@ -170,7 +183,6 @@ const Breadcrumbs: React.FC<BreadcrumbsProps> = ({ style }) => {
     if (label === prevLabel) continue;
     prevLabel = label;
 
-    const isLast = i === builtPaths.length - 1;
     items.push({
       title: isLast ? (
         <span style={{ color: 'var(--theme-text, #222)', fontWeight: 500 }}>{label}</span>

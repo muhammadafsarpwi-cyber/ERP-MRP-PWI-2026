@@ -104,22 +104,6 @@ interface ReportsData {
   mtbfByMachine: Array<{ machineId: string; machineName?: string; totalJobs?: string }>;
 }
 
-const QUEUE: Array<{ status: string | null; label: string; key: string }> = [
-  { status: null, label: 'ALL', key: 'total' },
-  { status: 'OPEN', label: 'OPEN', key: 'open' },
-  { status: 'ASSIGNED', label: 'ASSIGNED', key: 'assigned' },
-  { status: 'IN_PROGRESS', label: 'IN_PROGRESS', key: 'inProgress' },
-  { status: 'ON_HOLD', label: 'ON_HOLD', key: 'onHold' },
-  { status: 'WAITING_FOR_PARTS', label: 'WAITING_FOR_PARTS', key: 'waitingForParts' },
-  { status: 'COMPLETED', label: 'COMPLETED', key: 'completed' },
-  { status: 'PENDING_VERIFICATION', label: 'PENDING_VERIFICATION', key: 'pendingVerification' },
-  { status: 'VERIFIED', label: 'VERIFIED', key: 'verified' },
-  { status: 'APPROVED', label: 'APPROVED', key: 'approved' },
-  { status: 'CLOSED', label: 'CLOSED', key: 'closed' },
-  { status: 'REJECTED', label: 'REJECTED', key: 'rejected' },
-  { status: 'CANCELLED', label: 'CANCELLED', key: 'cancelled' },
-];
-
 const PENDING_ACTIONS: Array<{ status: string; label: string; key: string; icon: React.ReactNode; color: string; description: string }> = [
   { status: 'OPEN', label: 'Pending Assignment', key: 'open', icon: <ScheduleOutlined />, color: ACTION_COLORS.OPEN, description: 'Job cards awaiting technician or team assignment.' },
   { status: 'WAITING_FOR_PARTS', label: 'Pending Parts', key: 'waitingForParts', icon: <WarningOutlined />, color: ACTION_COLORS.WAITING_FOR_PARTS, description: 'Jobs paused waiting for spare parts.' },
@@ -354,12 +338,6 @@ const MaintenanceDashboard: React.FC = () => {
   }, [defaultCompanyId, machineId, divisionId, sectionId, departmentId, search, canReports]);
 
   useEffect(() => { void load(); }, [load]);
-
-  const pipeline = useMemo(
-    () => QUEUE.map(q => ({ ...q, count: Number(data?.[q.key as keyof DashboardResponse] ?? 0) })),
-    [data],
-  );
-  const statusTotal = useMemo(() => pipeline.reduce((sum, p) => sum + p.count, 0), [pipeline]);
   const priorityTotal = useMemo(
     () => (chartData?.priorityBreakdown || []).reduce((s, i) => s + parseInt(i.count, 10), 0),
     [chartData],
@@ -704,39 +682,7 @@ const MaintenanceDashboard: React.FC = () => {
 
       {!loading && !error && data && (
         <>
-          {/* STATUS PIPELINE */}
-          <Card size="small" style={{ ...panelCard, marginTop: 12, boxShadow: shadowSm }} styles={{ body: { padding: 12 } }}>
-            <div className="maint-pipeline">
-              {pipeline.map(q => {
-                const color = STATUS_COLORS[q.label] || STATUS_COLORS.ALL;
-                return (
-                  <button
-                    key={q.label}
-                    onClick={() => goStatus(q.status)}
-                    title={`View ${label(q.label)} job cards`}
-                    style={{
-                      flexShrink: 0, cursor: 'pointer', border: '1px solid var(--theme-border)', borderRadius: 6, minWidth: 124,
-                      padding: '8px 12px 10px', textAlign: 'left', transition: 'all .15s',
-                      background: tint(color), borderTop: `3px solid ${color}`,
-                      display: 'flex', flexDirection: 'column', gap: 2,
-                    }}
-                    onMouseEnter={(e) => { e.currentTarget.style.boxShadow = shadowHover; e.currentTarget.style.transform = 'translateY(-1px)'; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.transform = 'none'; }}
-                  >
-                    <span style={{ fontSize: 11, fontWeight: 600, color, textTransform: 'uppercase', letterSpacing: '.02em' }}>{label(q.label)}</span>
-                    <span style={{ fontSize: 22, fontWeight: 700, lineHeight: 1.1, color: 'var(--theme-text)' }}>{q.count}</span>
-                    {statusTotal > 0 && q.status !== null ? (
-                      <span style={{ fontSize: 11, color: 'var(--theme-text-muted)' }}>{Math.round((q.count / statusTotal) * 100)}% of workload</span>
-                    ) : statusTotal > 0 ? (
-                      <span style={{ fontSize: 11, color: 'var(--theme-text-muted)' }}>{statusTotal} total</span>
-                    ) : null}
-                  </button>
-                );
-              })}
-            </div>
-          </Card>
-
-          {/* KPI GRID */}
+                    {/* KPI GRID */}
           <div className="maint-kpi-grid" style={{ marginTop: 12 }}>
             <KpiCard label="Total Job Cards" value={data.total} icon={<BuildOutlined />} color={STATUS_COLORS.ALL} onClick={() => goStatus(null)} />
             <KpiCard label="Open" value={data.open} icon={<ExclamationCircleOutlined />} color={STATUS_COLORS.OPEN} onClick={() => goStatus('OPEN')} />
