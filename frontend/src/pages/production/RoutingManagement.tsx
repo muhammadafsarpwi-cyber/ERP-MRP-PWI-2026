@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { useParams } from 'react-router-dom';
 import {
   Table, Button, Space, Tag, Modal, Form, Input, Select, App, Card,
   InputNumber, Row, Col, Popconfirm, Tooltip, Typography, Descriptions, Segmented, Alert,
@@ -61,6 +62,7 @@ const ROUTING_PAYLOAD_FIELDS = [
 ] as const;
 
 const RoutingManagement: React.FC = () => {
+  const { id: routeParamId } = useParams<{ id: string }>();
   const { message, modal } = App.useApp();
   const { token } = theme.useToken();
   const initialSnap = getLookupsSnapshot();
@@ -132,7 +134,7 @@ const RoutingManagement: React.FC = () => {
         filterStatus,
         filterDivision,
       });
-    } catch {
+    } catch (err: any) {
       message.error('Failed to fetch routings');
     }
     finally { setLoading(false); }
@@ -166,10 +168,17 @@ const RoutingManagement: React.FC = () => {
   useEffect(() => {
     // If the tab was already loaded in this session, DO NOT re-fetch when
     // returning to it — the cached rows are already seeded into state.
-    if (!tabSessionCache.has(ROUTING_TAB_ID)) {
+    if (!routings.length) {
       fetchRoutings();
     }
     fetchLookupData();
+    const params = new URLSearchParams(window.location.search);
+    const targetId = routeParamId || params.get('id') || params.get('routingId');
+    if (targetId) {
+      void refreshDetail(targetId).then(() => {
+        setDetailVisible(true);
+      });
+    }
     const unsubscribe = subscribeLookups((snap) => {
       if (snap.items.length > 0) setItems(snap.items as Item[]);
       if (snap.divisions.length > 0) setDivisions(snap.divisions as Division[]);
@@ -181,6 +190,27 @@ const RoutingManagement: React.FC = () => {
     return () => unsubscribe();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // auto-open targetId from route params or query param
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const targetId = routeParamId || params.get('id') || params.get('routingId');
+    if (targetId) {
+      (async () => {
+        try {
+          const res = await apiService.get<any>(`/production/routings/${targetId}`);
+          const raw = res?.data;
+          const rtg = (raw && raw.id) ? raw : (raw?.data || res);
+          if (rtg && rtg.id) {
+            setSelectedRouting(rtg);
+            setDetailVisible(true);
+          }
+        } catch (err) {
+          console.error('[RoutingManagement] failed to auto-open target routing:', err);
+        }
+      })();
+    }
+  }, [routeParamId]);
 
   // Global header/tab refresh event listener
   useEffect(() => {
@@ -683,46 +713,106 @@ const RoutingManagement: React.FC = () => {
   };
 
   const renderInputs = (r: RoutingOperation) => {
-    if (r.inputs && r.inputs.length) {
-      return (
-        <Space direction="vertical" size={0} style={{ width: '100%' }}>
-          {r.inputs.map((i, idx) => (
-            <div key={idx}>
-              {i.item ? `${i.item.itemCode} - ${i.item.name}` : i.itemId || '-'}
-              {i.quantity != null ? <Typography.Text type="secondary" style={{ fontSize: 12 }}> × {formatDecimal(toNum(i.quantity))}</Typography.Text> : null}
-              {i.isPrimary ? <Tag color="blue" style={{ marginLeft: 4, fontSize: 11 }}>Primary</Tag> : null}
-            </div>
-          ))}
-        </Space>
-      );
-    }
+    const list = r.inputs && r.inputs.length ? r.inputs : (r.inputItem || r.inputItemId ? [{ item: r.inputItem, itemId: r.inputItemId, quantity: r.inputQuantity, isPrimary: true }] : []);
+    if (!list.length) return <span style={{ color: 'var(--theme-text-muted, #94a3b8)' }}>—</span>;
+
     return (
-      <span>
-        <div>{r.inputItem ? `${r.inputItem.itemCode} - ${r.inputItem.name}` : '-'}</div>
-        <Typography.Text type="secondary" style={{ fontSize: 12 }}>{formatDecimal(toNum(r.inputQuantity))} {r.uom?.code || ''}</Typography.Text>
-      </span>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+        {list.map((i: any, idx: number) => {
+          const itemText = i.item ? `${i.item.itemCode} · ${i.item.name}` : i.itemId || '-';
+          return (
+            <div
+              key={idx}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                whiteSpace: 'nowrap',
+                maxWidth: 240,
+              }}
+              title={itemText}
+            >
+              <Tag
+                color="blue"
+                style={{
+                  margin: 0,
+                  fontSize: 11,
+                  fontWeight: 600,
+                  borderRadius: 4,
+                  maxWidth: 180,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {itemText}
+              </Tag>
+              {i.quantity != null && (
+                <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--theme-text-secondary, #64748b)' }}>
+                  × {formatDecimal(toNum(i.quantity))}
+                </span>
+              )}
+              {i.isPrimary && (
+                <Tag color="cyan" style={{ margin: 0, fontSize: 10, padding: '0 4px', lineHeight: '18px' }}>
+                  Primary
+                </Tag>
+              )}
+            </div>
+          );
+        })}
+      </div>
     );
   };
 
   const renderOutputs = (r: RoutingOperation) => {
-    if (r.outputs && r.outputs.length) {
-      return (
-        <Space direction="vertical" size={0} style={{ width: '100%' }}>
-          {r.outputs.map((o, idx) => (
-            <div key={idx}>
-              {o.item ? `${o.item.itemCode} - ${o.item.name}` : o.itemId || '-'}
-              {o.quantity != null ? <Typography.Text type="secondary" style={{ fontSize: 12 }}> × {formatDecimal(toNum(o.quantity))}</Typography.Text> : null}
-              {o.outputType && o.outputType !== 'MAIN' ? <Tag color="purple" style={{ marginLeft: 4, fontSize: 11 }}>{o.outputType}</Tag> : null}
-            </div>
-          ))}
-        </Space>
-      );
-    }
+    const list = r.outputs && r.outputs.length ? r.outputs : (r.outputItem || r.outputItemId ? [{ item: r.outputItem, itemId: r.outputItemId, quantity: r.outputQuantity, outputType: 'MAIN' }] : []);
+    if (!list.length) return <span style={{ color: 'var(--theme-text-muted, #94a3b8)' }}>—</span>;
+
     return (
-      <span>
-        <div>{r.outputItem ? `${r.outputItem.itemCode} - ${r.outputItem.name}` : '-'}</div>
-        <Typography.Text type="secondary" style={{ fontSize: 12 }}>{formatDecimal(toNum(r.outputQuantity))} {r.uom?.code || ''}</Typography.Text>
-      </span>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+        {list.map((o: any, idx: number) => {
+          const itemText = o.item ? `${o.item.itemCode} · ${o.item.name}` : o.itemId || '-';
+          return (
+            <div
+              key={idx}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                whiteSpace: 'nowrap',
+                maxWidth: 240,
+              }}
+              title={itemText}
+            >
+              <Tag
+                color="purple"
+                style={{
+                  margin: 0,
+                  fontSize: 11,
+                  fontWeight: 600,
+                  borderRadius: 4,
+                  maxWidth: 180,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {itemText}
+              </Tag>
+              {o.quantity != null && (
+                <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--theme-text-secondary, #64748b)' }}>
+                  × {formatDecimal(toNum(o.quantity))}
+                </span>
+              )}
+              {o.outputType && o.outputType !== 'MAIN' && (
+                <Tag color="orange" style={{ margin: 0, fontSize: 10, padding: '0 4px', lineHeight: '18px' }}>
+                  {o.outputType}
+                </Tag>
+              )}
+            </div>
+          );
+        })}
+      </div>
     );
   };
 
@@ -813,138 +903,502 @@ const RoutingManagement: React.FC = () => {
   ];
 
   const opColumns: ColumnsType<RoutingOperation> = [
-    { title: '#', dataIndex: 'sequenceNo', key: 'sequenceNo', width: 50 },
-    { title: 'Code', dataIndex: 'operationCode', key: 'operationCode', width: 100 },
-    { title: 'Operation', dataIndex: 'operationName', key: 'operationName', width: 150 },
     {
-      title: 'Input Materials', key: 'inputs', width: 220, render: (_, r) => renderInputs(r),
-    },
-    {
-      title: 'Output Products', key: 'outputs', width: 220, render: (_, r) => renderOutputs(r),
-    },
-    { title: 'Division', key: 'division', width: 90, render: (_, r) => r.division?.name || '-' },
-    { title: 'Section', key: 'section', width: 90, render: (_, r) => r.section?.name || '-' },
-    { title: 'Department', key: 'department', width: 100, render: (_, r) => r.department?.name || '-' },
-    { title: 'Machine', key: 'machine', width: 100, render: (_, r) => r.machine ? r.machine.machineCode : '-' },
-    { title: 'Setup', key: 'setup', width: 65, render: (_, r) => formatDecimal(toNum(r.setupTimeMinutes)) },
-    { title: 'Run', key: 'run', width: 65, render: (_, r) => formatDecimal(toNum(r.runTimeMinutes)) },
-    { title: 'Total', key: 'total', width: 65, render: (_, r) => formatDecimal(toNum(r.setupTimeMinutes) + toNum(r.runTimeMinutes) + toNum(r.queueTimeMinutes) + toNum(r.waitTimeMinutes)) },
-    { title: 'Status', dataIndex: 'status', key: 'status', width: 85, render: (s: string) => <Tag color={s === 'ACTIVE' ? 'green' : 'default'}>{s}</Tag> },
-    {
-      title: 'Actions', key: 'actions', width: 150, render: (_, r) => (
-        <Space size="small" wrap>
-          <Tooltip title="Edit"><Button size="small" icon={<EditOutlined />} disabled={selectedRouting?.status === 'OBSOLETE'} onClick={() => handleEditOp(r)} /></Tooltip>
-          {selectedRouting?.status !== 'OBSOLETE' && (
-            <>
-              <Tooltip title="Move up"><Button size="small" icon={<ArrowUpOutlined />} onClick={() => handleReorderOp(r, -1)} /></Tooltip>
-              <Tooltip title="Move down"><Button size="small" icon={<ArrowDownOutlined />} onClick={() => handleReorderOp(r, 1)} /></Tooltip>
-              <Tooltip title="Duplicate"><Button size="small" icon={<CopyOutlined />} onClick={() => handleDuplicateOp(r)} /></Tooltip>
-              <Tooltip title="Remove"><Button size="small" danger icon={<DeleteOutlined />} onClick={() => confirmDeleteOp(r)} /></Tooltip>
-            </>
-          )}
-        </Space>
+      title: '#',
+      dataIndex: 'sequenceNo',
+      key: 'sequenceNo',
+      width: 55,
+      align: 'center',
+      fixed: 'left',
+      render: (seq: number) => (
+        <span
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: 24,
+            height: 24,
+            borderRadius: '50%',
+            background: 'var(--theme-surface-subtle, #f1f5f9)',
+            border: '1px solid var(--theme-border, #cbd5e1)',
+            fontWeight: 800,
+            fontSize: 11,
+            color: 'var(--theme-primary, #2563eb)',
+          }}
+        >
+          {seq}
+        </span>
       ),
+    },
+    {
+      title: 'Code',
+      dataIndex: 'operationCode',
+      key: 'operationCode',
+      width: 100,
+      fixed: 'left',
+      render: (code: string) => (
+        <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: 12, color: 'var(--theme-text, #1e293b)' }}>
+          {code || '—'}
+        </span>
+      ),
+    },
+    {
+      title: 'Operation',
+      dataIndex: 'operationName',
+      key: 'operationName',
+      width: 160,
+      render: (name: string, r) => (
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
+          <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--theme-text, #0f172a)', whiteSpace: 'nowrap' }}>
+            {name}
+          </span>
+          {r.description && (
+            <span style={{ fontSize: 11, color: 'var(--theme-text-muted, #64748b)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 150 }} title={r.description}>
+              {r.description}
+            </span>
+          )}
+        </div>
+      ),
+    },
+    {
+      title: 'Input Materials',
+      key: 'inputs',
+      width: 240,
+      render: (_, r) => renderInputs(r),
+    },
+    {
+      title: 'Output Products',
+      key: 'outputs',
+      width: 240,
+      render: (_, r) => renderOutputs(r),
+    },
+    {
+      title: 'Division',
+      key: 'division',
+      width: 140,
+      render: (_, r) => r.division?.name ? (
+        <Tag color="purple" style={{ margin: 0, fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap' }}>
+          {r.division.name}
+        </Tag>
+      ) : <span style={{ color: 'var(--theme-text-muted)' }}>—</span>,
+    },
+    {
+      title: 'Section',
+      key: 'section',
+      width: 160,
+      render: (_, r) => (
+        <span style={{ whiteSpace: 'nowrap', fontSize: 12, fontWeight: 500 }}>
+          {r.section?.name || '—'}
+        </span>
+      ),
+    },
+    {
+      title: 'Department',
+      key: 'department',
+      width: 160,
+      render: (_, r) => (
+        <span style={{ whiteSpace: 'nowrap', fontSize: 12, fontWeight: 500 }}>
+          {r.department?.name || '—'}
+        </span>
+      ),
+    },
+    {
+      title: 'Machine',
+      key: 'machine',
+      width: 120,
+      render: (_, r) => r.machine ? (
+        <Tag color="blue" style={{ margin: 0, fontFamily: 'monospace', fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap' }}>
+          {r.machine.machineCode}
+        </Tag>
+      ) : <span style={{ color: 'var(--theme-text-muted)' }}>—</span>,
+    },
+    {
+      title: 'Setup',
+      key: 'setup',
+      width: 80,
+      align: 'right',
+      render: (_, r) => (
+        <span style={{ fontSize: 12, color: 'var(--theme-text-secondary, #64748b)', whiteSpace: 'nowrap' }}>
+          {formatDecimal(toNum(r.setupTimeMinutes))} min
+        </span>
+      ),
+    },
+    {
+      title: 'Run',
+      key: 'run',
+      width: 80,
+      align: 'right',
+      render: (_, r) => (
+        <span style={{ fontSize: 12, color: 'var(--theme-text-secondary, #64748b)', whiteSpace: 'nowrap' }}>
+          {formatDecimal(toNum(r.runTimeMinutes))} min
+        </span>
+      ),
+    },
+    {
+      title: 'Total',
+      key: 'total',
+      width: 85,
+      align: 'right',
+      render: (_, r) => (
+        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--theme-text, #0f172a)', whiteSpace: 'nowrap' }}>
+          {formatDecimal(toNum(r.setupTimeMinutes) + toNum(r.runTimeMinutes) + toNum(r.queueTimeMinutes) + toNum(r.waitTimeMinutes))} min
+        </span>
+      ),
+    },
+    {
+      title: 'Status',
+      dataIndex: 'status',
+      key: 'status',
+      width: 90,
+      align: 'center',
+      render: (s: string) => (
+        <Tag color={s === 'ACTIVE' ? 'success' : 'default'} style={{ margin: 0, fontWeight: 600, fontSize: 11 }}>
+          {s}
+        </Tag>
+      ),
+    },
+    {
+      title: 'Actions',
+      key: 'actions',
+      width: 160,
+      fixed: 'right',
+      align: 'center',
+      render: (_, r, idx) => {
+        const ops = selectedRouting?.operations || [];
+        const isFirst = idx === 0;
+        const isLast = idx === ops.length - 1;
+        const isObsolete = selectedRouting?.status === 'OBSOLETE';
+
+        return (
+          <div
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 2,
+              whiteSpace: 'nowrap',
+              height: 28,
+            }}
+          >
+            <Tooltip title="Edit Operation">
+              <Button
+                size="small"
+                type="text"
+                icon={<EditOutlined style={{ color: '#2563eb' }} />}
+                disabled={isObsolete}
+                onClick={() => handleEditOp(r)}
+                style={{ width: 26, height: 26, padding: 0 }}
+              />
+            </Tooltip>
+            {!isObsolete && (
+              <>
+                <Tooltip title="Move Up">
+                  <Button
+                    size="small"
+                    type="text"
+                    icon={<ArrowUpOutlined style={{ color: isFirst ? '#cbd5e1' : '#0284c7' }} />}
+                    disabled={isFirst}
+                    onClick={() => handleReorderOp(r, -1)}
+                    style={{ width: 26, height: 26, padding: 0 }}
+                  />
+                </Tooltip>
+                <Tooltip title="Move Down">
+                  <Button
+                    size="small"
+                    type="text"
+                    icon={<ArrowDownOutlined style={{ color: isLast ? '#cbd5e1' : '#0284c7' }} />}
+                    disabled={isLast}
+                    onClick={() => handleReorderOp(r, 1)}
+                    style={{ width: 26, height: 26, padding: 0 }}
+                  />
+                </Tooltip>
+                <Tooltip title="Duplicate">
+                  <Button
+                    size="small"
+                    type="text"
+                    icon={<CopyOutlined style={{ color: '#7c3aed' }} />}
+                    onClick={() => handleDuplicateOp(r)}
+                    style={{ width: 26, height: 26, padding: 0 }}
+                  />
+                </Tooltip>
+                <Tooltip title="Delete">
+                  <Button
+                    size="small"
+                    type="text"
+                    danger
+                    icon={<DeleteOutlined />}
+                    onClick={() => confirmDeleteOp(r)}
+                    style={{ width: 26, height: 26, padding: 0 }}
+                  />
+                </Tooltip>
+              </>
+            )}
+          </div>
+        );
+      },
     },
   ];
 
   if (detailVisible && selectedRouting) {
     return (
-      <div style={{ padding: '4px 6px', width: '100%' }}>
-        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-          <Space>
-            <Button icon={<ArrowLeftOutlined />} onClick={() => { setDetailVisible(false); setSelectedRouting(null); }}>Back to List</Button>
-            <Title level={4} style={{ margin: 0 }}>{selectedRouting.routingCode} - {selectedRouting.name}</Title>
-            <Tag color={STATUS_COLORS[selectedRouting.status]}>{selectedRouting.status}</Tag>
-            <Button size="small" icon={<CopyOutlined />} onClick={() => handleCopyRouting(selectedRouting.id, selectedRouting.routingCode)}>Copy Routing</Button>
-            <Button size="small" icon={<EditOutlined />} onClick={() => handleEdit(selectedRouting)}>Edit Header</Button>
-          </Space>
-          <Descriptions bordered size="small" column={4}>
-            <Descriptions.Item label="Routing Code">{selectedRouting.routingCode}</Descriptions.Item>
-            <Descriptions.Item label="Name">{selectedRouting.name}</Descriptions.Item>
-            <Descriptions.Item label="Product">{selectedRouting.product ? `${selectedRouting.product.itemCode} - ${selectedRouting.product.name}` : '-'}</Descriptions.Item>
-            <Descriptions.Item label="BOM">{selectedRouting.bom?.bomCode || '-'}</Descriptions.Item>
-            <Descriptions.Item label="Route Type">{selectedRouting.routeType ? `${selectedRouting.routeType.routeCode} - ${selectedRouting.routeType.name}` : '-'}</Descriptions.Item>
-            <Descriptions.Item label="Base Qty">{formatDecimal(toNum(selectedRouting.baseQuantity))}</Descriptions.Item>
-            <Descriptions.Item label="Total Time">{formatDecimal(toNum(selectedRouting.estimatedTotalTime))} min</Descriptions.Item>
-          </Descriptions>
+      <div style={{ padding: '6px 10px', width: '100%' }}>
+        {/* Executive Header Card */}
+        <Card
+          size="small"
+          style={{
+            background: 'var(--theme-surface, #ffffff)',
+            border: '1px solid var(--theme-border, #e2e8f0)',
+            borderRadius: 12,
+            marginBottom: 12,
+            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.04)',
+          }}
+          bodyStyle={{ padding: '14px 18px' }}
+        >
+          {/* Top Title & Primary Actions Row */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <Button
+                icon={<ArrowLeftOutlined />}
+                onClick={() => { setDetailVisible(false); setSelectedRouting(null); }}
+                style={{ fontWeight: 600, borderRadius: 8 }}
+              >
+                Back to List
+              </Button>
+              <Tag color="blue" style={{ fontSize: 13, fontWeight: 700, padding: '3px 10px', borderRadius: 6, margin: 0 }}>
+                {selectedRouting.routingCode}
+              </Tag>
+              <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--theme-text, #0f172a)' }}>
+                {selectedRouting.name}
+              </span>
+              <Tag
+                color={selectedRouting.status === 'ACTIVE' ? 'success' : selectedRouting.status === 'DRAFT' ? 'warning' : 'default'}
+                style={{ fontSize: 12, fontWeight: 700, padding: '2px 8px', borderRadius: 12, margin: 0 }}
+              >
+                {selectedRouting.status}
+              </Tag>
+            </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 }}>
-            <Segmented
+            <Space size={8}>
+              <Button
+                icon={<CopyOutlined />}
+                onClick={() => handleCopyRouting(selectedRouting.id, selectedRouting.routingCode)}
+                style={{ borderRadius: 8, fontWeight: 600 }}
+              >
+                Copy Routing
+              </Button>
+              <Button
+                icon={<EditOutlined />}
+                onClick={() => handleEdit(selectedRouting)}
+                style={{ borderRadius: 8, fontWeight: 600 }}
+              >
+                Edit Header
+              </Button>
+            </Space>
+          </div>
+
+          {/* Metadata KPI Summary Tiles (Replaces clunky HTML Descriptions table) */}
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+              gap: 10,
+              paddingTop: 10,
+              borderTop: '1px dashed var(--theme-border, #e2e8f0)',
+            }}
+          >
+            {/* Tile 1: Product */}
+            <div style={{ padding: '8px 12px', background: 'var(--theme-surface-subtle, #f8fafc)', borderRadius: 8, border: '1px solid var(--theme-border, #e2e8f0)' }}>
+              <span style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', textTransform: 'uppercase' }}>Target Product</span>
+              <span style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--theme-text, #1e293b)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={selectedRouting.product ? `${selectedRouting.product.itemCode} - ${selectedRouting.product.name}` : '-'}>
+                {selectedRouting.product ? `${selectedRouting.product.itemCode} · ${selectedRouting.product.name}` : '—'}
+              </span>
+            </div>
+
+            {/* Tile 2: Route Type */}
+            <div style={{ padding: '8px 12px', background: 'var(--theme-surface-subtle, #f8fafc)', borderRadius: 8, border: '1px solid var(--theme-border, #e2e8f0)' }}>
+              <span style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', textTransform: 'uppercase' }}>Route Type</span>
+              <span style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--theme-text, #1e293b)' }}>
+                {selectedRouting.routeType ? `${selectedRouting.routeType.routeCode} · ${selectedRouting.routeType.name}` : '—'}
+              </span>
+            </div>
+
+            {/* Tile 3: BOM Link */}
+            <div style={{ padding: '8px 12px', background: 'var(--theme-surface-subtle, #f8fafc)', borderRadius: 8, border: '1px solid var(--theme-border, #e2e8f0)' }}>
+              <span style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', textTransform: 'uppercase' }}>Linked BOM</span>
+              <span style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--theme-text, #1e293b)', fontFamily: 'monospace' }}>
+                {selectedRouting.bom?.bomCode || 'None Assigned'}
+              </span>
+            </div>
+
+            {/* Tile 4: Base Qty */}
+            <div style={{ padding: '8px 12px', background: 'var(--theme-surface-subtle, #f8fafc)', borderRadius: 8, border: '1px solid var(--theme-border, #e2e8f0)' }}>
+              <span style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', textTransform: 'uppercase' }}>Base Quantity</span>
+              <span style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--theme-text, #1e293b)' }}>
+                {formatDecimal(toNum(selectedRouting.baseQuantity))} Units
+              </span>
+            </div>
+
+            {/* Tile 5: Estimated Total Time */}
+            <div style={{ padding: '8px 12px', background: 'var(--theme-surface-subtle, #f8fafc)', borderRadius: 8, border: '1px solid var(--theme-border, #e2e8f0)' }}>
+              <span style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', textTransform: 'uppercase' }}>Estimated Total Time</span>
+              <span style={{ display: 'block', fontSize: 13, fontWeight: 800, color: 'var(--theme-primary, #2563eb)' }}>
+                {formatDecimal(toNum(selectedRouting.estimatedTotalTime))} min
+              </span>
+            </div>
+          </div>
+        </Card>
+
+        {/* Controls Toolbar: View Mode Toggle & Operations Actions (SINGLE ROW, NO DUPLICATE BUTTONS) */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: 10,
+            marginBottom: 12,
+            padding: '8px 12px',
+            background: 'var(--theme-surface, #ffffff)',
+            borderRadius: 10,
+            border: '1px solid var(--theme-border, #e2e8f0)',
+          }}
+        >
+          <Segmented
+            size="middle"
+            value={viewMode}
+            onChange={(val) => setViewMode(val as 'table' | 'flow')}
+            options={[
+              { label: 'Operations List', value: 'table', icon: <UnorderedListOutlined /> },
+              { label: 'Process Flow Graph', value: 'flow', icon: <ApartmentOutlined /> },
+            ]}
+          />
+
+          {viewMode === 'table' && selectedRouting.status !== 'OBSOLETE' && (
+            <Space size={8}>
+              <Select
+                size="middle"
+                placeholder="⚡ Apply Division Flow..."
+                style={{ width: 240 }}
+                onChange={(divCode) => handleApplyFlowToExistingRouting(divCode)}
+                options={[
+                  { label: 'Spoke Division Flow (6 stages)', value: 'DIV-SPD' },
+                  { label: 'Control Cable Flow (5 stages)', value: 'DIV-CCD' },
+                  { label: 'Main Division E-51 Flow (6 stages)', value: 'DIV-PWI' },
+                  { label: 'NB Division Flow (5 stages)', value: 'DIV-NB' },
+                ]}
+              />
+              <Button
+                type="primary"
+                icon={<PlusOutlined />}
+                onClick={handleAddOp}
+                style={{ fontWeight: 600, borderRadius: 8 }}
+              >
+                Add Operation
+              </Button>
+            </Space>
+          )}
+        </div>
+
+        {/* Operations Table Card */}
+        {viewMode === 'table' ? (
+          <Card
+            size="small"
+            style={{
+              borderRadius: 12,
+              border: '1px solid var(--theme-border, #e2e8f0)',
+              background: 'var(--theme-surface, #ffffff)',
+              boxShadow: '0 1px 3px rgba(0, 0, 0, 0.04)',
+              marginBottom: 14,
+            }}
+            title={
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontWeight: 700, fontSize: 14 }}>
+                  Routing Operations Sequence
+                </span>
+                <Tag color="blue" style={{ fontSize: 11, fontWeight: 700, borderRadius: 10 }}>
+                  {(selectedRouting.operations || []).length} Stages
+                </Tag>
+              </div>
+            }
+            bodyStyle={{ padding: 0 }}
+          >
+            <Table
+              dataSource={selectedRouting.operations || []}
+              columns={opColumns}
+              rowKey="id"
               size="middle"
-              value={viewMode}
-              onChange={(val) => setViewMode(val as 'table' | 'flow')}
-              options={[
-                { label: 'Operations List', value: 'table', icon: <UnorderedListOutlined /> },
-                { label: 'Process Flow', value: 'flow', icon: <ApartmentOutlined /> },
-              ]}
+              pagination={false}
+              scroll={{ x: 1750 }}
             />
-            {viewMode === 'table' && selectedRouting.status !== 'OBSOLETE' && (
-              <Space>
-                <Select
-                  size="small"
-                  placeholder="⚡ Apply Division Flow..."
-                  style={{ width: 230 }}
-                  onChange={(divCode) => handleApplyFlowToExistingRouting(divCode)}
-                  options={[
-                    { label: 'Spoke Division Flow (6 stages)', value: 'DIV-SPD' },
-                    { label: 'Control Cable Flow (5 stages)', value: 'DIV-CCD' },
-                    { label: 'Main Division E-51 Flow (6 stages)', value: 'DIV-PWI' },
-                    { label: 'NB Division Flow (5 stages)', value: 'DIV-NB' },
-                  ]}
-                />
-                <Button type="primary" size="small" icon={<PlusOutlined />} onClick={handleAddOp}>
-                  Add Operation
-                </Button>
-              </Space>
+          </Card>
+        ) : (
+          <RoutingProcessFlow
+            routing={selectedRouting}
+            onRefreshRouting={() => refreshDetail(selectedRouting.id)}
+            onEditOperation={handleEditOp}
+          />
+        )}
+
+        {/* Bottom Status Lifecycle Action Bar */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: 10,
+            padding: '10px 14px',
+            background: 'var(--theme-surface, #ffffff)',
+            borderRadius: 10,
+            border: '1px solid var(--theme-border, #e2e8f0)',
+          }}
+        >
+          <div>
+            {selectedRouting.status === 'ACTIVE' && (
+              <Tag color="success" style={{ padding: '5px 14px', fontSize: 13, fontWeight: 700, borderRadius: 6, margin: 0 }}>
+                ✔ Routing is ACTIVE & Production-Ready
+              </Tag>
+            )}
+            {selectedRouting.status === 'DRAFT' && (
+              <Tag color="warning" style={{ padding: '5px 14px', fontSize: 13, fontWeight: 700, borderRadius: 6, margin: 0 }}>
+                ⏳ Routing is in DRAFT — Operations can be edited or reordered
+              </Tag>
+            )}
+            {selectedRouting.status === 'OBSOLETE' && (
+              <Tag color="default" style={{ padding: '5px 14px', fontSize: 13, fontWeight: 700, borderRadius: 6, margin: 0 }}>
+                🚫 Routing is OBSOLETE
+              </Tag>
             )}
           </div>
 
-          {viewMode === 'table' ? (
-            <Card title="Routing Operations" extra={
-              selectedRouting.status !== 'OBSOLETE' ? (
-                <Space>
-                  <Button type="primary" size="small" icon={<PlusOutlined />} onClick={handleAddOp}>Add Operation</Button>
-                </Space>
-              ) : null
-            }>
-              <Table dataSource={selectedRouting.operations || []} columns={opColumns} rowKey="id" size="small" pagination={false} />
-            </Card>
-          ) : (
-            <RoutingProcessFlow
-              routing={selectedRouting}
-              onRefreshRouting={() => refreshDetail(selectedRouting.id)}
-              onEditOperation={handleEditOp}
-            />
-          )}
-          <Space>
+          <Space size={8}>
             {selectedRouting.status === 'DRAFT' && (
-              <Popconfirm title="Activate this routing?" onConfirm={() => handleStatusChange(selectedRouting.id, 'ACTIVE')}>
-                <Button type="primary" disabled={(selectedRouting.operations?.length || 0) === 0}>Activate</Button>
+              <Popconfirm title="Activate this routing for production?" onConfirm={() => handleStatusChange(selectedRouting.id, 'ACTIVE')}>
+                <Button type="primary" disabled={(selectedRouting.operations?.length || 0) === 0} style={{ fontWeight: 600, borderRadius: 8 }}>
+                  Activate Routing
+                </Button>
               </Popconfirm>
             )}
             {selectedRouting.status === 'ACTIVE' && (
-              <Space wrap align="center" size={10} style={{ padding: '8px 0' }}>
-                <Tag color="success" style={{ padding: '4px 14px', fontSize: 13, fontWeight: 700, borderRadius: 6 }}>
-                  ✔ Routing is ACTIVE & Production-Ready
-                </Tag>
-                <Button type="primary" onClick={() => setDetailVisible(false)} style={{ fontWeight: 600 }}>
+              <>
+                <Button type="primary" onClick={() => setDetailVisible(false)} style={{ fontWeight: 600, borderRadius: 8 }}>
                   Done — Back to List
                 </Button>
                 <Popconfirm title="Revert to Draft for revisions?" onConfirm={() => handleStatusChange(selectedRouting.id, 'DRAFT')}>
-                  <Button size="small">Revert to Draft</Button>
+                  <Button style={{ borderRadius: 8 }}>Revert to Draft</Button>
                 </Popconfirm>
-                <Popconfirm title="Mark as Obsolete?" onConfirm={() => handleStatusChange(selectedRouting.id, 'OBSOLETE')}>
-                  <Button danger size="small">Mark Obsolete</Button>
+                <Popconfirm title="Mark this routing as Obsolete?" onConfirm={() => handleStatusChange(selectedRouting.id, 'OBSOLETE')}>
+                  <Button danger style={{ borderRadius: 8 }}>Mark Obsolete</Button>
                 </Popconfirm>
-              </Space>
+              </>
             )}
             {selectedRouting.status === 'OBSOLETE' && (
               <Popconfirm title="Restore back to Draft?" onConfirm={() => handleStatusChange(selectedRouting.id, 'DRAFT')}>
-                <Button type="primary">Restore to Draft</Button>
+                <Button type="primary" style={{ fontWeight: 600, borderRadius: 8 }}>Restore to Draft</Button>
               </Popconfirm>
             )}
           </Space>
-        </Space>
+        </div>
 
         <OperationEditor
           open={opEditor.open}
