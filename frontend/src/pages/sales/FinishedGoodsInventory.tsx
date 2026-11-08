@@ -597,21 +597,31 @@ const FinishedGoodsInventory: React.FC = () => {
     const hold = record.packingHold;
     const isHoldActive = hold && hold.status !== 'CLEAR';
 
+    // Heading WIP difference (Inner vs Outer)
+    const innerHeading = p.innerSpoke.unplatedHeadingQty || 0;
+    const outerHeading = p.outerSpoke.unplatedHeadingQty || 0;
+    const headingDiff = innerHeading - outerHeading;
+
+    // Plated WIP difference (Inner vs Outer)
+    const innerPlated = p.innerSpoke.platedReadyQty || 0;
+    const outerPlated = p.outerSpoke.platedReadyQty || 0;
+    const platedDiff = innerPlated - outerPlated;
+
     return (
       <div
         style={{
-          padding: '16px 20px',
+          padding: '12px 16px',
           background: 'var(--theme-surface-alt, rgba(148, 163, 184, 0.05))',
           borderRadius: 8,
           border: `1px solid ${token.colorBorderSecondary}`,
-          margin: '8px 0',
+          margin: '6px 0',
         }}
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <ThunderboltOutlined style={{ color: token.colorPrimary, fontSize: 16 }} />
+            <ThunderboltOutlined style={{ color: token.colorPrimary, fontSize: 15 }} />
             <span style={{ fontWeight: 700, fontSize: 13, color: token.colorText }}>
-              SHOPFLOOR COMPONENT WIP PIPELINE &amp; PACKING STAGE TRACKING: {record.itemCode}
+              SHOPFLOOR COMPONENT PIPELINE &amp; PACKING STAGE: {record.itemCode}
             </span>
           </div>
           <Button
@@ -626,101 +636,154 @@ const FinishedGoodsInventory: React.FC = () => {
           </Button>
         </div>
 
-        <Row gutter={[16, 16]}>
+        <Row gutter={[12, 12]}>
           {/* Card 1: Inner Spoke */}
-          <Col xs={24} md={8}>
+          <Col xs={24} sm={12} lg={6}>
             <div
               style={{
-                padding: '12px 14px',
+                padding: '10px 12px',
                 background: token.colorBgContainer,
                 borderRadius: 8,
                 border: `1px solid ${token.colorBorderSecondary}`,
                 height: '100%',
               }}
             >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                <Tag color="blue" style={{ fontWeight: 700 }}>INNER SPOKE</Tag>
-                <Tag style={{ fontSize: 11 }}>{p.innerSpoke.code}</Tag>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                <Tag color="blue" style={{ fontWeight: 700, margin: 0 }}>INNER SPOKE</Tag>
+                <Tag style={{ fontSize: 10.5, margin: 0 }}>{p.innerSpoke.code}</Tag>
               </div>
-              <div style={{ fontSize: 12, fontWeight: 600, color: token.colorText, marginBottom: 8 }}>
+              <div style={{ fontSize: 11.5, fontWeight: 600, color: token.colorText, marginBottom: 6, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {p.innerSpoke.name}
               </div>
-              <div style={{ fontSize: 11, color: token.colorTextSecondary, display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                <span>In Heading (SPK):</span>
-                <strong>{formatDecimal(p.innerSpoke.unplatedHeadingQty)} PCS</strong>
+              <div style={{ fontSize: 11.5, marginBottom: 3 }}>
+                <span style={{ color: token.colorTextSecondary }}>In Heading (SPK): </span>
+                <strong style={{ color: token.colorText }}>{formatDecimal(innerHeading)} PCS</strong>
               </div>
-              <div style={{ fontSize: 11, color: token.colorTextSecondary, display: 'flex', justifyContent: 'space-between' }}>
-                <span>Plated &amp; Ready (SPL):</span>
-                <span style={{ color: '#16a34a', fontWeight: 700 }}>{formatDecimal(p.innerSpoke.platedReadyQty)} PCS</span>
+              <div style={{ fontSize: 11.5 }}>
+                <span style={{ color: token.colorTextSecondary }}>Plated &amp; Ready (SPL): </span>
+                <strong style={{ color: '#16a34a' }}>{formatDecimal(innerPlated)} PCS</strong>
               </div>
             </div>
           </Col>
 
           {/* Card 2: Outer Spoke */}
-          <Col xs={24} md={8}>
+          <Col xs={24} sm={12} lg={6}>
             <div
               style={{
-                padding: '12px 14px',
+                padding: '10px 12px',
                 background: token.colorBgContainer,
                 borderRadius: 8,
                 border: `1px solid ${token.colorBorderSecondary}`,
                 height: '100%',
               }}
             >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                <Tag color="cyan" style={{ fontWeight: 700 }}>OUTER SPOKE</Tag>
-                <Tag style={{ fontSize: 11 }}>{p.outerSpoke.code}</Tag>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                <Tag color="cyan" style={{ fontWeight: 700, margin: 0 }}>OUTER SPOKE</Tag>
+                <Tag style={{ fontSize: 10.5, margin: 0 }}>{p.outerSpoke.code}</Tag>
               </div>
-              <div style={{ fontSize: 12, fontWeight: 600, color: token.colorText, marginBottom: 8 }}>
+              <div style={{ fontSize: 11.5, fontWeight: 600, color: token.colorText, marginBottom: 6, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {p.outerSpoke.name}
               </div>
-              <div style={{ fontSize: 11, color: token.colorTextSecondary, display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                <span>In Heading (SPK):</span>
-                <strong>{formatDecimal(p.outerSpoke.unplatedHeadingQty)} PCS</strong>
+              <div style={{ fontSize: 11.5, marginBottom: 3 }}>
+                <span style={{ color: token.colorTextSecondary }}>In Heading (SPK): </span>
+                <strong style={{ color: token.colorText }}>{formatDecimal(outerHeading)} PCS</strong>
               </div>
-              <div style={{ fontSize: 11, color: token.colorTextSecondary, display: 'flex', justifyContent: 'space-between' }}>
-                <span>Plated &amp; Ready (SPL):</span>
-                <span style={{ color: '#16a34a', fontWeight: 700 }}>{formatDecimal(p.outerSpoke.platedReadyQty)} PCS</span>
+              <div style={{ fontSize: 11.5 }}>
+                <span style={{ color: token.colorTextSecondary }}>Plated &amp; Ready (SPL): </span>
+                <strong style={{ color: '#16a34a' }}>{formatDecimal(outerPlated)} PCS</strong>
               </div>
             </div>
           </Col>
 
-          {/* Card 3: Packing Floor Stage */}
-          <Col xs={24} md={8}>
+          {/* Card 3: Inner vs Outer Variance / Backup Gap */}
+          <Col xs={24} sm={12} lg={6}>
             <div
               style={{
-                padding: '12px 14px',
+                padding: '10px 12px',
                 background: token.colorBgContainer,
                 borderRadius: 8,
                 border: `1px solid ${token.colorBorderSecondary}`,
                 height: '100%',
               }}
             >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                <Tag color="purple" style={{ fontWeight: 700 }}>PACKING FLOOR</Tag>
-                {p.nippleCode && <Tag color="geekblue" style={{ fontSize: 11 }}>{p.nippleCode}</Tag>}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                <Tag color="orange" style={{ fontWeight: 700, margin: 0 }}>INNER vs OUTER VARIANCE</Tag>
               </div>
-              <div style={{ fontSize: 12, display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                <span style={{ color: token.colorTextSecondary }}>Plated Matched Pairs:</span>
-                <strong style={{ color: token.colorPrimary }}>{formatDecimal(p.readyPairsPcs)} Pairs ({formatDecimal(p.readyPairsGrs)} GRS)</strong>
+              <div style={{ fontSize: 11, fontWeight: 600, color: token.colorTextSecondary, marginBottom: 6 }}>
+                Shopfloor Backup &amp; Balance Gap
               </div>
-              <div style={{ fontSize: 11, color: token.colorTextSecondary, display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                <span>Matching Nipple Stock:</span>
+
+              {/* Heading Diff */}
+              <div style={{ fontSize: 11.5, marginBottom: 4 }}>
+                <span style={{ color: token.colorTextSecondary }}>Heading (SPK) Diff: </span>
+                {headingDiff === 0 ? (
+                  <Tag color="success" style={{ fontSize: 10, padding: '0 4px', margin: 0 }}>Balanced</Tag>
+                ) : headingDiff > 0 ? (
+                  <Tag color="gold" style={{ fontSize: 10, padding: '0 4px', margin: 0, fontWeight: 700 }}>
+                    Outer Short: -{formatDecimal(headingDiff)} PCS
+                  </Tag>
+                ) : (
+                  <Tag color="gold" style={{ fontSize: 10, padding: '0 4px', margin: 0, fontWeight: 700 }}>
+                    Inner Short: -{formatDecimal(Math.abs(headingDiff))} PCS
+                  </Tag>
+                )}
+              </div>
+
+              {/* Plated Diff */}
+              <div style={{ fontSize: 11.5 }}>
+                <span style={{ color: token.colorTextSecondary }}>Plated (SPL) Diff: </span>
+                {platedDiff === 0 ? (
+                  <Tag color="success" style={{ fontSize: 10, padding: '0 4px', margin: 0 }}>Matched</Tag>
+                ) : platedDiff > 0 ? (
+                  <Tag color="volcano" style={{ fontSize: 10, padding: '0 4px', margin: 0, fontWeight: 700 }}>
+                    Outer Short: -{formatDecimal(platedDiff)} PCS
+                  </Tag>
+                ) : (
+                  <Tag color="volcano" style={{ fontSize: 10, padding: '0 4px', margin: 0, fontWeight: 700 }}>
+                    Inner Short: -{formatDecimal(Math.abs(platedDiff))} PCS
+                  </Tag>
+                )}
+              </div>
+            </div>
+          </Col>
+
+          {/* Card 4: Packing Floor Stage */}
+          <Col xs={24} sm={12} lg={6}>
+            <div
+              style={{
+                padding: '10px 12px',
+                background: token.colorBgContainer,
+                borderRadius: 8,
+                border: `1px solid ${token.colorBorderSecondary}`,
+                height: '100%',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                <Tag color="purple" style={{ fontWeight: 700, margin: 0 }}>PACKING FLOOR</Tag>
+                {p.nippleCode && <Tag color="geekblue" style={{ fontSize: 10, margin: 0 }}>{p.nippleCode}</Tag>}
+              </div>
+              <div style={{ fontSize: 11.5, marginBottom: 3 }}>
+                <span style={{ color: token.colorTextSecondary }}>In Packing (Ready): </span>
+                <strong style={{ color: token.colorPrimary }}>
+                  {formatDecimal(p.readyPairsGrs)} GRS ({formatDecimal(p.readyPairsPcs)} Pairs)
+                </strong>
+              </div>
+              <div style={{ fontSize: 11.5, marginBottom: 5 }}>
+                <span style={{ color: token.colorTextSecondary }}>Nipple Stock: </span>
                 <strong>{formatDecimal(p.nippleAvailableStock || 0)} PCS</strong>
               </div>
 
               {isHoldActive ? (
-                <div style={{ padding: '6px 8px', borderRadius: 6, background: 'rgba(234, 179, 8, 0.1)', border: '1px solid #eab308' }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: '#ca8a04', display: 'flex', alignItems: 'center', gap: 4 }}>
+                <div style={{ padding: '3px 6px', borderRadius: 5, background: 'rgba(234, 179, 8, 0.12)', border: '1px solid #eab308' }}>
+                  <div style={{ fontSize: 10.5, fontWeight: 700, color: '#ca8a04', display: 'flex', alignItems: 'center', gap: 4 }}>
                     <ClockCircleOutlined />
-                    <span>HOLD: {hold.status === 'POLYBAG_AWAITED' ? 'Customer Polybag Awaited' : hold.status === 'BOX_AWAITED' ? 'Packaging Box Awaited' : 'Packing Floor Hold'}</span>
+                    <span>HOLD: {hold.status === 'POLYBAG_AWAITED' ? 'Polybag Awaited' : hold.status === 'BOX_AWAITED' ? 'Box Awaited' : 'Packing Hold'}</span>
                   </div>
-                  {hold.reason && <div style={{ fontSize: 11, color: token.colorText, marginTop: 2 }}>{hold.reason}</div>}
-                  {hold.customerName && <div style={{ fontSize: 10, color: token.colorTextSecondary, marginTop: 2 }}>Customer: <strong>{hold.customerName}</strong></div>}
+                  {hold.customerName && <div style={{ fontSize: 10, color: token.colorTextSecondary }}>Customer: <strong>{hold.customerName}</strong></div>}
                 </div>
               ) : (
-                <div style={{ padding: '4px 8px', borderRadius: 6, background: 'rgba(34, 197, 94, 0.1)', border: '1px solid #22c55e', fontSize: 11, color: '#16a34a', fontWeight: 600 }}>
-                  ✓ Stage Clear: Ready for Final Boxing/Dispatch
+                <div style={{ padding: '3px 6px', borderRadius: 5, background: 'rgba(34, 197, 94, 0.12)', border: '1px solid #22c55e', fontSize: 10.5, color: '#16a34a', fontWeight: 600 }}>
+                  ✓ Stage Clear: Ready to Pack
                 </div>
               )}
             </div>
@@ -916,6 +979,47 @@ const FinishedGoodsInventory: React.FC = () => {
             <Tag color="purple" style={{ fontWeight: 700 }}>
               {formatDecimal(val)} {r.uomCode}
             </Tag>
+          );
+        }
+        return <span style={{ color: token.colorTextTertiary, fontWeight: 500 }}>-</span>;
+      },
+    },
+    {
+      title: 'IN PACKING',
+      key: 'inPackingQty',
+      width: 130,
+      align: 'right',
+      sorter: (a, b) => (a.componentPipeline?.readyPairsGrs || 0) - (b.componentPipeline?.readyPairsGrs || 0),
+      render: (_, r) => {
+        const grs = r.componentPipeline?.readyPairsGrs;
+        const pcs = r.componentPipeline?.readyPairsPcs;
+        const hold = r.packingHold;
+        const isHold = hold && hold.status !== 'CLEAR';
+        if (grs && grs > 0) {
+          return (
+            <Tooltip
+              title={
+                <div>
+                  <div><strong>{formatDecimal(pcs)} Matched Plated Pairs</strong> on floor ready to pack</div>
+                  {isHold && (
+                    <div style={{ color: '#fbbf24', marginTop: 3 }}>
+                      ⚠️ Hold: {hold.status === 'POLYBAG_AWAITED' ? 'Polybag Awaited' : hold.status === 'BOX_AWAITED' ? 'Box Awaited' : hold.reason || 'Packing Hold'}
+                    </div>
+                  )}
+                </div>
+              }
+            >
+              <Tag
+                color={isHold ? 'gold' : 'cyan'}
+                style={{
+                  fontWeight: 700,
+                  fontSize: 12,
+                  cursor: 'help',
+                }}
+              >
+                {formatDecimal(grs)} {r.uomCode}
+              </Tag>
+            </Tooltip>
           );
         }
         return <span style={{ color: token.colorTextTertiary, fontWeight: 500 }}>-</span>;
@@ -1472,7 +1576,7 @@ const FinishedGoodsInventory: React.FC = () => {
           rowKey="itemId"
           loading={loading}
           pagination={{ pageSize: 25, showSizeChanger: true, pageSizeOptions: ['10', '25', '50', '100'] }}
-          scroll={{ x: 1200 }}
+          scroll={{ x: 1350 }}
           expandable={{
             expandedRowRender: (record) => renderExpandedPipeline(record),
             rowExpandable: (record) => Boolean(record.componentPipeline),
