@@ -7,7 +7,7 @@ import {
   ShopOutlined,
   ApartmentOutlined,
   DatabaseOutlined, ReloadOutlined, FileExcelOutlined, PrinterOutlined,
-  SearchOutlined, AlertOutlined, CheckCircleOutlined, PauseCircleOutlined, ClockCircleOutlined, InfoCircleOutlined, ThunderboltOutlined,
+  SearchOutlined, AlertOutlined, CheckCircleOutlined, PauseCircleOutlined, ClockCircleOutlined, InfoCircleOutlined, ThunderboltOutlined, ArrowsAltOutlined, ShrinkOutlined,
   BuildOutlined, WarningOutlined,
   InboxOutlined, FilterOutlined, CloseOutlined, ClearOutlined,
 } from '@ant-design/icons';
@@ -1602,6 +1602,49 @@ const FinishedGoodsInventory: React.FC = () => {
           expandable={{
             expandedRowRender: (record) => renderExpandedPipeline(record),
             rowExpandable: (record) => Boolean(record.componentPipeline),
+            expandIcon: ({ expanded, onExpand, record }) => {
+              if (!record.componentPipeline) {
+                return <span style={{ display: 'inline-block', width: 24 }} />;
+              }
+              return (
+                <Tooltip title={expanded ? 'Collapse Component Pipeline' : 'Expand Component Pipeline (Inner/Outer/Packing)'}>
+                  <button
+                    type="button"
+                    aria-label={expanded ? 'Collapse' : 'Expand'}
+                    onClick={(e) => onExpand(record, e)}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      width: 24,
+                      height: 24,
+                      borderRadius: 6,
+                      border: '1.5px solid #15803d',
+                      background: expanded ? 'rgba(21, 128, 61, 0.22)' : 'rgba(21, 128, 61, 0.08)',
+                      color: '#15803d',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                      padding: 0,
+                      outline: 'none',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = '#15803d';
+                      e.currentTarget.style.color = '#ffffff';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = expanded ? 'rgba(21, 128, 61, 0.22)' : 'rgba(21, 128, 61, 0.08)';
+                      e.currentTarget.style.color = '#15803d';
+                    }}
+                  >
+                    {expanded ? (
+                      <ShrinkOutlined style={{ fontSize: 13, fontWeight: 900 }} />
+                    ) : (
+                      <ArrowsAltOutlined style={{ fontSize: 13, fontWeight: 900 }} />
+                    )}
+                  </button>
+                </Tooltip>
+              );
+            },
           }}
         />
       )}
