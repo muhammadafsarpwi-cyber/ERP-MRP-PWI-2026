@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Table, Card, Row, Col, Select, Input, InputNumber, Button, Tag, Space,
-  App, Modal, Form, DatePicker, Tooltip, Badge, theme, Tabs, Typography, Divider, Alert,
+  App, Modal, Form, DatePicker, Tooltip, Badge, theme, Tabs, Typography, Divider, Alert, Popconfirm,
 } from 'antd';
 import {
   RollbackOutlined, ReloadOutlined, FileExcelOutlined, SearchOutlined,
   PlusOutlined, CheckCircleOutlined, ClockCircleOutlined, SyncOutlined,
   CloseCircleOutlined, ArrowRightOutlined, ToolOutlined,
   ExclamationCircleOutlined, ThunderboltOutlined, CopyOutlined, PrinterOutlined, EyeOutlined,
+  EditOutlined, DeleteOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
@@ -131,11 +132,13 @@ const DEFAULT_UOMS = [
 
   // Modals
   const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [editModalOpen, setEditModalOpen] = useState(false);
   const [statusModalOpen, setStatusModalOpen] = useState(false);
   const [selectedRecord, setSelectedRecord] = useState<ReworkReturnRecord | null>(null);
   const [detailModalOpen, setDetailModalOpen] = useState(false);
 
   const [createForm] = Form.useForm();
+  const [editForm] = Form.useForm();
   const [statusForm] = Form.useForm();
   const [submitting, setSubmitting] = useState(false);
 
@@ -144,6 +147,10 @@ const DEFAULT_UOMS = [
   const modalFromDeptId = Form.useWatch('fromDepartmentId', createForm);
   const modalToDeptId = Form.useWatch('toDepartmentId', createForm);
   const modalItemId = Form.useWatch('itemId', createForm);
+
+  // Form watches for cascading filters in edit modal
+  const modalEditToDeptId = Form.useWatch('toDepartmentId', editForm);
+  const modalEditItemId = Form.useWatch('itemId', editForm);
 
   // Fetch Stage Components & WIP Items tailored to Division & Routing
   const fetchStageItems = useCallback(async (divId?: string, fromId?: string, toId?: string) => {
@@ -293,13 +300,69 @@ const DEFAULT_UOMS = [
     // Sort so WIP-SPL-001 (Inner) and WIP-SPL-002 (Outer) appear in clean sequential order
     formattedOptions.sort((a, b) => (a.itemCode || '').localeCompare(b.itemCode || ''));
 
-    return [
-      {
-        label: `${targetCategoryTitle} (${formattedOptions.length})`,
-        options: formattedOptions,
-      },
-    ];
+    return formattedOptions;
   }, [allItemPool, modalDepartments, modalToDeptId]);
+
+  // Options strictly filtered by Edit Modal's target To Department
+  const editModalItemOptions = useMemo(() => {
+    const toDept = modalDepartments.find(d => d.id === modalEditToDeptId);
+    const toCode = toDept?.departmentCode || '';
+    const toName = (toDept?.name || '').toLowerCase();
+
+    let filteredItems: any[] = [];
+    if (toCode === 'SPD-DEPT006' || (toName.includes('plating') && toName.includes('spoke')) || (toName.includes('plating') && !toName.includes('nipple'))) {
+      filteredItems = allItemPool.filter(i => (i.itemCode || '').startsWith('WIP-SPL'));
+    } else if (toCode === 'SPD-DEPT007' || (toName.includes('plating') && toName.includes('nipple'))) {
+      filteredItems = allItemPool.filter(i => (i.itemCode || '').startsWith('FG-NP') || (i.itemCode || '').startsWith('WIP-NPL'));
+    } else if (toCode === 'SPD-DEPT003' || toCode === 'SPD-DEPT004' || toName.includes('spoke') || toName.includes('header')) {
+      filteredItems = allItemPool.filter(i => (i.itemCode || '').startsWith('WIP-SPK'));
+    } else if (toCode === 'SPD-DEPT002' || toName.includes('swag')) {
+      filteredItems = allItemPool.filter(i => (i.itemCode || '').startsWith('WIP-SW'));
+    } else if (toCode === 'SPD-DEPT001' || toName.includes('straight')) {
+      filteredItems = allItemPool.filter(i => (i.itemCode || '').startsWith('WIP-ST'));
+    } else if (toCode === 'SPD-DEPT005' || toName.includes('nipple')) {
+      filteredItems = allItemPool.filter(i => (i.itemCode || '').startsWith('WIP-NPL') || (i.itemCode || '').startsWith('FG-NP'));
+    } else if (toCode === 'SPD-DEPT008' || toName.includes('packing')) {
+      filteredItems = allItemPool.filter(i => (i.itemCode || '').startsWith('SPI-FG'));
+    } else {
+      filteredItems = allItemPool.filter(i => (i.itemCode || '').startsWith('WIP-'));
+    }
+
+    const opts = filteredItems.map(item => {
+      const code = item.itemCode || '';
+      const name = item.name || '';
+      const nameLower = name.toLowerCase();
+      let stageLabel = item.stageLabel || '';
+      if (!stageLabel) {
+        if (code.startsWith('WIP-SPL')) {
+          stageLabel = nameLower.includes('inner') ? 'Plated Inner Spoke' : nameLower.includes('outer') ? 'Plated Outer Spoke' : 'Plated Spoke';
+        } else if (code.startsWith('FG-NP') || code.startsWith('WIP-NPL')) {
+          stageLabel = 'Plated Nipple';
+        } else if (code.startsWith('WIP-SPK')) {
+          stageLabel = nameLower.includes('inner') ? 'Heading Inner Spoke' : nameLower.includes('outer') ? 'Heading Outer Spoke' : 'Heading Spoke';
+        } else if (code.startsWith('WIP-SW')) {
+          stageLabel = 'Swagged Wire';
+        } else if (code.startsWith('WIP-ST')) {
+          stageLabel = 'Straightened Wire';
+        }
+      }
+      return {
+        label: `[${code}] ${name} ${stageLabel ? `(${stageLabel})` : ''}`,
+        value: item.id,
+        itemCode: code,
+        name: name,
+        stageLabel: stageLabel,
+        raw: item,
+      };
+    });
+    opts.sort((a, b) => (a.itemCode || '').localeCompare(b.itemCode || ''));
+    return opts;
+  }, [allItemPool, modalDepartments, modalEditToDeptId]);
+
+  // Selected item object in edit modal
+  const modalEditItemObj = useMemo(() => {
+    return allItemPool.find(i => i.id === modalEditItemId);
+  }, [allItemPool, modalEditItemId]);
 
   // Selected item object in modal
   const modalItemObj = useMemo(() => {
@@ -518,6 +581,75 @@ const DEFAULT_UOMS = [
     }
   };
 
+  // Open Edit Modal
+  const handleOpenEditModal = (record: ReworkReturnRecord) => {
+    setSelectedRecord(record);
+    editForm.resetFields();
+    editForm.setFieldsValue({
+      returnDate: dayjs(record.returnDate),
+      divisionId: record.divisionId,
+      fromDepartmentId: record.fromDepartmentId,
+      toDepartmentId: record.toDepartmentId,
+      itemId: record.itemId,
+      uomId: record.uomId,
+      quantity: record.quantity,
+      defectReason: record.defectReason,
+      correctiveAction: record.correctiveAction,
+      priority: record.priority,
+      returnedBy: record.returnedBy,
+      defectDescription: record.defectDescription,
+      remarks: record.remarks,
+    });
+    setEditModalOpen(true);
+  };
+
+  // Submit Edit
+  const handleEditSubmit = async () => {
+    if (!selectedRecord) return;
+    try {
+      const values = await editForm.validateFields();
+      setSubmitting(true);
+      const payload = {
+        ...values,
+        returnDate: values.returnDate ? values.returnDate.format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD'),
+        quantity: Number(values.quantity),
+      };
+
+      const res = await apiService.patch<any>(`/production/rework-returns/${selectedRecord.id}`, payload);
+      if (res && res.success) {
+        message.success(res.message || 'Production return updated successfully');
+        setEditModalOpen(false);
+        fetchData();
+      } else {
+        message.error('Failed to update return');
+      }
+    } catch (err: any) {
+      if (!err?.errorFields) {
+        message.error(err?.message || 'Error updating rework return');
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Delete Record
+  const handleDelete = async (id: string) => {
+    try {
+      setLoading(true);
+      const res = await apiService.delete<any>(`/production/rework-returns/${id}`);
+      if (res && res.success) {
+        message.success('Rework return record deleted successfully');
+        fetchData();
+      } else {
+        message.error('Failed to delete return record');
+      }
+    } catch (err: any) {
+      message.error(err?.message || 'Error deleting return record');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Open Status Update Modal
   const handleOpenStatusModal = (record: ReworkReturnRecord) => {
     setSelectedRecord(record);
@@ -554,6 +686,7 @@ const DEFAULT_UOMS = [
       setSubmitting(false);
     }
   };
+
 
   // Render Status Badge
   const renderStatusTag = (status: string) => {
@@ -722,20 +855,10 @@ const DEFAULT_UOMS = [
     {
       title: 'ACTIONS',
       key: 'actions',
-      width: 140,
+      width: 270,
       align: 'center',
       render: (_, r) => (
         <Space size={4}>
-          <Tooltip title="Update Rework / Receipt Status">
-            <Button
-              size="small"
-              type="primary"
-              icon={<ToolOutlined />}
-              onClick={() => handleOpenStatusModal(r)}
-            >
-              Update
-            </Button>
-          </Tooltip>
           <Tooltip title="View Details">
             <Button
               size="small"
@@ -744,8 +867,43 @@ const DEFAULT_UOMS = [
                 setSelectedRecord(r);
                 setDetailModalOpen(true);
               }}
-            />
+            >
+              View
+            </Button>
           </Tooltip>
+          <Tooltip title="Edit Rework Return">
+            <Button
+              size="small"
+              icon={<EditOutlined />}
+              onClick={() => handleOpenEditModal(r)}
+            >
+              Edit
+            </Button>
+          </Tooltip>
+          <Tooltip title="Update Status / Rework Progress">
+            <Button
+              size="small"
+              type="primary"
+              icon={<ToolOutlined />}
+              onClick={() => handleOpenStatusModal(r)}
+            >
+              Status
+            </Button>
+          </Tooltip>
+          <Popconfirm
+            title="Delete Return Record"
+            description={`Are you sure you want to delete return ${r.returnNumber}?`}
+            onConfirm={() => handleDelete(r.id)}
+            okText="Yes, Delete"
+            cancelText="Cancel"
+            okButtonProps={{ danger: true }}
+          >
+            <Tooltip title="Delete Return">
+              <Button size="small" danger icon={<DeleteOutlined />}>
+                Delete
+              </Button>
+            </Tooltip>
+          </Popconfirm>
         </Space>
       ),
     },
@@ -1247,6 +1405,175 @@ const DEFAULT_UOMS = [
 
           <Form.Item name="remarks" label="Supervisor Notes / Batch Reference">
             <Input placeholder="Optional reference notes" />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* Modal: Edit Rework Return */}
+      <Modal
+        title={
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <EditOutlined style={{ color: token.colorPrimary }} />
+            <span>Edit Rework Return: {selectedRecord?.returnNumber}</span>
+          </div>
+        }
+        open={editModalOpen}
+        onCancel={() => setEditModalOpen(false)}
+        onOk={handleEditSubmit}
+        confirmLoading={submitting}
+        width={720}
+        okText="Save Changes"
+        destroyOnClose
+      >
+        <Form form={editForm} layout="vertical">
+          <Row gutter={16}>
+            <Col xs={24} sm={8}>
+              <Form.Item name="divisionId" label="Manufacturing Division" rules={[{ required: true }]}>
+                <Select
+                  options={divisions.map(d => ({ label: `${d.name} (${d.divisionCode || ''})`, value: d.id }))}
+                />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={8}>
+              <Form.Item name="returnDate" label="Return Date" rules={[{ required: true }]}>
+                <DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={8}>
+              <Form.Item name="priority" label="Priority" rules={[{ required: true }]}>
+                <Select
+                  options={[
+                    { label: 'Normal Priority', value: 'NORMAL' },
+                    { label: 'High Priority', value: 'HIGH' },
+                    { label: 'Urgent / Line Stop', value: 'URGENT' },
+                  ]}
+                />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Row gutter={16}>
+            <Col xs={24} sm={12}>
+              <Form.Item 
+                name="fromDepartmentId" 
+                label="From Department (Sender)" 
+                rules={[{ required: true }]}
+              >
+                <Select
+                  showSearch
+                  optionFilterProp="label"
+                  options={modalDepartments.map(d => ({ 
+                    label: `${d.name} (${d.departmentCode || ''})`, 
+                    value: d.id 
+                  }))}
+                />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={12}>
+              <Form.Item 
+                name="toDepartmentId" 
+                label="To Department (Target Rework)" 
+                rules={[{ required: true }]}
+              >
+                <Select
+                  showSearch
+                  optionFilterProp="label"
+                  onChange={(val) => {
+                    editForm.setFieldsValue({
+                      toDepartmentId: val,
+                      itemId: undefined,
+                      uomId: undefined,
+                    });
+                  }}
+                  options={modalDepartments.map(d => ({ 
+                    label: `${d.name} (${d.departmentCode || ''})`, 
+                    value: d.id 
+                  }))}
+                />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Row gutter={16}>
+            <Col xs={24} sm={16}>
+              <Form.Item 
+                name="itemId" 
+                label={`Defective Component for (${modalDepartments.find(d => d.id === modalEditToDeptId)?.name || 'Destination'})`}
+                rules={[{ required: true, message: 'Please select defective item' }]}
+              >
+                <Select
+                  showSearch
+                  placeholder="Select defective WIP component..."
+                  optionFilterProp="label"
+                  filterOption={(input, option) =>
+                    (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+                  }
+                  options={editModalItemOptions}
+                  onChange={(itemId) => {
+                    const sel = allItemPool.find(i => i.id === itemId);
+                    if (sel) {
+                      const uomId = sel.uomId || sel.baseUomId || sel.baseUom?.id || uoms[0]?.id;
+                      editForm.setFieldsValue({ itemId, uomId });
+                    }
+                  }}
+                />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={8}>
+              <Form.Item name="uomId" label="Unit of Measure (UOM)" rules={[{ required: true }]}>
+                <Select
+                  options={uoms.map(u => ({ label: `${u.code} (${u.name})`, value: u.id }))}
+                />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Row gutter={16}>
+            <Col xs={24} sm={12}>
+              <Form.Item 
+                name="quantity" 
+                label="Return Quantity" 
+                rules={[{ required: true, message: 'Please enter return quantity' }]}
+              >
+                <InputNumber style={{ width: '100%' }} min={0.01} precision={2} />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={12}>
+              <Form.Item name="returnedBy" label="Dispatched By">
+                <Input placeholder="Supervisor name" />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item name="defectReason" label="Defect Reason" rules={[{ required: true }]}>
+                <Select
+                  options={Object.entries(DEFECT_REASONS).map(([key, info]) => ({
+                    label: info.label,
+                    value: key,
+                  }))}
+                />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="correctiveAction" label="Required Corrective Action" rules={[{ required: true }]}>
+                <Select
+                  options={Object.entries(CORRECTIVE_ACTIONS).map(([key, label]) => ({
+                    label,
+                    value: key,
+                  }))}
+                />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Form.Item name="defectDescription" label="Defect Details / Observations">
+            <Input.TextArea rows={2} />
+          </Form.Item>
+
+          <Form.Item name="remarks" label="Supervisor Notes / Batch Reference">
+            <Input />
           </Form.Item>
         </Form>
       </Modal>

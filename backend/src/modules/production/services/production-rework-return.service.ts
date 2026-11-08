@@ -192,6 +192,42 @@ export class ProductionReworkReturnService {
     return this.returnRepo.save(record);
   }
 
+  async update(
+    id: string,
+    companyId: string,
+    dto: Partial<CreateReworkReturnDto>,
+    userId?: string,
+  ): Promise<ProductionReworkReturn> {
+    const record = await this.findOne(id, companyId);
+
+    if (dto.returnDate) record.returnDate = dto.returnDate;
+    if (dto.divisionId) record.divisionId = dto.divisionId;
+    if (dto.fromDepartmentId) record.fromDepartmentId = dto.fromDepartmentId;
+    if (dto.toDepartmentId) record.toDepartmentId = dto.toDepartmentId;
+    if (dto.itemId) record.itemId = dto.itemId;
+    if (dto.uomId) record.uomId = dto.uomId;
+    if (dto.quantity !== undefined) {
+      record.quantity = Number(dto.quantity);
+      record.quantityPcs = Number(dto.quantity);
+      record.quantityGrs = Number(dto.quantity) / 144;
+    }
+    if (dto.defectReason) record.defectReason = dto.defectReason;
+    if (dto.defectDescription !== undefined) record.defectDescription = dto.defectDescription;
+    if (dto.correctiveAction) record.correctiveAction = dto.correctiveAction;
+    if (dto.priority) record.priority = dto.priority;
+    if (dto.returnedBy !== undefined) record.returnedBy = dto.returnedBy;
+    if (dto.remarks !== undefined) record.remarks = dto.remarks;
+
+    record.updatedBy = userId || null;
+    return this.returnRepo.save(record);
+  }
+
+  async delete(id: string, companyId: string): Promise<boolean> {
+    const record = await this.findOne(id, companyId);
+    await this.returnRepo.remove(record);
+    return true;
+  }
+
   async getSummary(companyId: string, divisionId?: string) {
     const qb = this.returnRepo.createQueryBuilder('r').where('r.companyId = :companyId', { companyId });
     if (divisionId) {

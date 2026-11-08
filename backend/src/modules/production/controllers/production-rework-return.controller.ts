@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Patch,
+  Delete,
   Body,
   Param,
   Query,
@@ -97,6 +98,34 @@ export class ProductionReworkReturnController {
       success: true,
       data: result,
       message: `Return ${result.returnNumber} status updated to ${result.status}`,
+    };
+  }
+
+  @Patch(':id')
+  @ApiOperation({ summary: 'Update an inter-department production rework return record' })
+  async update(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: Partial<CreateReworkReturnDto>,
+    @Req() req: any,
+  ) {
+    const companyId = this.getCompanyId(req);
+    const userId = this.getUserId(req);
+    const result = await this.service.update(id, companyId, dto, userId);
+    return {
+      success: true,
+      data: result,
+      message: `Return ${result.returnNumber} updated successfully`,
+    };
+  }
+
+  @Delete(':id')
+  @ApiOperation({ summary: 'Delete a production rework return record' })
+  async delete(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
+    const companyId = this.getCompanyId(req);
+    await this.service.delete(id, companyId);
+    return {
+      success: true,
+      message: 'Production rework return deleted successfully',
     };
   }
 }
