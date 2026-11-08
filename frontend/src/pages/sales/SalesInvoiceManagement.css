@@ -3141,3 +3141,37 @@ input[type=number] {
 }
 
 
+
+
+/* High visibility primary Action button in Finished Goods table */
+.ant-table-cell .inv-plan-prod-btn.ant-btn,
+.ant-table-cell .inv-plan-prod-btn.ant-btn-primary {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 6px !important;
+  background-color: #7c3aed !important;
+  background: #7c3aed !important;
+  border: 1px solid #6d28d9 !important;
+  color: #ffffff !important;
+  font-weight: 600 !important;
+  font-size: 12px !important;
+  height: 28px !important;
+  padding: 0 12px !important;
+  border-radius: 6px !important;
+  box-shadow: 0 1px 3px rgba(124, 58, 237, 0.35) !important;
+  cursor: pointer !important;
+}
+
+.ant-table-cell .inv-plan-prod-btn.ant-btn:hover,
+.ant-table-cell .inv-plan-prod-btn.ant-btn-primary:hover {
+  background-color: #6d28d9 !important;
+  background: #6d28d9 !important;
+  border-color: #5b21b6 !important;
+  color: #ffffff !important;
+}
+
+.ant-table-cell .inv-plan-prod-btn .anticon,
+.ant-table-cell .inv-plan-prod-btn span {
+  color: #ffffff !important;
+}

@@ -140,6 +140,8 @@ const FinishedGoodsInventory: React.FC = () => {
   const [selectedItemForPlan, setSelectedItemForPlan] = useState<FinishedGoodsItem | null>(null);
   const [planSubmitting, setPlanSubmitting] = useState(false);
   const [planForm] = Form.useForm();
+  const [itemRoutings, setItemRoutings] = useState<Array<{ id: string; routingCode: string; name: string; isDefault: boolean }>>([]);
+  const [loadingRoutings, setLoadingRoutings] = useState(false);
 
   // SaveResultDialog states
   const [saveResultOpen, setSaveResultOpen] = useState(false);
@@ -365,7 +367,7 @@ const FinishedGoodsInventory: React.FC = () => {
   }, [fetchData, handleExportCsv, handlePrint]);
 
   // Open Plan Production Modal
-  const handleOpenPlanModal = (item: FinishedGoodsItem) => {
+  const handleOpenPlanModal = async (item: FinishedGoodsItem) => {
     setSelectedItemForPlan(item);
     const recommendedQty = (item.productionRequirementQty && item.productionRequirementQty > 0)
       ? item.productionRequirementQty
@@ -378,8 +380,27 @@ const FinishedGoodsInventory: React.FC = () => {
       dueDate: dayjs().add(7, 'day'),
       priority: item.shortageQty > 0 ? 'URGENT' : 'NORMAL',
       remarks: `Production requirement to fulfill shortage (${item.shortageQty || 0} ${item.uomCode}) and restore safety buffer (${item.safetyStock || 0} ${item.uomCode})`,
+      routingId: undefined,
     });
     setPlanModalVisible(true);
+    setLoadingRoutings(true);
+    setItemRoutings([]);
+    try {
+      const res = await apiService.get<any>('/production/routings');
+      const allRoutings: any[] = res?.data || [];
+      const itemRoutingsList = allRoutings.filter(
+        (r: any) => r.productId === item.itemId && (r.status === 'ACTIVE' || !r.status)
+      );
+      setItemRoutings(itemRoutingsList);
+      const defaultRouting = itemRoutingsList.find((r: any) => r.isDefault) || itemRoutingsList[0];
+      if (defaultRouting) {
+        planForm.setFieldValue('routingId', defaultRouting.id);
+      }
+    } catch (err) {
+      console.error('Failed to load routings for item:', err);
+    } finally {
+      setLoadingRoutings(false);
+    }
   };
 
   const handleSubmitPlanProduction = async () => {
@@ -391,7 +412,7 @@ const FinishedGoodsInventory: React.FC = () => {
       setSaveResultPhase('loading');
       setSaveResultError(undefined);
 
-      const payload = {
+      const payload: any = {
         productId: selectedItemForPlan.itemId,
         divisionId: selectedItemForPlan.divisionId,
         plannedQuantity: Number(values.plannedQuantity),
@@ -401,6 +422,9 @@ const FinishedGoodsInventory: React.FC = () => {
         demandSource: selectedItemForPlan.shortageQty > 0 ? 'CUSTOMER_ORDER' : 'SAFETY_STOCK',
         remarks: values.remarks,
       };
+      if (values.routingId) {
+        payload.routingId = values.routingId;
+      }
 
       const res = await apiService.post<any>('/production/orders', payload);
       const created = res?.data || res || {};
@@ -618,9 +642,10 @@ const FinishedGoodsInventory: React.FC = () => {
           {canPlanProduction && (r.status === 'SHORT' || r.status === 'BELOW_SAFETY_STOCK') && (
             <Tooltip title="Send requirement to Production Planning">
               <Button
+                type="primary"
                 size="small"
                 icon={<BuildOutlined />}
-                style={{ backgroundColor: '#7c3aed', color: '#fff', borderColor: '#7c3aed' }}
+                className="inv-action-btn inv-plan-prod-btn"
                 onClick={() => handleOpenPlanModal(r)}
               >
                 Plan Prod
@@ -1098,6 +1123,22 @@ const FinishedGoodsInventory: React.FC = () => {
                 </div>
               )}
             </div>
+
+            <Form.Item
+              name="routingId"
+              label="Production Routing"
+              tooltip="Manufacturing sequence (e.g. Straightener -> Swagging -> Spoke -> Threading)"
+            >
+              <Select
+                loading={loadingRoutings}
+                placeholder={itemRoutings.length > 0 ? "Select Production Routing" : "Auto-resolving active default routing"}
+                allowClear
+                options={itemRoutings.map((r) => ({
+                  value: r.id,
+                  label: `${r.routingCode} - ${r.name}${r.isDefault ? ' (Default)' : ''}`,
+                }))}
+              />
+            </Form.Item>
 
             <Form.Item
               name="plannedQuantity"

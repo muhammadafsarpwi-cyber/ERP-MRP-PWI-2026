@@ -17,9 +17,10 @@ export class CreateProductionOrderDto {
   @IsUUID()
   productId: string;
 
-  @ApiProperty({ description: 'Production routing ID (must belong to product)' })
+  @ApiPropertyOptional({ description: 'Production routing ID (must belong to product; auto-selects active default routing if omitted)' })
   @IsUUID()
-  routingId: string;
+  @IsOptional()
+  routingId?: string;
 
   @ApiPropertyOptional({ description: 'BOM ID (must belong to same product)' })
   @IsUUID()

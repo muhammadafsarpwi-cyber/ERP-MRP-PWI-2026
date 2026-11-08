@@ -240,7 +240,23 @@ export class ProductionOrderService {
 
   async create(dto: CreateProductionOrderDto, companyId: string, userId?: string): Promise<ProductionOrder> {
     await this.validateProduct(dto.productId, companyId);
-    const routing = await this.validateRouting(dto.routingId, companyId, dto.productId);
+    let effectiveRoutingId = dto.routingId;
+    if (!effectiveRoutingId) {
+      const defaultRouting = await this.routingRepo.findOne({
+        where: { productId: dto.productId, companyId, isDefault: true, status: RoutingStatus.ACTIVE },
+        order: { updatedAt: 'DESC' },
+      }) || await this.routingRepo.findOne({
+        where: { productId: dto.productId, companyId, status: RoutingStatus.ACTIVE },
+        order: { isDefault: 'DESC', updatedAt: 'DESC' },
+      });
+      if (!defaultRouting) {
+        throw new BadRequestException(
+          'No active production routing found for this product. Please define and activate a routing in Production > Routing first.'
+        );
+      }
+      effectiveRoutingId = defaultRouting.id;
+    }
+    const routing = await this.validateRouting(effectiveRoutingId, companyId, dto.productId);
     if (dto.bomId) await this.validateBom(dto.bomId, companyId, dto.productId);
 await this.assertExists(this.uomRepo, dto.uomId, 'UOM');
     if (dto.salesOrderItemId) await this.validateSalesOrderItem(dto.salesOrderItemId, dto.productId);
@@ -258,7 +274,7 @@ await this.assertExists(this.uomRepo, dto.uomId, 'UOM');
       companyId,
       orderNumber,
       productId: dto.productId,
-      routingId: dto.routingId,
+      routingId: effectiveRoutingId,
       bomId: dto.bomId ?? null,
       divisionId: dto.divisionId ?? null,
       plannedQuantity: dto.plannedQuantity,
