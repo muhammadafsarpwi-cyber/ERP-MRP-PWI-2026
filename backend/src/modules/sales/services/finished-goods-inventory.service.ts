@@ -43,6 +43,11 @@ export interface FinishedGoodsItemAvailability {
   excessQty: number;
   onProductionQty: number;
   socPackedQty?: number;
+  directCommittedStock?: number;
+  derivedSpokeDemand?: number;
+  derivedDemandSources?: Array<{ spokeCode: string; qty: number }>;
+  matchedNippleCode?: string;
+  matchedNippleName?: string;
   status: 'AVAILABLE' | 'LOW_STOCK' | 'BELOW_SAFETY_STOCK' | 'SHORT' | 'EXCESS' | 'ON_PRODUCTION';
   statusLabel: string;
   canFulfillImmediate: boolean;
@@ -179,7 +184,7 @@ export class FinishedGoodsInventoryService {
       qb.andWhere('(item.itemCode ILIKE :term OR item.name ILIKE :term)', { term });
     }
 
-    qb.orderBy('item.name', 'ASC');
+    qb.orderBy('item.itemCode', 'ASC');
 
     // Fetch all matching items for this query (to calculate correct UOM breakdowns across the filtered subset)
     const allFilteredItems = await qb.getMany();
@@ -313,11 +318,56 @@ export class FinishedGoodsInventoryService {
       policySafetyMap.set(r.itemId, Number(r.policySafety || 0));
     });
 
+    // 5.5 Derived Kit Demand: Spoke Assembly Kits require matching Nipples
+    const nippleItems = allFilteredItems.filter((i) => i.itemCode?.startsWith('FG-NP'));
+    const spokeItems = allFilteredItems.filter((i) => i.itemCode?.startsWith('SPI-FG-SPK'));
+
+    const spokeToNippleMap = new Map<string, typeof allFilteredItems[0]>();
+    for (const spk of spokeItems) {
+      if (spk.name?.includes('_')) {
+        const parts = spk.name.split('_').filter(Boolean);
+        const nipPart = parts[parts.length - 1].trim().toLowerCase().replace(/\s+/g, '');
+        const matchedNip = nippleItems.find((np) => {
+          const npClean = np.name.toLowerCase().replace(/\s+/g, '');
+          return (
+            npClean.includes(nipPart) ||
+            nipPart.includes(npClean.replace('nipple', '')) ||
+            (nipPart.includes('225x17') && np.itemCode === 'FG-NP-001') ||
+            (nipPart.includes('cd-250x17') && np.itemCode === 'FG-NP-002') ||
+            (nipPart.includes('125-300x17') && np.itemCode === 'FG-NP-003') ||
+            (nipPart.includes('rm-250*17') && np.itemCode === 'FG-NP-004') ||
+            (nipPart.includes('125-s9') && np.itemCode === 'FG-NP-005')
+          );
+        });
+        if (matchedNip) {
+          spokeToNippleMap.set(spk.id, matchedNip);
+        }
+      }
+    }
+
+    const nippleDerivedDemandMap = new Map<string, { total: number; sources: Array<{ spokeCode: string; qty: number }> }>();
+    for (const spk of spokeItems) {
+      const nip = spokeToNippleMap.get(spk.id);
+      if (nip) {
+        const spkCommitment = commitmentMap.get(spk.id) || 0;
+        if (spkCommitment > 0) {
+          const current = nippleDerivedDemandMap.get(nip.id) || { total: 0, sources: [] };
+          current.total += spkCommitment;
+          current.sources.push({ spokeCode: spk.itemCode, qty: spkCommitment });
+          nippleDerivedDemandMap.set(nip.id, current);
+        }
+      }
+    }
+
     // 6. Compute item availability metrics
     const computedItems: FinishedGoodsItemAvailability[] = allFilteredItems.map((item) => {
       const basePhysical = physicalMap.get(item.id) || 0;
       const physicalStock = this.convertQty(basePhysical, item.baseUom?.code, item.salesUom?.code || item.baseUom?.code);
-      const committedStock = commitmentMap.get(item.id) || 0;
+      const directCommitted = commitmentMap.get(item.id) || 0;
+      const derivedDemand = nippleDerivedDemandMap.get(item.id);
+      const derivedQty = derivedDemand ? derivedDemand.total : 0;
+      const committedStock = directCommitted + derivedQty;
+      const matchedNip = spokeToNippleMap.get(item.id);
       const onProductionQty = productionMap.get(item.id) || 0;
 
       // Determine safety stock: item.safetyStockLevel has priority, then inventory policy
@@ -385,6 +435,11 @@ export class FinishedGoodsInventoryService {
         uomName,
         physicalStock,
         committedStock,
+        directCommittedStock: directCommitted,
+        derivedSpokeDemand: derivedQty,
+        derivedDemandSources: derivedDemand ? derivedDemand.sources : undefined,
+        matchedNippleCode: matchedNip ? matchedNip.itemCode : undefined,
+        matchedNippleName: matchedNip ? matchedNip.name : undefined,
         availableStock,
         safetyStock,
         aboveSafetyStock,
@@ -412,6 +467,21 @@ export class FinishedGoodsInventoryService {
     if (dto.status && dto.status !== 'ALL') {
       filteredList = filteredList.filter((it) => it.status === dto.status);
     }
+
+    // Alphanumeric code sorting: Spokes 001-012 first in natural order, then Nipples 001-005 in natural order
+    filteredList.sort((a, b) => {
+      const isSpkA = a.itemCode?.startsWith('SPI-FG-SPK');
+      const isSpkB = b.itemCode?.startsWith('SPI-FG-SPK');
+      if (isSpkA && !isSpkB) return -1;
+      if (!isSpkA && isSpkB) return 1;
+
+      const isNpA = a.itemCode?.startsWith('FG-NP');
+      const isNpB = b.itemCode?.startsWith('FG-NP');
+      if (isNpA && !isNpB) return -1;
+      if (!isNpA && isNpB) return 1;
+
+      return a.itemCode.localeCompare(b.itemCode, undefined, { numeric: true, sensitivity: 'base' });
+    });
 
     // 8. Calculate KPI Summary & UOM-Aware Breakdowns
     let itemsWithSufficientStock = 0;

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Table, Card, Row, Col, Grid, Select, Input, Button, Tag, Space,
-  App, Modal, Form, InputNumber, DatePicker, Tooltip, Switch, Badge, theme,
+  App, Modal, Form, InputNumber, DatePicker, Tooltip, Switch, Badge, theme, Segmented,
 } from 'antd';
 import {
   ShopOutlined,
@@ -52,6 +52,11 @@ interface FinishedGoodsItem {
   productionRequirementQty?: number;
   excessQty?: number;
   onProductionQty: number;
+  directCommittedStock?: number;
+  derivedSpokeDemand?: number;
+  derivedDemandSources?: Array<{ spokeCode: string; qty: number }>;
+  matchedNippleCode?: string;
+  matchedNippleName?: string;
   status: 'AVAILABLE' | 'LOW_STOCK' | 'BELOW_SAFETY_STOCK' | 'SHORT' | 'EXCESS' | 'ON_PRODUCTION';
   statusLabel: string;
   canFulfillImmediate: boolean;
@@ -114,6 +119,7 @@ const FinishedGoodsInventory: React.FC = () => {
   const [selectedStatus, setSelectedStatus] = useState<string>('ALL');
   const [search, setSearch] = useState<string>('');
   const [onlyShortages, setOnlyShortages] = useState<boolean>(false);
+  const [itemViewMode, setItemViewMode] = useState<string>('CODE_ORDER');
   const [activeUomFilter, setActiveUomFilter] = useState<string>('ALL');
 
   const activeFilterCount = useMemo(() => {
@@ -451,11 +457,63 @@ const FinishedGoodsInventory: React.FC = () => {
     }
   };
 
-  // Filtered by active UOM tab if selected
+  // Filtered and arranged by selected arrangement view & UOM tab
   const displayedItems = useMemo(() => {
-    if (activeUomFilter === 'ALL') return data;
-    return data.filter((d) => d.uomCode === activeUomFilter);
-  }, [data, activeUomFilter]);
+    let items = data;
+    if (activeUomFilter !== 'ALL') {
+      items = items.filter((d) => d.uomCode === activeUomFilter);
+    }
+
+    if (itemViewMode === 'SPOKES_ONLY') {
+      return items.filter((d) => d.itemCode?.startsWith('SPI-FG-SPK'));
+    }
+    if (itemViewMode === 'NIPPLES_ONLY') {
+      return items.filter((d) => d.itemCode?.startsWith('FG-NP'));
+    }
+    if (itemViewMode === 'PAIRED') {
+      // Pair each spoke with its matching nipple immediately following
+      const spokes = items.filter((d) => d.itemCode?.startsWith('SPI-FG-SPK'));
+      const nipples = items.filter((d) => d.itemCode?.startsWith('FG-NP'));
+      const others = items.filter((d) => !d.itemCode?.startsWith('SPI-FG-SPK') && !d.itemCode?.startsWith('FG-NP'));
+
+      const pairedList: FinishedGoodsItem[] = [];
+      const includedNippleIds = new Set<string>();
+
+      spokes.forEach((spk) => {
+        pairedList.push(spk);
+        const matchedNip = nipples.find(
+          (nip) =>
+            nip.itemCode === spk.matchedNippleCode ||
+            (spk.itemName && nip.itemName && spk.itemName.includes(nip.itemName.replace(' Nipple', '')))
+        );
+        if (matchedNip && !includedNippleIds.has(matchedNip.itemId)) {
+          pairedList.push(matchedNip);
+          includedNippleIds.add(matchedNip.itemId);
+        }
+      });
+      nipples.forEach((nip) => {
+        if (!includedNippleIds.has(nip.itemId)) {
+          pairedList.push(nip);
+        }
+      });
+      return [...pairedList, ...others];
+    }
+
+    // Default: 'CODE_ORDER' -> Spokes 001-012 sequentially first, then Nipples 001-005 sequentially, then others
+    return [...items].sort((a, b) => {
+      const isSpkA = a.itemCode?.startsWith('SPI-FG-SPK');
+      const isSpkB = b.itemCode?.startsWith('SPI-FG-SPK');
+      if (isSpkA && !isSpkB) return -1;
+      if (!isSpkA && isSpkB) return 1;
+
+      const isNpA = a.itemCode?.startsWith('FG-NP');
+      const isNpB = b.itemCode?.startsWith('FG-NP');
+      if (isNpA && !isNpB) return -1;
+      if (!isNpA && isNpB) return 1;
+
+      return a.itemCode.localeCompare(b.itemCode, undefined, { numeric: true, sensitivity: 'base' });
+    });
+  }, [data, activeUomFilter, itemViewMode]);
 
   // Table Columns
   const columns: ColumnsType<FinishedGoodsItem> = [
@@ -485,7 +543,23 @@ const FinishedGoodsInventory: React.FC = () => {
     {
       title: 'FINISHED GOOD ITEM',
       key: 'item',
-      render: (_, r) => renderItemNameWithParts(r.itemName, r.itemCode),
+      sorter: (a, b) => a.itemCode.localeCompare(b.itemCode, undefined, { numeric: true, sensitivity: 'base' }),
+      render: (_, r) => {
+        const rendered = renderItemNameWithParts(r.itemName, r.itemCode);
+        const isNipple = r.itemCode?.startsWith('FG-NP');
+        return (
+          <div>
+            {rendered}
+            {isNipple && (
+              <div style={{ marginTop: 2 }}>
+                <Tag color="purple" style={{ fontSize: 9.5, margin: 0, padding: '0 5px', fontWeight: 600 }}>
+                  Assembly Component for Spoke Sets
+                </Tag>
+              </div>
+            )}
+          </div>
+        );
+      },
     },
     {
       title: 'UOM',
@@ -515,13 +589,35 @@ const FinishedGoodsInventory: React.FC = () => {
       title: 'COMMITTED (OPEN SO)',
       dataIndex: 'committedStock',
       key: 'committedStock',
-      width: 140,
+      width: 155,
       align: 'right',
-      render: (val, r) => (
-        <span style={{ color: val > 0 ? '#b45309' : token.colorTextSecondary, fontWeight: val > 0 ? 700 : 500 }}>
-          {formatDecimal(val)} <span style={{ fontSize: 11 }}>{r.uomCode}</span>
-        </span>
-      ),
+      sorter: (a, b) => a.committedStock - b.committedStock,
+      render: (val, r) => {
+        const hasDerived = r.derivedSpokeDemand && r.derivedSpokeDemand > 0;
+        return (
+          <Space direction="vertical" size={1} style={{ width: '100%', textAlign: 'right' }}>
+            <span style={{ color: val > 0 ? '#b45309' : token.colorTextSecondary, fontWeight: val > 0 ? 700 : 500 }}>
+              {formatDecimal(val)} <span style={{ fontSize: 11 }}>{r.uomCode}</span>
+            </span>
+            {hasDerived && (
+              <Tooltip
+                title={
+                  <div>
+                    <div style={{ fontWeight: 700, marginBottom: 2 }}>Derived Demand for Spoke Assembly:</div>
+                    {r.derivedDemandSources?.map((s, idx) => (
+                      <div key={idx}>{s.spokeCode}: {formatDecimal(s.qty)} {r.uomCode}</div>
+                    ))}
+                  </div>
+                }
+              >
+                <Tag color="orange" style={{ fontSize: 9.5, margin: 0, padding: '0 4px', lineHeight: '16px', fontWeight: 600, cursor: 'help' }}>
+                  Spoke SO Demand
+                </Tag>
+              </Tooltip>
+            )}
+          </Space>
+        );
+      },
     },
     {
       title: 'AVAILABLE STOCK',
@@ -1066,6 +1162,39 @@ const FinishedGoodsInventory: React.FC = () => {
           </>
         )}
       </section>
+
+      {/* Arrangement Controller & Item Stats */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: 12,
+        flexWrap: 'wrap',
+        gap: 8,
+        padding: '8px 12px',
+        background: token.colorBgContainer,
+        border: `1px solid ${token.colorBorderSecondary}`,
+        borderRadius: 8,
+      }}>
+        <Space wrap>
+          <span style={{ fontSize: 12, fontWeight: 700, color: token.colorTextSecondary }}>
+            ITEM ORDER &amp; GROUPING:
+          </span>
+          <Segmented
+            value={itemViewMode}
+            onChange={(val) => setItemViewMode(val as string)}
+            options={[
+              { label: 'Code Order (001 -> 012)', value: 'CODE_ORDER' },
+              { label: 'Spoke & Nipple Paired', value: 'PAIRED' },
+              { label: 'Spokes Only (001-012)', value: 'SPOKES_ONLY' },
+              { label: 'Nipples Only (001-005)', value: 'NIPPLES_ONLY' },
+            ]}
+          />
+        </Space>
+        <span style={{ fontSize: 12, color: token.colorTextSecondary, fontWeight: 600 }}>
+          {displayedItems.length} Finished Goods Loaded
+        </span>
+      </div>
 
       {/* Main Table */}
       {loading && data.length === 0 ? (
