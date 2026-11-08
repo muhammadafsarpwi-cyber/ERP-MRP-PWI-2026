@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Query, Req, UseGuards } from '@nestjs/common';
+import { Controller, Get, Put, Body, Param, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { FinishedGoodsInventoryService } from '../services/finished-goods-inventory.service';
 import { FinishedGoodsFilterDto, ItemAvailabilityQueryDto } from '../dto/finished-goods-inventory.dto';
@@ -61,4 +61,21 @@ export class FinishedGoodsInventoryController {
     );
     return { success: true, data };
   }
+
+  @Put(':itemId/packing-hold')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('sales.orders.edit')
+  @ApiOperation({ summary: 'Update packing stage hold status (e.g. polybag hold)' })
+  async updatePackingHold(
+    @Req() req: any,
+    @Param('itemId') itemId: string,
+    @Body() body: any,
+  ) {
+    const companyId = req.erpUser?.defaultCompanyId || req.user?.companyId;
+    const userEmail = req.erpUser?.email || req.erpUser?.displayName || 'Production Supervisor';
+    const result = await this.service.updatePackingHold(itemId, body, companyId, userEmail);
+    return { success: true, ...result };
+  }
+
 }

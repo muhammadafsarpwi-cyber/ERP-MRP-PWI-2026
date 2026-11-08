@@ -7,7 +7,7 @@ import {
   ShopOutlined,
   ApartmentOutlined,
   DatabaseOutlined, ReloadOutlined, FileExcelOutlined, PrinterOutlined,
-  SearchOutlined, AlertOutlined, CheckCircleOutlined,
+  SearchOutlined, AlertOutlined, CheckCircleOutlined, PauseCircleOutlined, ClockCircleOutlined, InfoCircleOutlined, ThunderboltOutlined,
   BuildOutlined, WarningOutlined,
   InboxOutlined, FilterOutlined, CloseOutlined, ClearOutlined,
 } from '@ant-design/icons';
@@ -23,6 +23,35 @@ import type { SaveResultData, SaveResultPhase } from '../../components/shared/Sa
 import { renderItemNameWithParts } from './SalesAnalyticsDashboard';
 import CardSelectDropdown from '../../components/dashboard/CardSelectDropdown';
 import './SalesInvoiceManagement.css';
+
+export interface PackingHoldInfo {
+  status: 'CLEAR' | 'POLYBAG_AWAITED' | 'BOX_AWAITED' | 'QUALITY_HOLD' | 'OTHER';
+  reason?: string | null;
+  holdQuantity?: number;
+  polybagDetails?: string | null;
+  customerName?: string | null;
+  notes?: string | null;
+  updatedBy?: string | null;
+  updatedAt?: string | null;
+}
+
+export interface ComponentWipDetail {
+  code: string;
+  name: string;
+  unplatedHeadingQty: number;
+  platedReadyQty: number;
+}
+
+export interface SpokeComponentPipeline {
+  innerSpoke: ComponentWipDetail;
+  outerSpoke: ComponentWipDetail;
+  nippleCode?: string;
+  nippleName?: string;
+  nippleAvailableStock?: number;
+  readyPairsPcs: number;
+  readyPairsGrs: number;
+  packingHold?: PackingHoldInfo;
+}
 
 interface FinishedGoodsItem {
   itemId: string;
@@ -57,6 +86,8 @@ interface FinishedGoodsItem {
   derivedDemandSources?: Array<{ spokeCode: string; qty: number }>;
   matchedNippleCode?: string;
   matchedNippleName?: string;
+  componentPipeline?: SpokeComponentPipeline;
+  packingHold?: PackingHoldInfo;
   status: 'AVAILABLE' | 'LOW_STOCK' | 'BELOW_SAFETY_STOCK' | 'SHORT' | 'EXCESS' | 'ON_PRODUCTION';
   statusLabel: string;
   canFulfillImmediate: boolean;
@@ -373,6 +404,50 @@ const FinishedGoodsInventory: React.FC = () => {
     };
   }, [fetchData, handleExportCsv, handlePrint]);
 
+  // Packing Stage Hold Modal
+  const [holdModalVisible, setHoldModalVisible] = useState(false);
+  const [selectedHoldItem, setSelectedHoldItem] = useState<FinishedGoodsItem | null>(null);
+  const [holdForm] = Form.useForm();
+  const [holdSubmitting, setHoldSubmitting] = useState(false);
+
+  const handleOpenHoldModal = (item: FinishedGoodsItem) => {
+    setSelectedHoldItem(item);
+    holdForm.setFieldsValue({
+      holdStatus: item.packingHold?.status || 'CLEAR',
+      holdReason: item.packingHold?.reason || '',
+      holdQuantity: item.packingHold?.holdQuantity || item.openSalesOrderQty || 0,
+      polybagDetails: item.packingHold?.polybagDetails || '',
+      customerName: item.packingHold?.customerName || '',
+      notes: item.packingHold?.notes || '',
+    });
+    setHoldModalVisible(true);
+  };
+
+  const handleSubmitHold = async () => {
+    if (!selectedHoldItem) return;
+    try {
+      const values = await holdForm.validateFields();
+      setHoldSubmitting(true);
+      const res = await apiService.put<{ success: boolean; status: string }>(
+        `/sales/finished-goods/${selectedHoldItem.itemId}/packing-hold`,
+        values
+      );
+      if (res && res.success) {
+        message.success('Packing stage hold status updated successfully');
+        setHoldModalVisible(false);
+        fetchData();
+      } else {
+        message.error('Failed to update packing hold status');
+      }
+    } catch (err: any) {
+      if (!err?.errorFields) {
+        message.error(err?.message || 'Error updating packing hold');
+      }
+    } finally {
+      setHoldSubmitting(false);
+    }
+  };
+
   // Open Plan Production Modal
   const handleOpenPlanModal = async (item: FinishedGoodsItem) => {
     setSelectedItemForPlan(item);
@@ -514,6 +589,146 @@ const FinishedGoodsInventory: React.FC = () => {
       return a.itemCode.localeCompare(b.itemCode, undefined, { numeric: true, sensitivity: 'base' });
     });
   }, [data, activeUomFilter, itemViewMode]);
+
+
+  const renderExpandedPipeline = (record: FinishedGoodsItem) => {
+    const p = record.componentPipeline;
+    if (!p) return null;
+    const hold = record.packingHold;
+    const isHoldActive = hold && hold.status !== 'CLEAR';
+
+    return (
+      <div
+        style={{
+          padding: '16px 20px',
+          background: 'var(--theme-surface-alt, rgba(148, 163, 184, 0.05))',
+          borderRadius: 8,
+          border: `1px solid ${token.colorBorderSecondary}`,
+          margin: '8px 0',
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <ThunderboltOutlined style={{ color: token.colorPrimary, fontSize: 16 }} />
+            <span style={{ fontWeight: 700, fontSize: 13, color: token.colorText }}>
+              SHOPFLOOR COMPONENT WIP PIPELINE &amp; PACKING STAGE TRACKING: {record.itemCode}
+            </span>
+          </div>
+          <Button
+            size="small"
+            type={isHoldActive ? 'primary' : 'default'}
+            danger={isHoldActive}
+            icon={<ClockCircleOutlined />}
+            onClick={() => handleOpenHoldModal(record)}
+            style={{ fontWeight: 600, borderRadius: 6 }}
+          >
+            {isHoldActive ? 'Update / Release Hold' : 'Set Packing Stage Hold'}
+          </Button>
+        </div>
+
+        <Row gutter={[16, 16]}>
+          {/* Card 1: Inner Spoke */}
+          <Col xs={24} md={8}>
+            <div
+              style={{
+                padding: '12px 14px',
+                background: token.colorBgContainer,
+                borderRadius: 8,
+                border: `1px solid ${token.colorBorderSecondary}`,
+                height: '100%',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                <Tag color="blue" style={{ fontWeight: 700 }}>INNER SPOKE</Tag>
+                <Tag style={{ fontSize: 11 }}>{p.innerSpoke.code}</Tag>
+              </div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: token.colorText, marginBottom: 8 }}>
+                {p.innerSpoke.name}
+              </div>
+              <div style={{ fontSize: 11, color: token.colorTextSecondary, display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                <span>In Heading (SPK):</span>
+                <strong>{formatDecimal(p.innerSpoke.unplatedHeadingQty)} PCS</strong>
+              </div>
+              <div style={{ fontSize: 11, color: token.colorTextSecondary, display: 'flex', justifyContent: 'space-between' }}>
+                <span>Plated &amp; Ready (SPL):</span>
+                <span style={{ color: '#16a34a', fontWeight: 700 }}>{formatDecimal(p.innerSpoke.platedReadyQty)} PCS</span>
+              </div>
+            </div>
+          </Col>
+
+          {/* Card 2: Outer Spoke */}
+          <Col xs={24} md={8}>
+            <div
+              style={{
+                padding: '12px 14px',
+                background: token.colorBgContainer,
+                borderRadius: 8,
+                border: `1px solid ${token.colorBorderSecondary}`,
+                height: '100%',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                <Tag color="cyan" style={{ fontWeight: 700 }}>OUTER SPOKE</Tag>
+                <Tag style={{ fontSize: 11 }}>{p.outerSpoke.code}</Tag>
+              </div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: token.colorText, marginBottom: 8 }}>
+                {p.outerSpoke.name}
+              </div>
+              <div style={{ fontSize: 11, color: token.colorTextSecondary, display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                <span>In Heading (SPK):</span>
+                <strong>{formatDecimal(p.outerSpoke.unplatedHeadingQty)} PCS</strong>
+              </div>
+              <div style={{ fontSize: 11, color: token.colorTextSecondary, display: 'flex', justifyContent: 'space-between' }}>
+                <span>Plated &amp; Ready (SPL):</span>
+                <span style={{ color: '#16a34a', fontWeight: 700 }}>{formatDecimal(p.outerSpoke.platedReadyQty)} PCS</span>
+              </div>
+            </div>
+          </Col>
+
+          {/* Card 3: Packing Floor Stage */}
+          <Col xs={24} md={8}>
+            <div
+              style={{
+                padding: '12px 14px',
+                background: token.colorBgContainer,
+                borderRadius: 8,
+                border: `1px solid ${token.colorBorderSecondary}`,
+                height: '100%',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                <Tag color="purple" style={{ fontWeight: 700 }}>PACKING FLOOR</Tag>
+                {p.nippleCode && <Tag color="geekblue" style={{ fontSize: 11 }}>{p.nippleCode}</Tag>}
+              </div>
+              <div style={{ fontSize: 12, display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                <span style={{ color: token.colorTextSecondary }}>Plated Matched Pairs:</span>
+                <strong style={{ color: token.colorPrimary }}>{formatDecimal(p.readyPairsPcs)} Pairs ({formatDecimal(p.readyPairsGrs)} GRS)</strong>
+              </div>
+              <div style={{ fontSize: 11, color: token.colorTextSecondary, display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                <span>Matching Nipple Stock:</span>
+                <strong>{formatDecimal(p.nippleAvailableStock || 0)} PCS</strong>
+              </div>
+
+              {isHoldActive ? (
+                <div style={{ padding: '6px 8px', borderRadius: 6, background: 'rgba(234, 179, 8, 0.1)', border: '1px solid #eab308' }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#ca8a04', display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <ClockCircleOutlined />
+                    <span>HOLD: {hold.status === 'POLYBAG_AWAITED' ? 'Customer Polybag Awaited' : hold.status === 'BOX_AWAITED' ? 'Packaging Box Awaited' : 'Packing Floor Hold'}</span>
+                  </div>
+                  {hold.reason && <div style={{ fontSize: 11, color: token.colorText, marginTop: 2 }}>{hold.reason}</div>}
+                  {hold.customerName && <div style={{ fontSize: 10, color: token.colorTextSecondary, marginTop: 2 }}>Customer: <strong>{hold.customerName}</strong></div>}
+                </div>
+              ) : (
+                <div style={{ padding: '4px 8px', borderRadius: 6, background: 'rgba(34, 197, 94, 0.1)', border: '1px solid #22c55e', fontSize: 11, color: '#16a34a', fontWeight: 600 }}>
+                  ✓ Stage Clear: Ready for Final Boxing/Dispatch
+                </div>
+              )}
+            </div>
+          </Col>
+        </Row>
+      </div>
+    );
+  };
 
   // Table Columns
   const columns: ColumnsType<FinishedGoodsItem> = [
@@ -712,21 +927,52 @@ const FinishedGoodsInventory: React.FC = () => {
       width: 160,
       align: 'center',
       render: (_, r) => {
+        let statusTag: React.ReactNode;
         switch (r.status) {
           case 'SHORT':
-            return <Tag color="error" icon={<AlertOutlined />}>SHORTAGE</Tag>;
+            statusTag = <Tag color="error" icon={<AlertOutlined />}>SHORTAGE</Tag>;
+            break;
           case 'BELOW_SAFETY_STOCK':
-            return <Tag color="warning" icon={<WarningOutlined />}>BELOW SAFETY</Tag>;
+            statusTag = <Tag color="warning" icon={<WarningOutlined />}>BELOW SAFETY</Tag>;
+            break;
           case 'ON_PRODUCTION':
-            return <Tag color="processing" icon={<BuildOutlined />}>IN PRODUCTION</Tag>;
+            statusTag = <Tag color="processing" icon={<BuildOutlined />}>IN PRODUCTION</Tag>;
+            break;
           case 'LOW_STOCK':
-            return <Tag color="gold">LOW STOCK</Tag>;
+            statusTag = <Tag color="gold">LOW STOCK</Tag>;
+            break;
           case 'EXCESS':
-            return <Tag color="cyan">EXCESS</Tag>;
+            statusTag = <Tag color="cyan">EXCESS</Tag>;
+            break;
           case 'AVAILABLE':
           default:
-            return <Tag color="success" icon={<CheckCircleOutlined />}>AVAILABLE</Tag>;
+            statusTag = <Tag color="success" icon={<CheckCircleOutlined />}>AVAILABLE</Tag>;
+            break;
         }
+
+        const hold = r.packingHold;
+        const isHold = hold && hold.status !== 'CLEAR';
+
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'center' }}>
+            {statusTag}
+            {isHold && hold.status === 'POLYBAG_AWAITED' && (
+              <Tag color="gold" style={{ fontSize: 10, fontWeight: 700, margin: 0, display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                <ClockCircleOutlined /> Polybag Awaited
+              </Tag>
+            )}
+            {isHold && hold.status === 'BOX_AWAITED' && (
+              <Tag color="volcano" style={{ fontSize: 10, fontWeight: 700, margin: 0 }}>
+                Box Awaited
+              </Tag>
+            )}
+            {isHold && hold.status === 'QUALITY_HOLD' && (
+              <Tag color="magenta" style={{ fontSize: 10, fontWeight: 700, margin: 0 }}>
+                QC Hold
+              </Tag>
+            )}
+          </div>
+        );
       },
     },
     {
@@ -748,6 +994,20 @@ const FinishedGoodsInventory: React.FC = () => {
                   onClick={() => handleOpenPlanModal(r)}
                 >
                   Plan Prod
+                </Button>
+              </Tooltip>
+            )}
+            {r.itemCode?.startsWith('SPI-FG-SPK') && (
+              <Tooltip title={r.packingHold?.status && r.packingHold.status !== 'CLEAR' ? 'Packing Hold active: Click to view or release' : 'Set packing stage hold (e.g. Polybag Awaited)'}>
+                <Button
+                  size="small"
+                  type={r.packingHold?.status && r.packingHold.status !== 'CLEAR' ? 'primary' : 'default'}
+                  danger={Boolean(r.packingHold?.status && r.packingHold.status !== 'CLEAR')}
+                  icon={<ClockCircleOutlined />}
+                  onClick={() => handleOpenHoldModal(r)}
+                  style={{ borderRadius: 6, fontWeight: 600, fontSize: 11 }}
+                >
+                  Hold
                 </Button>
               </Tooltip>
             )}
@@ -1213,6 +1473,10 @@ const FinishedGoodsInventory: React.FC = () => {
           loading={loading}
           pagination={{ pageSize: 25, showSizeChanger: true, pageSizeOptions: ['10', '25', '50', '100'] }}
           scroll={{ x: 1200 }}
+          expandable={{
+            expandedRowRender: (record) => renderExpandedPipeline(record),
+            rowExpandable: (record) => Boolean(record.componentPipeline),
+          }}
         />
       )}
 
@@ -1315,6 +1579,85 @@ const FinishedGoodsInventory: React.FC = () => {
         onRetry={saveResultRetry}
         onClose={() => setSaveResultOpen(false)}
       />
+    
+      {/* Packing Stage Hold Modal */}
+      <Modal
+        title={
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <ClockCircleOutlined style={{ color: '#eab308', fontSize: 18 }} />
+            <span>Manage Packing Stage Hold: {selectedHoldItem?.itemCode}</span>
+          </div>
+        }
+        open={holdModalVisible}
+        onCancel={() => setHoldModalVisible(false)}
+        onOk={handleSubmitHold}
+        confirmLoading={holdSubmitting}
+        okText="Save Packing Hold"
+      >
+        {selectedHoldItem && (
+          <Form form={holdForm} layout="vertical">
+            <div style={{ padding: 12, background: 'var(--theme-surface-alt, rgba(148, 163, 184, 0.08))', borderRadius: 8, marginBottom: 16 }}>
+              <div><strong>Item:</strong> {selectedHoldItem.itemName} ({selectedHoldItem.itemCode})</div>
+              <div><strong>Open Order Committed:</strong> {formatDecimal(selectedHoldItem.committedStock)} {selectedHoldItem.uomCode}</div>
+              {selectedHoldItem.componentPipeline && (
+                <div><strong>Plated Pairs Ready to Pack:</strong> {formatDecimal(selectedHoldItem.componentPipeline.readyPairsPcs)} Pairs ({formatDecimal(selectedHoldItem.componentPipeline.readyPairsGrs)} GRS)</div>
+              )}
+            </div>
+
+            <Form.Item
+              name="holdStatus"
+              label="Packing Stage Status"
+              rules={[{ required: true, message: 'Please select stage status' }]}
+            >
+              <Select
+                options={[
+                  { label: '✓ Stage Clear (Ready to Pack)', value: 'CLEAR' },
+                  { label: '⚠️ Customer Polybag Awaited (Customer Packaging Shortage)', value: 'POLYBAG_AWAITED' },
+                  { label: '📦 Master Carton / Box Awaited', value: 'BOX_AWAITED' },
+                  { label: '🔍 Quality Control / Inspection Hold', value: 'QUALITY_HOLD' },
+                  { label: '⏳ Other Production / Shopfloor Hold', value: 'OTHER' },
+                ]}
+              />
+            </Form.Item>
+
+            <Form.Item
+              name="customerName"
+              label="Customer Name (if specific to order)"
+            >
+              <Input placeholder="e.g. Crown Motor Parts, Unique, Metro" />
+            </Form.Item>
+
+            <Form.Item
+              name="polybagDetails"
+              label="Polybag / Packaging Details"
+            >
+              <Input placeholder="e.g. Crown 300x18 Printed Polybag, Honda Blue Polybag" />
+            </Form.Item>
+
+            <Form.Item
+              name="holdQuantity"
+              label="Quantity Held (GRS)"
+            >
+              <InputNumber style={{ width: '100%' }} min={0} precision={2} />
+            </Form.Item>
+
+            <Form.Item
+              name="holdReason"
+              label="Hold Reason / Summary"
+            >
+              <Input placeholder="Brief reason for shopfloor and sales visibility" />
+            </Form.Item>
+
+            <Form.Item
+              name="notes"
+              label="Supervisor Notes"
+            >
+              <Input.TextArea rows={3} placeholder="Additional details, e.g. Spokes plated and ready on packing table, packing halted awaiting polybag." />
+            </Form.Item>
+          </Form>
+        )}
+      </Modal>
+
     </div>
   );
 };

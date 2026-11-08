@@ -14,6 +14,50 @@ import {
   DivisionAccess,
 } from '../../../common/division-scope.util';
 
+export interface PackingHoldInfo {
+  status: 'CLEAR' | 'POLYBAG_AWAITED' | 'BOX_AWAITED' | 'QUALITY_HOLD' | 'OTHER';
+  reason?: string | null;
+  holdQuantity?: number;
+  polybagDetails?: string | null;
+  customerName?: string | null;
+  notes?: string | null;
+  updatedBy?: string | null;
+  updatedAt?: string | null;
+}
+
+export interface ComponentWipDetail {
+  code: string;
+  name: string;
+  unplatedHeadingQty: number;
+  platedReadyQty: number;
+}
+
+export interface SpokeComponentPipeline {
+  innerSpoke: ComponentWipDetail;
+  outerSpoke: ComponentWipDetail;
+  nippleCode?: string;
+  nippleName?: string;
+  nippleAvailableStock?: number;
+  readyPairsPcs: number;
+  readyPairsGrs: number;
+  packingHold?: PackingHoldInfo;
+}
+
+export const SPOKE_MAPPING: Record<string, { innerSpl: string; outerSpl: string; innerSpk: string; outerSpk: string; nipple: string }> = {
+  'SPI-FG-SPK-001': { innerSpl: 'WIP-SPL-001', outerSpl: 'WIP-SPL-002', innerSpk: 'WIP-SPK-001', outerSpk: 'WIP-SPK-002', nipple: 'FG-NP-001' },
+  'SPI-FG-SPK-002': { innerSpl: 'WIP-SPL-001', outerSpl: 'WIP-SPL-002', innerSpk: 'WIP-SPK-001', outerSpk: 'WIP-SPK-002', nipple: 'FG-NP-002' },
+  'SPI-FG-SPK-003': { innerSpl: 'WIP-SPL-003', outerSpl: 'WIP-SPL-004', innerSpk: 'WIP-SPK-003', outerSpk: 'WIP-SPK-004', nipple: 'FG-NP-002' },
+  'SPI-FG-SPK-004': { innerSpl: 'WIP-SPL-005', outerSpl: 'WIP-SPL-006', innerSpk: 'WIP-SPK-005', outerSpk: 'WIP-SPK-006', nipple: 'FG-NP-004' },
+  'SPI-FG-SPK-005': { innerSpl: 'WIP-SPL-007', outerSpl: 'WIP-SPL-008', innerSpk: 'WIP-SPK-007', outerSpk: 'WIP-SPK-008', nipple: 'FG-NP-004' },
+  'SPI-FG-SPK-006': { innerSpl: 'WIP-SPL-013', outerSpl: 'WIP-SPL-014', innerSpk: 'WIP-SPK-013', outerSpk: 'WIP-SPK-014', nipple: 'FG-NP-005' },
+  'SPI-FG-SPK-007': { innerSpl: 'WIP-SPL-015', outerSpl: 'WIP-SPL-016', innerSpk: 'WIP-SPK-015', outerSpk: 'WIP-SPK-016', nipple: 'FG-NP-005' },
+  'SPI-FG-SPK-008': { innerSpl: 'WIP-SPL-009', outerSpl: 'WIP-SPL-010', innerSpk: 'WIP-SPK-009', outerSpk: 'WIP-SPK-010', nipple: 'FG-NP-003' },
+  'SPI-FG-SPK-009': { innerSpl: 'WIP-SPL-011', outerSpl: 'WIP-SPL-012', innerSpk: 'WIP-SPK-011', outerSpk: 'WIP-SPK-012', nipple: 'FG-NP-003' },
+  'SPI-FG-SPK-010': { innerSpl: 'WIP-SPL-017', outerSpl: 'WIP-SPL-018', innerSpk: 'WIP-SPK-017', outerSpk: 'WIP-SPK-018', nipple: 'FG-NP-001' },
+  'SPI-FG-SPK-011': { innerSpl: 'WIP-SPL-013', outerSpl: 'WIP-SPL-014', innerSpk: 'WIP-SPK-013', outerSpk: 'WIP-SPK-014', nipple: 'FG-NP-005' },
+  'SPI-FG-SPK-012': { innerSpl: 'WIP-SPL-005', outerSpl: 'WIP-SPL-006', innerSpk: 'WIP-SPK-005', outerSpk: 'WIP-SPK-006', nipple: 'FG-NP-004' },
+};
+
 export interface FinishedGoodsItemAvailability {
   itemId: string;
   itemCode: string;
@@ -48,6 +92,8 @@ export interface FinishedGoodsItemAvailability {
   derivedDemandSources?: Array<{ spokeCode: string; qty: number }>;
   matchedNippleCode?: string;
   matchedNippleName?: string;
+  componentPipeline?: SpokeComponentPipeline;
+  packingHold?: PackingHoldInfo;
   status: 'AVAILABLE' | 'LOW_STOCK' | 'BELOW_SAFETY_STOCK' | 'SHORT' | 'EXCESS' | 'ON_PRODUCTION';
   statusLabel: string;
   canFulfillImmediate: boolean;
@@ -369,6 +415,45 @@ export class FinishedGoodsInventoryService {
       }
     }
 
+    // 5.6 Fetch Component WIP & Packing Holds for Spokes
+    const wipRows: Array<{ item_code: string; name: string; on_hand: string | number }> =
+      await this.balanceRepo.manager.query(
+        `SELECT i.item_code, i.name,
+           SUM(CASE WHEN b.batch_id IS NULL THEN b.on_hand ELSE 0 END) as on_hand
+         FROM inventory_balances b
+         JOIN items i ON i.id = b.item_id
+         WHERE b.company_id = $1 AND i.item_code LIKE 'WIP-SP%' AND b.status = 'ACTIVE'
+         GROUP BY i.item_code, i.name`,
+        [companyId],
+      );
+
+    const wipBalanceMap = new Map<string, { code: string; name: string; qty: number }>();
+    for (const r of wipRows) {
+      wipBalanceMap.set(r.item_code, {
+        code: r.item_code,
+        name: r.name,
+        qty: Math.max(0, Number(r.on_hand || 0)),
+      });
+    }
+
+    const holdRows: Array<any> = await this.balanceRepo.manager.query(
+      `SELECT * FROM item_packing_stage_holds WHERE company_id = $1`,
+      [companyId],
+    );
+    const holdMap = new Map<string, PackingHoldInfo>();
+    for (const h of holdRows) {
+      holdMap.set(h.item_id, {
+        status: h.hold_status,
+        reason: h.hold_reason,
+        holdQuantity: Number(h.hold_quantity || 0),
+        polybagDetails: h.polybag_details,
+        customerName: h.customer_name,
+        notes: h.notes,
+        updatedBy: h.updated_by,
+        updatedAt: h.updated_at ? new Date(h.updated_at).toISOString() : null,
+      });
+    }
+
     // 6. Compute item availability metrics
     const computedItems: FinishedGoodsItemAvailability[] = allFilteredItems.map((item) => {
       const basePhysical = physicalMap.get(item.id) || 0;
@@ -426,6 +511,42 @@ export class FinishedGoodsInventoryService {
         statusLabel = 'Healthy Stock';
       }
 
+      // Build Spoke Component Pipeline if this is a Spoke item
+      let componentPipeline: SpokeComponentPipeline | undefined;
+      const spokeMapConfig = SPOKE_MAPPING[item.itemCode];
+      if (spokeMapConfig) {
+        const innerSpl = wipBalanceMap.get(spokeMapConfig.innerSpl);
+        const outerSpl = wipBalanceMap.get(spokeMapConfig.outerSpl);
+        const innerSpk = wipBalanceMap.get(spokeMapConfig.innerSpk);
+        const outerSpk = wipBalanceMap.get(spokeMapConfig.outerSpk);
+
+        const innerPlatedQty = innerSpl?.qty || 0;
+        const outerPlatedQty = outerSpl?.qty || 0;
+        const readyPairs = Math.max(0, Math.min(innerPlatedQty, outerPlatedQty));
+        const readyPairsGrs = Number((readyPairs / 72).toFixed(2));
+
+        componentPipeline = {
+          innerSpoke: {
+            code: spokeMapConfig.innerSpl,
+            name: innerSpl?.name || spokeMapConfig.innerSpl,
+            unplatedHeadingQty: innerSpk?.qty || 0,
+            platedReadyQty: innerPlatedQty,
+          },
+          outerSpoke: {
+            code: spokeMapConfig.outerSpl,
+            name: outerSpl?.name || spokeMapConfig.outerSpl,
+            unplatedHeadingQty: outerSpk?.qty || 0,
+            platedReadyQty: outerPlatedQty,
+          },
+          nippleCode: spokeMapConfig.nipple,
+          nippleName: matchedNip?.name,
+          nippleAvailableStock: matchedNip ? physicalMap.get(matchedNip.id) : undefined,
+          readyPairsPcs: readyPairs,
+          readyPairsGrs,
+          packingHold: holdMap.get(item.id),
+        };
+      }
+
       const uomCode = item.salesUom?.code || item.baseUom?.code || 'PCS';
       const uomName = item.salesUom?.name || item.baseUom?.name || uomCode;
 
@@ -466,6 +587,8 @@ export class FinishedGoodsInventoryService {
         statusLabel,
         canFulfillImmediate: availableStock > 0 && shortageQty === 0,
         productionRequired: shortageQty > 0 || availableStock < safetyStock,
+        componentPipeline,
+        packingHold: holdMap.get(item.id),
       };
     });
 
@@ -847,4 +970,56 @@ export class FinishedGoodsInventoryService {
       productionRequired: shortageQty > 0 || (safetyStock > 0 && projectedBalance < safetyStock),
     };
   }
+
+  /**
+   * Updates or clears a packing stage hold (e.g. Waiting for Customer Polybag).
+   */
+  async updatePackingHold(
+    itemId: string,
+    dto: {
+      holdStatus?: string;
+      holdReason?: string;
+      holdQuantity?: number;
+      polybagDetails?: string;
+      customerName?: string;
+      notes?: string;
+    },
+    companyId: string,
+    updatedBy: string,
+  ): Promise<PackingHoldInfo> {
+    const holdStatus = dto.holdStatus || 'CLEAR';
+    const holdReason = dto.holdReason || null;
+    const holdQuantity = Number(dto.holdQuantity || 0);
+    const polybagDetails = dto.polybagDetails || null;
+    const customerName = dto.customerName || null;
+    const notes = dto.notes || null;
+
+    await this.balanceRepo.manager.query(
+      `INSERT INTO item_packing_stage_holds (company_id, item_id, hold_status, hold_reason, hold_quantity, polybag_details, customer_name, notes, updated_by, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+       ON CONFLICT (company_id, item_id)
+       DO UPDATE SET
+         hold_status = EXCLUDED.hold_status,
+         hold_reason = EXCLUDED.hold_reason,
+         hold_quantity = EXCLUDED.hold_quantity,
+         polybag_details = EXCLUDED.polybag_details,
+         customer_name = EXCLUDED.customer_name,
+         notes = EXCLUDED.notes,
+         updated_by = EXCLUDED.updated_by,
+         updated_at = NOW()`,
+      [companyId, itemId, holdStatus, holdReason, holdQuantity, polybagDetails, customerName, notes, updatedBy],
+    );
+
+    return {
+      status: holdStatus as any,
+      reason: holdReason,
+      holdQuantity,
+      polybagDetails,
+      customerName,
+      notes,
+      updatedBy,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
 }
