@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Table, Card, Row, Col, Grid, Select, Input, Button, Tag, Space,
-  App, Modal, Form, InputNumber, DatePicker, Tooltip, Switch, Badge, theme, Segmented,
+  App, Modal, Form, InputNumber, DatePicker, Tooltip, Switch, Badge, theme, Segmented, Divider,
 } from 'antd';
 import {
   ShopOutlined,
   ApartmentOutlined,
   DatabaseOutlined, ReloadOutlined, FileExcelOutlined, PrinterOutlined,
-  SearchOutlined, AlertOutlined, CheckCircleOutlined, PauseCircleOutlined, ClockCircleOutlined, InfoCircleOutlined, ThunderboltOutlined, ArrowsAltOutlined, ShrinkOutlined,
+  SearchOutlined, AlertOutlined, CheckCircleOutlined, PauseCircleOutlined, ClockCircleOutlined, InfoCircleOutlined, ThunderboltOutlined, ArrowsAltOutlined, ShrinkOutlined, PlusOutlined,
   BuildOutlined, WarningOutlined,
   InboxOutlined, FilterOutlined, CloseOutlined, ClearOutlined,
 } from '@ant-design/icons';
@@ -406,21 +406,42 @@ const FinishedGoodsInventory: React.FC = () => {
 
   // Packing Stage Hold Modal
   const [holdModalVisible, setHoldModalVisible] = useState(false);
+  const [customerOptions, setCustomerOptions] = useState<{ label: string; value: string }[]>([]);
+  const [newCustomerInput, setNewCustomerInput] = useState('');
   const [selectedHoldItem, setSelectedHoldItem] = useState<FinishedGoodsItem | null>(null);
   const [holdForm] = Form.useForm();
   const [holdSubmitting, setHoldSubmitting] = useState(false);
 
   const handleOpenHoldModal = (item: FinishedGoodsItem) => {
     setSelectedHoldItem(item);
+    if (item.packingHold?.customerName) {
+      const currentName = item.packingHold.customerName;
+      setCustomerOptions((prev) => {
+        if (prev.some((o) => o.value.toLowerCase() === currentName.toLowerCase())) return prev;
+        return [{ label: currentName, value: currentName }, ...prev];
+      });
+    }
     holdForm.setFieldsValue({
       holdStatus: item.packingHold?.status || 'CLEAR',
       holdReason: item.packingHold?.reason || '',
       holdQuantity: item.packingHold?.holdQuantity || item.openSalesOrderQty || 0,
       polybagDetails: item.packingHold?.polybagDetails || '',
-      customerName: item.packingHold?.customerName || '',
+      customerName: item.packingHold?.customerName || undefined,
       notes: item.packingHold?.notes || '',
     });
     setHoldModalVisible(true);
+  };
+
+  const handleAddCustomCustomer = () => {
+    const trimmed = newCustomerInput.trim();
+    if (!trimmed) return;
+    const exists = customerOptions.some((o) => o.value.toLowerCase() === trimmed.toLowerCase());
+    if (!exists) {
+      setCustomerOptions((prev) => [{ label: trimmed, value: trimmed }, ...prev]);
+    }
+    holdForm.setFieldValue('customerName', trimmed);
+    setNewCustomerInput('');
+    message.success(`Customer "${trimmed}" selected`);
   };
 
   const handleSubmitHold = async () => {
@@ -1789,11 +1810,50 @@ const FinishedGoodsInventory: React.FC = () => {
               />
             </Form.Item>
 
-            <Form.Item
+                        <Form.Item
               name="customerName"
               label="Customer Name (if specific to order)"
+              tooltip="Select customer from directory or add custom customer"
             >
-              <Input placeholder="e.g. Crown Motor Parts, Unique, Metro" />
+              <Select
+                showSearch
+                allowClear
+                placeholder="Select customer from directory..."
+                options={customerOptions}
+                optionFilterProp="label"
+                filterOption={(input, option) =>
+                  (option?.label ?? '').toString().toLowerCase().includes(input.toLowerCase())
+                }
+                dropdownRender={(menu) => (
+                  <>
+                    {menu}
+                    <Divider style={{ margin: '8px 0' }} />
+                    <div style={{ display: 'flex', gap: 6, padding: '4px 8px 6px' }}>
+                      <Input
+                        placeholder="Add new custom customer..."
+                        value={newCustomerInput}
+                        onChange={(e) => setNewCustomerInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          e.stopPropagation();
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleAddCustomCustomer();
+                          }
+                        }}
+                        size="small"
+                      />
+                      <Button
+                        type="primary"
+                        size="small"
+                        icon={<PlusOutlined />}
+                        onClick={handleAddCustomCustomer}
+                      >
+                        Add
+                      </Button>
+                    </div>
+                  </>
+                )}
+              />
             </Form.Item>
 
             <Form.Item
