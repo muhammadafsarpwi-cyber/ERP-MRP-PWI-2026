@@ -211,10 +211,20 @@ export class FinishedGoodsInventoryService {
     const itemIds = allFilteredItems.map((i) => i.id);
 
     // 2. Aggregate Physical Stock from inventory_balances in ONE query
+    // Avoid double/triple counting: when an unbatched master row (batch_id IS NULL) exists
+    // for an item, it represents the full physical stock. Batched child rows exist alongside
+    // it for batch-level traceability.
     const rawBalances = await this.balanceRepo
       .createQueryBuilder('b')
       .select('b.itemId', 'itemId')
-      .addSelect('SUM(b.onHand)', 'totalOnHand')
+      .addSelect(
+        `CASE 
+          WHEN COUNT(CASE WHEN b.batch_id IS NULL THEN 1 END) > 0 
+          THEN SUM(CASE WHEN b.batch_id IS NULL THEN b.on_hand ELSE 0 END)
+          ELSE SUM(b.on_hand)
+        END`,
+        'totalOnHand',
+      )
       .where('b.companyId = :companyId', { companyId })
       .andWhere('b.itemId IN (:...itemIds)', { itemIds })
       .andWhere('b.status = :activeStatus', { activeStatus: 'ACTIVE' })
@@ -597,9 +607,17 @@ export class FinishedGoodsInventoryService {
     const uomName = item.salesUom?.name || item.baseUom?.name || uomCode;
 
     // Physical stock from inventory_balances (stored in base UOM, e.g. PCS)
+    // Avoid double/triple counting batched child rows when master unbatched row exists
     const rawBalance = await this.balanceRepo
       .createQueryBuilder('b')
-      .select('SUM(b.onHand)', 'totalOnHand')
+      .select(
+        `CASE 
+          WHEN COUNT(CASE WHEN b.batch_id IS NULL THEN 1 END) > 0 
+          THEN SUM(CASE WHEN b.batch_id IS NULL THEN b.on_hand ELSE 0 END)
+          ELSE SUM(b.on_hand)
+        END`,
+        'totalOnHand',
+      )
       .where('b.companyId = :companyId', { companyId })
       .andWhere('b.itemId = :itemId', { itemId })
       .andWhere('b.status = :activeStatus', { activeStatus: 'ACTIVE' })
