@@ -296,9 +296,19 @@ export class ProductionReworkReturnService {
         i.item_code LIKE 'WIP-%' 
         OR i.item_code LIKE 'FG-NP%' 
         OR i.item_code LIKE 'SPI-FG%'
-        OR i.division_id = 'd1000000-0000-0000-0000-000000000001'
       )
-      ORDER BY i.item_code ASC
+      ORDER BY 
+        CASE 
+          WHEN i.item_code LIKE 'WIP-SPL%' THEN 1
+          WHEN i.item_code LIKE 'WIP-SPK%' THEN 2
+          WHEN i.item_code LIKE 'WIP-SW%' THEN 3
+          WHEN i.item_code LIKE 'WIP-ST%' THEN 4
+          WHEN i.item_code LIKE 'FG-NP%' THEN 5
+          WHEN i.item_code LIKE 'WIP-NPL%' THEN 6
+          WHEN i.item_code LIKE 'SPI-FG%' THEN 7
+          ELSE 8
+        END,
+        i.item_code ASC
       LIMIT 500;
     `);
 

@@ -202,16 +202,34 @@ const DEFAULT_UOMS = [
   // All combined item pool for modal
   const allItemPool = useMemo(() => {
     const map = new Map<string, any>();
-    stageItems.forEach(i => map.set(i.id, i));
-    items.forEach(i => {
-      if (!map.has(i.id)) map.set(i.id, i);
+    // 1. Guaranteed baseline: always seed canonical stage items first so WIP components are NEVER empty
+    CANONICAL_STAGE_ITEMS.forEach(i => {
+      map.set(i.id, i);
+      if (i.itemCode) map.set(i.itemCode, i);
     });
-    return Array.from(map.values());
+    // 2. Overlay live stage items from API
+    stageItems.forEach(i => {
+      if (i.id) map.set(i.id, i);
+      if (i.itemCode) map.set(i.itemCode, i);
+    });
+    // 3. Overlay general inventory items
+    items.forEach(i => {
+      if (i.id && !map.has(i.id)) map.set(i.id, i);
+    });
+    // Deduplicate by itemCode to ensure unique entries
+    const deduped = new Map<string, any>();
+    for (const item of map.values()) {
+      const key = item.itemCode || item.id;
+      if (!deduped.has(key)) {
+        deduped.set(key, item);
+      }
+    }
+    return Array.from(deduped.values());
   }, [stageItems, items]);
 
   // Grouped Item Options for Modal Select (Strictly filtered by target "To Department")
   const groupedModalItemOptions = useMemo(() => {
-    const toDept = modalDepartments.find(d => d.id === modalToDeptId);
+    const toDept = modalDepartments.find(d => d.id === modalToDeptId) || departments.find(d => d.id === modalToDeptId);
     const toCode = toDept?.departmentCode || '';
     const toName = (toDept?.name || '').toLowerCase();
 
@@ -223,6 +241,9 @@ const DEFAULT_UOMS = [
     if (toCode === 'SPD-DEPT006' || (toName.includes('plating') && toName.includes('spoke')) || (toName.includes('plating') && !toName.includes('nipple'))) {
       targetCategoryTitle = '🎯 SPOKE PLATING REWORK ITEMS — PLATED INNER & OUTER SPOKES';
       filteredItems = allItemPool.filter(i => (i.itemCode || '').startsWith('WIP-SPL'));
+      if (filteredItems.length === 0) {
+        filteredItems = CANONICAL_STAGE_ITEMS.filter(i => i.itemCode.startsWith('WIP-SPL'));
+      }
     }
     // 2. Target is NIPPLE PLATING (SPD-DEPT007) -> Strictly Plated Nipples (FG-NP & WIP-NPL)
     else if (toCode === 'SPD-DEPT007' || (toName.includes('plating') && toName.includes('nipple'))) {
@@ -231,21 +252,33 @@ const DEFAULT_UOMS = [
         const c = i.itemCode || '';
         return c.startsWith('FG-NP') || c.startsWith('WIP-NPL');
       });
+      if (filteredItems.length === 0) {
+        filteredItems = CANONICAL_STAGE_ITEMS.filter(i => i.itemCode.startsWith('FG-NP') || i.itemCode.startsWith('WIP-NPL'));
+      }
     }
     // 3. Target is SPOKE / HEADER (SPD-DEPT003 / SPD-DEPT004) -> Strictly Unplated Heading Spokes (WIP-SPK)
     else if (toCode === 'SPD-DEPT003' || toCode === 'SPD-DEPT004' || toName.includes('spoke') || toName.includes('header')) {
       targetCategoryTitle = '🎯 HEADER & SPOKE REWORK ITEMS — UNPLATED HEADING SPOKES';
       filteredItems = allItemPool.filter(i => (i.itemCode || '').startsWith('WIP-SPK'));
+      if (filteredItems.length === 0) {
+        filteredItems = CANONICAL_STAGE_ITEMS.filter(i => i.itemCode.startsWith('WIP-SPK'));
+      }
     }
     // 4. Target is SWAGGING (SPD-DEPT002) -> Strictly Swagged Wires (WIP-SW)
     else if (toCode === 'SPD-DEPT002' || toName.includes('swag')) {
       targetCategoryTitle = '🎯 SWAGGING REWORK ITEMS — SWAGGED WIRES';
       filteredItems = allItemPool.filter(i => (i.itemCode || '').startsWith('WIP-SW'));
+      if (filteredItems.length === 0) {
+        filteredItems = CANONICAL_STAGE_ITEMS.filter(i => i.itemCode.startsWith('WIP-SW'));
+      }
     }
     // 5. Target is STRAIGHTENER (SPD-DEPT001) -> Strictly Straightened Cut Wires (WIP-ST)
     else if (toCode === 'SPD-DEPT001' || toName.includes('straight')) {
       targetCategoryTitle = '🎯 STRAIGHTENER REWORK ITEMS — STRAIGHT WIRES';
       filteredItems = allItemPool.filter(i => (i.itemCode || '').startsWith('WIP-ST'));
+      if (filteredItems.length === 0) {
+        filteredItems = CANONICAL_STAGE_ITEMS.filter(i => i.itemCode.startsWith('WIP-ST'));
+      }
     }
     // 6. Target is NIPPLE (SPD-DEPT005) -> Unplated Nipples
     else if (toCode === 'SPD-DEPT005' || toName.includes('nipple')) {
@@ -254,16 +287,25 @@ const DEFAULT_UOMS = [
         const c = i.itemCode || '';
         return c.startsWith('WIP-NPL') || c.startsWith('FG-NP');
       });
+      if (filteredItems.length === 0) {
+        filteredItems = CANONICAL_STAGE_ITEMS.filter(i => i.itemCode.startsWith('WIP-NPL') || i.itemCode.startsWith('FG-NP'));
+      }
     }
     // 7. Target is PACKING (SPD-DEPT008) -> Finished Good Cartons (SPI-FG)
     else if (toCode === 'SPD-DEPT008' || toName.includes('packing')) {
       targetCategoryTitle = '📦 PACKING DEPARTMENT — FINISHED CARTONS (FG)';
       filteredItems = allItemPool.filter(i => (i.itemCode || '').startsWith('SPI-FG'));
+      if (filteredItems.length === 0) {
+        filteredItems = CANONICAL_STAGE_ITEMS.filter(i => i.itemCode.startsWith('SPI-FG'));
+      }
     }
     // Default fallback: intermediate WIP components only (NEVER Finished Goods cartons)
     else {
       targetCategoryTitle = `🎯 ${toDept?.name?.toUpperCase() || 'SHOPFLOOR'} REWORK ITEMS`;
       filteredItems = allItemPool.filter(i => (i.itemCode || '').startsWith('WIP-'));
+      if (filteredItems.length === 0) {
+        filteredItems = CANONICAL_STAGE_ITEMS.filter(i => i.itemCode.startsWith('WIP-'));
+      }
     }
 
     // Format options with clear Inner / Outer / Stage labels
@@ -326,6 +368,16 @@ const DEFAULT_UOMS = [
       filteredItems = allItemPool.filter(i => (i.itemCode || '').startsWith('SPI-FG'));
     } else {
       filteredItems = allItemPool.filter(i => (i.itemCode || '').startsWith('WIP-'));
+    }
+
+    if (filteredItems.length === 0) {
+      if (toCode === 'SPD-DEPT006' || toName.includes('plating')) {
+        filteredItems = CANONICAL_STAGE_ITEMS.filter(i => i.itemCode.startsWith('WIP-SPL'));
+      } else if (toCode === 'SPD-DEPT007' || toName.includes('nipple')) {
+        filteredItems = CANONICAL_STAGE_ITEMS.filter(i => i.itemCode.startsWith('FG-NP') || i.itemCode.startsWith('WIP-NPL'));
+      } else {
+        filteredItems = CANONICAL_STAGE_ITEMS;
+      }
     }
 
     const opts = filteredItems.map(item => {
