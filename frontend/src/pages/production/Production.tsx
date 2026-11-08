@@ -14,6 +14,7 @@ import ItemWiseProductionLedger from './ItemWiseProductionLedger';
 import ProductionInventoryReport from './ProductionInventoryReport';
 import RawMaterialReceiving from './receiving/RawMaterialReceiving';
 import RawMaterialReturn from './returns/RawMaterialReturn';
+import ProductionReworkReturn from './returns/ProductionReworkReturn';
 import ReceivingReport from './receiving/ReceivingReport';
 import { ProductionUnitsPage } from './units';
 import { MachineManagement } from '../master-data';
@@ -37,6 +38,9 @@ const Production: React.FC = () => (
     <Route path="packing-dept/*" element={<PackingDepartmentHub />} />
     <Route path="packing-dept" element={<PackingDepartmentHub />} />
     <Route path="entries/*" element={<ProductionEntries />} />
+    <Route path="rework-returns/*" element={<ProductionReworkReturn />} />
+    <Route path="rework-returns" element={<ProductionReworkReturn />} />
+    <Route path="production-returns" element={<Navigate to="/production/rework-returns" replace />} />
     <Route path="units" element={<ProductionUnitsPage />} />
     <Route path="receiving" element={<RawMaterialReceiving />} />
     <Route path="returns" element={<RawMaterialReturn />} />

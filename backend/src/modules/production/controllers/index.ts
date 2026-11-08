@@ -5,3 +5,4 @@ export { ProductionUnitController } from './production-unit.controller';
 export { ProductionOpenStockController } from './production-open-stock.controller';
 export { ShopfloorTouchscreenController } from './shopfloor-touchscreen.controller';
 export { BatchCostingController } from './batch-costing.controller';
+export { ProductionReworkReturnController } from './production-rework-return.controller';

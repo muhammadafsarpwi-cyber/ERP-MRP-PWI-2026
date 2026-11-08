@@ -15,6 +15,7 @@ import {
   BatchProductionCostingLedger,
   MonthlyUtilityCostSheet,
   MonthlyUtilityItemAllocation,
+  ProductionReworkReturn,
 } from './entities';
 import { ProductionRouting, RoutingOperation } from '../production-routing/entities';
 import { BillOfMaterials, BomLine } from '../bom/entities';
@@ -32,6 +33,7 @@ import {
   ProductionOpenStockService,
   ShopfloorTouchscreenService,
   BatchCostingService,
+  ProductionReworkReturnService,
 } from './services';
 import {
   ProductionOrderController,
@@ -41,6 +43,7 @@ import {
   ProductionOpenStockController,
   ShopfloorTouchscreenController,
   BatchCostingController,
+  ProductionReworkReturnController,
 } from './controllers';
 import { InventoryModule } from '../inventory/inventory.module';
 import { MachineTargetModule } from '../machine-target/machine-target.module';
@@ -86,6 +89,7 @@ import { BarcodeModule } from '../barcode/barcode.module';
       BatchProductionCostingLedger,
       MonthlyUtilityCostSheet,
       MonthlyUtilityItemAllocation,
+      ProductionReworkReturn,
     ]),
     InventoryModule,
     MachineTargetModule,
@@ -103,6 +107,7 @@ import { BarcodeModule } from '../barcode/barcode.module';
     ProductionOpenStockController,
     ShopfloorTouchscreenController,
     BatchCostingController,
+    ProductionReworkReturnController,
   ],
   providers: [
     ProductionOrderService,
@@ -113,6 +118,7 @@ import { BarcodeModule } from '../barcode/barcode.module';
     ProductionOpenStockService,
     ShopfloorTouchscreenService,
     BatchCostingService,
+    ProductionReworkReturnService,
   ],
   exports: [
     ProductionOrderService,
@@ -122,6 +128,7 @@ import { BarcodeModule } from '../barcode/barcode.module';
     ProductionOpenStockService,
     ShopfloorTouchscreenService,
     BatchCostingService,
+    ProductionReworkReturnService,
   ],
 })
 export class ProductionModule {}

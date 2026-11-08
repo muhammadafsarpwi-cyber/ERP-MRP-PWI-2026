@@ -7,3 +7,4 @@ export { ProductionUnitService } from './production-unit.service';
 export { ProductionOpenStockService } from './production-open-stock.service';
 export { ShopfloorTouchscreenService } from './shopfloor-touchscreen.service';
 export { BatchCostingService } from './batch-costing.service';
+export { ProductionReworkReturnService, CreateReworkReturnDto, UpdateReworkReturnStatusDto, ReworkReturnFilterQuery } from './production-rework-return.service';

@@ -67,6 +67,7 @@ export function getWorkspaceTabDisplayTitle(tab: { id: string; pathname?: string
   if (/^\/production\/entries\/[^/]+\/edit\b/.test(path)) return 'Edit Daily Production Entry';
   if (/^\/production\/entries\/[^/]+$/.test(path)) return 'Production Entry Details';
   if (path === '/production/entries') return 'Daily Production Entry';
+  if (/^\/production\/rework-returns\b/.test(path)) return 'Production Rework & Return';
   if (/^\/production\/(entries\/)?packing\b/.test(path)) return 'Packing Production Entry';
   if (tab.title && tab.title !== 'Page') return tab.title;
   const navMeta = resolveNavMeta(path);

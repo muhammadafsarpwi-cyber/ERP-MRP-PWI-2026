@@ -12,3 +12,4 @@ export { ProductionUnit, ProductionUnitStatus, ProductionUnitCodeType } from './
 export { ProductionUnitPrintLog, PrintEventType } from './production-unit-print-log.entity';
 export { BatchProductionCostingLedger, BatchCostingStage, BatchCostingStatus } from './batch-costing-ledger.entity';
 export { MonthlyUtilityCostSheet, MonthlyUtilityItemAllocation } from './monthly-utility-cost-sheet.entity';
+export { ProductionReworkReturn, ReworkReturnStatus, ReworkPriority } from './production-rework-return.entity';
