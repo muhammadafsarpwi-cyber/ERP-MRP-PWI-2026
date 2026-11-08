@@ -79,6 +79,13 @@ const ROUTE_LABELS: RouteLabel[] = [
   { pattern: /^\/hr\/my-attendance/, label: 'My Attendance' },
   { pattern: /^\/hr\/attendance-register/, label: 'Attendance Register' },
   { pattern: /^\/settings$/, label: 'Company Settings' },
+  { pattern: /^\/maintenance$/, label: 'Maintenance Dashboard' },
+  { pattern: /^\/maintenance\/job-cards/, label: 'Maintenance Job Cards' },
+  { pattern: /^\/maintenance\/teams/, label: 'Maintenance Teams' },
+  { pattern: /^\/maintenance\/categories/, label: 'Maintenance Categories' },
+  { pattern: /^\/maintenance\/pm-plans/, label: 'Maintenance PM Plans' },
+  { pattern: /^\/maintenance\/pm-schedules/, label: 'Maintenance PM Schedules' },
+  { pattern: /^\/maintenance\/reports/, label: 'Maintenance Reports' },
   { pattern: /^\/reports/, label: 'Reports' },
 ];
 
@@ -145,6 +152,9 @@ const Breadcrumbs: React.FC<BreadcrumbsProps> = ({ style }) => {
     const segment = segments[i];
 
     let label = getLabelForPath(path);
+    // "/maintenance" is the Maintenance Dashboard when it is the page itself, but a
+    // plain "Maintenance" parent crumb for deeper maintenance pages.
+    if (path === '/maintenance' && i < builtPaths.length - 1) label = 'Maintenance';
     if (!label && i < builtPaths.length - 1) {
       const nextPath = builtPaths[i + 1];
       const override = PARENT_OVERRIDES.find(([prefix]) => nextPath.startsWith(prefix));

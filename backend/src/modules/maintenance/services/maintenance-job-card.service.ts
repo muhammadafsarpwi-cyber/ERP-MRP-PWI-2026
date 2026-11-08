@@ -1931,6 +1931,212 @@ export class MaintenanceJobCardService implements OnModuleInit {
     };
   }
 
+  /**
+   * Month-by-month maintenance KPI series (MTTR, MTBF, MTTA, breakdowns, downtime,
+   * spare-parts cost, PM compliance, workload) for the last N months plus a
+   * linear-trend projection for next month. Everything is derived from real
+   * job-card, status-history, parts and PM-schedule records; months with no
+   * underlying data are returned as `null` rather than a fabricated zero.
+   */
+  async getKpiTrends(opts: {
+    companyId: string;
+    machineId?: string;
+    divisionId?: string;
+    sectionId?: string;
+    departmentId?: string;
+    search?: string;
+    allowedDivisionIds?: string[];
+    months?: number;
+  }): Promise<any> {
+    const monthsBack = Math.min(24, Math.max(3, Number(opts.months) || 6));
+    const f = this.buildDashboardFilterFragment({
+      machineId: opts.machineId,
+      divisionId: opts.divisionId,
+      sectionId: opts.sectionId,
+      departmentId: opts.departmentId,
+      search: opts.search,
+      allowedDivisionIds: opts.allowedDivisionIds,
+    });
+    const baseParams = { ...f.params, companyId: opts.companyId };
+
+    const mkKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const now = new Date();
+    const keys: string[] = [];
+    for (let i = monthsBack - 1; i >= 0; i--) keys.push(mkKey(new Date(now.getFullYear(), now.getMonth() - i, 1)));
+    const nextKey = mkKey(new Date(now.getFullYear(), now.getMonth() + 1, 1));
+
+    type Bucket = {
+      opened: number; breakdowns: number; closed: number;
+      repairSum: number; repairN: number; mttaSum: number; mttaN: number;
+      planned: number; unplanned: number; cost: number; hasCost: boolean;
+      pmScheduled: number; pmOnTime: number; mtbfSum: number; mtbfN: number;
+    };
+    const blank = (): Bucket => ({
+      opened: 0, breakdowns: 0, closed: 0, repairSum: 0, repairN: 0, mttaSum: 0, mttaN: 0,
+      planned: 0, unplanned: 0, cost: 0, hasCost: false, pmScheduled: 0, pmOnTime: 0, mtbfSum: 0, mtbfN: 0,
+    });
+    const buckets = new Map<string, Bucket>(keys.map(k => [k, blank()]));
+    const bucketOf = (d: Date | string | null | undefined): Bucket | undefined => (d ? buckets.get(mkKey(new Date(d))) : undefined);
+
+    const cards = await this.jobCardRepo
+      .createQueryBuilder('jc')
+      .select(['jc.id', 'jc.machineId', 'jc.maintenanceType', 'jc.startedAt', 'jc.completedAt', 'jc.requestedAt', 'jc.currentStatus'])
+      .where('jc.companyId = :companyId AND jc.isActive = true' + f.sql, baseParams)
+      .getMany();
+    const cardIds = cards.map(c => c.id);
+
+    const histories = cardIds.length
+      ? await this.historyRepo
+          .createQueryBuilder('h')
+          .select(['h.jobCardId', 'h.toStatus', 'h.changedAt'])
+          .where('h.jobCardId IN (:...cardIds)', { cardIds })
+          .orderBy('h.changedAt', 'ASC')
+          .getMany()
+      : [];
+    const historyByCard = new Map<string, typeof histories>();
+    for (const h of histories) {
+      const arr = historyByCard.get(h.jobCardId) || [];
+      arr.push(h);
+      historyByCard.set(h.jobCardId, arr);
+    }
+
+    const PLANNED: MaintenanceType[] = [MaintenanceType.PREVENTIVE, MaintenanceType.INSPECTION];
+    const UNPLANNED: MaintenanceType[] = [MaintenanceType.BREAKDOWN, MaintenanceType.EMERGENCY, MaintenanceType.CORRECTIVE];
+    const failuresByMachine = new Map<string, number[]>();
+    const costByCard = new Map<string, number>();
+
+    if (cardIds.length) {
+      const costRows = await this.partRepo
+        .createQueryBuilder('p')
+        .select('p.jobCardId', 'jobCardId')
+        .addSelect('COALESCE(SUM(p.totalCost), 0)', 'total')
+        .where('p.jobCardId IN (:...cardIds)', { cardIds })
+        .groupBy('p.jobCardId')
+        .getRawMany<{ jobCardId: string; total: string }>();
+      for (const r of costRows) costByCard.set(r.jobCardId, parseFloat(r.total || '0'));
+    }
+
+    for (const card of cards) {
+      const ev = historyByCard.get(card.id) || [];
+      let active = 0;
+      let since: number | null = null;
+      for (const h of ev) {
+        const ts = new Date(h.changedAt).getTime();
+        if (h.toStatus === JobCardStatus.IN_PROGRESS) since = ts;
+        else if (since !== null) { active += (ts - since) / 60000; since = null; }
+      }
+
+      const opened = bucketOf(card.requestedAt);
+      if (opened) {
+        opened.opened += 1;
+        if (card.maintenanceType === MaintenanceType.BREAKDOWN) opened.breakdowns += 1;
+      }
+      if (card.maintenanceType === MaintenanceType.BREAKDOWN && card.machineId) {
+        const t = card.startedAt || card.requestedAt;
+        if (t) {
+          const arr = failuresByMachine.get(card.machineId) || [];
+          arr.push(new Date(t).getTime());
+          failuresByMachine.set(card.machineId, arr);
+        }
+      }
+      if (card.startedAt && card.requestedAt) {
+        const wait = (new Date(card.startedAt).getTime() - new Date(card.requestedAt).getTime()) / 60000;
+        const b = bucketOf(card.startedAt);
+        if (b && wait >= 0) { b.mttaSum += wait; b.mttaN += 1; }
+      }
+      if (card.completedAt) {
+        const b = bucketOf(card.completedAt);
+        if (b) {
+          b.closed += 1;
+          b.repairSum += active;
+          b.repairN += 1;
+          if (card.startedAt) {
+            const down = (new Date(card.completedAt).getTime() - new Date(card.startedAt).getTime()) / 60000;
+            if (down >= 0) {
+              if (PLANNED.includes(card.maintenanceType)) b.planned += down;
+              else if (UNPLANNED.includes(card.maintenanceType)) b.unplanned += down;
+            }
+          }
+        }
+      }
+      const cost = costByCard.get(card.id);
+      if (cost && cost > 0) {
+        const b = bucketOf(card.completedAt || card.requestedAt);
+        if (b) { b.cost += cost; b.hasCost = true; }
+      }
+    }
+
+    for (const times of failuresByMachine.values()) {
+      times.sort((a, b) => a - b);
+      for (let i = 1; i < times.length; i++) {
+        const b = bucketOf(new Date(times[i]));
+        if (b) { b.mtbfSum += (times[i] - times[i - 1]) / 60000; b.mtbfN += 1; }
+      }
+    }
+
+    // PM compliance per scheduled month (raw query -> must filter deleted_at itself).
+    const pmQb = this.dataSource.createQueryBuilder()
+      .from('maintenance_pm_schedules', 's')
+      .innerJoin('maintenance_pm_plans', 'p', 'p.id = s.pm_plan_id')
+      .innerJoin('machines', 'm', 'm.id = s.machine_id')
+      .select('s.status', 'status')
+      .addSelect('s.scheduled_date', 'scheduledDate')
+      .addSelect('s.completed_at', 'completedAt')
+      .where('s.deleted_at IS NULL');
+    if (opts.machineId) pmQb.andWhere('s.machine_id = :machineId', { machineId: opts.machineId });
+    if (opts.divisionId) pmQb.andWhere('m.division_id = :divisionId', { divisionId: opts.divisionId });
+    if (opts.sectionId) pmQb.andWhere('m.section_id = :sectionId', { sectionId: opts.sectionId });
+    if (opts.departmentId) pmQb.andWhere('m.department_id = :departmentId', { departmentId: opts.departmentId });
+    const pmRows = await pmQb.getRawMany();
+    for (const r of pmRows as Array<{ status: string; scheduledDate: Date | string; completedAt: Date | string | null }>) {
+      if (r.status === 'SKIPPED') continue;
+      const b = bucketOf(r.scheduledDate);
+      if (!b) continue;
+      b.pmScheduled += 1;
+      if (r.status === 'COMPLETED' && r.completedAt) {
+        const dueEnd = new Date(r.scheduledDate);
+        dueEnd.setHours(23, 59, 59, 999);
+        if (new Date(r.completedAt).getTime() <= dueEnd.getTime()) b.pmOnTime += 1;
+      }
+    }
+
+    const METRICS = ['opened', 'breakdowns', 'closed', 'mttrMinutes', 'mttaMinutes', 'mtbfMinutes', 'plannedDowntimeMinutes', 'unplannedDowntimeMinutes', 'cost', 'pmCompliancePercent'] as const;
+    const toRow = (month: string, b: Bucket) => ({
+      month,
+      opened: b.opened,
+      breakdowns: b.breakdowns,
+      closed: b.closed,
+      mttrMinutes: b.repairN > 0 ? Math.round(b.repairSum / b.repairN) : null,
+      mttaMinutes: b.mttaN > 0 ? Math.round(b.mttaSum / b.mttaN) : null,
+      mtbfMinutes: b.mtbfN > 0 ? Math.round(b.mtbfSum / b.mtbfN) : null,
+      plannedDowntimeMinutes: Math.round(b.planned),
+      unplannedDowntimeMinutes: Math.round(b.unplanned),
+      cost: b.hasCost ? Math.round(b.cost) : null,
+      pmCompliancePercent: b.pmScheduled > 0 ? Math.round((b.pmOnTime / b.pmScheduled) * 100) : null,
+    });
+    const rows = keys.map(k => toRow(k, buckets.get(k)!));
+
+    // Next-month projection per metric: recency-weighted average (weights 1,2,3) of the
+    // last three months that have data, clamped to the observed range. A plain linear
+    // extrapolation over so few, uneven months produced absurd values, so it is not used.
+    const project = (metric: typeof METRICS[number]): number | null => {
+      const vals: number[] = [];
+      rows.forEach((r) => { const v = (r as any)[metric]; if (v !== null && v !== undefined) vals.push(Number(v)); });
+      if (vals.length === 0) return null;
+      const recent = vals.slice(-3);
+      const weights = recent.map((_, i) => i + 1);
+      const wSum = weights.reduce((s, w) => s + w, 0);
+      let value = recent.reduce((s, v, i) => s + v * weights[i], 0) / wSum;
+      value = Math.min(Math.max(value, Math.min(...vals)), Math.max(...vals));
+      if (metric === 'pmCompliancePercent') value = Math.min(100, value);
+      return Math.round(Math.max(0, value));
+    };
+    const forecast: Record<string, number | string | null> = { month: nextKey };
+    for (const m of METRICS) forecast[m] = project(m);
+
+    return { months: rows, forecast, forecastMethod: 'weighted-moving-average-3m', generatedAt: new Date().toISOString() };
+  }
+
   async getReports(
     companyId: string,
     machineId?: string,

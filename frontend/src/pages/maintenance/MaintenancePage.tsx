@@ -58,7 +58,7 @@ const pageConfig: Record<MaintenancePageKey, {
 };
 
 const links: Array<{ key: MaintenancePageKey; path: string; label: string }> = [
-  { key: 'dashboard', path: '/maintenance', label: 'Maintenance Overview' },
+  { key: 'dashboard', path: '/maintenance', label: 'Maintenance Dashboard' },
   { key: 'job-cards', path: '/maintenance/job-cards', label: 'Job Cards' },
   { key: 'teams', path: '/maintenance/teams', label: 'Teams' },
   { key: 'categories', path: '/maintenance/categories', label: 'Categories' },

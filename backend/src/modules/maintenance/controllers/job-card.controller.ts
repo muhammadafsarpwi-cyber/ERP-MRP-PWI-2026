@@ -99,6 +99,26 @@ export class MaintenanceJobCardController {
     return this.jobCardService.getChartData(companyId, machineId, divisionId, sectionId, departmentId, search, this.divisions(req));
   }
 
+  @Get('kpi-trends')
+  @RequirePermission('maintenance.job_card.view')
+  @ApiOperation({ summary: 'Monthly MTTR / MTBF / MTTA / cost trends with next-month projection' })
+  kpiTrends(
+    @Req() req: any,
+    @Query('companyId') companyId: string,
+    @Query('machineId') machineId?: string,
+    @Query('divisionId') divisionId?: string,
+    @Query('sectionId') sectionId?: string,
+    @Query('departmentId') departmentId?: string,
+    @Query('search') search?: string,
+    @Query('months') months?: string,
+  ) {
+    return this.jobCardService.getKpiTrends({
+      companyId, machineId, divisionId, sectionId, departmentId, search,
+      allowedDivisionIds: this.divisions(req),
+      months: months ? Number(months) : undefined,
+    });
+  }
+
   @Get('reports')
   @RequirePermission('maintenance.reports.view')
   @ApiOperation({ summary: 'Maintenance reports data' })

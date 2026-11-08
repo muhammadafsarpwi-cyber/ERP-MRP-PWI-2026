@@ -377,7 +377,7 @@ export const NAV_ENTRIES: NavEntry[] = [
     icon: ToolOutlined,
     color: 'cyan',
     children: [
-      { key: '/maintenance', label: 'Overview', icon: DashboardOutlined, color: 'cyan', permissions: ['maintenance.job_card.view'] },
+      { key: '/maintenance', label: 'Maintenance Dashboard', icon: DashboardOutlined, color: 'cyan', permissions: ['maintenance.job_card.view'] },
       { key: MAINTENANCE_QUEUE_NAV_KEYS.open, label: 'Open Job Card', icon: PlusOutlined, color: 'success', permissions: ['maintenance.job_card.create'] },
       { key: MAINTENANCE_QUEUE_NAV_KEYS.started, label: 'Started Job Cards', icon: FolderOpenOutlined, color: 'warning', permissions: ['maintenance.job_card.view'] },
       { key: MAINTENANCE_QUEUE_NAV_KEYS.closed, label: 'Closed Job Cards', icon: PlayCircleOutlined, color: 'primary', permissions: ['maintenance.job_card.view'] },

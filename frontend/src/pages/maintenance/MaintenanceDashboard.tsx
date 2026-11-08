@@ -37,6 +37,7 @@ import { usePermission } from '../../hooks/usePermission';
 import { label, OrgOption } from './jobCards.types';
 import { useHeaderActions } from '../../components/layout/headerActionsStore';
 import { JobCardCreate } from './JobCardCreate';
+import MaintenanceKpiCharts from './MaintenanceKpiCharts';
 import {
   useMaintenanceHierarchy, divisionLabel, sectionLabel, departmentLabel,
 } from './useMaintenanceHierarchy';
@@ -366,6 +367,15 @@ const MaintenanceDashboard: React.FC = () => {
 
   const hasActiveFilters = !!(divisionId || sectionId || departmentId || machineId || search);
 
+  const kpiQuery = useMemo(() => ({
+    companyId: defaultCompanyId,
+    machineId,
+    divisionId,
+    sectionId,
+    departmentId,
+    search: search || undefined,
+  }), [defaultCompanyId, machineId, divisionId, sectionId, departmentId, search]);
+
   const activeFilterCount = useMemo(() => {
     let count = 0;
     if (divisionId) count++;
@@ -411,59 +421,6 @@ const MaintenanceDashboard: React.FC = () => {
             </div>
           );
         })}
-      </Space>
-    );
-  };
-
-  const renderTrend = (trend: ChartData['downtimeTrend']) => {
-    if (!trend || trend.length === 0) {
-      return <Text type="secondary">Insufficient data for downtime trend.</Text>;
-    }
-    const max = Math.max(1, ...trend.map(t => t.total || 0));
-    return (
-      <Space direction="vertical" size={8} style={{ width: '100%' }}>
-        {trend.map(t => (
-          <div key={t.month} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
-              <Text strong>{t.month}</Text>
-              <Text type="secondary">{formatDuration(t.total || 0)}</Text>
-            </div>
-            <div style={{ display: 'flex', height: 14, borderRadius: 3, overflow: 'hidden', background: 'var(--maint-track-bg)' }}>
-              <div style={{ width: `${max > 0 ? ((t.planned || 0) / max) * 100 : 0}%`, background: '#1890ff' }} title={`Planned: ${formatDuration(t.planned || 0)}`} />
-              <div style={{ width: `${max > 0 ? ((t.unplanned || 0) / max) * 100 : 0}%`, background: '#cf1322' }} title={`Unplanned: ${formatDuration(t.unplanned || 0)}`} />
-            </div>
-          </div>
-        ))}
-      </Space>
-    );
-  };
-
-  const renderBreakdownMttrTrend = (breakdown: ChartData['breakdownTrend'], mttr: ChartData['mttrTrend']) => {
-    const useBreakdown = breakdown && breakdown.length > 0;
-    const useMttr = mttr && mttr.length > 0;
-    if (!useBreakdown && !useMttr) {
-      return <Text type="secondary">Insufficient data for trend.</Text>;
-    }
-    const maxCount = useBreakdown ? Math.max(1, ...breakdown.map(b => b.count || 0)) : 1;
-    return (
-      <Space direction="vertical" size={8} style={{ width: '100%' }}>
-        {useBreakdown && breakdown.map(b => (
-          <div key={`brk-${b.month}`} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
-              <Text strong>{b.month}</Text>
-              <Text type="secondary">{b.count} breakdowns</Text>
-            </div>
-            <div style={{ background: 'var(--maint-track-bg)', height: 8, borderRadius: 4, overflow: 'hidden' }}>
-              <div style={{ width: `${((b.count || 0) / maxCount) * 100}%`, height: '100%', background: '#cf1322', borderRadius: 4 }} />
-            </div>
-          </div>
-        ))}
-        {useMttr && mttr.map(m => (
-          <div key={`mttr-${m.month}`} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
-            <Text strong>MTTR {m.month}</Text>
-            <Text type="secondary">{formatDuration(m.mttr)}</Text>
-          </div>
-        ))}
       </Space>
     );
   };
@@ -867,6 +824,9 @@ const MaintenanceDashboard: React.FC = () => {
             />
           </div>
 
+          {/* MTTR / MTBF / MTTA MONTHLY ANALYTICS */}
+          <MaintenanceKpiCharts query={kpiQuery} />
+
           {/* PENDING ACTIONS + ANALYTICS */}
           <Row gutter={[12, 12]} style={{ marginTop: 12 }}>
             <Col xs={24} lg={8}>
@@ -915,48 +875,25 @@ const MaintenanceDashboard: React.FC = () => {
           </Row>
 
           {/* DOWNTIME / TIMING BREAKDOWN */}
-          <Row gutter={[12, 12]} style={{ marginTop: 12 }}>
-            <Col xs={24} lg={8}>
-              <PanelSection title="Downtime Breakdown" extra={<Tooltip title="Total downtime = planned (preventive / inspection) + unplanned (breakdown / emergency / corrective). Active repair excludes waiting for parts and on-hold time."><InfoCircleOutlined style={{ color: 'var(--theme-text-muted)', cursor: 'help' }} /></Tooltip>}>
-                <Space direction="vertical" size={6} style={{ width: '100%' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 10px', background: 'var(--theme-surface-alt)', borderRadius: 4 }}>
-                    <Text strong><Tag color="blue" style={{ marginRight: 4 }}>Planned</Tag>Preventive / Inspection</Text>
-                    <Text>{metricValue(chartData?.plannedDowntimeMinutes)}</Text>
+          <div style={{ marginTop: 12 }}>
+            <PanelSection title="Downtime Breakdown" extra={<Tooltip title="Total downtime = planned (preventive / inspection) + unplanned (breakdown / emergency / corrective). Active repair excludes waiting for parts and on-hold time."><InfoCircleOutlined style={{ color: 'var(--theme-text-muted)', cursor: 'help' }} /></Tooltip>}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 8 }}>
+                {[
+                  { key: 'planned', node: <><Tag color="blue" style={{ marginRight: 4 }}>Planned</Tag>Preventive / Inspection</>, value: chartData?.plannedDowntimeMinutes },
+                  { key: 'unplanned', node: <><Tag color="red" style={{ marginRight: 4 }}>Unplanned</Tag>Breakdown / Emergency</>, value: chartData?.unplannedDowntimeMinutes },
+                  { key: 'active', node: <>Active Repair</>, value: chartData?.activeRepairMinutes },
+                  { key: 'waiting', node: <>Waiting for Parts</>, value: chartData?.waitingMinutes },
+                  { key: 'hold', node: <>On Hold</>, value: chartData?.onHoldMinutes },
+                  { key: 'total', node: <>Total Downtime</>, value: chartData?.totalDowntimeMinutes },
+                ].map(item => (
+                  <div key={item.key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: '8px 10px', background: 'var(--theme-surface-alt)', borderRadius: 4 }}>
+                    <Text strong>{item.node}</Text>
+                    <Text>{metricValue(item.value)}</Text>
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 10px', background: 'var(--theme-surface-alt)', borderRadius: 4 }}>
-                    <Text strong><Tag color="red" style={{ marginRight: 4 }}>Unplanned</Tag>Breakdown / Emergency</Text>
-                    <Text>{metricValue(chartData?.unplannedDowntimeMinutes)}</Text>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 10px', background: 'var(--theme-surface-alt)', borderRadius: 4 }}>
-                    <Text strong>Active Repair</Text>
-                    <Text>{metricValue(chartData?.activeRepairMinutes)}</Text>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 10px', background: 'var(--theme-surface-alt)', borderRadius: 4 }}>
-                    <Text strong>Waiting for Parts</Text>
-                    <Text>{metricValue(chartData?.waitingMinutes)}</Text>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 10px', background: 'var(--theme-surface-alt)', borderRadius: 4 }}>
-                    <Text strong>On Hold</Text>
-                    <Text>{metricValue(chartData?.onHoldMinutes)}</Text>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 10px', background: 'var(--theme-surface-alt)', borderRadius: 4 }}>
-                    <Text strong>Total Downtime</Text>
-                    <Text>{metricValue(chartData?.totalDowntimeMinutes)}</Text>
-                  </div>
-                </Space>
-              </PanelSection>
-            </Col>
-            <Col xs={24} lg={8}>
-              <PanelSection title="Downtime Trend (Monthly)" extra={<Tooltip title="Planned vs unplanned downtime by month from real job-card downtime records."><InfoCircleOutlined style={{ color: 'var(--theme-text-muted)', cursor: 'help' }} /></Tooltip>}>
-                {renderTrend(chartData?.downtimeTrend)}
-              </PanelSection>
-            </Col>
-            <Col xs={24} lg={8}>
-              <PanelSection title="Breakdown & MTTR Trend (Monthly)">
-                {renderBreakdownMttrTrend(chartData?.breakdownTrend, chartData?.mttrTrend)}
-              </PanelSection>
-            </Col>
-          </Row>
+                ))}
+              </div>
+            </PanelSection>
+          </div>
 
           {/* OPERATIONS / PERFORMANCE */}
           {canReports && reportsData && (reportsData.topProblemMachines?.length > 0 || reportsData.downtimeByType?.length > 0 || reportsData.mtbfByMachine?.length > 0) && (
