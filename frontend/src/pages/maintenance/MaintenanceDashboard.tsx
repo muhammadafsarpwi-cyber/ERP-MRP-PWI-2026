@@ -1,8 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Alert, Button, Card, Col, Input, Row, Select, Space, Statistic, Table, Tag, Tooltip, Typography, Badge,
+  Alert, Button, Card, Col, Grid, Input, Row, Select, Space, Statistic, Table, Tag, Tooltip, Typography, Badge,
 } from 'antd';
 import {
+  ShopOutlined,
+  ApartmentOutlined,
   BarChartOutlined,
   BuildOutlined,
   CalendarOutlined,
@@ -37,6 +39,7 @@ import { usePermission } from '../../hooks/usePermission';
 import { label, OrgOption } from './jobCards.types';
 import { useHeaderActions } from '../../components/layout/headerActionsStore';
 import { JobCardCreate } from './JobCardCreate';
+import CardSelectDropdown from '../../components/dashboard/CardSelectDropdown';
 import MaintenanceKpiCharts from './MaintenanceKpiCharts';
 import {
   useMaintenanceHierarchy, divisionLabel, sectionLabel, departmentLabel,
@@ -228,7 +231,10 @@ const PanelSection: React.FC<PanelSectionProps> = ({ title, extra, children }) =
   </Card>
 );
 
+const { useBreakpoint } = Grid;
+
 const MaintenanceDashboard: React.FC = () => {
+  const screens = useBreakpoint();
   const { user, can } = usePermission();
   const navigate = useNavigate();
   const defaultCompanyId = user?.defaultCompanyId as string | undefined;
@@ -363,6 +369,51 @@ const MaintenanceDashboard: React.FC = () => {
     return count;
   }, [divisionId, sectionId, departmentId, machineId]);
 
+  const chips = useMemo(() => {
+    const result: Array<{ key: string; label: string; value: string }> = [];
+    if (divisionId) {
+      const d = divisions.find(x => x.id === divisionId);
+      result.push({
+        key: 'divisionId',
+        label: 'Division',
+        value: d ? (d.divisionCode ? `${d.divisionCode} ${d.name || ''}`.trim() : (d.name || divisionId)) : divisionId,
+      });
+    }
+    if (sectionId) {
+      const s = sections.find(x => x.id === sectionId);
+      result.push({
+        key: 'sectionId',
+        label: 'Section',
+        value: s?.name || sectionId,
+      });
+    }
+    if (departmentId) {
+      const dp = departments.find(x => x.id === departmentId);
+      result.push({
+        key: 'departmentId',
+        label: 'Department',
+        value: dp?.name || departmentId,
+      });
+    }
+    if (machineId) {
+      const m = machines.find(x => x.id === machineId);
+      result.push({
+        key: 'machineId',
+        label: 'Machine',
+        value: m ? machineOptionLabel(m) : machineId,
+      });
+    }
+    return result;
+  }, [divisionId, sectionId, departmentId, machineId, divisions, sections, departments, machines]);
+
+  const onRemoveChip = (key: string) => {
+    if (key === 'divisionId') onDivisionChange(undefined);
+    else if (key === 'sectionId') onSectionChange(undefined);
+    else if (key === 'departmentId') onDepartmentChange(undefined);
+    else if (key === 'machineId') onMachineChange(undefined);
+  };
+
+
   const goStatus = (status: string | null) => {
     const params = new URLSearchParams();
     if (status !== null) params.set('status', status);
@@ -474,151 +525,211 @@ const MaintenanceDashboard: React.FC = () => {
 
   return (
     <div>
-      {/* COLLAPSIBLE FILTERS TOOLBAR (matches unified layout with Search next to Filters) */}
-      <Card styles={{ body: { padding: '14px 20px' } }} style={{ ...panelCard, marginBottom: 12, borderRadius: 8, background: 'var(--theme-surface)' }}>
-        <Row gutter={[10, 12]} align="middle">
-          <Col style={{ minWidth: 280, maxWidth: 360, flex: '1 1 320px' }}>
+      {/* ── UNIFIED FILTER BAR (Exact mirror of Main Dashboard standard) ── */}
+      <section
+        className="erp-filter-bar"
+        aria-label="Maintenance filters"
+        style={{
+          background: 'var(--theme-surface, #ffffff)',
+          border: '1px solid var(--theme-border, #e2e8f0)',
+          borderRadius: 12,
+          padding: '12px 16px',
+          marginBottom: 14,
+          boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.04)',
+        }}
+      >
+        {/* Top Header Row: Filter Toggle & Active Chips on Left | Search Bar on Right */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: 10,
+            paddingBottom: showFilters ? 10 : 0,
+            borderBottom: showFilters ? '1px solid var(--theme-border, #e2e8f0)' : 'none',
+            marginBottom: showFilters ? 12 : 0,
+          }}
+        >
+          {/* Left: Filter Toggle Button + Active Filter Chips */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <Button
+              type={showFilters ? 'primary' : 'default'}
+              icon={<FilterOutlined />}
+              onClick={() => setShowFilters((prev) => !prev)}
+              style={{
+                fontWeight: 600,
+                borderRadius: 8,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+              }}
+            >
+              <span>{showFilters ? 'Close Filters' : 'Filters'}</span>
+              {activeFilterCount > 0 && (
+                <Badge
+                  count={activeFilterCount}
+                  style={{
+                    backgroundColor: showFilters ? '#ffffff' : 'var(--theme-primary, #3b82f6)',
+                    color: showFilters ? 'var(--theme-primary, #3b82f6)' : '#ffffff',
+                    fontWeight: 700,
+                  }}
+                />
+              )}
+            </Button>
+
+            {chips.length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+                {chips.map((chip) => (
+                  <Tag
+                    key={chip.key}
+                    closable
+                    onClose={(e) => {
+                      e.preventDefault();
+                      onRemoveChip(chip.key);
+                    }}
+                    style={{
+                      borderRadius: 12,
+                      padding: '2px 8px',
+                      fontSize: 12,
+                      background: 'var(--theme-accent-soft, #eff6ff)',
+                      borderColor: 'var(--theme-accent, #bfdbfe)',
+                      color: 'var(--theme-accent-dark, #1d4ed8)',
+                    }}
+                  >
+                    <strong>{chip.label}:</strong> {chip.value}
+                  </Tag>
+                ))}
+                <Button
+                  type="link"
+                  size="small"
+                  onClick={clearAllFilters}
+                  style={{ fontSize: 12, padding: '0 4px', color: 'var(--theme-danger, #ef4444)' }}
+                >
+                  Clear all
+                </Button>
+              </div>
+            )}
+          </div>
+
+          {/* Right: Search Box */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: '1 1 280px', maxWidth: 400, justifyContent: 'flex-end' }}>
             <Input
               allowClear
               prefix={<SearchOutlined style={{ color: 'var(--theme-text-muted)' }} />}
               placeholder="Search job cards, machines, complaints, codes..."
               value={searchInput}
-              onChange={e => onSearchChange(e.target.value)}
-              style={{ width: '100%' }}
+              onChange={(e) => onSearchChange(e.target.value)}
+              style={{ width: '100%', maxWidth: 360, borderRadius: 8 }}
             />
-          </Col>
-          <Col>
-            <Button
-              icon={<FilterOutlined />}
-              onClick={() => setShowFilters(v => !v)}
-              type={showFilters ? 'primary' : 'default'}
-              style={{ fontWeight: 600 }}
-            >
-              Filters
-              {activeFilterCount > 0 && (
-                <Badge
-                  count={activeFilterCount}
-                  style={{
-                    marginLeft: 6,
-                    backgroundColor: showFilters ? '#ffffff' : 'var(--theme-primary, #3b82f6)',
-                    color: showFilters ? 'var(--theme-primary, #3b82f6)' : '#ffffff',
-                  }}
-                />
-              )}
-            </Button>
-          </Col>
-          <Col flex="auto" />
-        </Row>
+          </div>
+        </div>
 
+        {/* ── Main 4 Filters Row & Actions (Visible when Filters button is open) ── */}
         {showFilters && (
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 12,
-              marginTop: 12,
-              padding: '12px 14px',
-              background: 'var(--theme-surface-subtle, rgba(0, 0, 0, 0.02))',
-              border: '1px solid var(--theme-border, #e2e8f0)',
-              borderRadius: 8,
-            }}
-          >
-            {/* Header: Title + Active Count + Close */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 6, borderBottom: '1px dashed var(--theme-border, #e2e8f0)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <FilterOutlined style={{ color: 'var(--theme-primary, #3b82f6)', fontSize: 14 }} />
-                <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--theme-text, #1e293b)' }}>
-                  Filter Maintenance Dashboard
-                </span>
-                {activeFilterCount > 0 && (
-                  <Tag color="blue" style={{ margin: 0, borderRadius: 10, fontSize: 11, fontWeight: 600 }}>
-                    {activeFilterCount} Active
-                  </Tag>
-                )}
-              </div>
-              <Button
-                type="text"
-                size="small"
-                icon={<CloseOutlined />}
-                onClick={() => setShowFilters(false)}
-                style={{ color: 'var(--theme-text-muted, #64748b)', fontSize: 12 }}
-                title="Close Filters"
-              >
-                Close
-              </Button>
+          <>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: screens.lg
+                  ? 'repeat(4, 1fr)'
+                  : screens.md
+                  ? 'repeat(2, 1fr)'
+                  : '1fr',
+                gap: 10,
+                alignItems: 'stretch',
+              }}
+            >
+              {/* 1. Division */}
+              <CardSelectDropdown
+                label="Division"
+                title="Switch Division"
+                subtitle="Filter by plant division"
+                allLabel="All Divisions"
+                allSubtitle="Overview across all divisions"
+                icon={<ShopOutlined />}
+                options={divisions.map((d) => ({
+                  id: d.id,
+                  name: d.name || d.divisionCode || 'Unnamed Division',
+                  code: d.divisionCode || d.code,
+                  subtext: 'Production Division',
+                }))}
+                activeId={divisionId}
+                onSelect={onDivisionChange}
+                badgeBg="#fef9c3"
+                badgeColor="#854d0e"
+              />
+
+              {/* 2. Section */}
+              <CardSelectDropdown
+                label="Section"
+                title="Switch Section"
+                subtitle="Filter by workshop section"
+                allLabel="All Sections"
+                allSubtitle="View all workshop sections"
+                icon={<ApartmentOutlined />}
+                options={sections.map((s) => ({
+                  id: s.id,
+                  name: s.name || s.code || 'Unnamed Section',
+                  code: s.code,
+                  subtext: 'Workshop Section',
+                }))}
+                activeId={sectionId}
+                onSelect={onSectionChange}
+                disabled={!divisionId && sections.length === 0}
+                disabledReason="Please select a Division first"
+                badgeBg="#e0f2fe"
+                badgeColor="#0369a1"
+              />
+
+              {/* 3. Department */}
+              <CardSelectDropdown
+                label="Department"
+                title="Switch Department"
+                subtitle="Filter by shop floor department"
+                allLabel="All Departments"
+                allSubtitle="View all floor departments"
+                icon={<BuildOutlined />}
+                options={departments.map((d) => ({
+                  id: d.id,
+                  name: d.name || d.code || 'Unnamed Department',
+                  code: d.code,
+                  subtext: 'Floor Department',
+                }))}
+                activeId={departmentId}
+                onSelect={onDepartmentChange}
+                disabled={!divisionId && !sectionId && departments.length === 0}
+                disabledReason="Please select Division or Section first"
+                badgeBg="#f3e8ff"
+                badgeColor="#7e22ce"
+              />
+
+              {/* 4. Machine */}
+              <CardSelectDropdown
+                label="Machine"
+                title="Select Machine"
+                subtitle="Filter by production equipment"
+                allLabel="All Machines"
+                allSubtitle="All floor machines & equipment"
+                icon={<ToolOutlined />}
+                options={machines.map((m) => {
+                  const code = (m.machineNumber || m.machineCode || m.code || '').trim();
+                  const name = (m.name || m.machineName || code || 'Unnamed Machine').trim();
+                  return {
+                    id: m.id,
+                    name,
+                    code: code || undefined,
+                    subtext: 'Maintenance Target Asset',
+                  };
+                })}
+                activeId={machineId}
+                onSelect={onMachineChange}
+                badgeBg="#ffedd5"
+                badgeColor="#c2410c"
+              />
             </div>
 
-            <Row gutter={[12, 12]}>
-              <Col xs={24} sm={12} md={8} lg={6}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
-                  DIVISION
-                </div>
-                <Select
-                  showSearch
-                  aria-label="Dashboard Filter Division"
-                  placeholder="All Divisions ▼"
-                  value={divisionId || ALL}
-                  onChange={(v) => onDivisionChange(v === ALL ? undefined : v)}
-                  optionFilterProp="label"
-                  filterOption={(input, option) => ((option?.label as string) || '').toLowerCase().includes(input.toLowerCase())}
-                  options={[ALL_OPTION, ...divisions.map(d => ({ value: d.id, label: divisionLabel(d) }))]}
-                  style={{ width: '100%', minWidth: 140 }}
-                />
-              </Col>
-              <Col xs={24} sm={12} md={8} lg={6}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
-                  SECTION
-                </div>
-                <Select
-                  showSearch
-                  aria-label="Dashboard Filter Section"
-                  placeholder="All Sections ▼"
-                  value={sectionId || ALL}
-                  onChange={(v) => onSectionChange(v === ALL ? undefined : v)}
-                  disabled={!divisionId}
-                  optionFilterProp="label"
-                  filterOption={(input, option) => ((option?.label as string) || '').toLowerCase().includes(input.toLowerCase())}
-                  options={[ALL_OPTION, ...sections.map(sec => ({ value: sec.id, label: sectionLabel(sec) }))]}
-                  style={{ width: '100%', minWidth: 140 }}
-                />
-              </Col>
-              <Col xs={24} sm={12} md={8} lg={6}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
-                  DEPARTMENT
-                </div>
-                <Select
-                  showSearch
-                  aria-label="Dashboard Filter Department"
-                  placeholder="All Departments ▼"
-                  value={departmentId || ALL}
-                  onChange={(v) => onDepartmentChange(v === ALL ? undefined : v)}
-                  disabled={!sectionId}
-                  optionFilterProp="label"
-                  filterOption={(input, option) => ((option?.label as string) || '').toLowerCase().includes(input.toLowerCase())}
-                  options={[ALL_OPTION, ...departments.map(d => ({ value: d.id, label: departmentLabel(d) }))]}
-                  style={{ width: '100%', minWidth: 140 }}
-                />
-              </Col>
-              <Col xs={24} sm={12} md={8} lg={6}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
-                  MACHINE NUMBER
-                </div>
-                <Select
-                  showSearch
-                  aria-label="Dashboard Filter Machine Number"
-                  placeholder="All Machine Numbers ▼"
-                  value={machineId || ALL}
-                  onChange={(v) => onMachineChange(v === ALL ? undefined : v)}
-                  optionFilterProp="label"
-                  filterOption={(input, option) => ((option?.label as string) || '').toLowerCase().includes(input.toLowerCase())}
-                  options={[ALL_OPTION, ...machines.map(m => ({ value: m.id, label: machineOptionLabel(m), title: machineOptionLabel(m) }))]}
-                  style={{ width: '100%', minWidth: 140 }}
-                  suffixIcon={<ScanOutlined style={{ color: 'var(--theme-text-muted)' }} />}
-                />
-              </Col>
-            </Row>
-
-            {/* Footer with Clear Filters and Close inside */}
+            {/* ── Action Footer: Clear Filters on Left | Apply Filters on Right (Matches Main Dashboard) ── */}
             <div
               style={{
                 display: 'flex',
@@ -626,35 +737,37 @@ const MaintenanceDashboard: React.FC = () => {
                 alignItems: 'center',
                 flexWrap: 'wrap',
                 gap: 8,
-                paddingTop: 8,
+                paddingTop: 10,
+                marginTop: 10,
                 borderTop: '1px solid var(--theme-border, #e2e8f0)',
               }}
             >
               <Button
                 icon={<ClearOutlined />}
                 onClick={clearAllFilters}
+                disabled={activeFilterCount === 0}
                 danger={activeFilterCount > 0}
+                style={{ borderRadius: 8 }}
               >
                 Clear Filters
               </Button>
 
-              <div style={{ display: 'flex', gap: 8 }}>
-                <Button onClick={() => setShowFilters(false)}>
-                  Close
-                </Button>
-                <Button
-                  type="primary"
-                  icon={<FilterOutlined />}
-                  onClick={() => setShowFilters(false)}
-                  style={{ fontWeight: 600 }}
-                >
-                  Apply Filters
-                </Button>
-              </div>
+              <Button
+                type="primary"
+                icon={<SearchOutlined />}
+                onClick={() => setShowFilters(false)}
+                style={{
+                  fontWeight: 600,
+                  borderRadius: 8,
+                  minWidth: 120,
+                }}
+              >
+                Apply Filters
+              </Button>
             </div>
-          </div>
+          </>
         )}
-      </Card>
+      </section>
 
       {!defaultCompanyId && !loading && (
         <Alert type="warning" showIcon message="No default company" description="No default company is assigned to your account. The dashboard cannot be loaded." style={{ marginTop: 12 }} />
