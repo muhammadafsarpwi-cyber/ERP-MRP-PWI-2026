@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-  Table, Card, Row, Col, Select, Input, Button, Tag, Space,
+  Table, Card, Row, Col, Grid, Select, Input, Button, Tag, Space,
   App, Modal, Form, InputNumber, DatePicker, Tooltip, Switch, Badge,
 } from 'antd';
 import {
+  ShopOutlined,
+  ApartmentOutlined,
   DatabaseOutlined, ReloadOutlined, FileExcelOutlined, PrinterOutlined,
   SearchOutlined, AlertOutlined, CheckCircleOutlined,
   BuildOutlined, WarningOutlined,
@@ -19,6 +21,7 @@ import GlobalLoading from '../../components/shared/GlobalLoading';
 import { SaveResultDialog } from '../../components/shared';
 import type { SaveResultData, SaveResultPhase } from '../../components/shared/SaveResultDialog';
 import { renderItemNameWithParts } from './SalesAnalyticsDashboard';
+import CardSelectDropdown from '../../components/dashboard/CardSelectDropdown';
 import './SalesInvoiceManagement.css';
 
 interface FinishedGoodsItem {
@@ -81,7 +84,10 @@ interface SummaryData {
   uomBreakdowns: Record<string, UomBreakdown>;
 }
 
+const { useBreakpoint } = Grid;
+
 const FinishedGoodsInventory: React.FC = () => {
+  const screens = useBreakpoint();
   const { message } = App.useApp();
   const { can } = usePermission();
   const canPlanProduction = can('production.orders.create') || can('sales.orders.update');
@@ -168,6 +174,62 @@ const FinishedGoodsInventory: React.FC = () => {
     if (!selectedDivision) return sections;
     return sections.filter((s) => s.divisionId === selectedDivision);
   }, [sections, selectedDivision]);
+
+  const chips = useMemo(() => {
+    const result: Array<{ key: string; label: string; value: string }> = [];
+    if (selectedDivision) {
+      const d = divisions.find(x => x.id === selectedDivision);
+      result.push({
+        key: 'division',
+        label: 'Division',
+        value: d ? (d.divisionCode ? `[${d.divisionCode}] ${d.name}` : d.name) : selectedDivision,
+      });
+    }
+    if (selectedSection) {
+      const s = availableSections.find(x => x.id === selectedSection);
+      result.push({
+        key: 'section',
+        label: 'Section',
+        value: s?.name || selectedSection,
+      });
+    }
+    if (selectedStatus && selectedStatus !== 'ALL') {
+      const statusMap: Record<string, string> = {
+        AVAILABLE: 'Available (Healthy)',
+        LOW_STOCK: 'Low Stock',
+        BELOW_SAFETY_STOCK: 'Below Safety Stock',
+        SHORT: 'Short Against Orders',
+        ON_PRODUCTION: 'In Production',
+        EXCESS: 'Excess Stock',
+      };
+      result.push({
+        key: 'status',
+        label: 'Status',
+        value: statusMap[selectedStatus] || selectedStatus,
+      });
+    }
+    if (onlyShortages) {
+      result.push({
+        key: 'shortages',
+        label: 'Scope',
+        value: 'Shortages Only',
+      });
+    }
+    return result;
+  }, [selectedDivision, selectedSection, selectedStatus, onlyShortages, divisions, availableSections]);
+
+  const onRemoveChip = (key: string) => {
+    if (key === 'division') {
+      setSelectedDivision(undefined);
+      setSelectedSection(undefined);
+    } else if (key === 'section') {
+      setSelectedSection(undefined);
+    } else if (key === 'status') {
+      setSelectedStatus('ALL');
+    } else if (key === 'shortages') {
+      setOnlyShortages(false);
+    }
+  };
 
   // Fetch Inventory Data
   const fetchData = useCallback(async () => {
@@ -737,195 +799,244 @@ const FinishedGoodsInventory: React.FC = () => {
         </Card>
       )}
 
-      {/* Search and Filters Toggle Bar */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
-        <div style={{ width: 340, maxWidth: '100%' }}>
-          <Input
-            prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
-            placeholder="Search code, cable, spoke, wire..."
-            allowClear
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </div>
-
-        <Button
-          icon={<FilterOutlined />}
-          onClick={() => setShowFilters((prev) => !prev)}
-          type={showFilters ? 'primary' : 'default'}
-          style={{ fontWeight: 600 }}
-        >
-          Filters
-          {activeFilterCount > 0 && (
-            <Badge
-              count={activeFilterCount}
-              style={{
-                marginLeft: 6,
-                backgroundColor: showFilters ? '#ffffff' : 'var(--theme-primary, #3b82f6)',
-                color: showFilters ? 'var(--theme-primary, #3b82f6)' : '#ffffff',
-              }}
-            />
-          )}
-        </Button>
-      </div>
-
-      {/* Collapsible Panel with ALL Filters */}
-      {showFilters && (
+      {/* ── UNIFIED FILTER BAR (Matching ERP Standard / DashboardFilters) ── */}
+      <section
+        className="erp-filter-bar"
+        aria-label="Finished Goods filters"
+        style={{
+          background: 'var(--theme-surface, #ffffff)',
+          border: '1px solid var(--theme-border, #e2e8f0)',
+          borderRadius: 12,
+          padding: '12px 16px',
+          marginBottom: 16,
+          boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.04)',
+        }}
+      >
+        {/* Top Header Row: Filter Toggle & Active Chips on Left | Search on Right */}
         <div
           style={{
             display: 'flex',
-            flexDirection: 'column',
-            gap: 12,
-            padding: '12px 14px',
-            background: 'var(--theme-surface-subtle, rgba(0, 0, 0, 0.02))',
-            border: '1px solid var(--theme-border, #e2e8f0)',
-            borderRadius: 8,
-            marginBottom: 16,
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: 10,
+            paddingBottom: showFilters ? 10 : 0,
+            borderBottom: showFilters ? '1px solid var(--theme-border, #e2e8f0)' : 'none',
+            marginBottom: showFilters ? 12 : 0,
           }}
         >
-          {/* Header: Title + Active Count + Close */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 6, borderBottom: '1px dashed var(--theme-border, #e2e8f0)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <FilterOutlined style={{ color: 'var(--theme-primary, #3b82f6)', fontSize: 14 }} />
-              <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--theme-text, #1e293b)' }}>
-                Filter Finished Goods
-              </span>
-              {activeFilterCount > 0 && (
-                <Tag color="blue" style={{ margin: 0, borderRadius: 10, fontSize: 11, fontWeight: 600 }}>
-                  {activeFilterCount} Active
-                </Tag>
-              )}
-            </div>
+          {/* Left: Filter Toggle Button + Active Chips */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <Button
-              type="text"
-              size="small"
-              icon={<CloseOutlined />}
-              onClick={() => setShowFilters(false)}
-              style={{ color: 'var(--theme-text-muted, #64748b)', fontSize: 12 }}
-              title="Close Filters"
+              type={showFilters ? 'primary' : 'default'}
+              icon={<FilterOutlined />}
+              onClick={() => setShowFilters((prev) => !prev)}
+              style={{
+                fontWeight: 600,
+                borderRadius: 8,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+              }}
             >
-              Close
+              <span>{showFilters ? 'Close Filters' : 'Filters'}</span>
+              {activeFilterCount > 0 && (
+                <Badge
+                  count={activeFilterCount}
+                  style={{
+                    backgroundColor: showFilters ? '#ffffff' : 'var(--theme-primary, #3b82f6)',
+                    color: showFilters ? 'var(--theme-primary, #3b82f6)' : '#ffffff',
+                    fontWeight: 700,
+                  }}
+                />
+              )}
             </Button>
+
+            {chips.length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+                {chips.map((chip) => (
+                  <Tag
+                    key={chip.key}
+                    closable
+                    onClose={(e) => {
+                      e.preventDefault();
+                      onRemoveChip(chip.key);
+                    }}
+                    style={{
+                      borderRadius: 12,
+                      padding: '2px 8px',
+                      fontSize: 12,
+                      background: 'var(--theme-accent-soft, #eff6ff)',
+                      borderColor: 'var(--theme-accent, #bfdbfe)',
+                      color: 'var(--theme-accent-dark, #1d4ed8)',
+                    }}
+                  >
+                    <strong>{chip.label}:</strong> {chip.value}
+                  </Tag>
+                ))}
+                <Button
+                  type="link"
+                  size="small"
+                  onClick={handleClearFilters}
+                  style={{ fontSize: 12, padding: '0 4px', color: 'var(--theme-danger, #ef4444)' }}
+                >
+                  Clear all
+                </Button>
+              </div>
+            )}
           </div>
 
-          <Row gutter={[12, 12]} align="middle">
-            <Col xs={24} sm={12} md={6}>
-              <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 4, color: 'var(--inv-text-secondary, #475569)' }}>
-                DIVISION
-              </div>
-              <Select
-                style={{ width: '100%' }}
-                placeholder="All Divisions"
-                allowClear
-                value={selectedDivision}
-                onChange={(val) => {
-                  setSelectedDivision(val);
+          {/* Right: Search Box */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: '1 1 280px', maxWidth: 400, justifyContent: 'flex-end' }}>
+            <Input
+              prefix={<SearchOutlined style={{ color: 'var(--theme-text-muted, #94a3b8)' }} />}
+              placeholder="Search code, cable, spoke, wire..."
+              allowClear
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              style={{ width: '100%', maxWidth: 360, borderRadius: 8 }}
+            />
+          </div>
+        </div>
+
+        {/* ── Main 4 Filters Row & Actions (Visible when Filters button is open) ── */}
+        {showFilters && (
+          <>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: screens.lg
+                  ? 'repeat(4, 1fr)'
+                  : screens.md
+                  ? 'repeat(2, 1fr)'
+                  : '1fr',
+                gap: 10,
+                alignItems: 'stretch',
+              }}
+            >
+              {/* 1. Division */}
+              <CardSelectDropdown
+                label="Division"
+                title="Switch Division"
+                subtitle="Filter finished goods by division"
+                allLabel="All Divisions"
+                allSubtitle="View goods across all divisions"
+                icon={<ShopOutlined />}
+                options={divisions.map((d) => ({
+                  id: d.id,
+                  name: d.name,
+                  code: d.divisionCode,
+                  subtext: 'Plant Division',
+                }))}
+                activeId={selectedDivision}
+                onSelect={(v) => {
+                  setSelectedDivision(v);
                   setSelectedSection(undefined);
                 }}
-              >
-                {divisions.map((d) => (
-                  <Select.Option key={d.id} value={d.id}>
-                    {d.divisionCode ? `[${d.divisionCode}] ` : ''}{d.name}
-                  </Select.Option>
-                ))}
-              </Select>
-            </Col>
+                badgeBg="#fef9c3"
+                badgeColor="#854d0e"
+              />
 
-            <Col xs={24} sm={12} md={6}>
-              <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 4, color: 'var(--inv-text-secondary, #475569)' }}>
-                SECTION
-              </div>
-              <Select
-                style={{ width: '100%' }}
-                placeholder="All Sections"
-                allowClear
-                value={selectedSection}
-                onChange={setSelectedSection}
+              {/* 2. Section */}
+              <CardSelectDropdown
+                label="Section"
+                title="Switch Section"
+                subtitle="Filter by workshop section"
+                allLabel="All Sections"
+                allSubtitle="View goods across all sections"
+                icon={<ApartmentOutlined />}
+                options={availableSections.map((s) => ({
+                  id: s.id,
+                  name: s.name,
+                  subtext: 'Workshop Section',
+                }))}
+                activeId={selectedSection}
+                onSelect={setSelectedSection}
                 disabled={availableSections.length === 0}
-              >
-                {availableSections.map((s) => (
-                  <Select.Option key={s.id} value={s.id}>
-                    {s.name}
-                  </Select.Option>
-                ))}
-              </Select>
-            </Col>
+                disabledReason="No sections available for selected division"
+                badgeBg="#e0f2fe"
+                badgeColor="#0369a1"
+              />
 
-            <Col xs={24} sm={12} md={6}>
-              <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 4, color: 'var(--inv-text-secondary, #475569)' }}>
-                STOCK AVAILABILITY STATUS
-              </div>
-              <Select
-                style={{ width: '100%' }}
-                value={selectedStatus}
-                onChange={setSelectedStatus}
-              >
-                <Select.Option value="ALL">All Statuses</Select.Option>
-                <Select.Option value="AVAILABLE">Available (Healthy)</Select.Option>
-                <Select.Option value="LOW_STOCK">Low Stock</Select.Option>
-                <Select.Option value="BELOW_SAFETY_STOCK">Below Safety Stock</Select.Option>
-                <Select.Option value="SHORT">Short Against Orders</Select.Option>
-                <Select.Option value="ON_PRODUCTION">In Production</Select.Option>
-                <Select.Option value="EXCESS">Excess Stock</Select.Option>
-              </Select>
-            </Col>
+              {/* 3. Stock Status */}
+              <CardSelectDropdown
+                label="Stock Status"
+                title="Stock Availability Status"
+                subtitle="Filter by inventory availability condition"
+                allLabel="All Statuses"
+                allSubtitle="Show items of all stock health states"
+                icon={<CheckCircleOutlined />}
+                options={[
+                  { id: 'AVAILABLE', name: 'Available (Healthy)', code: 'OK', subtext: 'Sufficient physical & net available stock' },
+                  { id: 'LOW_STOCK', name: 'Low Stock Alert', code: 'LOW', subtext: 'Stock approaching replenishment trigger' },
+                  { id: 'BELOW_SAFETY_STOCK', name: 'Below Safety Stock', code: 'SAFE', subtext: 'Critical inventory below safety buffer' },
+                  { id: 'SHORT', name: 'Short Against Orders', code: 'SHORT', subtext: 'Committed orders exceed current stock' },
+                  { id: 'ON_PRODUCTION', name: 'In Production', code: 'PROD', subtext: 'Currently on shop floor production line' },
+                  { id: 'EXCESS', name: 'Excess Stock', code: 'EXC', subtext: 'Inventory higher than standard target' },
+                ]}
+                activeId={selectedStatus === 'ALL' ? undefined : selectedStatus}
+                onSelect={(v) => setSelectedStatus(v || 'ALL')}
+                badgeBg="#ecfdf5"
+                badgeColor="#047857"
+              />
 
-            <Col xs={24} sm={12} md={6}>
-              <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 4, color: 'var(--inv-text-secondary, #475569)' }}>
-                SHORTAGES ONLY
-              </div>
-              <Space align="center" style={{ marginTop: 4 }}>
-                <Switch
-                  checked={onlyShortages}
-                  onChange={setOnlyShortages}
-                />
-                <span style={{ fontSize: 12, fontWeight: onlyShortages ? 700 : 400, color: onlyShortages ? '#dc2626' : undefined }}>
-                  Show Shortages
-                </span>
-              </Space>
-            </Col>
-          </Row>
+              {/* 4. Shortages Scope */}
+              <CardSelectDropdown
+                label="Shortages Scope"
+                title="Shortages Filter"
+                subtitle="Filter items requiring replenishment / production"
+                allLabel="All Finished Goods"
+                allSubtitle="Show all items with and without shortages"
+                icon={<AlertOutlined />}
+                options={[
+                  { id: 'SHORTAGES_ONLY', name: 'Show Shortages Only', code: 'URGENT', subtext: 'Only items with net shortage or production required' },
+                ]}
+                activeId={onlyShortages ? 'SHORTAGES_ONLY' : undefined}
+                onSelect={(v) => setOnlyShortages(v === 'SHORTAGES_ONLY')}
+                badgeBg="#fef2f2"
+                badgeColor="#dc2626"
+              />
+            </div>
 
-          {/* Footer with Clear Filters and Apply Filters inside */}
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              flexWrap: 'wrap',
-              gap: 8,
-              paddingTop: 8,
-              borderTop: '1px solid var(--theme-border, #e2e8f0)',
-            }}
-          >
-            <Button
-              icon={<ClearOutlined />}
-              onClick={handleClearFilters}
-              danger={activeFilterCount > 0}
+            {/* ── Action Footer: Clear Filters on Left | Apply Filters on Right (Matches ERP Standard) ── */}
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: 8,
+                paddingTop: 10,
+                marginTop: 10,
+                borderTop: '1px solid var(--theme-border, #e2e8f0)',
+              }}
             >
-              Clear Filters
-            </Button>
-
-            <div style={{ display: 'flex', gap: 8 }}>
-              <Button onClick={() => setShowFilters(false)}>
-                Close
+              <Button
+                icon={<ClearOutlined />}
+                onClick={handleClearFilters}
+                disabled={activeFilterCount === 0}
+                danger={activeFilterCount > 0}
+                style={{ borderRadius: 8 }}
+              >
+                Clear Filters
               </Button>
+
               <Button
                 type="primary"
-                icon={<FilterOutlined />}
-                onClick={() => {
-                  fetchData();
-                  setShowFilters(false);
+                icon={<SearchOutlined />}
+                onClick={() => setShowFilters(false)}
+                style={{
+                  fontWeight: 600,
+                  borderRadius: 8,
+                  minWidth: 120,
                 }}
-                loading={loading}
-                style={{ fontWeight: 600 }}
               >
                 Apply Filters
               </Button>
             </div>
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </section>
 
       {/* Main Table */}
       {loading && data.length === 0 ? (

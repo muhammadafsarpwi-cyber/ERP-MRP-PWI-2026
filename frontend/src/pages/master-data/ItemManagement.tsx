@@ -6,7 +6,7 @@ import {
 } from 'antd';
 import type { MenuProps } from 'antd';
 import {
-  ApartmentOutlined, AppstoreOutlined, ArrowDownOutlined, ArrowUpOutlined, ClearOutlined, DeleteOutlined, DollarOutlined, DownloadOutlined, EditOutlined,
+  ApartmentOutlined, AppstoreOutlined, SubnodeOutlined, ShopOutlined, ArrowDownOutlined, ArrowUpOutlined, ClearOutlined, DeleteOutlined, DollarOutlined, DownloadOutlined, EditOutlined,
   EyeOutlined, FileAddOutlined, FilterOutlined, ImportOutlined, InboxOutlined, MoreOutlined,
   PauseCircleOutlined, PlayCircleOutlined, PlusOutlined, PrinterOutlined, CloseCircleOutlined,
   ReloadOutlined, SearchOutlined, ScanOutlined, HistoryOutlined, DatabaseOutlined, ProjectOutlined, ArrowRightOutlined,
@@ -26,6 +26,7 @@ import {
   pruneStaleOrgSelections,
   type ItemQueryState,
 } from './items/itemQuery';
+import { CardSelectDropdown } from '../../components/dashboard/CardSelectDropdown';
 import { formatDimension } from '../../utils/numberFormat';
 import { handleValidationErrors } from '../../utils/formValidationHelper';
 import { rawNum } from '../../utils/csvRoundTrip';
@@ -1155,6 +1156,57 @@ const ItemManagement: React.FC = () => {
   // `serialize` and by fetchItems after every successful response. Persisting
   // the filters separately used to overwrite that snapshot with a different
   // shape, which restored rows that did not belong to the restored filters.
+
+  // Active Filter Chips
+  const chips = useMemo(() => {
+    const result: Array<{ key: string; label: string; value: string }> = [];
+    if (fDivision) {
+      const d = divisions.find((x) => x.id === fDivision || x.name === fDivision);
+      result.push({ key: 'division', label: 'Division', value: d ? (d.divisionCode ? `[${d.divisionCode}] ${d.name}` : d.name) : fDivision });
+    }
+    if (fCategory) {
+      result.push({ key: 'category', label: 'Category', value: fCategory });
+    }
+    if (fSection) {
+      result.push({ key: 'section', label: 'Section', value: fSection });
+    }
+    if (fDepartment) {
+      result.push({ key: 'department', label: 'Department', value: fDepartment });
+    }
+    if (fRouteType) {
+      const rt = routeTypes.find((x) => x.id === fRouteType || x.routeCode === fRouteType || x.name === fRouteType);
+      result.push({ key: 'routeType', label: 'Route', value: rt ? (rt.name || rt.routeCode) : fRouteType });
+    }
+    if (fStatus) {
+      result.push({ key: 'status', label: 'Status', value: fStatus });
+    }
+    if (fRoleUsage) {
+      result.push({ key: 'roleUsage', label: 'Role', value: fRoleUsage });
+    }
+    return result;
+  }, [fDivision, fCategory, fSection, fDepartment, fRouteType, fStatus, fRoleUsage, divisions, routeTypes]);
+
+  const onRemoveChip = (key: string) => {
+    if (key === 'division') {
+      setFDivision(undefined);
+      setFSection(undefined);
+      setFDepartment(undefined);
+    } else if (key === 'category') {
+      setFCategory(undefined);
+    } else if (key === 'section') {
+      setFSection(undefined);
+      setFDepartment(undefined);
+    } else if (key === 'department') {
+      setFDepartment(undefined);
+    } else if (key === 'routeType') {
+      setFRouteType(undefined);
+    } else if (key === 'status') {
+      setFStatus(undefined);
+    } else if (key === 'roleUsage') {
+      setFRoleUsage(undefined);
+    }
+    setPage(1);
+  };
 
   const activeFilterCount = useMemo(
     () => [fDivision, fSection, fDepartment, fCategory, fItemType, fRoleUsage, fRouteType, fStatus].filter(Boolean).length,
@@ -4219,280 +4271,383 @@ const ItemManagement: React.FC = () => {
           onSelect={handleItemChevronSelect}
         />
 
-        {/* Main Filter Toolbar: Search + Single Unified Filters Button + Columns */}
+        {/* ── UNIFIED ERP FILTER BAR (Matching ERP Standard / CardSelectDropdown) ── */}
         <div
+          className="erp-filter-bar"
+          aria-label="Item Register filters"
           style={{
-            display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center',
-            paddingTop: 8, borderTop: '1px solid var(--theme-border)',
+            marginTop: 12,
+            paddingTop: 12,
+            borderTop: '1px solid var(--theme-border, #f0f0f0)',
           }}
         >
-          <Input
-            allowClear
-            prefix={<SearchOutlined style={{ color: 'var(--theme-text-muted)' }} />}
-            placeholder="Search Item Register (code, name, SKU, barcode)..."
+          {/* Top Header Row: Filter Toggle & Active Chips on Left | Search & Columns on Right */}
+          <div
             style={{
-              flex: screens.md ? '1 1 320px' : '1 1 100%',
-              flexBasis: screens.md ? '320px' : '100%',
-              maxWidth: screens.md ? 520 : '100%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: 10,
+              paddingBottom: showFilters ? 10 : 0,
+              borderBottom: showFilters ? '1px solid var(--theme-border, #e2e8f0)' : 'none',
+              marginBottom: showFilters ? 12 : 0,
             }}
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-          />
-
-          <Badge count={activeFilterCount} size="small" offset={[-2, 2]}>
-            <Button
-              icon={<FilterOutlined />}
-              onClick={() => setShowFilters((v) => !v)}
-              aria-label="Filters"
-              style={{
-                background: showFilters ? 'var(--theme-accent-soft, #eff6ff)' : activeFilterCount > 0 ? '#eff6ff' : undefined,
-                borderColor: showFilters || activeFilterCount > 0 ? 'var(--theme-primary, #3b82f6)' : undefined,
-                color: showFilters || activeFilterCount > 0 ? 'var(--theme-primary, #1d4ed8)' : undefined,
-                fontWeight: 600,
-              }}
-            >
-              Filters {activeFilterCount > 0 ? `(${activeFilterCount})` : ''}
-            </Button>
-          </Badge>
-
-          {/* Columns Toggle Dropdown (Machine Master 2027 style) */}
-          <Dropdown
-            trigger={['click']}
-            placement="bottomRight"
-            popupRender={() => (
-              <div
+          >
+            {/* Left: Filter Toggle Button + Active Chips */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <Button
+                type={showFilters ? 'primary' : 'default'}
+                icon={<FilterOutlined />}
+                onClick={() => setShowFilters((prev) => !prev)}
+                data-testid="toggle-filters-btn"
                 style={{
-                  background: 'var(--theme-card-bg, var(--theme-surface, #ffffff))',
-                  padding: '12px 16px',
+                  fontWeight: 600,
                   borderRadius: 8,
-                  boxShadow: '0 10px 30px rgba(0, 0, 0, 0.25)',
-                  minWidth: 200,
-                  border: '1px solid var(--theme-border, #e2e8f0)',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
                 }}
               >
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    marginBottom: 10,
-                    paddingBottom: 8,
-                    borderBottom: '1px solid var(--theme-border, #f1f5f9)',
-                  }}
-                >
-                  <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--theme-text, #1e293b)' }}>
-                    Table Columns
-                  </span>
+                <span>{showFilters ? 'Close Filters' : 'Filters'}</span>
+                {activeFilterCount > 0 && (
+                  <Badge
+                    count={activeFilterCount}
+                    style={{
+                      backgroundColor: showFilters ? '#ffffff' : 'var(--theme-primary, #3b82f6)',
+                      color: showFilters ? 'var(--theme-primary, #3b82f6)' : '#ffffff',
+                      fontWeight: 700,
+                    }}
+                  />
+                )}
+              </Button>
+
+              {chips.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+                  {chips.map((chip) => (
+                    <Tag
+                      key={chip.key}
+                      closable
+                      onClose={(e) => {
+                        e.preventDefault();
+                        onRemoveChip(chip.key);
+                      }}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        padding: '2px 8px',
+                        borderRadius: 6,
+                        fontSize: 12,
+                        fontWeight: 500,
+                        background: 'var(--theme-surface-subtle, #f1f5f9)',
+                        border: '1px solid var(--theme-border, #cbd5e1)',
+                        color: 'var(--theme-text, #1e293b)',
+                      }}
+                    >
+                      <span style={{ color: 'var(--theme-text-muted, #64748b)', fontWeight: 600 }}>{chip.label}:</span>
+                      <span>{chip.value}</span>
+                    </Tag>
+                  ))}
                   <Button
                     type="link"
                     size="small"
-                    style={{ padding: 0, height: 'auto', fontSize: 11 }}
-                    onClick={() => {
-                      setVisibleCols(DEFAULT_ITEM_VISIBLE_COLUMNS);
-                      try {
-                        localStorage.removeItem('pwi_item_table_columns_v2');
-                        localStorage.removeItem('pwi_item_table_columns_v1');
-                      } catch {}
-                    }}
+                    danger
+                    onClick={resetFilters}
+                    style={{ padding: '0 4px', height: 'auto', fontSize: 12, fontWeight: 600 }}
                   >
-                    Reset All
+                    Clear all
                   </Button>
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {Object.entries(ITEM_COLUMN_LABELS).map(([key, label]) => (
-                    <Checkbox
-                      key={key}
-                      checked={visibleCols[key] !== false}
-                      disabled={key === 'itemCode' || key === 'actions'}
-                      onChange={(e) => {
-                        const next = { ...visibleCols, [key]: e.target.checked };
-                        setVisibleCols(next);
-                        try {
-                          localStorage.setItem('pwi_item_table_columns_v2', JSON.stringify(next));
-                        } catch {}
-                      }}
-                      style={{ fontSize: 13, color: 'var(--theme-text, #334155)' }}
-                    >
-                      {label}
-                    </Checkbox>
-                  ))}
-                </div>
-              </div>
-            )}
-          >
-            <Button icon={<AppstoreOutlined />} style={{ fontWeight: 600 }}>
-              Columns
-            </Button>
-          </Dropdown>
-
-          <div style={{ flex: 1 }} />
-
-          {screens.lg && (
-            <span style={{ fontSize: 12, color: 'var(--theme-text-muted, #64748b)' }}>
-              {total} items · Sorted by {sortField}
-            </span>
-          )}
-        </div>
-
-        {/* Unified Collapsible Filters Panel — Contains ALL filter dropdowns and filter actions */}
-        {showFilters && (
-          <div
-            style={{
-              marginTop: 10,
-              padding: '12px 14px',
-              borderRadius: 8,
-              border: '1px solid var(--theme-border, #e2e8f0)',
-              background: 'var(--theme-surface-subtle, rgba(248, 250, 252, 0.6))',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 12,
-            }}
-          >
-            {/* Header: Title + Active Count (floating "✕ Close" button removed) */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingBottom: 6, borderBottom: '1px dashed var(--theme-border, #e2e8f0)' }}>
-              <FilterOutlined style={{ color: 'var(--theme-primary, #3b82f6)', fontSize: 14 }} />
-              <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--theme-text, #1e293b)' }}>
-                Filter Items
-              </span>
-              {activeFilterCount > 0 && (
-                <Tag color="blue" style={{ margin: 0, borderRadius: 10, fontSize: 11, fontWeight: 600 }}>
-                  {activeFilterCount} Active
-                </Tag>
               )}
             </div>
 
-            {/* Single tightly-aligned horizontal row — all 7 selectors, forced no-wrap */}
-            <Row gutter={[8, 8]} wrap={false}>
-              <Col flex="1 1 0" style={{ minWidth: 0 }}>
-                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
-                  Division
-                </label>
-                <Select
-                  allowClear showSearch optionFilterProp="label" placeholder="All Divisions"
-                  style={{ width: '100%' }}
-                  value={fDivision}
-                  options={toUnique(divisions, (d) => d.name)}
-                  onChange={(v) => { setFDivision(v); setFSection(undefined); setFDepartment(undefined); setPage(1); }}
-                />
-              </Col>
+            {/* Right: Quick Search, Columns Dropdown & Sort Info */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <Input
+                allowClear
+                prefix={<SearchOutlined style={{ color: 'var(--theme-text-muted, #94a3b8)' }} />}
+                placeholder="Search Item Register (code, name, SKU, barcode)..."
+                style={{ width: 300, borderRadius: 8 }}
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+              />
 
-              <Col flex="1 1 0" style={{ minWidth: 0 }}>
-                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
-                  Category
-                </label>
-                <Select
-                  allowClear showSearch optionFilterProp="label" placeholder="All Categories"
-                  style={{ width: '100%' }}
-                  value={fCategory}
-                  options={toUnique(flatCategories, (c) => c.name)}
-                  onChange={(v) => { setFCategory(v); setPage(1); }}
-                />
-              </Col>
-
-              <Col flex="1 1 0" style={{ minWidth: 0 }}>
-                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
-                  Section
-                </label>
-                <Select
-                  allowClear showSearch optionFilterProp="label" placeholder="All Sections"
-                  style={{ width: '100%' }}
-                  value={fSection}
-                  options={toUnique(sectionsForDivision(fDivision), (s) => s.name)}
-                  onChange={(v) => { setFSection(v); setFDepartment(undefined); setPage(1); }}
-                />
-              </Col>
-
-              <Col flex="1 1 0" style={{ minWidth: 0 }}>
-                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
-                  Department
-                </label>
-                <Select
-                  allowClear showSearch optionFilterProp="label" placeholder="All Departments"
-                  style={{ width: '100%' }}
-                  value={fDepartment}
-                  options={toUnique(departmentsForSection(fDivision, fSection), (d) => d.name)}
-                  onChange={(v) => { setFDepartment(v); setPage(1); }}
-                />
-              </Col>
-
-              <Col flex="1 1 0" style={{ minWidth: 0 }}>
-                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
-                  Route Type
-                </label>
-                <Select
-                  allowClear showSearch optionFilterProp="label" placeholder="All Route Types"
-                  style={{ width: '100%' }}
-                  value={fRouteType}
-                  loading={routeTypesState === 'loading'}
-                  options={toUnique(routeTypes, (rt) => rt.name?.trim() ? rt.name : rt.routeCode)}
-                  onChange={(v) => { setFRouteType(v); setPage(1); }}
-                />
-              </Col>
-
-              <Col flex="1 1 0" style={{ minWidth: 0 }}>
-                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
-                  Status
-                </label>
-                <Select
-                  allowClear placeholder="All Statuses"
-                  style={{ width: '100%' }}
-                  options={STATUS_OPTIONS.map((status) => ({ value: status, label: status }))}
-                  value={fStatus}
-                  onChange={(v) => { setFStatus(v); setPage(1); }}
-                />
-              </Col>
-
-              <Col flex="1 1 0" style={{ minWidth: 0 }}>
-                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
-                  Material Role / Usage
-                </label>
-                <Select
-                  allowClear showSearch optionFilterProp="label" placeholder="All Roles"
-                  style={{ width: '100%' }}
-                  value={fRoleUsage}
-                  options={[
-                    { value: 'Process Component Materials', label: 'Process Component Materials' },
-                  ]}
-                  onChange={(v) => { setFRoleUsage(v); setPage(1); }}
-                />
-              </Col>
-            </Row>
-
-            {/* Footer — Clear Filters + premium Apply Filters are the ONLY action controls
-                (the duplicate white "Close" button container was removed) */}
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                flexWrap: 'wrap',
-                gap: 8,
-                paddingTop: 8,
-                borderTop: '1px solid var(--theme-border, #e2e8f0)',
-              }}
-            >
-              <Button
-                icon={<ClearOutlined />}
-                onClick={resetFilters}
-                data-testid="clear-filters"
-                danger={activeFilterCount > 0}
+              {/* Columns Toggle Dropdown */}
+              <Dropdown
+                trigger={['click']}
+                placement="bottomRight"
+                popupRender={() => (
+                  <div
+                    style={{
+                      background: 'var(--theme-card-bg, var(--theme-surface, #ffffff))',
+                      padding: '12px 16px',
+                      borderRadius: 8,
+                      boxShadow: '0 10px 30px rgba(0, 0, 0, 0.25)',
+                      minWidth: 200,
+                      border: '1px solid var(--theme-border, #e2e8f0)',
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        marginBottom: 10,
+                        paddingBottom: 8,
+                        borderBottom: '1px solid var(--theme-border, #f1f5f9)',
+                      }}
+                    >
+                      <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--theme-text, #1e293b)' }}>
+                        Table Columns
+                      </span>
+                      <Button
+                        type="link"
+                        size="small"
+                        style={{ padding: 0, height: 'auto', fontSize: 11 }}
+                        onClick={() => {
+                          setVisibleCols(DEFAULT_ITEM_VISIBLE_COLUMNS);
+                          try {
+                            localStorage.removeItem('pwi_item_table_columns_v2');
+                            localStorage.removeItem('pwi_item_table_columns_v1');
+                          } catch {}
+                        }}
+                      >
+                        Reset All
+                      </Button>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {Object.entries(ITEM_COLUMN_LABELS).map(([key, label]) => (
+                        <Checkbox
+                          key={key}
+                          checked={visibleCols[key] !== false}
+                          disabled={key === 'itemCode' || key === 'actions'}
+                          onChange={(e) => {
+                            const next = { ...visibleCols, [key]: e.target.checked };
+                            setVisibleCols(next);
+                            try {
+                              localStorage.setItem('pwi_item_table_columns_v2', JSON.stringify(next));
+                            } catch {}
+                          }}
+                          style={{ fontSize: 13, color: 'var(--theme-text, #334155)' }}
+                        >
+                          {label}
+                        </Checkbox>
+                      ))}
+                    </div>
+                  </div>
+                )}
               >
-                Clear Filters
-              </Button>
+                <Button icon={<AppstoreOutlined />} style={{ fontWeight: 600, borderRadius: 8 }}>
+                  Columns
+                </Button>
+              </Dropdown>
 
-              <Button
-                type="primary"
-                icon={<FilterOutlined />}
-                onClick={applyFilters}
-                data-testid="apply-filters"
-                loading={loading}
-                style={{ fontWeight: 600 }}
-              >
-                Apply Filters
-              </Button>
+              {screens.lg && (
+                <span style={{ fontSize: 12, color: 'var(--theme-text-muted, #64748b)' }}>
+                  {total} items · Sorted by {sortField}
+                </span>
+              )}
             </div>
           </div>
-        )}
+
+          {/* ── Main 6 Filters Row & Actions (Visible when Filters toggle is open) ── */}
+          {showFilters && (
+            <>
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: screens.xl
+                    ? 'repeat(6, 1fr)'
+                    : screens.md
+                      ? 'repeat(3, 1fr)'
+                      : '1fr',
+                  gap: 12,
+                  marginTop: 12,
+                }}
+              >
+                {/* 1. Division Dropdown */}
+                <CardSelectDropdown
+                  label="Division"
+                  title="Switch Division"
+                  subtitle="Filter items by division"
+                  allLabel="All Divisions"
+                  allSubtitle="View items across all divisions"
+                  icon={<ShopOutlined />}
+                  badgeBg="#fef9c3"
+                  badgeColor="#854d0e"
+                  options={divisions.map((d) => ({
+                    id: d.id,
+                    name: d.name,
+                    code: d.divisionCode,
+                    subtext: 'Plant Division',
+                  }))}
+                  activeId={fDivision}
+                  onSelect={(id) => {
+                    setFDivision(id);
+                    setFSection(undefined);
+                    setFDepartment(undefined);
+                    setPage(1);
+                  }}
+                />
+
+                {/* 2. Category Dropdown */}
+                <CardSelectDropdown
+                  label="Category"
+                  title="Switch Category"
+                  subtitle="Filter items by category"
+                  allLabel="All Categories"
+                  allSubtitle="View items across all categories"
+                  icon={<AppstoreOutlined />}
+                  badgeBg="#fae8ff"
+                  badgeColor="#86198f"
+                  options={flatCategories.map((c) => ({
+                    id: c.name,
+                    name: c.name,
+                    subtext: 'Item Category',
+                  }))}
+                  activeId={fCategory}
+                  onSelect={(id) => {
+                    setFCategory(id);
+                    setPage(1);
+                  }}
+                />
+
+                {/* 3. Section Dropdown */}
+                <CardSelectDropdown
+                  label="Section"
+                  title="Switch Section"
+                  subtitle="Filter items by section"
+                  allLabel="All Sections"
+                  allSubtitle="View items across all sections"
+                  icon={<ApartmentOutlined />}
+                  badgeBg="#e0f2fe"
+                  badgeColor="#0369a1"
+                  options={sectionsForDivision(fDivision).map((s) => ({
+                    id: s.name,
+                    name: s.name,
+                    subtext: 'Production Section',
+                  }))}
+                  activeId={fSection}
+                  onSelect={(id) => {
+                    setFSection(id);
+                    setFDepartment(undefined);
+                    setPage(1);
+                  }}
+                />
+
+                {/* 4. Department Dropdown */}
+                <CardSelectDropdown
+                  label="Department"
+                  title="Switch Department"
+                  subtitle="Filter items by department"
+                  allLabel="All Departments"
+                  allSubtitle="View items across all departments"
+                  icon={<SubnodeOutlined />}
+                  badgeBg="#f3e8ff"
+                  badgeColor="#7e22ce"
+                  options={departmentsForSection(fDivision, fSection).map((d) => ({
+                    id: d.name,
+                    name: d.name,
+                    subtext: 'Department unit',
+                  }))}
+                  activeId={fDepartment}
+                  onSelect={(id) => {
+                    setFDepartment(id);
+                    setPage(1);
+                  }}
+                />
+
+                {/* 5. Route Type Dropdown */}
+                <CardSelectDropdown
+                  label="Route Type"
+                  title="Filter by Route Type"
+                  subtitle="Process workflow route"
+                  allLabel="All Route Types"
+                  allSubtitle="View all production routes"
+                  icon={<BranchesOutlined />}
+                  badgeBg="#e0e7ff"
+                  badgeColor="#3730a3"
+                  options={routeTypes.map((rt) => ({
+                    id: rt.name?.trim() ? rt.name : rt.routeCode,
+                    name: rt.name?.trim() ? rt.name : rt.routeCode,
+                    code: rt.routeCode,
+                    subtext: 'Workflow routing',
+                  }))}
+                  activeId={fRouteType}
+                  onSelect={(id) => {
+                    setFRouteType(id);
+                    setPage(1);
+                  }}
+                />
+
+                {/* 6. Status Dropdown */}
+                <CardSelectDropdown
+                  label="Status"
+                  title="Filter by Item Status"
+                  subtitle="Item lifecycle status"
+                  allLabel="All Statuses"
+                  allSubtitle="View all status states"
+                  icon={<CheckCircleOutlined />}
+                  badgeBg="#ecfdf5"
+                  badgeColor="#047857"
+                  options={STATUS_OPTIONS.map((status) => ({
+                    id: status,
+                    name: status,
+                    subtext: 'Item status',
+                  }))}
+                  activeId={fStatus}
+                  onSelect={(id) => {
+                    setFStatus(id);
+                    setPage(1);
+                  }}
+                />
+              </div>
+
+              {/* Bottom Actions Row: Clear Filters Left, Apply Right */}
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  gap: 8,
+                  marginTop: 14,
+                  paddingTop: 10,
+                  borderTop: '1px solid var(--theme-border, #e2e8f0)',
+                }}
+              >
+                <Button
+                  icon={<ClearOutlined />}
+                  onClick={resetFilters}
+                  danger={activeFilterCount > 0}
+                  data-testid="clear-filters"
+                  style={{
+                    borderRadius: 8,
+                    fontWeight: 600,
+                  }}
+                >
+                  Clear Filters
+                </Button>
+
+                <Button
+                  type="primary"
+                  icon={<SearchOutlined />}
+                  onClick={applyFilters}
+                  data-testid="apply-filters"
+                  loading={loading}
+                  style={{
+                    fontWeight: 600,
+                    borderRadius: 8,
+                    minWidth: 120,
+                  }}
+                >
+                  Apply Filters
+                </Button>
+              </div>
+            </>
+          )}
+        </div>
       </Card>
 
       {error && (
