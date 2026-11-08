@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Table, Card, Row, Col, Grid, Select, Input, Button, Tag, Space,
-  App, Modal, Form, InputNumber, DatePicker, Tooltip, Switch, Badge,
+  App, Modal, Form, InputNumber, DatePicker, Tooltip, Switch, Badge, theme,
 } from 'antd';
 import {
   ShopOutlined,
@@ -88,6 +88,7 @@ const { useBreakpoint } = Grid;
 
 const FinishedGoodsInventory: React.FC = () => {
   const screens = useBreakpoint();
+  const { token } = theme.useToken();
   const { message } = App.useApp();
   const { can } = usePermission();
   const canPlanProduction = can('production.orders.create') || can('sales.orders.update');
@@ -474,7 +475,7 @@ const FinishedGoodsInventory: React.FC = () => {
             <Tag style={{ fontWeight: 700, borderColor: color, color }}>
               {code}
             </Tag>
-            <span style={{ fontSize: 11, color: 'var(--inv-text-muted, #94a3b8)' }}>
+            <span style={{ fontSize: 11, color: token.colorTextSecondary }}>
               {r.sectionName || '-'}
             </span>
           </Space>
@@ -505,8 +506,8 @@ const FinishedGoodsInventory: React.FC = () => {
       width: 130,
       align: 'right',
       render: (val, r) => (
-        <span style={{ fontWeight: 700, fontSize: 14 }}>
-          {formatDecimal(val)} <span style={{ fontSize: 11, color: '#64748b' }}>{r.uomCode}</span>
+        <span style={{ fontWeight: 700, fontSize: 14, color: token.colorText }}>
+          {formatDecimal(val)} <span style={{ fontSize: 11, color: token.colorTextSecondary }}>{r.uomCode}</span>
         </span>
       ),
     },
@@ -517,7 +518,7 @@ const FinishedGoodsInventory: React.FC = () => {
       width: 140,
       align: 'right',
       render: (val, r) => (
-        <span style={{ color: val > 0 ? '#d97706' : 'var(--inv-text-muted, #94a3b8)', fontWeight: val > 0 ? 700 : 400 }}>
+        <span style={{ color: val > 0 ? '#b45309' : token.colorTextSecondary, fontWeight: val > 0 ? 700 : 500 }}>
           {formatDecimal(val)} <span style={{ fontSize: 11 }}>{r.uomCode}</span>
         </span>
       ),
@@ -529,7 +530,7 @@ const FinishedGoodsInventory: React.FC = () => {
       width: 130,
       align: 'right',
       render: (val, r) => (
-        <span style={{ fontWeight: 800, color: val > 0 ? '#16a34a' : '#dc2626' }}>
+        <span style={{ fontWeight: 800, color: val > 0 ? '#15803d' : '#b91c1c' }}>
           {formatDecimal(val)} <span style={{ fontSize: 11 }}>{r.uomCode}</span>
         </span>
       ),
@@ -541,8 +542,8 @@ const FinishedGoodsInventory: React.FC = () => {
       width: 120,
       align: 'right',
       render: (val, r) => (
-        <span style={{ color: 'var(--inv-text-muted, #64748b)' }}>
-          {val > 0 ? formatDecimal(val) : '-'} <span style={{ fontSize: 11 }}>{val > 0 ? r.uomCode : ''}</span>
+        <span style={{ color: token.colorTextSecondary, fontWeight: val > 0 ? 600 : 400 }}>
+          {val > 0 ? `${formatDecimal(val)} ${r.uomCode}` : <span style={{ color: token.colorTextTertiary }}>-</span>}
         </span>
       ),
     },
@@ -560,7 +561,7 @@ const FinishedGoodsInventory: React.FC = () => {
             </Tag>
           );
         }
-        return <span style={{ color: '#94a3b8' }}>-</span>;
+        return <span style={{ color: token.colorTextTertiary, fontWeight: 500 }}>-</span>;
       },
     },
     {
@@ -570,7 +571,7 @@ const FinishedGoodsInventory: React.FC = () => {
       width: 140,
       align: 'right',
       render: (val, r) => (
-        <span style={{ fontWeight: 700, color: val >= 0 ? '#16a34a' : '#dc2626' }}>
+        <span style={{ fontWeight: 700, color: val >= 0 ? '#15803d' : '#b91c1c' }}>
           {formatDecimal(val)} <span style={{ fontSize: 11 }}>{r.uomCode}</span>
         </span>
       ),
@@ -589,7 +590,7 @@ const FinishedGoodsInventory: React.FC = () => {
             </Tag>
           );
         }
-        return <span style={{ color: '#94a3b8' }}>-</span>;
+        return <span style={{ color: token.colorTextTertiary, fontWeight: 500 }}>-</span>;
       },
     },
     {
@@ -606,7 +607,7 @@ const FinishedGoodsInventory: React.FC = () => {
             </Tag>
           );
         }
-        return <span style={{ color: '#94a3b8' }}>-</span>;
+        return <span style={{ color: token.colorTextTertiary, fontWeight: 500 }}>-</span>;
       },
     },
     {
@@ -637,23 +638,26 @@ const FinishedGoodsInventory: React.FC = () => {
       key: 'actions',
       width: 140,
       align: 'center',
-      render: (_, r) => (
-        <Space size={6}>
-          {canPlanProduction && (r.status === 'SHORT' || r.status === 'BELOW_SAFETY_STOCK') && (
-            <Tooltip title="Send requirement to Production Planning">
-              <Button
-                type="primary"
-                size="small"
-                icon={<BuildOutlined />}
-                className="inv-action-btn inv-plan-prod-btn"
-                onClick={() => handleOpenPlanModal(r)}
-              >
-                Plan Prod
-              </Button>
-            </Tooltip>
-          )}
-        </Space>
-      ),
+      render: (_, r) => {
+        const isUrgent = r.status === 'SHORT' || r.status === 'BELOW_SAFETY_STOCK';
+        return (
+          <Space size={6} wrap={false} style={{ justifyContent: 'center' }}>
+            {canPlanProduction && (
+              <Tooltip title={isUrgent ? 'Demand Shortage: Schedule urgent production order' : 'Schedule manufacturing production order'}>
+                <Button
+                  type={isUrgent ? 'primary' : 'default'}
+                  size="small"
+                  icon={<BuildOutlined />}
+                  className={`fg-plan-prod-btn ${isUrgent ? 'fg-plan-prod-btn--urgent' : 'fg-plan-prod-btn--normal'}`}
+                  onClick={() => handleOpenPlanModal(r)}
+                >
+                  Plan Prod
+                </Button>
+              </Tooltip>
+            )}
+          </Space>
+        );
+      },
     },
   ];
 
