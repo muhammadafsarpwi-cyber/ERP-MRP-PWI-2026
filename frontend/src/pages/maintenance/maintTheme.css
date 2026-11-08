@@ -187,17 +187,24 @@ html[data-theme='dark'] .maint-queue-card:not(.is-active) .maint-qc-desc,
   }
 }
 
-/* KPI grid: one/two column on the smallest screens. */
+/* KPI grid: modern spacious layout with generous breathing room for labels */
 .maint-kpi-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+@media (max-width: 991px) {
+  .maint-kpi-grid {
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 10px;
+  }
 }
 
 @media (max-width: 575px) {
   .maint-kpi-grid {
-    grid-template-columns: repeat(2, 1fr);
-    gap: 8px;
+    grid-template-columns: 1fr;
+    gap: 10px;
   }
 }
 

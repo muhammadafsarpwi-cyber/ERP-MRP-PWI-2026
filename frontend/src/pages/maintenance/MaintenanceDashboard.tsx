@@ -170,45 +170,158 @@ const getApiError = (error: unknown): string => {
   return message || 'Unable to load the maintenance dashboard. Please try again.';
 };
 
-const KpiCard: React.FC<{ label: string; value: React.ReactNode; icon: React.ReactNode; color: string; onClick?: () => void; suffix?: string; hint?: string }> = ({ label: kpiLabel, value, icon, color, onClick, suffix, hint }) => {
-  const title = (hint ? (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-      {kpiLabel}
-      <Tooltip title={hint}><InfoCircleOutlined style={{ fontSize: 11, cursor: 'help' }} /></Tooltip>
-    </span>
-  ) : kpiLabel);
-  const titleNode = (
-    <span style={{ fontSize: 11, color: 'var(--theme-text-muted)', textTransform: 'uppercase', letterSpacing: '.03em', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-      {title}
-    </span>
-  );
-  const content = (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
-      <div style={{ width: 34, height: 34, borderRadius: 4, background: tint(color), color, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 16 }}>{icon}</div>
-      <Statistic
-        title={titleNode}
-        value={(typeof value === 'number' || typeof value === 'string') ? value : 0}
-        suffix={suffix}
-        valueStyle={{ fontSize: 20, fontWeight: 700, color: 'var(--theme-text)', whiteSpace: 'nowrap' }}
-      />
-    </div>
-  );
+const KpiCard: React.FC<{
+  label: string;
+  value: React.ReactNode;
+  icon: React.ReactNode;
+  color: string;
+  onClick?: () => void;
+  suffix?: string;
+  hint?: string;
+}> = ({ label: kpiLabel, value, icon, color, onClick, suffix, hint }) => {
   return (
     <div
       style={{
-        display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px',
-        border: `1px solid var(--theme-border)`, borderLeft: `3px solid ${color}`,
-        background: 'var(--theme-surface)', borderRadius: 4, cursor: onClick ? 'pointer' : 'default',
-        transition: 'box-shadow .15s, border-color .15s', height: '100%',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 14,
+        padding: '12px 16px',
+        border: '1px solid var(--theme-border)',
+        borderLeft: `4px solid ${color}`,
+        background: 'var(--theme-surface)',
+        borderRadius: 8,
+        cursor: onClick ? 'pointer' : 'default',
+        transition: 'all .18s cubic-bezier(0.4, 0, 0.2, 1)',
+        minHeight: 82,
+        height: '100%',
+        minWidth: 0,
+        overflow: 'hidden',
+        boxShadow: shadowSm,
       }}
-      onMouseEnter={(e) => { e.currentTarget.style.boxShadow = shadowHover; e.currentTarget.style.borderColor = color; }}
-      onMouseLeave={(e) => { e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.borderColor = 'var(--theme-border)'; }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.boxShadow = shadowHover;
+        e.currentTarget.style.borderColor = color;
+        e.currentTarget.style.transform = 'translateY(-1px)';
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.boxShadow = shadowSm;
+        e.currentTarget.style.borderColor = 'var(--theme-border)';
+        e.currentTarget.style.transform = 'none';
+      }}
       onClick={onClick}
       role={onClick ? 'button' : undefined}
       tabIndex={onClick ? 0 : undefined}
       onKeyDown={onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } } : undefined}
     >
-      {content}
+      {/* Icon Badge */}
+      <div
+        style={{
+          width: 42,
+          height: 42,
+          borderRadius: 8,
+          background: tint(color),
+          color,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          flexShrink: 0,
+          fontSize: 18,
+        }}
+      >
+        {icon}
+      </div>
+
+      {/* Text Content */}
+      <div
+        style={{
+          flex: 1,
+          minWidth: 0,
+          overflow: 'hidden',
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'center',
+          gap: 3,
+        }}
+      >
+        {/* Label Row */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 4,
+            minWidth: 0,
+            overflow: 'hidden',
+          }}
+          title={hint ? `${kpiLabel}: ${hint}` : kpiLabel}
+        >
+          <span
+            style={{
+              fontSize: 11,
+              color: 'var(--theme-text-muted)',
+              textTransform: 'uppercase',
+              letterSpacing: '.03em',
+              fontWeight: 700,
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              flex: '0 1 auto',
+            }}
+          >
+            {kpiLabel}
+          </span>
+          {hint && (
+            <Tooltip title={hint} placement="top">
+              <InfoCircleOutlined
+                style={{
+                  fontSize: 11,
+                  color: 'var(--theme-text-muted)',
+                  cursor: 'help',
+                  flexShrink: 0,
+                  opacity: 0.75,
+                }}
+              />
+            </Tooltip>
+          )}
+        </div>
+
+        {/* Value Row */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'baseline',
+            gap: 6,
+            minWidth: 0,
+            overflow: 'hidden',
+          }}
+        >
+          <span
+            style={{
+              fontSize: 22,
+              fontWeight: 700,
+              lineHeight: 1.15,
+              color: 'var(--theme-text)',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}
+          >
+            {value !== undefined && value !== null ? value : 0}
+          </span>
+          {suffix && (
+            <span
+              style={{
+                fontSize: 11,
+                fontWeight: 600,
+                color: 'var(--theme-text-muted)',
+                textTransform: 'uppercase',
+                flexShrink: 0,
+              }}
+            >
+              {suffix}
+            </span>
+          )}
+        </div>
+      </div>
     </div>
   );
 };
