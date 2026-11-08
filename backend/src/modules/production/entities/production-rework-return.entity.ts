@@ -128,3 +128,4 @@ export class ProductionReworkReturn extends BaseEntity {
   @Column({ name: 'remarks', type: 'text', nullable: true })
   remarks?: string | null;
 }
+

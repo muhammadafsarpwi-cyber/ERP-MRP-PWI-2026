@@ -95,11 +95,24 @@ const ProductionReworkReturn: React.FC = () => {
   const [selectedStatus, setSelectedStatus] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
 
+const CANONICAL_DIVISIONS = [
+  { id: 'd1000000-0000-0000-0000-000000000001', divisionCode: 'DIV-SPD', name: 'Spoke Division' },
+  { id: 'd1000000-0000-0000-0000-000000000002', divisionCode: 'DIV-CCD', name: 'Control Cable Division' },
+  { id: '83ecd746-1cc9-4849-bec4-d00bcc3ceeec', divisionCode: 'DIV-PWI', name: 'Main Division E-51' },
+  { id: '0653339b-94d0-4cc5-b880-e07908b2015f', divisionCode: 'DIV-NB', name: 'NB Division' },
+];
+
+const DEFAULT_UOMS = [
+  { id: 'b932052f-141f-4d78-9baf-7025e5302442', code: 'PCS', name: 'Pieces' },
+  { id: 'c3f9c90e-1e97-4564-8e4e-36a676bdc57e', code: 'GRS', name: 'Gross' },
+  { id: '044b1a9c-1230-450e-a38b-a8a7493c6c48', code: 'KG', name: 'Kilograms' },
+];
+
   // Dropdown reference options
-  const [divisions, setDivisions] = useState<any[]>([]);
+  const [divisions, setDivisions] = useState<any[]>(CANONICAL_DIVISIONS);
   const [departments, setDepartments] = useState<any[]>([]);
   const [items, setItems] = useState<any[]>([]);
-  const [uoms, setUoms] = useState<any[]>([]);
+  const [uoms, setUoms] = useState<any[]>(DEFAULT_UOMS);
 
   // Modals
   const [createModalOpen, setCreateModalOpen] = useState(false);
@@ -111,25 +124,77 @@ const ProductionReworkReturn: React.FC = () => {
   const [statusForm] = Form.useForm();
   const [submitting, setSubmitting] = useState(false);
 
+  // Form watches for cascading filters in create modal
+  const modalDivisionId = Form.useWatch('divisionId', createForm);
+  const modalFromDeptId = Form.useWatch('fromDepartmentId', createForm);
+  const modalToDeptId = Form.useWatch('toDepartmentId', createForm);
+  const modalItemId = Form.useWatch('itemId', createForm);
+
+  // Departments for modal (strictly filtered to selected Division, shopfloor only)
+  const modalDepartments = useMemo(() => {
+    if (!modalDivisionId) {
+      return departments.filter(d => !d.departmentCode?.startsWith('CENT-'));
+    }
+    const filtered = departments.filter(d =>
+      d.divisionId === modalDivisionId &&
+      !d.departmentCode?.startsWith('CENT-')
+    );
+    return filtered.length > 0 ? filtered : departments.filter(d => !d.departmentCode?.startsWith('CENT-'));
+  }, [departments, modalDivisionId]);
+
+  // Departments for Main Filter Bar (filtered if selectedDivision is chosen, shopfloor only)
+  const filterDepartments = useMemo(() => {
+    if (!selectedDivision) {
+      return departments.filter(d => !d.departmentCode?.startsWith('CENT-'));
+    }
+    const filtered = departments.filter(d =>
+      d.divisionId === selectedDivision &&
+      !d.departmentCode?.startsWith('CENT-')
+    );
+    return filtered.length > 0 ? filtered : departments.filter(d => !d.departmentCode?.startsWith('CENT-'));
+  }, [departments, selectedDivision]);
+
+  // Items for modal (filtered to selected Division, with fallback so it is never empty)
+  const modalItems = useMemo(() => {
+    if (!modalDivisionId) return items;
+    const isSpoke = divisions.find(d => d.id === modalDivisionId)?.divisionCode === 'DIV-SPD' ||
+                    modalDivisionId === 'd1000000-0000-0000-0000-000000000001';
+    const filtered = items.filter(i => {
+      if (i.divisionId === modalDivisionId) return true;
+      if (i.processes?.some((p: any) => p.divisionId === modalDivisionId)) return true;
+      if (isSpoke && (i.itemCode?.startsWith('SPI') || i.itemCode?.startsWith('WIP-S') || i.itemCode?.startsWith('FG-NP'))) return true;
+      return false;
+    });
+    return filtered.length > 0 ? filtered : items;
+  }, [items, modalDivisionId, divisions]);
+
+  // Selected item object in modal
+  const modalItemObj = useMemo(() => {
+    return items.find(i => i.id === modalItemId);
+  }, [items, modalItemId]);
+
   // Fetch Lookups (Divisions, Departments, Items, UOMs)
   useEffect(() => {
     (async () => {
       try {
-        const divRes = await apiService.get<any>('/divisions', { limit: 50 });
-        const divList = divRes?.data || divRes || [];
-        setDivisions(Array.isArray(divList) ? divList : []);
+        const [divRes, deptRes, itemRes, uomRes] = await Promise.all([
+          apiService.get<any>('/divisions', { limit: 50 }).catch(() => null),
+          apiService.get<any>('/departments', { limit: 100 }).catch(() => null),
+          apiService.get<any>('/master-data/items', { limit: 1000 }).catch(() => null),
+          apiService.get<any>('/master-data/uom', { limit: 100 }).catch(() => null),
+        ]);
 
-        const deptRes = await apiService.get<any>('/departments', { limit: 100 });
-        const deptList = deptRes?.data || deptRes || [];
-        setDepartments(Array.isArray(deptList) ? deptList : []);
+        const divList = divRes?.data || (Array.isArray(divRes) ? divRes : []);
+        if (divList.length > 0) setDivisions(divList);
 
-        const itemRes = await apiService.get<any>('/items', { limit: 300 });
-        const itemList = itemRes?.data || itemRes || [];
-        setItems(Array.isArray(itemList) ? itemList : []);
+        const deptList = deptRes?.data || (Array.isArray(deptRes) ? deptRes : []);
+        if (deptList.length > 0) setDepartments(deptList);
 
-        const uomRes = await apiService.get<any>('/uoms', { limit: 50 });
-        const uomList = uomRes?.data || uomRes || [];
-        setUoms(Array.isArray(uomList) ? uomList : []);
+        const itemList = itemRes?.data || itemRes?.items || (Array.isArray(itemRes) ? itemRes : []);
+        if (itemList.length > 0) setItems(itemList);
+
+        const uomList = uomRes?.data || (Array.isArray(uomRes) ? uomRes : []);
+        if (uomList.length > 0) setUoms(uomList);
       } catch (err) {
         console.error('Failed to load reference lookups:', err);
       }
@@ -212,18 +277,54 @@ const ProductionReworkReturn: React.FC = () => {
     document.body.removeChild(link);
   }, [records, message]);
 
+  // Division change in modal -> cascade departments & reset item
+  const handleModalDivisionChange = (divId: string) => {
+    const divDepts = departments.filter(d =>
+      d.divisionId === divId ||
+      d.divisionScopes?.some((s: any) => s.divisionId === divId)
+    );
+    const packing = divDepts.find(d => d.name.toLowerCase().includes('packing')) || divDepts[0];
+    const plating = divDepts.find(d => d.name.toLowerCase().includes('plating')) || divDepts[1];
+    createForm.setFieldsValue({
+      divisionId: divId,
+      fromDepartmentId: packing?.id,
+      toDepartmentId: plating?.id,
+      itemId: undefined,
+      uomId: undefined,
+    });
+  };
+
+  // Item select in modal -> auto populate UOM
+  const handleItemSelect = (itemId: string) => {
+    const sel = items.find(i => i.id === itemId);
+    if (sel) {
+      const uomId = sel.baseUomId || sel.baseUom?.id || uoms.find(u => u.code === 'PCS')?.id || uoms[0]?.id;
+      createForm.setFieldsValue({
+        itemId,
+        uomId,
+      });
+    }
+  };
+
   // Open Create Modal
   const handleOpenCreateModal = () => {
     const spokeDiv = divisions.find(d => d.divisionCode === 'DIV-SPD') || divisions[0];
-    const packingDept = departments.find(d => d.departmentCode === 'SPD-DEPT008' || d.name.toLowerCase().includes('packing'));
-    const platingDept = departments.find(d => d.departmentCode === 'SPD-DEPT006' || d.name.toLowerCase().includes('plating'));
+    const targetDivId = spokeDiv?.id || 'd1000000-0000-0000-0000-000000000001';
+    const divDepts = departments.filter(d =>
+      d.divisionId === targetDivId ||
+      d.divisionScopes?.some((s: any) => s.divisionId === targetDivId)
+    );
+    const packingDept = divDepts.find(d => d.departmentCode === 'SPD-DEPT008' || d.name.toLowerCase().includes('packing')) || divDepts[0];
+    const platingDept = divDepts.find(d => d.departmentCode === 'SPD-DEPT006' || d.name.toLowerCase().includes('plating')) || divDepts[1];
+    const defaultUom = uoms.find(u => u.code === 'PCS' || u.code === 'GRS')?.id || uoms[0]?.id;
 
     createForm.resetFields();
     createForm.setFieldsValue({
       returnDate: dayjs(),
-      divisionId: spokeDiv?.id,
+      divisionId: targetDivId,
       fromDepartmentId: packingDept?.id,
       toDepartmentId: platingDept?.id,
+      uomId: defaultUom,
       defectReason: 'PLATING_PEELING',
       correctiveAction: 'REPLATE',
       priority: 'HIGH',
@@ -644,7 +745,7 @@ const ProductionReworkReturn: React.FC = () => {
                 setSelectedFromDept(val);
                 setPage(1);
               }}
-              options={departments.map(d => ({ label: d.name, value: d.id }))}
+              options={filterDepartments.map(d => ({ label: d.name, value: d.id }))}
             />
           </Col>
           <Col xs={24} sm={12} md={5}>
@@ -657,7 +758,7 @@ const ProductionReworkReturn: React.FC = () => {
                 setSelectedToDept(val);
                 setPage(1);
               }}
-              options={departments.map(d => ({ label: d.name, value: d.id }))}
+              options={filterDepartments.map(d => ({ label: d.name, value: d.id }))}
             />
           </Col>
           <Col xs={24} sm={12} md={4}>
@@ -748,77 +849,160 @@ const ProductionReworkReturn: React.FC = () => {
         />
 
         <Form form={createForm} layout="vertical">
+          {/* Row 1: Division, Return Date, Priority */}
           <Row gutter={16}>
-            <Col span={12}>
+            <Col xs={24} sm={8}>
+              <Form.Item name="divisionId" label="Manufacturing Division" rules={[{ required: true, message: 'Please select division' }]}>
+                <Select
+                  placeholder="Select Division"
+                  onChange={handleModalDivisionChange}
+                  options={divisions.map(d => ({ label: `${d.name} (${d.divisionCode || ''})`, value: d.id }))}
+                />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={8}>
               <Form.Item name="returnDate" label="Return Date" rules={[{ required: true }]}>
                 <DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" />
               </Form.Item>
             </Col>
-            <Col span={12}>
+            <Col xs={24} sm={8}>
               <Form.Item name="priority" label="Priority" rules={[{ required: true }]}>
                 <Select
                   options={[
                     { label: 'Normal Priority', value: 'NORMAL' },
                     { label: 'High Priority', value: 'HIGH' },
-                    { label: 'Urgent / Shopfloor Stoppage', value: 'URGENT' },
+                    { label: 'Urgent / Line Stop', value: 'URGENT' },
                   ]}
                 />
               </Form.Item>
             </Col>
           </Row>
 
+          {/* Row 2: Department Flow (From Sender ➔ To Rework) */}
           <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item name="fromDepartmentId" label="From Department (Sending Defective Goods)" rules={[{ required: true }]}>
+            <Col xs={24} sm={12}>
+              <Form.Item 
+                name="fromDepartmentId" 
+                label="From Department (Defective Material Sender)" 
+                rules={[{ required: true, message: 'Select sender department' }]}
+              >
                 <Select
-                  placeholder="e.g. Spoke Packing"
-                  options={departments.map(d => ({ label: `${d.name} (${d.departmentCode || ''})`, value: d.id }))}
+                  placeholder="Select Sending Department"
+                  showSearch
+                  optionFilterProp="label"
+                  options={modalDepartments.map(d => ({ 
+                    label: `${d.name} (${d.departmentCode || ''})`, 
+                    value: d.id 
+                  }))}
                 />
               </Form.Item>
             </Col>
-            <Col span={12}>
-              <Form.Item name="toDepartmentId" label="To Department (Target Rework Department)" rules={[{ required: true }]}>
+            <Col xs={24} sm={12}>
+              <Form.Item 
+                name="toDepartmentId" 
+                label="To Department (Target Rework / Rectification)" 
+                rules={[{ required: true, message: 'Select rework department' }]}
+              >
                 <Select
-                  placeholder="e.g. Spoke Plating"
-                  options={departments.map(d => ({ label: `${d.name} (${d.departmentCode || ''})`, value: d.id }))}
+                  placeholder="Select Rework Department"
+                  showSearch
+                  optionFilterProp="label"
+                  options={modalDepartments.map(d => ({ 
+                    label: `${d.name} (${d.departmentCode || ''})`, 
+                    value: d.id 
+                  }))}
                 />
               </Form.Item>
             </Col>
           </Row>
 
+          {/* Visual Transfer Pathway Banner */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '8px 14px',
+            background: 'var(--theme-surface-alt, rgba(0,0,0,0.03))',
+            borderRadius: 6,
+            marginBottom: 16,
+            border: `1px dashed ${token.colorBorderSecondary}`,
+          }}>
+            <Space>
+              <Tag color="volcano" style={{ fontWeight: 700 }}>FROM (SENDER)</Tag>
+              <span style={{ fontWeight: 600, color: token.colorText }}>
+                {modalDepartments.find(d => d.id === modalFromDeptId)?.name || 'Select Sender'}
+              </span>
+            </Space>
+            <ArrowRightOutlined style={{ fontSize: 16, color: token.colorPrimary }} />
+            <Space>
+              <Tag color="green" style={{ fontWeight: 700 }}>TO (REWORK DESTINATION)</Tag>
+              <span style={{ fontWeight: 600, color: token.colorText }}>
+                {modalDepartments.find(d => d.id === modalToDeptId)?.name || 'Select Destination'}
+              </span>
+            </Space>
+          </div>
+
+          {/* Row 3: Defective Item & UOM */}
           <Row gutter={16}>
-            <Col span={16}>
-              <Form.Item name="itemId" label="Defective Item (WIP or FG)" rules={[{ required: true }]}>
+            <Col xs={24} sm={16}>
+              <Form.Item 
+                name="itemId" 
+                label="Defective Item (WIP or FG)" 
+                rules={[{ required: true, message: 'Please select defective item' }]}
+                extra={
+                  modalItemObj ? (
+                    <span style={{ fontSize: 11, color: token.colorTextSecondary }}>
+                      Selected: <strong>{modalItemObj.itemCode}</strong> - {modalItemObj.name}
+                    </span>
+                  ) : null
+                }
+              >
                 <Select
                   showSearch
-                  placeholder="Select item..."
+                  placeholder="Search item by code or name..."
                   optionFilterProp="label"
-                  options={items.map(i => ({ label: `[${i.itemCode}] ${i.name}`, value: i.id }))}
-                  onChange={(itemId) => {
-                    const selItem = items.find(i => i.id === itemId);
-                    if (selItem?.baseUomId) {
-                      createForm.setFieldValue('uomId', selItem.baseUomId);
-                    }
-                  }}
+                  filterOption={(input, option) =>
+                    (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+                  }
+                  options={modalItems.map(i => ({ 
+                    label: `[${i.itemCode}] ${i.name}`, 
+                    value: i.id 
+                  }))}
+                  onChange={handleItemSelect}
                 />
               </Form.Item>
             </Col>
-            <Col span={8}>
-              <Form.Item name="uomId" label="UOM" rules={[{ required: true }]}>
+            <Col xs={24} sm={8}>
+              <Form.Item name="uomId" label="Unit of Measure (UOM)" rules={[{ required: true, message: 'Select UOM' }]}>
                 <Select
-                  options={uoms.map(u => ({ label: `${u.code} - ${u.name}`, value: u.id }))}
+                  showSearch
+                  placeholder="Select UOM"
+                  optionFilterProp="label"
+                  options={uoms.map(u => ({ label: `${u.code} (${u.name})`, value: u.id }))}
                 />
               </Form.Item>
             </Col>
           </Row>
 
+          {/* Row 4: Quantity & Dispatched By */}
           <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item name="quantity" label="Return Quantity" rules={[{ required: true, message: 'Please enter quantity' }]}>
-                <InputNumber style={{ width: '100%' }} min={1} precision={2} placeholder="e.g. 500" />
+            <Col xs={24} sm={12}>
+              <Form.Item 
+                name="quantity" 
+                label="Return Quantity" 
+                rules={[{ required: true, message: 'Please enter return quantity' }]}
+                extra={
+                  modalItemObj?.itemCode?.includes('SPK') || modalItemObj?.itemCode?.includes('NP') ? (
+                    <span style={{ fontSize: 11, color: token.colorTextSecondary }}>
+                      Standard: 144 Pieces = 1 Gross (GRS). Enter in Pieces (PCS).
+                    </span>
+                  ) : null
+                }
+              >
+                <InputNumber style={{ width: '100%' }} min={0.01} precision={2} placeholder="e.g. 500" />
               </Form.Item>
             </Col>
-            <Col span={12}>
+            <Col xs={24} sm={12}>
               <Form.Item name="returnedBy" label="Dispatched By (Inspector / Supervisor)">
                 <Input placeholder="e.g. Muhammad Aslam (Packing Supervisor)" />
               </Form.Item>
