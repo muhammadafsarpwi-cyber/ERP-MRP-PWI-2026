@@ -348,13 +348,14 @@ export const NAV_ENTRIES: NavEntry[] = [
     children: [
       { key: '/production/dashboard', label: 'Production Dashboard', icon: DashboardOutlined, color: 'cyan', permissions: ['manufacturing.production.orders.view'] },
       { key: '/production/open-stock', label: 'Production Item Open Stock', icon: DatabaseOutlined, color: 'cyan', permissions: ['manufacturing.production.entries.view'] },
+      { key: '/production/receiving', label: 'Daily Raw Material Receiving', icon: InboxOutlined, color: 'success', permissions: ['manufacturing.material_receiving.view'] },
       { key: '/production/entries', label: 'Daily Production Entry', icon: EditOutlined, color: 'cyan', permissions: ['manufacturing.production.entries.view'] },
+      { key: '/production/packing', label: 'Daily Packing Entry', icon: InboxOutlined, color: 'success', permissions: ['manufacturing.production.entries.view'] },
       { key: '/production/rework-returns', label: 'Production Rework & Return', icon: RollbackOutlined, color: 'warning', permissions: ['manufacturing.production.entries.view'] },
-      { key: '/production/units', label: 'Unit Serialization & Labels', icon: BarcodeOutlined, color: 'cyan', permissions: ['manufacturing.production.entries.view'] },
-      { key: 'production:dispatch:packages', path: '/dispatch/packages', label: 'Dispatch Packages & QR Scan', icon: QrcodeOutlined, color: 'cyan', permissions: ['manufacturing.production.entries.view'] },
-      { key: '/production/receiving', label: 'Raw Material Receiving', icon: InboxOutlined, color: 'success', permissions: ['manufacturing.material_receiving.view'] },
       { key: '/production/returns', label: 'Raw Material Return', icon: RollbackOutlined, color: 'warning', permissions: ['manufacturing.material_return.view'] },
       { key: '/production/receiving-report', label: 'Receiving & Return Report', icon: BarChartOutlined, color: 'violet', permissions: ['manufacturing.material_receiving.report'] },
+      { key: '/production/units', label: 'Unit Serialization & Labels', icon: BarcodeOutlined, color: 'cyan', permissions: ['manufacturing.production.entries.view'] },
+      { key: 'production:dispatch:packages', path: '/dispatch/packages', label: 'Dispatch Packages & QR Scan', icon: QrcodeOutlined, color: 'cyan', permissions: ['manufacturing.production.entries.view'] },
       { key: '/production/bom', label: 'Bill of Materials', icon: ClusterOutlined, color: 'cyan', permissions: ['manufacturing.bom.view'] },
       { key: '/production/routings', label: 'Routing', icon: ApartmentOutlined, color: 'cyan', permissions: ['manufacturing.routing.view'] },
       { key: '/production/traceability', label: 'Traceability', icon: BranchesOutlined, color: 'cyan', permissions: ['manufacturing.production.entries.report'] },
@@ -362,14 +363,6 @@ export const NAV_ENTRIES: NavEntry[] = [
       { key: '/production/inventory-report', label: 'Inventory Report', icon: PieChartOutlined, color: 'violet', permissions: ['manufacturing.production.entries.report'] },
       { key: '/production/item-wise-ledger', label: 'Item-Wise Production Ledger', icon: HistoryOutlined, color: 'cyan', permissions: ['manufacturing.production.entries.report'] },
     ],
-  },
-
-  {
-    key: '/production/packing',
-    label: 'Packing Department',
-    icon: InboxOutlined,
-    color: 'success',
-    permissions: ['manufacturing.production.entries.view'],
   },
 
   {

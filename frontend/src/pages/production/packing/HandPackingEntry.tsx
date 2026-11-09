@@ -9425,7 +9425,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
       {!isSubTab && (
         <PageHeader
           icon={<InboxOutlined />}
-          title="Packing Production Entry"
+          title="Daily Packing Entry"
           subtitle="Record BOM-based packing activities and update finished goods inventory"
         />
       )}
@@ -9439,7 +9439,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
             </Button>
           )}
           <Title level={4} style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span>Packing Production Entry</span>
+            <span>Daily Packing Entry</span>
             <Tag color="cyan" style={{ fontSize: 11, fontWeight: 700 }}>HAND PACKING (BOM-EXPANDED)</Tag>
           </Title>
         </Space>
