@@ -8,7 +8,7 @@ import {
   FilePdfOutlined, PrinterOutlined, FilterOutlined, ClearOutlined, CaretDownOutlined, ImportOutlined,
   EyeOutlined, DeleteOutlined, PlayCircleOutlined, CheckCircleOutlined, TeamOutlined,
   AppstoreOutlined, ToolOutlined, AuditOutlined, RollbackOutlined,
-  EditOutlined, StopOutlined, ClockCircleOutlined,
+  EditOutlined, StopOutlined, ClockCircleOutlined, UnorderedListOutlined, TableOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
@@ -379,6 +379,20 @@ export const JobCardList: React.FC<JobCardListProps> = ({ initialCreateOpen = fa
   const [machines, setMachines] = useState<OrgOption[]>([]);
   const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768);
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
+  const [viewMode, setViewMode] = useState<'table' | 'cards'>(() => {
+    try {
+      const saved = typeof window !== 'undefined' ? localStorage.getItem('erp_job_card_view_mode') : null;
+      if (saved === 'cards' || saved === 'table') return saved;
+    } catch {}
+    return 'table';
+  });
+
+  const handleViewModeChange = useCallback((mode: 'table' | 'cards') => {
+    setViewMode(mode);
+    try {
+      localStorage.setItem('erp_job_card_view_mode', mode);
+    } catch {}
+  }, []);
 
   // Unified Draggable Workflow Modal State
   const [workflowModal, setWorkflowModal] = useState<{
@@ -1182,12 +1196,26 @@ export const JobCardList: React.FC<JobCardListProps> = ({ initialCreateOpen = fa
     },
     { title: 'Status', dataIndex: 'currentStatus', key: 'status', width: 130, render: (v: string) => <StatusBadge status={v} colorMap={JOB_CARD_STATUS_TAG} /> },
     {
-      title: 'Next Action', key: 'next', width: 130,
+      title: 'Next Action', key: 'next', width: 135,
       render: (_: any, r: JobCard) => {
-        const nxt = NEXT_ACTION_LABEL[r.currentStatus] || (nextActionOf(r) || {}).label || '—';
+        const action = nextActionOf(r);
+        const nxt = NEXT_ACTION_LABEL[r.currentStatus] || (action || {}).label || '—';
         if (nxt === '—') return <span className="erp-pill-badge erp-pill-badge--neutral">{nxt}</span>;
         return (
-          <Tag color={NEXT_ACTION_TAG[nxt] || 'default'} style={{ marginInlineEnd: 0 }}>
+          <Tag
+            color={NEXT_ACTION_TAG[nxt] || 'default'}
+            style={{
+              marginInlineEnd: 0,
+              cursor: action ? 'pointer' : 'default',
+              fontWeight: action ? 600 : 500,
+              userSelect: 'none',
+            }}
+            onClick={(e) => {
+              if (!action) return;
+              e.stopPropagation();
+              runQuick(r, action);
+            }}
+          >
             {nxt}
           </Tag>
         );
@@ -1344,6 +1372,16 @@ export const JobCardList: React.FC<JobCardListProps> = ({ initialCreateOpen = fa
 
   useEffect(() => {
     setHeaderActions([
+      ...(canCreate
+        ? [{
+            key: 'create-job-card',
+            node: (
+              <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateModalOpen(true)}>
+                Create Job Card
+              </Button>
+            ),
+          }]
+        : []),
       ...(isStartedQueue
         ? (canStart
             ? [{
@@ -1352,7 +1390,7 @@ export const JobCardList: React.FC<JobCardListProps> = ({ initialCreateOpen = fa
                   <Button
                     type="primary"
                     icon={<PlayCircleOutlined />}
-                    style={{ backgroundColor: '#2563eb', borderColor: '#2563eb', color: '#ffffff', fontWeight: 600 }}
+                    style={{ backgroundColor: '#0284c7', borderColor: '#0284c7', color: '#ffffff', fontWeight: 600 }}
                     onClick={onHeaderStartJob}
                   >
                     {selectedRowKeys.length > 0 ? `Start Selected (${selectedRowKeys.length})` : 'Start Job Card'}
@@ -1406,18 +1444,7 @@ export const JobCardList: React.FC<JobCardListProps> = ({ initialCreateOpen = fa
               </Button>
             ),
           }]
-        : isCompleteQueue
-        ? []
-        : (canCreate
-            ? [{
-                key: 'create-job-card',
-                node: (
-                  <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateModalOpen(true)}>
-                    Create Job Card
-                  </Button>
-                ),
-              }]
-            : [])),
+        : []),
       { key: 'refresh', node: (<Button icon={<ReloadOutlined />} onClick={() => { clearJobCardCache(); load(true); loadQueue(); }}>Refresh</Button>) },
       ...(canCreate
         ? [{
@@ -1443,6 +1470,382 @@ export const JobCardList: React.FC<JobCardListProps> = ({ initialCreateOpen = fa
     return () => clearHeaderActions();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [setHeaderActions, clearHeaderActions, isStartedQueue, isClosedQueue, isReviewQueue, isReturnedQueue, isCompleteQueue, canStart, canComplete, canVerify, canCreate, canView, selectedRowKeys.length, onHeaderStartJob, onHeaderCloseJob, onHeaderReviewJob, onHeaderReworkJob, importing, navigate, companyId, load, loadQueue]);
+
+  const cardAccentGradient = (status: string): string => {
+    switch (status) {
+      case 'OPEN':
+      case 'ASSIGNED':
+        return 'linear-gradient(90deg, #0284c7 0%, #38bdf8 100%)';
+      case 'IN_PROGRESS':
+        return 'linear-gradient(90deg, #2563eb 0%, #60a5fa 100%)';
+      case 'ON_HOLD':
+      case 'WAITING_FOR_PARTS':
+        return 'linear-gradient(90deg, #d97706 0%, #fbbf24 100%)';
+      case 'PENDING_VERIFICATION':
+        return 'linear-gradient(90deg, #7c3aed 0%, #a78bfa 100%)';
+      case 'REJECTED':
+        return 'linear-gradient(90deg, #dc2626 0%, #f87171 100%)';
+      case 'CLOSED':
+      case 'APPROVED':
+      case 'COMPLETED':
+      case 'VERIFIED':
+        return 'linear-gradient(90deg, #059669 0%, #34d399 100%)';
+      default:
+        return 'linear-gradient(90deg, #475569 0%, #94a3b8 100%)';
+    }
+  };
+
+  const renderCardGrid = () => {
+    if (displayRows.length === 0) {
+      return (
+        <Card styles={{ body: { padding: '48px 24px', textAlign: 'center' } }}>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+            <div
+              style={{
+                width: 56,
+                height: 56,
+                borderRadius: 16,
+                background: token.colorFillAlter,
+                border: `1px solid ${token.colorBorderSecondary}`,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: 24,
+                color: token.colorPrimary,
+              }}
+            >
+              <ToolOutlined />
+            </div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: token.colorText }}>
+              No Job Cards Found
+            </div>
+            <div style={{ fontSize: 13, color: token.colorTextSecondary, maxWidth: 380 }}>
+              No maintenance job cards match your active queue or filter criteria.
+            </div>
+            {canCreate && (
+              <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateModalOpen(true)} style={{ marginTop: 4 }}>
+                Create Job Card
+              </Button>
+            )}
+          </div>
+        </Card>
+      );
+    }
+
+    const selectableIds = displayRows
+      .filter(r =>
+        isStartedQueue
+          ? ['OPEN', 'ASSIGNED'].includes(r.currentStatus)
+          : isClosedQueue
+          ? ['IN_PROGRESS', 'ON_HOLD', 'WAITING_FOR_PARTS'].includes(r.currentStatus)
+          : false
+      )
+      .map(r => r.id);
+
+    const allSelected = selectableIds.length > 0 && selectableIds.every(id => selectedRowKeys.includes(id));
+
+    return (
+      <div>
+        {(isStartedQueue || isClosedQueue) && selectableIds.length > 0 && (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '8px 14px',
+              marginBottom: 12,
+              borderRadius: 10,
+              background: token.colorBgContainer,
+              border: `1px solid ${token.colorBorderSecondary}`,
+              flexWrap: 'wrap',
+              gap: 8,
+            }}
+          >
+            <Checkbox
+              checked={allSelected}
+              indeterminate={selectedRowKeys.length > 0 && !allSelected}
+              onChange={(e) => {
+                if (e.target.checked) {
+                  setSelectedRowKeys(selectableIds);
+                } else {
+                  setSelectedRowKeys([]);
+                }
+              }}
+              style={{ fontWeight: 600, fontSize: 13, color: token.colorText }}
+            >
+              Select All Eligible Cards ({selectableIds.length})
+            </Checkbox>
+            {selectedRowKeys.length > 0 && (
+              <Tag color="blue" style={{ margin: 0, fontWeight: 600 }}>
+                {selectedRowKeys.length} Card(s) Selected
+              </Tag>
+            )}
+          </div>
+        )}
+
+        <div className="jc-cards-grid">
+          {displayRows.map((r) => {
+            const m = machineDisplay(r);
+            const tech = technicianNames(r);
+            const divName = r.division?.name || r.machine?.division?.name || r.machineDivision?.name || '—';
+            const secName = r.section?.name || r.machine?.section?.name || r.machineSection?.name || '';
+            const deptName = (r.assignedDepartment && (r.assignedDepartment.name || r.assignedDepartment.departmentCode)) || '—';
+            const action = nextActionOf(r);
+            const nxtLabel = NEXT_ACTION_LABEL[r.currentStatus] || (action || {}).label || '';
+            const partsArr = Array.isArray((r as any).parts) ? (r as any).parts : [];
+            const partsCost = partsArr.reduce((acc: number, p: any) => {
+              const lineTotal = Number(p.totalCost) || (Number(p.quantity || 0) * Number(p.unitCost || 0));
+              return acc + (Number.isFinite(lineTotal) ? lineTotal : 0);
+            }, 0);
+
+            const isSelectable = isStartedQueue
+              ? ['OPEN', 'ASSIGNED'].includes(r.currentStatus)
+              : isClosedQueue
+              ? ['IN_PROGRESS', 'ON_HOLD', 'WAITING_FOR_PARTS'].includes(r.currentStatus)
+              : false;
+            const isSelected = selectedRowKeys.includes(r.id);
+
+            return (
+              <div
+                key={r.id}
+                className={`jc-modern-card ${isSelected ? 'is-selected' : ''}`}
+                onClick={(e) => {
+                  const target = e.target as HTMLElement | null;
+                  if (target && (target.closest('button') || target.closest('a') || target.closest('input') || target.closest('.ant-checkbox-wrapper'))) {
+                    return;
+                  }
+                  if (isStartedQueue && ['OPEN', 'ASSIGNED'].includes(r.currentStatus)) {
+                    openStartModalForCard(r);
+                  } else if (isClosedQueue && ['IN_PROGRESS', 'ON_HOLD', 'WAITING_FOR_PARTS'].includes(r.currentStatus)) {
+                    openCloseModalForCard(r);
+                  } else {
+                    openViewModal(r);
+                  }
+                }}
+                style={{ cursor: 'pointer' }}
+              >
+                <div className="jc-card-accent-bar" style={{ background: cardAccentGradient(r.currentStatus) }} />
+
+                <div className="jc-card-body">
+                  {/* 1. Card Header: ID + Date + Type & Priority Badges */}
+                  <div className="jc-card-header">
+                    <div className="jc-card-id-group">
+                      {(isStartedQueue || isClosedQueue) && (
+                        <Checkbox
+                          checked={isSelected}
+                          disabled={!isSelectable}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedRowKeys(prev => [...prev, r.id]);
+                            } else {
+                              setSelectedRowKeys(prev => prev.filter(k => k !== r.id));
+                            }
+                          }}
+                          onClick={e => e.stopPropagation()}
+                        />
+                      )}
+                      <div>
+                        <a
+                          href={`#/maintenance/job-cards/${r.id}`}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            openViewModal(r);
+                          }}
+                          className="jc-code-link"
+                          style={{ fontSize: 14 }}
+                        >
+                          {r.jobCardNo || r.id}
+                        </a>
+                        <div className="jc-sub-date" style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                          <span>{r.requestedAt ? dayjs(r.requestedAt).format('DD MMM YYYY · HH:mm') : '—'}</span>
+                          {partsCost > 0 && (
+                            <Tag color="green" style={{ margin: 0, fontSize: 10, lineHeight: '16px', padding: '0 5px', fontWeight: 700 }}>
+                              Rs. {partsCost.toLocaleString()}
+                            </Tag>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="jc-card-badges">
+                      <MaintenanceTypeBadge type={r.maintenanceType} />
+                      <PriorityBadge priority={r.priority} />
+                    </div>
+                  </div>
+
+                  {/* 2. Machine & Organisational Hierarchy Box */}
+                  <div className="jc-card-machine-box">
+                    <div className="jc-card-machine-top">
+                      <div className="jc-card-machine-title">
+                        <ToolOutlined style={{ color: token.colorPrimary, fontSize: 14, flexShrink: 0 }} />
+                        <Tooltip title={m.name}>
+                          <span className="name-text">{m.name}</span>
+                        </Tooltip>
+                      </div>
+                      <span className="jc-card-machine-code-pill">{m.code}</span>
+                    </div>
+                    <div className="jc-card-org-crumbs">
+                      <span style={{ fontWeight: 600, color: token.colorText }}>{divName}</span>
+                      {secName && (
+                        <>
+                          <span>•</span>
+                          <span className="jc-card-org-chip">{secName}</span>
+                        </>
+                      )}
+                      {deptName && deptName !== '—' && (
+                        <>
+                          <span>•</span>
+                          <span>{deptName}</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* 3. Reported Complaint / Fault Description */}
+                  <div className="jc-card-complaint-box">
+                    <span className="jc-card-micro-label">Reported Fault / Complaint</span>
+                    <Tooltip title={r.complaint || 'No complaint specified'}>
+                      <div className="jc-card-complaint-content">
+                        {r.complaint || '—'}
+                      </div>
+                    </Tooltip>
+                  </div>
+
+                  {/* 4. Live Telemetry Strip: Downtime & Technician */}
+                  <div className="jc-card-telemetry-grid">
+                    <div className="jc-card-telemetry-cell">
+                      <span className="jc-card-micro-label">Downtime / Elapsed</span>
+                      <JobCardDowntimeCell card={r} />
+                    </div>
+                    <div className="jc-card-telemetry-cell">
+                      <span className="jc-card-micro-label">Assigned Technician</span>
+                      <div style={{ marginTop: 2 }}>
+                        {tech ? (
+                          <span className="erp-tech-chip" style={{ maxWidth: '100%' }}>
+                            <TeamOutlined className="erp-tech-chip-icon" />
+                            <span className="erp-tech-chip-name" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {tech}
+                            </span>
+                          </span>
+                        ) : (
+                          <span className="erp-pill-badge erp-pill-badge--unassigned">
+                            Unassigned
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 5. Card Footer: Status + Primary Workflow Button + Quick Tools */}
+                <div className="jc-card-footer" onClick={e => e.stopPropagation()}>
+                  <div className="jc-card-footer-left">
+                    <StatusBadge status={r.currentStatus} colorMap={JOB_CARD_STATUS_TAG} />
+                    <span style={{ fontSize: 11, color: token.colorTextSecondary }}>
+                      By <strong>{r.createdByName || (r.createdBy ? 'Admin' : '—')}</strong>
+                    </span>
+                  </div>
+
+                  <div className="jc-card-footer-actions">
+                    {action && (
+                      <Button
+                        size="small"
+                        type="primary"
+                        className="jc-card-workflow-btn"
+                        icon={actionIcon(action.endpoint)}
+                        style={{
+                          backgroundColor:
+                            action.endpoint === 'complete'
+                              ? '#059669'
+                              : action.endpoint === 'verify' || action.endpoint === 'approve'
+                              ? '#7c3aed'
+                              : action.endpoint === 'reject' || action.endpoint === 'submit-for-verification'
+                              ? '#dc2626'
+                              : '#0284c7',
+                          borderColor: 'transparent',
+                          color: '#ffffff',
+                        }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          runQuick(r, action);
+                        }}
+                      >
+                        {nxtLabel && nxtLabel !== '—' ? nxtLabel : action.label}
+                      </Button>
+                    )}
+
+                    {r.currentStatus === 'IN_PROGRESS' && (
+                      <Tooltip title="Hold for Spare Parts" placement="top">
+                        <Button
+                          size="small"
+                          icon={<StopOutlined style={{ fontSize: 13, color: 'var(--maint-warning-fg)' }} />}
+                          style={{
+                            width: 28,
+                            minWidth: 28,
+                            height: 28,
+                            padding: 0,
+                            borderRadius: 6,
+                            borderColor: 'var(--maint-warning-border)',
+                            backgroundColor: 'var(--maint-warning-bg)',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setWorkflowModal({ open: true, mode: 'parts', card: r });
+                          }}
+                        />
+                      </Tooltip>
+                    )}
+
+                    {viewActionBtn(r)}
+
+                    {can(USER_PERMISSIONS.update) && (
+                      <Tooltip title="Edit Job Card" placement="top">
+                        <Button
+                          size="small"
+                          className="erp-action-btn act-edit"
+                          icon={<EditOutlined style={{ fontSize: 13 }} />}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditModalCard(r);
+                            setEditModalOpen(true);
+                          }}
+                        />
+                      </Tooltip>
+                    )}
+
+                    {can(USER_PERMISSIONS.delete) && (
+                      <Tooltip title="Delete Job Card" placement="top">
+                        <Button
+                          danger
+                          size="small"
+                          className="erp-action-btn act-delete"
+                          icon={<DeleteOutlined style={{ fontSize: 13 }} />}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            Modal.confirm({
+                              title: 'Are you sure you want to delete this Job Card?',
+                              content: `Job Card: ${r.jobCardNo || r.id}`,
+                              okText: 'Yes, Delete',
+                              okType: 'danger',
+                              onOk: () => remove(r.id),
+                            });
+                          }}
+                        />
+                      </Tooltip>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
 
   return <div>
     <Card styles={{ body: { padding: 12 } }} style={{ ...panelCard, marginBottom: 12 }}>
@@ -1536,61 +1939,85 @@ export const JobCardList: React.FC<JobCardListProps> = ({ initialCreateOpen = fa
         </Col>
         <Col flex="auto" />
         <Col>
-          <Dropdown
-            trigger={['click']}
-            placement="bottomRight"
-            popupRender={() => (
-              <div
-                style={{
-                  background: token.colorBgElevated,
-                  padding: '12px 16px',
-                  borderRadius: 8,
-                  boxShadow: '0 10px 30px rgba(0, 0, 0, 0.15)',
-                  minWidth: 200,
-                  border: `1px solid ${token.colorBorderSecondary}`,
-                }}
-              >
+          <div className="jc-view-switcher" role="group" aria-label="View Mode Switcher">
+            <button
+              type="button"
+              className={`jc-view-toggle-btn ${viewMode === 'table' ? 'is-active' : ''}`}
+              onClick={() => handleViewModeChange('table')}
+              aria-pressed={viewMode === 'table'}
+            >
+              <TableOutlined style={{ fontSize: 13 }} />
+              <span>Table View</span>
+            </button>
+            <button
+              type="button"
+              className={`jc-view-toggle-btn ${viewMode === 'cards' ? 'is-active' : ''}`}
+              onClick={() => handleViewModeChange('cards')}
+              aria-pressed={viewMode === 'cards'}
+            >
+              <AppstoreOutlined style={{ fontSize: 13 }} />
+              <span>Card View</span>
+            </button>
+          </div>
+        </Col>
+        {viewMode === 'table' && (
+          <Col>
+            <Dropdown
+              trigger={['click']}
+              placement="bottomRight"
+              popupRender={() => (
                 <div
                   style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    marginBottom: 10,
-                    paddingBottom: 8,
-                    borderBottom: `1px solid ${token.colorBorderSecondary}`,
+                    background: token.colorBgElevated,
+                    padding: '12px 16px',
+                    borderRadius: 8,
+                    boxShadow: '0 10px 30px rgba(0, 0, 0, 0.15)',
+                    minWidth: 200,
+                    border: `1px solid ${token.colorBorderSecondary}`,
                   }}
                 >
-                  <span style={{ fontWeight: 700, fontSize: 13, color: token.colorText }}>
-                    Table Columns
-                  </span>
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      marginBottom: 10,
+                      paddingBottom: 8,
+                      borderBottom: `1px solid ${token.colorBorderSecondary}`,
+                    }}
+                  >
+                    <span style={{ fontWeight: 700, fontSize: 13, color: token.colorText }}>
+                      Table Columns
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {Object.entries(COLUMN_META).map(([key, meta]) => (
+                      <Checkbox
+                        key={key}
+                        checked={visibleCols[key] !== false}
+                        disabled={key === 'job' || key === 'actions'}
+                        onChange={(e) => {
+                          const next = { ...visibleCols, [key]: e.target.checked };
+                          setVisibleCols(next);
+                          try {
+                            localStorage.setItem('erp_job_card_table_columns', JSON.stringify(next));
+                          } catch {}
+                        }}
+                        style={{ fontSize: 13, color: token.colorText }}
+                      >
+                        {meta.label}
+                      </Checkbox>
+                    ))}
+                  </div>
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {Object.entries(COLUMN_META).map(([key, meta]) => (
-                    <Checkbox
-                      key={key}
-                      checked={visibleCols[key] !== false}
-                      disabled={key === 'job' || key === 'actions'}
-                      onChange={(e) => {
-                        const next = { ...visibleCols, [key]: e.target.checked };
-                        setVisibleCols(next);
-                        try {
-                          localStorage.setItem('erp_job_card_table_columns', JSON.stringify(next));
-                        } catch {}
-                      }}
-                      style={{ fontSize: 13, color: token.colorText }}
-                    >
-                      {meta.label}
-                    </Checkbox>
-                  ))}
-                </div>
-              </div>
-            )}
-          >
-            <Button icon={<AppstoreOutlined />} style={{ fontWeight: 600 }}>
-              Columns
-            </Button>
-          </Dropdown>
-        </Col>
+              )}
+            >
+              <Button icon={<UnorderedListOutlined />} style={{ fontWeight: 600 }}>
+                Columns
+              </Button>
+            </Dropdown>
+          </Col>
+        )}
         {(activeFilterCount > 0 || filters.search) && <Col><Button type="text" icon={<ClearOutlined />} onClick={resetAll}>Clear</Button></Col>}
       </Row>
 
@@ -1675,58 +2102,62 @@ export const JobCardList: React.FC<JobCardListProps> = ({ initialCreateOpen = fa
         />
       ) : (
         <>
-      <ERPTable
-        rowKey="id"
-        columns={visibleColumns}
-        dataSource={displayRows}
-        pagination={false}
-        scroll={{ x: isMobile ? 1050 : 1300 }}
-        loading={false}
-        onRow={(record: JobCard) => ({
-          onClick: (e: React.MouseEvent) => {
-            const target = e.target as HTMLElement | null;
-            if (target && (target.closest('button') || target.closest('a') || target.closest('input') || target.closest('.ant-checkbox-wrapper'))) {
-              return;
-            }
-            if (isStartedQueue && ['OPEN', 'ASSIGNED'].includes(record.currentStatus)) {
-              openStartModalForCard(record);
-            } else if (isClosedQueue && ['IN_PROGRESS', 'ON_HOLD', 'WAITING_FOR_PARTS'].includes(record.currentStatus)) {
-              openCloseModalForCard(record);
-            }
-          },
-          style: {
-            cursor: (isStartedQueue && ['OPEN', 'ASSIGNED'].includes(record.currentStatus)) ||
-                    (isClosedQueue && ['IN_PROGRESS', 'ON_HOLD', 'WAITING_FOR_PARTS'].includes(record.currentStatus))
-                      ? 'pointer' : 'default',
-          },
-        })}
-        rowSelection={(isStartedQueue || isClosedQueue) ? {
-          selectedRowKeys,
-          onChange: (keys: React.Key[]) => setSelectedRowKeys(keys),
-          getCheckboxProps: (record: JobCard) => ({
-            disabled: isStartedQueue
-              ? !['OPEN', 'ASSIGNED'].includes(record.currentStatus)
-              : !['IN_PROGRESS', 'ON_HOLD', 'WAITING_FOR_PARTS'].includes(record.currentStatus),
-          }),
-        } : undefined}
-        emptyTitle="No Job Cards Found"
-        emptyDescription="Create a new job card to begin maintenance tracking."
-        emptyActionLabel={canCreate ? 'Create Job Card' : undefined}
-        onEmptyAction={() => setCreateModalOpen(true)}
-      />
-      <div style={{ display: 'flex', alignItems: 'center', gap: 16, justifyContent: 'space-between', flexWrap: 'wrap', padding: '12px 16px', borderTop: '1px solid var(--theme-border)' }}>
-        <div>
-          <span style={{ fontSize: 13, color: 'var(--theme-text-secondary, #64748b)' }}>
-            Showing <strong style={{ color: 'var(--theme-text, #1e293b)' }}>{displayRows.length}</strong> of <strong style={{ color: 'var(--theme-text, #1e293b)' }}>{total}</strong> job cards
-          </span>
-        </div>
-        <Space size="middle">
-          <Space size={6}><span style={{ fontSize: 13, color: 'var(--theme-text-secondary, #64748b)' }}>Rows per page:</span>
-            <Select size="small" value={pageSize} onChange={v => { setPage(1); setPageSize(v); }} options={PAGE_SIZE_OPTIONS.map(v => ({ value: v, label: String(v) }))} style={{ width: 90 }} />
-          </Space>
-          <Pagination current={page} pageSize={pageSize} total={total} onChange={setPage} showSizeChanger={false} showLessItems />
-        </Space>
-      </div>
+          {viewMode === 'cards' ? (
+            renderCardGrid()
+          ) : (
+            <ERPTable
+              rowKey="id"
+              columns={visibleColumns}
+              dataSource={displayRows}
+              pagination={false}
+              scroll={{ x: isMobile ? 1050 : 1300 }}
+              loading={false}
+              onRow={(record: JobCard) => ({
+                onClick: (e: React.MouseEvent) => {
+                  const target = e.target as HTMLElement | null;
+                  if (target && (target.closest('button') || target.closest('a') || target.closest('input') || target.closest('.ant-checkbox-wrapper'))) {
+                    return;
+                  }
+                  if (isStartedQueue && ['OPEN', 'ASSIGNED'].includes(record.currentStatus)) {
+                    openStartModalForCard(record);
+                  } else if (isClosedQueue && ['IN_PROGRESS', 'ON_HOLD', 'WAITING_FOR_PARTS'].includes(record.currentStatus)) {
+                    openCloseModalForCard(record);
+                  }
+                },
+                style: {
+                  cursor: (isStartedQueue && ['OPEN', 'ASSIGNED'].includes(record.currentStatus)) ||
+                          (isClosedQueue && ['IN_PROGRESS', 'ON_HOLD', 'WAITING_FOR_PARTS'].includes(record.currentStatus))
+                            ? 'pointer' : 'default',
+                },
+              })}
+              rowSelection={(isStartedQueue || isClosedQueue) ? {
+                selectedRowKeys,
+                onChange: (keys: React.Key[]) => setSelectedRowKeys(keys),
+                getCheckboxProps: (record: JobCard) => ({
+                  disabled: isStartedQueue
+                    ? !['OPEN', 'ASSIGNED'].includes(record.currentStatus)
+                    : !['IN_PROGRESS', 'ON_HOLD', 'WAITING_FOR_PARTS'].includes(record.currentStatus),
+                }),
+              } : undefined}
+              emptyTitle="No Job Cards Found"
+              emptyDescription="Create a new job card to begin maintenance tracking."
+              emptyActionLabel={canCreate ? 'Create Job Card' : undefined}
+              onEmptyAction={() => setCreateModalOpen(true)}
+            />
+          )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16, justifyContent: 'space-between', flexWrap: 'wrap', padding: '12px 16px', marginTop: viewMode === 'cards' ? 12 : 0, background: viewMode === 'cards' ? token.colorBgContainer : undefined, borderRadius: viewMode === 'cards' ? 12 : 0, border: viewMode === 'cards' ? `1px solid ${token.colorBorderSecondary}` : undefined, borderTop: viewMode === 'table' ? '1px solid var(--theme-border)' : undefined }}>
+            <div>
+              <span style={{ fontSize: 13, color: 'var(--theme-text-secondary, #64748b)' }}>
+                Showing <strong style={{ color: 'var(--theme-text, #1e293b)' }}>{displayRows.length}</strong> of <strong style={{ color: 'var(--theme-text, #1e293b)' }}>{total}</strong> job cards
+              </span>
+            </div>
+            <Space size="middle">
+              <Space size={6}><span style={{ fontSize: 13, color: 'var(--theme-text-secondary, #64748b)' }}>{viewMode === 'cards' ? 'Cards per page:' : 'Rows per page:'}</span>
+                <Select size="small" value={pageSize} onChange={v => { setPage(1); setPageSize(v); }} options={PAGE_SIZE_OPTIONS.map(v => ({ value: v, label: String(v) }))} style={{ width: 90 }} />
+              </Space>
+              <Pagination current={page} pageSize={pageSize} total={total} onChange={setPage} showSizeChanger={false} showLessItems />
+            </Space>
+          </div>
         </>
       )}
     </div>

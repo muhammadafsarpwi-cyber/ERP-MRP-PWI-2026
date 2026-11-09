@@ -514,32 +514,341 @@ html[data-theme='dark'] .jc-sub-date,
   box-shadow: 0 3px 8px rgba(0, 0, 0, 0.22) !important;
 }
 
-/* ── Row Hover & Separation ── */
+/* ── Row Hover & Separation (Multi-Theme Compliant) ── */
 .erp-table-container .ant-table-tbody > tr > td {
   transition: background-color 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s ease !important;
 }
 
 html[data-theme='dark'] .erp-table-container .ant-table-tbody > tr > td,
 [data-theme='dark'] .erp-table-container .ant-table-tbody > tr > td {
-  border-bottom: 1px solid #1e293b !important;
+  border-bottom: 1px solid var(--theme-border) !important;
 }
 
 html[data-theme='dark'] .erp-table-container .ant-table-tbody > tr:hover > td,
 [data-theme='dark'] .erp-table-container .ant-table-tbody > tr:hover > td {
-  background: rgba(30, 41, 59, 0.75) !important;
+  background: var(--theme-surface-elevated) !important;
   box-shadow: inset 0 1px 0 rgba(56, 189, 248, 0.14), inset 0 -1px 0 rgba(56, 189, 248, 0.14) !important;
-  color: #ffffff !important;
+  color: var(--theme-text) !important;
 }
 
 /* ── Header Row Polish ── */
 html[data-theme='dark'] .erp-table-container .ant-table-thead > tr > th,
 [data-theme='dark'] .erp-table-container .ant-table-thead > tr > th {
-  background: #090e1a !important;
-  border-bottom: 1px solid #1e293b !important;
-  color: #94a3b8 !important;
+  background: var(--theme-surface-alt) !important;
+  border-bottom: 1px solid var(--theme-border) !important;
+  color: var(--theme-text-secondary) !important;
   font-size: 11px !important;
   letter-spacing: 0.06em !important;
   font-weight: 700 !important;
   text-transform: uppercase !important;
 }
+
+/* ============================================================================
+   2027 ENTERPRISE VIEW SWITCHER & JOB CARD GRID (MOBILE / LAPTOP / BILLBOARD)
+   ============================================================================ */
+
+/* ── Segmented View Toggle (Table vs Cards) ── */
+.jc-view-switcher {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--theme-surface-alt);
+  border: 1px solid var(--theme-border);
+  gap: 3px;
+}
+
+.jc-view-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 7px;
+  border: none;
+  background: transparent;
+  color: var(--theme-text-secondary);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+.jc-view-toggle-btn:hover {
+  color: var(--theme-text);
+  background: var(--theme-surface);
+}
+
+.jc-view-toggle-btn.is-active {
+  background: var(--theme-accent, #2563eb);
+  color: var(--theme-on-accent, #ffffff);
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.28);
+}
+
+/* ── Responsive Multi-Device Card Grid ──
+   Adapts automatically to:
+   - Mobile (< 640px): 1 column
+   - Tablet (640px – 1023px): 2 columns
+   - Laptop / Desktop (1024px – 1599px): 3 columns (auto-fill minmax 340px)
+   - Large Widescreen (1600px – 2199px): 4 columns
+   - Billboard / Shop-Floor Wallboard (>= 2200px): 5 columns
+*/
+.jc-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 16px;
+  width: 100%;
+}
+
+@media (max-width: 639px) {
+  .jc-cards-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+}
+
+@media (min-width: 640px) and (max-width: 1023px) {
+  .jc-cards-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+  }
+}
+
+@media (min-width: 1600px) and (max-width: 2199px) {
+  .jc-cards-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 18px;
+  }
+}
+
+@media (min-width: 2200px) {
+  .jc-cards-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 20px;
+  }
+  .maint-qc-count {
+    font-size: 26px;
+  }
+  .maint-qc-label {
+    font-size: 12px;
+  }
+}
+
+/* ── Individual 2027 Enterprise Job Card ── */
+.jc-modern-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  background: var(--theme-surface);
+  border: 1px solid var(--theme-border);
+  border-radius: 14px;
+  overflow: hidden;
+  transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1),
+              box-shadow 0.22s cubic-bezier(0.22, 1, 0.36, 1),
+              border-color 0.22s ease;
+  box-shadow: var(--maint-shadow-sm);
+}
+
+.jc-modern-card:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--maint-shadow-hover);
+  border-color: var(--theme-border-strong, var(--theme-primary, #3b82f6));
+}
+
+.jc-modern-card.is-selected {
+  border-color: var(--theme-primary, #2563eb);
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.22), var(--maint-shadow-hover);
+}
+
+.jc-card-accent-bar {
+  height: 4px;
+  width: 100%;
+  flex-shrink: 0;
+}
+
+.jc-card-body {
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex: 1;
+}
+
+.jc-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.jc-card-id-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.jc-card-badges {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+/* ── Machine & Location Box inside Card ── */
+.jc-card-machine-box {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--theme-surface-alt);
+  border: 1px solid var(--theme-border);
+}
+
+.jc-card-machine-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.jc-card-machine-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--theme-text);
+}
+
+.jc-card-machine-title span.name-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.jc-card-machine-code-pill {
+  font-family: 'JetBrains Mono', 'SF Mono', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: var(--theme-surface);
+  border: 1px solid var(--theme-border);
+  color: var(--theme-text-secondary);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.jc-card-org-crumbs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 11.5px;
+  color: var(--theme-text-secondary);
+}
+
+.jc-card-org-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--maint-info-bg);
+  color: var(--maint-info-fg);
+  border: 1px solid var(--maint-info-border);
+}
+
+/* ── Complaint Block inside Card ── */
+.jc-card-complaint-box {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.jc-card-micro-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--theme-text-muted);
+}
+
+.jc-card-complaint-content {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--theme-text);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-height: 37px;
+  font-weight: 500;
+}
+
+/* ── Telemetry Strip (Downtime & Technician) ── */
+.jc-card-telemetry-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--theme-border);
+}
+
+.jc-card-telemetry-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+/* ── Card Footer (Status + Primary Action + Tools) ── */
+.jc-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 16px;
+  background: var(--theme-surface-alt);
+  border-top: 1px solid var(--theme-border);
+  flex-wrap: wrap;
+}
+
+.jc-card-footer-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.jc-card-footer-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.jc-card-workflow-btn.ant-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 5px !important;
+  height: 30px !important;
+  padding: 0 11px !important;
+  border-radius: 7px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  transition: transform 0.15s ease, box-shadow 0.15s ease !important;
+}
+
+.jc-card-workflow-btn.ant-btn:hover {
+  transform: translateY(-1px);
+}
+
 

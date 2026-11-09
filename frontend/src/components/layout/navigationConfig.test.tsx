@@ -170,7 +170,7 @@ const DETAIL_AND_ALIAS_ROUTES: Array<{ url: string; parent: string }> = [
   { url: '/production/routings/789', parent: '/production/routings' },
   { url: '/production/targets/321', parent: '/production/targets' },
   { url: '/production/machines/a1', parent: '/master-data/machines' },
-  { url: '/maintenance/job-cards/new', parent: '/maintenance/job-cards/new' },
+  { url: '/maintenance/job-cards/new', parent: '/maintenance/job-cards' },
   { url: '/maintenance/job-cards/99', parent: '/maintenance/job-cards' },
   { url: '/maintenance/preventive-maintenance', parent: '/maintenance/pm-plans' },
 ];
