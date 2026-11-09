@@ -153,8 +153,11 @@ export const MAINTENANCE_QUEUE_NAV_KEYS = {
 export type MaintenanceQueueNavKey = (typeof MAINTENANCE_QUEUE_NAV_KEYS)[keyof typeof MAINTENANCE_QUEUE_NAV_KEYS];
 
 export const NAV_ENTRIES: NavEntry[] = [
+  
   { key: '/dashboard', label: 'Dashboard', icon: DashboardOutlined, color: 'primary' },
+
   { key: '/reports', label: 'Reports', icon: BarChartOutlined, color: 'success' },
+
   { key: '/ai-assistant', label: 'AI Assistant', icon: RobotOutlined, color: 'cyan' },
 
   {
@@ -230,32 +233,27 @@ export const NAV_ENTRIES: NavEntry[] = [
   },
 
   {
-    key: 'barcode-management',
-    label: 'Barcode Management',
-    icon: BarcodeOutlined,
-    color: 'success',
+    key: 'production',
+    label: 'Production Department',
+    icon: BuildOutlined,
+    color: 'cyan',
     children: [
-      { key: '/barcode-management', label: 'Barcode Dashboard', icon: DashboardOutlined, color: 'success', permissions: ['item.view'] },
-      { key: '/barcode-management/scan', label: 'Scan Barcode', icon: ScanOutlined, color: 'success', permissions: ['item.view'] },
-      { key: '/barcode-management/items', label: 'Item Barcodes', icon: DatabaseOutlined, color: 'success', permissions: ['item.view'] },
-      { key: '/barcode-management/customers', label: 'Customer Barcodes', icon: TeamOutlined, color: 'success', permissions: ['customer.customer.view'] },
-      { key: '/barcode-management/machines', label: 'Machine Barcodes', icon: ToolOutlined, color: 'success', permissions: ['manufacturing.machine.view'] },
-      { key: '/barcode-management/warehouses', label: 'Warehouse Barcodes', icon: HomeOutlined, color: 'success', permissions: ['warehouse.view'] },
-      { key: '/barcode-management/employees', label: 'Employee Barcodes', icon: TeamOutlined, color: 'success', permissions: ['hr.employee.view'] },
-      { key: '/barcode-management/production', label: 'Production Barcodes', icon: BuildOutlined, color: 'success', permissions: ['manufacturing.production.entries.view'] },
-      { key: '/barcode-management/job-cards', label: 'Job Card Barcodes', icon: ToolOutlined, color: 'success', permissions: ['maintenance.job_card.view'] },
-      { key: '/barcode-management/gate-passes', label: 'Gate Pass Barcodes', icon: CarOutlined, color: 'success', permissions: ['sales.deliveries.view', 'item.view'] },
-    ],
-  },
-
-  {
-    key: 'customers',
-    label: 'Customers',
-    icon: TeamOutlined,
-    color: 'success',
-    children: [
-      { key: '/customers', label: 'Customer List', icon: TeamOutlined, color: 'success', permissions: ['customer.customer.view'] },
-      { key: '/customers/analytics', label: 'Customer Analytics', icon: BarChartOutlined, color: 'success', permissions: ['customer.customer.view'] },
+      { key: '/production/dashboard', label: 'Production Dashboard', icon: DashboardOutlined, color: 'cyan', permissions: ['manufacturing.production.orders.view'] },
+      { key: '/production/open-stock', label: 'Production Item Open Stock', icon: DatabaseOutlined, color: 'cyan', permissions: ['manufacturing.production.entries.view'] },
+      { key: '/production/receiving', label: 'Daily Raw Material Receiving', icon: InboxOutlined, color: 'success', permissions: ['manufacturing.material_receiving.view'] },
+      { key: '/production/entries', label: 'Daily Production Entry', icon: EditOutlined, color: 'cyan', permissions: ['manufacturing.production.entries.view'] },
+      { key: '/production/packing', label: 'Daily Packing Entry', icon: InboxOutlined, color: 'success', permissions: ['manufacturing.production.entries.view'] },
+      { key: '/production/rework-returns', label: 'Production Rework & Return', icon: RollbackOutlined, color: 'warning', permissions: ['manufacturing.production.entries.view'] },
+      { key: '/production/returns', label: 'Raw Material Return', icon: RollbackOutlined, color: 'warning', permissions: ['manufacturing.material_return.view'] },
+      { key: '/production/receiving-report', label: 'Receiving & Return Report', icon: BarChartOutlined, color: 'violet', permissions: ['manufacturing.material_receiving.report'] },
+      { key: '/production/units', label: 'Unit Serialization & Labels', icon: BarcodeOutlined, color: 'cyan', permissions: ['manufacturing.production.entries.view'] },
+      { key: 'production:dispatch:packages', path: '/dispatch/packages', label: 'Dispatch Packages & QR Scan', icon: QrcodeOutlined, color: 'cyan', permissions: ['manufacturing.production.entries.view'] },
+      { key: '/production/bom', label: 'Bill of Materials', icon: ClusterOutlined, color: 'cyan', permissions: ['manufacturing.bom.view'] },
+      { key: '/production/routings', label: 'Routing', icon: ApartmentOutlined, color: 'cyan', permissions: ['manufacturing.routing.view'] },
+      { key: '/production/traceability', label: 'Traceability', icon: BranchesOutlined, color: 'cyan', permissions: ['manufacturing.production.entries.report'] },
+      { key: '/production/reports', label: 'Production Reports', icon: BarChartOutlined, color: 'cyan', permissions: ['manufacturing.production.entries.report'] },
+      { key: '/production/inventory-report', label: 'Inventory Report', icon: PieChartOutlined, color: 'violet', permissions: ['manufacturing.production.entries.report'] },
+      { key: '/production/item-wise-ledger', label: 'Item-Wise Production Ledger', icon: HistoryOutlined, color: 'cyan', permissions: ['manufacturing.production.entries.report'] },
     ],
   },
 
@@ -291,6 +289,58 @@ export const NAV_ENTRIES: NavEntry[] = [
       { key: '/procurement/receipts', label: 'Goods Receipts', icon: InboxOutlined, color: 'orange', permissions: ['procurement.receipt.view'] },
       { key: '/procurement/returns', label: 'Purchase Returns', icon: SwapOutlined, color: 'orange', permissions: ['procurement.return.view'] },
       { key: '/procurement/invoices', label: 'Invoices', icon: CalculatorOutlined, color: 'orange', permissions: ['procurement.invoice.view'] },
+    ],
+  },
+
+  {
+    key: 'maintenance',
+    label: 'Maintenance',
+    icon: ToolOutlined,
+    color: 'cyan',
+    children: [
+      { key: '/maintenance', label: 'Maintenance Dashboard', icon: DashboardOutlined, color: 'cyan', permissions: ['maintenance.job_card.view'] },
+      { key: MAINTENANCE_QUEUE_NAV_KEYS.open, label: 'Open Job Card', icon: PlusOutlined, color: 'success', permissions: ['maintenance.job_card.create'] },
+      { key: MAINTENANCE_QUEUE_NAV_KEYS.started, label: 'Started Job Cards', icon: FolderOpenOutlined, color: 'warning', permissions: ['maintenance.job_card.view'] },
+      { key: MAINTENANCE_QUEUE_NAV_KEYS.closed, label: 'Closed Job Cards', icon: PlayCircleOutlined, color: 'primary', permissions: ['maintenance.job_card.view'] },
+      { key: MAINTENANCE_QUEUE_NAV_KEYS.review, label: 'Pending Review', icon: ClockCircleOutlined, color: 'purple', permissions: ['maintenance.job_card.view'] },
+      { key: MAINTENANCE_QUEUE_NAV_KEYS.returned, label: 'Returned Job Cards', icon: RollbackOutlined, color: 'warning', permissions: ['maintenance.job_card.view'] },
+      { key: MAINTENANCE_QUEUE_NAV_KEYS.complete, label: 'Complete Job Cards', icon: CheckCircleOutlined, color: 'success', permissions: ['maintenance.job_card.view'] },
+      { key: MAINTENANCE_QUEUE_NAV_KEYS.all, label: 'All Job Cards', icon: UnorderedListOutlined, color: 'info', permissions: ['maintenance.job_card.view'] },
+      { key: '/maintenance/teams', label: 'Teams', icon: TeamOutlined, color: 'cyan', permissions: ['maintenance.team.view'] },
+      { key: '/maintenance/categories', label: 'Categories', icon: TagsOutlined, color: 'cyan', permissions: ['maintenance.category.view'] },
+      { key: '/maintenance/pm-plans', label: 'PM Plans', icon: CalendarOutlined, color: 'cyan', permissions: ['maintenance.pm.view'] },
+      { key: '/maintenance/pm-schedules', label: 'PM Schedules', icon: ScheduleOutlined, color: 'cyan', permissions: ['maintenance.pm.view'] },
+      { key: '/maintenance/reports', label: 'Reports', icon: BarChartOutlined, color: 'violet', permissions: ['maintenance.reports.view'] },
+    ],
+  },
+
+  {
+    key: 'customers',
+    label: 'Customers',
+    icon: TeamOutlined,
+    color: 'success',
+    children: [
+      { key: '/customers', label: 'Customer List', icon: TeamOutlined, color: 'success', permissions: ['customer.customer.view'] },
+      { key: '/customers/analytics', label: 'Customer Analytics', icon: BarChartOutlined, color: 'success', permissions: ['customer.customer.view'] },
+    ],
+  },
+
+  {
+    key: 'barcode-management',
+    label: 'Barcode Management',
+    icon: BarcodeOutlined,
+    color: 'success',
+    children: [
+      { key: '/barcode-management', label: 'Barcode Dashboard', icon: DashboardOutlined, color: 'success', permissions: ['item.view'] },
+      { key: '/barcode-management/scan', label: 'Scan Barcode', icon: ScanOutlined, color: 'success', permissions: ['item.view'] },
+      { key: '/barcode-management/items', label: 'Item Barcodes', icon: DatabaseOutlined, color: 'success', permissions: ['item.view'] },
+      { key: '/barcode-management/customers', label: 'Customer Barcodes', icon: TeamOutlined, color: 'success', permissions: ['customer.customer.view'] },
+      { key: '/barcode-management/machines', label: 'Machine Barcodes', icon: ToolOutlined, color: 'success', permissions: ['manufacturing.machine.view'] },
+      { key: '/barcode-management/warehouses', label: 'Warehouse Barcodes', icon: HomeOutlined, color: 'success', permissions: ['warehouse.view'] },
+      { key: '/barcode-management/employees', label: 'Employee Barcodes', icon: TeamOutlined, color: 'success', permissions: ['hr.employee.view'] },
+      { key: '/barcode-management/production', label: 'Production Barcodes', icon: BuildOutlined, color: 'success', permissions: ['manufacturing.production.entries.view'] },
+      { key: '/barcode-management/job-cards', label: 'Job Card Barcodes', icon: ToolOutlined, color: 'success', permissions: ['maintenance.job_card.view'] },
+      { key: '/barcode-management/gate-passes', label: 'Gate Pass Barcodes', icon: CarOutlined, color: 'success', permissions: ['sales.deliveries.view', 'item.view'] },
     ],
   },
 
@@ -341,55 +391,6 @@ export const NAV_ENTRIES: NavEntry[] = [
   },
 
   {
-    key: 'production',
-    label: 'Production Department',
-    icon: BuildOutlined,
-    color: 'cyan',
-    children: [
-      { key: '/production/dashboard', label: 'Production Dashboard', icon: DashboardOutlined, color: 'cyan', permissions: ['manufacturing.production.orders.view'] },
-      { key: '/production/open-stock', label: 'Production Item Open Stock', icon: DatabaseOutlined, color: 'cyan', permissions: ['manufacturing.production.entries.view'] },
-      { key: '/production/receiving', label: 'Daily Raw Material Receiving', icon: InboxOutlined, color: 'success', permissions: ['manufacturing.material_receiving.view'] },
-      { key: '/production/entries', label: 'Daily Production Entry', icon: EditOutlined, color: 'cyan', permissions: ['manufacturing.production.entries.view'] },
-      { key: '/production/packing', label: 'Daily Packing Entry', icon: InboxOutlined, color: 'success', permissions: ['manufacturing.production.entries.view'] },
-      { key: '/production/rework-returns', label: 'Production Rework & Return', icon: RollbackOutlined, color: 'warning', permissions: ['manufacturing.production.entries.view'] },
-      { key: '/production/returns', label: 'Raw Material Return', icon: RollbackOutlined, color: 'warning', permissions: ['manufacturing.material_return.view'] },
-      { key: '/production/receiving-report', label: 'Receiving & Return Report', icon: BarChartOutlined, color: 'violet', permissions: ['manufacturing.material_receiving.report'] },
-      { key: '/production/units', label: 'Unit Serialization & Labels', icon: BarcodeOutlined, color: 'cyan', permissions: ['manufacturing.production.entries.view'] },
-      { key: 'production:dispatch:packages', path: '/dispatch/packages', label: 'Dispatch Packages & QR Scan', icon: QrcodeOutlined, color: 'cyan', permissions: ['manufacturing.production.entries.view'] },
-      { key: '/production/bom', label: 'Bill of Materials', icon: ClusterOutlined, color: 'cyan', permissions: ['manufacturing.bom.view'] },
-      { key: '/production/routings', label: 'Routing', icon: ApartmentOutlined, color: 'cyan', permissions: ['manufacturing.routing.view'] },
-      { key: '/production/traceability', label: 'Traceability', icon: BranchesOutlined, color: 'cyan', permissions: ['manufacturing.production.entries.report'] },
-      { key: '/production/reports', label: 'Production Reports', icon: BarChartOutlined, color: 'cyan', permissions: ['manufacturing.production.entries.report'] },
-      { key: '/production/inventory-report', label: 'Inventory Report', icon: PieChartOutlined, color: 'violet', permissions: ['manufacturing.production.entries.report'] },
-      { key: '/production/item-wise-ledger', label: 'Item-Wise Production Ledger', icon: HistoryOutlined, color: 'cyan', permissions: ['manufacturing.production.entries.report'] },
-    ],
-  },
-
-  {
-    key: 'maintenance',
-    label: 'Maintenance',
-    icon: ToolOutlined,
-    color: 'cyan',
-    children: [
-      { key: '/maintenance', label: 'Maintenance Dashboard', icon: DashboardOutlined, color: 'cyan', permissions: ['maintenance.job_card.view'] },
-      { key: MAINTENANCE_QUEUE_NAV_KEYS.open, label: 'Open Job Card', icon: PlusOutlined, color: 'success', permissions: ['maintenance.job_card.create'] },
-      { key: MAINTENANCE_QUEUE_NAV_KEYS.started, label: 'Started Job Cards', icon: FolderOpenOutlined, color: 'warning', permissions: ['maintenance.job_card.view'] },
-      { key: MAINTENANCE_QUEUE_NAV_KEYS.closed, label: 'Closed Job Cards', icon: PlayCircleOutlined, color: 'primary', permissions: ['maintenance.job_card.view'] },
-      { key: MAINTENANCE_QUEUE_NAV_KEYS.review, label: 'Pending Review', icon: ClockCircleOutlined, color: 'purple', permissions: ['maintenance.job_card.view'] },
-      { key: MAINTENANCE_QUEUE_NAV_KEYS.returned, label: 'Returned Job Cards', icon: RollbackOutlined, color: 'warning', permissions: ['maintenance.job_card.view'] },
-      { key: MAINTENANCE_QUEUE_NAV_KEYS.complete, label: 'Complete Job Cards', icon: CheckCircleOutlined, color: 'success', permissions: ['maintenance.job_card.view'] },
-      { key: MAINTENANCE_QUEUE_NAV_KEYS.all, label: 'All Job Cards', icon: UnorderedListOutlined, color: 'info', permissions: ['maintenance.job_card.view'] },
-      { key: '/maintenance/teams', label: 'Teams', icon: TeamOutlined, color: 'cyan', permissions: ['maintenance.team.view'] },
-      { key: '/maintenance/categories', label: 'Categories', icon: TagsOutlined, color: 'cyan', permissions: ['maintenance.category.view'] },
-      { key: '/maintenance/pm-plans', label: 'PM Plans', icon: CalendarOutlined, color: 'cyan', permissions: ['maintenance.pm.view'] },
-      { key: '/maintenance/pm-schedules', label: 'PM Schedules', icon: ScheduleOutlined, color: 'cyan', permissions: ['maintenance.pm.view'] },
-      { key: '/maintenance/reports', label: 'Reports', icon: BarChartOutlined, color: 'violet', permissions: ['maintenance.reports.view'] },
-    ],
-  },
-
-
-
-  {
     key: 'development',
     label: 'Development',
     icon: BugOutlined,
@@ -398,6 +399,7 @@ export const NAV_ENTRIES: NavEntry[] = [
       { key: '/development/status', label: 'Development Status', icon: BugOutlined, color: 'neutral' },
     ],
   },
+
   {
     key: 'notifications',
     label: 'Notifications',
@@ -409,6 +411,7 @@ export const NAV_ENTRIES: NavEntry[] = [
       { key: '/notifications/settings', label: 'Notification Settings', icon: SettingOutlined, color: 'warning', permissions: ['notifications.view'] },
     ],
   },
+
   {
     key: 'communication-admin',
     label: 'Communication',
@@ -426,6 +429,7 @@ export const NAV_ENTRIES: NavEntry[] = [
       { key: '/communication/rules', label: 'Notification Rules', icon: BellOutlined, color: 'cyan', permissions: ['notifications.rules.view'] },
     ],
   },
+
   {
     key: 'finance',
     label: 'Finance',
@@ -438,6 +442,7 @@ export const NAV_ENTRIES: NavEntry[] = [
       { key: '/finance/reports', label: 'Financial Reports', icon: BarChartOutlined, color: 'success', permissions: ['finance.report.trial_balance'] },
     ],
   },
+
   {
     key: 'hr',
     label: 'HR',
@@ -461,6 +466,7 @@ export const NAV_ENTRIES: NavEntry[] = [
       { key: '/hr/employees', label: 'Employees', icon: TeamOutlined, color: 'purple', permissions: ['hr.employee.view'] },
     ],
   },
+
   {
     key: 'qc',
     label: 'Quality Control',
@@ -473,6 +479,7 @@ export const NAV_ENTRIES: NavEntry[] = [
       { key: '/qc/capa', label: 'CAPA', icon: SafetyOutlined, color: 'cyan', permissions: ['qc.capa.view'] },
     ],
   },
+
   {
     key: 'production-orders',
     label: 'Production Orders',
