@@ -357,11 +357,11 @@ html[data-theme='dark'] .jc-action-primary.ant-btn {
 }
 
 @media (max-width: 576px) {
-  .ant-modal {
-    margin: 8px;
+  .ant-modal:not(.erp-jc-modal-maximized) {
+    margin: 8px auto;
   }
-  .ant-modal-body {
-    max-height: 60vh;
+  .ant-modal-wrap:not(.erp-jc-modal-wrap) .ant-modal-body {
+    max-height: calc(100dvh - 130px);
   }
 }
 

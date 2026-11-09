@@ -179,6 +179,9 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
   // Sync currentMode when mode prop or open changes
   useEffect(() => {
     setCurrentMode(mode);
+    if (open) {
+      setMobileTab('form');
+    }
   }, [mode, open]);
 
   // Window Controls State
@@ -186,6 +189,16 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
   const [isMinimized, setIsMinimized] = useState(false);
   const [showPreviewPane, setShowPreviewPane] = useState(true);
   const [mobileTab, setMobileTab] = useState<'form' | 'preview'>('form');
+  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth <= 768);
+
+  useEffect(() => {
+    const handleWindowResize = () => {
+      setIsMobile(typeof window !== 'undefined' && window.innerWidth <= 768);
+    };
+    window.addEventListener('resize', handleWindowResize);
+    return () => window.removeEventListener('resize', handleWindowResize);
+  }, []);
+
   const [modalPos, setModalPos] = useState({ x: 0, y: 0 });
   const [customSize, setCustomSize] = useState<{ width: number; height: number } | null>(null);
   const isDraggingRef = useRef(false);
@@ -1970,7 +1983,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
       sub: 'Record diagnosis, corrective action taken & complete ticket',
       icon: <CheckCircleOutlined />,
       iconClass: 'erp-jc-header-icon erp-jc-header-icon--success',
-      btnText: 'Complete & Close Job',
+      btnText: isMobile ? 'Complete & Close' : 'Complete & Close Job',
       btnColor: '#059669',
     },
     parts: {
@@ -1978,7 +1991,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
       sub: 'Pause active work and record missing spare part requirement',
       icon: <StopOutlined />,
       iconClass: 'erp-jc-header-icon erp-jc-header-icon--warning',
-      btnText: 'Put on Hold (Waiting for Parts)',
+      btnText: isMobile ? 'Put on Hold' : 'Put on Hold (Waiting for Parts)',
       btnColor: '#d97706',
     },
     review: {
@@ -1986,7 +1999,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
       sub: 'Inspect technician diagnosis & approve or return for rework',
       icon: <AuditOutlined />,
       iconClass: 'erp-jc-header-icon erp-jc-header-icon--purple',
-      btnText: reviewAction === 'verify' ? 'Approve & Verify Job' : 'Return to Technician',
+      btnText: reviewAction === 'verify' ? (isMobile ? 'Approve Job' : 'Approve & Verify Job') : (isMobile ? 'Return Job' : 'Return to Technician'),
       btnColor: reviewAction === 'verify' ? '#059669' : '#dc2626',
     },
     rework: {
@@ -1994,7 +2007,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
       sub: `Ticket #${jobCardNo} — Address supervisor rejection notes, update repair actions & resubmit`,
       icon: <RollbackOutlined />,
       iconClass: 'erp-jc-header-icon erp-jc-header-icon--red',
-      btnText: 'Confirm & Resubmit for Review',
+      btnText: isMobile ? 'Resubmit Job' : 'Confirm & Resubmit for Review',
       btnColor: '#ef4444',
     },
     view: {
@@ -2260,15 +2273,52 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
 
       {/* Main Draggable & Resizable Window Modal */}
       <Modal
-        wrapClassName="erp-jc-modal-wrap"
-        className={customSize && !isMaximized ? 'erp-jc-modal-custom-size' : undefined}
+        wrapClassName={`erp-jc-modal-wrap ${isMobile ? 'erp-jc-mobile-view' : ''} ${isMaximized ? 'erp-jc-modal-maximized' : ''}`}
+        rootClassName={isMobile ? 'erp-jc-mobile-root' : undefined}
+        className={customSize && !isMaximized && !isMobile ? 'erp-jc-modal-custom-size' : undefined}
         open={!isMinimized}
         closable={false}
         footer={null}
         zIndex={1250}
-        width={isMaximized ? '100%' : (customSize ? `${customSize.width}px` : '100%')}
+        width={isMobile ? '100vw' : isMaximized ? '100%' : (customSize ? `${customSize.width}px` : '100%')}
+        styles={
+          isMobile
+            ? {
+                content: {
+                  height: '100dvh',
+                  maxHeight: '100dvh',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  padding: 0,
+                  borderRadius: 0,
+                  overflow: 'hidden',
+                },
+                body: {
+                  flex: '1 1 0%',
+                  height: '100dvh',
+                  minHeight: '100dvh',
+                  maxHeight: '100dvh',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  padding: 0,
+                  overflow: 'hidden',
+                },
+              }
+            : undefined
+        }
         style={
-          isMaximized
+          isMobile
+            ? {
+                position: 'fixed',
+                inset: 0,
+                margin: 0,
+                padding: 0,
+                width: '100vw',
+                maxWidth: '100vw',
+                height: '100dvh',
+                maxHeight: '100dvh',
+              }
+            : isMaximized
             ? { top: 6, padding: 0, margin: 0, maxWidth: '100%' }
             : {
                 top: 14,
@@ -2280,17 +2330,19 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
       >
         <div
           ref={modalContainerRef}
+          className="erp-jc-modal-root-container"
           style={{
             display: 'flex',
             flexDirection: 'column',
-            height: isMaximized ? '100vh' : (customSize ? `${customSize.height}px` : 'calc(86vh)'),
-            maxHeight: isMaximized ? '100vh' : (customSize ? `${customSize.height}px` : '820px'),
+            height: isMobile ? '100dvh' : isMaximized ? '100vh' : (customSize ? `${customSize.height}px` : 'calc(86vh)'),
+            maxHeight: isMobile ? '100dvh' : isMaximized ? '100vh' : (customSize ? `${customSize.height}px` : '820px'),
+            minHeight: isMobile ? '100dvh' : undefined,
             overflow: 'hidden',
             position: 'relative',
           }}
         >
           {/* Draggable Header Bar */}
-          <div className="erp-jc-modal-header" onMouseDown={handleDragStart}>
+          <div className="erp-jc-modal-header" onMouseDown={isMobile ? undefined : handleDragStart}>
             <div className="erp-jc-header-title-group">
               <div className={modeConfig.iconClass}>{modeConfig.icon}</div>
               <div className="erp-jc-header-title-text">
@@ -2302,14 +2354,14 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
             {/* Window Controls */}
             <div className="erp-jc-header-ctrl-group" onMouseDown={(e) => e.stopPropagation()}>
               {/* WhatsApp Share Quick Button in Header */}
-              <Tooltip title="Share Job Card summary on WhatsApp">
+              <Tooltip title={isMobile ? '' : 'Share Job Card summary on WhatsApp'}>
                 <button
                   type="button"
                   className="erp-jc-header-ctrl-btn"
                   onClick={handleOpenWhatsApp}
                   style={{
-                    padding: '0 12px',
-                    gap: 6,
+                    padding: isMobile ? '0 9px' : '0 12px',
+                    gap: 5,
                     background: '#25D366',
                     color: '#ffffff',
                     border: '1px solid #1ebd59',
@@ -2317,11 +2369,11 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                   }}
                 >
                   <WhatsAppOutlined style={{ fontSize: 14 }} />
-                  <span style={{ fontSize: 11, fontWeight: 700 }}>WhatsApp Share</span>
+                  <span style={{ fontSize: 11, fontWeight: 700 }}>{isMobile ? 'Share' : 'WhatsApp Share'}</span>
                 </button>
               </Tooltip>
 
-              {!(currentMode === 'view' && viewLayout === 'detail') && (
+              {!isMobile && !(currentMode === 'view' && viewLayout === 'detail') && (
                 <Tooltip title={showPreviewPane ? 'Hide Live Detail Sheet' : 'Show Live Detail Sheet'}>
                   <button
                     type="button"
@@ -2341,32 +2393,35 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                 </Tooltip>
               )}
 
+              {!isMobile && (
+                <Tooltip title={isMaximized ? 'Restore Window' : 'Maximize Window'}>
+                  <button
+                    type="button"
+                    className="erp-jc-header-ctrl-btn"
+                    onClick={() => setIsMaximized((v) => !v)}
+                  >
+                    {isMaximized ? <FullscreenExitOutlined /> : <FullscreenOutlined />}
+                  </button>
+                </Tooltip>
+              )}
 
-              <Tooltip title={isMaximized ? 'Restore Window' : 'Maximize Window'}>
-                <button
-                  type="button"
-                  className="erp-jc-header-ctrl-btn"
-                  onClick={() => setIsMaximized((v) => !v)}
-                >
-                  {isMaximized ? <FullscreenExitOutlined /> : <FullscreenOutlined />}
-                </button>
-              </Tooltip>
-
-              <Tooltip title="Minimize to floating pill">
+              <Tooltip title={isMobile ? '' : 'Minimize to floating pill'}>
                 <button
                   type="button"
                   className="erp-jc-header-ctrl-btn"
                   onClick={() => setIsMinimized(true)}
+                  aria-label="Minimize"
                 >
                   <MinusOutlined />
                 </button>
               </Tooltip>
 
-              <Tooltip title="Close">
+              <Tooltip title={isMobile ? '' : 'Close'}>
                 <button
                   type="button"
                   className="erp-jc-header-ctrl-btn erp-jc-header-ctrl-btn--close"
                   onClick={onClose}
+                  aria-label="Close"
                 >
                   <CloseOutlined />
                 </button>
@@ -2374,40 +2429,48 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
             </div>
           </div>
 
-          {/* Mobile Tab Switcher */}
-          <div
-            className="erp-jc-mobile-tabs"
-            style={{
-              padding: '6px 14px',
-              background: 'var(--theme-surface-alt, #0f172a)',
-              borderBottom: '1px solid var(--theme-border, #1e293b)',
-              display: 'none',
-            }}
-          >
-            <Segmented
-              block
-              value={mobileTab}
-              onChange={(val) => setMobileTab(val as 'form' | 'preview')}
-              options={[
-                { label: '📝 Action Form', value: 'form' },
-                { label: '📋 Live Detail Sheet', value: 'preview' },
-              ]}
-            />
-          </div>
+          {/* Mobile Tab Switcher (Shown in Action Modes; Hidden in Full 360° View Mode) */}
+          {!(currentMode === 'view' && viewLayout === 'detail') && (
+            <div
+              className="erp-jc-mobile-tabs"
+              style={{
+                padding: '6px 12px',
+                background: 'var(--theme-surface-alt, #0f172a)',
+                borderBottom: '1px solid var(--theme-border, #1e293b)',
+                display: isMobile ? 'block' : 'none',
+                flexShrink: 0,
+              }}
+            >
+              <Segmented
+                block
+                value={mobileTab}
+                onChange={(val) => setMobileTab(val as 'form' | 'preview')}
+                options={[
+                  { label: '📝 Action Form', value: 'form' },
+                  { label: '📋 Live Detail Sheet', value: 'preview' },
+                ]}
+              />
+            </div>
+          )}
 
           {/* Body Container (Two-Pane or Full Detail View) */}
           <div
             className="erp-jc-body-container"
             style={{
-              flex: '1 1 auto',
+              flex: isMobile ? '1 1 0%' : '1 1 auto',
               minHeight: 0,
-              height: isMaximized
+              height: isMobile
+                ? 'auto'
+                : isMaximized
                 ? 'calc(100vh - 120px)'
                 : (customSize ? `calc(${customSize.height}px - 120px)` : 'calc(86vh - 120px)'),
-              maxHeight: isMaximized
+              maxHeight: isMobile
+                ? 'none'
+                : isMaximized
                 ? 'calc(100vh - 120px)'
                 : (customSize ? `calc(${customSize.height}px - 120px)` : 'calc(86vh - 120px)'),
               display: 'flex',
+              flexDirection: isMobile ? 'column' : 'row',
               overflow: 'hidden',
             }}
           >
@@ -2418,7 +2481,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                   onScroll={handleDetailScroll}
                   className="erp-jc-detail-pane"
                 >
-                {loadingCardDetails ? (
+                {loadingCardDetails && !activeCard ? (
                   <div style={{ textAlign: 'center', padding: '80px 0' }}>
                     <Spin size="large" />
                     <div style={{ marginTop: 14, color: 'var(--theme-text-muted)' }}>
@@ -3157,16 +3220,19 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
             ) : (
               <>
                 {/* Left Form Pane */}
-                <div
-                  ref={formPaneRef}
-                  onScroll={handleFormScroll}
-                  className="erp-jc-form-pane"
-                  style={{
-                    display: mobileTab === 'preview' ? undefined : 'block',
-                  }}
-                >
+                {(!isMobile || mobileTab === 'form') && (
+                  <div
+                    ref={formPaneRef}
+                    onScroll={handleFormScroll}
+                    className={`erp-jc-form-pane ${isMobile && mobileTab !== 'form' ? 'erp-jc-mobile-hidden' : ''}`}
+                    style={{
+                      display: isMobile && mobileTab !== 'form' ? 'none' : 'block',
+                      flex: isMobile ? '1 1 0%' : (showPreviewPane ? '1 1 58%' : '1 1 100%'),
+                      height: isMobile ? '100%' : undefined,
+                    }}
+                  >
 
-              {loadingCardDetails ? (
+              {loadingCardDetails && !activeCard ? (
                 <div style={{ textAlign: 'center', padding: '60px 0' }}>
                   <Spin size="large" />
                   <div style={{ marginTop: 12, color: 'var(--theme-text-muted)' }}>
@@ -3210,30 +3276,66 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                       </div>
                     ) : (
                       <div
+                        className="erp-jc-locked-ticket-box"
                         style={{
                           display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
+                          flexDirection: 'column',
+                          gap: 8,
                           padding: '10px 14px',
                           background: 'var(--theme-surface-alt, #18223c)',
-                          borderRadius: 8,
+                          borderRadius: 10,
                           border: '1px solid var(--theme-border, #2a385f)',
                         }}
                       >
-                        <Space direction="vertical" size={2}>
-                          <Space>
-                            <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--theme-text, #ffffff)' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+                          <Space wrap size={6}>
+                            <span style={{ fontWeight: 800, fontSize: 14, fontFamily: 'monospace', color: 'var(--theme-text, #ffffff)' }}>
                               {jobCardNo}
                             </span>
                             <StatusBadge status={currentStatus} />
+                            <Tag
+                              color={
+                                priority === 'CRITICAL'
+                                  ? '#dc2626'
+                                  : priority === 'HIGH'
+                                  ? '#f97316'
+                                  : priority === 'MEDIUM'
+                                  ? '#2563eb'
+                                  : '#64748b'
+                              }
+                              style={{ margin: 0, fontWeight: 700, fontSize: 11 }}
+                            >
+                              {priority}
+                            </Tag>
                           </Space>
-                          <span style={{ fontSize: 12, color: 'var(--theme-text-muted, #94a3b8)' }}>
-                            {machineName} &bull; Code: {machineCode}
-                          </span>
-                        </Space>
-                        <Tag icon={<LockOutlined />} color="default">
-                          LOCKED
-                        </Tag>
+                          <Tag icon={<LockOutlined />} color="default" style={{ margin: 0 }}>
+                            LOCKED
+                          </Tag>
+                        </div>
+
+                        <div className="erp-jc-locked-ticket-meta" style={{ fontSize: 12, fontWeight: 600, color: 'var(--theme-text-secondary, #64748b)' }}>
+                          <BuildOutlined style={{ marginRight: 5, color: 'var(--maint-info-fg)' }} />
+                          <strong style={{ color: 'var(--theme-text, #0f172a)' }}>{machineName}</strong> &bull; Code: <code>{machineCode}</code>
+                          {divisionName && divisionName !== '—' ? ` • ${divisionName}` : ''}
+                        </div>
+
+                        {complaint && (
+                          <div
+                            className="erp-jc-locked-ticket-fault"
+                            style={{
+                              padding: '6px 10px',
+                              borderRadius: 6,
+                              background: 'rgba(239, 68, 68, 0.08)',
+                              borderLeft: '3px solid #ef4444',
+                              fontSize: 12,
+                              color: 'var(--theme-text, #0f172a)',
+                              lineHeight: 1.4,
+                            }}
+                          >
+                            <strong style={{ color: '#ef4444' }}>Fault: </strong>
+                            {complaint}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -3537,8 +3639,8 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                           <h5 className="erp-jc-section-title">Classification &amp; Remarks</h5>
                         </div>
 
-                        <Row gutter={12} style={{ marginBottom: 14 }}>
-                          <Col span={12}>
+                        <Row gutter={[12, 10]} style={{ marginBottom: 14 }}>
+                          <Col xs={24} sm={12}>
                             <label style={{ display: 'block', fontWeight: 600, fontSize: 12, marginBottom: 4 }}>
                               Root Cause Category:
                             </label>
@@ -3554,7 +3656,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                               }))}
                             />
                           </Col>
-                          <Col span={12}>
+                          <Col xs={24} sm={12}>
                             <label style={{ display: 'block', fontWeight: 600, fontSize: 12, marginBottom: 4 }}>
                               Failure Mode Category:
                             </label>
@@ -3891,8 +3993,8 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                           <h5 className="erp-jc-section-title">Classification</h5>
                         </div>
 
-                        <Row gutter={12}>
-                          <Col span={12}>
+                        <Row gutter={[12, 10]}>
+                          <Col xs={24} sm={12}>
                             <label style={{ display: 'block', fontWeight: 600, fontSize: 12, marginBottom: 4 }}>
                               Root Cause Category:
                             </label>
@@ -3908,7 +4010,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                               }))}
                             />
                           </Col>
-                          <Col span={12}>
+                          <Col xs={24} sm={12}>
                             <label style={{ display: 'block', fontWeight: 600, fontSize: 12, marginBottom: 4 }}>
                               Failure Mode Category:
                             </label>
@@ -3937,8 +4039,8 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                         <h5 className="erp-jc-section-title">Spare Part Requirement & Hold Reason</h5>
                       </div>
 
-                      <Row gutter={12} style={{ marginBottom: 14 }}>
-                        <Col span={16}>
+                      <Row gutter={[12, 10]} style={{ marginBottom: 14 }}>
+                        <Col xs={24} sm={16}>
                           <label style={{ display: 'block', fontWeight: 600, fontSize: 13, marginBottom: 6 }}>
                             Missing Spare Part Name <span style={{ color: 'var(--maint-danger-fg)' }}>*</span>:
                           </label>
@@ -3948,7 +4050,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                             onChange={(e) => setPartName(e.target.value)}
                           />
                         </Col>
-                        <Col span={8}>
+                        <Col xs={24} sm={8}>
                           <label style={{ display: 'block', fontWeight: 600, fontSize: 13, marginBottom: 6 }}>
                             Part Code / OEM Ref:
                           </label>
@@ -4136,26 +4238,69 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                           <h5 className="erp-jc-section-title">Supervisor Decision</h5>
                         </div>
 
-                        <div style={{ marginBottom: 16 }}>
-                          <Radio.Group
-                            value={reviewAction}
-                            onChange={(e) => setReviewAction(e.target.value)}
-                            buttonStyle="solid"
-                            size="middle"
+                        <div
+                          style={{
+                            display: 'grid',
+                            gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(2, minmax(0, 260px))',
+                            gap: 10,
+                            marginBottom: 16,
+                          }}
+                        >
+                          <div
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => setReviewAction('verify')}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') setReviewAction('verify');
+                            }}
+                            style={{
+                              padding: '10px 12px',
+                              borderRadius: 10,
+                              border: reviewAction === 'verify' ? '2px solid #10b981' : '1.5px solid var(--theme-border)',
+                              background: reviewAction === 'verify' ? 'rgba(16, 185, 129, 0.14)' : 'var(--theme-surface-alt)',
+                              color: reviewAction === 'verify' ? '#10b981' : 'var(--theme-text)',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              gap: 8,
+                              fontWeight: 700,
+                              fontSize: 13,
+                              textAlign: 'center',
+                              transition: 'all 0.15s ease',
+                            }}
                           >
-                            <Radio.Button value="verify">
-                              <Space>
-                                <CheckCircleOutlined style={{ color: 'var(--maint-success-fg)' }} />
-                                <strong>Verify & Approve</strong>
-                              </Space>
-                            </Radio.Button>
-                            <Radio.Button value="reject">
-                              <Space>
-                                <RollbackOutlined style={{ color: 'var(--maint-danger-fg)' }} />
-                                <strong>Return to Technician for Rework</strong>
-                              </Space>
-                            </Radio.Button>
-                          </Radio.Group>
+                            <CheckCircleOutlined style={{ fontSize: 16, color: '#10b981' }} />
+                            <span>Verify &amp; Approve</span>
+                          </div>
+
+                          <div
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => setReviewAction('reject')}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') setReviewAction('reject');
+                            }}
+                            style={{
+                              padding: '10px 12px',
+                              borderRadius: 10,
+                              border: reviewAction === 'reject' ? '2px solid #ef4444' : '1.5px solid var(--theme-border)',
+                              background: reviewAction === 'reject' ? 'rgba(239, 68, 68, 0.14)' : 'var(--theme-surface-alt)',
+                              color: reviewAction === 'reject' ? '#ef4444' : 'var(--theme-text)',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              gap: 8,
+                              fontWeight: 700,
+                              fontSize: 13,
+                              textAlign: 'center',
+                              transition: 'all 0.15s ease',
+                            }}
+                          >
+                            <RollbackOutlined style={{ fontSize: 16, color: '#ef4444' }} />
+                            <span>{isMobile ? 'Return for Rework' : 'Return to Technician for Rework'}</span>
+                          </div>
                         </div>
 
                         {reviewAction === 'verify' ? (
@@ -4460,57 +4605,62 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
 
                 </>
               )}
-            </div>
+                  </div>
+                )}
 
             {/* ── Dedicated Interactive Vertical Slider Rail (Between Left Form Pane & Right Preview Pane) ── */}
-            <div className="erp-jc-custom-slider-rail" style={{ height: '100%' }}>
-              <button
-                type="button"
-                className="erp-jc-slider-arrow-btn"
-                onClick={() => formPaneRef.current?.scrollBy({ top: -200, behavior: 'smooth' })}
-                title="Slide Form Up"
-                aria-label="Slide Form Up"
-              >
-                ▲
-              </button>
-              <div
-                ref={sliderTrackRef}
-                className="erp-jc-slider-track"
-                onMouseDown={handleSliderTrackMouseDown}
-                title="Click or drag blue slider to move form up and down"
-              >
-                <div
-                  className="erp-jc-slider-thumb"
-                  onMouseDown={handleSliderThumbMouseDown}
-                  style={{
-                    height: '26%',
-                    top: `${scrollProgress * 74}%`,
-                  }}
+            {!isMobile && (
+              <div className="erp-jc-custom-slider-rail" style={{ height: '100%' }}>
+                <button
+                  type="button"
+                  className="erp-jc-slider-arrow-btn"
+                  onClick={() => formPaneRef.current?.scrollBy({ top: -200, behavior: 'smooth' })}
+                  title="Slide Form Up"
+                  aria-label="Slide Form Up"
                 >
-                  <span className="erp-jc-slider-grip-line" />
-                  <span className="erp-jc-slider-grip-line" />
-                  <span className="erp-jc-slider-grip-line" />
+                  ▲
+                </button>
+                <div
+                  ref={sliderTrackRef}
+                  className="erp-jc-slider-track"
+                  onMouseDown={handleSliderTrackMouseDown}
+                  title="Click or drag blue slider to move form up and down"
+                >
+                  <div
+                    className="erp-jc-slider-thumb"
+                    onMouseDown={handleSliderThumbMouseDown}
+                    style={{
+                      height: '26%',
+                      top: `${scrollProgress * 74}%`,
+                    }}
+                  >
+                    <span className="erp-jc-slider-grip-line" />
+                    <span className="erp-jc-slider-grip-line" />
+                    <span className="erp-jc-slider-grip-line" />
+                  </div>
                 </div>
+                <button
+                  type="button"
+                  className="erp-jc-slider-arrow-btn"
+                  onClick={() => formPaneRef.current?.scrollBy({ top: 200, behavior: 'smooth' })}
+                  title="Slide Form Down"
+                  aria-label="Slide Form Down"
+                >
+                  ▼
+                </button>
               </div>
-              <button
-                type="button"
-                className="erp-jc-slider-arrow-btn"
-                onClick={() => formPaneRef.current?.scrollBy({ top: 200, behavior: 'smooth' })}
-                title="Slide Form Down"
-                aria-label="Slide Form Down"
-              >
-                ▼
-              </button>
-            </div>
+            )}
 
             {/* Right Live Detail Sheet */}
-            {showPreviewPane && (
+            {(!isMobile ? showPreviewPane : mobileTab === 'preview') && (
               <div
                 ref={previewPaneRef}
                 onScroll={handlePreviewScroll}
-                className="erp-jc-preview-pane"
+                className={`erp-jc-preview-pane ${isMobile && mobileTab !== 'preview' ? 'erp-jc-mobile-hidden' : ''}`}
                 style={{
-                  display: mobileTab === 'form' ? undefined : 'flex',
+                  display: isMobile && mobileTab !== 'preview' ? 'none' : 'block',
+                  flex: isMobile ? '1 1 0%' : undefined,
+                  height: isMobile ? '100%' : undefined,
                 }}
               >
                 <div className="erp-jc-live-ticket">
@@ -4518,10 +4668,11 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                   <div className="erp-jc-ticket-header">
                     <div className="erp-jc-ticket-code">
                       <span>#{jobCardNo}</span>
-                      <Tooltip title="Copy ticket number">
+                      <Tooltip title={isMobile ? '' : 'Copy ticket number'}>
                         <Button
                           type="text"
                           size="small"
+                          tabIndex={-1}
                           icon={<CopyOutlined />}
                           style={{ color: 'var(--maint-info-fg)' }}
                           onClick={() => {
@@ -4610,7 +4761,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                           </div>
                         </div>
                         <div style={{ background: 'rgba(16, 185, 129, 0.12)', padding: '6px 8px', borderRadius: 6, border: '1px solid rgba(16, 185, 129, 0.3)' }}>
-                          <div style={{ fontSize: 10, color: '#a7f3d0' }}>4. Net Labor</div>
+                          <div style={{ fontSize: 10, color: 'var(--maint-success-fg)' }}>4. Net Labor</div>
                           <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--maint-success-fg)' }}>{formatDuration(timingMetrics.netRepairMinutes)}</div>
                         </div>
                       </div>
@@ -4725,7 +4876,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
             )}
 
             {/* ── Dedicated Interactive Vertical Slider Rail for Right Preview Pane (Far Right Edge) ── */}
-            {showPreviewPane && (
+            {!isMobile && showPreviewPane && (
               <div className="erp-jc-custom-slider-rail erp-jc-preview-slider-rail" style={{ height: '100%' }}>
                 <button
                   type="button"
@@ -4771,14 +4922,40 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
           </div>
 
           {/* Modal Footer */}
-          <div className="erp-jc-footer">
+          <div
+            className="erp-jc-footer"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 8,
+              width: '100%',
+            }}
+          >
             {currentMode !== 'view' && (
-              <Button onClick={onClose} disabled={submitting}>
-                Cancel &amp; Close
+              <Button
+                onClick={onClose}
+                disabled={submitting}
+                style={{
+                  flex: isMobile ? '0 0 auto' : undefined,
+                  height: isMobile ? 40 : 38,
+                  padding: isMobile ? '0 14px' : undefined,
+                }}
+              >
+                {isMobile ? 'Cancel' : 'Cancel & Close'}
               </Button>
             )}
 
-            <Space style={{ marginLeft: currentMode === 'view' ? 'auto' : undefined }}>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                flex: isMobile ? '1 1 auto' : undefined,
+                marginLeft: currentMode === 'view' ? 'auto' : undefined,
+                width: isMobile && currentMode === 'view' ? '100%' : undefined,
+              }}
+            >
               {/* WhatsApp Share Button in Footer */}
               <Button
                 icon={<WhatsAppOutlined style={{ color: '#25D366' }} />}
@@ -4786,12 +4963,13 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                   borderColor: '#25D366',
                   color: '#25D366',
                   fontWeight: 600,
-                  height: 38,
-                  padding: '0 18px',
+                  height: isMobile ? 40 : 38,
+                  padding: isMobile ? '0 12px' : '0 18px',
+                  flex: isMobile ? '0 0 auto' : undefined,
                 }}
                 onClick={handleOpenWhatsApp}
               >
-                WhatsApp Share
+                {isMobile ? 'WhatsApp' : 'WhatsApp Share'}
               </Button>
 
               {currentMode === 'view' ? (
@@ -4801,9 +4979,10 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                     backgroundColor: '#2563eb',
                     borderColor: '#2563eb',
                     color: '#ffffff',
-                    fontWeight: 600,
-                    height: 38,
+                    fontWeight: 700,
+                    height: isMobile ? 40 : 38,
                     padding: '0 24px',
+                    flex: isMobile ? '1 1 auto' : undefined,
                   }}
                   onClick={onClose}
                 >
@@ -4818,19 +4997,20 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
                     backgroundColor: isFormValid ? modeConfig.btnColor : undefined,
                     borderColor: isFormValid ? modeConfig.btnColor : undefined,
                     fontWeight: 700,
-                    height: 38,
-                    padding: '0 22px',
+                    height: isMobile ? 40 : 38,
+                    padding: isMobile ? '0 14px' : '0 22px',
+                    flex: isMobile ? '1 1 auto' : undefined,
                   }}
                   onClick={handleSubmit}
                 >
                   {modeConfig.btnText}
                 </Button>
               )}
-            </Space>
+            </div>
           </div>
 
           {/* Mouse Drag Corner Resize Grip (Bottom-Right) */}
-          {!isMaximized && (
+          {!isMobile && !isMaximized && (
             <div
               className="erp-jc-resize-handle"
               onMouseDown={handleResizeStart}

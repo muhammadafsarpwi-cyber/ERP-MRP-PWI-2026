@@ -1405,7 +1405,7 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
                 </Tooltip>
               )}
 
-              <Tooltip title="Minimize to bottom dock">
+              <Tooltip title={isMobile ? '' : 'Minimize to bottom dock'}>
                 <button
                   type="button"
                   className="erp-jc-header-ctrl-btn"
@@ -1416,7 +1416,7 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
                 </button>
               </Tooltip>
 
-              <Tooltip title="Close and return to Job Cards list">
+              <Tooltip title={isMobile ? '' : 'Close and return to Job Cards list'}>
                 <button
                   type="button"
                   className="erp-jc-header-ctrl-btn erp-jc-header-ctrl-btn--close"
@@ -1435,7 +1435,7 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
             style={{
               flexShrink: 0,
               display: isMobile ? 'block' : 'none',
-              padding: '8px 14px',
+              padding: '6px 12px',
               background: 'var(--theme-surface-alt, #0f172a)',
               borderBottom: '1px solid var(--theme-border, #1e293b)',
             }}
@@ -1445,8 +1445,16 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
               value={mobileActiveTab}
               onChange={(val) => setMobileActiveTab(val as 'form' | 'preview')}
               options={[
-                { label: 'Form Input', value: 'form', icon: <FormOutlined /> },
-                { label: 'Live Ticket Sheet', value: 'preview', icon: <EyeOutlined /> },
+                {
+                  label: `Form Input (${completionStats.score}/${completionStats.total})`,
+                  value: 'form',
+                  icon: <FormOutlined />,
+                },
+                {
+                  label: 'Live Ticket & History',
+                  value: 'preview',
+                  icon: <EyeOutlined />,
+                },
               ]}
             />
           </div>
@@ -1457,19 +1465,19 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
             style={{
               display: 'flex',
               flexDirection: isMobile ? 'column' : 'row',
-              flex: '0 0 auto',
+              flex: isMobile ? '1 1 0%' : '0 0 auto',
               height: isMobile
-                ? 'calc(100dvh - 160px)'
+                ? 'auto'
                 : isMaximized
                 ? 'calc(min(90vh, calc(100vh - 40px)) - 136px)'
                 : `calc(min(${customSize?.height || DEFAULT_DESKTOP_HEIGHT}px, 82vh) - 136px)`,
               maxHeight: isMobile
-                ? 'calc(100dvh - 160px)'
+                ? 'none'
                 : isMaximized
                 ? 'calc(min(90vh, calc(100vh - 40px)) - 136px)'
                 : `calc(min(${customSize?.height || DEFAULT_DESKTOP_HEIGHT}px, 82vh) - 136px)`,
               minHeight: isMobile
-                ? 'calc(100dvh - 160px)'
+                ? 0
                 : isMaximized
                 ? 'calc(min(90vh, calc(100vh - 40px)) - 136px)'
                 : `calc(min(${customSize?.height || DEFAULT_DESKTOP_HEIGHT}px, 82vh) - 136px)`,
@@ -1485,12 +1493,12 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
                 style={{
                   flex: isMobile ? '1 1 0%' : (showPreviewPane ? '1 1 58%' : '1 1 100%'),
                   height: isMobile
-                    ? 'calc(100dvh - 160px)'
+                    ? '100%'
                     : isMaximized
                     ? 'calc(min(90vh, calc(100vh - 40px)) - 136px)'
                     : `calc(min(${customSize?.height || DEFAULT_DESKTOP_HEIGHT}px, 82vh) - 136px)`,
                   maxHeight: isMobile
-                    ? 'calc(100dvh - 160px)'
+                    ? '100%'
                     : isMaximized
                     ? 'calc(min(90vh, calc(100vh - 40px)) - 136px)'
                     : `calc(min(${customSize?.height || DEFAULT_DESKTOP_HEIGHT}px, 82vh) - 136px)`,
@@ -1891,7 +1899,7 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
                     </div>
                   )}
                 </div>
-                <div style={{ height: 180 }} aria-hidden="true" />
+                <div style={{ height: isMobile ? 20 : 180 }} aria-hidden="true" />
               </Form>
 
               {/* Floating Quick Mouse Slide Controller */}
@@ -2010,13 +2018,13 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
                 style={{
                   flex: isMobile ? '1 1 0%' : undefined,
                   height: isMobile
-                    ? 'calc(100dvh - 160px)'
+                    ? '100%'
                     : isMaximized
                     ? 'calc(min(90vh, calc(100vh - 40px)) - 136px)'
                     : `calc(min(${customSize?.height || DEFAULT_DESKTOP_HEIGHT}px, 82vh) - 136px)`,
                   minHeight: 0,
                   maxHeight: isMobile
-                    ? 'calc(100dvh - 160px)'
+                    ? '100%'
                     : isMaximized
                     ? 'calc(min(90vh, calc(100vh - 40px)) - 136px)'
                     : `calc(min(${customSize?.height || DEFAULT_DESKTOP_HEIGHT}px, 82vh) - 136px)`,
@@ -2660,7 +2668,7 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
                   )}
                 </div>
               </div>
-              <div style={{ height: 150 }} aria-hidden="true" />
+              <div style={{ height: isMobile ? 20 : 150 }} aria-hidden="true" />
             </div>
           )}
 
@@ -2723,13 +2731,15 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
             className="erp-jc-footer"
             style={{
               flexShrink: 0,
-              flex: '0 0 64px',
-              height: 64,
               boxSizing: 'border-box',
               marginTop: 0,
               position: 'relative',
               width: '100%',
               zIndex: 1000,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 8,
             }}
           >
             <div
@@ -2737,18 +2747,13 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
                 display: 'flex',
                 alignItems: 'center',
                 gap: 8,
-                width: isMobile ? '100%' : 'auto',
-                justifyContent: isMobile ? 'space-between' : 'flex-start',
+                flex: isMobile ? '0 0 auto' : undefined,
               }}
             >
-              <Button
-                style={isMobile ? { flex: 1 } : undefined}
-                onClick={handleClose}
-              >
-                Cancel &amp; Return
+              <Button onClick={handleClose}>
+                {isMobile ? 'Cancel' : 'Cancel & Return'}
               </Button>
               <Button
-                style={isMobile ? { flex: 1 } : undefined}
                 icon={<ReloadOutlined />}
                 onClick={() => {
                   form.resetFields();
@@ -2756,7 +2761,7 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
                   setLookupCode('');
                 }}
               >
-                Reset Form
+                {isMobile ? 'Reset' : 'Reset Form'}
               </Button>
               {!isMobile && (
                 <Button
@@ -2768,26 +2773,24 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
               )}
             </div>
 
-            <Space style={{ width: isMobile ? '100%' : 'auto' }}>
-              <Button
-                type="primary"
-                size="large"
-                icon={<CheckCircleOutlined />}
-                loading={loading}
-                disabled={!completionStats.isReady}
-                onClick={() => form.submit()}
-                block={isMobile}
-                style={{
-                  minWidth: isMobile ? '100%' : 170,
-                  fontWeight: 700,
-                  borderRadius: 10,
-                  backgroundColor: completionStats.isReady ? '#2563eb' : undefined,
-                  boxShadow: completionStats.isReady ? '0 4px 12px rgba(37, 99, 235, 0.35)' : undefined,
-                }}
-              >
-                Submit Job Card
-              </Button>
-            </Space>
+            <Button
+              type="primary"
+              size="large"
+              icon={<CheckCircleOutlined />}
+              loading={loading}
+              disabled={!completionStats.isReady}
+              onClick={() => form.submit()}
+              style={{
+                flex: isMobile ? '1 1 auto' : undefined,
+                minWidth: isMobile ? 0 : 170,
+                fontWeight: 700,
+                borderRadius: 10,
+                backgroundColor: completionStats.isReady ? '#2563eb' : undefined,
+                boxShadow: completionStats.isReady ? '0 4px 12px rgba(37, 99, 235, 0.35)' : undefined,
+              }}
+            >
+              Submit Job Card
+            </Button>
           </div>
 
           {!isMobile && !isMaximized && (

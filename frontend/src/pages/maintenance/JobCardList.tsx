@@ -789,7 +789,7 @@ export const JobCardList: React.FC<JobCardListProps> = ({ initialCreateOpen = fa
   const IsAllView = (filters.statuses || []).length === 0;
 
   const viewActionBtn = (r: JobCard) => (
-    <Tooltip title="View Job Card" placement="top">
+    <Tooltip title={isMobile ? '' : 'View Job Card'} placement="top">
       <Button
         className="erp-action-btn act-view jc-view-btn"
         icon={<EyeOutlined style={{ fontSize: 13 }} />}
@@ -1776,9 +1776,10 @@ export const JobCardList: React.FC<JobCardListProps> = ({ initialCreateOpen = fa
                     )}
 
                     {r.currentStatus === 'IN_PROGRESS' && (
-                      <Tooltip title="Hold for Spare Parts" placement="top">
+                      <Tooltip title={isMobile ? '' : 'Hold for Spare Parts'} placement="top">
                         <Button
                           size="small"
+                          className="erp-action-btn act-pause"
                           icon={<StopOutlined style={{ fontSize: 13, color: 'var(--maint-warning-fg)' }} />}
                           style={{
                             width: 28,
@@ -1803,7 +1804,7 @@ export const JobCardList: React.FC<JobCardListProps> = ({ initialCreateOpen = fa
                     {viewActionBtn(r)}
 
                     {can(USER_PERMISSIONS.update) && (
-                      <Tooltip title="Edit Job Card" placement="top">
+                      <Tooltip title={isMobile ? '' : 'Edit Job Card'} placement="top">
                         <Button
                           size="small"
                           className="erp-action-btn act-edit"
@@ -1818,7 +1819,7 @@ export const JobCardList: React.FC<JobCardListProps> = ({ initialCreateOpen = fa
                     )}
 
                     {can(USER_PERMISSIONS.delete) && (
-                      <Tooltip title="Delete Job Card" placement="top">
+                      <Tooltip title={isMobile ? '' : 'Delete Job Card'} placement="top">
                         <Button
                           danger
                           size="small"

@@ -421,7 +421,20 @@ html[data-theme='dark'] .erp-jc-view-hero,
   color: var(--theme-text, #0f172a);
   display: flex;
   align-items: center;
-  gap: 10px;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+}
+
+@media (max-width: 768px) {
+  .erp-jc-view-hero {
+    padding: 12px 14px;
+    gap: 8px;
+  }
+
+  .erp-jc-view-hero-code {
+    font-size: 15.5px;
+    gap: 6px 8px;
+  }
 }
 
 html[data-theme='dark'] .erp-jc-view-hero-code,
@@ -1431,8 +1444,14 @@ html[data-theme='dark'] .erp-jc-dialog-wrap .ant-modal-title,
 
 /* ── Mobile Full-Screen Layout & Bottom Actions ───────────────────────── */
 @media (max-width: 768px) {
-  .erp-jc-modal-wrap,
-  .erp-jc-modal-wrap.erp-jc-mobile-view {
+  .erp-jc-modal-wrap[style*="display: none"],
+  .erp-jc-modal-wrap.erp-jc-mobile-view[style*="display: none"] {
+    display: none !important;
+    pointer-events: none !important;
+  }
+
+  .erp-jc-modal-wrap:not([style*="display: none"]),
+  .erp-jc-modal-wrap.erp-jc-mobile-view:not([style*="display: none"]) {
     display: flex !important;
     flex-direction: column !important;
     justify-content: flex-end !important;
@@ -1484,7 +1503,8 @@ html[data-theme='dark'] .erp-jc-dialog-wrap .ant-modal-title,
     position: relative !important;
     flex: 1 1 0% !important;
     width: 100% !important;
-    height: 100% !important;
+    height: 100dvh !important;
+    max-height: 100dvh !important;
     min-height: 0 !important;
     display: flex !important;
     flex-direction: column !important;
@@ -1495,10 +1515,10 @@ html[data-theme='dark'] .erp-jc-dialog-wrap .ant-modal-title,
 
   .erp-jc-modal-root-container,
   .erp-jc-modal-wrap.erp-jc-mobile-view .erp-jc-modal-root-container {
-    height: 100% !important;
-    max-height: 100% !important;
+    height: 100dvh !important;
+    max-height: 100dvh !important;
+    min-height: 100dvh !important;
     flex: 1 1 0% !important;
-    min-height: 0 !important;
     display: flex !important;
     flex-direction: column !important;
     overflow: hidden !important;
@@ -1506,34 +1526,47 @@ html[data-theme='dark'] .erp-jc-dialog-wrap .ant-modal-title,
   }
 
   .erp-jc-modal-header {
-    padding: 10px 14px;
+    padding: 10px 12px !important;
     flex-shrink: 0 !important;
+    gap: 8px !important;
+  }
+
+  .erp-jc-header-icon {
+    width: 32px !important;
+    height: 32px !important;
+    font-size: 16px !important;
+    border-radius: 8px !important;
   }
 
   .erp-jc-mobile-tab-bar,
   .erp-jc-mobile-tabs {
     display: block !important;
     flex-shrink: 0 !important;
+    padding: 6px 12px !important;
   }
 
-  .erp-jc-custom-slider-rail {
+  .erp-jc-custom-slider-rail,
+  .erp-jc-hide-on-mobile,
+  .erp-jc-mobile-hidden {
     display: none !important;
   }
 
   .erp-jc-header-title-text h4 {
-    font-size: 14px;
+    font-size: 13.5px !important;
+    line-height: 1.25 !important;
   }
 
   .erp-jc-header-title-text span {
-    font-size: 11px;
+    font-size: 11px !important;
+    line-height: 1.2 !important;
   }
 
   .erp-jc-body-container,
   .erp-jc-modal-wrap.erp-jc-mobile-view .erp-jc-body-container {
     flex: 1 1 0% !important;
     min-height: 0 !important;
-    height: 100% !important;
-    max-height: 100% !important;
+    height: auto !important;
+    max-height: none !important;
     overflow: hidden !important;
     display: flex !important;
     flex-direction: column !important;
@@ -1547,30 +1580,75 @@ html[data-theme='dark'] .erp-jc-dialog-wrap .ant-modal-title,
     height: 100% !important;
     min-height: 0 !important;
     max-height: 100% !important;
-    padding: 14px 16px 24px !important;
+    padding: 12px 12px 20px !important;
     overflow-y: auto !important;
     -webkit-overflow-scrolling: touch !important;
     border-right: none !important;
     border-bottom: none !important;
     box-sizing: border-box !important;
-    background: var(--theme-surface, #ffffff) !important;
+    background: var(--theme-background, #f8fafc) !important;
   }
 
-  /* On mobile: Form sections seamlessly blend into the continuous full-screen card */
+  html[data-theme='dark'] .erp-jc-modal-wrap.erp-jc-mobile-view .erp-jc-form-pane,
+  html[data-theme='dark'] .erp-jc-form-pane,
+  [data-theme='dark'] .erp-jc-modal-wrap.erp-jc-mobile-view .erp-jc-form-pane,
+  [data-theme='dark'] .erp-jc-form-pane {
+    background: #0b0f19 !important;
+  }
+
+  html[data-theme='dark'] .erp-jc-modal-wrap.erp-jc-mobile-view .erp-jc-mobile-tabs,
+  html[data-theme='dark'] .erp-jc-modal-wrap.erp-jc-mobile-view .erp-jc-mobile-tab-bar,
+  html[data-theme='dark'] .erp-jc-mobile-tabs,
+  html[data-theme='dark'] .erp-jc-mobile-tab-bar,
+  [data-theme='dark'] .erp-jc-mobile-tabs,
+  [data-theme='dark'] .erp-jc-mobile-tab-bar {
+    background: #101528 !important;
+    border-bottom-color: #212c4d !important;
+  }
+
+  html[data-theme='dark'] .erp-jc-locked-ticket-box,
+  [data-theme='dark'] .erp-jc-locked-ticket-box {
+    background: #18223c !important;
+    border-color: #2a385f !important;
+    color: #f1f5f9 !important;
+  }
+
+  html[data-theme='dark'] .erp-jc-locked-ticket-meta,
+  [data-theme='dark'] .erp-jc-locked-ticket-meta {
+    color: #94a3b8 !important;
+  }
+
+  html[data-theme='dark'] .erp-jc-locked-ticket-meta strong,
+  html[data-theme='dark'] .erp-jc-locked-ticket-meta code,
+  html[data-theme='dark'] .erp-jc-locked-ticket-fault,
+  [data-theme='dark'] .erp-jc-locked-ticket-meta strong,
+  [data-theme='dark'] .erp-jc-locked-ticket-meta code,
+  [data-theme='dark'] .erp-jc-locked-ticket-fault {
+    color: #f1f5f9 !important;
+  }
+
+  /* On mobile: Clean elevated section cards with proper Light & Dark theme support */
   .erp-jc-modal-wrap.erp-jc-mobile-view .erp-jc-form-section,
   .erp-jc-form-section {
     background: var(--theme-surface, #ffffff) !important;
-    border: none !important;
-    box-shadow: none !important;
-    padding: 6px 0 18px !important;
+    border: 1px solid var(--theme-border, #e2e8f0) !important;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04) !important;
+    padding: 12px 14px !important;
     margin-bottom: 12px !important;
-    border-bottom: 1px solid var(--theme-border, #f1f5f9) !important;
-    border-radius: 0 !important;
+    border-radius: 12px !important;
   }
 
-  .erp-jc-modal-wrap.erp-jc-mobile-view .erp-jc-form-section:last-child {
-    border-bottom: none !important;
-    margin-bottom: 0 !important;
+  html[data-theme='dark'] .erp-jc-modal-wrap.erp-jc-mobile-view .erp-jc-form-section,
+  html[data-theme='dark'] .erp-jc-form-section,
+  [data-theme='dark'] .erp-jc-form-section {
+    background: #141b30 !important;
+    border-color: #212c4d !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3) !important;
+  }
+
+  .erp-jc-modal-wrap.erp-jc-mobile-view .erp-jc-form-section:last-child,
+  .erp-jc-form-section:last-child {
+    margin-bottom: 4px !important;
   }
 
   .erp-jc-preview-pane,
@@ -1582,10 +1660,25 @@ html[data-theme='dark'] .erp-jc-dialog-wrap .ant-modal-title,
     height: 100% !important;
     min-height: 0 !important;
     max-height: 100% !important;
-    padding: 14px 16px 24px !important;
+    padding: 12px 12px 20px !important;
     overflow-y: auto !important;
     -webkit-overflow-scrolling: touch !important;
     border-left: none !important;
+    box-sizing: border-box !important;
+  }
+
+  .erp-jc-detail-pane,
+  .erp-jc-modal-wrap.erp-jc-mobile-view .erp-jc-detail-pane {
+    flex: 1 1 0% !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    height: 100% !important;
+    min-height: 0 !important;
+    max-height: 100% !important;
+    padding: 12px 12px 20px !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
     box-sizing: border-box !important;
   }
 
@@ -1600,11 +1693,16 @@ html[data-theme='dark'] .erp-jc-dialog-wrap .ant-modal-title,
     left: auto !important;
     right: auto !important;
     width: 100% !important;
+    height: auto !important;
+    min-height: 58px !important;
+    flex: 0 0 auto !important;
     margin-top: 0 !important;
     z-index: 100 !important;
-    padding: 10px 14px max(14px, env(safe-area-inset-bottom, 14px)) !important;
+    padding: 8px 12px max(10px, env(safe-area-inset-bottom, 10px)) !important;
     display: flex !important;
-    flex-direction: column !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: space-between !important;
     gap: 8px !important;
     flex-shrink: 0 !important;
     background: var(--theme-surface, #ffffff) !important;
@@ -1612,24 +1710,19 @@ html[data-theme='dark'] .erp-jc-dialog-wrap .ant-modal-title,
     box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.08) !important;
   }
 
+  html[data-theme='dark'] .erp-jc-modal-wrap.erp-jc-mobile-view .erp-jc-footer,
   html[data-theme='dark'] .erp-jc-footer,
+  [data-theme='dark'] .erp-jc-modal-wrap.erp-jc-mobile-view .erp-jc-footer,
   [data-theme='dark'] .erp-jc-footer {
     background: #141b30 !important;
     border-top-color: #253358 !important;
     box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.35) !important;
   }
 
-  .erp-jc-footer > div {
-    width: 100% !important;
-    justify-content: space-between !important;
-  }
-
-  .erp-jc-footer .ant-space {
-    width: 100% !important;
-  }
-
   .erp-jc-footer button {
     font-size: 13px !important;
+    height: 40px !important;
+    border-radius: 10px !important;
   }
 }
 
