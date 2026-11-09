@@ -577,13 +577,14 @@ const DEFAULT_UOMS = [
       correctiveAction: 'REPLATE',
       priority: 'HIGH',
       returnedBy: 'Packing Floor Supervisor',
+      quantity: undefined,
     });
     setCreateModalOpen(true);
   };
 
   // Header Actions
   const headerExtra = useMemo(() => (
-    <Space>
+    <Space wrap>
       <Button icon={<ReloadOutlined />} onClick={() => fetchData()}>
         Refresh
       </Button>
@@ -644,7 +645,7 @@ const DEFAULT_UOMS = [
       toDepartmentId: record.toDepartmentId,
       itemId: record.itemId,
       uomId: record.uomId,
-      quantity: record.quantity,
+      quantity: record.quantity !== undefined && record.quantity !== null ? Number(record.quantity) : undefined,
       defectReason: record.defectReason,
       correctiveAction: record.correctiveAction,
       priority: record.priority,
@@ -706,11 +707,18 @@ const DEFAULT_UOMS = [
   const handleOpenStatusModal = (record: ReworkReturnRecord) => {
     setSelectedRecord(record);
     statusForm.resetFields();
+    
+    // Parse numeric quantities cleanly without trailing decimal zeros
+    const totalQty = record.quantity !== undefined && record.quantity !== null ? Number(record.quantity) : undefined;
+    const existingRect = record.rectifiedQuantity !== undefined && record.rectifiedQuantity !== null ? Number(record.rectifiedQuantity) : 0;
+    const rectifiedQty = existingRect > 0 ? existingRect : totalQty;
+    const scrappedQty = record.scrappedQuantity !== undefined && record.scrappedQuantity !== null && Number(record.scrappedQuantity) > 0 ? Number(record.scrappedQuantity) : undefined;
+
     statusForm.setFieldsValue({
       status: record.status === 'DISPATCHED' ? 'ACKNOWLEDGED' : record.status === 'ACKNOWLEDGED' ? 'IN_REWORK' : 'RECTIFIED',
       receivedBy: record.receivedBy || 'Plating Supervisor',
-      rectifiedQuantity: record.rectifiedQuantity || record.quantity,
-      scrappedQuantity: record.scrappedQuantity || 0,
+      rectifiedQuantity: rectifiedQty,
+      scrappedQuantity: scrappedQty,
       remarks: '',
     });
     setStatusModalOpen(true);
@@ -962,7 +970,7 @@ const DEFAULT_UOMS = [
   ];
 
   return (
-    <div style={{ padding: '16px 24px', minHeight: '100vh', background: 'var(--theme-surface)' }}>
+    <div style={{ padding: '16px clamp(12px, 3vw, 24px)', minHeight: '100vh', background: 'var(--theme-surface)' }}>
       {/* Page Header */}
       <PageHeader
         icon={<RollbackOutlined />}
@@ -1213,7 +1221,8 @@ const DEFAULT_UOMS = [
         onOk={handleCreateSubmit}
         confirmLoading={submitting}
         okText="Dispatch Rework Return"
-        width={720}
+        width="min(760px, 96vw)"
+        style={{ maxWidth: '96vw', top: 20 }}
       >
         <Alert
           type="info"
@@ -1418,7 +1427,12 @@ const DEFAULT_UOMS = [
                   ) : null
                 }
               >
-                <InputNumber style={{ width: '100%' }} min={0.01} precision={2} placeholder="e.g. 500" />
+                <InputNumber
+                  style={{ width: '100%' }}
+                  min={0.01}
+                  placeholder="e.g. 500"
+                  onFocus={(e) => e.target.select()}
+                />
               </Form.Item>
             </Col>
             <Col xs={24} sm={12}>
@@ -1429,7 +1443,7 @@ const DEFAULT_UOMS = [
           </Row>
 
           <Row gutter={16}>
-            <Col span={12}>
+            <Col xs={24} sm={12}>
               <Form.Item name="defectReason" label="Defect Reason" rules={[{ required: true }]}>
                 <Select
                   options={Object.entries(DEFECT_REASONS).map(([key, info]) => ({
@@ -1439,7 +1453,7 @@ const DEFAULT_UOMS = [
                 />
               </Form.Item>
             </Col>
-            <Col span={12}>
+            <Col xs={24} sm={12}>
               <Form.Item name="correctiveAction" label="Required Corrective Action" rules={[{ required: true }]}>
                 <Select
                   options={Object.entries(CORRECTIVE_ACTIONS).map(([key, label]) => ({
@@ -1473,7 +1487,8 @@ const DEFAULT_UOMS = [
         onCancel={() => setEditModalOpen(false)}
         onOk={handleEditSubmit}
         confirmLoading={submitting}
-        width={720}
+        width="min(760px, 96vw)"
+        style={{ maxWidth: '96vw', top: 20 }}
         okText="Save Changes"
         destroyOnClose
       >
@@ -1587,7 +1602,12 @@ const DEFAULT_UOMS = [
                 label="Return Quantity" 
                 rules={[{ required: true, message: 'Please enter return quantity' }]}
               >
-                <InputNumber style={{ width: '100%' }} min={0.01} precision={2} />
+                <InputNumber
+                  style={{ width: '100%' }}
+                  min={0.01}
+                  placeholder="e.g. 500"
+                  onFocus={(e) => e.target.select()}
+                />
               </Form.Item>
             </Col>
             <Col xs={24} sm={12}>
@@ -1598,7 +1618,7 @@ const DEFAULT_UOMS = [
           </Row>
 
           <Row gutter={16}>
-            <Col span={12}>
+            <Col xs={24} sm={12}>
               <Form.Item name="defectReason" label="Defect Reason" rules={[{ required: true }]}>
                 <Select
                   options={Object.entries(DEFECT_REASONS).map(([key, info]) => ({
@@ -1608,7 +1628,7 @@ const DEFAULT_UOMS = [
                 />
               </Form.Item>
             </Col>
-            <Col span={12}>
+            <Col xs={24} sm={12}>
               <Form.Item name="correctiveAction" label="Required Corrective Action" rules={[{ required: true }]}>
                 <Select
                   options={Object.entries(CORRECTIVE_ACTIONS).map(([key, label]) => ({
@@ -1643,6 +1663,8 @@ const DEFAULT_UOMS = [
         onOk={handleStatusSubmit}
         confirmLoading={submitting}
         okText="Update Status"
+        width="min(600px, 96vw)"
+        style={{ maxWidth: '96vw', top: 20 }}
       >
         {selectedRecord && (
           <Form form={statusForm} layout="vertical">
@@ -1670,14 +1692,24 @@ const DEFAULT_UOMS = [
             </Form.Item>
 
             <Row gutter={16}>
-              <Col span={12}>
+              <Col xs={24} sm={12}>
                 <Form.Item name="rectifiedQuantity" label="Rectified Quantity Passed">
-                  <InputNumber style={{ width: '100%' }} min={0} precision={2} />
+                  <InputNumber
+                    style={{ width: '100%' }}
+                    min={0}
+                    placeholder="Passed quantity"
+                    onFocus={(e) => e.target.select()}
+                  />
                 </Form.Item>
               </Col>
-              <Col span={12}>
+              <Col xs={24} sm={12}>
                 <Form.Item name="scrappedQuantity" label="Scrapped Quantity">
-                  <InputNumber style={{ width: '100%' }} min={0} precision={2} />
+                  <InputNumber
+                    style={{ width: '100%' }}
+                    min={0}
+                    placeholder="0"
+                    onFocus={(e) => e.target.select()}
+                  />
                 </Form.Item>
               </Col>
             </Row>
@@ -1712,24 +1744,25 @@ const DEFAULT_UOMS = [
             Print Gate Pass / Slip
           </Button>,
         ]}
-        width={650}
+        width="min(680px, 96vw)"
+        style={{ maxWidth: '96vw', top: 20 }}
       >
         {selectedRecord && (
           <div style={{ fontSize: 13, lineHeight: '24px' }}>
             <Row gutter={[16, 8]}>
-              <Col span={12}>
+              <Col xs={24} sm={12}>
                 <Text type="secondary">Return Number:</Text>
                 <div><Tag color="orange" style={{ fontWeight: 800 }}>{selectedRecord.returnNumber}</Tag></div>
               </Col>
-              <Col span={12}>
+              <Col xs={24} sm={12}>
                 <Text type="secondary">Return Date:</Text>
                 <div><strong>{dayjs(selectedRecord.returnDate).format('DD-MMM-YYYY')}</strong></div>
               </Col>
-              <Col span={12}>
+              <Col xs={24} sm={12}>
                 <Text type="secondary">Originating Department:</Text>
                 <div><Tag color="volcano">{selectedRecord.fromDepartment?.name}</Tag></div>
               </Col>
-              <Col span={12}>
+              <Col xs={24} sm={12}>
                 <Text type="secondary">Target Rework Department:</Text>
                 <div><Tag color="green">{selectedRecord.toDepartment?.name}</Tag></div>
               </Col>
@@ -1739,29 +1772,29 @@ const DEFAULT_UOMS = [
                 <div style={{ fontWeight: 700, fontSize: 14 }}>{selectedRecord.item?.name}</div>
                 <div style={{ color: token.colorTextSecondary }}>Code: {selectedRecord.item?.itemCode}</div>
               </Col>
-              <Col span={12}>
+              <Col xs={24} sm={12}>
                 <Text type="secondary">Quantity Returned:</Text>
                 <div style={{ fontSize: 16, fontWeight: 800, color: '#e11d48' }}>
                   {formatDecimal(selectedRecord.quantity)} {selectedRecord.uom?.code}
                 </div>
               </Col>
-              <Col span={12}>
+              <Col xs={24} sm={12}>
                 <Text type="secondary">Status:</Text>
                 <div>{renderStatusTag(selectedRecord.status)}</div>
               </Col>
-              <Col span={12}>
+              <Col xs={24} sm={12}>
                 <Text type="secondary">Defect Reason:</Text>
                 <div><strong>{DEFECT_REASONS[selectedRecord.defectReason]?.label || selectedRecord.defectReason}</strong></div>
               </Col>
-              <Col span={12}>
+              <Col xs={24} sm={12}>
                 <Text type="secondary">Corrective Action:</Text>
                 <div><strong>{CORRECTIVE_ACTIONS[selectedRecord.correctiveAction] || selectedRecord.correctiveAction}</strong></div>
               </Col>
-              <Col span={12}>
+              <Col xs={24} sm={12}>
                 <Text type="secondary">Dispatched By:</Text>
                 <div>{selectedRecord.returnedBy || '-'}</div>
               </Col>
-              <Col span={12}>
+              <Col xs={24} sm={12}>
                 <Text type="secondary">Received / Handled By:</Text>
                 <div>{selectedRecord.receivedBy || '-'}</div>
               </Col>
