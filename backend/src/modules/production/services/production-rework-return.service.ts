@@ -255,6 +255,148 @@ export class ProductionReworkReturnService {
       defectMap[reason] = (defectMap[reason] || 0) + 1;
     });
 
+    // 1. Daily Trend
+    let dailyTrend: any[] = [];
+    try {
+      dailyTrend = await this.returnRepo.manager.query(`
+        SELECT 
+          to_char(return_date, 'YYYY-MM-DD') AS "date",
+          to_char(return_date, 'DD-Mon') AS "dateLabel",
+          COALESCE(SUM(quantity), 0)::numeric AS "returnedQty",
+          COALESCE(SUM(rectified_quantity), 0)::numeric AS "rectifiedQty",
+          COALESCE(SUM(scrapped_quantity), 0)::numeric AS "scrappedQty",
+          COUNT(*)::int AS "batches"
+        FROM production_rework_returns
+        WHERE company_id = $1
+        GROUP BY return_date
+        ORDER BY return_date ASC
+        LIMIT 30;
+      `, [companyId]);
+    } catch (e) {
+      dailyTrend = [];
+    }
+
+    // 2. Monthly Trend
+    let monthlyTrend: any[] = [];
+    try {
+      monthlyTrend = await this.returnRepo.manager.query(`
+        SELECT 
+          to_char(return_date, 'YYYY-MM') AS "month",
+          to_char(return_date, 'Mon YYYY') AS "monthLabel",
+          COALESCE(SUM(quantity), 0)::numeric AS "returnedQty",
+          COALESCE(SUM(rectified_quantity), 0)::numeric AS "rectifiedQty",
+          COALESCE(SUM(scrapped_quantity), 0)::numeric AS "scrappedQty",
+          COUNT(*)::int AS "batches"
+        FROM production_rework_returns
+        WHERE company_id = $1
+        GROUP BY to_char(return_date, 'YYYY-MM'), to_char(return_date, 'Mon YYYY')
+        ORDER BY "month" ASC
+        LIMIT 12;
+      `, [companyId]);
+    } catch (e) {
+      monthlyTrend = [];
+    }
+
+    // 3. Plating Production vs Rework Analytics
+    let platingAnalytics = {
+      latestDate: '',
+      latestProduction: 0,
+      latestRework: 0,
+      latestReworkRate: 0,
+      monthProduction: 0,
+      monthRework: 0,
+      monthReworkRate: 0,
+      totalProduction: 0,
+      totalRework: 0,
+      overallReworkRate: 0,
+      dailyComparison: [] as any[],
+    };
+
+    try {
+      const platingProdRows: any[] = await this.returnRepo.manager.query(`
+        SELECT 
+          to_char(entry_date, 'YYYY-MM-DD') AS "date",
+          to_char(entry_date, 'DD-Mon') AS "dateLabel",
+          SUM(actual_quantity)::numeric AS "producedQty"
+        FROM production_entries
+        WHERE department_id IN ('d3000000-0000-0000-0000-000000000006', 'd3000000-0000-0000-0000-000000000007')
+        GROUP BY entry_date
+        ORDER BY entry_date DESC
+        LIMIT 30;
+      `);
+
+      const platingReworkRows: any[] = await this.returnRepo.manager.query(`
+        SELECT 
+          to_char(return_date, 'YYYY-MM-DD') AS "date",
+          to_char(return_date, 'DD-Mon') AS "dateLabel",
+          SUM(quantity)::numeric AS "reworkQty"
+        FROM production_rework_returns
+        WHERE to_department_id IN ('d3000000-0000-0000-0000-000000000006', 'd3000000-0000-0000-0000-000000000007')
+        GROUP BY return_date
+        ORDER BY return_date DESC
+        LIMIT 30;
+      `);
+
+      const reworkByDate = new Map<string, number>();
+      platingReworkRows.forEach((r: any) => reworkByDate.set(r.date, Number(r.reworkQty) || 0));
+
+      const compMap = new Map<string, any>();
+      platingProdRows.forEach((p: any) => {
+        const d = p.date;
+        const prod = Number(p.producedQty) || 0;
+        const rew = reworkByDate.get(d) || 0;
+        const rate = prod > 0 ? Number(((rew / prod) * 100).toFixed(2)) : 0;
+        compMap.set(d, {
+          date: d,
+          dateLabel: p.dateLabel,
+          producedQty: prod,
+          reworkQty: rew,
+          reworkRate: rate,
+        });
+      });
+
+      platingReworkRows.forEach((r: any) => {
+        if (!compMap.has(r.date)) {
+          compMap.set(r.date, {
+            date: r.date,
+            dateLabel: r.dateLabel,
+            producedQty: 0,
+            reworkQty: Number(r.reworkQty) || 0,
+            reworkRate: 100,
+          });
+        }
+      });
+
+      const dailyComparison = Array.from(compMap.values())
+        .sort((a, b) => a.date.localeCompare(b.date))
+        .slice(-14);
+
+      const totalProd = platingProdRows.reduce((acc: number, r: any) => acc + (Number(r.producedQty) || 0), 0);
+      const totalRew = platingReworkRows.reduce((acc: number, r: any) => acc + (Number(r.reworkQty) || 0), 0);
+      const latestProdRow = platingProdRows[0];
+      const latestDate = latestProdRow?.date || '';
+      const latestProd = Number(latestProdRow?.producedQty) || 0;
+      const latestRew = reworkByDate.get(latestDate) || (platingReworkRows[0] ? Number(platingReworkRows[0].reworkQty) : 0);
+      const latestRate = latestProd > 0 ? Number(((latestRew / latestProd) * 100).toFixed(2)) : 0;
+      const overallRate = totalProd > 0 ? Number(((totalRew / totalProd) * 100).toFixed(2)) : 0;
+
+      platingAnalytics = {
+        latestDate,
+        latestProduction: latestProd,
+        latestRework: latestRew,
+        latestReworkRate: latestRate,
+        monthProduction: totalProd,
+        monthRework: totalRew,
+        monthReworkRate: overallRate,
+        totalProduction: totalProd,
+        totalRework: totalRew,
+        overallReworkRate: overallRate,
+        dailyComparison,
+      };
+    } catch (e) {
+      console.warn('Error computing plating analytics:', e);
+    }
+
     return {
       success: true,
       data: {
@@ -269,7 +411,51 @@ export class ProductionReworkReturnService {
         totalRectifiedQuantity,
         totalScrappedQuantity,
         defectBreakdown: defectMap,
+        dailyTrend,
+        monthlyTrend,
+        platingAnalytics,
       },
+    };
+  }
+
+  async getLookupOptions(companyId?: string) {
+    try {
+      const rows: any[] = await this.returnRepo.manager.query(`
+        SELECT id, category, label, value, is_default AS "isDefault"
+        FROM rework_lookup_options
+        ORDER BY is_default DESC, label ASC;
+      `);
+      return {
+        success: true,
+        data: {
+          defectReasons: rows.filter((r: any) => r.category === 'DEFECT_REASON'),
+          correctiveActions: rows.filter((r: any) => r.category === 'CORRECTIVE_ACTION'),
+        },
+      };
+    } catch (err) {
+      return {
+        success: true,
+        data: { defectReasons: [], correctiveActions: [] },
+      };
+    }
+  }
+
+  async addLookupOption(companyId: string, dto: { category: string; label: string; value?: string }) {
+    const rawLabel = (dto.label || '').trim();
+    if (!rawLabel) {
+      throw new BadRequestException('Label cannot be empty');
+    }
+    const val = dto.value || rawLabel.toUpperCase().replace(/[^A-Z0-9]/g, '_');
+    const res: any[] = await this.returnRepo.manager.query(`
+      INSERT INTO rework_lookup_options (company_id, category, label, value, is_default)
+      VALUES ($1, $2, $3, $4, false)
+      ON CONFLICT (category, value) DO UPDATE SET label = $3
+      RETURNING id, category, label, value, is_default AS "isDefault";
+    `, [companyId, dto.category, rawLabel, val]);
+    return {
+      success: true,
+      data: res[0],
+      message: `${dto.category === 'DEFECT_REASON' ? 'Defect Reason' : 'Corrective Action'} "${rawLabel}" saved successfully`,
     };
   }
 

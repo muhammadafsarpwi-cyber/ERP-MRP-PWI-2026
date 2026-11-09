@@ -76,6 +76,20 @@ export class ProductionReworkReturnController {
     return { success: true, data };
   }
 
+  @Get('lookup-options')
+  @ApiOperation({ summary: 'Get dynamic defect reasons and corrective actions' })
+  async getLookupOptions(@Req() req: any) {
+    const companyId = this.getCompanyId(req);
+    return this.service.getLookupOptions(companyId);
+  }
+
+  @Post('lookup-options')
+  @ApiOperation({ summary: 'Add a custom defect reason or corrective action' })
+  async addLookupOption(@Body() dto: { category: string; label: string; value?: string }, @Req() req: any) {
+    const companyId = this.getCompanyId(req);
+    return this.service.addLookupOption(companyId, dto);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Get rework return detail by ID' })
   async findOne(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {

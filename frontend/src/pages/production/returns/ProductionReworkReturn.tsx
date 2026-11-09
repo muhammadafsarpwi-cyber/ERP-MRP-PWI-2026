@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Table, Card, Row, Col, Select, Input, InputNumber, Button, Tag, Space,
-  App, Modal, Form, DatePicker, Tooltip, Badge, theme, Tabs, Typography, Divider, Alert, Popconfirm,
+  App, Modal, Form, DatePicker, Tooltip, Badge, theme, Tabs, Typography, Divider, Alert, Popconfirm, Segmented,
 } from 'antd';
 import {
   RollbackOutlined, ReloadOutlined, FileExcelOutlined, SearchOutlined,
@@ -9,7 +9,12 @@ import {
   CloseCircleOutlined, ArrowRightOutlined, ToolOutlined,
   ExclamationCircleOutlined, ThunderboltOutlined, CopyOutlined, PrinterOutlined, EyeOutlined,
   EditOutlined, DeleteOutlined,
+  RiseOutlined, BarChartOutlined, DashboardOutlined,
 } from '@ant-design/icons';
+import {
+  ResponsiveContainer, BarChart, Bar, LineChart, Line, XAxis, YAxis,
+  CartesianGrid, Tooltip as RechartsTooltip, Legend,
+} from 'recharts';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import apiService from '../../../services/api';
@@ -129,6 +134,19 @@ const DEFAULT_UOMS = [
   const [items, setItems] = useState<any[]>([]);
   const [stageItems, setStageItems] = useState<any[]>(CANONICAL_STAGE_ITEMS);
   const [uoms, setUoms] = useState<any[]>(DEFAULT_UOMS);
+
+  // Dynamic Lookup Options (with user Add New support)
+  const [defectReasonOptions, setDefectReasonOptions] = useState<any[]>(
+    Object.entries(DEFECT_REASONS).map(([k, v]) => ({ value: k, label: v.label, color: v.color }))
+  );
+  const [correctiveActionOptions, setCorrectiveActionOptions] = useState<any[]>(
+    Object.entries(CORRECTIVE_ACTIONS).map(([k, v]) => ({ value: k, label: v }))
+  );
+  const [newReasonInput, setNewReasonInput] = useState('');
+  const [newActionInput, setNewActionInput] = useState('');
+  const [addingReason, setAddingReason] = useState(false);
+  const [addingAction, setAddingAction] = useState(false);
+  const [activeTrendTab, setActiveTrendTab] = useState<'daily' | 'monthly' | 'plating'>('daily');
 
   // Modals
   const [createModalOpen, setCreateModalOpen] = useState(false);
@@ -421,8 +439,92 @@ const DEFAULT_UOMS = [
     return allItemPool.find(i => i.id === modalItemId);
   }, [allItemPool, modalItemId]);
 
+  // Fetch Dynamic Lookup Options (Defect Reasons & Corrective Actions)
+  const fetchLookupOptions = useCallback(async () => {
+    try {
+      const res = await apiService.get<any>('/production/rework-returns/lookup-options');
+      if (res && res.success && res.data) {
+        if (Array.isArray(res.data.defectReasons) && res.data.defectReasons.length > 0) {
+          const merged = Object.entries(DEFECT_REASONS).map(([k, v]) => ({ value: k, label: v.label, color: v.color }));
+          res.data.defectReasons.forEach((r: any) => {
+            if (!merged.some(m => m.value === r.value)) {
+              merged.push({ value: r.value, label: r.label, color: 'blue' });
+            }
+          });
+          setDefectReasonOptions(merged);
+        }
+        if (Array.isArray(res.data.correctiveActions) && res.data.correctiveActions.length > 0) {
+          const merged = Object.entries(CORRECTIVE_ACTIONS).map(([k, v]) => ({ value: k, label: v }));
+          res.data.correctiveActions.forEach((a: any) => {
+            if (!merged.some(m => m.value === a.value)) {
+              merged.push({ value: a.value, label: a.label });
+            }
+          });
+          setCorrectiveActionOptions(merged);
+        }
+      }
+    } catch (e) {
+      console.warn('Could not load dynamic lookups', e);
+    }
+  }, []);
+
+  // Handler to add custom Defect Reason
+  const handleAddNewReason = async (targetForm: any) => {
+    const trimmed = newReasonInput.trim();
+    if (!trimmed) {
+      message.warning('Please enter defect reason text');
+      return;
+    }
+    const val = trimmed.toUpperCase().replace(/[^A-Z0-9]/g, '_');
+    const newOpt = { value: val, label: trimmed, color: 'blue' };
+    setDefectReasonOptions(prev => [...prev.filter(p => p.value !== val), newOpt]);
+    targetForm.setFieldsValue({ defectReason: val });
+    setNewReasonInput('');
+    try {
+      setAddingReason(true);
+      await apiService.post('/production/rework-returns/lookup-options', {
+        category: 'DEFECT_REASON',
+        label: trimmed,
+        value: val,
+      });
+      message.success(`Defect reason "${trimmed}" saved permanently`);
+    } catch (e: any) {
+      console.warn('Saved locally, background sync notice:', e);
+    } finally {
+      setAddingReason(false);
+    }
+  };
+
+  // Handler to add custom Corrective Action
+  const handleAddNewAction = async (targetForm: any) => {
+    const trimmed = newActionInput.trim();
+    if (!trimmed) {
+      message.warning('Please enter corrective action text');
+      return;
+    }
+    const val = trimmed.toUpperCase().replace(/[^A-Z0-9]/g, '_');
+    const newOpt = { value: val, label: trimmed };
+    setCorrectiveActionOptions(prev => [...prev.filter(p => p.value !== val), newOpt]);
+    targetForm.setFieldsValue({ correctiveAction: val });
+    setNewActionInput('');
+    try {
+      setAddingAction(true);
+      await apiService.post('/production/rework-returns/lookup-options', {
+        category: 'CORRECTIVE_ACTION',
+        label: trimmed,
+        value: val,
+      });
+      message.success(`Corrective action "${trimmed}" saved permanently`);
+    } catch (e: any) {
+      console.warn('Saved locally, background sync notice:', e);
+    } finally {
+      setAddingAction(false);
+    }
+  };
+
   // Fetch Lookups (Divisions, Departments, Items, UOMs)
   useEffect(() => {
+    fetchLookupOptions();
     (async () => {
       try {
         const [divRes, deptRes, itemRes, uomRes] = await Promise.all([
@@ -1094,7 +1196,305 @@ const DEFAULT_UOMS = [
         </Col>
       </Row>
 
-      {/* Filter Toolbar */}
+            {/* Rework Trends & Quality Intelligence Analytics */}
+      <Card
+        bordered={false}
+        style={{
+          background: token.colorBgContainer,
+          borderRadius: 8,
+          border: `1px solid ${token.colorBorderSecondary}`,
+          marginBottom: 16,
+        }}
+      >
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: 12,
+            marginBottom: 16,
+            paddingBottom: 12,
+            borderBottom: `1px solid ${token.colorBorderSecondary}`,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div
+              style={{
+                width: 38,
+                height: 38,
+                borderRadius: 8,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                background: 'rgba(5, 150, 105, 0.1)',
+                color: '#059669',
+              }}
+            >
+              <RiseOutlined style={{ fontSize: 20 }} />
+            </div>
+            <div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: token.colorText }}>
+                Rework Trends &amp; Plating Quality Intelligence
+              </div>
+              <div style={{ fontSize: 12, color: token.colorTextSecondary }}>
+                Real-time defect tracking, monthly scrap reduction trajectory, and plating rework defect rate (%)
+              </div>
+            </div>
+          </div>
+          <Segmented
+            value={activeTrendTab}
+            onChange={(val: any) => setActiveTrendTab(val)}
+            options={[
+              { label: 'Daily Rework (Day-by-Day)', value: 'daily', icon: <BarChartOutlined /> },
+              { label: 'Monthly Trajectory', value: 'monthly', icon: <RiseOutlined /> },
+              { label: 'Plating Output vs Rework (%)', value: 'plating', icon: <DashboardOutlined /> },
+            ]}
+          />
+        </div>
+
+        {activeTrendTab === 'daily' && (
+          <div>
+            <div style={{ width: '100%', height: 260 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={
+                    summary?.dailyTrend && summary.dailyTrend.length > 0
+                      ? summary.dailyTrend
+                      : [
+                          {
+                            dateLabel: dayjs().format('DD-MMM'),
+                            returnedQty: summary?.totalDispatchedReturns || 0,
+                            rectifiedQty: summary?.totalRectifiedQuantity || 0,
+                            scrappedQty: summary?.totalScrappedQuantity || 0,
+                          },
+                        ]
+                  }
+                  margin={{ top: 10, right: 20, left: 0, bottom: 0 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke={token.colorBorderSecondary} opacity={0.5} />
+                  <XAxis dataKey="dateLabel" stroke={token.colorTextSecondary} fontSize={12} />
+                  <YAxis
+                    stroke={token.colorTextSecondary}
+                    fontSize={12}
+                    tickFormatter={(v) => (v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v)}
+                  />
+                  <RechartsTooltip
+                    contentStyle={{
+                      backgroundColor: token.colorBgElevated,
+                      borderColor: token.colorBorderSecondary,
+                      borderRadius: 8,
+                      color: token.colorText,
+                      boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                    }}
+                  />
+                  <Legend />
+                  <Bar dataKey="returnedQty" name="Rework Returned (PCS)" fill="#ea580c" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="rectifiedQty" name="Rectified &amp; Passed (PCS)" fill="#16a34a" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="scrappedQty" name="Scrapped from Rework (PCS)" fill="#dc2626" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            <div style={{ fontSize: 11, color: token.colorTextSecondary, marginTop: 8, textAlign: 'center' }}>
+              Day-by-day rework returns dispatched from downstream shops vs rectified pieces restored back to line.
+            </div>
+          </div>
+        )}
+
+        {activeTrendTab === 'monthly' && (
+          <div>
+            <div style={{ width: '100%', height: 260 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={
+                    summary?.monthlyTrend && summary.monthlyTrend.length > 0
+                      ? summary.monthlyTrend
+                      : [
+                          {
+                            monthLabel: dayjs().format('MMM YYYY'),
+                            returnedQty: summary?.totalDispatchedReturns || 0,
+                            rectifiedQty: summary?.totalRectifiedQuantity || 0,
+                            scrappedQty: summary?.totalScrappedQuantity || 0,
+                          },
+                        ]
+                  }
+                  margin={{ top: 10, right: 20, left: 0, bottom: 0 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke={token.colorBorderSecondary} opacity={0.5} />
+                  <XAxis dataKey="monthLabel" stroke={token.colorTextSecondary} fontSize={12} />
+                  <YAxis
+                    stroke={token.colorTextSecondary}
+                    fontSize={12}
+                    tickFormatter={(v) => (v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v)}
+                  />
+                  <RechartsTooltip
+                    contentStyle={{
+                      backgroundColor: token.colorBgElevated,
+                      borderColor: token.colorBorderSecondary,
+                      borderRadius: 8,
+                      color: token.colorText,
+                      boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                    }}
+                  />
+                  <Legend />
+                  <Bar dataKey="returnedQty" name="Monthly Returns (PCS)" fill="#ea580c" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="rectifiedQty" name="Monthly Rectified (PCS)" fill="#16a34a" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="scrappedQty" name="Monthly Scrapped (PCS)" fill="#dc2626" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            <div style={{ fontSize: 11, color: token.colorTextSecondary, marginTop: 8, textAlign: 'center' }}>
+              Month-over-month trajectory of rework resolution and scrap prevention across manufacturing periods.
+            </div>
+          </div>
+        )}
+
+        {activeTrendTab === 'plating' && (
+          <div>
+            <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
+              <Col xs={24} sm={12} md={6}>
+                <div
+                  style={{
+                    background: token.colorFillAlter,
+                    padding: '12px 14px',
+                    borderRadius: 8,
+                    border: `1px solid ${token.colorBorderSecondary}`,
+                  }}
+                >
+                  <div style={{ fontSize: 11, color: token.colorTextSecondary, fontWeight: 700, textTransform: 'uppercase' }}>
+                    Latest Plating Output
+                  </div>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: token.colorText, marginTop: 4 }}>
+                    {formatDecimal(summary?.platingAnalytics?.latestProduction || 0)} <span style={{ fontSize: 12, fontWeight: 500 }}>PCS</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: token.colorTextTertiary, marginTop: 2 }}>
+                    Primary Shift Output ({summary?.platingAnalytics?.latestDate || 'Recent'})
+                  </div>
+                </div>
+              </Col>
+              <Col xs={24} sm={12} md={6}>
+                <div
+                  style={{
+                    background: token.colorFillAlter,
+                    padding: '12px 14px',
+                    borderRadius: 8,
+                    border: `1px solid ${token.colorBorderSecondary}`,
+                  }}
+                >
+                  <div style={{ fontSize: 11, color: token.colorTextSecondary, fontWeight: 700, textTransform: 'uppercase' }}>
+                    Plating Rework Volume
+                  </div>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: '#ea580c', marginTop: 4 }}>
+                    {formatDecimal(summary?.platingAnalytics?.latestRework || 0)} <span style={{ fontSize: 12, fontWeight: 500 }}>PCS</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: token.colorTextTertiary, marginTop: 2 }}>
+                    Peeling, dull, or spotting returns
+                  </div>
+                </div>
+              </Col>
+              <Col xs={24} sm={12} md={6}>
+                <div
+                  style={{
+                    background: token.colorFillAlter,
+                    padding: '12px 14px',
+                    borderRadius: 8,
+                    border: `1px solid ${token.colorBorderSecondary}`,
+                  }}
+                >
+                  <div style={{ fontSize: 11, color: token.colorTextSecondary, fontWeight: 700, textTransform: 'uppercase' }}>
+                    Plating Defect Rate (%)
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 4 }}>
+                    <span
+                      style={{
+                        fontSize: 20,
+                        fontWeight: 800,
+                        color: (summary?.platingAnalytics?.latestReworkRate || 0) <= 0.5 ? '#16a34a' : '#ea580c',
+                      }}
+                    >
+                      {summary?.platingAnalytics?.latestReworkRate ?? 0}%
+                    </span>
+                    <Tag
+                      color={(summary?.platingAnalytics?.latestReworkRate || 0) <= 0.5 ? 'success' : 'warning'}
+                      style={{ fontSize: 10, margin: 0, padding: '0 4px', lineHeight: '16px' }}
+                    >
+                      {(summary?.platingAnalytics?.latestReworkRate || 0) <= 0.5 ? 'EXCELLENT (<0.5%)' : 'ATTENTION'}
+                    </Tag>
+                  </div>
+                  <div style={{ fontSize: 11, color: token.colorTextTertiary, marginTop: 2 }}>
+                    Overall Rate: {summary?.platingAnalytics?.overallReworkRate ?? 0}%
+                  </div>
+                </div>
+              </Col>
+              <Col xs={24} sm={12} md={6}>
+                <div
+                  style={{
+                    background: token.colorFillAlter,
+                    padding: '12px 14px',
+                    borderRadius: 8,
+                    border: `1px solid ${token.colorBorderSecondary}`,
+                  }}
+                >
+                  <div style={{ fontSize: 11, color: token.colorTextSecondary, fontWeight: 700, textTransform: 'uppercase' }}>
+                    Cumulative Plating Output
+                  </div>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: token.colorText, marginTop: 4 }}>
+                    {formatDecimal(summary?.platingAnalytics?.totalProduction || 0)} <span style={{ fontSize: 12, fontWeight: 500 }}>PCS</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: token.colorTextTertiary, marginTop: 2 }}>
+                    Spoke Plating (SPD-DEPT006)
+                  </div>
+                </div>
+              </Col>
+            </Row>
+
+            <div style={{ width: '100%', height: 260 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={summary?.platingAnalytics?.dailyComparison || []}
+                  margin={{ top: 10, right: 20, left: 0, bottom: 0 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke={token.colorBorderSecondary} opacity={0.5} />
+                  <XAxis dataKey="dateLabel" stroke={token.colorTextSecondary} fontSize={12} />
+                  <YAxis
+                    stroke={token.colorTextSecondary}
+                    fontSize={12}
+                    tickFormatter={(v) => (v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v)}
+                  />
+                  <RechartsTooltip
+                    contentStyle={{
+                      backgroundColor: token.colorBgElevated,
+                      borderColor: token.colorBorderSecondary,
+                      borderRadius: 8,
+                      color: token.colorText,
+                      boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                    }}
+                  />
+                  <Legend />
+                  <Bar
+                    dataKey="producedQty"
+                    name="Daily Plating Output (PCS)"
+                    fill="#3b82f6"
+                    radius={[4, 4, 0, 0]}
+                    opacity={0.85}
+                  />
+                  <Bar
+                    dataKey="reworkQty"
+                    name="Rework Returned (PCS)"
+                    fill="#ea580c"
+                    radius={[4, 4, 0, 0]}
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            <div style={{ fontSize: 11, color: token.colorTextSecondary, marginTop: 8, textAlign: 'center' }}>
+              Spoke Plating is the primary production hub (~222k PCS daily). Rework loops are strictly isolated from new production output.
+            </div>
+          </div>
+        )}
+      </Card>
+
+{/* Filter Toolbar */}
       <Card
         bordered={false}
         style={{
@@ -1444,22 +1844,72 @@ const DEFAULT_UOMS = [
 
           <Row gutter={16}>
             <Col xs={24} sm={12}>
-              <Form.Item name="defectReason" label="Defect Reason" rules={[{ required: true }]}>
+              <Form.Item name="defectReason" label="Defect Reason" rules={[{ required: true, message: 'Select or add defect reason' }]}>
                 <Select
-                  options={Object.entries(DEFECT_REASONS).map(([key, info]) => ({
-                    label: info.label,
-                    value: key,
-                  }))}
+                  showSearch
+                  placeholder="Select defect reason"
+                  optionFilterProp="label"
+                  options={defectReasonOptions}
+                  dropdownRender={(menu) => (
+                    <>
+                      {menu}
+                      <Divider style={{ margin: '8px 0' }} />
+                      <Space style={{ padding: '0 8px 4px', display: 'flex', width: '100%' }}>
+                        <Input
+                          placeholder="Add new defect reason..."
+                          value={newReasonInput}
+                          onChange={(e) => setNewReasonInput(e.target.value)}
+                          onKeyDown={(e) => e.stopPropagation()}
+                          onPressEnter={() => handleAddNewReason(createForm)}
+                          style={{ flex: 1 }}
+                        />
+                        <Button
+                          type="primary"
+                          icon={<PlusOutlined />}
+                          loading={addingReason}
+                          onClick={() => handleAddNewReason(createForm)}
+                          style={{ background: '#059669', borderColor: '#059669' }}
+                        >
+                          Add
+                        </Button>
+                      </Space>
+                    </>
+                  )}
                 />
               </Form.Item>
             </Col>
             <Col xs={24} sm={12}>
-              <Form.Item name="correctiveAction" label="Required Corrective Action" rules={[{ required: true }]}>
+              <Form.Item name="correctiveAction" label="Required Corrective Action" rules={[{ required: true, message: 'Select or add corrective action' }]}>
                 <Select
-                  options={Object.entries(CORRECTIVE_ACTIONS).map(([key, label]) => ({
-                    label,
-                    value: key,
-                  }))}
+                  showSearch
+                  placeholder="Select corrective action"
+                  optionFilterProp="label"
+                  options={correctiveActionOptions}
+                  dropdownRender={(menu) => (
+                    <>
+                      {menu}
+                      <Divider style={{ margin: '8px 0' }} />
+                      <Space style={{ padding: '0 8px 4px', display: 'flex', width: '100%' }}>
+                        <Input
+                          placeholder="Add new corrective action..."
+                          value={newActionInput}
+                          onChange={(e) => setNewActionInput(e.target.value)}
+                          onKeyDown={(e) => e.stopPropagation()}
+                          onPressEnter={() => handleAddNewAction(createForm)}
+                          style={{ flex: 1 }}
+                        />
+                        <Button
+                          type="primary"
+                          icon={<PlusOutlined />}
+                          loading={addingAction}
+                          onClick={() => handleAddNewAction(createForm)}
+                          style={{ background: '#059669', borderColor: '#059669' }}
+                        >
+                          Add
+                        </Button>
+                      </Space>
+                    </>
+                  )}
                 />
               </Form.Item>
             </Col>
@@ -1619,22 +2069,72 @@ const DEFAULT_UOMS = [
 
           <Row gutter={16}>
             <Col xs={24} sm={12}>
-              <Form.Item name="defectReason" label="Defect Reason" rules={[{ required: true }]}>
+              <Form.Item name="defectReason" label="Defect Reason" rules={[{ required: true, message: 'Select or add defect reason' }]}>
                 <Select
-                  options={Object.entries(DEFECT_REASONS).map(([key, info]) => ({
-                    label: info.label,
-                    value: key,
-                  }))}
+                  showSearch
+                  placeholder="Select defect reason"
+                  optionFilterProp="label"
+                  options={defectReasonOptions}
+                  dropdownRender={(menu) => (
+                    <>
+                      {menu}
+                      <Divider style={{ margin: '8px 0' }} />
+                      <Space style={{ padding: '0 8px 4px', display: 'flex', width: '100%' }}>
+                        <Input
+                          placeholder="Add new defect reason..."
+                          value={newReasonInput}
+                          onChange={(e) => setNewReasonInput(e.target.value)}
+                          onKeyDown={(e) => e.stopPropagation()}
+                          onPressEnter={() => handleAddNewReason(editForm)}
+                          style={{ flex: 1 }}
+                        />
+                        <Button
+                          type="primary"
+                          icon={<PlusOutlined />}
+                          loading={addingReason}
+                          onClick={() => handleAddNewReason(editForm)}
+                          style={{ background: '#059669', borderColor: '#059669' }}
+                        >
+                          Add
+                        </Button>
+                      </Space>
+                    </>
+                  )}
                 />
               </Form.Item>
             </Col>
             <Col xs={24} sm={12}>
-              <Form.Item name="correctiveAction" label="Required Corrective Action" rules={[{ required: true }]}>
+              <Form.Item name="correctiveAction" label="Required Corrective Action" rules={[{ required: true, message: 'Select or add corrective action' }]}>
                 <Select
-                  options={Object.entries(CORRECTIVE_ACTIONS).map(([key, label]) => ({
-                    label,
-                    value: key,
-                  }))}
+                  showSearch
+                  placeholder="Select corrective action"
+                  optionFilterProp="label"
+                  options={correctiveActionOptions}
+                  dropdownRender={(menu) => (
+                    <>
+                      {menu}
+                      <Divider style={{ margin: '8px 0' }} />
+                      <Space style={{ padding: '0 8px 4px', display: 'flex', width: '100%' }}>
+                        <Input
+                          placeholder="Add new corrective action..."
+                          value={newActionInput}
+                          onChange={(e) => setNewActionInput(e.target.value)}
+                          onKeyDown={(e) => e.stopPropagation()}
+                          onPressEnter={() => handleAddNewAction(editForm)}
+                          style={{ flex: 1 }}
+                        />
+                        <Button
+                          type="primary"
+                          icon={<PlusOutlined />}
+                          loading={addingAction}
+                          onClick={() => handleAddNewAction(editForm)}
+                          style={{ background: '#059669', borderColor: '#059669' }}
+                        >
+                          Add
+                        </Button>
+                      </Space>
+                    </>
+                  )}
                 />
               </Form.Item>
             </Col>
