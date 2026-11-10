@@ -1,6 +1,6 @@
 import { Injectable, Logger, NotFoundException, BadRequestException, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { isUUID } from 'class-validator';
+import { isLooseUuid as isUUID } from '../../../common/uuid-loose.validator';
 import { Repository, DataSource, EntityManager, MoreThanOrEqual } from 'typeorm';
 import { withTransaction } from '../../../common/transaction.util';
 import { MaintenanceJobCard } from '../entities/maintenance-job-card.entity';
@@ -566,6 +566,34 @@ export class MaintenanceJobCardService implements OnModuleInit {
     return jobCard;
   }
 
+  /**
+   * Detach loaded TypeORM relation objects before calling .save(jobCard) so that:
+   * 1. OneToMany arrays (`technicians`, `parts`) never trigger `SET job_card_id = NULL`
+   *    on child tables when rows were inserted/updated separately.
+   * 2. ManyToOne relation objects (`startedByUser: null`, `completedByUser: null`, etc.)
+   *    never overwrite newly assigned FK columns (`startedBy`, `completedBy`, `rootCauseCategoryId`, etc.).
+   */
+  private detachRelations(jobCard: MaintenanceJobCard): MaintenanceJobCard {
+    delete (jobCard as any).company;
+    delete (jobCard as any).division;
+    delete (jobCard as any).section;
+    delete (jobCard as any).machine;
+    delete (jobCard as any).assignedDepartment;
+    delete (jobCard as any).team;
+    delete (jobCard as any).complaintCategory;
+    delete (jobCard as any).requestedByUser;
+    delete (jobCard as any).rootCauseCategory;
+    delete (jobCard as any).failureCategory;
+    delete (jobCard as any).startedByUser;
+    delete (jobCard as any).completedByUser;
+    delete (jobCard as any).closedByUser;
+    delete (jobCard as any).verifiedByUser;
+    delete (jobCard as any).approvedByUser;
+    delete (jobCard as any).technicians;
+    delete (jobCard as any).parts;
+    return jobCard;
+  }
+
   async update(id: string, dto: UpdateJobCardDto, userId: string): Promise<MaintenanceJobCard> {
     const jobCard = await this.findOne(id);
     if (jobCard.currentStatus === JobCardStatus.APPROVED) {
@@ -590,6 +618,7 @@ export class MaintenanceJobCardService implements OnModuleInit {
         }
       }
     }
+    this.detachRelations(jobCard);
     Object.assign(jobCard, dto, { updatedBy: erpUserId });
     await this.jobCardRepo.save(jobCard);
     return this.findOne(id);
@@ -597,10 +626,8 @@ export class MaintenanceJobCardService implements OnModuleInit {
 
   async remove(id: string, userId: string): Promise<void> {
     const jobCard = await this.findOne(id);
-    if (jobCard.currentStatus !== JobCardStatus.OPEN) {
-      throw new BadRequestException('Only OPEN job cards can be deleted');
-    }
     const erpUserId = await this.userResolver.resolve(userId);
+    this.detachRelations(jobCard);
     jobCard.isActive = false;
     // RECYCLE BIN — recoverable delete. `deleted_at` takes the card (and its
     // spare-part lines) out of every live maintenance grid while leaving the
@@ -633,7 +660,8 @@ export class MaintenanceJobCardService implements OnModuleInit {
     const uniqueIds = Array.from(new Set(dto.technicianIds.map(t => String(t).trim()).filter(Boolean)));
 
     await withTransaction(this.dataSource, async (manager) => {
-      const technicians = await this.maintenanceTechnicianRepo
+      const technicians = await manager
+        .getRepository(MaintenanceTechnician)
         .createQueryBuilder('t')
         .where('t.id IN (:...ids)', { ids: uniqueIds })
         .getMany();
@@ -647,9 +675,9 @@ export class MaintenanceJobCardService implements OnModuleInit {
         throw new BadRequestException(`Technician(s) are not active: ${inactive.map(t => `${t.employeeId} ${t.technicianName}`).join(', ')}`);
       }
 
-      let resolvedTeamId: string | null = null;
+      let resolvedTeamId: string | null = jobCard.teamId || null;
       if (dto.teamCode) {
-        const team = await this.teamRepo.findOne({ where: { code: dto.teamCode, companyId: jobCard.companyId, isActive: true } });
+        const team = await manager.getRepository(MaintenanceTeam).findOne({ where: { code: dto.teamCode, companyId: jobCard.companyId, isActive: true } });
         if (!team) throw new NotFoundException(`Maintenance team '${dto.teamCode}' not found for this company`);
         resolvedTeamId = team.id;
       }
@@ -671,6 +699,7 @@ export class MaintenanceJobCardService implements OnModuleInit {
         await manager.save(tech);
       }
 
+      this.detachRelations(jobCard);
       jobCard.currentStatus = JobCardStatus.ASSIGNED;
       jobCard.assignedAt = new Date();
       jobCard.teamId = resolvedTeamId;
@@ -695,64 +724,86 @@ export class MaintenanceJobCardService implements OnModuleInit {
     const jobCard = await this.findOne(id);
     this.validateTransition(jobCard.currentStatus, JobCardStatus.IN_PROGRESS);
     const erpUserId = await this.userResolver.resolve(userId);
-
+    const previousStatus = jobCard.currentStatus;
     const remarks = dto?.remarks ?? undefined;
 
-    if (dto?.technicianIds && dto.technicianIds.length) {
-      const uniqueIds = Array.from(new Set(dto.technicianIds.map(t => String(t).trim()).filter(Boolean)));
+    await withTransaction(this.dataSource, async (manager) => {
+      const now = new Date();
 
-      const technicians = await this.maintenanceTechnicianRepo
-        .createQueryBuilder('t')
-        .where('t.id IN (:...ids)', { ids: uniqueIds })
-        .getMany();
+      if (dto?.technicianIds && dto.technicianIds.length) {
+        const uniqueIds = Array.from(new Set(dto.technicianIds.map(t => String(t).trim()).filter(Boolean)));
 
-      if (technicians.length !== uniqueIds.length) {
-        const missing = uniqueIds.filter(u => !technicians.some(t => t.id === u));
-        throw new NotFoundException(`Technician(s) not found: ${missing.join(', ')}`);
+        const technicians = await manager
+          .getRepository(MaintenanceTechnician)
+          .createQueryBuilder('t')
+          .where('t.id IN (:...ids)', { ids: uniqueIds })
+          .getMany();
+
+        if (technicians.length !== uniqueIds.length) {
+          const missing = uniqueIds.filter(u => !technicians.some(t => t.id === u));
+          throw new NotFoundException(`Technician(s) not found: ${missing.join(', ')}`);
+        }
+        const inactive = technicians.filter(t => !t.isActive || t.status !== 'ACTIVE');
+        if (inactive.length) {
+          throw new BadRequestException(`Technician(s) are not active: ${inactive.map(t => `${t.employeeId} ${t.technicianName}`).join(', ')}`);
+        }
+
+        let resolvedTeamId: string | null = jobCard.teamId || null;
+        if (dto.teamCode) {
+          const team = await manager.getRepository(MaintenanceTeam).findOne({ where: { code: dto.teamCode, companyId: jobCard.companyId, isActive: true } });
+          if (!team) throw new NotFoundException(`Maintenance team '${dto.teamCode}' not found for this company`);
+          resolvedTeamId = team.id;
+        }
+
+        await manager.delete(MaintenanceJobCardTechnician, { jobCardId: id });
+
+        for (let i = 0; i < technicians.length; i++) {
+          const t = technicians[i];
+          await manager.save(
+            manager.create(MaintenanceJobCardTechnician, {
+              jobCardId: id,
+              technicianId: t.id,
+              technicianUserId: t.userId ?? null,
+              role: i === 0 ? 'PRIMARY' : 'SECONDARY',
+              assignedAt: now,
+              startedAt: now,
+              createdBy: erpUserId,
+              updatedBy: erpUserId,
+              remarks: remarks || null,
+            }),
+          );
+        }
+
+        jobCard.teamId = resolvedTeamId;
+        jobCard.assignedAt = jobCard.assignedAt || now;
+      } else {
+        await manager
+          .createQueryBuilder()
+          .update(MaintenanceJobCardTechnician)
+          .set({ startedAt: now, updatedBy: erpUserId })
+          .where('job_card_id = :id AND started_at IS NULL', { id })
+          .execute();
       }
-      const inactive = technicians.filter(t => !t.isActive || t.status !== 'ACTIVE');
-      if (inactive.length) {
-        throw new BadRequestException(`Technician(s) are not active: ${inactive.map(t => `${t.employeeId} ${t.technicianName}`).join(', ')}`);
-      }
 
-      let resolvedTeamId: string | null = null;
-      if (dto.teamCode) {
-        const team = await this.teamRepo.findOne({ where: { code: dto.teamCode, companyId: jobCard.companyId, isActive: true } });
-        if (!team) throw new NotFoundException(`Maintenance team '${dto.teamCode}' not found for this company`);
-        resolvedTeamId = team.id;
-      }
+      this.detachRelations(jobCard);
+      jobCard.currentStatus = JobCardStatus.IN_PROGRESS;
+      jobCard.startedAt = now;
+      jobCard.startedBy = erpUserId;
+      jobCard.downtimeStart = jobCard.downtimeStart || now;
+      if (remarks) jobCard.remarks = remarks;
+      jobCard.updatedBy = erpUserId;
+      await manager.save(jobCard);
 
-      await this.technicianRepo.delete({ jobCardId: id });
+      const history = manager.create(MaintenanceJobCardStatusHistory, {
+        jobCardId: id,
+        fromStatus: previousStatus,
+        toStatus: JobCardStatus.IN_PROGRESS,
+        changedBy: erpUserId,
+        remarks: remarks || 'Job started',
+      });
+      await manager.save(history);
+    });
 
-      for (let i = 0; i < technicians.length; i++) {
-        const t = technicians[i];
-        await this.technicianRepo.save(this.technicianRepo.create({
-          jobCardId: id,
-          technicianId: t.id,
-          technicianUserId: t.userId ?? null,
-          role: i === 0 ? 'PRIMARY' : 'SECONDARY',
-          assignedAt: new Date(),
-          createdBy: erpUserId,
-          updatedBy: erpUserId,
-          remarks: remarks || null,
-        }));
-      }
-
-      jobCard.teamId = resolvedTeamId;
-    }
-
-    const previousStatus = jobCard.currentStatus;
-    jobCard.currentStatus = JobCardStatus.IN_PROGRESS;
-    jobCard.startedAt = new Date();
-    jobCard.startedBy = erpUserId;
-    jobCard.downtimeStart = jobCard.downtimeStart || new Date();
-    if (remarks) jobCard.remarks = remarks;
-    jobCard.updatedBy = erpUserId;
-    await this.jobCardRepo.save(jobCard);
-
-    // History records the real source state (OPEN when started before any
-    // explicit assignment, ASSIGNED when the assignment was made first).
-    await this.recordHistory(id, previousStatus, JobCardStatus.IN_PROGRESS, erpUserId, remarks || 'Job started');
     await this.logActivity(erpUserId, 'JOB_CARD_STARTED', id, jobCard.jobCardNo);
     this.emitJobCardEvent('MAINT_JOB_CARD_STARTED', id, userId);
     return this.findOne(id);
@@ -764,7 +815,9 @@ export class MaintenanceJobCardService implements OnModuleInit {
     const previousStatus = jobCard.currentStatus;
     const erpUserId = await this.userResolver.resolve(userId);
 
+    this.detachRelations(jobCard);
     jobCard.currentStatus = JobCardStatus.ON_HOLD;
+    if (remarks) jobCard.remarks = remarks;
     jobCard.updatedBy = erpUserId;
     await this.jobCardRepo.save(jobCard);
 
@@ -779,7 +832,9 @@ export class MaintenanceJobCardService implements OnModuleInit {
     const previousStatus = jobCard.currentStatus;
     const erpUserId = await this.userResolver.resolve(userId);
 
+    this.detachRelations(jobCard);
     jobCard.currentStatus = JobCardStatus.WAITING_FOR_PARTS;
+    if (remarks) jobCard.remarks = remarks;
     jobCard.updatedBy = erpUserId;
     await this.jobCardRepo.save(jobCard);
 
@@ -794,6 +849,7 @@ export class MaintenanceJobCardService implements OnModuleInit {
     const erpUserId = await this.userResolver.resolve(userId);
 
     const previousStatus = jobCard.currentStatus;
+    this.detachRelations(jobCard);
     jobCard.currentStatus = JobCardStatus.IN_PROGRESS;
     jobCard.updatedBy = erpUserId;
     await this.jobCardRepo.save(jobCard);
@@ -863,26 +919,38 @@ export class MaintenanceJobCardService implements OnModuleInit {
     const erpUserId = await this.userResolver.resolve(userId);
 
     await withTransaction(this.dataSource, async (manager) => {
+      const now = new Date();
+      this.detachRelations(jobCard);
       jobCard.currentStatus = JobCardStatus.PENDING_VERIFICATION;
-      jobCard.completedAt = new Date();
+      jobCard.completedAt = now;
       jobCard.completedBy = erpUserId;
       jobCard.diagnosis = dto.diagnosis || jobCard.diagnosis;
       jobCard.correctiveAction = dto.correctiveAction || jobCard.correctiveAction;
       jobCard.preventiveAction = dto.preventiveAction || jobCard.preventiveAction;
-      jobCard.rootCauseCategoryId = dto.rootCauseCategoryId || jobCard.rootCauseCategoryId;
-      jobCard.failureCategoryId = dto.failureCategoryId || jobCard.failureCategoryId;
+      if (dto.rootCauseCategoryId && isUUID(dto.rootCauseCategoryId)) {
+        jobCard.rootCauseCategoryId = dto.rootCauseCategoryId;
+      }
+      if (dto.failureCategoryId && isUUID(dto.failureCategoryId)) {
+        jobCard.failureCategoryId = dto.failureCategoryId;
+      }
       jobCard.remarks = dto.remarks || jobCard.remarks;
       jobCard.updatedBy = erpUserId;
 
       if (jobCard.downtimeStart) {
         const start = new Date(jobCard.downtimeStart);
-        const end = new Date();
-        jobCard.downtimeEnd = end;
-        jobCard.downtimeMinutes = Math.round((end.getTime() - start.getTime()) / 60000);
+        jobCard.downtimeEnd = now;
+        jobCard.downtimeMinutes = Math.max(1, Math.round((now.getTime() - start.getTime()) / 60000));
       }
 
       await manager.save(jobCard);
       await this.syncPartsListTx(manager, id, dto.parts, erpUserId);
+
+      await manager
+        .createQueryBuilder()
+        .update(MaintenanceJobCardTechnician)
+        .set({ completedAt: now, updatedBy: erpUserId })
+        .where('job_card_id = :id AND completed_at IS NULL', { id })
+        .execute();
 
       const history = manager.create(MaintenanceJobCardStatusHistory, {
         jobCardId: id,
@@ -902,8 +970,10 @@ export class MaintenanceJobCardService implements OnModuleInit {
   async close(id: string, userId: string, remarks?: string): Promise<MaintenanceJobCard> {
     const jobCard = await this.findOne(id);
     this.validateTransition(jobCard.currentStatus, JobCardStatus.CLOSED);
+    const previousStatus = jobCard.currentStatus;
     const erpUserId = await this.userResolver.resolve(userId);
 
+    this.detachRelations(jobCard);
     jobCard.currentStatus = JobCardStatus.CLOSED;
     jobCard.closedAt = new Date();
     jobCard.closedBy = erpUserId;
@@ -911,7 +981,7 @@ export class MaintenanceJobCardService implements OnModuleInit {
     if (remarks) jobCard.remarks = remarks;
     await this.jobCardRepo.save(jobCard);
 
-    await this.recordHistory(id, JobCardStatus.COMPLETED, JobCardStatus.CLOSED, erpUserId, remarks || 'Job closed');
+    await this.recordHistory(id, previousStatus, JobCardStatus.CLOSED, erpUserId, remarks || 'Job closed');
     await this.logActivity(erpUserId, 'JOB_CARD_CLOSED', id, jobCard.jobCardNo);
     this.emitJobCardEvent('MAINT_JOB_CARD_CLOSED', id, userId);
     return this.findOne(id);
@@ -924,6 +994,7 @@ export class MaintenanceJobCardService implements OnModuleInit {
     const erpUserId = await this.userResolver.resolve(userId);
 
     const now = new Date();
+    this.detachRelations(jobCard);
     jobCard.currentStatus = JobCardStatus.CLOSED;
     jobCard.verifiedAt = now;
     jobCard.verifiedBy = erpUserId;
@@ -947,13 +1018,12 @@ export class MaintenanceJobCardService implements OnModuleInit {
     const previousStatus = jobCard.currentStatus;
     const erpUserId = await this.userResolver.resolve(userId);
 
-    // Approving review closes the job card directly — the approval decision is
-    // preserved as a timeline event (Pending Review → Closed) rather than
-    // creating a separate "Approved" workflow state.
+    const now = new Date();
+    this.detachRelations(jobCard);
     jobCard.currentStatus = JobCardStatus.CLOSED;
-    jobCard.approvedAt = new Date();
+    jobCard.approvedAt = now;
     jobCard.approvedBy = erpUserId;
-    jobCard.closedAt = new Date();
+    jobCard.closedAt = now;
     jobCard.closedBy = erpUserId;
     jobCard.updatedBy = erpUserId;
     if (remarks) jobCard.remarks = remarks;
@@ -968,13 +1038,16 @@ export class MaintenanceJobCardService implements OnModuleInit {
   async reject(id: string, dto: RejectJobCardDto, userId: string): Promise<MaintenanceJobCard> {
     const jobCard = await this.findOne(id);
     this.validateTransition(jobCard.currentStatus, JobCardStatus.REJECTED);
+    const previousStatus = jobCard.currentStatus;
     const erpUserId = await this.userResolver.resolve(userId);
 
+    this.detachRelations(jobCard);
     jobCard.currentStatus = JobCardStatus.REJECTED;
+    if (dto.reason) jobCard.remarks = dto.reason;
     jobCard.updatedBy = erpUserId;
     await this.jobCardRepo.save(jobCard);
 
-    await this.recordHistory(id, JobCardStatus.PENDING_VERIFICATION, JobCardStatus.REJECTED, erpUserId, dto.reason);
+    await this.recordHistory(id, previousStatus, JobCardStatus.REJECTED, erpUserId, dto.reason);
     await this.logActivity(erpUserId, 'JOB_CARD_REJECTED', id, jobCard.jobCardNo);
     this.emitJobCardEvent('MAINT_JOB_CARD_REJECTED', id, userId);
     return this.findOne(id);
@@ -987,13 +1060,18 @@ export class MaintenanceJobCardService implements OnModuleInit {
     const erpUserId = await this.userResolver.resolve(userId);
 
     await withTransaction(this.dataSource, async (manager) => {
+      this.detachRelations(jobCard);
       jobCard.currentStatus = JobCardStatus.PENDING_VERIFICATION;
       jobCard.updatedBy = erpUserId;
       if (dto?.diagnosis) jobCard.diagnosis = dto.diagnosis;
       if (dto?.correctiveAction) jobCard.correctiveAction = dto.correctiveAction;
       if (dto?.preventiveAction) jobCard.preventiveAction = dto.preventiveAction;
-      if (dto?.rootCauseCategoryId) jobCard.rootCauseCategoryId = dto.rootCauseCategoryId;
-      if (dto?.failureCategoryId) jobCard.failureCategoryId = dto.failureCategoryId;
+      if (dto?.rootCauseCategoryId && isUUID(dto.rootCauseCategoryId)) {
+        jobCard.rootCauseCategoryId = dto.rootCauseCategoryId;
+      }
+      if (dto?.failureCategoryId && isUUID(dto.failureCategoryId)) {
+        jobCard.failureCategoryId = dto.failureCategoryId;
+      }
       if (remarks) jobCard.remarks = remarks;
       await manager.save(jobCard);
 
@@ -2278,7 +2356,7 @@ export class MaintenanceJobCardService implements OnModuleInit {
     await this.historyRepo.save(history);
   }
 
-  private async generateJobCardNo(companyId: string): Promise<string> {
+  private async generateJobCardNo(_companyId: string): Promise<string> {
     const now = new Date();
     const year = now.getFullYear().toString();
     const month = (now.getMonth() + 1).toString().padStart(2, '0');
@@ -2286,18 +2364,32 @@ export class MaintenanceJobCardService implements OnModuleInit {
 
     const lastCard = await this.jobCardRepo
       .createQueryBuilder('jc')
+      .withDeleted()
       .where('jc.jobCardNo LIKE :prefix', { prefix: `${prefix}%` })
-      .andWhere('jc.companyId = :companyId', { companyId })
       .orderBy('jc.jobCardNo', 'DESC')
       .getOne();
 
     let seq = 1;
     if (lastCard) {
       const lastSeq = parseInt(lastCard.jobCardNo.split('-').pop() || '0', 10);
-      seq = lastSeq + 1;
+      if (!Number.isNaN(lastSeq)) {
+        seq = lastSeq + 1;
+      }
     }
 
-    return `${prefix}${seq.toString().padStart(4, '0')}`;
+    for (let attempt = 0; attempt < 20; attempt++) {
+      const candidate = `${prefix}${(seq + attempt).toString().padStart(4, '0')}`;
+      const exists = await this.jobCardRepo
+        .createQueryBuilder('jc')
+        .withDeleted()
+        .where('jc.jobCardNo = :candidate', { candidate })
+        .getCount();
+      if (exists === 0) {
+        return candidate;
+      }
+    }
+
+    return `${prefix}${Date.now().toString().slice(-6)}`;
   }
 
   private async logActivity(userId: string, action: string, targetId: string, targetName: string): Promise<void> {

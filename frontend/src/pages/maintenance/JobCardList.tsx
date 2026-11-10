@@ -1618,6 +1618,10 @@ export const JobCardList: React.FC<JobCardListProps> = ({ initialCreateOpen = fa
                     openStartModalForCard(r);
                   } else if (isClosedQueue && ['IN_PROGRESS', 'ON_HOLD', 'WAITING_FOR_PARTS'].includes(r.currentStatus)) {
                     openCloseModalForCard(r);
+                  } else if (isReviewQueue && r.currentStatus === 'PENDING_VERIFICATION') {
+                    setWorkflowModal({ open: true, mode: 'review', card: r });
+                  } else if (isReturnedQueue && r.currentStatus === 'REJECTED') {
+                    setWorkflowModal({ open: true, mode: 'rework', card: r });
                   } else {
                     openViewModal(r);
                   }
@@ -2123,11 +2127,17 @@ export const JobCardList: React.FC<JobCardListProps> = ({ initialCreateOpen = fa
                     openStartModalForCard(record);
                   } else if (isClosedQueue && ['IN_PROGRESS', 'ON_HOLD', 'WAITING_FOR_PARTS'].includes(record.currentStatus)) {
                     openCloseModalForCard(record);
+                  } else if (isReviewQueue && record.currentStatus === 'PENDING_VERIFICATION') {
+                    setWorkflowModal({ open: true, mode: 'review', card: record });
+                  } else if (isReturnedQueue && record.currentStatus === 'REJECTED') {
+                    setWorkflowModal({ open: true, mode: 'rework', card: record });
                   }
                 },
                 style: {
                   cursor: (isStartedQueue && ['OPEN', 'ASSIGNED'].includes(record.currentStatus)) ||
-                          (isClosedQueue && ['IN_PROGRESS', 'ON_HOLD', 'WAITING_FOR_PARTS'].includes(record.currentStatus))
+                          (isClosedQueue && ['IN_PROGRESS', 'ON_HOLD', 'WAITING_FOR_PARTS'].includes(record.currentStatus)) ||
+                          (isReviewQueue && record.currentStatus === 'PENDING_VERIFICATION') ||
+                          (isReturnedQueue && record.currentStatus === 'REJECTED')
                             ? 'pointer' : 'default',
                 },
               })}
@@ -2215,7 +2225,7 @@ export const JobCardList: React.FC<JobCardListProps> = ({ initialCreateOpen = fa
         setWorkflowModal(prev => ({ ...prev, open: false }));
       }}
       onSuccess={(action, cardId) => {
-        if (action === 'start' || action === 'close' || action === 'verify' || action === 'reject') {
+        if (!IsAllView && (action === 'start' || action === 'close' || action === 'verify' || action === 'reject' || action === 'rework')) {
           setRows(prev => prev.filter(r => r.id !== cardId));
           setSelectedRowKeys(keys => keys.filter(k => k !== cardId));
         } else if (action === 'parts') {
@@ -2249,10 +2259,10 @@ export const JobCardList: React.FC<JobCardListProps> = ({ initialCreateOpen = fa
       open={createModalOpen}
       onClose={handleCloseCreateModal}
       onSuccess={() => {
-        handleCloseCreateModal();
         clearJobCardCache();
         load(true);
         loadQueue();
+        if (companyId) void syncMaintenanceQueueBadges(companyId);
       }}
       context={createContext()}
     />

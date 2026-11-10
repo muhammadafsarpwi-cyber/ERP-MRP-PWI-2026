@@ -917,13 +917,15 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
         machineBarcode: (machine as any).qrPayload || machine.machineCode || '',
       });
       // Auto populate division, section, department if available on machine
-      if (machine.divisionId && !form.getFieldValue('divisionId')) {
+      if (machine.divisionId) {
         form.setFieldValue('divisionId', machine.divisionId);
       }
-      if (machine.sectionId && !form.getFieldValue('sectionId')) {
+      if (machine.sectionId) {
         form.setFieldValue('sectionId', machine.sectionId);
+      } else if (!form.getFieldValue('sectionId') && org.sections.length > 0) {
+        form.setFieldValue('sectionId', org.sections[0].id);
       }
-      if (machine.departmentId && !form.getFieldValue('assignedDepartmentId')) {
+      if (machine.departmentId) {
         form.setFieldValue('assignedDepartmentId', machine.departmentId);
       }
     } else {
@@ -2961,7 +2963,11 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
         wrapClassName="erp-jc-dialog-wrap"
         open={successModalOpen}
         zIndex={1500}
-        closable={false}
+        closable={true}
+        onCancel={() => {
+          setSuccessModalOpen(false);
+          handleClose();
+        }}
         footer={null}
         width={isMobile ? 'calc(100vw - 24px)' : 480}
         style={isMobile ? { top: 20, margin: '0 auto', maxWidth: 'calc(100vw - 24px)' } : undefined}

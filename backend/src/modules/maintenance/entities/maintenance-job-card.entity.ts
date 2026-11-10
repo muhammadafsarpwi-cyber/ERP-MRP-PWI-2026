@@ -187,9 +187,9 @@ export class MaintenanceJobCard extends SoftDeletableEntity {
   @Column({ name: 'remarks', type: 'text', nullable: true })
   remarks: string | null;
 
-  @OneToMany(() => MaintenanceJobCardTechnician, (technician) => technician.jobCard)
+  @OneToMany(() => MaintenanceJobCardTechnician, (technician) => technician.jobCard, { persistence: false })
   technicians: MaintenanceJobCardTechnician[];
 
-  @OneToMany(() => MaintenanceJobCardPart, (part) => part.jobCard)
+  @OneToMany(() => MaintenanceJobCardPart, (part) => part.jobCard, { persistence: false })
   parts: MaintenanceJobCardPart[];
 }

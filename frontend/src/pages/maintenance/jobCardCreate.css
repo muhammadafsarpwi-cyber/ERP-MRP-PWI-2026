@@ -18,8 +18,15 @@
    Fix: raise only this dialog's own menus (classNames.popup.root = "erp-jc-select-dropdown")
    above the shell. Other screens keep Ant Design's default stacking, so no
    unrelated dropdown behaviour changes. */
-.ant-select-dropdown.erp-jc-select-dropdown {
-  z-index: 1300 !important;
+.ant-select-dropdown,
+.ant-select-dropdown.erp-jc-select-dropdown,
+.ant-picker-dropdown,
+.ant-dropdown {
+  z-index: 1400 !important;
+}
+
+.ant-modal-wrap:has(.ant-modal-confirm) {
+  z-index: 1450 !important;
 }
 
 @media (min-width: 769px) {

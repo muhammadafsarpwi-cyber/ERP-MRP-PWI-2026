@@ -54,7 +54,12 @@ export const VALID_TRANSITIONS: Record<JobCardStatus, JobCardStatus[]> = {
     JobCardStatus.ASSIGNED,
     JobCardStatus.CANCELLED,
   ],
-  [JobCardStatus.ASSIGNED]: [JobCardStatus.IN_PROGRESS, JobCardStatus.OPEN],
+  [JobCardStatus.ASSIGNED]: [
+    JobCardStatus.IN_PROGRESS,
+    JobCardStatus.ASSIGNED,
+    JobCardStatus.OPEN,
+    JobCardStatus.CANCELLED,
+  ],
   [JobCardStatus.IN_PROGRESS]: [
     // "Close Job" submits straight to Pending Review (COMPLETED kept for
     // backward compatibility with pre-existing records).
@@ -62,11 +67,22 @@ export const VALID_TRANSITIONS: Record<JobCardStatus, JobCardStatus[]> = {
     JobCardStatus.ON_HOLD,
     JobCardStatus.WAITING_FOR_PARTS,
     JobCardStatus.COMPLETED,
+    JobCardStatus.CLOSED,
   ],
-  [JobCardStatus.ON_HOLD]: [JobCardStatus.IN_PROGRESS],
-  [JobCardStatus.WAITING_FOR_PARTS]: [JobCardStatus.IN_PROGRESS],
-  [JobCardStatus.COMPLETED]: [JobCardStatus.CLOSED],
-  [JobCardStatus.CLOSED]: [JobCardStatus.PENDING_VERIFICATION],
+  [JobCardStatus.ON_HOLD]: [
+    JobCardStatus.IN_PROGRESS,
+    JobCardStatus.WAITING_FOR_PARTS,
+    JobCardStatus.PENDING_VERIFICATION,
+    JobCardStatus.COMPLETED,
+  ],
+  [JobCardStatus.WAITING_FOR_PARTS]: [
+    JobCardStatus.IN_PROGRESS,
+    JobCardStatus.ON_HOLD,
+    JobCardStatus.PENDING_VERIFICATION,
+    JobCardStatus.COMPLETED,
+  ],
+  [JobCardStatus.COMPLETED]: [JobCardStatus.CLOSED, JobCardStatus.PENDING_VERIFICATION],
+  [JobCardStatus.CLOSED]: [JobCardStatus.PENDING_VERIFICATION, JobCardStatus.APPROVED],
   // Approving from Pending Review closes the job card directly — there is no
   // separate "Approved" workflow state. VERIFIED remains a legacy
   // intermediate for cards that entered before this remap.
@@ -74,12 +90,20 @@ export const VALID_TRANSITIONS: Record<JobCardStatus, JobCardStatus[]> = {
     JobCardStatus.CLOSED,
     JobCardStatus.REJECTED,
     JobCardStatus.VERIFIED,
+    JobCardStatus.APPROVED,
   ],
-  [JobCardStatus.VERIFIED]: [JobCardStatus.CLOSED, JobCardStatus.APPROVED],
-  [JobCardStatus.APPROVED]: [],
+  [JobCardStatus.VERIFIED]: [
+    JobCardStatus.CLOSED,
+    JobCardStatus.APPROVED,
+    JobCardStatus.REJECTED,
+  ],
+  [JobCardStatus.APPROVED]: [JobCardStatus.CLOSED],
   // Returned / rejected cards return to Pending Review once the rework is
-  // done (canonical resubmit path). Re-assignment is still offered so the
-  // returned work can be redirected to another technician when needed.
-  [JobCardStatus.REJECTED]: [JobCardStatus.PENDING_VERIFICATION, JobCardStatus.ASSIGNED],
+  // done (canonical resubmit path). Re-assignment or restarting is also allowed.
+  [JobCardStatus.REJECTED]: [
+    JobCardStatus.PENDING_VERIFICATION,
+    JobCardStatus.IN_PROGRESS,
+    JobCardStatus.ASSIGNED,
+  ],
   [JobCardStatus.CANCELLED]: [],
 };

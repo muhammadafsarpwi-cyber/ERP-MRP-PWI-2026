@@ -1494,11 +1494,13 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
   useEffect(() => {
     if (!open) {
       setIsMinimized(false);
+      setConfirmModalOpen(false);
       return;
     }
     const targetCard = propCard || (allOpenCards.length > 0 ? allOpenCards[0] : null);
     setActiveCard(targetCard);
     setSelectedCardId(targetCard?.id || '');
+    setConfirmModalOpen(false);
 
     // Pre-populate technician IDs if card already has assignments
     if (targetCard && Array.isArray(targetCard.technicians) && targetCard.technicians.length > 0) {
@@ -1527,7 +1529,17 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
     setReviewAction('verify');
     setReviewRemarks('');
     setRejectionReason('');
-  }, [open, propCard, allOpenCards]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, propCard?.id]);
+
+  // Fallback if modal opened without a locked propCard and allOpenCards loaded asynchronously
+  useEffect(() => {
+    if (open && !propCard && !selectedCardId && allOpenCards.length > 0) {
+      const first = allOpenCards[0];
+      setActiveCard(first);
+      setSelectedCardId(first.id);
+    }
+  }, [open, propCard, selectedCardId, allOpenCards]);
 
   // Fetch full card detail, machine history, parts, technicians, logs, and attachments
   useEffect(() => {
@@ -2054,9 +2066,13 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
   ]);
 
   // ── Form Submission with 2027 Confirmation Dialogs ──────────────────────
+  const [confirmModalOpen, setConfirmModalOpen] = useState(false);
+
   const executeSubmission = async () => {
     if (!selectedCardId) return;
+    setConfirmModalOpen(false);
     setSubmitting(true);
+    console.log('[executeSubmission] Submitting mode:', currentMode, 'cardId:', selectedCardId);
     try {
       if (currentMode === 'start') {
         await apiService.post(`${JOB_CARD_BASE}/${selectedCardId}/start`, {
@@ -2179,13 +2195,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
     }
   };
 
-  const handleSubmit = () => {
-    if (!selectedCardId) return;
-    if (currentMode === 'view') {
-      onClose();
-      return;
-    }
-
+  const confirmDialogConfig = useMemo(() => {
     let confirmTitle = 'Confirm Action';
     let confirmPrompt = `Are you sure you want to proceed with Job Card #${jobCardNo}?`;
     let okText = 'Yes, Proceed';
@@ -2225,23 +2235,16 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
       }
     }
 
-    Modal.confirm({
-      title: <span style={{ fontWeight: 700, fontSize: 16 }}>{confirmTitle}</span>,
-      content: (
-        <div style={{ marginTop: 8, fontSize: 13, color: 'var(--theme-text-secondary, #64748b)' }}>
-          <p style={{ margin: '0 0 8px 0', lineHeight: 1.5 }}>{confirmPrompt}</p>
-          <div style={{ padding: '8px 12px', background: 'var(--theme-hover)', borderRadius: 6, fontSize: 12 }}>
-            <strong>Machine:</strong> {machineName} ({machineCode}) &bull; <strong>Current Status:</strong> {currentStatus}
-          </div>
-        </div>
-      ),
-      okText,
-      okButtonProps: {
-        style: { backgroundColor: okColor, borderColor: okColor, color: '#ffffff', fontWeight: 700 },
-      },
-      cancelText: 'Cancel',
-      onOk: executeSubmission,
-    });
+    return { confirmTitle, confirmPrompt, okText, okColor };
+  }, [currentMode, jobCardNo, partName, reviewAction, rejectionReason]);
+
+  const handleSubmit = () => {
+    if (!selectedCardId) return;
+    if (currentMode === 'view') {
+      onClose();
+      return;
+    }
+    setConfirmModalOpen(true);
   };
 
   if (!open) return null;
@@ -4991,6 +4994,7 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
               ) : (
                 <Button
                   type="primary"
+                  data-testid="jc-workflow-submit-btn"
                   loading={submitting}
                   disabled={!isFormValid}
                   style={{
@@ -5021,6 +5025,63 @@ export const JobCardWorkflowModal: React.FC<JobCardWorkflowModalProps> = ({
               </svg>
             </div>
           )}
+        </div>
+      </Modal>
+
+      {/* ── Workflow Action Confirmation Modal ── */}
+      <Modal
+        open={confirmModalOpen}
+        destroyOnClose
+        onCancel={() => !submitting && setConfirmModalOpen(false)}
+        footer={null}
+        width={480}
+        centered
+        zIndex={1500}
+        title={
+          <span style={{ fontWeight: 700, fontSize: 16 }}>
+            {confirmDialogConfig.confirmTitle}
+          </span>
+        }
+      >
+        <div style={{ marginTop: 8, fontSize: 13, color: 'var(--theme-text-secondary)' }}>
+          <p style={{ margin: '0 0 12px 0', lineHeight: 1.5 }}>
+            {confirmDialogConfig.confirmPrompt}
+          </p>
+          <div
+            style={{
+              padding: '10px 14px',
+              background: 'var(--theme-hover)',
+              borderRadius: 8,
+              border: '1px solid var(--theme-border)',
+              fontSize: 12,
+              marginBottom: 18,
+            }}
+          >
+            <strong>Machine:</strong> {machineName} ({machineCode}) &bull;{' '}
+            <strong>Current Status:</strong> {currentStatus}
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+            <Button
+              disabled={submitting}
+              onClick={() => setConfirmModalOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="primary"
+              data-testid="jc-workflow-confirm-ok"
+              loading={submitting}
+              style={{
+                backgroundColor: confirmDialogConfig.okColor,
+                borderColor: confirmDialogConfig.okColor,
+                color: '#ffffff',
+                fontWeight: 700,
+              }}
+              onClick={executeSubmission}
+            >
+              {confirmDialogConfig.okText}
+            </Button>
+          </div>
         </div>
       </Modal>
 
