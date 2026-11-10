@@ -247,10 +247,10 @@ const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
     return dayjs().subtract(1, 'day');
   });
   const [shiftId, setShiftId] = useState<string | undefined>(
-    () => searchParams.get('shiftId') || savedWizard?.shiftId || undefined,
+    () => searchParams.get('shiftId') || savedWizard?.shiftId || lookups.shifts[0]?.id,
   );
   const [divisionId, setDivisionId] = useState<string | undefined>(
-    () => searchParams.get('divisionId') || savedWizard?.divisionId || undefined,
+    () => searchParams.get('divisionId') || savedWizard?.divisionId || lookups.divisions[0]?.id,
   );
   const [sectionId, setSectionId] = useState<string | undefined>(
     () => searchParams.get('sectionId') || savedWizard?.sectionId || undefined,
@@ -310,10 +310,10 @@ const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
         }
       })
       .catch(() => {
-        if (!cancelled) setScopedShifts(null);
+        setScopedShifts(null);
       })
       .finally(() => {
-        if (!cancelled) setScopedShiftsLoading(false);
+        setScopedShiftsLoading(false);
       });
     return () => {
       cancelled = true;
@@ -749,7 +749,12 @@ const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
               <span style={{ color: token.colorTextTertiary, fontSize: isMobile ? 9 : 11 }}>➔</span>
               <div
                 onClick={() => {
-                  if (ready) setStep(2);
+                  let effShift = shiftId;
+                  if (!effShift && availableShifts && availableShifts.length > 0) {
+                    effShift = availableShifts[0].id;
+                    setShiftId(effShift);
+                  }
+                  if (dateIso && effShift) setStep(2);
                   else message.warning('Please select a production date and shift to proceed');
                 }}
                 style={{
@@ -1181,7 +1186,12 @@ const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
               <Button
                 type="primary"
                 onClick={() => {
-                  if (!ready) {
+                  let effShift = shiftId;
+                  if (!effShift && availableShifts && availableShifts.length > 0) {
+                    effShift = availableShifts[0].id;
+                    setShiftId(effShift);
+                  }
+                  if (!dateIso || !effShift) {
                     message.warning('Please select a production date and shift to proceed');
                     return;
                   }

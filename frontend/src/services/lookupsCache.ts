@@ -153,6 +153,16 @@ export const CANONICAL_PRODUCTION_DIVISIONS: CachedDivision[] = [
   { id: '0653339b-94d0-4cc5-b880-e07908b2015f', name: 'NB Division (DIV-NB)', divisionCode: 'DIV-NB' },
 ];
 
+export const CANONICAL_PRODUCTION_SHIFTS: CachedShift[] = [
+  { id: '7b376b7c-e668-48ba-8914-ab04d06709d4', shiftCode: 'GENERAL (Night)', name: 'General Shift (N+OT)', startTime: '20:30:00', endTime: '08:30:00', plannedHours: 12.0 },
+  { id: '7b376b7c-e668-48ba-8914-ab04d06709de', shiftCode: 'GENERAL (Day)', name: 'General Shift (D+OT)', startTime: '08:30:00', endTime: '20:30:00', plannedHours: 12.0 },
+  { id: '7b376b7c-e668-48ba-8914-ab04d06709d2', shiftCode: 'GENERAL(D)', name: 'General Shift (D)', startTime: '08:30:00', endTime: '17:30:00', plannedHours: 8.0 },
+  { id: '24041686-0928-4b7c-a291-2edfc66e3442', shiftCode: 'GENERAL(N)', name: 'General Shift (N)', startTime: '20:30:00', endTime: '04:30:00', plannedHours: 8.0 },
+  { id: '4ff84e90-bbb2-4ef5-9c79-e193a3ffa37e', shiftCode: 'SHIFT-A', name: 'Shift A (Morning)', startTime: '07:00:00', endTime: '15:00:00', plannedHours: 8.0 },
+  { id: '58d9ed01-5c7d-4b60-a748-16cb4117afdc', shiftCode: 'SHIFT-B', name: 'Shift B (Afternoon)', startTime: '15:00:00', endTime: '23:00:00', plannedHours: 8.0 },
+  { id: 'b9ff6e3c-9861-4080-800c-32190a21b3cf', shiftCode: 'SHIFT-C', name: 'Shift C (Night)', startTime: '23:00:00', endTime: '07:00:00', plannedHours: 8.0 },
+];
+
 export const FALLBACK_WAREHOUSES: CachedWarehouse[] = [
   // Spoke Division Warehouses
   { id: '2ec20775-616c-4c6e-818e-1f76912d6dfa', warehouseCode: 'SPI-ST-001', name: 'ST Production Department', warehouseType: 'WORK_IN_PROGRESS', divisionId: 'd1000000-0000-0000-0000-000000000001', departmentId: 'd3000000-0000-0000-0000-000000000001' },
@@ -257,11 +267,17 @@ function safeSaveStorage(snap: LookupsSnapshot) {
     // Only store lightweight collections to avoid exceeding quota
     const lightweight = {
       ...snap,
-      items: (snap.items || []).slice(0, 1000), // top 1000 items in local storage
+      items: (snap.items || []).slice(0, 300), // top 300 items in local storage
       timestamp: Date.now(),
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(lightweight));
-  } catch {}
+  } catch {
+    try {
+      // If quota exceeded, save core masters without items
+      const coreOnly = { ...snap, items: [], timestamp: Date.now() };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(coreOnly));
+    } catch {}
+  }
 }
 
 async function fetchList<T>(url: string, params?: Record<string, unknown>, config?: { silent?: boolean }): Promise<T[]> {
@@ -296,6 +312,7 @@ export function getLookupsSnapshot(): LookupsSnapshot {
       );
     }
     if (!fromStorage.warehouses || fromStorage.warehouses.length === 0) fromStorage.warehouses = FALLBACK_WAREHOUSES;
+    if (!fromStorage.shifts || fromStorage.shifts.length === 0) fromStorage.shifts = CANONICAL_PRODUCTION_SHIFTS;
     memoryCache = fromStorage;
     return fromStorage;
   }
@@ -303,7 +320,7 @@ export function getLookupsSnapshot(): LookupsSnapshot {
     divisions: CANONICAL_PRODUCTION_DIVISIONS,
     sections: [],
     departments: [],
-    shifts: [],
+    shifts: CANONICAL_PRODUCTION_SHIFTS,
     machines: [],
     uoms: [],
     uomConversions: [],
@@ -323,8 +340,14 @@ export function getLookupsSnapshot(): LookupsSnapshot {
  */
 export async function prefetchAllLookups(forceRefresh = false): Promise<LookupsSnapshot> {
   const current = getLookupsSnapshot();
-  const isFresh = current.timestamp > 0 && (Date.now() - current.timestamp < CACHE_TTL_MS);
-  if (!forceRefresh && isFresh && current.divisions.length > 0) {
+  const isFresh =
+    current.timestamp > 0 &&
+    Date.now() - current.timestamp < CACHE_TTL_MS &&
+    current.divisions.length > 0 &&
+    current.sections.length > 0 &&
+    current.departments.length > 0 &&
+    current.shifts.length > 0;
+  if (!forceRefresh && isFresh) {
     return current;
   }
 
@@ -334,37 +357,15 @@ export async function prefetchAllLookups(forceRefresh = false): Promise<LookupsS
 
   activePrefetchPromise = (async () => {
     try {
-      // Parallel execution of all lookup calls with silent background requests
-      const [
-        rawDivisions,
-        sections,
-        departments,
-        shifts,
-        machines,
-        uoms,
-        conversions,
-        items,
-        productionOrders,
-        downtimeReasons,
-        rawWarehouses,
-      ] = await Promise.all([
+      // 1. Fetch Fast Organizational Core (< 100ms) and notify subscribers immediately
+      const [rawDivisions, sections, departments, shifts, uoms] = await Promise.all([
         fetchList<CachedDivision>('/divisions', { limit: 200 }),
         fetchList<CachedSection>('/sections', { limit: 500 }),
         fetchList<CachedDepartment>('/departments', { limit: 500 }),
         fetchList<CachedShift>('/production/shifts'),
-        fetchList<CachedMachine>('/production/machines', { limit: 500, status: 'ACTIVE' }),
         fetchList<CachedUom>('/master-data/uom', { limit: 200 }),
-        fetchList<CachedUomConversion>('/master-data/uom-conversions', { limit: 500 }),
-        fetchList<CachedItem>('/master-data/items', { limit: 1000, status: 'ACTIVE' }),
-        fetchList<CachedProductionOrder>('/production/orders', { limit: 200 }),
-        fetchList<any>('/production/downtime-reasons', { limit: 100 }).catch(() => []),
-        fetchList<CachedWarehouse>('/warehouses', { limit: 100 }).catch(() => []),
       ]);
 
-      // Employee lookup (directly query active employees)
-      const employees = await fetchList<CachedEmployee>('/hr/employees', { limit: 500, status: 'ACTIVE' }).catch(() => []);
-
-      // Strictly filter divisions to the 4 manufacturing divisions
       const prodDivisions = rawDivisions.filter(isProductionDivision);
       const divisions = prodDivisions.length > 0 ? prodDivisions : CANONICAL_PRODUCTION_DIVISIONS;
 
@@ -375,6 +376,41 @@ export async function prefetchAllLookups(forceRefresh = false): Promise<LookupsS
           (!d.status || String(d.status).toUpperCase() === 'ACTIVE') &&
           (d as any).isActive !== false,
       );
+
+      // Fast progressive notification so UI dropdowns are populated in <100ms
+      if (sections.length > 0 || validDepartments.length > 0 || shifts.length > 0) {
+        const intermediateSnapshot: LookupsSnapshot = {
+          ...(memoryCache || current),
+          divisions,
+          sections: sections.length > 0 ? sections : current.sections,
+          departments: validDepartments.length > 0 ? validDepartments : current.departments,
+          shifts: shifts.length > 0 ? shifts : current.shifts,
+          uoms: uoms.length > 0 ? uoms : current.uoms,
+          timestamp: Date.now(),
+        };
+        memoryCache = intermediateSnapshot;
+        safeSaveStorage(intermediateSnapshot);
+        listeners.forEach((cb) => {
+          try {
+            cb(intermediateSnapshot);
+          } catch {}
+        });
+      }
+
+      // 2. Fetch remaining data in parallel
+      const [machines, conversions, items, productionOrders, downtimeReasons, rawWarehouses] =
+        await Promise.all([
+          fetchList<CachedMachine>('/production/machines', { limit: 500, status: 'ACTIVE' }),
+          fetchList<CachedUomConversion>('/master-data/uom-conversions', { limit: 500 }),
+          fetchList<CachedItem>('/master-data/items', { limit: 1000, status: 'ACTIVE' }),
+          fetchList<CachedProductionOrder>('/production/orders', { limit: 200 }),
+          fetchList<any>('/production/downtime-reasons', { limit: 100 }).catch(() => []),
+          fetchList<CachedWarehouse>('/warehouses', { limit: 100 }).catch(() => []),
+        ]);
+
+      // Employee lookup (directly query active employees)
+      const employees = await fetchList<CachedEmployee>('/hr/employees', { limit: 500, status: 'ACTIVE' }).catch(() => []);
+
       const activeConversions = conversions.filter((c) => c.status === 'ACTIVE');
       const warehouses = rawWarehouses.length > 0 ? rawWarehouses : FALLBACK_WAREHOUSES;
 
@@ -399,7 +435,9 @@ export async function prefetchAllLookups(forceRefresh = false): Promise<LookupsS
       safeSaveStorage(updatedSnapshot);
 
       listeners.forEach((cb) => {
-        try { cb(updatedSnapshot); } catch {}
+        try {
+          cb(updatedSnapshot);
+        } catch {}
       });
 
       return updatedSnapshot;

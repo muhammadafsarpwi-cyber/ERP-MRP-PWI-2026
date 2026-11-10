@@ -18,10 +18,11 @@
    Fix: raise only this dialog's own menus (classNames.popup.root = "erp-jc-select-dropdown")
    above the shell. Other screens keep Ant Design's default stacking, so no
    unrelated dropdown behaviour changes. */
-.ant-select-dropdown,
+/* Scope exclusively to Job Card popup menus so no other modules (e.g. Production Entry Wizard) are affected */
 .ant-select-dropdown.erp-jc-select-dropdown,
-.ant-picker-dropdown,
-.ant-dropdown {
+.erp-jc-modal-wrap .ant-select-dropdown,
+.erp-jc-modal-wrap .ant-picker-dropdown,
+.erp-jc-modal-wrap .ant-dropdown {
   z-index: 1400 !important;
 }
 
