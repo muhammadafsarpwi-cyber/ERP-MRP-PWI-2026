@@ -1,4 +1,5 @@
-import { ItemQcSpecification, QmsInProcessInspection } from './types';
+import { ItemQcSpecification, QmsInProcessInspection, InspectionSampleRow, AttributeCheckItem } from './types';
+import apiService from '../../services/api';
 
 const QC_SPECS_STORAGE_KEY = 'pwi_qc_item_specs_v1';
 const QC_INSPECTIONS_STORAGE_KEY = 'pwi_qc_in_process_inspections_v1';
@@ -155,6 +156,201 @@ export function saveInProcessInspections(inspections: QmsInProcessInspection[]):
     localStorage.setItem(QC_INSPECTIONS_STORAGE_KEY, JSON.stringify(inspections));
   } catch (err) {
     console.error('Failed to save QC inspections:', err);
+  }
+}
+
+// Convert raw DB record into QmsInProcessInspection
+export function parseDbInspection(raw: any, specsList: ItemQcSpecification[] = []): QmsInProcessInspection | null {
+  if (!raw) return null;
+  if (raw.referenceType === 'QMS_SPECS_MASTER' || raw.inspectionNo === 'QMS-SPECS-MASTER') return null;
+
+  let p: any = {};
+  if (raw.remarks && typeof raw.remarks === 'string') {
+    try {
+      p = JSON.parse(raw.remarks);
+    } catch {
+      p = { remarksText: raw.remarks };
+    }
+  } else if (raw.remarks && typeof raw.remarks === 'object') {
+    p = raw.remarks;
+  }
+
+  // Find matching spec to backfill characteristics if samples were not stored in older records
+  const itemCode = p.itemCode || raw.itemCode || 'WIP-SPK-014';
+  const matchedSpec =
+    specsList.find((s) => s.itemCode === itemCode) ||
+    DEFAULT_SPOKE_SPECS.find((s) => s.itemCode === itemCode) ||
+    DEFAULT_SPOKE_SPECS[0];
+
+  let samples: InspectionSampleRow[] = Array.isArray(p.samples) && p.samples.length > 0 ? p.samples : [];
+  if (samples.length === 0 && matchedSpec) {
+    samples = matchedSpec.characteristics.map((c) => ({
+      ...c,
+      s1: Number(c.nominal),
+      s2: Number(c.nominal),
+      s3: Number(c.nominal),
+      s4: Number(c.nominal),
+      s5: Number(c.nominal),
+      average: Number(c.nominal),
+      status: 'PASS',
+    }));
+  }
+
+  let attributes: AttributeCheckItem[] = Array.isArray(p.attributes) && p.attributes.length > 0 ? p.attributes : [];
+  if (attributes.length === 0 && matchedSpec) {
+    attributes = (matchedSpec.attributes || []).map((a) => ({
+      id: a.id,
+      checkName: a.checkName,
+      checkedQty: a.sampleSize || 10,
+      defectsQty: 0,
+      status: 'PASS',
+    }));
+  }
+
+  return {
+    id: raw.id || p.id || `insp-${Date.now()}`,
+    inspectionNo: raw.inspectionNo || p.inspectionNo || 'INS-000000',
+    docRef: p.docRef || 'SPD/QMS/05',
+    revNo: p.revNo || '02',
+    issueDate: p.issueDate || '09-Jun-2022',
+    inspectionDate: raw.inspectionDate
+      ? String(raw.inspectionDate).slice(0, 10)
+      : p.inspectionDate || new Date().toISOString().slice(0, 10),
+    shift: p.shift || 'G',
+    divisionId: p.divisionId || raw.divisionId,
+    divisionName: p.divisionName || 'Spoke Division',
+    departmentId: p.departmentId || raw.departmentId,
+    departmentName: p.departmentName || 'Spoke',
+    machineNo: p.machineNo || '01',
+    operatorName: p.operatorName || 'Shopfloor Operator',
+    itemId: p.itemId || raw.itemId,
+    itemCode: itemCode,
+    itemName: p.itemName || matchedSpec?.itemName || itemCode,
+    inspectorName: p.inspectorName || 'Mairaj',
+    approvedBy: p.approvedBy || 'Quality Control Incharge',
+    overallResult: (p.overallResult || raw.result || 'PASS') as any,
+    remarks:
+      typeof p.remarks === 'string'
+        ? p.remarks
+        : raw.remarks && !raw.remarks.startsWith('{')
+          ? raw.remarks
+          : 'Ok - All dimensional parameters within standard tolerance.',
+    samples,
+    attributes,
+    createdAt: raw.createdAt || p.createdAt || new Date().toISOString(),
+  };
+}
+
+// Fetch in-process inspections from DB
+export async function fetchDbInProcessInspections(
+  companyId: string,
+  specsList: ItemQcSpecification[] = []
+): Promise<QmsInProcessInspection[]> {
+  try {
+    const res = await apiService.get<{ data: any[] }>('/qc/inspections', {
+      companyId,
+      limit: 100,
+    });
+    const rawList = res?.data || [];
+    const inProcess = rawList.filter(
+      (r) => r.inspectionType === 'IN_PROCESS' && r.referenceType !== 'QMS_SPECS_MASTER'
+    );
+    const parsedList: QmsInProcessInspection[] = [];
+    for (const r of inProcess) {
+      const parsed = parseDbInspection(r, specsList);
+      if (parsed) parsedList.push(parsed);
+    }
+
+    // Merge with any offline/local cached inspections
+    const local = loadInProcessInspections();
+    const map = new Map<string, QmsInProcessInspection>();
+    parsedList.forEach((p) => {
+      map.set(p.inspectionNo, p);
+      map.set(p.id, p);
+    });
+    local.forEach((l) => {
+      if (!map.has(l.inspectionNo) && !map.has(l.id)) {
+        map.set(l.inspectionNo, l);
+      }
+    });
+
+    const combined = Array.from(new Set(map.values()));
+    combined.sort((a, b) => {
+      const d = b.inspectionDate.localeCompare(a.inspectionDate);
+      if (d !== 0) return d;
+      return b.inspectionNo.localeCompare(a.inspectionNo);
+    });
+
+    saveInProcessInspections(combined);
+    return combined;
+  } catch (err) {
+    console.warn('Failed to fetch inspections from DB, using local cache:', err);
+    return loadInProcessInspections();
+  }
+}
+
+// Save an in-process inspection to DB
+export async function saveDbInProcessInspection(
+  companyId: string,
+  insp: QmsInProcessInspection
+): Promise<any> {
+  try {
+    const payload = {
+      companyId,
+      inspectionType: 'IN_PROCESS',
+      inspectionDate: insp.inspectionDate,
+      result: insp.overallResult,
+      status: 'COMPLETED',
+      remarks: JSON.stringify(insp),
+    };
+    const res = await apiService.post<any>('/qc/inspections', payload);
+    return res?.data;
+  } catch (err) {
+    console.error('Failed to post inspection to DB:', err);
+    throw err;
+  }
+}
+
+// Fetch Item QC Specs from DB
+export async function fetchDbSpecs(companyId: string): Promise<ItemQcSpecification[]> {
+  try {
+    const res = await apiService.get<{ data: any[] }>('/qc/inspections', {
+      companyId,
+      referenceType: 'QMS_SPECS_MASTER',
+      limit: 1,
+    });
+    const record = res?.data?.[0];
+    if (record?.remarks) {
+      const parsed = JSON.parse(record.remarks);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        saveAllSpecs(parsed);
+        return parsed;
+      }
+    }
+    const initial = loadAllSpecs();
+    saveDbSpecs(companyId, initial).catch(() => {});
+    return initial;
+  } catch (err) {
+    console.warn('Failed to fetch specs from DB, using local cache:', err);
+    return loadAllSpecs();
+  }
+}
+
+// Save Item QC Specs to DB
+export async function saveDbSpecs(companyId: string, specs: ItemQcSpecification[]): Promise<void> {
+  try {
+    saveAllSpecs(specs);
+    await apiService.post('/qc/inspections', {
+      companyId,
+      inspectionType: 'IN_PROCESS',
+      referenceType: 'QMS_SPECS_MASTER',
+      inspectionDate: new Date().toISOString().slice(0, 10),
+      result: 'PASS',
+      status: 'COMPLETED',
+      remarks: JSON.stringify(specs),
+    });
+  } catch (err) {
+    console.warn('Failed to save specs to DB:', err);
   }
 }
 

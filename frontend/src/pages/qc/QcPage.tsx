@@ -45,6 +45,10 @@ import {
   saveInProcessInspections,
   loadAllSpecs,
   saveAllSpecs,
+  fetchDbInProcessInspections,
+  saveDbInProcessInspection,
+  fetchDbSpecs,
+  saveDbSpecs,
 } from './qcSpecsStore';
 import { InProcessInspectionModal } from './InProcessInspectionModal';
 import { QmsPrintableSheet } from './QmsPrintableSheet';
@@ -233,24 +237,50 @@ const QcPage: React.FC = () => {
   const [items, setItems] = useState<Array<{ id: string; itemCode: string; name: string }>>([]);
   const [ncrData, setNcrData] = useState<any[]>([]);
   const [capaData, setCapaData] = useState<any[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
 
-  // Load user & initialize store
+  // Load user & initialize store from database
   useEffect(() => {
+    let compId = '';
     const erpUser = localStorage.getItem('erp_user');
     if (erpUser) {
       try {
         const p = JSON.parse(erpUser);
-        if (p?.defaultCompanyId) setCompanyId(p.defaultCompanyId);
+        if (p?.defaultCompanyId) {
+          compId = p.defaultCompanyId;
+          setCompanyId(compId);
+        }
       } catch {
         /* ignore */
       }
     }
-    const loadedSpecs = loadAllSpecs();
-    setSpecs(loadedSpecs);
-    const loadedInsps = loadInProcessInspections();
-    setInProcessInspections(loadedInsps);
-    if (loadedInsps.length > 0) {
-      setActiveInspectionId(loadedInsps[0].id);
+
+    // 1. Immediate offline cache display (0ms)
+    const cachedSpecs = loadAllSpecs();
+    setSpecs(cachedSpecs);
+    const cachedInsps = loadInProcessInspections();
+    setInProcessInspections(cachedInsps);
+    if (cachedInsps.length > 0) {
+      setActiveInspectionId(cachedInsps[0].id);
+    }
+
+    // 2. Fetch latest shared data from PostgreSQL database
+    if (compId) {
+      (async () => {
+        try {
+          const [dbSpecs, dbInsps] = await Promise.all([
+            fetchDbSpecs(compId),
+            fetchDbInProcessInspections(compId, cachedSpecs),
+          ]);
+          if (dbSpecs && dbSpecs.length > 0) setSpecs(dbSpecs);
+          if (dbInsps && dbInsps.length > 0) {
+            setInProcessInspections(dbInsps);
+            setActiveInspectionId(dbInsps[0].id);
+          }
+        } catch (e) {
+          console.warn('Initial QC DB sync failed, using cached store:', e);
+        }
+      })();
     }
   }, []);
 
@@ -280,6 +310,53 @@ const QcPage: React.FC = () => {
       }
     },
     [companyId],
+  );
+
+  // Refresh all QC data from database
+  const handleRefreshAll = useCallback(
+    async (showFeedback = false) => {
+      setRefreshing(true);
+      try {
+        let currentCompany = companyId;
+        if (!currentCompany) {
+          const erpUser = localStorage.getItem('erp_user');
+          if (erpUser) {
+            try {
+              currentCompany = JSON.parse(erpUser)?.defaultCompanyId || '';
+            } catch {}
+          }
+        }
+
+        if (currentCompany) {
+          const [loadedSpecs, loadedInsps] = await Promise.all([
+            fetchDbSpecs(currentCompany),
+            fetchDbInProcessInspections(currentCompany, specs),
+            fetchData(page),
+          ]);
+
+          if (loadedSpecs && loadedSpecs.length > 0) {
+            setSpecs(loadedSpecs);
+          }
+          if (loadedInsps && loadedInsps.length > 0) {
+            setInProcessInspections(loadedInsps);
+            if (!activeInspectionId || !loadedInsps.some((i) => i.id === activeInspectionId)) {
+              setActiveInspectionId(loadedInsps[0].id);
+            }
+          }
+          if (showFeedback) {
+            message.success(`QC data refreshed from database (${loadedInsps.length} inspections)`);
+          }
+        } else {
+          if (showFeedback) message.info('No company context available for refresh');
+        }
+      } catch (err) {
+        console.error('Refresh error:', err);
+        if (showFeedback) message.error('Failed to refresh data from server');
+      } finally {
+        setRefreshing(false);
+      }
+    },
+    [companyId, page, specs, activeInspectionId, fetchData],
   );
 
   useEffect(() => {
@@ -390,7 +467,7 @@ const QcPage: React.FC = () => {
   }, [inProcessInspections, filterShift, filterMachine, filterResult]);
 
   // Save new/edited inspection
-  const handleSaveInspection = (newInsp: QmsInProcessInspection) => {
+  const handleSaveInspection = async (newInsp: QmsInProcessInspection) => {
     const existingIdx = inProcessInspections.findIndex((i) => i.id === newInsp.id);
     let updated: QmsInProcessInspection[];
     if (existingIdx >= 0) {
@@ -402,29 +479,40 @@ const QcPage: React.FC = () => {
     saveInProcessInspections(updated);
     setActiveInspectionId(newInsp.id);
 
-    // Also attempt saving to backend /qc/inspections
+    // Persist full inspection to PostgreSQL database via API
     if (companyId) {
-      apiService
-        .post('/qc/inspections', {
-          companyId,
-          inspectionType: 'IN_PROCESS',
-          inspectionDate: newInsp.inspectionDate,
-          remarks: JSON.stringify({
-            docRef: newInsp.docRef,
-            revNo: newInsp.revNo,
-            shift: newInsp.shift,
-            machineNo: newInsp.machineNo,
-            operatorName: newInsp.operatorName,
-            itemCode: newInsp.itemCode,
-            itemName: newInsp.itemName,
-            inspectorName: newInsp.inspectorName,
-            overallResult: newInsp.overallResult,
-            samplesCount: newInsp.samples.length,
-          }),
-        })
-        .catch(() => {
-          /* soft fallback */
-        });
+      try {
+        const savedData = await saveDbInProcessInspection(companyId, newInsp);
+        if (savedData?.inspectionNo) {
+          newInsp.inspectionNo = savedData.inspectionNo;
+          newInsp.id = savedData.id;
+          message.success(`Official inspection saved: ${savedData.inspectionNo}`);
+        } else {
+          message.success(`Inspection sheet saved: ${newInsp.inspectionNo}`);
+        }
+        // Re-fetch database inspections so all users have synchronized data
+        const reloaded = await fetchDbInProcessInspections(companyId, specs);
+        setInProcessInspections(reloaded);
+        if (reloaded.length > 0 && !activeInspectionId) {
+          setActiveInspectionId(reloaded[0].id);
+        }
+      } catch (err) {
+        console.warn('Backend sync failed, saved locally:', err);
+        message.success(`Inspection sheet saved locally: ${newInsp.inspectionNo}`);
+      }
+    } else {
+      message.success(`Inspection sheet saved: ${newInsp.inspectionNo}`);
+    }
+  };
+
+  // Sync Item QC Specifications to DB
+  const handleSpecsChange = (updated: ItemQcSpecification[]) => {
+    setSpecs(updated);
+    saveAllSpecs(updated);
+    if (companyId) {
+      saveDbSpecs(companyId, updated).catch((err) => {
+        console.warn('Failed to save specs to DB:', err);
+      });
     }
   };
 
@@ -768,7 +856,7 @@ const QcPage: React.FC = () => {
       children: (
         <ItemQcSpecsMaster
           specs={specs}
-          onSpecsChange={setSpecs}
+          onSpecsChange={handleSpecsChange}
           divisionName={activeDivision.name}
           departmentName={activeDepartment?.name || 'Spoke'}
           divisionCode={activeDivision.code}
@@ -855,6 +943,13 @@ const QcPage: React.FC = () => {
         subtitle="In-Process Manufacturing QMS, Dimensional Inspections &amp; Defect Analysis"
         extra={
           <Space>
+            <Button
+              icon={<ReloadOutlined spin={refreshing} />}
+              onClick={() => handleRefreshAll(true)}
+              loading={refreshing}
+            >
+              Refresh
+            </Button>
             <Button icon={<HistoryOutlined />} onClick={() => setHistoryDrawerVisible(true)}>
               Inspection History ({inProcessInspections.length})
             </Button>
@@ -969,7 +1064,15 @@ const QcPage: React.FC = () => {
             </Space>
 
             <Space>
-              <Button icon={<ReloadOutlined />} onClick={() => setInProcessInspections(loadInProcessInspections())}>
+              <Button
+                icon={<ReloadOutlined />}
+                onClick={() => {
+                  setFilterMachine('ALL');
+                  setFilterShift('ALL');
+                  setFilterResult('ALL');
+                  handleRefreshAll(false);
+                }}
+              >
                 Reset Filter
               </Button>
             </Space>
@@ -985,6 +1088,7 @@ const QcPage: React.FC = () => {
         visible={historyDrawerVisible}
         onClose={() => setHistoryDrawerVisible(false)}
         inspections={inProcessInspections}
+        onRefresh={() => handleRefreshAll(true)}
         onSelectInspection={(insp) => {
           setActiveInspectionId(insp.id);
         }}

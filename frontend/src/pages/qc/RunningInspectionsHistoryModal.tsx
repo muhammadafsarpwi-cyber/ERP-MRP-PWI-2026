@@ -40,6 +40,7 @@ interface RunningInspectionsHistoryModalProps {
   onSelectInspection: (inspection: QmsInProcessInspection) => void;
   onOpenSheet: (inspection: QmsInProcessInspection) => void;
   onEditInspection?: (inspection: QmsInProcessInspection) => void;
+  onRefresh?: () => void;
 }
 
 export const RunningInspectionsHistoryModal: React.FC<RunningInspectionsHistoryModalProps> = ({
@@ -49,6 +50,7 @@ export const RunningInspectionsHistoryModal: React.FC<RunningInspectionsHistoryM
   onSelectInspection,
   onOpenSheet,
   onEditInspection,
+  onRefresh,
 }) => {
   const { token } = theme.useToken();
 
@@ -475,16 +477,24 @@ export const RunningInspectionsHistoryModal: React.FC<RunningInspectionsHistoryM
             />
           </Col>
           <Col xs={24} sm={4} md={4} style={{ textAlign: 'right' }}>
-            <Button
-              icon={<ReloadOutlined />}
-              onClick={() => {
-                setSearchText('');
-                setFilterShift('ALL');
-                setFilterResult('ALL');
-              }}
-            >
-              Reset
-            </Button>
+            <Space>
+              <Button
+                icon={<ReloadOutlined />}
+                onClick={() => {
+                  setSearchText('');
+                  setFilterShift('ALL');
+                  setFilterResult('ALL');
+                  if (onRefresh) onRefresh();
+                }}
+              >
+                Reset
+              </Button>
+              {onRefresh && (
+                <Button icon={<ReloadOutlined />} onClick={onRefresh}>
+                  Refresh
+                </Button>
+              )}
+            </Space>
           </Col>
         </Row>
       </Card>
