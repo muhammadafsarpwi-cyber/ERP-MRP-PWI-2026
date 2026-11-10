@@ -663,14 +663,6 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
         const cleanDivisions = (rowsOf(r) as any[])?.map(div => ({ id: String(div.id), name: div.name, divisionCode: div.divisionCode || div.division_code })) || [];
         setOrg((v) => ({ ...v, divisions: cleanDivisions }));
         setDivisionsError('');
-
-        // Auto-select first division if none selected and not in context mode
-        if (!context && cleanDivisions.length > 0 && !form.getFieldValue('divisionId')) {
-          const firstId = cleanDivisions[0]?.id;
-          if (firstId && typeof firstId === 'string') {
-            form.setFieldValue('divisionId', firstId);
-          }
-        }
       })
       .catch((e) => {
         if (!cancelled) {
@@ -679,7 +671,7 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
         }
       })
       .finally(() => {
-        if (!cancelled) setDivisionsLoading(false);
+        setDivisionsLoading(false);
       });
 
     return () => {
@@ -723,7 +715,7 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
         }
       })
       .finally(() => {
-        if (!cancelled) setSectionsLoading(false);
+        setSectionsLoading(false);
       });
 
     return () => {
@@ -759,7 +751,7 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
         }
       })
       .finally(() => {
-        if (!cancelled) setDepartmentsLoading(false);
+        setDepartmentsLoading(false);
       });
 
     return () => {
@@ -772,13 +764,10 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
   // Gated on the resolved company (context / user default / form) rather than
   // the raw form field so machines can never be permanently unreachable.
   useEffect(() => {
-    if (!resolvedCompanyId) {
-      setMachines([]);
-      return;
-    }
     let cancelled = false;
     setMachinesLoading(true);
     const params: Record<string, any> = { limit: 1000, sortBy: 'machineCode' };
+    if (resolvedCompanyId) params.companyId = resolvedCompanyId;
     if (divisionId) params.divisionId = divisionId;
     if (sectionId) params.sectionId = sectionId;
     if (departmentId) params.departmentId = departmentId;
@@ -815,7 +804,7 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
         }
       })
       .finally(() => {
-        if (!cancelled) setMachinesLoading(false);
+        setMachinesLoading(false);
       });
     return () => {
       cancelled = true;
@@ -966,6 +955,22 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
         setVerifyError(MACHINE_CODE_MISMATCH);
         message.error(MACHINE_CODE_MISMATCH);
       }
+      return;
+    }
+
+    // Check locally loaded machines first
+    const localMatch = machines.find((m) => machineCodeMatches(code, m));
+    if (localMatch) {
+      setSelectedMachine(localMatch);
+      setMachineVerified(true);
+      setVerifyError(null);
+      form.setFieldValue('machineId', localMatch.id);
+      form.setFieldValue('machineBarcode', (localMatch as any).qrPayload || localMatch.machineCode || '');
+      form.setFieldValue('machineNumber', localMatch.id);
+      if (localMatch.divisionId) form.setFieldValue('divisionId', localMatch.divisionId);
+      if (localMatch.sectionId) form.setFieldValue('sectionId', localMatch.sectionId);
+      if (localMatch.departmentId) form.setFieldValue('assignedDepartmentId', localMatch.departmentId);
+      message.success(`Machine Verified: ${localMatch.machineName || localMatch.name || localMatch.machineCode || localMatch.id}`);
       return;
     }
 
@@ -1643,7 +1648,7 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
                                 ((option?.label as string) || '').toLowerCase().includes(input.toLowerCase())
                               }
                               loading={machinesLoading}
-                              disabled={!resolvedCompanyId || machinesLoading}
+                              disabled={machinesLoading}
                               options={machines.map((m) => ({
                                 value: m.id,
                                 label: machineLabel(m),
