@@ -25,8 +25,84 @@ export const DEFAULT_INSPECTORS: string[] = [
   'Asad Ali',
 ];
 
+export const normalizeSpecDepartment = (s: ItemQcSpecification): ItemQcSpecification => {
+  if (!s || !s.itemCode) return s;
+  const code = (s.itemCode || '').trim().toUpperCase();
+  let correctDept = s.departmentCode;
+
+  // Spoke Division prefixes
+  if (code.startsWith('WIP-ST') || code.startsWith('ST-')) correctDept = 'SPD-DEPT001';
+  else if (code.startsWith('WIP-SW') || code.startsWith('SW-')) correctDept = 'SPD-DEPT002';
+  else if (code.startsWith('WIP-SPK') || code.startsWith('SPK-')) correctDept = 'SPD-DEPT003';
+  else if (code.startsWith('WIP-HD') || code.startsWith('HD-')) correctDept = 'SPD-DEPT004';
+  else if (code.startsWith('WIP-NP') || code.startsWith('WIP-NPL') || code.startsWith('FG-NP') || code.startsWith('NP-')) correctDept = 'SPD-DEPT005';
+  else if (code.startsWith('WIP-SPL') || code.startsWith('SPL-') || code.startsWith('BL-')) correctDept = 'SPD-DEPT006';
+  else if (code.startsWith('PKS') || code.startsWith('SPI-FG') || code.startsWith('SP-')) correctDept = 'SPD-DEPT008';
+
+  // Control Cable Division prefixes
+  else if (code.startsWith('FLAT') || code.startsWith('FL-') || code.startsWith('FT-')) correctDept = 'CCD-DEPT001';
+  else if (code.startsWith('CCD-CAS') || code.startsWith('CAS-') || code.startsWith('CCD-FGR')) correctDept = 'CCD-DEPT002';
+  else if (code.startsWith('CCD-IN') || code.startsWith('IN-') || code.startsWith('PV-')) correctDept = 'CCD-DEPT003';
+  else if (code.startsWith('CCD-FG') || code.startsWith('CA-') || code.startsWith('CPK-') || code.startsWith('PK-')) correctDept = 'CCD-DEPT005';
+
+  const isCcd =
+    (correctDept && correctDept.startsWith('CCD')) ||
+    code.startsWith('CCD') ||
+    code.startsWith('FLAT') ||
+    code.startsWith('CAS') ||
+    code.startsWith('IN-');
+
+  return {
+    ...s,
+    itemCode: s.itemCode.trim(),
+    departmentCode: correctDept || s.departmentCode || 'SPD-DEPT003',
+    divisionCode: isCcd ? 'DIV-CCD' : 'DIV-SPD',
+  };
+};
+
 export const DEFAULT_QC_SPECS: ItemQcSpecification[] = [
-  // Spoke Division (DIV-SPD)
+  // 1. Spoke Division -> Straightener Department (SPD-DEPT001)
+  {
+    id: 'spec-st-006',
+    divisionCode: 'DIV-SPD',
+    departmentCode: 'SPD-DEPT001',
+    itemCode: 'WIP-ST-006',
+    itemName: 'S9 (Inner) - 300*18 Inner Straight',
+    docRef: 'SPD/QMS/05',
+    revNo: '02',
+    issueDate: '09-Jun-2022',
+    characteristics: [
+      { id: 'c1', charName: 'Wire Diameter', nominal: 3.2, tolPlus: 0.02, tolMinus: 0.02, unit: 'mm', isCritical: true },
+      { id: 'c2', charName: 'Cut Length', nominal: 300.0, tolPlus: 0.5, tolMinus: 0.5, unit: 'mm', isCritical: true },
+      { id: 'c3', charName: 'Straightness', nominal: 0.2, tolPlus: 0.05, tolMinus: 0.05, unit: 'mm', isCritical: false },
+    ],
+    attributes: [
+      { id: 'a1', checkName: 'Cut End Burrs', sampleSize: 10, maxAllowedDefects: 0 },
+      { id: 'a2', checkName: 'Surface Rust / Scratch', sampleSize: 10, maxAllowedDefects: 0 },
+    ],
+    updatedAt: new Date().toISOString(),
+  },
+  {
+    id: 'spec-st-001',
+    divisionCode: 'DIV-SPD',
+    departmentCode: 'SPD-DEPT001',
+    itemCode: 'WIP-ST-001',
+    itemName: 'CD-250*17 Butted Straight Wire',
+    docRef: 'SPD/QMS/05',
+    revNo: '02',
+    issueDate: '09-Jun-2022',
+    characteristics: [
+      { id: 'c1', charName: 'Wire Diameter', nominal: 3.2, tolPlus: 0.02, tolMinus: 0.02, unit: 'mm', isCritical: true },
+      { id: 'c2', charName: 'Cut Length', nominal: 250.0, tolPlus: 0.5, tolMinus: 0.5, unit: 'mm', isCritical: true },
+      { id: 'c3', charName: 'Straightness', nominal: 0.2, tolPlus: 0.05, tolMinus: 0.05, unit: 'mm', isCritical: false },
+    ],
+    attributes: [
+      { id: 'a1', checkName: 'Cut End Burrs', sampleSize: 10, maxAllowedDefects: 0 },
+      { id: 'a2', checkName: 'Surface Rust / Scratch', sampleSize: 10, maxAllowedDefects: 0 },
+    ],
+    updatedAt: new Date().toISOString(),
+  },
+  // 2. Spoke Division -> Spoke Department (SPD-DEPT003)
   {
     id: 'spec-s9-outer',
     divisionCode: 'DIV-SPD',
@@ -38,29 +114,6 @@ export const DEFAULT_QC_SPECS: ItemQcSpecification[] = [
     issueDate: '09-Jun-2022',
     characteristics: [
       { id: 'c1', charName: 'Total Length', nominal: 159.5, tolPlus: 0.5, tolMinus: 0.5, unit: 'mm', isCritical: true },
-      { id: 'c2', charName: 'Head Dia', nominal: 6.6, tolPlus: 0.15, tolMinus: 0.15, unit: 'mm', isCritical: true },
-      { id: 'c3', charName: 'Bending Length', nominal: 9.8, tolPlus: 0.15, tolMinus: 0.15, unit: 'mm', isCritical: true },
-      { id: 'c4', charName: 'Thread Length', nominal: 14.0, tolPlus: 0.25, tolMinus: 0.25, unit: 'mm', isCritical: true },
-      { id: 'c5', charName: 'Thread Pressure', nominal: 30.0, tolPlus: 2.0, tolMinus: 2.0, unit: 'PSI', isCritical: false },
-    ],
-    attributes: [
-      { id: 'a1', checkName: 'Thread Checking', sampleSize: 10, maxAllowedDefects: 0 },
-      { id: 'a2', checkName: 'Bending Broken', sampleSize: 10, maxAllowedDefects: 0 },
-      { id: 'a3', checkName: 'Head Crack', sampleSize: 10, maxAllowedDefects: 0 },
-    ],
-    updatedAt: new Date().toISOString(),
-  },
-  {
-    id: 'spec-s9-inner',
-    divisionCode: 'DIV-SPD',
-    departmentCode: 'SPD-DEPT003',
-    itemCode: 'WIP-ST-006',
-    itemName: 'S9 (Inner) - 300*18 Inner Straight',
-    docRef: 'SPD/QMS/05',
-    revNo: '02',
-    issueDate: '09-Jun-2022',
-    characteristics: [
-      { id: 'c1', charName: 'Total Length', nominal: 161.0, tolPlus: 0.5, tolMinus: 0.5, unit: 'mm', isCritical: true },
       { id: 'c2', charName: 'Head Dia', nominal: 6.6, tolPlus: 0.15, tolMinus: 0.15, unit: 'mm', isCritical: true },
       { id: 'c3', charName: 'Bending Length', nominal: 9.8, tolPlus: 0.15, tolMinus: 0.15, unit: 'mm', isCritical: true },
       { id: 'c4', charName: 'Thread Length', nominal: 14.0, tolPlus: 0.25, tolMinus: 0.25, unit: 'mm', isCritical: true },
@@ -119,7 +172,7 @@ export const DEFAULT_QC_SPECS: ItemQcSpecification[] = [
     ],
     updatedAt: new Date().toISOString(),
   },
-  // Control Cable Division (DIV-CCD)
+  // 3. Control Cable Division -> Flattening (CCD-DEPT001)
   {
     id: 'spec-ccd-flat-001',
     divisionCode: 'DIV-CCD',
@@ -140,6 +193,7 @@ export const DEFAULT_QC_SPECS: ItemQcSpecification[] = [
     ],
     updatedAt: new Date().toISOString(),
   },
+  // 4. Control Cable Division -> Outer Casing (CCD-DEPT002)
   {
     id: 'spec-ccd-cas-001',
     divisionCode: 'DIV-CCD',
@@ -160,6 +214,7 @@ export const DEFAULT_QC_SPECS: ItemQcSpecification[] = [
     ],
     updatedAt: new Date().toISOString(),
   },
+  // 5. Control Cable Division -> Inner Wire (CCD-DEPT003)
   {
     id: 'spec-ccd-in-001',
     divisionCode: 'DIV-CCD',
@@ -228,22 +283,35 @@ export function loadAllSpecs(): ItemQcSpecification[] {
     list = (Array.isArray(list) ? list : []).filter(
       (s) => s && s.itemCode && Array.isArray(s.characteristics) && s.characteristics.length > 0
     );
-    // Merge with defaults so both Spoke and Control Cable items are present
+    // Merge with defaults and normalize to guarantee proper department tagging & deduplication
     const map = new Map<string, ItemQcSpecification>();
-    DEFAULT_QC_SPECS.forEach((s) => map.set(s.itemCode, s));
-    list.forEach((s) => map.set(s.itemCode, s));
+    DEFAULT_QC_SPECS.forEach((s) => {
+      const norm = normalizeSpecDepartment(s);
+      map.set(norm.itemCode.trim().toUpperCase(), norm);
+    });
+    list.forEach((s) => {
+      const norm = normalizeSpecDepartment(s);
+      map.set(norm.itemCode.trim().toUpperCase(), norm);
+    });
     const combined = Array.from(map.values());
     localStorage.setItem(QC_SPECS_STORAGE_KEY, JSON.stringify(combined));
     return combined;
   } catch {
-    return DEFAULT_QC_SPECS;
+    return DEFAULT_QC_SPECS.map(normalizeSpecDepartment);
   }
 }
 
 // Save Specifications to storage
 export function saveAllSpecs(specs: ItemQcSpecification[]): void {
   try {
-    localStorage.setItem(QC_SPECS_STORAGE_KEY, JSON.stringify(specs));
+    const map = new Map<string, ItemQcSpecification>();
+    (specs || []).forEach((s) => {
+      if (!s || !s.itemCode) return;
+      const norm = normalizeSpecDepartment(s);
+      map.set(norm.itemCode.trim().toUpperCase(), norm);
+    });
+    const clean = Array.from(map.values());
+    localStorage.setItem(QC_SPECS_STORAGE_KEY, JSON.stringify(clean));
   } catch (err) {
     console.error('Failed to save QC specs:', err);
   }
@@ -456,8 +524,14 @@ export async function fetchDbSpecs(companyId: string): Promise<ItemQcSpecificati
         );
         if (valid.length > 0) {
           const map = new Map<string, ItemQcSpecification>();
-          DEFAULT_QC_SPECS.forEach((s) => map.set(s.itemCode, s));
-          valid.forEach((s: ItemQcSpecification) => map.set(s.itemCode, s));
+          DEFAULT_QC_SPECS.forEach((s) => {
+            const norm = normalizeSpecDepartment(s);
+            map.set(norm.itemCode.trim().toUpperCase(), norm);
+          });
+          valid.forEach((s: ItemQcSpecification) => {
+            const norm = normalizeSpecDepartment(s);
+            map.set(norm.itemCode.trim().toUpperCase(), norm);
+          });
           const combined = Array.from(map.values());
           saveAllSpecs(combined);
           return combined;
@@ -478,7 +552,15 @@ export async function fetchDbSpecs(companyId: string): Promise<ItemQcSpecificati
 // Save Item QC Specs to DB
 export async function saveDbSpecs(companyId: string, specs: ItemQcSpecification[]): Promise<void> {
   try {
-    saveAllSpecs(specs);
+    const map = new Map<string, ItemQcSpecification>();
+    (specs || []).forEach((s) => {
+      if (!s || !s.itemCode) return;
+      const norm = normalizeSpecDepartment(s);
+      map.set(norm.itemCode.trim().toUpperCase(), norm);
+    });
+    const clean = Array.from(map.values());
+    saveAllSpecs(clean);
+    if (!companyId) return;
     await apiService.post('/qc/inspections', {
       companyId,
       inspectionType: 'IN_PROCESS',
@@ -486,7 +568,7 @@ export async function saveDbSpecs(companyId: string, specs: ItemQcSpecification[
       inspectionDate: new Date().toISOString().slice(0, 10),
       result: 'PASS',
       status: 'COMPLETED',
-      remarks: JSON.stringify(specs),
+      remarks: JSON.stringify(clean),
     });
   } catch (err) {
     console.warn('Failed to save specs to DB:', err);

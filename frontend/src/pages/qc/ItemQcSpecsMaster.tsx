@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
-import { Card, Table, Button, Space, Modal, Form, Input, InputNumber, Select, App, Row, Col, Tag, Typography, Upload, Divider, theme } from 'antd';
-import { PlusOutlined, DownloadOutlined, UploadOutlined, EditOutlined, DeleteOutlined, FileExcelOutlined } from '@ant-design/icons';
+import { Card, Table, Button, Space, Modal, Form, Input, InputNumber, Select, App, Row, Col, Tag, Typography, Upload, Divider, Radio, theme } from 'antd';
+import { PlusOutlined, DownloadOutlined, UploadOutlined, EditOutlined, DeleteOutlined, FileExcelOutlined, CheckCircleOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { ItemQcSpecification, DimensionalCharacteristic } from './types';
 import { saveAllSpecs, saveDbSpecs, exportSpecsToExcel, exportSpecsTemplateCsv } from './qcSpecsStore';
@@ -15,6 +15,176 @@ interface ItemQcSpecsMasterProps {
   itemsList: Array<{ id: string; itemCode: string; name: string }>;
   companyId?: string;
 }
+
+// Curated standard items per department (ensures department items are always available even if itemsList is loading)
+const STANDARD_DEPT_ITEMS: Record<string, Array<{ itemCode: string; name: string }>> = {
+  'SPD-DEPT001': [
+    { itemCode: 'WIP-ST-001', name: 'CD-250*17 Butted Straight Wire' },
+    { itemCode: 'WIP-ST-004', name: 'S9-300*17 Outer Straight Wire' },
+    { itemCode: 'WIP-ST-006', name: 'S9-300*18 Inner Straight Wire' },
+  ],
+  'SPD-DEPT002': [
+    { itemCode: 'WIP-SW-001', name: 'CD-250*17 Swagged Spoke Wire' },
+    { itemCode: 'WIP-SW-002', name: 'S9-300*17 Swagged Spoke Wire' },
+  ],
+  'SPD-DEPT003': [
+    { itemCode: 'WIP-SPK-001', name: 'CD-250*17 Inner Butted Spoke' },
+    { itemCode: 'WIP-SPK-002', name: 'CD-250*17 Outer Butted Spoke' },
+    { itemCode: 'WIP-SPK-014', name: 'S9 (Outer) - 300*17 Outer Straight' },
+    { itemCode: 'WIP-SPK-015', name: 'S9 (Inner) - 300*18 Inner Straight' },
+  ],
+  'SPD-DEPT004': [
+    { itemCode: 'WIP-HD-001', name: 'Head Blank CD-250' },
+    { itemCode: 'WIP-HD-002', name: 'Head Blank S9-300' },
+  ],
+  'SPD-DEPT005': [
+    { itemCode: 'WIP-NP-001', name: 'Brass Nipple 14G Standard' },
+    { itemCode: 'WIP-NP-002', name: 'Steel Nipple 10G Heavy Duty' },
+  ],
+  'SPD-DEPT006': [
+    { itemCode: 'WIP-SPL-001', name: 'Zinc Plated Spoke Wire S9' },
+    { itemCode: 'WIP-SPL-002', name: 'Nickel Plated Spoke CD-250' },
+  ],
+  'SPD-DEPT008': [
+    { itemCode: 'SPI-FG-001', name: 'Spoke Set CD-70 Finished Pack (72 Pcs)' },
+    { itemCode: 'SPI-FG-002', name: 'Spoke Set CG-125 Finished Pack (72 Pcs)' },
+  ],
+  'CCD-DEPT001': [
+    { itemCode: 'FLAT-001', name: 'Flat Outer Spiral Wire' },
+    { itemCode: 'FLAT-002', name: 'Flat Wire High Tensile' },
+  ],
+  'CCD-DEPT002': [
+    { itemCode: 'CCD-CAS-001', name: 'Outer Casing Spiral Tube' },
+    { itemCode: 'CCD-CAS-002', name: 'Heavy Casing Spiral 6.0mm' },
+  ],
+  'CCD-DEPT003': [
+    { itemCode: 'CCD-IN-001', name: 'Inner Steel Wire 1x19' },
+    { itemCode: 'CCD-IN-002', name: 'Inner Wire Galvanized 7x7' },
+  ],
+  'CCD-DEPT005': [
+    { itemCode: 'CCD-FG-001', name: 'Clutch Cable Assy CD-70' },
+    { itemCode: 'CCD-FG-002', name: 'Front Brake Cable Assy CG-125' },
+    { itemCode: 'CCD-FG-003', name: 'Throttle Cable Assy CD-70' },
+  ],
+};
+
+// Check if a given spec belongs to a specific department
+export const isSpecInDepartment = (
+  spec: ItemQcSpecification,
+  activeDeptCode: string,
+  activeDivCode: string
+): boolean => {
+  if (!activeDeptCode || activeDeptCode === 'ALL') return true;
+  const itemCode = (spec.itemCode || '').toUpperCase().trim();
+  const specDept = (spec.departmentCode || '').trim();
+
+  // Straightener (SPD-DEPT001)
+  if (activeDeptCode === 'SPD-DEPT001') {
+    return itemCode.startsWith('WIP-ST') || itemCode.startsWith('ST-') || specDept === 'SPD-DEPT001';
+  }
+  // Swagging (SPD-DEPT002)
+  if (activeDeptCode === 'SPD-DEPT002') {
+    return itemCode.startsWith('WIP-SW') || itemCode.startsWith('SW-') || specDept === 'SPD-DEPT002';
+  }
+  // Spoke (SPD-DEPT003)
+  if (activeDeptCode === 'SPD-DEPT003') {
+    if (
+      itemCode.startsWith('WIP-ST') ||
+      itemCode.startsWith('ST-') ||
+      itemCode.startsWith('WIP-SW') ||
+      itemCode.startsWith('SW-') ||
+      itemCode.startsWith('WIP-HD') ||
+      itemCode.startsWith('HD-') ||
+      itemCode.startsWith('WIP-NP') ||
+      itemCode.startsWith('WIP-NPL') ||
+      itemCode.startsWith('FG-NP') ||
+      itemCode.startsWith('NP-') ||
+      itemCode.startsWith('WIP-SPL') ||
+      itemCode.startsWith('SPL-') ||
+      itemCode.startsWith('BL-') ||
+      itemCode.startsWith('PKS') ||
+      itemCode.startsWith('SPI-FG') ||
+      itemCode.startsWith('SP-')
+    ) {
+      return false;
+    }
+    return itemCode.startsWith('WIP-SPK') || itemCode.startsWith('SPK-') || specDept === 'SPD-DEPT003';
+  }
+  // Header (SPD-DEPT004)
+  if (activeDeptCode === 'SPD-DEPT004') {
+    return itemCode.startsWith('WIP-HD') || itemCode.startsWith('HD-') || specDept === 'SPD-DEPT004';
+  }
+  // Nipple (SPD-DEPT005)
+  if (activeDeptCode === 'SPD-DEPT005') {
+    return (
+      itemCode.startsWith('WIP-NP') ||
+      itemCode.startsWith('WIP-NPL') ||
+      itemCode.startsWith('FG-NP') ||
+      itemCode.startsWith('NP-') ||
+      specDept === 'SPD-DEPT005'
+    );
+  }
+  // Spoke Plating (SPD-DEPT006)
+  if (activeDeptCode === 'SPD-DEPT006') {
+    return (
+      itemCode.startsWith('WIP-SPL') ||
+      itemCode.startsWith('SPL-') ||
+      itemCode.startsWith('BL-') ||
+      specDept === 'SPD-DEPT006'
+    );
+  }
+  // Spoke Packing (SPD-DEPT008)
+  if (activeDeptCode === 'SPD-DEPT008') {
+    return (
+      itemCode.startsWith('PKS') ||
+      itemCode.startsWith('SPI-FG') ||
+      itemCode.startsWith('SP-') ||
+      specDept === 'SPD-DEPT008'
+    );
+  }
+
+  // Control Cable Division
+  // Flattening (CCD-DEPT001)
+  if (activeDeptCode === 'CCD-DEPT001') {
+    return (
+      itemCode.startsWith('FLAT') ||
+      itemCode.startsWith('FL-') ||
+      itemCode.startsWith('FT-') ||
+      specDept === 'CCD-DEPT001'
+    );
+  }
+  // Spiral / Outer Casing (CCD-DEPT002)
+  if (activeDeptCode === 'CCD-DEPT002') {
+    if (itemCode.startsWith('FLAT') || itemCode.startsWith('FL-') || itemCode.startsWith('FT-')) return false;
+    return (
+      itemCode.startsWith('CCD-CAS') ||
+      itemCode.startsWith('CAS-') ||
+      itemCode.startsWith('CCD-FGR') ||
+      specDept === 'CCD-DEPT002'
+    );
+  }
+  // PVC / Inner Wire (CCD-DEPT003)
+  if (activeDeptCode === 'CCD-DEPT003') {
+    return (
+      itemCode.startsWith('CCD-IN') ||
+      itemCode.startsWith('IN-') ||
+      itemCode.startsWith('PV-') ||
+      specDept === 'CCD-DEPT003'
+    );
+  }
+  // Cutting & Packing / Assembly (CCD-DEPT005 or CCD-DEPT004)
+  if (activeDeptCode === 'CCD-DEPT005' || activeDeptCode === 'CCD-DEPT004') {
+    return (
+      itemCode.startsWith('CCD-FG') ||
+      itemCode.startsWith('CA-') ||
+      itemCode.startsWith('CPK-') ||
+      itemCode.startsWith('PK-') ||
+      specDept === activeDeptCode
+    );
+  }
+
+  return specDept === activeDeptCode;
+};
 
 // Generate smart default characteristics based on division and department
 const getDefaultCharsForScope = (divCode: string, deptCode: string): DimensionalCharacteristic[] => {
@@ -45,18 +215,48 @@ const getDefaultCharsForScope = (divCode: string, deptCode: string): Dimensional
 
   // Spoke Division
   if (deptCode === 'SPD-DEPT001') {
+    // Straightener
     return [
       { id: `c-${Date.now()}-1`, charName: 'Wire Diameter', nominal: 3.2, tolPlus: 0.02, tolMinus: 0.02, unit: 'mm', isCritical: true },
       { id: `c-${Date.now()}-2`, charName: 'Cut Length', nominal: 300.0, tolPlus: 0.5, tolMinus: 0.5, unit: 'mm', isCritical: true },
       { id: `c-${Date.now()}-3`, charName: 'Straightness', nominal: 0.2, tolPlus: 0.05, tolMinus: 0.05, unit: 'mm', isCritical: false },
     ];
+  } else if (deptCode === 'SPD-DEPT002') {
+    // Swagging
+    return [
+      { id: `c-${Date.now()}-1`, charName: 'Butted Length', nominal: 45.0, tolPlus: 0.5, tolMinus: 0.5, unit: 'mm', isCritical: true },
+      { id: `c-${Date.now()}-2`, charName: 'Reduced Dia', nominal: 2.8, tolPlus: 0.03, tolMinus: 0.03, unit: 'mm', isCritical: true },
+      { id: `c-${Date.now()}-3`, charName: 'Transition Taper', nominal: 12.0, tolPlus: 0.5, tolMinus: 0.5, unit: 'mm', isCritical: false },
+    ];
+  } else if (deptCode === 'SPD-DEPT004') {
+    // Header
+    return [
+      { id: `c-${Date.now()}-1`, charName: 'Head Dia', nominal: 6.6, tolPlus: 0.15, tolMinus: 0.15, unit: 'mm', isCritical: true },
+      { id: `c-${Date.now()}-2`, charName: 'Head Thickness', nominal: 1.8, tolPlus: 0.1, tolMinus: 0.1, unit: 'mm', isCritical: true },
+      { id: `c-${Date.now()}-3`, charName: 'Shank Dia', nominal: 3.2, tolPlus: 0.02, tolMinus: 0.02, unit: 'mm', isCritical: false },
+    ];
+  } else if (deptCode === 'SPD-DEPT005') {
+    // Nipple
+    return [
+      { id: `c-${Date.now()}-1`, charName: 'Overall Length', nominal: 16.0, tolPlus: 0.2, tolMinus: 0.2, unit: 'mm', isCritical: true },
+      { id: `c-${Date.now()}-2`, charName: 'Body Dia', nominal: 4.0, tolPlus: 0.1, tolMinus: 0.1, unit: 'mm', isCritical: true },
+      { id: `c-${Date.now()}-3`, charName: 'Flange Head Dia', nominal: 6.0, tolPlus: 0.15, tolMinus: 0.15, unit: 'mm', isCritical: false },
+    ];
   } else if (deptCode === 'SPD-DEPT006') {
+    // Spoke Plating
     return [
       { id: `c-${Date.now()}-1`, charName: 'Plating Thickness', nominal: 8.0, tolPlus: 1.5, tolMinus: 1.5, unit: 'µm', isCritical: true },
       { id: `c-${Date.now()}-2`, charName: 'Salt Spray Resistance', nominal: 48.0, tolPlus: 4.0, tolMinus: 4.0, unit: 'Hrs', isCritical: false },
     ];
+  } else if (deptCode === 'SPD-DEPT008') {
+    // Spoke Packing
+    return [
+      { id: `c-${Date.now()}-1`, charName: 'Pack Count', nominal: 72.0, tolPlus: 0.0, tolMinus: 0.0, unit: 'Pcs', isCritical: true },
+      { id: `c-${Date.now()}-2`, charName: 'Box Gross Weight', nominal: 850.0, tolPlus: 10.0, tolMinus: 10.0, unit: 'g', isCritical: false },
+    ];
   }
 
+  // Spoke Department (SPD-DEPT003) standard
   return [
     { id: `c-${Date.now()}-1`, charName: 'Total Length', nominal: 159.5, tolPlus: 0.5, tolMinus: 0.5, unit: 'mm', isCritical: true },
     { id: `c-${Date.now()}-2`, charName: 'Head Dia', nominal: 6.6, tolPlus: 0.15, tolMinus: 0.15, unit: 'mm', isCritical: true },
@@ -96,119 +296,151 @@ export const ItemQcSpecsMaster: React.FC<ItemQcSpecsMasterProps> = ({
     }
   }, [companyId]);
 
-  // Filter specs by active division
-  const filteredSpecs = useMemo(() => {
-    return specs.filter((s) => {
-      if (!divisionCode) return true;
-      if (s.divisionCode === divisionCode) return true;
+  // Scope filter: Show only active department specs by default, or all division specs
+  const [scopeFilter, setScopeFilter] = useState<'DEPARTMENT' | 'ALL'>('DEPARTMENT');
+
+  // Deduplicated specs across the division
+  const deduplicatedDivisionSpecs = useMemo(() => {
+    const uniqueMap = new Map<string, ItemQcSpecification>();
+    (specs || []).forEach((s) => {
+      if (!s || !s.itemCode) return;
+      const key = s.itemCode.trim().toUpperCase();
+      if (!uniqueMap.has(key)) {
+        uniqueMap.set(key, s);
+      } else {
+        const existing = uniqueMap.get(key)!;
+        const existingTime = existing.updatedAt ? new Date(existing.updatedAt).getTime() : 0;
+        const newTime = s.updatedAt ? new Date(s.updatedAt).getTime() : 0;
+        if (newTime >= existingTime && (s.characteristics?.length || 0) >= (existing.characteristics?.length || 0)) {
+          uniqueMap.set(key, s);
+        }
+      }
+    });
+
+    return Array.from(uniqueMap.values()).filter((s) => {
       const code = (s.itemCode || '').toUpperCase();
       if (divisionCode === 'DIV-CCD') {
-        return code.startsWith('CCD') || code.startsWith('FLAT') || code.startsWith('CAS') || code.startsWith('IN-') || code.startsWith('CA-');
+        const isSpoke = code.startsWith('WIP-') || code.startsWith('SPK-') || code.startsWith('ST-');
+        if (isSpoke) return false;
       } else if (divisionCode === 'DIV-SPD') {
-        return !code.startsWith('CCD') && !code.startsWith('FLAT') && !code.startsWith('CAS');
+        const isCcd = code.startsWith('CCD') || code.startsWith('FLAT') || code.startsWith('CAS') || code.startsWith('IN-');
+        if (isCcd) return false;
       }
       return true;
     });
   }, [specs, divisionCode]);
 
-  // Group items by Department affinity
+  // Department-specific count and filtered list
+  const departmentSpecs = useMemo(() => {
+    return deduplicatedDivisionSpecs.filter((s) => isSpecInDepartment(s, departmentCode, divisionCode));
+  }, [deduplicatedDivisionSpecs, departmentCode, divisionCode]);
+
+  const filteredSpecs = useMemo(() => {
+    return scopeFilter === 'DEPARTMENT' ? departmentSpecs : deduplicatedDivisionSpecs;
+  }, [scopeFilter, departmentSpecs, deduplicatedDivisionSpecs]);
+
+  // Group items for Add/Edit Modal: Missing Specs first, then Configured Specs
   const groupedItemOptions = useMemo(() => {
-    if (!itemsList || itemsList.length === 0) {
-      return [
-        {
-          label: `Standard ${departmentName} Items`,
-          options: [
-            { value: 'WIP-ST-001', label: 'WIP-ST-001 — CD-250*17 Butted' },
-            { value: 'WIP-ST-004', label: 'WIP-ST-004 — S9-300*17 Outer Straight' },
-            { value: 'WIP-ST-006', label: 'WIP-ST-006 — S9-300*18 Inner Straight' },
-            { value: 'WIP-SPK-014', label: 'WIP-SPK-014 — S9 (Outer) - 300*17 Outer Straight' },
-            { value: 'WIP-SPK-002', label: 'WIP-SPK-002 — CD-250*17 Outer Butted' },
-          ],
-        },
-      ];
-    }
-
-    // Determine departmental prefixes
-    let deptPrefixes: string[] = [];
-    if (departmentCode === 'SPD-DEPT001') { // Straightener
-      deptPrefixes = ['WIP-ST', 'ST-'];
-    } else if (departmentCode === 'SPD-DEPT002') { // Swagging
-      deptPrefixes = ['WIP-SW', 'SW-'];
-    } else if (departmentCode === 'SPD-DEPT003') { // Spoke
-      deptPrefixes = ['WIP-SPK', 'SPK-'];
-    } else if (departmentCode === 'SPD-DEPT004') { // Header
-      deptPrefixes = ['WIP-HD', 'HD-'];
-    } else if (departmentCode === 'SPD-DEPT005') { // Nipple
-      deptPrefixes = ['WIP-NP', 'WIP-NPL', 'FG-NP', 'NP-'];
-    } else if (departmentCode === 'SPD-DEPT006') { // Spoke Plating
-      deptPrefixes = ['WIP-SPL', 'SPL-'];
-    } else if (departmentCode === 'SPD-DEPT008') { // Spoke Packing
-      deptPrefixes = ['PKS', 'SPI-FG', 'SP-'];
-    } else if (departmentCode === 'CCD-DEPT001') { // Flattening
-      deptPrefixes = ['FLAT', 'FL-', 'FT-'];
-    } else if (departmentCode === 'CCD-DEPT002') { // Outer Casing
-      deptPrefixes = ['CCD-FGR', 'CCD-CAS', 'CAS-'];
-    } else if (departmentCode === 'CCD-DEPT003') { // Inner Wire
-      deptPrefixes = ['CCD-IN', 'IN-'];
-    } else if (departmentCode === 'CCD-DEPT004') { // Assembly
-      deptPrefixes = ['CCD-FG', 'CA-'];
-    }
-
-    // Filter out foreign division items strictly
-    const divisionCleanItems = itemsList.filter((it) => {
+    // 1. Gather all items from itemsList that belong to the active division
+    const divisionCleanItems = (itemsList || []).filter((it) => {
       const code = (it.itemCode || '').toUpperCase();
       if (divisionCode === 'DIV-SPD') {
-        // Spoke division should never have CCD cable items
         if (code.startsWith('CCD-') || code.startsWith('FLAT')) return false;
       } else if (divisionCode === 'DIV-CCD') {
-        // Control cable division should never have Spoke WIP items
-        if (code.startsWith('WIP-SPK') || code.startsWith('WIP-ST') || code.startsWith('WIP-SW') || code.startsWith('WIP-HD') || code.startsWith('WIP-NPL') || code.startsWith('WIP-SPL')) return false;
+        if (
+          code.startsWith('WIP-SPK') ||
+          code.startsWith('WIP-ST') ||
+          code.startsWith('WIP-SW') ||
+          code.startsWith('WIP-HD') ||
+          code.startsWith('WIP-NP') ||
+          code.startsWith('WIP-SPL')
+        )
+          return false;
       }
       return true;
     });
 
-    const deptMatches: any[] = [];
-    const otherItems: any[] = [];
+    // 2. Department prefixes
+    let deptPrefixes: string[] = [];
+    if (departmentCode === 'SPD-DEPT001') deptPrefixes = ['WIP-ST', 'ST-'];
+    else if (departmentCode === 'SPD-DEPT002') deptPrefixes = ['WIP-SW', 'SW-'];
+    else if (departmentCode === 'SPD-DEPT003') deptPrefixes = ['WIP-SPK', 'SPK-'];
+    else if (departmentCode === 'SPD-DEPT004') deptPrefixes = ['WIP-HD', 'HD-'];
+    else if (departmentCode === 'SPD-DEPT005') deptPrefixes = ['WIP-NP', 'WIP-NPL', 'FG-NP', 'NP-'];
+    else if (departmentCode === 'SPD-DEPT006') deptPrefixes = ['WIP-SPL', 'SPL-'];
+    else if (departmentCode === 'SPD-DEPT008') deptPrefixes = ['PKS', 'SPI-FG', 'SP-'];
+    else if (departmentCode === 'CCD-DEPT001') deptPrefixes = ['FLAT', 'FL-', 'FT-'];
+    else if (departmentCode === 'CCD-DEPT002') deptPrefixes = ['CCD-FGR', 'CCD-CAS', 'CAS-'];
+    else if (departmentCode === 'CCD-DEPT003') deptPrefixes = ['CCD-IN', 'IN-', 'PV-'];
+    else if (departmentCode === 'CCD-DEPT005' || departmentCode === 'CCD-DEPT004') deptPrefixes = ['CCD-FG', 'CA-', 'CPK-', 'PK-'];
 
-    divisionCleanItems.forEach((it) => {
+    // Collect department items from itemsList
+    const rawDeptMatches = divisionCleanItems.filter((it) => {
       const code = (it.itemCode || '').toUpperCase();
-      const isDept = deptPrefixes.some((pfx) => code.startsWith(pfx));
-      if (isDept) {
-        deptMatches.push(it);
-      } else {
-        otherItems.push(it);
-      }
+      return deptPrefixes.some((pfx) => code.startsWith(pfx));
     });
 
+    // Merge with standard fallback items for this department
+    const standardItems = STANDARD_DEPT_ITEMS[departmentCode] || [];
+    const deptItemsMap = new Map<string, { itemCode: string; name: string }>();
+    standardItems.forEach((it) => deptItemsMap.set(it.itemCode.toUpperCase(), it));
+    rawDeptMatches.forEach((it) => deptItemsMap.set(it.itemCode.toUpperCase(), { itemCode: it.itemCode, name: it.name }));
+    const allDeptItems = Array.from(deptItemsMap.values());
+
+    // Check which items already have specs in specs
+    const configuredSet = new Set(
+      (specs || []).map((s) => (s.itemCode || '').trim().toUpperCase())
+    );
+
+    const missingDeptItems = allDeptItems.filter((it) => !configuredSet.has(it.itemCode.toUpperCase()));
+    const configuredDeptItems = allDeptItems.filter((it) => configuredSet.has(it.itemCode.toUpperCase()));
+
     const groups: any[] = [];
-    if (deptMatches.length > 0) {
+
+    // Group 1: Missing Specs for this department (User requested this directly!)
+    if (missingDeptItems.length > 0) {
       groups.push({
-        label: `★ ${departmentName} Department Items (${deptMatches.length})`,
-        options: deptMatches.map((i) => ({
+        label: `★ Missing Specs for ${departmentName} (${missingDeptItems.length} items to add)`,
+        options: missingDeptItems.map((i) => ({
           value: i.itemCode,
-          label: `${i.itemCode} — ${i.name}`,
+          label: `⚠️ ${i.itemCode} — ${i.name} [Needs Specs]`,
+          name: i.name,
         })),
       });
     }
 
-    if (otherItems.length > 0) {
+    // Group 2: Already Configured Specs for this department
+    if (configuredDeptItems.length > 0) {
       groups.push({
-        label: `All ${divisionName} Items (${otherItems.length})`,
-        options: otherItems.map((i) => ({
+        label: `✓ Configured Specs for ${departmentName} (${configuredDeptItems.length} items)`,
+        options: configuredDeptItems.map((i) => ({
           value: i.itemCode,
-          label: `${i.itemCode} — ${i.name}`,
+          label: `✓ ${i.itemCode} — ${i.name} [Configured]`,
+          name: i.name,
         })),
       });
     }
 
     return groups;
-  }, [itemsList, departmentCode, departmentName, divisionName, divisionCode]);
+  }, [itemsList, departmentCode, departmentName, divisionName, divisionCode, specs]);
 
   const handleOpenAdd = () => {
     setEditingSpec(null);
     form.resetFields();
     const defaultDoc = divisionCode === 'DIV-CCD' ? 'CCD/QMS/05' : 'SPD/QMS/05';
+
+    // Auto-pick the first missing item for this department if available
+    let initialItemCode = '';
+    let initialItemName = '';
+    const missingGroup = groupedItemOptions[0]?.options;
+    if (missingGroup && missingGroup.length > 0) {
+      initialItemCode = missingGroup[0].value;
+      initialItemName = (missingGroup[0] as any).name || missingGroup[0].value;
+    }
+
     form.setFieldsValue({
+      itemCode: initialItemCode || undefined,
+      itemName: initialItemName || undefined,
       docRef: defaultDoc,
       revNo: '02',
       issueDate: '09-Jun-2022',
@@ -271,9 +503,14 @@ export const ItemQcSpecsMaster: React.FC<ItemQcSpecsMasterProps> = ({
         return;
       }
 
-      const matched = itemsList.find((i) => i.itemCode === values.itemCode);
+      const matched =
+        itemsList.find((i) => i.itemCode === values.itemCode) ||
+        (STANDARD_DEPT_ITEMS[departmentCode] || []).find((i) => i.itemCode === values.itemCode);
       const itemName = matched ? matched.name : values.itemName || values.itemCode;
-      const isCcd = divisionCode === 'DIV-CCD' || (values.itemCode || '').toUpperCase().startsWith('CCD') || (values.itemCode || '').toUpperCase().startsWith('FLAT');
+      const isCcd =
+        divisionCode === 'DIV-CCD' ||
+        (values.itemCode || '').toUpperCase().startsWith('CCD') ||
+        (values.itemCode || '').toUpperCase().startsWith('FLAT');
       const assignedDivCode = isCcd ? 'DIV-CCD' : 'DIV-SPD';
       const assignedDeptCode = departmentCode || (isCcd ? 'CCD-DEPT001' : 'SPD-DEPT003');
 
@@ -281,7 +518,7 @@ export const ItemQcSpecsMaster: React.FC<ItemQcSpecsMasterProps> = ({
         id: editingSpec ? editingSpec.id : `spec-${Date.now()}`,
         divisionCode: assignedDivCode,
         departmentCode: assignedDeptCode,
-        itemCode: values.itemCode,
+        itemCode: values.itemCode.trim(),
         itemName,
         docRef: values.docRef || (isCcd ? 'CCD/QMS/05' : 'SPD/QMS/05'),
         revNo: values.revNo || '02',
@@ -295,9 +532,11 @@ export const ItemQcSpecsMaster: React.FC<ItemQcSpecsMasterProps> = ({
         updatedAt: new Date().toISOString(),
       };
 
+      // Strict deduplication when updating specs list by itemCode or id
+      const targetCode = newSpec.itemCode.toUpperCase();
       const updated = editingSpec
-        ? specs.map((s) => (s.id === editingSpec.id ? newSpec : s))
-        : [...specs, newSpec];
+        ? specs.map((s) => (s.id === editingSpec.id || s.itemCode?.trim().toUpperCase() === targetCode ? newSpec : s))
+        : [...specs.filter((s) => s.itemCode?.trim().toUpperCase() !== targetCode), newSpec];
 
       onSpecsChange(updated);
       saveAllSpecs(updated);
@@ -462,15 +701,35 @@ export const ItemQcSpecsMaster: React.FC<ItemQcSpecsMasterProps> = ({
           alignItems: 'center',
           marginBottom: '14px',
           flexWrap: 'wrap',
-          gap: '8px',
+          gap: '10px',
         }}
       >
-        <div>
-          <Typography.Title level={5} style={{ margin: 0 }}>
-            Item Quality Specifications Master
-          </Typography.Title>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            <Typography.Title level={5} style={{ margin: 0 }}>
+              Item Quality Specifications Master
+            </Typography.Title>
+            <Tag color="processing" style={{ fontWeight: 600 }}>
+              {scopeFilter === 'DEPARTMENT'
+                ? `${departmentName} Department (${departmentSpecs.length} items)`
+                : `All ${divisionName} (${deduplicatedDivisionSpecs.length} items)`}
+            </Tag>
+            <Radio.Group
+              value={scopeFilter}
+              onChange={(e) => setScopeFilter(e.target.value)}
+              size="small"
+              buttonStyle="solid"
+            >
+              <Radio.Button value="DEPARTMENT">
+                {departmentName} Only ({departmentSpecs.length})
+              </Radio.Button>
+              <Radio.Button value="ALL">
+                All {divisionName} ({deduplicatedDivisionSpecs.length})
+              </Radio.Button>
+            </Radio.Group>
+          </div>
           <Typography.Text type="secondary" style={{ fontSize: '12px' }}>
-            Pre-configured nominal specs and tolerances auto-loaded during Running Production Inspections
+            Showing items strictly filtered to active department scope. Pre-configured tolerances auto-load in inspections.
           </Typography.Text>
         </div>
         <Space wrap>
@@ -506,11 +765,35 @@ export const ItemQcSpecsMaster: React.FC<ItemQcSpecsMasterProps> = ({
         width={780}
       >
         <Form form={form} layout="vertical">
+          <div
+            style={{
+              marginBottom: '12px',
+              padding: '8px 12px',
+              background: token.colorFillAlter,
+              borderRadius: '6px',
+              border: `1px solid ${token.colorBorderSecondary}`,
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: '6px',
+            }}
+          >
+            <Space size={6}>
+              <Tag color="blue" style={{ fontWeight: 600 }}>{divisionName}</Tag>
+              <Tag color="cyan" style={{ fontWeight: 600 }}>★ {departmentName} Department ({departmentCode})</Tag>
+            </Space>
+            <Typography.Text type="secondary" style={{ fontSize: '11px' }}>
+              Specs will be bound to {departmentName} department
+            </Typography.Text>
+          </div>
+
           <Row gutter={12}>
-            <Col span={12}>
-              <Form.Item name="itemCode" label="Item Code / Selection" rules={[{ required: true }]}>
+            <Col span={13}>
+              <Form.Item name="itemCode" label="Item Code / Selection" rules={[{ required: true, message: 'Please select an item' }]}>
                 <Select
                   showSearch
+                  allowClear
                   optionFilterProp="label"
                   placeholder="Select item or type code..."
                   filterOption={(input, option) => {
@@ -519,23 +802,55 @@ export const ItemQcSpecsMaster: React.FC<ItemQcSpecsMasterProps> = ({
                     const term = input.toLowerCase();
                     return label.toLowerCase().includes(term) || value.toLowerCase().includes(term);
                   }}
-                  onChange={(val) => {
-                    const found = itemsList.find((i) => i.itemCode === val);
-                    if (found) {
-                      form.setFieldsValue({ itemName: found.name });
+                  onChange={(val, opt: any) => {
+                    if (!val) {
+                      form.setFieldsValue({ itemName: '' });
+                      return;
+                    }
+                    const found =
+                      itemsList.find((i) => i.itemCode === val) ||
+                      (STANDARD_DEPT_ITEMS[departmentCode] || []).find((i) => i.itemCode === val);
+                    const resolvedName = found?.name || opt?.name || val;
+                    form.setFieldsValue({ itemName: resolvedName });
+
+                    const existingSpec = specs.find(
+                      (s) => (s.itemCode || '').trim().toUpperCase() === val.trim().toUpperCase()
+                    );
+                    if (existingSpec && existingSpec.characteristics && existingSpec.characteristics.length > 0) {
+                      setCharacteristics(existingSpec.characteristics);
+                      form.setFieldsValue({
+                        docRef: existingSpec.docRef || form.getFieldValue('docRef'),
+                        revNo: existingSpec.revNo || form.getFieldValue('revNo'),
+                        issueDate: existingSpec.issueDate || form.getFieldValue('issueDate'),
+                      });
+                    } else {
+                      setCharacteristics(getDefaultCharsForScope(divisionCode, departmentCode));
                     }
                   }}
                   options={groupedItemOptions}
                 />
               </Form.Item>
             </Col>
-            <Col span={6}>
-              <Form.Item name="docRef" label="Doc Ref" initialValue="SPD/QMS/05">
+            <Col span={11}>
+              <Form.Item name="itemName" label="Item Name / Description" rules={[{ required: true, message: 'Please enter item name' }]}>
+                <Input placeholder="e.g. S9 (Outer) - 300*17 Outer Straight" />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Row gutter={12}>
+            <Col span={10}>
+              <Form.Item name="docRef" label="Doc Ref" initialValue={divisionCode === 'DIV-CCD' ? 'CCD/QMS/05' : 'SPD/QMS/05'}>
                 <Input />
               </Form.Item>
             </Col>
-            <Col span={6}>
+            <Col span={7}>
               <Form.Item name="revNo" label="Revision No" initialValue="02">
+                <Input />
+              </Form.Item>
+            </Col>
+            <Col span={7}>
+              <Form.Item name="issueDate" label="Issue Date" initialValue="09-Jun-2022">
                 <Input />
               </Form.Item>
             </Col>
