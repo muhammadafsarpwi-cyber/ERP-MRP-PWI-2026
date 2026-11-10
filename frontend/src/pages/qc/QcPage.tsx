@@ -862,6 +862,7 @@ const QcPage: React.FC = () => {
           divisionCode={activeDivision.code}
           departmentCode={activeDepartment?.code || 'SPD-DEPT003'}
           itemsList={items}
+          companyId={companyId}
         />
       ),
     },

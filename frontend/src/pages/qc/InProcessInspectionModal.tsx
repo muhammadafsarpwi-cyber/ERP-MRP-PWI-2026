@@ -420,13 +420,28 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
     const allSpecs = loadAllSpecs();
     const match = allSpecs.find((s) => s.itemCode === code);
 
-    const chars = match ? match.characteristics : [
-      { id: 'c1', charName: 'Total Length', nominal: 159.5, tolPlus: 0.5, tolMinus: 0.5, unit: 'mm', isCritical: true },
-      { id: 'c2', charName: 'Head Dia', nominal: 6.6, tolPlus: 0.15, tolMinus: 0.15, unit: 'mm', isCritical: true },
-      { id: 'c3', charName: 'Bending Length', nominal: 9.8, tolPlus: 0.15, tolMinus: 0.15, unit: 'mm', isCritical: true },
-      { id: 'c4', charName: 'Thread Length', nominal: 14.0, tolPlus: 0.25, tolMinus: 0.25, unit: 'mm', isCritical: true },
-      { id: 'c5', charName: 'Thread Pressure', nominal: 30.0, tolPlus: 2.0, tolMinus: 2.0, unit: 'PSI', isCritical: false },
-    ];
+    const isCcd =
+      divisionCode === 'DIV-CCD' ||
+      (code || '').toUpperCase().startsWith('CCD') ||
+      (code || '').toUpperCase().startsWith('FLAT') ||
+      (code || '').toUpperCase().startsWith('CAS');
+
+    const chars =
+      match && match.characteristics && match.characteristics.length > 0
+        ? match.characteristics
+        : isCcd
+          ? [
+              { id: 'c1', charName: 'Thickness', nominal: 1.25, tolPlus: 0.03, tolMinus: 0.03, unit: 'mm', isCritical: true },
+              { id: 'c2', charName: 'Width', nominal: 2.45, tolPlus: 0.05, tolMinus: 0.05, unit: 'mm', isCritical: true },
+              { id: 'c3', charName: 'Tensile Strength', nominal: 950.0, tolPlus: 50.0, tolMinus: 50.0, unit: 'N/mm²', isCritical: false },
+            ]
+          : [
+              { id: 'c1', charName: 'Total Length', nominal: 159.5, tolPlus: 0.5, tolMinus: 0.5, unit: 'mm', isCritical: true },
+              { id: 'c2', charName: 'Head Dia', nominal: 6.6, tolPlus: 0.15, tolMinus: 0.15, unit: 'mm', isCritical: true },
+              { id: 'c3', charName: 'Bending Length', nominal: 9.8, tolPlus: 0.15, tolMinus: 0.15, unit: 'mm', isCritical: true },
+              { id: 'c4', charName: 'Thread Length', nominal: 14.0, tolPlus: 0.25, tolMinus: 0.25, unit: 'mm', isCritical: true },
+              { id: 'c5', charName: 'Thread Pressure', nominal: 30.0, tolPlus: 2.0, tolMinus: 2.0, unit: 'PSI', isCritical: false },
+            ];
 
     // All sample boxes are initialized blank (undefined)
     const rows: InspectionSampleRow[] = chars.map((c) => ({
@@ -442,13 +457,19 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
 
     setSampleRows(rows);
 
-    const rawAttrs = match && match.attributes && match.attributes.length > 0
-      ? match.attributes
-      : [
-          { id: 'a1', checkName: 'Thread Checking', sampleSize: 10, maxAllowedDefects: 0 },
-          { id: 'a2', checkName: 'Bending Broken', sampleSize: 10, maxAllowedDefects: 0 },
-          { id: 'a3', checkName: 'Head Crack', sampleSize: 10, maxAllowedDefects: 0 },
-        ];
+    const rawAttrs =
+      match && match.attributes && match.attributes.length > 0
+        ? match.attributes
+        : isCcd
+          ? [
+              { id: 'a1', checkName: 'Surface Burrs & Scratches', sampleSize: 10, maxAllowedDefects: 0 },
+              { id: 'a2', checkName: 'Edge Smoothness', sampleSize: 10, maxAllowedDefects: 0 },
+            ]
+          : [
+              { id: 'a1', checkName: 'Thread Checking', sampleSize: 10, maxAllowedDefects: 0 },
+              { id: 'a2', checkName: 'Bending Broken', sampleSize: 10, maxAllowedDefects: 0 },
+              { id: 'a3', checkName: 'Head Crack', sampleSize: 10, maxAllowedDefects: 0 },
+            ];
 
     const attrs: AttributeCheckItem[] = rawAttrs.map((a: any) => ({
       id: a.id,

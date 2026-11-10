@@ -25,7 +25,8 @@ export const DEFAULT_INSPECTORS: string[] = [
   'Asad Ali',
 ];
 
-export const DEFAULT_SPOKE_SPECS: ItemQcSpecification[] = [
+export const DEFAULT_QC_SPECS: ItemQcSpecification[] = [
+  // Spoke Division (DIV-SPD)
   {
     id: 'spec-s9-outer',
     divisionCode: 'DIV-SPD',
@@ -95,7 +96,93 @@ export const DEFAULT_SPOKE_SPECS: ItemQcSpecification[] = [
     ],
     updatedAt: new Date().toISOString(),
   },
+  {
+    id: 'spec-cd250-inner',
+    divisionCode: 'DIV-SPD',
+    departmentCode: 'SPD-DEPT003',
+    itemCode: 'WIP-SPK-001',
+    itemName: 'CD-250*17 Inner Butted',
+    docRef: 'SPD/QMS/05',
+    revNo: '02',
+    issueDate: '09-Jun-2022',
+    characteristics: [
+      { id: 'c1', charName: 'Total Length', nominal: 160.5, tolPlus: 0.5, tolMinus: 0.5, unit: 'mm', isCritical: true },
+      { id: 'c2', charName: 'Head Dia', nominal: 6.53, tolPlus: 0.15, tolMinus: 0.15, unit: 'mm', isCritical: true },
+      { id: 'c3', charName: 'Bending Length', nominal: 11.5, tolPlus: 0.15, tolMinus: 0.15, unit: 'mm', isCritical: true },
+      { id: 'c4', charName: 'Thread Length', nominal: 11.5, tolPlus: 0.25, tolMinus: 0.25, unit: 'mm', isCritical: true },
+      { id: 'c5', charName: 'Thread Pressure', nominal: 29.0, tolPlus: 2.0, tolMinus: 2.0, unit: 'PSI', isCritical: false },
+    ],
+    attributes: [
+      { id: 'a1', checkName: 'Thread Checking', sampleSize: 10, maxAllowedDefects: 0 },
+      { id: 'a2', checkName: 'Bending Broken', sampleSize: 10, maxAllowedDefects: 0 },
+      { id: 'a3', checkName: 'Head Crack', sampleSize: 10, maxAllowedDefects: 0 },
+    ],
+    updatedAt: new Date().toISOString(),
+  },
+  // Control Cable Division (DIV-CCD)
+  {
+    id: 'spec-ccd-flat-001',
+    divisionCode: 'DIV-CCD',
+    departmentCode: 'CCD-DEPT001',
+    itemCode: 'FLAT-001',
+    itemName: 'Flat Outer Spiral Wire',
+    docRef: 'CCD/QMS/05',
+    revNo: '01',
+    issueDate: '15-Aug-2022',
+    characteristics: [
+      { id: 'c1', charName: 'Thickness', nominal: 1.25, tolPlus: 0.03, tolMinus: 0.03, unit: 'mm', isCritical: true },
+      { id: 'c2', charName: 'Width', nominal: 2.45, tolPlus: 0.05, tolMinus: 0.05, unit: 'mm', isCritical: true },
+      { id: 'c3', charName: 'Tensile Strength', nominal: 950.0, tolPlus: 50.0, tolMinus: 50.0, unit: 'N/mm²', isCritical: false },
+    ],
+    attributes: [
+      { id: 'a1', checkName: 'Surface Burrs & Scratches', sampleSize: 10, maxAllowedDefects: 0 },
+      { id: 'a2', checkName: 'Edge Smoothness', sampleSize: 10, maxAllowedDefects: 0 },
+    ],
+    updatedAt: new Date().toISOString(),
+  },
+  {
+    id: 'spec-ccd-cas-001',
+    divisionCode: 'DIV-CCD',
+    departmentCode: 'CCD-DEPT002',
+    itemCode: 'CCD-CAS-001',
+    itemName: 'Outer Casing Spiral Tube',
+    docRef: 'CCD/QMS/05',
+    revNo: '01',
+    issueDate: '15-Aug-2022',
+    characteristics: [
+      { id: 'c1', charName: 'Outer Diameter', nominal: 5.0, tolPlus: 0.1, tolMinus: 0.1, unit: 'mm', isCritical: true },
+      { id: 'c2', charName: 'Inner Diameter', nominal: 2.5, tolPlus: 0.1, tolMinus: 0.1, unit: 'mm', isCritical: true },
+      { id: 'c3', charName: 'Coating Thickness', nominal: 0.65, tolPlus: 0.05, tolMinus: 0.05, unit: 'mm', isCritical: false },
+    ],
+    attributes: [
+      { id: 'a1', checkName: 'PVC Lamination Adhesion', sampleSize: 10, maxAllowedDefects: 0 },
+      { id: 'a2', checkName: 'Uniform Black Color', sampleSize: 10, maxAllowedDefects: 0 },
+    ],
+    updatedAt: new Date().toISOString(),
+  },
+  {
+    id: 'spec-ccd-in-001',
+    divisionCode: 'DIV-CCD',
+    departmentCode: 'CCD-DEPT003',
+    itemCode: 'CCD-IN-001',
+    itemName: 'Inner Steel Wire 1x19',
+    docRef: 'CCD/QMS/05',
+    revNo: '01',
+    issueDate: '15-Aug-2022',
+    characteristics: [
+      { id: 'c1', charName: 'Wire Diameter', nominal: 1.5, tolPlus: 0.03, tolMinus: 0.03, unit: 'mm', isCritical: true },
+      { id: 'c2', charName: 'Breaking Load', nominal: 180.0, tolPlus: 10.0, tolMinus: 10.0, unit: 'kg', isCritical: true },
+      { id: 'c3', charName: 'Zinc Coating Weight', nominal: 40.0, tolPlus: 5.0, tolMinus: 5.0, unit: 'g/m²', isCritical: false },
+    ],
+    attributes: [
+      { id: 'a1', checkName: 'Strand Twisting Uniformity', sampleSize: 10, maxAllowedDefects: 0 },
+      { id: 'a2', checkName: 'No Broken Strands', sampleSize: 10, maxAllowedDefects: 0 },
+    ],
+    updatedAt: new Date().toISOString(),
+  },
 ];
+
+export const DEFAULT_SPOKE_SPECS = DEFAULT_QC_SPECS;
 
 export const INITIAL_INSPECTIONS: QmsInProcessInspection[] = [
   {
@@ -136,14 +223,20 @@ export const INITIAL_INSPECTIONS: QmsInProcessInspection[] = [
 export function loadAllSpecs(): ItemQcSpecification[] {
   try {
     const raw = localStorage.getItem(QC_SPECS_STORAGE_KEY);
-    if (!raw) {
-      localStorage.setItem(QC_SPECS_STORAGE_KEY, JSON.stringify(DEFAULT_SPOKE_SPECS));
-      return DEFAULT_SPOKE_SPECS;
-    }
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) && parsed.length > 0 ? parsed : DEFAULT_SPOKE_SPECS;
+    let list: ItemQcSpecification[] = raw ? JSON.parse(raw) : [];
+    // Sanitize: filter out records missing characteristics
+    list = (Array.isArray(list) ? list : []).filter(
+      (s) => s && s.itemCode && Array.isArray(s.characteristics) && s.characteristics.length > 0
+    );
+    // Merge with defaults so both Spoke and Control Cable items are present
+    const map = new Map<string, ItemQcSpecification>();
+    DEFAULT_QC_SPECS.forEach((s) => map.set(s.itemCode, s));
+    list.forEach((s) => map.set(s.itemCode, s));
+    const combined = Array.from(map.values());
+    localStorage.setItem(QC_SPECS_STORAGE_KEY, JSON.stringify(combined));
+    return combined;
   } catch {
-    return DEFAULT_SPOKE_SPECS;
+    return DEFAULT_QC_SPECS;
   }
 }
 
@@ -357,12 +450,24 @@ export async function fetchDbSpecs(companyId: string): Promise<ItemQcSpecificati
     if (record?.remarks) {
       const parsed = JSON.parse(record.remarks);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        saveAllSpecs(parsed);
-        return parsed;
+        // Sanitize: filter out broken items without characteristics
+        const valid = parsed.filter(
+          (s: any) => s && s.itemCode && Array.isArray(s.characteristics) && s.characteristics.length > 0
+        );
+        if (valid.length > 0) {
+          const map = new Map<string, ItemQcSpecification>();
+          DEFAULT_QC_SPECS.forEach((s) => map.set(s.itemCode, s));
+          valid.forEach((s: ItemQcSpecification) => map.set(s.itemCode, s));
+          const combined = Array.from(map.values());
+          saveAllSpecs(combined);
+          return combined;
+        }
       }
     }
     const initial = loadAllSpecs();
-    saveDbSpecs(companyId, initial).catch(() => {});
+    if (companyId) {
+      saveDbSpecs(companyId, initial).catch(() => {});
+    }
     return initial;
   } catch (err) {
     console.warn('Failed to fetch specs from DB, using local cache:', err);

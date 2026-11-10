@@ -3,7 +3,7 @@ import { Card, Table, Button, Space, Modal, Form, Input, InputNumber, Select, Ap
 import { PlusOutlined, DownloadOutlined, UploadOutlined, EditOutlined, DeleteOutlined, FileExcelOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { ItemQcSpecification, DimensionalCharacteristic } from './types';
-import { saveAllSpecs, exportSpecsToExcel, exportSpecsTemplateCsv } from './qcSpecsStore';
+import { saveAllSpecs, saveDbSpecs, exportSpecsToExcel, exportSpecsTemplateCsv } from './qcSpecsStore';
 
 interface ItemQcSpecsMasterProps {
   specs: ItemQcSpecification[];
@@ -13,7 +13,58 @@ interface ItemQcSpecsMasterProps {
   divisionCode: string;
   departmentCode: string;
   itemsList: Array<{ id: string; itemCode: string; name: string }>;
+  companyId?: string;
 }
+
+// Generate smart default characteristics based on division and department
+const getDefaultCharsForScope = (divCode: string, deptCode: string): DimensionalCharacteristic[] => {
+  if (divCode === 'DIV-CCD' || (deptCode && deptCode.startsWith('CCD'))) {
+    if (deptCode === 'CCD-DEPT001' || deptCode.includes('FLAT')) {
+      // Flattening
+      return [
+        { id: `c-${Date.now()}-1`, charName: 'Thickness', nominal: 1.25, tolPlus: 0.03, tolMinus: 0.03, unit: 'mm', isCritical: true },
+        { id: `c-${Date.now()}-2`, charName: 'Width', nominal: 2.45, tolPlus: 0.05, tolMinus: 0.05, unit: 'mm', isCritical: true },
+        { id: `c-${Date.now()}-3`, charName: 'Tensile Strength', nominal: 950.0, tolPlus: 50.0, tolMinus: 50.0, unit: 'N/mm²', isCritical: false },
+      ];
+    } else if (deptCode === 'CCD-DEPT002' || deptCode === 'CCD-DEPT003') {
+      // Outer Casing / PVC / Inner Wire
+      return [
+        { id: `c-${Date.now()}-1`, charName: 'Outer Diameter', nominal: 5.0, tolPlus: 0.1, tolMinus: 0.1, unit: 'mm', isCritical: true },
+        { id: `c-${Date.now()}-2`, charName: 'Inner Diameter', nominal: 2.5, tolPlus: 0.1, tolMinus: 0.1, unit: 'mm', isCritical: true },
+        { id: `c-${Date.now()}-3`, charName: 'Coating Thickness', nominal: 0.65, tolPlus: 0.05, tolMinus: 0.05, unit: 'mm', isCritical: false },
+      ];
+    } else {
+      // Assembly
+      return [
+        { id: `c-${Date.now()}-1`, charName: 'Total Cable Length', nominal: 1050.0, tolPlus: 5.0, tolMinus: 5.0, unit: 'mm', isCritical: true },
+        { id: `c-${Date.now()}-2`, charName: 'Stroke / Travel', nominal: 75.0, tolPlus: 2.0, tolMinus: 2.0, unit: 'mm', isCritical: true },
+        { id: `c-${Date.now()}-3`, charName: 'Fitting Pull Force', nominal: 120.0, tolPlus: 10.0, tolMinus: 10.0, unit: 'kg', isCritical: false },
+      ];
+    }
+  }
+
+  // Spoke Division
+  if (deptCode === 'SPD-DEPT001') {
+    return [
+      { id: `c-${Date.now()}-1`, charName: 'Wire Diameter', nominal: 3.2, tolPlus: 0.02, tolMinus: 0.02, unit: 'mm', isCritical: true },
+      { id: `c-${Date.now()}-2`, charName: 'Cut Length', nominal: 300.0, tolPlus: 0.5, tolMinus: 0.5, unit: 'mm', isCritical: true },
+      { id: `c-${Date.now()}-3`, charName: 'Straightness', nominal: 0.2, tolPlus: 0.05, tolMinus: 0.05, unit: 'mm', isCritical: false },
+    ];
+  } else if (deptCode === 'SPD-DEPT006') {
+    return [
+      { id: `c-${Date.now()}-1`, charName: 'Plating Thickness', nominal: 8.0, tolPlus: 1.5, tolMinus: 1.5, unit: 'µm', isCritical: true },
+      { id: `c-${Date.now()}-2`, charName: 'Salt Spray Resistance', nominal: 48.0, tolPlus: 4.0, tolMinus: 4.0, unit: 'Hrs', isCritical: false },
+    ];
+  }
+
+  return [
+    { id: `c-${Date.now()}-1`, charName: 'Total Length', nominal: 159.5, tolPlus: 0.5, tolMinus: 0.5, unit: 'mm', isCritical: true },
+    { id: `c-${Date.now()}-2`, charName: 'Head Dia', nominal: 6.6, tolPlus: 0.15, tolMinus: 0.15, unit: 'mm', isCritical: true },
+    { id: `c-${Date.now()}-3`, charName: 'Bending Length', nominal: 9.8, tolPlus: 0.15, tolMinus: 0.15, unit: 'mm', isCritical: true },
+    { id: `c-${Date.now()}-4`, charName: 'Thread Length', nominal: 14.0, tolPlus: 0.25, tolMinus: 0.25, unit: 'mm', isCritical: true },
+    { id: `c-${Date.now()}-5`, charName: 'Thread Pressure', nominal: 30.0, tolPlus: 2.0, tolMinus: 2.0, unit: 'PSI', isCritical: false },
+  ];
+};
 
 export const ItemQcSpecsMaster: React.FC<ItemQcSpecsMasterProps> = ({
   specs,
@@ -23,6 +74,7 @@ export const ItemQcSpecsMaster: React.FC<ItemQcSpecsMasterProps> = ({
   divisionCode,
   departmentCode,
   itemsList,
+  companyId,
 }) => {
   const { token } = theme.useToken();
   const { message } = App.useApp();
@@ -33,10 +85,31 @@ export const ItemQcSpecsMaster: React.FC<ItemQcSpecsMasterProps> = ({
 
   const [characteristics, setCharacteristics] = useState<DimensionalCharacteristic[]>([]);
 
-  // Filter specs by active division (or all if not strictly matched)
-  const filteredSpecs = specs.filter(
-    (s) => !divisionCode || s.divisionCode === divisionCode || s.divisionCode === 'DIV-SPD'
-  );
+  // Resolve companyId for DB sync
+  const resolvedCompanyId = useMemo(() => {
+    if (companyId) return companyId;
+    try {
+      const raw = localStorage.getItem('erp_user');
+      return raw ? JSON.parse(raw)?.defaultCompanyId || '' : '';
+    } catch {
+      return '';
+    }
+  }, [companyId]);
+
+  // Filter specs by active division
+  const filteredSpecs = useMemo(() => {
+    return specs.filter((s) => {
+      if (!divisionCode) return true;
+      if (s.divisionCode === divisionCode) return true;
+      const code = (s.itemCode || '').toUpperCase();
+      if (divisionCode === 'DIV-CCD') {
+        return code.startsWith('CCD') || code.startsWith('FLAT') || code.startsWith('CAS') || code.startsWith('IN-') || code.startsWith('CA-');
+      } else if (divisionCode === 'DIV-SPD') {
+        return !code.startsWith('CCD') && !code.startsWith('FLAT') && !code.startsWith('CAS');
+      }
+      return true;
+    });
+  }, [specs, divisionCode]);
 
   // Group items by Department affinity
   const groupedItemOptions = useMemo(() => {
@@ -134,13 +207,13 @@ export const ItemQcSpecsMaster: React.FC<ItemQcSpecsMasterProps> = ({
   const handleOpenAdd = () => {
     setEditingSpec(null);
     form.resetFields();
-    setCharacteristics([
-      { id: 'c1', charName: 'Total Length', nominal: 159.5, tolPlus: 0.5, tolMinus: 0.5, unit: 'mm', isCritical: true },
-      { id: 'c2', charName: 'Head Dia', nominal: 6.6, tolPlus: 0.15, tolMinus: 0.15, unit: 'mm', isCritical: true },
-      { id: 'c3', charName: 'Bending Length', nominal: 9.8, tolPlus: 0.15, tolMinus: 0.15, unit: 'mm', isCritical: true },
-      { id: 'c4', charName: 'Thread Length', nominal: 14.0, tolPlus: 0.25, tolMinus: 0.25, unit: 'mm', isCritical: true },
-      { id: 'c5', charName: 'Thread Pressure', nominal: 30.0, tolPlus: 2.0, tolMinus: 2.0, unit: 'PSI', isCritical: false },
-    ]);
+    const defaultDoc = divisionCode === 'DIV-CCD' ? 'CCD/QMS/05' : 'SPD/QMS/05';
+    form.setFieldsValue({
+      docRef: defaultDoc,
+      revNo: '02',
+      issueDate: '09-Jun-2022',
+    });
+    setCharacteristics(getDefaultCharsForScope(divisionCode, departmentCode));
     setModalVisible(true);
   };
 
@@ -157,33 +230,67 @@ export const ItemQcSpecsMaster: React.FC<ItemQcSpecsMasterProps> = ({
     setModalVisible(true);
   };
 
+  const handleAddCharRow = () => {
+    const isCcd = divisionCode === 'DIV-CCD';
+    const newChar: DimensionalCharacteristic = {
+      id: `c-${Date.now()}-${characteristics.length + 1}`,
+      charName: '',
+      nominal: 0,
+      tolPlus: 0.1,
+      tolMinus: 0.1,
+      unit: isCcd ? 'mm' : 'mm',
+      isCritical: false,
+    };
+    setCharacteristics((prev) => [...prev, newChar]);
+  };
+
+  const handleRemoveChar = (id: string) => {
+    setCharacteristics((prev) => prev.filter((c) => c.id !== id));
+  };
+
   const handleDeleteSpec = (id: string) => {
     const updated = specs.filter((s) => s.id !== id);
     onSpecsChange(updated);
     saveAllSpecs(updated);
+    if (resolvedCompanyId) {
+      saveDbSpecs(resolvedCompanyId, updated).catch(() => {});
+    }
     message.success('Item specification deleted');
   };
 
   const handleSaveSpec = async () => {
     try {
       const values = await form.validateFields();
+      if (!characteristics || characteristics.length === 0) {
+        message.warning('Please add at least one characteristic parameter');
+        return;
+      }
+      const hasEmptyName = characteristics.some((c) => !c.charName || !c.charName.trim());
+      if (hasEmptyName) {
+        message.warning('Please enter a parameter name for all rows (e.g. Thickness, Width, Outer Dia...)');
+        return;
+      }
+
       const matched = itemsList.find((i) => i.itemCode === values.itemCode);
       const itemName = matched ? matched.name : values.itemName || values.itemCode;
+      const isCcd = divisionCode === 'DIV-CCD' || (values.itemCode || '').toUpperCase().startsWith('CCD') || (values.itemCode || '').toUpperCase().startsWith('FLAT');
+      const assignedDivCode = isCcd ? 'DIV-CCD' : 'DIV-SPD';
+      const assignedDeptCode = departmentCode || (isCcd ? 'CCD-DEPT001' : 'SPD-DEPT003');
 
       const newSpec: ItemQcSpecification = {
         id: editingSpec ? editingSpec.id : `spec-${Date.now()}`,
-        divisionCode: divisionCode || 'DIV-SPD',
-        departmentCode: departmentCode || 'SPD-DEPT003',
+        divisionCode: assignedDivCode,
+        departmentCode: assignedDeptCode,
         itemCode: values.itemCode,
         itemName,
-        docRef: values.docRef || 'SPD/QMS/05',
+        docRef: values.docRef || (isCcd ? 'CCD/QMS/05' : 'SPD/QMS/05'),
         revNo: values.revNo || '02',
         issueDate: values.issueDate || '09-Jun-2022',
         characteristics,
-        attributes: [
-          { id: 'a1', checkName: 'Thread Checking', sampleSize: 10, maxAllowedDefects: 0 },
-          { id: 'a2', checkName: 'Bending Broken', sampleSize: 10, maxAllowedDefects: 0 },
-          { id: 'a3', checkName: 'Head Crack', sampleSize: 10, maxAllowedDefects: 0 },
+        attributes: editingSpec?.attributes || [
+          { id: 'a1', checkName: isCcd ? 'Surface Burrs & Scratches' : 'Thread Checking', sampleSize: 10, maxAllowedDefects: 0 },
+          { id: 'a2', checkName: isCcd ? 'Edge Smoothness' : 'Bending Broken', sampleSize: 10, maxAllowedDefects: 0 },
+          { id: 'a3', checkName: isCcd ? 'Color Uniformity' : 'Head Crack', sampleSize: 10, maxAllowedDefects: 0 },
         ],
         updatedAt: new Date().toISOString(),
       };
@@ -194,7 +301,10 @@ export const ItemQcSpecsMaster: React.FC<ItemQcSpecsMasterProps> = ({
 
       onSpecsChange(updated);
       saveAllSpecs(updated);
-      message.success('Item QC Specifications saved!');
+      if (resolvedCompanyId) {
+        saveDbSpecs(resolvedCompanyId, updated).catch(() => {});
+      }
+      message.success(`Item QC Specifications for "${newSpec.itemCode}" saved successfully!`);
       setModalVisible(false);
     } catch {
       message.error('Please verify all form fields');
@@ -431,40 +541,102 @@ export const ItemQcSpecsMaster: React.FC<ItemQcSpecsMasterProps> = ({
             </Col>
           </Row>
 
-          <Divider orientation="left" style={{ margin: '8px 0 12px 0', fontSize: '13px' }}>
-            Dimensional Characteristics &amp; Tolerances (±)
-          </Divider>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '12px 0 8px 0' }}>
+            <span style={{ fontSize: '13px', fontWeight: 700, color: token.colorTextHeading }}>
+              Dimensional Characteristics &amp; Tolerances (±)
+            </span>
+            <Tag color="cyan">{divisionName} • {departmentName}</Tag>
+          </div>
 
           <table style={{ width: '100%', borderCollapse: 'collapse', border: `1px solid ${token.colorBorder}` }}>
             <thead>
               <tr style={{ backgroundColor: token.colorFillAlter, textAlign: 'left' }}>
-                <th style={{ padding: '6px 8px', border: `1px solid ${token.colorBorder}` }}>Characteristic</th>
-                <th style={{ padding: '6px 8px', border: `1px solid ${token.colorBorder}` }}>Dimension Requirement</th>
-                <th style={{ padding: '6px 8px', border: `1px solid ${token.colorBorder}` }}>Tol (+)</th>
-                <th style={{ padding: '6px 8px', border: `1px solid ${token.colorBorder}` }}>Tol (-)</th>
-                <th style={{ padding: '6px 8px', border: `1px solid ${token.colorBorder}` }}>Unit</th>
+                <th style={{ padding: '6px 8px', border: `1px solid ${token.colorBorder}`, width: '32%' }}>
+                  Parameter Name
+                </th>
+                <th style={{ padding: '6px 8px', border: `1px solid ${token.colorBorder}`, width: '22%' }}>
+                  Dimension Requirement
+                </th>
+                <th style={{ padding: '6px 8px', border: `1px solid ${token.colorBorder}`, width: '15%' }}>
+                  Tol (+)
+                </th>
+                <th style={{ padding: '6px 8px', border: `1px solid ${token.colorBorder}`, width: '15%' }}>
+                  Tol (-)
+                </th>
+                <th style={{ padding: '6px 8px', border: `1px solid ${token.colorBorder}`, width: '11%' }}>
+                  Unit
+                </th>
+                <th style={{ padding: '6px 8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center', width: '45px' }}>
+                  Action
+                </th>
               </tr>
             </thead>
             <tbody>
               {characteristics.map((c) => (
                 <tr key={c.id}>
-                  <td style={{ padding: '6px 8px', border: `1px solid ${token.colorBorder}`, fontWeight: 600 }}>{c.charName}</td>
                   <td style={{ padding: '4px', border: `1px solid ${token.colorBorder}` }}>
-                    <InputNumber value={c.nominal} step={0.1} style={{ width: '100%' }} onChange={(v) => handleUpdateChar(c.id, 'nominal', Number(v || 0))} />
+                    <Input
+                      value={c.charName}
+                      placeholder="e.g. Thickness, Width, Outer Dia..."
+                      style={{ fontWeight: 600 }}
+                      onChange={(e) => handleUpdateChar(c.id, 'charName', e.target.value)}
+                    />
                   </td>
                   <td style={{ padding: '4px', border: `1px solid ${token.colorBorder}` }}>
-                    <InputNumber value={c.tolPlus} step={0.05} style={{ width: '100%' }} onChange={(v) => handleUpdateChar(c.id, 'tolPlus', Number(v || 0))} />
+                    <InputNumber
+                      value={c.nominal}
+                      step={0.1}
+                      style={{ width: '100%' }}
+                      onChange={(v) => handleUpdateChar(c.id, 'nominal', Number(v || 0))}
+                    />
                   </td>
                   <td style={{ padding: '4px', border: `1px solid ${token.colorBorder}` }}>
-                    <InputNumber value={c.tolMinus} step={0.05} style={{ width: '100%' }} onChange={(v) => handleUpdateChar(c.id, 'tolMinus', Number(v || 0))} />
+                    <InputNumber
+                      value={c.tolPlus}
+                      step={0.05}
+                      style={{ width: '100%' }}
+                      onChange={(v) => handleUpdateChar(c.id, 'tolPlus', Number(v || 0))}
+                    />
                   </td>
                   <td style={{ padding: '4px', border: `1px solid ${token.colorBorder}` }}>
-                    <Input value={c.unit} style={{ width: '100%' }} onChange={(e) => handleUpdateChar(c.id, 'unit', e.target.value)} />
+                    <InputNumber
+                      value={c.tolMinus}
+                      step={0.05}
+                      style={{ width: '100%' }}
+                      onChange={(v) => handleUpdateChar(c.id, 'tolMinus', Number(v || 0))}
+                    />
+                  </td>
+                  <td style={{ padding: '4px', border: `1px solid ${token.colorBorder}` }}>
+                    <Input
+                      value={c.unit}
+                      style={{ width: '100%' }}
+                      onChange={(e) => handleUpdateChar(c.id, 'unit', e.target.value)}
+                    />
+                  </td>
+                  <td style={{ padding: '4px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>
+                    <Button
+                      type="text"
+                      danger
+                      size="small"
+                      icon={<DeleteOutlined />}
+                      onClick={() => handleRemoveChar(c.id)}
+                      disabled={characteristics.length <= 1}
+                      title="Delete parameter"
+                    />
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
+
+          <Button
+            type="dashed"
+            icon={<PlusOutlined />}
+            onClick={handleAddCharRow}
+            style={{ width: '100%', marginTop: '10px' }}
+          >
+            + Add Characteristic Parameter
+          </Button>
         </Form>
       </Modal>
 
