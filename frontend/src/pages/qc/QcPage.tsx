@@ -73,7 +73,7 @@ const PWI_DIVISIONS = [
   { id: '50824516-9c24-4122-86e7-c8e6fa1c5869', code: 'DIV-001', name: 'Manufacturing Division' },
 ];
 
-// Authoritative Departments per Division
+// Authoritative Fallback Departments per Division (Synchronized with Supabase DB)
 const PWI_DEPARTMENTS: Record<string, Array<{ id: string; code: string; name: string }>> = {
   'DIV-SPD': [
     { id: 'd3000000-0000-0000-0000-000000000003', code: 'SPD-DEPT003', name: 'Spoke' },
@@ -82,13 +82,14 @@ const PWI_DEPARTMENTS: Record<string, Array<{ id: string; code: string; name: st
     { id: 'd3000000-0000-0000-0000-000000000004', code: 'SPD-DEPT004', name: 'Header' },
     { id: 'd3000000-0000-0000-0000-000000000005', code: 'SPD-DEPT005', name: 'Nipple' },
     { id: 'd3000000-0000-0000-0000-000000000006', code: 'SPD-DEPT006', name: 'Spoke Plating' },
+    { id: 'd3000000-0000-0000-0000-000000000007', code: 'SPD-DEPT007', name: 'Nipple Plating' },
     { id: 'd3000000-0000-0000-0000-000000000008', code: 'SPD-DEPT008', name: 'Spoke Packing' },
   ],
   'DIV-CCD': [
     { id: 'd3000000-0000-0000-0000-000000000010', code: 'CCD-DEPT001', name: 'Flattening' },
     { id: 'd3000000-0000-0000-0000-000000000011', code: 'CCD-DEPT002', name: 'Spiral' },
     { id: 'd3000000-0000-0000-0000-000000000012', code: 'CCD-DEPT003', name: 'PVC' },
-    { id: '5676c09a-f334-43a8-8309-f43d99e01320', code: 'CCD-DEPT005', name: 'Cutting & Packing' },
+    { id: 'd3000000-0000-0000-0000-000000000013', code: 'CCD-DEPT004', name: 'Packing' },
   ],
   'DIV-001': [
     { id: 'cfac6089-9a19-403a-b37d-7b2622c2d01c', code: 'DEPT-001', name: 'Production' },
@@ -96,17 +97,17 @@ const PWI_DEPARTMENTS: Record<string, Array<{ id: string; code: string; name: st
   ],
 };
 
-// Authoritative Machines per Department (Exact Supabase mapping)
+// Authoritative Fallback Machines per Department (Exact 60 Supabase machines)
 const DEPARTMENT_MACHINES: Record<string, Array<{ code: string; name: string }>> = {
   // Spoke Division
   'SPD-DEPT003': [
-    { code: 'SPK-01', name: 'SPK-01 (Machine 01)' },
-    { code: 'SPK-02', name: 'SPK-02 (Machine 02)' },
-    { code: 'SPK-03', name: 'SPK-03 (Machine 03)' },
-    { code: 'SPK-04', name: 'SPK-04 (Machine 04)' },
-    { code: 'SPK-05', name: 'SPK-05 (Machine 05)' },
-    { code: 'SPK-06', name: 'SPK-06 (Machine 06)' },
-    { code: 'SPK-07', name: 'SPK-07 (Machine 07)' },
+    { code: 'SPK-01', name: 'SPK-01 (Spoke Machine SPK-01)' },
+    { code: 'SPK-02', name: 'SPK-02 (Spoke Machine SPK-02)' },
+    { code: 'SPK-03', name: 'SPK-03 (Spoke Machine SPK-03)' },
+    { code: 'SPK-04', name: 'SPK-04 (Spoke Machine SPK-04)' },
+    { code: 'SPK-05', name: 'SPK-05 (Spoke Machine SPK-05)' },
+    { code: 'SPK-06', name: 'SPK-06 (Spoke Machine SPK-06)' },
+    { code: 'SPK-07', name: 'SPK-07 (Spoke Machine SPK-07)' },
   ],
   'SPD-DEPT001': [
     { code: 'ST-01', name: 'ST-01 (Straightener Machine 01)' },
@@ -133,10 +134,21 @@ const DEPARTMENT_MACHINES: Record<string, Array<{ code: string; name: string }>>
   ],
   'SPD-DEPT006': [
     { code: 'SPL-01', name: 'SPL-01 (Spoke Plating Line 01)' },
-    { code: 'BL-01', name: 'BL-01 (Barrel Machine 01)' },
-    { code: 'BL-02', name: 'BL-02 (Barrel Machine 02)' },
-    { code: 'BL-03', name: 'BL-03 (Barrel Machine 03)' },
-    { code: 'BL-04', name: 'BL-04 (Barrel Machine 04)' },
+    { code: 'BL-01', name: 'BL-01 (Barrel Machine BL-01)' },
+    { code: 'BL-02', name: 'BL-02 (Barrel Machine BL-02)' },
+    { code: 'BL-03', name: 'BL-03 (Barrel Machine BL-03)' },
+    { code: 'BL-04', name: 'BL-04 (Barrel Machine BL-04)' },
+    { code: 'BL-05', name: 'BL-05 (Barrel Machine BL-05)' },
+    { code: 'BL-06', name: 'BL-06 (Barrel Machine BL-06)' },
+    { code: 'BL-07', name: 'BL-07 (Barrel Machine BL-07)' },
+    { code: 'BL-08', name: 'BL-08 (Barrel Machine BL-08)' },
+    { code: 'BL-09', name: 'BL-09 (Barrel Machine BL-09)' },
+  ],
+  'SPD-DEPT007': [
+    { code: 'NPL-01', name: 'NPL-01 (Nipple Plating Line 01)' },
+    { code: 'BL-10', name: 'BL-10 (Barrel Machine BL-10)' },
+    { code: 'BL-11', name: 'BL-11 (Barrel Machine BL-11)' },
+    { code: 'BL-12', name: 'BL-12 (Barrel Machine BL-12)' },
   ],
   'SPD-DEPT008': [
     { code: 'PKS-01', name: 'PKS-01 (Spoke Packing Station 01)' },
@@ -144,20 +156,35 @@ const DEPARTMENT_MACHINES: Record<string, Array<{ code: string; name: string }>>
   ],
   // Control Cable Division
   'CCD-DEPT001': [
-    { code: 'FL-01', name: 'FL-01 (Flattening Machine 01)' },
-    { code: 'FL-02', name: 'FL-02 (Flattening Machine 02)' },
     { code: 'FT-01', name: 'FT-01 (Flattening Machine FT-01)' },
     { code: 'FT-02', name: 'FT-02 (Flattening Machine FT-02)' },
     { code: 'FT-03', name: 'FT-03 (Flattening Machine FT-03)' },
     { code: 'FT-04', name: 'FT-04 (Flattening Machine FT-04)' },
+    { code: 'FT-05', name: 'FT-05 (Flattening Machine FT-05)' },
   ],
-  'CCD-DEPT004': [
-    { code: 'CPK-01', name: 'CPK-01 (CCD Packing Station 01)' },
-    { code: 'PK-01', name: 'PK-01 (Packing Station PK-01)' },
-    { code: 'PK-02', name: 'PK-02 (Packing Station PK-02)' },
+  'CCD-DEPT002': [
+    { code: 'SP-01', name: 'SP-01 (Spiral Machine SP-01)' },
+    { code: 'SP-02', name: 'SP-02 (Spiral Machine SP-02)' },
+    { code: 'SP-03', name: 'SP-03 (Spiral Machine SP-03)' },
+    { code: 'SP-04', name: 'SP-04 (Spiral Machine SP-04)' },
+    { code: 'SP-05', name: 'SP-05 (Spiral Machine SP-05)' },
+    { code: 'SP-06', name: 'SP-06 (Spiral Machine SP-06)' },
+    { code: 'SP-07', name: 'SP-07 (Spiral Machine SP-07)' },
+    { code: 'SP-08', name: 'SP-08 (Spiral Machine SP-08)' },
+    { code: 'SP-09', name: 'SP-09 (Spiral Machine SP-09)' },
+    { code: 'SP-10', name: 'SP-10 (Spiral Machine SP-10)' },
+    { code: 'SP-11', name: 'SP-11 (Spiral Machine SP-11)' },
+    { code: 'SP-12', name: 'SP-12 (Spiral Machine SP-12)' },
+    { code: 'SP-13', name: 'SP-13 (Spiral Machine SP-13)' },
+    { code: 'SP-14', name: 'SP-14 (Spiral Machine SP-14)' },
   ],
   'CCD-DEPT003': [
-    { code: 'PV-01', name: 'PV-01 (PVC Coating Line 01)' },
+    { code: 'PVC-01', name: 'PVC-01 (PVC Coating Line PVC-01)' },
+    { code: 'PVC -02', name: 'PVC -02 (PVC Coating Line PVC -02)' },
+  ],
+  'CCD-DEPT004': [
+    { code: 'PK-01', name: 'PK-01 (CCD Packing Station PK-01)' },
+    { code: 'PK-02', name: 'PK-02 (CCD Packing Station PK-02)' },
   ],
 };
 
@@ -184,6 +211,12 @@ const QcPage: React.FC = () => {
   // Cascading Division & Department state
   const [selectedDivisionCode, setSelectedDivisionCode] = useState<string>('DIV-SPD');
   const [selectedDepartmentCode, setSelectedDepartmentCode] = useState<string>('SPD-DEPT003');
+
+  // Live hierarchy metadata loaded dynamically from Supabase database
+  const [dbDivisions, setDbDivisions] = useState<Array<{ id: string; code: string; name: string }>>([]);
+  const [dbDepartments, setDbDepartments] = useState<Record<string, Array<{ id: string; code: string; name: string }>>>({});
+  const [dbMachinesByDept, setDbMachinesByDept] = useState<Record<string, Array<{ code: string; name: string }>>>({});
+  const [dbMachinesByDeptId, setDbMachinesByDeptId] = useState<Record<string, Array<{ code: string; name: string }>>>({});
 
   // Specs & In-Process Inspections
   const [specs, setSpecs] = useState<ItemQcSpecification[]>([]);
@@ -373,10 +406,115 @@ const QcPage: React.FC = () => {
     })();
   }, [companyId, fetchData, page]);
 
-  // Active division, departments, machines cascading resolution
+  // Dynamically load live divisions, departments, and machines directly from Supabase database
+  useEffect(() => {
+    let isMounted = true;
+    (async () => {
+      try {
+        const [divsRes, deptsRes, machsRes] = await Promise.all([
+          apiService.get<any>('/divisions?limit=50').catch(() => null),
+          apiService.get<any>('/departments?limit=100').catch(() => null),
+          apiService.get<any>('/machines?limit=500').catch(() => null),
+        ]);
+
+        if (!isMounted) return;
+
+        // Process live divisions
+        const rawDivs = Array.isArray(divsRes?.data) ? divsRes.data : Array.isArray(divsRes) ? divsRes : [];
+        if (rawDivs.length > 0) {
+          const parsedDivs = rawDivs
+            .map((d: any) => ({
+              id: d.id,
+              code: d.divisionCode || d.code || '',
+              name: d.name || d.divisionName || '',
+            }))
+            .filter((d: any) => d.code && d.name);
+          if (parsedDivs.length > 0) setDbDivisions(parsedDivs);
+        }
+
+        // Process live departments
+        const rawDepts = Array.isArray(deptsRes?.data) ? deptsRes.data : Array.isArray(deptsRes) ? deptsRes : [];
+        if (rawDepts.length > 0) {
+          const deptsByDiv: Record<string, Array<{ id: string; code: string; name: string }>> = {};
+          rawDepts.forEach((dept: any) => {
+            const divCode = dept.division?.divisionCode || dept.division?.code || '';
+            const divId = dept.divisionId || dept.division?.id || '';
+            const item = {
+              id: dept.id,
+              code: dept.departmentCode || dept.code || '',
+              name: dept.name || dept.departmentName || '',
+            };
+            if (divCode) {
+              if (!deptsByDiv[divCode]) deptsByDiv[divCode] = [];
+              if (!deptsByDiv[divCode].some((existing) => existing.code === item.code)) {
+                deptsByDiv[divCode].push(item);
+              }
+            }
+            if (divId) {
+              if (!deptsByDiv[divId]) deptsByDiv[divId] = [];
+              if (!deptsByDiv[divId].some((existing) => existing.code === item.code)) {
+                deptsByDiv[divId].push(item);
+              }
+            }
+          });
+          setDbDepartments(deptsByDiv);
+        }
+
+        // Process live machines
+        const rawMachs = Array.isArray(machsRes?.data) ? machsRes.data : Array.isArray(machsRes) ? machsRes : [];
+        if (rawMachs.length > 0) {
+          const machsByDeptCode: Record<string, Array<{ code: string; name: string }>> = {};
+          const machsByDeptIdMap: Record<string, Array<{ code: string; name: string }>> = {};
+
+          rawMachs.forEach((m: any) => {
+            const mCode = m.machineCode || m.machineNumber || m.code || '';
+            const mName = m.name || m.machineName || mCode;
+            const entry = { code: mCode, name: `${mCode} (${mName})` };
+
+            const dCode = m.department?.departmentCode || m.department?.code || '';
+            const dId = m.departmentId || m.department?.id || '';
+
+            if (dCode) {
+              if (!machsByDeptCode[dCode]) machsByDeptCode[dCode] = [];
+              if (!machsByDeptCode[dCode].some((existing) => existing.code === entry.code)) {
+                machsByDeptCode[dCode].push(entry);
+              }
+            }
+            if (dId) {
+              if (!machsByDeptIdMap[dId]) machsByDeptIdMap[dId] = [];
+              if (!machsByDeptIdMap[dId].some((existing) => existing.code === entry.code)) {
+                machsByDeptIdMap[dId].push(entry);
+              }
+            }
+          });
+
+          setDbMachinesByDept(machsByDeptCode);
+          setDbMachinesByDeptId(machsByDeptIdMap);
+        }
+      } catch (err) {
+        console.warn('Failed to fetch live hierarchy metadata from DB:', err);
+      }
+    })();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  // Active division resolution (live DB prioritized over fallback)
+  const activeDivisionsList = useMemo(() => {
+    if (dbDivisions && dbDivisions.length > 0) {
+      const recognized = PWI_DIVISIONS.map((fb) => {
+        const live = dbDivisions.find((d) => d.code === fb.code);
+        return live || fb;
+      });
+      return recognized;
+    }
+    return PWI_DIVISIONS;
+  }, [dbDivisions]);
+
   const activeDivision = useMemo(() => {
-    return PWI_DIVISIONS.find((d) => d.code === selectedDivisionCode) || PWI_DIVISIONS[0];
-  }, [selectedDivisionCode]);
+    return activeDivisionsList.find((d) => d.code === selectedDivisionCode) || activeDivisionsList[0];
+  }, [activeDivisionsList, selectedDivisionCode]);
 
   // Dynamically fetch items for active division (loads up to 2000 items, cleans cross-division)
   const fetchItemsForDivision = useCallback(async (divId?: string, divCode?: string) => {
@@ -415,28 +553,39 @@ const QcPage: React.FC = () => {
     }
   }, [activeDivision?.id, activeDivision?.code, fetchItemsForDivision]);
 
+  // Active departments list (live DB prioritized over fallback)
   const activeDepartmentsList = useMemo(() => {
+    const liveList = dbDepartments[selectedDivisionCode] || (activeDivision?.id ? dbDepartments[activeDivision.id] : null);
+    if (liveList && liveList.length > 0) {
+      return liveList;
+    }
     return PWI_DEPARTMENTS[selectedDivisionCode] || [];
-  }, [selectedDivisionCode]);
+  }, [dbDepartments, selectedDivisionCode, activeDivision?.id]);
 
   const activeDepartment = useMemo(() => {
     return activeDepartmentsList.find((d) => d.code === selectedDepartmentCode) || activeDepartmentsList[0];
   }, [activeDepartmentsList, selectedDepartmentCode]);
 
-  // Cascading machines list strictly for the selected department
+  // Cascading machines list strictly for the selected department (live DB prioritized over fallback)
   const activeMachinesList = useMemo(() => {
+    const fromCode = dbMachinesByDept[selectedDepartmentCode];
+    if (fromCode && fromCode.length > 0) return fromCode;
+
+    const fromId = activeDepartment?.id ? dbMachinesByDeptId[activeDepartment.id] : null;
+    if (fromId && fromId.length > 0) return fromId;
+
     return DEPARTMENT_MACHINES[selectedDepartmentCode] || [
       { code: '01', name: 'Machine 01' },
       { code: '02', name: 'Machine 02' },
     ];
-  }, [selectedDepartmentCode]);
+  }, [dbMachinesByDept, dbMachinesByDeptId, selectedDepartmentCode, activeDepartment?.id]);
 
   // Handle cascading division change
   const handleDivisionChange = (divCode: string) => {
     setSelectedDivisionCode(divCode);
-    const depts = PWI_DEPARTMENTS[divCode] || [];
-    if (depts.length > 0) {
-      const firstDeptCode = depts[0].code;
+    const liveDepts = dbDepartments[divCode] || PWI_DEPARTMENTS[divCode] || [];
+    if (liveDepts.length > 0) {
+      const firstDeptCode = liveDepts[0].code;
       setSelectedDepartmentCode(firstDeptCode);
       // Reset machine filter when department changes
       setFilterMachine('ALL');
@@ -983,7 +1132,7 @@ const QcPage: React.FC = () => {
               <Segmented
                 value={selectedDivisionCode}
                 onChange={(val) => handleDivisionChange(String(val))}
-                options={PWI_DIVISIONS.map((d) => ({
+                options={activeDivisionsList.map((d) => ({
                   value: d.code,
                   label: d.name,
                 }))}
@@ -1115,6 +1264,7 @@ const QcPage: React.FC = () => {
         departmentName={activeDepartment?.name || 'Spoke'}
         divisionCode={activeDivision.code}
         departmentCode={activeDepartment?.code || 'SPD-DEPT003'}
+        machinesList={activeMachinesList}
         itemsList={items}
         companyId={companyId}
       />

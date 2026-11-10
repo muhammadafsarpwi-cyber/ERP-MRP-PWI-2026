@@ -754,6 +754,36 @@ export const ItemQcSpecsMaster: React.FC<ItemQcSpecsMasterProps> = ({
         dataSource={filteredSpecs}
         rowKey="id"
         pagination={{ pageSize: 10 }}
+        locale={{
+          emptyText: (
+            <div style={{ padding: '28px 16px', textAlign: 'center' }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: token.colorTextHeading, marginBottom: 6 }}>
+                No QC Specifications Configured for {scopeFilter === 'DEPARTMENT' ? `${departmentName} Department` : divisionName}
+              </div>
+              <div style={{ fontSize: 12, color: token.colorTextSecondary, maxWidth: 520, margin: '0 auto 16px' }}>
+                {scopeFilter === 'DEPARTMENT' && deduplicatedDivisionSpecs.length > 0 ? (
+                  <span>
+                    There are {deduplicatedDivisionSpecs.length} configured item(s) in other departments of this division. You can switch to division view or add specifications for {departmentName}.
+                  </span>
+                ) : (
+                  <span>
+                    No item quality criteria, nominal dimensions, or tolerance limits have been saved yet. Click below to add specifications for this department.
+                  </span>
+                )}
+              </div>
+              <Space>
+                {scopeFilter === 'DEPARTMENT' && deduplicatedDivisionSpecs.length > 0 && (
+                  <Button onClick={() => setScopeFilter('ALL')}>
+                    View All {divisionName} Specs ({deduplicatedDivisionSpecs.length})
+                  </Button>
+                )}
+                <Button type="primary" icon={<PlusOutlined />} onClick={handleOpenAdd}>
+                  + Add Item Specs for {departmentName}
+                </Button>
+              </Space>
+            </div>
+          ),
+        }}
       />
 
       {/* Add / Edit Specs Modal */}

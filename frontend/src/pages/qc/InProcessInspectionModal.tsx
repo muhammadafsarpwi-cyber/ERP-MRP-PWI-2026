@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Modal, Form, Input, Select, Row, Col, Table, InputNumber, Tag, Button, Space, theme, App } from 'antd';
+import { Modal, Form, Input, Select, Row, Col, Table, InputNumber, Tag, Button, Space, Alert, theme, App } from 'antd';
 import { SaveOutlined, PlusOutlined } from '@ant-design/icons';
 import { QmsInProcessInspection, InspectionSampleRow, AttributeCheckItem } from './types';
 import {
@@ -34,17 +34,17 @@ const getNextDocRef = (divisionCode: string): string => {
   return `${pfx}${String(maxNum + 1).padStart(2, '0')}`;
 };
 
-// Department-wise machine definitions (from authoritative Supabase database)
+// Department-wise machine definitions (Exact 60 Supabase machines)
 const DEPARTMENT_MACHINES: Record<string, Array<{ code: string; name: string }>> = {
   // Spoke Division
   'SPD-DEPT003': [
-    { code: '01', name: 'SPK-01 (Machine 01)' },
-    { code: '02', name: 'SPK-02 (Machine 02)' },
-    { code: '03', name: 'SPK-03 (Machine 03)' },
-    { code: '04', name: 'SPK-04 (Machine 04)' },
-    { code: '05', name: 'SPK-05 (Machine 05)' },
-    { code: '06', name: 'SPK-06 (Machine 06)' },
-    { code: '07', name: 'SPK-07 (Machine 07)' },
+    { code: 'SPK-01', name: 'SPK-01 (Spoke Machine SPK-01)' },
+    { code: 'SPK-02', name: 'SPK-02 (Spoke Machine SPK-02)' },
+    { code: 'SPK-03', name: 'SPK-03 (Spoke Machine SPK-03)' },
+    { code: 'SPK-04', name: 'SPK-04 (Spoke Machine SPK-04)' },
+    { code: 'SPK-05', name: 'SPK-05 (Spoke Machine SPK-05)' },
+    { code: 'SPK-06', name: 'SPK-06 (Spoke Machine SPK-06)' },
+    { code: 'SPK-07', name: 'SPK-07 (Spoke Machine SPK-07)' },
   ],
   'SPD-DEPT001': [
     { code: 'ST-01', name: 'ST-01 (Straightener Machine 01)' },
@@ -71,10 +71,21 @@ const DEPARTMENT_MACHINES: Record<string, Array<{ code: string; name: string }>>
   ],
   'SPD-DEPT006': [
     { code: 'SPL-01', name: 'SPL-01 (Spoke Plating Line 01)' },
-    { code: 'BL-01', name: 'BL-01 (Barrel Machine 01)' },
-    { code: 'BL-02', name: 'BL-02 (Barrel Machine 02)' },
-    { code: 'BL-03', name: 'BL-03 (Barrel Machine 03)' },
-    { code: 'BL-04', name: 'BL-04 (Barrel Machine 04)' },
+    { code: 'BL-01', name: 'BL-01 (Barrel Machine BL-01)' },
+    { code: 'BL-02', name: 'BL-02 (Barrel Machine BL-02)' },
+    { code: 'BL-03', name: 'BL-03 (Barrel Machine BL-03)' },
+    { code: 'BL-04', name: 'BL-04 (Barrel Machine BL-04)' },
+    { code: 'BL-05', name: 'BL-05 (Barrel Machine BL-05)' },
+    { code: 'BL-06', name: 'BL-06 (Barrel Machine BL-06)' },
+    { code: 'BL-07', name: 'BL-07 (Barrel Machine BL-07)' },
+    { code: 'BL-08', name: 'BL-08 (Barrel Machine BL-08)' },
+    { code: 'BL-09', name: 'BL-09 (Barrel Machine BL-09)' },
+  ],
+  'SPD-DEPT007': [
+    { code: 'NPL-01', name: 'NPL-01 (Nipple Plating Line 01)' },
+    { code: 'BL-10', name: 'BL-10 (Barrel Machine BL-10)' },
+    { code: 'BL-11', name: 'BL-11 (Barrel Machine BL-11)' },
+    { code: 'BL-12', name: 'BL-12 (Barrel Machine BL-12)' },
   ],
   'SPD-DEPT008': [
     { code: 'PKS-01', name: 'PKS-01 (Spoke Packing Station 01)' },
@@ -82,20 +93,35 @@ const DEPARTMENT_MACHINES: Record<string, Array<{ code: string; name: string }>>
   ],
   // Control Cable Division
   'CCD-DEPT001': [
-    { code: 'FL-01', name: 'FL-01 (Flattening Machine 01)' },
-    { code: 'FL-02', name: 'FL-02 (Flattening Machine 02)' },
     { code: 'FT-01', name: 'FT-01 (Flattening Machine FT-01)' },
     { code: 'FT-02', name: 'FT-02 (Flattening Machine FT-02)' },
     { code: 'FT-03', name: 'FT-03 (Flattening Machine FT-03)' },
     { code: 'FT-04', name: 'FT-04 (Flattening Machine FT-04)' },
+    { code: 'FT-05', name: 'FT-05 (Flattening Machine FT-05)' },
   ],
-  'CCD-DEPT004': [
-    { code: 'CPK-01', name: 'CPK-01 (CCD Packing Station 01)' },
-    { code: 'PK-01', name: 'PK-01 (Packing Station PK-01)' },
-    { code: 'PK-02', name: 'PK-02 (Packing Station PK-02)' },
+  'CCD-DEPT002': [
+    { code: 'SP-01', name: 'SP-01 (Spiral Machine SP-01)' },
+    { code: 'SP-02', name: 'SP-02 (Spiral Machine SP-02)' },
+    { code: 'SP-03', name: 'SP-03 (Spiral Machine SP-03)' },
+    { code: 'SP-04', name: 'SP-04 (Spiral Machine SP-04)' },
+    { code: 'SP-05', name: 'SP-05 (Spiral Machine SP-05)' },
+    { code: 'SP-06', name: 'SP-06 (Spiral Machine SP-06)' },
+    { code: 'SP-07', name: 'SP-07 (Spiral Machine SP-07)' },
+    { code: 'SP-08', name: 'SP-08 (Spiral Machine SP-08)' },
+    { code: 'SP-09', name: 'SP-09 (Spiral Machine SP-09)' },
+    { code: 'SP-10', name: 'SP-10 (Spiral Machine SP-10)' },
+    { code: 'SP-11', name: 'SP-11 (Spiral Machine SP-11)' },
+    { code: 'SP-12', name: 'SP-12 (Spiral Machine SP-12)' },
+    { code: 'SP-13', name: 'SP-13 (Spiral Machine SP-13)' },
+    { code: 'SP-14', name: 'SP-14 (Spiral Machine SP-14)' },
   ],
   'CCD-DEPT003': [
-    { code: 'PV-01', name: 'PV-01 (PVC Coating Line 01)' },
+    { code: 'PVC-01', name: 'PVC-01 (PVC Coating Line PVC-01)' },
+    { code: 'PVC -02', name: 'PVC -02 (PVC Coating Line PVC -02)' },
+  ],
+  'CCD-DEPT004': [
+    { code: 'PK-01', name: 'PK-01 (CCD Packing Station PK-01)' },
+    { code: 'PK-02', name: 'PK-02 (CCD Packing Station PK-02)' },
   ],
 };
 
@@ -108,6 +134,7 @@ interface InProcessInspectionModalProps {
   departmentName: string;
   divisionCode: string;
   departmentCode: string;
+  machinesList?: Array<{ code: string; name: string }>;
   itemsList: Array<{ id: string; itemCode: string; name: string }>;
   companyId?: string;
 }
@@ -121,6 +148,7 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
   departmentName,
   divisionCode,
   departmentCode,
+  machinesList,
   itemsList,
   companyId,
 }) => {
@@ -131,6 +159,7 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
   const [sampleRows, setSampleRows] = useState<InspectionSampleRow[]>([]);
   const [attributeRows, setAttributeRows] = useState<AttributeCheckItem[]>([]);
   const [overallResult, setOverallResult] = useState<'PASS' | 'FAIL' | 'PENDING'>('PASS');
+  const [missingSpecsWarning, setMissingSpecsWarning] = useState<string | null>(null);
 
   // Operators state & dynamic addition
   const [operatorList, setOperatorList] = useState<string[]>([]);
@@ -251,29 +280,23 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
     message.success(`Inspector "${nameToAdd}" added and saved!`);
   };
 
-  // Cascading machines list strictly for the active department
+  // Cascading machines list strictly for the active department (prioritizes live machinesList from DB)
   const machinesForDept = useMemo(() => {
+    if (machinesList && machinesList.length > 0) return machinesList;
     return DEPARTMENT_MACHINES[departmentCode] || [
       { code: '01', name: 'Machine 01' },
       { code: '02', name: 'Machine 02' },
     ];
-  }, [departmentCode]);
+  }, [machinesList, departmentCode]);
 
-  // Group items by active department, followed by entire division
+  // Group items by active department, prioritizing items with configured QC specs
   const groupedItemOptions = useMemo(() => {
-    if (!itemsList || itemsList.length === 0) {
-      return [
-        {
-          label: 'Default Specifications',
-          options: [
-            { value: 'WIP-ST-001', label: 'WIP-ST-001 — CD-250*17 Butted Straightener' },
-            { value: 'WIP-ST-006', label: 'WIP-ST-006 — S9-300*18 Inner Straight' },
-            { value: 'WIP-SPK-014', label: 'WIP-SPK-014 — S9 (Outer) - 300*17 Outer Straight' },
-            { value: 'WIP-SPK-002', label: 'WIP-SPK-002 — CD-250*17 Outer Butted' },
-          ],
-        },
-      ];
-    }
+    const allConfiguredSpecs = loadAllSpecs();
+    const configuredCodes = new Set(
+      allConfiguredSpecs
+        .filter((s) => s.characteristics && s.characteristics.length > 0)
+        .map((s) => (s.itemCode || '').toUpperCase().trim())
+    );
 
     let deptPrefixes: string[] = [];
     if (departmentCode === 'SPD-DEPT001') {
@@ -291,17 +314,17 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
     } else if (departmentCode === 'SPD-DEPT008') {
       deptPrefixes = ['PKS', 'SPI-FG', 'SP-'];
     } else if (departmentCode === 'CCD-DEPT001') {
-      deptPrefixes = ['FLAT', 'FL-', 'FT-'];
+      deptPrefixes = ['FT-', 'FLAT'];
     } else if (departmentCode === 'CCD-DEPT002') {
-      deptPrefixes = ['CCD-FGR', 'CCD-CAS', 'CAS-'];
+      deptPrefixes = ['CCD-FGR', 'CCD-CAS', 'CAS-', 'SP-'];
     } else if (departmentCode === 'CCD-DEPT003') {
-      deptPrefixes = ['CCD-IN', 'IN-'];
+      deptPrefixes = ['CCD-IN', 'IN-', 'PVC'];
     } else if (departmentCode === 'CCD-DEPT004') {
-      deptPrefixes = ['CCD-FG', 'CA-'];
+      deptPrefixes = ['CCD-FG', 'CA-', 'PK'];
     }
 
     // Filter out cross-division items strictly
-    const divisionCleanItems = itemsList.filter((it) => {
+    const divisionCleanItems = (itemsList || []).filter((it) => {
       const code = (it.itemCode || '').toUpperCase();
       if (divisionCode === 'DIV-SPD') {
         if (code.startsWith('CCD-') || code.startsWith('FLAT')) return false;
@@ -319,34 +342,44 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
       return true;
     });
 
-    const deptMatches: any[] = [];
-    const otherItems: any[] = [];
-
-    divisionCleanItems.forEach((it) => {
+    const deptItems = divisionCleanItems.filter((it) => {
       const code = (it.itemCode || '').toUpperCase();
-      const isDept = deptPrefixes.some((pfx) => code.startsWith(pfx));
-      if (isDept) {
-        deptMatches.push(it);
-      } else {
-        otherItems.push(it);
+      return deptPrefixes.some((pfx) => code.startsWith(pfx));
+    });
+
+    const targetPool = deptItems.length > 0 ? deptItems : divisionCleanItems;
+
+    const configured = targetPool.filter((it) => configuredCodes.has((it.itemCode || '').toUpperCase().trim()));
+    const unconfigured = targetPool.filter((it) => !configuredCodes.has((it.itemCode || '').toUpperCase().trim()));
+
+    // Ensure configured specs from master show even if not yet in itemsList
+    allConfiguredSpecs.forEach((spec) => {
+      const code = (spec.itemCode || '').toUpperCase().trim();
+      const inDept = deptPrefixes.some((pfx) => code.startsWith(pfx));
+      if (inDept && !configured.some((c) => (c.itemCode || '').toUpperCase().trim() === code)) {
+        configured.push({
+          id: spec.id,
+          itemCode: spec.itemCode,
+          name: spec.itemName || spec.itemCode,
+        });
       }
     });
 
     const groups: any[] = [];
-    if (deptMatches.length > 0) {
+    if (configured.length > 0) {
       groups.push({
-        label: `★ ${departmentName} Department Items (${deptMatches.length})`,
-        options: deptMatches.map((i) => ({
+        label: `★ Configured Items in QC Master (${configured.length})`,
+        options: configured.map((i) => ({
           value: i.itemCode,
-          label: `${i.itemCode} — ${i.name}`,
+          label: `${i.itemCode} — ${i.name} (Ready for Inspection)`,
         })),
       });
     }
 
-    if (otherItems.length > 0) {
+    if (unconfigured.length > 0) {
       groups.push({
-        label: `All ${divisionName} Items (${otherItems.length})`,
-        options: otherItems.map((i) => ({
+        label: `⚠️ Other Items (Needs QC Specs in Master) (${unconfigured.length})`,
+        options: unconfigured.map((i) => ({
           value: i.itemCode,
           label: `${i.itemCode} — ${i.name}`,
         })),
@@ -354,7 +387,7 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
     }
 
     return groups;
-  }, [itemsList, departmentCode, departmentName, divisionName, divisionCode]);
+  }, [itemsList, departmentCode, divisionCode]);
 
   // Load specs or existing inspection data
   useEffect(() => {
@@ -383,6 +416,7 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
       });
       setSampleRows(initialInspection.samples || []);
       setAttributeRows(initialInspection.attributes || []);
+      setMissingSpecsWarning(null);
       recalcOverall(initialInspection.samples || [], initialInspection.attributes || []);
     } else {
       // New Inspection defaults - blank operator, inspector, and itemCode
@@ -404,6 +438,7 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
       });
       setSampleRows([]); // Empty table until item is selected
       setAttributeRows([]);
+      setMissingSpecsWarning(null);
       setOverallResult('PENDING');
     }
   }, [visible, initialInspection, departmentCode, machinesForDept, divisionCode]);
@@ -414,34 +449,27 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
       setSampleRows([]);
       setAttributeRows([]);
       setOverallResult('PENDING');
+      setMissingSpecsWarning(null);
       return;
     }
 
     const allSpecs = loadAllSpecs();
-    const match = allSpecs.find((s) => s.itemCode === code);
+    const match = allSpecs.find((s) => (s.itemCode || '').trim().toUpperCase() === code.trim().toUpperCase());
 
-    const isCcd =
-      divisionCode === 'DIV-CCD' ||
-      (code || '').toUpperCase().startsWith('CCD') ||
-      (code || '').toUpperCase().startsWith('FLAT') ||
-      (code || '').toUpperCase().startsWith('CAS');
+    // CRITICAL FIX: If no specs are configured for this item in Item QC Specs Master,
+    // NEVER populate fake/dummy tolerances! Keep table blank and warn user.
+    if (!match || !match.characteristics || match.characteristics.length === 0) {
+      setSampleRows([]);
+      setAttributeRows([]);
+      setOverallResult('PENDING');
+      setMissingSpecsWarning(
+        `Item "${code}" does not have quality specifications configured in Item QC Specs Master. Please configure nominal dimensions and tolerances in the Specs Master tab first.`
+      );
+      return;
+    }
 
-    const chars =
-      match && match.characteristics && match.characteristics.length > 0
-        ? match.characteristics
-        : isCcd
-          ? [
-              { id: 'c1', charName: 'Thickness', nominal: 1.25, tolPlus: 0.03, tolMinus: 0.03, unit: 'mm', isCritical: true },
-              { id: 'c2', charName: 'Width', nominal: 2.45, tolPlus: 0.05, tolMinus: 0.05, unit: 'mm', isCritical: true },
-              { id: 'c3', charName: 'Tensile Strength', nominal: 950.0, tolPlus: 50.0, tolMinus: 50.0, unit: 'N/mm²', isCritical: false },
-            ]
-          : [
-              { id: 'c1', charName: 'Total Length', nominal: 159.5, tolPlus: 0.5, tolMinus: 0.5, unit: 'mm', isCritical: true },
-              { id: 'c2', charName: 'Head Dia', nominal: 6.6, tolPlus: 0.15, tolMinus: 0.15, unit: 'mm', isCritical: true },
-              { id: 'c3', charName: 'Bending Length', nominal: 9.8, tolPlus: 0.15, tolMinus: 0.15, unit: 'mm', isCritical: true },
-              { id: 'c4', charName: 'Thread Length', nominal: 14.0, tolPlus: 0.25, tolMinus: 0.25, unit: 'mm', isCritical: true },
-              { id: 'c5', charName: 'Thread Pressure', nominal: 30.0, tolPlus: 2.0, tolMinus: 2.0, unit: 'PSI', isCritical: false },
-            ];
+    setMissingSpecsWarning(null);
+    const chars = match.characteristics;
 
     // All sample boxes are initialized blank (undefined)
     const rows: InspectionSampleRow[] = chars.map((c) => ({
@@ -457,20 +485,7 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
 
     setSampleRows(rows);
 
-    const rawAttrs =
-      match && match.attributes && match.attributes.length > 0
-        ? match.attributes
-        : isCcd
-          ? [
-              { id: 'a1', checkName: 'Surface Burrs & Scratches', sampleSize: 10, maxAllowedDefects: 0 },
-              { id: 'a2', checkName: 'Edge Smoothness', sampleSize: 10, maxAllowedDefects: 0 },
-            ]
-          : [
-              { id: 'a1', checkName: 'Thread Checking', sampleSize: 10, maxAllowedDefects: 0 },
-              { id: 'a2', checkName: 'Bending Broken', sampleSize: 10, maxAllowedDefects: 0 },
-              { id: 'a3', checkName: 'Head Crack', sampleSize: 10, maxAllowedDefects: 0 },
-            ];
-
+    const rawAttrs = match.attributes && match.attributes.length > 0 ? match.attributes : [];
     const attrs: AttributeCheckItem[] = rawAttrs.map((a: any) => ({
       id: a.id,
       checkName: a.checkName,
@@ -941,7 +956,22 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
             </div>
           )}
 
-          {sampleRows.length === 0 ? (
+          {missingSpecsWarning ? (
+            <Alert
+              type="warning"
+              showIcon
+              message="No QC Specifications Configured for this Item"
+              description={
+                <div>
+                  <div style={{ fontWeight: 600 }}>{missingSpecsWarning}</div>
+                  <div style={{ marginTop: 6, fontSize: '12px', color: token.colorTextSecondary }}>
+                    Nominal dimensions and upper/lower tolerances must be configured in the <strong>Item QC Specs Master</strong> tab before recording production inspection samples. Auto-populating dummy tolerances has been disabled.
+                  </div>
+                </div>
+              }
+              style={{ marginBottom: 12, borderRadius: 8 }}
+            />
+          ) : sampleRows.length === 0 ? (
             <div
               style={{
                 padding: isMobile ? '24px 12px' : '36px 16px',
