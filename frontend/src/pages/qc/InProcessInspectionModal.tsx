@@ -164,10 +164,12 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
   // Operators state & dynamic addition
   const [operatorList, setOperatorList] = useState<string[]>([]);
   const [newOperatorName, setNewOperatorName] = useState<string>('');
+  const [operatorSearchText, setOperatorSearchText] = useState<string>('');
 
   // Inspectors state & dynamic addition
   const [inspectorList, setInspectorList] = useState<string[]>([]);
   const [newInspectorName, setNewInspectorName] = useState<string>('');
+  const [inspectorSearchText, setInspectorSearchText] = useState<string>('');
 
   // Mobile viewport detection
   const [isMobile, setIsMobile] = useState<boolean>(() =>
@@ -236,6 +238,7 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
     if (existing) {
       form.setFieldValue('operatorName', existing);
       setNewOperatorName('');
+      setOperatorSearchText('');
       message.info(`Operator "${existing}" is already in the list`);
       return;
     }
@@ -244,6 +247,7 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
     setOperatorList(updated);
     form.setFieldValue('operatorName', nameToAdd);
     setNewOperatorName('');
+    setOperatorSearchText('');
     saveAllOperators(updated);
 
     if (resolvedCompanyId) {
@@ -264,6 +268,7 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
     if (existing) {
       form.setFieldValue('inspectorName', existing);
       setNewInspectorName('');
+      setInspectorSearchText('');
       message.info(`Inspector "${existing}" is already in the list`);
       return;
     }
@@ -272,6 +277,7 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
     setInspectorList(updated);
     form.setFieldValue('inspectorName', nameToAdd);
     setNewInspectorName('');
+    setInspectorSearchText('');
     saveAllInspectors(updated);
 
     if (resolvedCompanyId) {
@@ -796,12 +802,42 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
                   showSearch
                   allowClear
                   placeholder="Select or Add Operator..."
+                  onSearch={(val) => setOperatorSearchText(val)}
+                  onSelect={() => setOperatorSearchText('')}
+                  onClear={() => setOperatorSearchText('')}
                   options={operatorList.map((op) => ({ value: op, label: op }))}
                   filterOption={(input, option) =>
                     String(option?.label || '').toLowerCase().includes(input.toLowerCase())
                   }
                   dropdownRender={(menu) => (
                     <div>
+                      {operatorSearchText &&
+                        !operatorList.some(
+                          (o) => o.toLowerCase() === operatorSearchText.trim().toLowerCase()
+                        ) && (
+                          <div
+                            style={{
+                              padding: '7px 12px',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              backgroundColor: token.colorPrimaryBg,
+                              color: token.colorPrimary,
+                              fontWeight: 600,
+                              fontSize: '12px',
+                              borderBottom: `1px solid ${token.colorBorderSecondary}`,
+                            }}
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              handleAddNewOperator(operatorSearchText.trim());
+                            }}
+                          >
+                            <span>+ Add "{operatorSearchText.trim()}" as new operator</span>
+                            <Tag color="processing" style={{ margin: 0 }}>Click to Add</Tag>
+                          </div>
+                        )}
                       {menu}
                       <div
                         style={{
@@ -812,25 +848,34 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
                           alignItems: 'center',
                           backgroundColor: token.colorFillAlter,
                         }}
-                        onMouseDown={(e) => e.preventDefault()}
+                        onMouseDown={(e) => e.stopPropagation()}
                       >
                         <Input
-                          placeholder="Add new operator..."
+                          placeholder="Type new operator..."
                           size="small"
                           value={newOperatorName}
                           onChange={(e) => setNewOperatorName(e.target.value)}
+                          onMouseDown={(e) => e.stopPropagation()}
                           onKeyDown={(e) => {
+                            e.stopPropagation();
                             if (e.key === 'Enter') {
                               e.preventDefault();
-                              handleAddNewOperator();
+                              const target = newOperatorName.trim() || operatorSearchText.trim();
+                              handleAddNewOperator(target);
                             }
                           }}
+                          style={{ flex: 1 }}
                         />
                         <Button
                           type="primary"
                           size="small"
                           icon={<PlusOutlined />}
-                          onClick={() => handleAddNewOperator()}
+                          onMouseDown={(e) => e.stopPropagation()}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const target = newOperatorName.trim() || operatorSearchText.trim();
+                            handleAddNewOperator(target);
+                          }}
                         >
                           Add
                         </Button>
@@ -853,12 +898,42 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
                   showSearch
                   allowClear
                   placeholder="Select or Add Inspector..."
+                  onSearch={(val) => setInspectorSearchText(val)}
+                  onSelect={() => setInspectorSearchText('')}
+                  onClear={() => setInspectorSearchText('')}
                   options={inspectorList.map((ins) => ({ value: ins, label: ins }))}
                   filterOption={(input, option) =>
                     String(option?.label || '').toLowerCase().includes(input.toLowerCase())
                   }
                   dropdownRender={(menu) => (
                     <div>
+                      {inspectorSearchText &&
+                        !inspectorList.some(
+                          (i) => i.toLowerCase() === inspectorSearchText.trim().toLowerCase()
+                        ) && (
+                          <div
+                            style={{
+                              padding: '7px 12px',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              backgroundColor: token.colorPrimaryBg,
+                              color: token.colorPrimary,
+                              fontWeight: 600,
+                              fontSize: '12px',
+                              borderBottom: `1px solid ${token.colorBorderSecondary}`,
+                            }}
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              handleAddNewInspector(inspectorSearchText.trim());
+                            }}
+                          >
+                            <span>+ Add "{inspectorSearchText.trim()}" as new inspector</span>
+                            <Tag color="processing" style={{ margin: 0 }}>Click to Add</Tag>
+                          </div>
+                        )}
                       {menu}
                       <div
                         style={{
@@ -869,25 +944,34 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
                           alignItems: 'center',
                           backgroundColor: token.colorFillAlter,
                         }}
-                        onMouseDown={(e) => e.preventDefault()}
+                        onMouseDown={(e) => e.stopPropagation()}
                       >
                         <Input
-                          placeholder="Add new inspector..."
+                          placeholder="Type new inspector..."
                           size="small"
                           value={newInspectorName}
                           onChange={(e) => setNewInspectorName(e.target.value)}
+                          onMouseDown={(e) => e.stopPropagation()}
                           onKeyDown={(e) => {
+                            e.stopPropagation();
                             if (e.key === 'Enter') {
                               e.preventDefault();
-                              handleAddNewInspector();
+                              const target = newInspectorName.trim() || inspectorSearchText.trim();
+                              handleAddNewInspector(target);
                             }
                           }}
+                          style={{ flex: 1 }}
                         />
                         <Button
                           type="primary"
                           size="small"
                           icon={<PlusOutlined />}
-                          onClick={() => handleAddNewInspector()}
+                          onMouseDown={(e) => e.stopPropagation()}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const target = newInspectorName.trim() || inspectorSearchText.trim();
+                            handleAddNewInspector(target);
+                          }}
                         >
                           Add
                         </Button>
