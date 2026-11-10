@@ -3,6 +3,27 @@ import apiService from '../../services/api';
 
 const QC_SPECS_STORAGE_KEY = 'pwi_qc_item_specs_v1';
 const QC_INSPECTIONS_STORAGE_KEY = 'pwi_qc_in_process_inspections_v1';
+const QC_OPERATORS_STORAGE_KEY = 'pwi_qc_operators_master_v1';
+const QC_INSPECTORS_STORAGE_KEY = 'pwi_qc_inspectors_master_v1';
+
+export const DEFAULT_OPERATORS: string[] = [
+  'Ashfaq',
+  'Ali Asghar',
+  'Afroze',
+  'Amjad Ali',
+  'Arsalan',
+  'Sajeel',
+  'Muhammad Bilal',
+  'Rashid Mehmood',
+];
+
+export const DEFAULT_INSPECTORS: string[] = [
+  'Mairaj',
+  'Junaid',
+  'Muhammad Afsar',
+  'Quality Control Incharge',
+  'Asad Ali',
+];
 
 export const DEFAULT_SPOKE_SPECS: ItemQcSpecification[] = [
   {
@@ -162,7 +183,16 @@ export function saveInProcessInspections(inspections: QmsInProcessInspection[]):
 // Convert raw DB record into QmsInProcessInspection
 export function parseDbInspection(raw: any, specsList: ItemQcSpecification[] = []): QmsInProcessInspection | null {
   if (!raw) return null;
-  if (raw.referenceType === 'QMS_SPECS_MASTER' || raw.inspectionNo === 'QMS-SPECS-MASTER') return null;
+  if (
+    raw.referenceType === 'QMS_SPECS_MASTER' ||
+    raw.referenceType === 'QMS_OPERATORS_MASTER' ||
+    raw.referenceType === 'QMS_INSPECTORS_MASTER' ||
+    raw.inspectionNo === 'QMS-SPECS-MASTER' ||
+    raw.inspectionNo === 'QMS-OPERATORS-MASTER' ||
+    raw.inspectionNo === 'QMS-INSPECTORS-MASTER'
+  ) {
+    return null;
+  }
 
   let p: any = {};
   if (raw.remarks && typeof raw.remarks === 'string') {
@@ -253,7 +283,11 @@ export async function fetchDbInProcessInspections(
     });
     const rawList = res?.data || [];
     const inProcess = rawList.filter(
-      (r) => r.inspectionType === 'IN_PROCESS' && r.referenceType !== 'QMS_SPECS_MASTER'
+      (r) =>
+        r.inspectionType === 'IN_PROCESS' &&
+        r.referenceType !== 'QMS_SPECS_MASTER' &&
+        r.referenceType !== 'QMS_OPERATORS_MASTER' &&
+        r.referenceType !== 'QMS_INSPECTORS_MASTER'
     );
     const parsedList: QmsInProcessInspection[] = [];
     for (const r of inProcess) {
@@ -351,6 +385,168 @@ export async function saveDbSpecs(companyId: string, specs: ItemQcSpecification[
     });
   } catch (err) {
     console.warn('Failed to save specs to DB:', err);
+  }
+}
+
+// Load Operators from storage
+export function loadAllOperators(): string[] {
+  try {
+    const raw = localStorage.getItem(QC_OPERATORS_STORAGE_KEY);
+    let list: string[] = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(list) || list.length === 0) {
+      list = [...DEFAULT_OPERATORS];
+    }
+    // Gather distinct operators from existing inspections
+    const inspections = loadInProcessInspections();
+    inspections.forEach((ins) => {
+      const op = (ins.operatorName || '').trim();
+      if (op && !list.includes(op)) {
+        list.push(op);
+      }
+    });
+    localStorage.setItem(QC_OPERATORS_STORAGE_KEY, JSON.stringify(list));
+    return list;
+  } catch {
+    return DEFAULT_OPERATORS;
+  }
+}
+
+// Save Operators to storage
+export function saveAllOperators(operators: string[]): void {
+  try {
+    const clean = Array.from(new Set(operators.map((o) => (o || '').trim()).filter(Boolean)));
+    localStorage.setItem(QC_OPERATORS_STORAGE_KEY, JSON.stringify(clean));
+  } catch (err) {
+    console.error('Failed to save QC operators:', err);
+  }
+}
+
+// Fetch Operators from DB
+export async function fetchDbOperators(companyId: string): Promise<string[]> {
+  try {
+    const res = await apiService.get<{ data: any[] }>('/qc/inspections', {
+      companyId,
+      referenceType: 'QMS_OPERATORS_MASTER',
+      limit: 1,
+    });
+    const record = res?.data?.[0];
+    if (record?.remarks) {
+      const parsed = JSON.parse(record.remarks);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        const merged = Array.from(new Set([...loadAllOperators(), ...parsed]));
+        saveAllOperators(merged);
+        return merged;
+      }
+    }
+    const current = loadAllOperators();
+    if (companyId) {
+      saveDbOperators(companyId, current).catch(() => {});
+    }
+    return current;
+  } catch (err) {
+    console.warn('Failed to fetch operators from DB, using local cache:', err);
+    return loadAllOperators();
+  }
+}
+
+// Save Operators to DB
+export async function saveDbOperators(companyId: string, operators: string[]): Promise<void> {
+  try {
+    const clean = Array.from(new Set(operators.map((o) => (o || '').trim()).filter(Boolean)));
+    saveAllOperators(clean);
+    if (!companyId) return;
+    await apiService.post('/qc/inspections', {
+      companyId,
+      inspectionType: 'IN_PROCESS',
+      referenceType: 'QMS_OPERATORS_MASTER',
+      inspectionDate: new Date().toISOString().slice(0, 10),
+      result: 'PASS',
+      status: 'COMPLETED',
+      remarks: JSON.stringify(clean),
+    });
+  } catch (err) {
+    console.warn('Failed to save operators to DB:', err);
+  }
+}
+
+// Load Inspectors from storage
+export function loadAllInspectors(): string[] {
+  try {
+    const raw = localStorage.getItem(QC_INSPECTORS_STORAGE_KEY);
+    let list: string[] = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(list) || list.length === 0) {
+      list = [...DEFAULT_INSPECTORS];
+    }
+    // Gather distinct inspectors from existing inspections
+    const inspections = loadInProcessInspections();
+    inspections.forEach((ins) => {
+      const insp = (ins.inspectorName || '').trim();
+      if (insp && !list.includes(insp)) {
+        list.push(insp);
+      }
+    });
+    localStorage.setItem(QC_INSPECTORS_STORAGE_KEY, JSON.stringify(list));
+    return list;
+  } catch {
+    return DEFAULT_INSPECTORS;
+  }
+}
+
+// Save Inspectors to storage
+export function saveAllInspectors(inspectors: string[]): void {
+  try {
+    const clean = Array.from(new Set(inspectors.map((i) => (i || '').trim()).filter(Boolean)));
+    localStorage.setItem(QC_INSPECTORS_STORAGE_KEY, JSON.stringify(clean));
+  } catch (err) {
+    console.error('Failed to save QC inspectors:', err);
+  }
+}
+
+// Fetch Inspectors from DB
+export async function fetchDbInspectors(companyId: string): Promise<string[]> {
+  try {
+    const res = await apiService.get<{ data: any[] }>('/qc/inspections', {
+      companyId,
+      referenceType: 'QMS_INSPECTORS_MASTER',
+      limit: 1,
+    });
+    const record = res?.data?.[0];
+    if (record?.remarks) {
+      const parsed = JSON.parse(record.remarks);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        const merged = Array.from(new Set([...loadAllInspectors(), ...parsed]));
+        saveAllInspectors(merged);
+        return merged;
+      }
+    }
+    const current = loadAllInspectors();
+    if (companyId) {
+      saveDbInspectors(companyId, current).catch(() => {});
+    }
+    return current;
+  } catch (err) {
+    console.warn('Failed to fetch inspectors from DB, using local cache:', err);
+    return loadAllInspectors();
+  }
+}
+
+// Save Inspectors to DB
+export async function saveDbInspectors(companyId: string, inspectors: string[]): Promise<void> {
+  try {
+    const clean = Array.from(new Set(inspectors.map((i) => (i || '').trim()).filter(Boolean)));
+    saveAllInspectors(clean);
+    if (!companyId) return;
+    await apiService.post('/qc/inspections', {
+      companyId,
+      inspectionType: 'IN_PROCESS',
+      referenceType: 'QMS_INSPECTORS_MASTER',
+      inspectionDate: new Date().toISOString().slice(0, 10),
+      result: 'PASS',
+      status: 'COMPLETED',
+      remarks: JSON.stringify(clean),
+    });
+  } catch (err) {
+    console.warn('Failed to save inspectors to DB:', err);
   }
 }
 

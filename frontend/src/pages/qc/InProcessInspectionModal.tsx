@@ -1,8 +1,19 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Modal, Form, Input, Select, Row, Col, Table, InputNumber, Tag, Button, Space, theme, App } from 'antd';
-import { SaveOutlined } from '@ant-design/icons';
+import { SaveOutlined, PlusOutlined } from '@ant-design/icons';
 import { QmsInProcessInspection, InspectionSampleRow, AttributeCheckItem } from './types';
-import { loadAllSpecs, loadInProcessInspections } from './qcSpecsStore';
+import {
+  loadAllSpecs,
+  loadInProcessInspections,
+  loadAllOperators,
+  saveAllOperators,
+  fetchDbOperators,
+  saveDbOperators,
+  loadAllInspectors,
+  saveAllInspectors,
+  fetchDbInspectors,
+  saveDbInspectors,
+} from './qcSpecsStore';
 
 // Calculate next automatic sequential Document Reference (e.g. SPD/QMS/06, SPD/QMS/07...)
 const getNextDocRef = (divisionCode: string): string => {
@@ -98,6 +109,7 @@ interface InProcessInspectionModalProps {
   divisionCode: string;
   departmentCode: string;
   itemsList: Array<{ id: string; itemCode: string; name: string }>;
+  companyId?: string;
 }
 
 export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> = ({
@@ -110,6 +122,7 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
   divisionCode,
   departmentCode,
   itemsList,
+  companyId,
 }) => {
   const { token } = theme.useToken();
   const { message } = App.useApp();
@@ -118,6 +131,125 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
   const [sampleRows, setSampleRows] = useState<InspectionSampleRow[]>([]);
   const [attributeRows, setAttributeRows] = useState<AttributeCheckItem[]>([]);
   const [overallResult, setOverallResult] = useState<'PASS' | 'FAIL' | 'PENDING'>('PASS');
+
+  // Operators state & dynamic addition
+  const [operatorList, setOperatorList] = useState<string[]>([]);
+  const [newOperatorName, setNewOperatorName] = useState<string>('');
+
+  // Inspectors state & dynamic addition
+  const [inspectorList, setInspectorList] = useState<string[]>([]);
+  const [newInspectorName, setNewInspectorName] = useState<string>('');
+
+  // Mobile viewport detection
+  const [isMobile, setIsMobile] = useState<boolean>(() =>
+    typeof window !== 'undefined' ? window.innerWidth <= 768 : false
+  );
+
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(typeof window !== 'undefined' && window.innerWidth <= 768);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // Resolve active companyId
+  const resolvedCompanyId = useMemo(() => {
+    if (companyId) return companyId;
+    try {
+      const raw = localStorage.getItem('erp_user');
+      return raw ? JSON.parse(raw)?.defaultCompanyId || '' : '';
+    } catch {
+      return '';
+    }
+  }, [companyId]);
+
+  // Load operators & inspectors from store and sync with DB
+  useEffect(() => {
+    if (!visible) return;
+
+    // Load initial from storage
+    const currentOps = loadAllOperators();
+    setOperatorList(currentOps);
+
+    const currentInsps = loadAllInspectors();
+    setInspectorList(currentInsps);
+
+    // Sync from database if companyId available
+    if (resolvedCompanyId) {
+      fetchDbOperators(resolvedCompanyId)
+        .then((ops) => {
+          if (Array.isArray(ops) && ops.length > 0) {
+            setOperatorList(ops);
+          }
+        })
+        .catch(() => {});
+
+      fetchDbInspectors(resolvedCompanyId)
+        .then((insps) => {
+          if (Array.isArray(insps) && insps.length > 0) {
+            setInspectorList(insps);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [visible, resolvedCompanyId]);
+
+  // Add new operator handler
+  const handleAddNewOperator = (nameOverride?: string) => {
+    const nameToAdd = (nameOverride !== undefined ? nameOverride : newOperatorName).trim();
+    if (!nameToAdd) {
+      message.warning('Please enter an operator name');
+      return;
+    }
+
+    const existing = operatorList.find((op) => op.toLowerCase() === nameToAdd.toLowerCase());
+    if (existing) {
+      form.setFieldValue('operatorName', existing);
+      setNewOperatorName('');
+      message.info(`Operator "${existing}" is already in the list`);
+      return;
+    }
+
+    const updated = [...operatorList, nameToAdd];
+    setOperatorList(updated);
+    form.setFieldValue('operatorName', nameToAdd);
+    setNewOperatorName('');
+    saveAllOperators(updated);
+
+    if (resolvedCompanyId) {
+      saveDbOperators(resolvedCompanyId, updated).catch(() => {});
+    }
+    message.success(`Operator "${nameToAdd}" added and saved!`);
+  };
+
+  // Add new inspector handler
+  const handleAddNewInspector = (nameOverride?: string) => {
+    const nameToAdd = (nameOverride !== undefined ? nameOverride : newInspectorName).trim();
+    if (!nameToAdd) {
+      message.warning('Please enter an inspector name');
+      return;
+    }
+
+    const existing = inspectorList.find((ins) => ins.toLowerCase() === nameToAdd.toLowerCase());
+    if (existing) {
+      form.setFieldValue('inspectorName', existing);
+      setNewInspectorName('');
+      message.info(`Inspector "${existing}" is already in the list`);
+      return;
+    }
+
+    const updated = [...inspectorList, nameToAdd];
+    setInspectorList(updated);
+    form.setFieldValue('inspectorName', nameToAdd);
+    setNewInspectorName('');
+    saveAllInspectors(updated);
+
+    if (resolvedCompanyId) {
+      saveDbInspectors(resolvedCompanyId, updated).catch(() => {});
+    }
+    message.success(`Inspector "${nameToAdd}" added and saved!`);
+  };
 
   // Cascading machines list strictly for the active department
   const machinesForDept = useMemo(() => {
@@ -431,6 +563,32 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
       const matchedItem = itemsList.find((i) => i.itemCode === values.itemCode);
       const itemName = matchedItem ? matchedItem.name : values.itemCode;
 
+      // Ensure entered operator is retained in master list & synced to DB
+      if (values.operatorName && values.operatorName.trim()) {
+        const op = values.operatorName.trim();
+        if (!operatorList.some((o) => o.toLowerCase() === op.toLowerCase())) {
+          const nextOps = [...operatorList, op];
+          setOperatorList(nextOps);
+          saveAllOperators(nextOps);
+          if (resolvedCompanyId) {
+            saveDbOperators(resolvedCompanyId, nextOps).catch(() => {});
+          }
+        }
+      }
+
+      // Ensure entered inspector is retained in master list & synced to DB
+      if (values.inspectorName && values.inspectorName.trim()) {
+        const ins = values.inspectorName.trim();
+        if (!inspectorList.some((i) => i.toLowerCase() === ins.toLowerCase())) {
+          const nextIns = [...inspectorList, ins];
+          setInspectorList(nextIns);
+          saveAllInspectors(nextIns);
+          if (resolvedCompanyId) {
+            saveDbInspectors(resolvedCompanyId, nextIns).catch(() => {});
+          }
+        }
+      }
+
       const newInsp: QmsInProcessInspection = {
         id: initialInspection?.id || `insp-${Date.now()}`,
         inspectionNo: initialInspection?.inspectionNo || `INS-${String(Math.floor(100000 + Math.random() * 900000))}`,
@@ -463,14 +621,30 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
   };
 
   const modalTitle = (
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingRight: '24px' }}>
+    <div
+      style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        flexWrap: 'wrap',
+        gap: '8px',
+        paddingRight: isMobile ? '28px' : '24px',
+      }}
+    >
       <div>
-        <div style={{ fontSize: '16px', fontWeight: 700, color: token.colorTextHeading }}>
+        <div
+          style={{
+            fontSize: isMobile ? '14px' : '16px',
+            fontWeight: 700,
+            color: token.colorTextHeading,
+            lineHeight: 1.3,
+          }}
+        >
           {initialInspection
             ? `Edit & Revise Inspection ${initialInspection.inspectionNo} (Revision: ${form.getFieldValue('revNo') || '02'})`
             : 'New In-Process Quality Inspection (QMS)'}
         </div>
-        <div style={{ fontSize: '12px', color: token.colorPrimary, fontWeight: 600 }}>
+        <div style={{ fontSize: isMobile ? '11px' : '12px', color: token.colorPrimary, fontWeight: 600, marginTop: '2px' }}>
           {divisionName} • {departmentName} • {form.getFieldValue('docRef') || 'SPD/QMS/05'} (Rev: {form.getFieldValue('revNo') || '01'})
         </div>
       </div>
@@ -480,8 +654,8 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
           backgroundColor: overallResult === 'PASS' ? '#10b981' : overallResult === 'FAIL' ? '#ef4444' : '#2563eb',
           color: '#ffffff',
           fontWeight: 800,
-          fontSize: '12px',
-          padding: '4px 14px',
+          fontSize: isMobile ? '11px' : '12px',
+          padding: isMobile ? '3px 10px' : '4px 14px',
           borderRadius: '6px',
           letterSpacing: '0.5px',
         }}
@@ -492,10 +666,16 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
   );
 
   const modalFooter = [
-    <Button key="cancel" onClick={onClose}>
+    <Button key="cancel" onClick={onClose} style={isMobile ? { flex: 1 } : undefined}>
       Cancel
     </Button>,
-    <Button key="save" type="primary" icon={<SaveOutlined />} onClick={handleFinish}>
+    <Button
+      key="save"
+      type="primary"
+      icon={<SaveOutlined />}
+      onClick={handleFinish}
+      style={isMobile ? { flex: 1.5 } : undefined}
+    >
       Save Inspection Record
     </Button>,
   ];
@@ -505,28 +685,45 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
       title={modalTitle}
       open={visible}
       onCancel={onClose}
-      width={1020}
-      footer={modalFooter}
+      width={isMobile ? '96%' : 1040}
+      style={{
+        top: isMobile ? 8 : 24,
+        maxWidth: isMobile ? '100vw' : '90vw',
+        margin: isMobile ? '0 auto' : undefined,
+        paddingBottom: isMobile ? 8 : 24,
+      }}
+      styles={{
+        body: {
+          maxHeight: isMobile ? 'calc(100vh - 120px)' : 'calc(85vh - 120px)',
+          overflowY: 'auto',
+          padding: isMobile ? '12px 10px' : '16px 24px',
+        },
+      }}
+      footer={
+        <div style={isMobile ? { display: 'flex', gap: '8px', width: '100%' } : undefined}>
+          {modalFooter}
+        </div>
+      }
     >
       <Form form={form} layout="vertical">
         {/* Header Grid */}
         <div
           style={{
-            padding: '12px 16px',
+            padding: isMobile ? '10px 12px' : '12px 16px',
             backgroundColor: token.colorFillAlter,
             borderRadius: '8px',
             marginBottom: '16px',
             border: `1px solid ${token.colorBorderSecondary}`,
           }}
         >
-          <Row gutter={12}>
+          <Row gutter={[12, 12]}>
             <Col xs={24} sm={12} md={4}>
-              <Form.Item name="inspectionDate" label="Date" rules={[{ required: true }]}>
+              <Form.Item name="inspectionDate" label="Date" rules={[{ required: true }]} style={{ marginBottom: isMobile ? '10px' : '14px' }}>
                 <Input type="date" />
               </Form.Item>
             </Col>
             <Col xs={24} sm={12} md={5}>
-              <Form.Item name="shift" label="Shift" rules={[{ required: true }]}>
+              <Form.Item name="shift" label="Shift" rules={[{ required: true }]} style={{ marginBottom: isMobile ? '10px' : '14px' }}>
                 <Select
                   style={{ width: '100%' }}
                   options={[
@@ -539,7 +736,7 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
               </Form.Item>
             </Col>
             <Col xs={24} sm={12} md={5}>
-              <Form.Item name="machineNo" label={`Machine (${departmentName})`} rules={[{ required: true }]}>
+              <Form.Item name="machineNo" label={`Machine (${departmentName})`} rules={[{ required: true }]} style={{ marginBottom: isMobile ? '10px' : '14px' }}>
                 <Select
                   showSearch
                   placeholder="Select machine..."
@@ -550,33 +747,125 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
                 />
               </Form.Item>
             </Col>
+
+            {/* Operator with Dynamic Master Dropdown & Quick Add */}
             <Col xs={24} sm={12} md={5}>
-              <Form.Item name="operatorName" label="Operator" rules={[{ required: true, message: 'Please select or enter operator' }]}>
+              <Form.Item
+                name="operatorName"
+                label="Operator"
+                rules={[{ required: true, message: 'Please select or add operator' }]}
+                style={{ marginBottom: isMobile ? '10px' : '14px' }}
+              >
                 <Select
                   showSearch
                   allowClear
-                  placeholder="Select Operator..."
-                  options={[
-                    { value: 'Ashfaq', label: 'Ashfaq' },
-                    { value: 'Ali Asghar', label: 'Ali Asghar' },
-                    { value: 'Afroze', label: 'Afroze' },
-                    { value: 'Amjad Ali', label: 'Amjad Ali' },
-                    { value: 'Arsalan', label: 'Arsalan' },
-                    { value: 'Sajeel', label: 'Sajeel' },
-                  ]}
+                  placeholder="Select or Add Operator..."
+                  options={operatorList.map((op) => ({ value: op, label: op }))}
+                  filterOption={(input, option) =>
+                    String(option?.label || '').toLowerCase().includes(input.toLowerCase())
+                  }
+                  dropdownRender={(menu) => (
+                    <div>
+                      {menu}
+                      <div
+                        style={{
+                          borderTop: `1px solid ${token.colorBorderSecondary}`,
+                          padding: '8px 10px',
+                          display: 'flex',
+                          gap: '6px',
+                          alignItems: 'center',
+                          backgroundColor: token.colorFillAlter,
+                        }}
+                        onMouseDown={(e) => e.preventDefault()}
+                      >
+                        <Input
+                          placeholder="Add new operator..."
+                          size="small"
+                          value={newOperatorName}
+                          onChange={(e) => setNewOperatorName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleAddNewOperator();
+                            }
+                          }}
+                        />
+                        <Button
+                          type="primary"
+                          size="small"
+                          icon={<PlusOutlined />}
+                          onClick={() => handleAddNewOperator()}
+                        >
+                          Add
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 />
               </Form.Item>
             </Col>
+
+            {/* Inspector with Dynamic Master Dropdown & Quick Add */}
             <Col xs={24} sm={12} md={5}>
-              <Form.Item name="inspectorName" label="Inspector" rules={[{ required: true, message: 'Please enter inspector name' }]}>
-                <Input placeholder="Enter your name..." />
+              <Form.Item
+                name="inspectorName"
+                label="Inspector"
+                rules={[{ required: true, message: 'Please select or add inspector' }]}
+                style={{ marginBottom: isMobile ? '10px' : '14px' }}
+              >
+                <Select
+                  showSearch
+                  allowClear
+                  placeholder="Select or Add Inspector..."
+                  options={inspectorList.map((ins) => ({ value: ins, label: ins }))}
+                  filterOption={(input, option) =>
+                    String(option?.label || '').toLowerCase().includes(input.toLowerCase())
+                  }
+                  dropdownRender={(menu) => (
+                    <div>
+                      {menu}
+                      <div
+                        style={{
+                          borderTop: `1px solid ${token.colorBorderSecondary}`,
+                          padding: '8px 10px',
+                          display: 'flex',
+                          gap: '6px',
+                          alignItems: 'center',
+                          backgroundColor: token.colorFillAlter,
+                        }}
+                        onMouseDown={(e) => e.preventDefault()}
+                      >
+                        <Input
+                          placeholder="Add new inspector..."
+                          size="small"
+                          value={newInspectorName}
+                          onChange={(e) => setNewInspectorName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleAddNewInspector();
+                            }
+                          }}
+                        />
+                        <Button
+                          type="primary"
+                          size="small"
+                          icon={<PlusOutlined />}
+                          onClick={() => handleAddNewInspector()}
+                        >
+                          Add
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                />
               </Form.Item>
             </Col>
           </Row>
 
-          <Row gutter={12}>
+          <Row gutter={[12, 12]}>
             <Col xs={24} sm={12} md={10}>
-              <Form.Item name="itemCode" label="Part / Item" rules={[{ required: true, message: 'Please select part/item' }]}>
+              <Form.Item name="itemCode" label="Part / Item" rules={[{ required: true, message: 'Please select part/item' }]} style={{ marginBottom: isMobile ? '10px' : '14px' }}>
                 <Select
                   showSearch
                   allowClear
@@ -594,17 +883,17 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
               </Form.Item>
             </Col>
             <Col xs={24} sm={6} md={5}>
-              <Form.Item name="docRef" label="Doc Ref" rules={[{ required: true }]}>
+              <Form.Item name="docRef" label="Doc Ref" rules={[{ required: true }]} style={{ marginBottom: isMobile ? '10px' : '14px' }}>
                 <Input placeholder="e.g. SPD/QMS/06" />
               </Form.Item>
             </Col>
             <Col xs={24} sm={6} md={4}>
-              <Form.Item name="revNo" label="Revision No">
+              <Form.Item name="revNo" label="Revision No" style={{ marginBottom: isMobile ? '10px' : '14px' }}>
                 <Input placeholder="02" />
               </Form.Item>
             </Col>
             <Col xs={24} sm={12} md={5}>
-              <Form.Item name="approvedBy" label="Approved By">
+              <Form.Item name="approvedBy" label="Approved By" style={{ marginBottom: isMobile ? '10px' : '14px' }}>
                 <Input placeholder="Quality Control Incharge" />
               </Form.Item>
             </Col>
@@ -614,21 +903,27 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
         {/* 5-Sample Dimensional Measurements Matrix */}
         <div style={{ marginBottom: '16px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap', gap: '8px' }}>
-            <span style={{ fontSize: '13px', fontWeight: 700, color: token.colorTextHeading }}>
+            <span style={{ fontSize: isMobile ? '12px' : '13px', fontWeight: 700, color: token.colorTextHeading }}>
               DIMENSIONAL INSPECTION DATA (5 SAMPLES)
             </span>
-            <Space size="middle" style={{ fontSize: '11px' }}>
-              <span style={{ color: '#10b981', fontWeight: 700 }}>● Green = PASS / Filled</span>
+            <Space size={isMobile ? 'small' : 'middle'} wrap style={{ fontSize: '11px' }}>
+              <span style={{ color: '#10b981', fontWeight: 700 }}>● Green = PASS</span>
               <span style={{ color: '#1677ff', fontWeight: 700 }}>● Blue = PENDING</span>
-              <span style={{ color: '#ef4444', fontWeight: 700 }}>● Red = FAIL / Empty</span>
-              <span style={{ color: token.colorTextSecondary }}>| Auto-calculates Mean &amp; Tolerance</span>
+              <span style={{ color: '#ef4444', fontWeight: 700 }}>● Red = FAIL</span>
+              {!isMobile && <span style={{ color: token.colorTextSecondary }}>| Auto-calculates Mean &amp; Tolerance</span>}
             </Space>
           </div>
+
+          {isMobile && sampleRows.length > 0 && (
+            <div style={{ fontSize: '11px', color: token.colorPrimary, marginBottom: '6px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <span>↔ Scroll horizontally to fill all 5 samples (S-1 to S-5)</span>
+            </div>
+          )}
 
           {sampleRows.length === 0 ? (
             <div
               style={{
-                padding: '36px 16px',
+                padding: isMobile ? '24px 12px' : '36px 16px',
                 textAlign: 'center',
                 border: `1.5px dashed ${token.colorBorder}`,
                 borderRadius: '8px',
@@ -644,104 +939,113 @@ export const InProcessInspectionModal: React.FC<InProcessInspectionModalProps> =
               </div>
             </div>
           ) : (
-            <table
+            <div
               style={{
-                width: '100%',
-                borderCollapse: 'collapse',
+                overflowX: 'auto',
+                WebkitOverflowScrolling: 'touch',
+                borderRadius: '6px',
                 border: `1px solid ${token.colorBorder}`,
-                fontSize: '12px',
               }}
             >
-              <thead>
-                <tr style={{ backgroundColor: token.colorFillAlter, textAlign: 'left' }}>
-                  <th style={{ padding: '8px', border: `1px solid ${token.colorBorder}` }}>Characteristic</th>
-                  <th style={{ padding: '8px', border: `1px solid ${token.colorBorder}` }}>Dimension Requirement (Nominal &amp; Tol)</th>
-                  <th style={{ padding: '8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>S-1</th>
-                  <th style={{ padding: '8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>S-2</th>
-                  <th style={{ padding: '8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>S-3</th>
-                  <th style={{ padding: '8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>S-4</th>
-                  <th style={{ padding: '8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>S-5</th>
-                  <th style={{ padding: '8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>Average</th>
-                  <th style={{ padding: '8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sampleRows.map((row) => {
-                  const min = row.nominal - row.tolMinus;
-                  const max = row.nominal + row.tolPlus;
-                  const isOutOfSpec = (val: number | null | undefined) =>
-                    typeof val === 'number' && (val < min - 0.0001 || val > max + 0.0001);
+              <table
+                style={{
+                  width: '100%',
+                  minWidth: isMobile ? '680px' : '100%',
+                  borderCollapse: 'collapse',
+                  fontSize: isMobile ? '11px' : '12px',
+                }}
+              >
+                <thead>
+                  <tr style={{ backgroundColor: token.colorFillAlter, textAlign: 'left' }}>
+                    <th style={{ padding: '8px', border: `1px solid ${token.colorBorder}` }}>Characteristic</th>
+                    <th style={{ padding: '8px', border: `1px solid ${token.colorBorder}` }}>Dimension Requirement (Nominal &amp; Tol)</th>
+                    <th style={{ padding: '8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>S-1</th>
+                    <th style={{ padding: '8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>S-2</th>
+                    <th style={{ padding: '8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>S-3</th>
+                    <th style={{ padding: '8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>S-4</th>
+                    <th style={{ padding: '8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>S-5</th>
+                    <th style={{ padding: '8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>Average</th>
+                    <th style={{ padding: '8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sampleRows.map((row) => {
+                    const min = row.nominal - row.tolMinus;
+                    const max = row.nominal + row.tolPlus;
+                    const isOutOfSpec = (val: number | null | undefined) =>
+                      typeof val === 'number' && (val < min - 0.0001 || val > max + 0.0001);
 
-                  return (
-                    <tr key={row.id}>
-                      <td style={{ padding: '6px 8px', border: `1px solid ${token.colorBorder}`, fontWeight: 600 }}>{row.charName}</td>
-                      <td style={{ padding: '6px 8px', border: `1px solid ${token.colorBorder}` }}>
-                        {row.nominal} (±{row.tolPlus} {row.unit})
-                      </td>
-                      {(['s1', 's2', 's3', 's4', 's5'] as const).map((key) => {
-                        const val = row[key];
-                        const isFilled = typeof val === 'number' && !isNaN(val);
-                        const out = isFilled && isOutOfSpec(val);
+                    return (
+                      <tr key={row.id}>
+                        <td style={{ padding: '6px 8px', border: `1px solid ${token.colorBorder}`, fontWeight: 600 }}>{row.charName}</td>
+                        <td style={{ padding: '6px 8px', border: `1px solid ${token.colorBorder}` }}>
+                          {row.nominal} (±{row.tolPlus} {row.unit})
+                        </td>
+                        {(['s1', 's2', 's3', 's4', 's5'] as const).map((key) => {
+                          const val = row[key];
+                          const isFilled = typeof val === 'number' && !isNaN(val);
+                          const out = isFilled && isOutOfSpec(val);
 
-                        let boxBorder = '1.5px solid #ef4444';
-                        let boxBg = 'rgba(239, 68, 68, 0.08)';
-                        let boxColor: string | undefined = undefined;
+                          let boxBorder = '1.5px solid #ef4444';
+                          let boxBg = 'rgba(239, 68, 68, 0.08)';
+                          let boxColor: string | undefined = undefined;
 
-                        if (isFilled) {
-                          if (out) {
-                            boxBorder = '1.5px solid #dc2626';
-                            boxBg = 'rgba(220, 38, 38, 0.18)';
-                            boxColor = '#dc2626';
-                          } else {
-                            boxBorder = '1.5px solid #10b981';
-                            boxBg = 'rgba(16, 185, 129, 0.12)';
-                            boxColor = '#059669';
+                          if (isFilled) {
+                            if (out) {
+                              boxBorder = '1.5px solid #dc2626';
+                              boxBg = 'rgba(220, 38, 38, 0.18)';
+                              boxColor = '#dc2626';
+                            } else {
+                              boxBorder = '1.5px solid #10b981';
+                              boxBg = 'rgba(16, 185, 129, 0.12)';
+                              boxColor = '#059669';
+                            }
                           }
-                        }
 
-                        return (
-                          <td key={key} style={{ padding: '4px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>
-                            <InputNumber
-                              size="small"
-                              value={val}
-                              step={0.05}
-                              placeholder="—"
-                              style={{
-                                width: '74px',
-                                border: boxBorder,
-                                backgroundColor: boxBg,
-                                color: boxColor,
-                                fontWeight: isFilled ? 700 : 400,
-                                borderRadius: '4px',
-                                transition: 'all 0.2s ease',
-                              }}
-                              onChange={(nv) => handleSampleChange(row.id, key, nv !== null && !isNaN(Number(nv)) ? Number(nv) : null)}
-                            />
-                          </td>
-                        );
-                      })}
-                      <td style={{ padding: '6px 8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center', fontWeight: 700 }}>
-                        {row.average !== null && row.average !== undefined ? `${row.average} ${row.unit}` : '-'}
-                      </td>
-                      <td style={{ padding: '6px 8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>
-                        {renderStatusBadge(row.status)}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                          return (
+                            <td key={key} style={{ padding: '4px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>
+                              <InputNumber
+                                size={isMobile ? 'middle' : 'small'}
+                                value={val}
+                                step={0.05}
+                                placeholder="—"
+                                style={{
+                                  width: isMobile ? '64px' : '74px',
+                                  border: boxBorder,
+                                  backgroundColor: boxBg,
+                                  color: boxColor,
+                                  fontWeight: isFilled ? 700 : 400,
+                                  borderRadius: '4px',
+                                  transition: 'all 0.2s ease',
+                                }}
+                                onChange={(nv) => handleSampleChange(row.id, key, nv !== null && !isNaN(Number(nv)) ? Number(nv) : null)}
+                              />
+                            </td>
+                          );
+                        })}
+                        <td style={{ padding: '6px 8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center', fontWeight: 700 }}>
+                          {row.average !== null && row.average !== undefined ? `${row.average} ${row.unit}` : '-'}
+                        </td>
+                        <td style={{ padding: '6px 8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>
+                          {renderStatusBadge(row.status)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
 
         {/* Attribute Checks */}
         <div style={{ marginBottom: '16px' }}>
-          <div style={{ fontSize: '13px', fontWeight: 700, marginBottom: '8px', color: token.colorTextHeading }}>
+          <div style={{ fontSize: isMobile ? '12px' : '13px', fontWeight: 700, marginBottom: '8px', color: token.colorTextHeading }}>
             VISUAL &amp; STRUCTURAL ATTRIBUTE CHECKS (GO / NO-GO)
           </div>
-          <Row gutter={12}>
+          <Row gutter={[12, 12]}>
             {attributeRows.map((attr) => (
-              <Col span={8} key={attr.id}>
+              <Col xs={24} sm={12} md={8} key={attr.id}>
                 <div
                   style={{
                     padding: '10px 12px',
