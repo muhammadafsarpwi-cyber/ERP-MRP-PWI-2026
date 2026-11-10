@@ -353,12 +353,15 @@ const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
     return lookups.departments;
   }, [sectionId, divisionId, lookups]);
 
-  // When departments load, auto-select first department if none selected
+  // When departments/machines load, auto-select first department that has machines (or first active dept)
   useEffect(() => {
-    if (activeDepartments.length > 0 && (!selectedDeptId || !activeDepartments.some(d => d.id === selectedDeptId))) {
-      setSelectedDeptId(activeDepartments[0].id);
+    if (activeDepartments.length > 0) {
+      if (!selectedDeptId || !activeDepartments.some(d => d.id === selectedDeptId)) {
+        const deptWithMachines = activeDepartments.find(d => machines.some(m => m.departmentId === d.id));
+        setSelectedDeptId(deptWithMachines ? deptWithMachines.id : activeDepartments[0].id);
+      }
     }
-  }, [activeDepartments, selectedDeptId]);
+  }, [activeDepartments, selectedDeptId, machines]);
 
   // Auto-select first shift when loaded if not yet chosen
   useEffect(() => {
@@ -377,9 +380,10 @@ const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
   const ready = !!dateIso && !!shiftId;
 
   const fetchStatus = useCallback(async () => {
-    if (!dateIso || !shiftId) {
-      setMachines([]);
+        if (!dateIso || !shiftId) {
+            setMachines([]);
       setMeta(null);
+      setLoading(false);
       return;
     }
 
@@ -397,32 +401,32 @@ const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
 
     setError(null);
     try {
-      const res = await apiService.get<MachineStatusResponse>('/production/entries/machine-status', {
+            const res = await apiService.get<MachineStatusResponse>('/production/entries/machine-status', {
         entryDate: dateIso,
         shiftId,
         ...(divisionId && { divisionId }),
         ...(sectionId && { sectionId }),
       });
-      const data = res.data || [];
+            const data = res.data || [];
       const resMeta = res.meta || null;
       machineStatusCache.set(cacheKey, { data, meta: resMeta, ts: Date.now() });
       setMachines(data);
       setMeta(resMeta);
     } catch (err: any) {
-      if (!cached) {
+            if (!cached) {
         const msg = err?.response?.data?.message || err?.message || 'Failed to load machine entry status. Please retry.';
         setError(Array.isArray(msg) ? msg.join('; ') : String(msg));
       }
     } finally {
-      setLoading(false);
+            setLoading(false);
     }
   }, [dateIso, shiftId, divisionId, sectionId, refreshTick]);
 
-  // Recompute whenever Date / Shift / Division / Section change
+  // Recompute whenever Date / Shift / Division / Section or Step change
   useEffect(() => {
-    const t = setTimeout(() => void fetchStatus(), 150);
+    const t = setTimeout(() => void fetchStatus(), 100);
     return () => clearTimeout(t);
-  }, [fetchStatus, refreshTick]);
+  }, [fetchStatus, refreshTick, step]);
 
   // Listen for real-time machine status changes from Machine Master or window focus
   useEffect(() => {
@@ -1196,6 +1200,7 @@ const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
                     return;
                   }
                   setStep(2);
+                  setRefreshTick((t) => t + 1);
                 }}
                 style={{
                   height: isMobile ? 48 : 58,

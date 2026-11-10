@@ -75,6 +75,7 @@ async function startCloudFallbackGateway(port: number | string) {
 
   app.use((req, res) => {
     const targetUrl = new URL(req.originalUrl || req.url, remoteOrigin);
+    console.log(`[GATEWAY ->] ${req.method} ${targetUrl.pathname}`);
     const headers: Record<string, string | string[]> = {};
     Object.entries(req.headers).forEach(([k, v]) => {
       const lower = k.toLowerCase();
@@ -91,6 +92,7 @@ async function startCloudFallbackGateway(port: number | string) {
         timeout: 60000,
       },
       (proxyRes) => {
+        console.log(`[GATEWAY <-] ${req.method} ${targetUrl.pathname} status ${proxyRes.statusCode}`);
         res.status(proxyRes.statusCode || 502);
         Object.entries(proxyRes.headers).forEach(([k, v]) => {
           const lower = k.toLowerCase();
@@ -116,7 +118,11 @@ async function startCloudFallbackGateway(port: number | string) {
       }
     });
 
-    req.pipe(proxyReq);
+    if (req.method === 'GET' || req.method === 'HEAD' || (req.method === 'DELETE' && !req.headers['content-length'])) {
+      proxyReq.end();
+    } else {
+      req.pipe(proxyReq);
+    }
   });
 
   await new Promise<void>((resolve) => {
