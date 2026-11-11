@@ -70,8 +70,10 @@ export class InventoryBalanceService {
     itemId?: string;
     warehouseId?: string;
     divisionId?: string;
+    consolidate?: boolean | string;
   }): Promise<{ data: InventoryBalance[]; total: number }> {
-    const { page = 1, limit = 20, companyId, itemId, warehouseId, divisionId } = filter;
+    const { page = 1, limit = 20, companyId, itemId, warehouseId, divisionId, consolidate } = filter;
+    const isConsolidated = consolidate === true || consolidate === 'true' || consolidate === '1';
 
     const qb = this.repo
       .createQueryBuilder('balance')
@@ -88,6 +90,45 @@ export class InventoryBalanceService {
 
     qb.orderBy('item.itemCode', 'ASC')
       .addOrderBy('balance.createdAt', 'DESC');
+
+    if (isConsolidated) {
+      // For stock summary reports: return clean, 1-row-per-item-in-warehouse records
+      const rawData = await qb.getMany();
+      const enriched = await this.enrichDynamicReservations(rawData, companyId);
+
+      const consolidatedMap = new Map<string, InventoryBalance>();
+      for (const b of enriched) {
+        const key = `${b.itemId}_${b.warehouseId}`;
+        if (!consolidatedMap.has(key)) {
+          consolidatedMap.set(key, {
+            ...b,
+            id: key,
+            batchId: null as any,
+            batch: null as any,
+            locationId: null as any,
+            location: null as any,
+            onHand: Number(b.onHand || 0),
+            reserved: Number(b.reserved || 0),
+            available: Number(b.available || 0),
+          });
+        } else {
+          const ex = consolidatedMap.get(key)!;
+          // Sum up distinct batch slices without duplicating onHand
+          const newOnHand = Math.round((ex.onHand + Number(b.onHand || 0)) * 10000) / 10000;
+          const newReserved = Math.round((ex.reserved + Number(b.reserved || 0)) * 10000) / 10000;
+          const newAvailable = Math.max(0, Math.round((newOnHand - newReserved) * 10000) / 10000);
+          ex.onHand = newOnHand;
+          ex.reserved = newReserved;
+          ex.available = newAvailable;
+        }
+      }
+
+      const allConsolidated = Array.from(consolidatedMap.values());
+      const total = allConsolidated.length;
+      const paginated = allConsolidated.slice((page - 1) * limit, page * limit);
+      return { data: paginated, total };
+    }
+
     qb.skip((page - 1) * limit).take(limit);
 
     const [data, total] = await qb.getManyAndCount();
@@ -129,8 +170,11 @@ export class InventoryBalanceService {
       const allItemIds = Array.from(new Set(balances.map((b) => b.itemId).filter(Boolean)));
       if (allItemIds.length > 0) {
         try {
-          const ledgerSums: Array<{ item_id: string; warehouse_id: string; net_balance: string | number }> =
-            await this.repo.manager.query(
+          const [ledgerSums, ledgerBatchSums]: [
+            Array<{ item_id: string; warehouse_id: string; net_balance: string | number }>,
+            Array<{ item_id: string; warehouse_id: string; batch_id: string | null; net_balance: string | number }>,
+          ] = await Promise.all([
+            this.repo.manager.query(
               `SELECT sl.item_id, sl.warehouse_id,
                       COALESCE(SUM(CASE WHEN sl.direction = 'IN' THEN sl.quantity ELSE -sl.quantity END), 0) AS net_balance
                FROM public.stock_ledger sl
@@ -139,23 +183,55 @@ export class InventoryBalanceService {
                  ${companyId ? 'AND sl.company_id = $2' : ''}
                GROUP BY sl.item_id, sl.warehouse_id`,
               companyId ? [allItemIds, companyId] : [allItemIds],
-            );
+            ),
+            this.repo.manager.query(
+              `SELECT sl.item_id, sl.warehouse_id, sl.batch_id,
+                      COALESCE(SUM(CASE WHEN sl.direction = 'IN' THEN sl.quantity ELSE -sl.quantity END), 0) AS net_balance
+               FROM public.stock_ledger sl
+               WHERE sl.transaction_type <> 'PRODUCTION_SCRAP'
+                 AND sl.item_id = ANY($1)
+                 ${companyId ? 'AND sl.company_id = $2' : ''}
+               GROUP BY sl.item_id, sl.warehouse_id, sl.batch_id`,
+              companyId ? [allItemIds, companyId] : [allItemIds],
+            ),
+          ]);
 
           const ledgerMap = new Map<string, number>();
           for (const row of ledgerSums) {
             ledgerMap.set(`${row.item_id}_${row.warehouse_id}`, Number(row.net_balance || 0));
           }
 
+          const ledgerBatchMap = new Map<string, number>();
+          for (const row of ledgerBatchSums) {
+            const bKey = `${row.item_id}_${row.warehouse_id}_${row.batch_id || 'null'}`;
+            ledgerBatchMap.set(bKey, Number(row.net_balance || 0));
+          }
+
+          // Count balance rows per (item_id, warehouse_id)
+          const rowsPerKey = new Map<string, number>();
           for (const b of balances) {
             const key = `${b.itemId}_${b.warehouseId}`;
-            if (ledgerMap.has(key)) {
-              const liveNet = ledgerMap.get(key)!;
-              const roundedNet = Math.round(liveNet * 10000) / 10000;
-              if (Math.abs(Number(b.onHand || 0) - roundedNet) > 0.001) {
-                b.onHand = roundedNet;
-                // Asynchronously heal the static table row in the DB
-                void this.repo.update({ id: b.id }, { onHand: roundedNet });
-              }
+            rowsPerKey.set(key, (rowsPerKey.get(key) || 0) + 1);
+          }
+
+          for (const b of balances) {
+            const key = `${b.itemId}_${b.warehouseId}`;
+            const count = rowsPerKey.get(key) || 1;
+
+            let liveNet = 0;
+            if (count === 1) {
+              liveNet = ledgerMap.get(key) ?? Number(b.onHand || 0);
+            } else {
+              // Multiple batch rows: reconcile each batch row with its own ledger batch
+              const bKey = `${b.itemId}_${b.warehouseId}_${b.batchId || 'null'}`;
+              liveNet = ledgerBatchMap.has(bKey) ? ledgerBatchMap.get(bKey)! : 0;
+            }
+
+            const roundedNet = Math.round(liveNet * 10000) / 10000;
+            if (Math.abs(Number(b.onHand || 0) - roundedNet) > 0.001) {
+              b.onHand = roundedNet;
+              // Asynchronously heal the static table row in the DB
+              void this.repo.update({ id: b.id }, { onHand: roundedNet });
             }
           }
         } catch (ledgerErr) {

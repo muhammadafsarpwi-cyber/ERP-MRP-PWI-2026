@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, Query, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query, HttpCode, HttpStatus, UseGuards, Req } from '@nestjs/common';
 import { PermissionGuard, RequirePermission } from '../../auth/guards/permission.guard';
 import { SupabaseJwtGuard } from '../../auth/guards/supabase-jwt.guard';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery } from '@nestjs/swagger';
@@ -17,8 +17,9 @@ export class SectionController {
   @ApiOperation({ summary: 'Create a new section' })
   @ApiResponse({ status: 201, description: 'Section created successfully' })
   @ApiResponse({ status: 409, description: 'Section code already exists' })
-  async create(@Body() createSectionDto: CreateSectionDto) {
-    const section = await this.sectionService.create(createSectionDto);
+  async create(@Req() req: any, @Body() createSectionDto: CreateSectionDto) {
+    const userId = req.user?.id || req.user?.sub;
+    const section = await this.sectionService.create(createSectionDto, userId);
     return { success: true, data: section, message: 'Section created successfully' };
   }
 
@@ -59,8 +60,9 @@ export class SectionController {
   @ApiOperation({ summary: 'Update a section' })
   @ApiParam({ name: 'id', description: 'Section ID' })
   @ApiResponse({ status: 200, description: 'Section updated successfully' })
-  async update(@Param('id') id: string, @Body() updateSectionDto: UpdateSectionDto) {
-    const section = await this.sectionService.update(id, updateSectionDto);
+  async update(@Req() req: any, @Param('id') id: string, @Body() updateSectionDto: UpdateSectionDto) {
+    const userId = req.user?.id || req.user?.sub;
+    const section = await this.sectionService.update(id, updateSectionDto, userId);
     return { success: true, data: section, message: 'Section updated successfully' };
   }
 
@@ -70,8 +72,9 @@ export class SectionController {
   @ApiOperation({ summary: 'Activate a section' })
   @ApiParam({ name: 'id', description: 'Section ID' })
   @ApiResponse({ status: 200, description: 'Section activated successfully' })
-  async activate(@Param('id') id: string) {
-    const section = await this.sectionService.activate(id);
+  async activate(@Req() req: any, @Param('id') id: string) {
+    const userId = req.user?.id || req.user?.sub;
+    const section = await this.sectionService.activate(id, userId);
     return { success: true, data: section, message: 'Section activated successfully' };
   }
 
@@ -81,8 +84,9 @@ export class SectionController {
   @ApiOperation({ summary: 'Deactivate a section' })
   @ApiParam({ name: 'id', description: 'Section ID' })
   @ApiResponse({ status: 200, description: 'Section deactivated successfully' })
-  async deactivate(@Param('id') id: string) {
-    const section = await this.sectionService.deactivate(id);
+  async deactivate(@Req() req: any, @Param('id') id: string) {
+    const userId = req.user?.id || req.user?.sub;
+    const section = await this.sectionService.deactivate(id, userId);
     return { success: true, data: section, message: 'Section deactivated successfully' };
   }
 

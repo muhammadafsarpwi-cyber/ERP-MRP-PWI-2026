@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, Not, DataSource } from 'typeorm';
-import { Section, SectionStatus } from '../entities';
+import { Section, SectionStatus, Division } from '../entities';
 import { CreateSectionDto, UpdateSectionDto } from '../dto';
 import { populateAuditNames } from '../helpers/audit-names';
 
@@ -15,10 +15,27 @@ export class SectionService {
   ) {}
 
   async create(createSectionDto: CreateSectionDto, userId?: string): Promise<Section> {
+    let companyId = createSectionDto.companyId;
+
+    if (!companyId && createSectionDto.divisionId) {
+      const division = await this.dataSource.getRepository(Division).findOne({
+        where: { id: createSectionDto.divisionId },
+        select: ['id', 'companyId'],
+      });
+      if (!division) {
+        throw new NotFoundException(`Division with ID '${createSectionDto.divisionId}' not found`);
+      }
+      companyId = division.companyId;
+    }
+
+    if (!companyId) {
+      throw new BadRequestException('companyId is required and could not be determined');
+    }
+
     const existingSection = await this.sectionRepository.findOne({
       where: {
         sectionCode: createSectionDto.sectionCode,
-        companyId: createSectionDto.companyId,
+        companyId,
       },
     });
 
@@ -28,6 +45,7 @@ export class SectionService {
 
     const section = this.sectionRepository.create({
       ...createSectionDto,
+      companyId,
       createdBy: userId,
       updatedBy: userId,
     });
@@ -95,6 +113,17 @@ export class SectionService {
 
   async update(id: string, updateSectionDto: UpdateSectionDto, userId?: string): Promise<Section> {
     const section = await this.findOne(id);
+
+    if (updateSectionDto.divisionId && updateSectionDto.divisionId !== section.divisionId) {
+      const division = await this.dataSource.getRepository(Division).findOne({
+        where: { id: updateSectionDto.divisionId },
+        select: ['id', 'companyId'],
+      });
+      if (!division) {
+        throw new NotFoundException(`Division with ID '${updateSectionDto.divisionId}' not found`);
+      }
+      section.companyId = division.companyId;
+    }
 
     Object.assign(section, updateSectionDto, { updatedBy: userId });
 

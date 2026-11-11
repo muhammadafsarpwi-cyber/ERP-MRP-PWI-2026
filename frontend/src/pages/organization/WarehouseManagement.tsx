@@ -404,8 +404,12 @@ const WarehouseManagement: React.FC = () => {
       onOk: async () => {
         setSubmitting(true);
         try {
+          const normalizedCode = values.warehouseCode
+            ? String(values.warehouseCode).trim().toUpperCase().replace(/\s+/g, '-')
+            : values.warehouseCode;
           const payload = {
             ...values,
+            warehouseCode: normalizedCode,
             departmentId: values.departmentId || null,
           };
           if (editingWarehouse) {
@@ -886,9 +890,31 @@ const WarehouseManagement: React.FC = () => {
             <Form.Item
               name="warehouseCode"
               label="Warehouse Code"
-              rules={[{ required: true, message: 'Please enter warehouse code' }]}
+              tooltip="Warehouse code should use uppercase letters, numbers, hyphens (-) or underscores (_). Spaces will be automatically converted to hyphens."
+              rules={[
+                { required: true, message: 'Please enter warehouse code' },
+                {
+                  validator: async (_, value) => {
+                    if (!value) return;
+                    const normalized = String(value).trim().toUpperCase().replace(/\s+/g, '-');
+                    if (!/^[A-Z0-9_-]+$/.test(normalized)) {
+                      throw new Error('Only uppercase letters, numbers, hyphens (-) and underscores (_) are allowed.');
+                    }
+                  },
+                },
+              ]}
+              extra="Tip: Spaces and lowercase letters are automatically converted (e.g., 'SPI 001' becomes 'SPI-001')."
             >
-              <Input disabled={!!editingWarehouse} />
+              <Input
+                placeholder="e.g. SPI-001 or RM-002"
+                disabled={!!editingWarehouse}
+                onBlur={(e) => {
+                  const val = e.target.value;
+                  if (val) {
+                    form.setFieldValue('warehouseCode', val.trim().toUpperCase().replace(/\s+/g, '-'));
+                  }
+                }}
+              />
             </Form.Item>
             <Form.Item
               name="name"

@@ -292,11 +292,14 @@ export class ProductionInventoryReportService {
       .addSelect(`COALESCE(SUM(CASE WHEN sl.direction = 'IN' AND sl.transactionType <> 'PRODUCTION_SCRAP' AND ${openingInCond} THEN sl.quantity ELSE 0 END), 0)`, 'openingIn')
       .addSelect(`COALESCE(SUM(CASE WHEN sl.direction = 'OUT' AND sl.transactionType <> 'PRODUCTION_SCRAP' AND ${openingOutCond} THEN sl.quantity ELSE 0 END), 0)`, 'openingOut')
       .addSelect(`COALESCE(SUM(CASE WHEN sl.direction = 'OUT' AND sl.transactionType IN ('SALES_DELIVERY', 'DISPATCH') AND ${openingOutCond} THEN sl.quantity ELSE 0 END), 0)`, 'openingDispatched')
-      .addSelect(`COALESCE(SUM(CASE WHEN sl.direction = 'IN' AND sl.transactionType <> 'PRODUCTION_SCRAP' ${inRangeCond} THEN sl.quantity ELSE 0 END), 0)`, 'rangeIn')
-      .addSelect(`COALESCE(SUM(CASE WHEN sl.direction = 'OUT' AND sl.transactionType <> 'PRODUCTION_SCRAP' ${outRangeCond} THEN sl.quantity ELSE 0 END), 0)`, 'rangeOut')
+      // Reversal rows (edit / re-post of a production entry) are NETTED, never counted as gross
+      // movement: a consumption that was posted and then reversed must net to zero Issuance,
+      // otherwise an item shows phantom "issued" quantity (e.g. nipple on a Without-Nipple pack).
+      .addSelect(`COALESCE(SUM(CASE WHEN sl.direction = 'IN' AND sl.transactionType NOT IN ('PRODUCTION_SCRAP', 'PRODUCTION_REVERSAL') ${inRangeCond} THEN sl.quantity WHEN sl.direction = 'OUT' AND sl.transactionType = 'PRODUCTION_REVERSAL' ${outRangeCond} THEN -sl.quantity ELSE 0 END), 0)`, 'rangeIn')
+      .addSelect(`COALESCE(SUM(CASE WHEN sl.direction = 'OUT' AND sl.transactionType NOT IN ('PRODUCTION_SCRAP', 'PRODUCTION_REVERSAL') ${outRangeCond} THEN sl.quantity WHEN sl.direction = 'IN' AND sl.transactionType = 'PRODUCTION_REVERSAL' ${inRangeCond} THEN -sl.quantity ELSE 0 END), 0)`, 'rangeOut')
       .addSelect(`COALESCE(SUM(CASE WHEN sl.direction = 'IN' AND sl.transactionType = :movementType ${inRangeCond} THEN sl.quantity ELSE 0 END), 0)`, 'movIn')
       .addSelect(`COALESCE(SUM(CASE WHEN sl.direction = 'OUT' AND sl.transactionType = :movementType ${outRangeCond} THEN sl.quantity ELSE 0 END), 0)`, 'movOut')
-      .addSelect(`COALESCE(SUM(CASE WHEN sl.direction = 'OUT' AND sl.transactionType IN ('PRODUCTION_CONSUMPTION', 'PRODUCTION_ISSUE') ${outRangeCond} THEN sl.quantity ELSE 0 END), 0)`, 'consumed')
+      .addSelect(`COALESCE(SUM(CASE WHEN sl.direction = 'OUT' AND sl.transactionType IN ('PRODUCTION_CONSUMPTION', 'PRODUCTION_ISSUE') ${outRangeCond} THEN sl.quantity WHEN sl.direction = 'IN' AND sl.transactionType = 'PRODUCTION_REVERSAL' ${inRangeCond} THEN -sl.quantity ELSE 0 END), 0)`, 'consumed')
       .addSelect(`COALESCE(SUM(CASE WHEN sl.transactionType = 'PRODUCTION_SCRAP' ${outRangeCond} THEN sl.quantity ELSE 0 END), 0)`, 'scrapOut')
       .addSelect('MAX(sl.transactionDate)', 'lastMovementDate')
       .where('sl.companyId = :companyId', { companyId })
@@ -317,7 +320,7 @@ export class ProductionInventoryReportService {
               AND (
                 pe_rel.item_id = sl.item_id 
                 OR pei_rel.item_id = sl.item_id
-                OR sl.transaction_type IN ('PRODUCTION_CONSUMPTION', 'PRODUCTION_ISSUE')
+                OR sl.transaction_type IN ('PRODUCTION_CONSUMPTION', 'PRODUCTION_ISSUE', 'PRODUCTION_REVERSAL')
               )
           )
         )
@@ -558,9 +561,9 @@ export class ProductionInventoryReportService {
             `SELECT
               TO_CHAR(sl.transaction_date AT TIME ZONE $4, 'YYYY-MM-DD') as "day",
               sl.item_id as "itemId",
-              COALESCE(SUM(CASE WHEN sl.direction = 'IN' AND sl.transaction_type <> 'PRODUCTION_SCRAP' THEN sl.quantity ELSE 0 END), 0) as "rangeIn",
-              COALESCE(SUM(CASE WHEN sl.direction = 'OUT' AND sl.transaction_type <> 'PRODUCTION_SCRAP' THEN sl.quantity ELSE 0 END), 0) as "rangeOut",
-              COALESCE(SUM(CASE WHEN sl.direction = 'OUT' AND sl.transaction_type IN ('PRODUCTION_CONSUMPTION', 'PRODUCTION_ISSUE') THEN sl.quantity ELSE 0 END), 0) as "consumed",
+              COALESCE(SUM(CASE WHEN sl.direction = 'IN' AND sl.transaction_type NOT IN ('PRODUCTION_SCRAP', 'PRODUCTION_REVERSAL') THEN sl.quantity WHEN sl.direction = 'OUT' AND sl.transaction_type = 'PRODUCTION_REVERSAL' THEN -sl.quantity ELSE 0 END), 0) as "rangeIn",
+              COALESCE(SUM(CASE WHEN sl.direction = 'OUT' AND sl.transaction_type NOT IN ('PRODUCTION_SCRAP', 'PRODUCTION_REVERSAL') THEN sl.quantity WHEN sl.direction = 'IN' AND sl.transaction_type = 'PRODUCTION_REVERSAL' THEN -sl.quantity ELSE 0 END), 0) as "rangeOut",
+              COALESCE(SUM(CASE WHEN sl.direction = 'OUT' AND sl.transaction_type IN ('PRODUCTION_CONSUMPTION', 'PRODUCTION_ISSUE') THEN sl.quantity WHEN sl.direction = 'IN' AND sl.transaction_type = 'PRODUCTION_REVERSAL' THEN -sl.quantity ELSE 0 END), 0) as "consumed",
               COALESCE(SUM(CASE WHEN sl.transaction_type = 'PRODUCTION_SCRAP' THEN sl.quantity ELSE 0 END), 0) as "scrapOut"
             FROM stock_ledger sl
             WHERE sl.company_id = $1
@@ -583,7 +586,7 @@ export class ProductionInventoryReportService {
                       AND (
                         pe_rel.item_id = sl.item_id
                         OR pei_rel.item_id = sl.item_id
-                        OR sl.transaction_type IN ('PRODUCTION_CONSUMPTION', 'PRODUCTION_ISSUE')
+                        OR sl.transaction_type IN ('PRODUCTION_CONSUMPTION', 'PRODUCTION_ISSUE', 'PRODUCTION_REVERSAL')
                       )
                   )
                 )

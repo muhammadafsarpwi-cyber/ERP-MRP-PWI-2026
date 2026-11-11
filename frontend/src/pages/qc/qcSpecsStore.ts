@@ -506,6 +506,17 @@ export async function saveDbInProcessInspection(
   }
 }
 
+// Delete In-Process Inspection from DB
+export async function deleteDbInspection(id: string): Promise<boolean> {
+  try {
+    await apiService.delete(`/qc/inspections/${id}`);
+    return true;
+  } catch (err) {
+    console.warn('API delete inspection warning:', err);
+    return false;
+  }
+}
+
 // Fetch Item QC Specs from DB
 export async function fetchDbSpecs(companyId: string): Promise<ItemQcSpecification[]> {
   try {

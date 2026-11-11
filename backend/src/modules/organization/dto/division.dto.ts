@@ -3,10 +3,10 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsUuid } from '../../../common/validators';
 
 export class CreateDivisionDto {
-  @ApiProperty({ description: 'Company ID' })
+  @ApiPropertyOptional({ description: 'Company ID' })
   @IsUuid()
-  @IsNotEmpty()
-  companyId: string;
+  @IsOptional()
+  companyId?: string;
 
   @ApiProperty({ description: 'Unique division code within company' })
   @IsString()

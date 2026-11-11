@@ -24,8 +24,9 @@ export class DivisionController {
   @ApiOperation({ summary: 'Create a new division' })
   @ApiResponse({ status: 201, description: 'Division created successfully' })
   @ApiResponse({ status: 409, description: 'Division code already exists' })
-  async create(@Body() createDivisionDto: CreateDivisionDto) {
-    const division = await this.divisionService.create(createDivisionDto);
+  async create(@Body() createDivisionDto: CreateDivisionDto, @Req() req: any) {
+    const userId = req.user?.id || req.user?.sub;
+    const division = await this.divisionService.create(createDivisionDto, userId);
     return { success: true, data: division, message: 'Division created successfully' };
   }
 
@@ -73,7 +74,8 @@ export class DivisionController {
   @ApiParam({ name: 'id', description: 'Division ID' })
   @ApiResponse({ status: 200, description: 'Division updated successfully' })
   async update(@Param('id') id: string, @Body() updateDivisionDto: UpdateDivisionDto, @Req() req: any) {
-    const division = await this.divisionService.update(id, updateDivisionDto, undefined, this.divisions(req));
+    const userId = req.user?.id || req.user?.sub;
+    const division = await this.divisionService.update(id, updateDivisionDto, userId, this.divisions(req));
     return { success: true, data: division, message: 'Division updated successfully' };
   }
 
@@ -84,7 +86,8 @@ export class DivisionController {
   @ApiParam({ name: 'id', description: 'Division ID' })
   @ApiResponse({ status: 200, description: 'Division activated successfully' })
   async activate(@Param('id') id: string, @Req() req: any) {
-    const division = await this.divisionService.activate(id, undefined, this.divisions(req));
+    const userId = req.user?.id || req.user?.sub;
+    const division = await this.divisionService.activate(id, userId, this.divisions(req));
     return { success: true, data: division, message: 'Division activated successfully' };
   }
 
@@ -95,7 +98,8 @@ export class DivisionController {
   @ApiParam({ name: 'id', description: 'Division ID' })
   @ApiResponse({ status: 200, description: 'Division deactivated successfully' })
   async deactivate(@Param('id') id: string, @Req() req: any) {
-    const division = await this.divisionService.deactivate(id, undefined, this.divisions(req));
+    const userId = req.user?.id || req.user?.sub;
+    const division = await this.divisionService.deactivate(id, userId, this.divisions(req));
     return { success: true, data: division, message: 'Division deactivated successfully' };
   }
 

@@ -278,13 +278,21 @@ export const ItemStockLedgerModal: React.FC<ItemStockLedgerModalProps> = ({
       pcs = rawQty * 144;
     }
 
-    const isCS = activeItemCode.toUpperCase().includes('011') ||
-                 activeItemCode.toUpperCase().includes('012') ||
-                 activeItemCode.toUpperCase().includes('CS');
-    const grossPerCarton = isCS ? 10.555556 : 10;
+    const absPcs = Math.abs(pcs);
+    const absGross = Math.abs(gross);
+
+    // Factory Dual Packing Standard:
+    // 1. CS Packing (011 / 012 / CS): 1 Carton = 1,520 PCS = 10.555556 Gross
+    // 2. Standard Packing: 1 Carton = 1,440 PCS = 10 Gross
+    const isCSItem = activeItemCode.toUpperCase().includes('011') ||
+                     activeItemCode.toUpperCase().includes('012') ||
+                     activeItemCode.toUpperCase().includes('CS');
+    const isCSMultiple = absPcs > 0 && absPcs % 1520 === 0 && absPcs % 1440 !== 0;
+    const isStdMultiple = absPcs > 0 && absPcs % 1440 === 0;
+
+    const grossPerCarton = (isCSMultiple || (!isStdMultiple && isCSItem)) ? (1520 / 144) : 10;
     const cartons = gross / grossPerCarton;
 
-    const absGross = Math.abs(gross);
     const roundCartons = Math.round(cartons);
     const fmtCtn = `${formatNumber(roundCartons, 0)} CTN`;
     const fmtGrs = `${absGross % 1 === 0 ? formatNumber(gross, 0) : formatNumber(gross, 2)} GRS`;

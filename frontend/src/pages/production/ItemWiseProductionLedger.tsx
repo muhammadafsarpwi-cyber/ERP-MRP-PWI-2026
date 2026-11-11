@@ -535,8 +535,10 @@ export const getUnitBreakdownSubtext = (
   const absQty = Math.abs(rawQty);
 
   const gross = absQty / 144;
-  const isCS = (itemCode || '').includes('011') || (itemCode || '').includes('012') || (itemCode || '').includes('CS');
-  const grossPerCarton = isCS ? 10.555556 : 10;
+  const isCSItem = (itemCode || '').includes('011') || (itemCode || '').includes('012') || (itemCode || '').includes('CS');
+  const isCSMultiple = absQty > 0 && absQty % 1520 === 0 && absQty % 1440 !== 0;
+  const isStdMultiple = absQty > 0 && absQty % 1440 === 0;
+  const grossPerCarton = (isCSMultiple || (!isStdMultiple && isCSItem)) ? (1520 / 144) : 10;
   const cartons = gross / grossPerCarton;
 
   const sign = rawQty < 0 ? '-' : '';

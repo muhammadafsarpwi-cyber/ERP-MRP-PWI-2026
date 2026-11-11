@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Body, Param, Query, HttpCode, HttpStatus, UseGuards, Req } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query, HttpCode, HttpStatus, UseGuards, Req } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { GoodsReceiptService } from '../../procurement/services/goods-receipt.service';
 import { CreateGoodsReceiptDto } from '../../procurement/dto';
@@ -130,5 +130,14 @@ export class StoreReceiptController {
   async post(@Param('id') id: string, @Req() req: any) {
     const receipt = await this.service.post(id, this.getUserId(req), this.getCompanyId(req));
     return { success: true, data: receipt, message: 'Goods receipt posted' };
+  }
+
+  @Delete(':id')
+  @RequirePermission('store.receive.create')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Delete goods receipt (store)' })
+  async remove(@Param('id') id: string) {
+    await this.service.remove(id);
+    return { success: true, message: 'Goods receipt deleted successfully' };
   }
 }

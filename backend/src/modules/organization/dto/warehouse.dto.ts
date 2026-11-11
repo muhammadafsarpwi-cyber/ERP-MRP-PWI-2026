@@ -1,5 +1,6 @@
 import { IsString, IsNotEmpty, IsOptional, IsEnum, MaxLength, Matches } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
 import { WarehouseType } from '../entities';
 import { IsUuid } from '../../../common/validators';
 
@@ -30,6 +31,7 @@ export class CreateWarehouseDto {
   businessUnitId?: string;
 
   @ApiProperty({ description: 'Unique warehouse code within company' })
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim().toUpperCase().replace(/\s+/g, '-') : value))
   @IsString()
   @IsNotEmpty()
   @MaxLength(50)
@@ -68,9 +70,11 @@ export class CreateWarehouseDto {
 
 export class UpdateWarehouseDto {
   @ApiPropertyOptional({ description: 'Unique warehouse code within company' })
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim().toUpperCase().replace(/\s+/g, '-') : value))
   @IsString()
   @IsOptional()
   @MaxLength(50)
+  @Matches(/^[A-Z0-9_-]+$/, { message: 'Warehouse code must contain only uppercase letters, numbers, hyphens and underscores' })
   warehouseCode?: string;
 
   @ApiPropertyOptional({ description: 'Division ID' })

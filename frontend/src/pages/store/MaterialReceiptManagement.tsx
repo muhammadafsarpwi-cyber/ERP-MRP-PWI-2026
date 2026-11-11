@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Card, Table, Button, Space, Modal, Form, Input, Select, Tag, App, DatePicker, Row, Col, Drawer, Descriptions, Spin,
+  Card, Table, Button, Space, Modal, Form, Input, Select, Tag, App, DatePicker, Row, Col, Drawer, Descriptions, Spin, Popconfirm,
 } from 'antd';
-import { PlusOutlined, ArrowDownOutlined, SearchOutlined, CheckOutlined, EyeOutlined } from '@ant-design/icons';
+import { PlusOutlined, ArrowDownOutlined, SearchOutlined, CheckOutlined, EyeOutlined, DeleteOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import apiService from '../../services/api';
@@ -197,6 +197,18 @@ const MaterialReceiptManagement: React.FC = () => {
     });
   };
 
+  const handleDelete = async (id: string) => {
+    try {
+      await apiService.delete(`/store/receipts/${id}`);
+      message.success('Material receipt deleted successfully');
+      fetchData(page);
+      setDetailOpen(false);
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || 'Failed to delete receipt';
+      message.error(Array.isArray(msg) ? msg[0] : msg);
+    }
+  };
+
   const openDetail = (record: GoodsReceipt) => {
     setDetail(record);
     setDetailOpen(true);
@@ -218,7 +230,7 @@ const MaterialReceiptManagement: React.FC = () => {
       ),
     },
     {
-      title: 'Actions', key: 'actions', width: 300, fixed: 'right',
+      title: 'Actions', key: 'actions', width: 320, fixed: 'right',
       render: (_, record) => (
         <Space wrap size={6}>
           <Button size="small" className="erp-action-btn act-view" icon={<EyeOutlined />} aria-label="View" onClick={() => openDetail(record)} />
@@ -226,6 +238,17 @@ const MaterialReceiptManagement: React.FC = () => {
           {record.status === 'INSPECTION' && canInspect && <Button size="small" type="primary" icon={<CheckOutlined />} onClick={() => handleAction(record.id, 'accept')}>Accept</Button>}
           {record.status === 'INSPECTION' && canInspect && <Button size="small" danger onClick={() => handleAction(record.id, 'reject')}>Reject</Button>}
           {record.status === 'ACCEPTED' && canPost && <Button size="small" type="primary" onClick={() => handleAction(record.id, 'post')}>Post to Stock</Button>}
+          {record.status !== 'POSTED' && (
+            <Popconfirm
+              title="Delete this material receipt?"
+              description="Are you sure you want to delete this receipt record?"
+              onConfirm={() => handleDelete(record.id)}
+              okText="Delete"
+              okButtonProps={{ danger: true }}
+            >
+              <Button size="small" danger icon={<DeleteOutlined />}>Delete</Button>
+            </Popconfirm>
+          )}
         </Space>
       ),
     },

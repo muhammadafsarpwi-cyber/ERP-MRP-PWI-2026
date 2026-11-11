@@ -164,6 +164,16 @@ export class QcService {
     return this.findInspection(id);
   }
 
+  async removeInspection(id: string) {
+    const insp = await this.inspectionRepo.findOne({ where: { id } });
+    if (!insp) throw new NotFoundException('Inspection not found');
+    await withTransaction(this.dataSource, async (manager) => {
+      await manager.delete(QcInspectionResult, { inspectionId: id });
+      await manager.delete(QcInspection, { id });
+    });
+    return { id, message: 'Inspection deleted successfully' };
+  }
+
   // ---- NCR ----
   private nextNcrNo(companyId: string): Promise<string> {
     return this.dataSource.query(

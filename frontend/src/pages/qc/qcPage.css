@@ -1,0 +1,114 @@
+/* ── Quality Control & Assurance (QC) Responsive & Mobile Styles ── */
+
+.qc-page-container {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+  box-sizing: border-box;
+}
+
+/* Tabs: Smooth horizontal touch scroll for tab items, zero page dragging */
+.qc-tabs {
+  width: 100%;
+  max-width: 100%;
+}
+
+.qc-tabs > .ant-tabs-nav {
+  max-width: 100%;
+  margin-bottom: 12px;
+}
+
+.qc-tabs > .ant-tabs-nav .ant-tabs-nav-wrap {
+  overflow-x: auto !important;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.qc-tabs > .ant-tabs-nav .ant-tabs-nav-wrap::-webkit-scrollbar {
+  display: none;
+}
+
+.qc-tabs .ant-tabs-tab {
+  white-space: nowrap;
+  font-size: 13px;
+  padding: 8px 12px;
+}
+
+/* Division Segmented Control scroll container */
+.qc-division-segmented-wrapper {
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  display: flex;
+  align-items: center;
+}
+
+.qc-division-segmented-wrapper::-webkit-scrollbar {
+  display: none;
+}
+
+/* Scrollable Container for 5-Sample Dimensional Table */
+.qc-responsive-table-box {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border-radius: 6px;
+  position: relative;
+  scrollbar-width: thin;
+}
+
+/* Mobile-specific adjustments (Screen <= 768px) */
+@media (max-width: 768px) {
+  .qc-header-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    width: 100%;
+  }
+
+  .qc-header-actions .ant-btn {
+    font-size: 12px;
+    padding: 4px 8px;
+    height: 32px;
+  }
+
+  .qc-report-title {
+    font-size: 16px !important;
+  }
+
+  .qc-report-subtitle {
+    font-size: 13px !important;
+  }
+
+  .qc-metadata-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 8px !important;
+    padding: 10px 12px !important;
+  }
+
+  .qc-metadata-grid .qc-meta-fullwidth {
+    grid-column: 1 / -1 !important;
+  }
+
+  .qc-swipe-indicator {
+    display: inline-flex !important;
+  }
+
+  .qc-tabs .ant-tabs-tab {
+    font-size: 12px;
+    padding: 6px 10px;
+  }
+
+  .qc-card-body {
+    padding: 10px !important;
+  }
+}
+
+@media (min-width: 769px) {
+  .qc-swipe-indicator {
+    display: none !important;
+  }
+}
+

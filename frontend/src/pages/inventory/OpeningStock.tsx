@@ -46,6 +46,9 @@ interface ItemOption {
   uom_id?: string;
   cost_price?: number;
   standard_cost?: number;
+  divisionId?: string;
+  itemType?: string;
+  uomCode?: string;
 }
 
 interface WarehouseOption {
@@ -54,6 +57,7 @@ interface WarehouseOption {
   code?: string;
   warehouse_code?: string;
   division_id?: string;
+  divisionId?: string;
 }
 
 interface UomOption {
@@ -101,23 +105,21 @@ const OpeningStock: React.FC = () => {
   const [uoms, setUoms] = useState<UomOption[]>([]);
   const [loadingDropdowns, setLoadingDropdowns] = useState(false);
 
+  const [loadingItems, setLoadingItems] = useState(false);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // 1. Fetch dropdown data on mount
+  // 1. Fetch dropdown data on mount (items are loaded per division below)
   const fetchDropdowns = useCallback(async () => {
     setLoadingDropdowns(true);
     try {
-      const [divRes, itemRes, warehouseRes, uomRes] = await Promise.all([
+      const [divRes, warehouseRes, uomRes] = await Promise.all([
         dashboardService.getFilterDivisions().catch(() => ({ data: [] })),
-        apiService.get<any>('/master-data/items', { limit: 1000 }).catch(() => ({ data: [] })),
-        apiService.get<any>('/warehouses', { limit: 100 }).catch(() => ({ data: [] })),
+        apiService.get<any>('/warehouses', { limit: 200 }).catch(() => ({ data: [] })),
         apiService.get<any>('/master-data/uom', { limit: 100 }).catch(() => ({ data: [] })),
       ]);
 
       setDivisions(Array.isArray(divRes?.data) ? divRes.data : []);
-      
-      const rawItems = itemRes?.data?.items || itemRes?.data || [];
-      setItems(Array.isArray(rawItems) ? rawItems : []);
 
       const rawWarehouses = warehouseRes?.data?.warehouses || warehouseRes?.data || [];
       setWarehouses(Array.isArray(rawWarehouses) ? rawWarehouses : []);
@@ -136,28 +138,57 @@ const OpeningStock: React.FC = () => {
     fetchDropdowns();
   }, [fetchDropdowns]);
 
-  // Filter warehouses based on selected division if applicable
-  const filteredWarehouses = useMemo(() => {
-    if (!selectedDivisionId) return warehouses;
-    const selectedDiv = divisions.find((d) => d.id === selectedDivisionId);
-    const divName = (selectedDiv?.name || '').toLowerCase();
-    const divCode = ((selectedDiv as any)?.code || (selectedDiv as any)?.division_code || '').toLowerCase();
+  // Load ONLY the items that belong to the selected division
+  useEffect(() => {
+    if (!selectedDivisionId) {
+      setItems([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      setLoadingItems(true);
+      try {
+        const res = await apiService.get<any>('/master-data/items', { limit: 5000, divisionId: selectedDivisionId });
+        const raw: any[] = Array.isArray(res) ? res : res?.data?.items || res?.data || [];
+        const normalized: ItemOption[] = raw
+          .filter((it) => it?.id && (!it.divisionId || it.divisionId === selectedDivisionId))
+          .map((it) => ({
+            ...it,
+            code: it.itemCode || it.code || it.item_code || '',
+            item_code: it.itemCode || it.item_code || it.code || '',
+            base_uom_id: it.baseUomId || it.base_uom_id,
+            uom_id: it.uomId || it.uom_id,
+            uomCode: it.baseUom?.code || it.uomCode,
+          }));
+        if (!cancelled) setItems(normalized);
+      } catch (err) {
+        console.error('Failed to load division items:', err);
+        if (!cancelled) {
+          setItems([]);
+          message.error('Failed to load items for the selected division');
+        }
+      } finally {
+        if (!cancelled) setLoadingItems(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedDivisionId, message]);
 
-    // Check if warehouse name/code matches division prefix (e.g. CCD or SPI)
-    if (divName.includes('cable') || divName.includes('ccd') || divCode.includes('ccd')) {
-      return warehouses.filter((w) => {
-        const str = `${w.code || ''} ${w.warehouse_code || ''} ${w.name || ''}`.toLowerCase();
-        return str.includes('ccd') || str.includes('main') || str.includes('lahore');
-      });
+  // Warehouses strictly belonging to the selected division
+  const filteredWarehouses = useMemo(() => {
+    if (!selectedDivisionId) return [];
+    return warehouses.filter((w) => (w.divisionId || w.division_id) === selectedDivisionId);
+  }, [warehouses, selectedDivisionId]);
+
+  // Auto-select the warehouse when the division has exactly one
+  useEffect(() => {
+    if (!selectedDivisionId) return;
+    if (filteredWarehouses.length === 1) {
+      form.setFieldValue('warehouseId', filteredWarehouses[0].id);
     }
-    if (divName.includes('spoke') || divName.includes('spi') || divCode.includes('spi')) {
-      return warehouses.filter((w) => {
-        const str = `${w.code || ''} ${w.warehouse_code || ''} ${w.name || ''}`.toLowerCase();
-        return str.includes('spi') || str.includes('main') || str.includes('lahore');
-      });
-    }
-    return warehouses;
-  }, [warehouses, selectedDivisionId, divisions]);
+  }, [filteredWarehouses, selectedDivisionId, form]);
 
   // Auto-generate reference number and date on mount
   useEffect(() => {
@@ -572,20 +603,54 @@ const OpeningStock: React.FC = () => {
       title: 'Item',
       dataIndex: 'itemId',
       key: 'itemId',
-      width: 280,
+      width: 380,
       render: (_: unknown, record) => (
-        <Select
-          showSearch
-          optionFilterProp="label"
-          placeholder="Search and select item"
-          value={record.itemId || undefined}
-          onChange={(v) => updateLine(record.key, 'itemId', v)}
-          style={{ width: '100%' }}
-          options={items.map((i) => ({
-            value: i.id,
-            label: `${i.code || i.item_code || ''} — ${i.name}`.trim(),
-          }))}
-        />
+        <div>
+          <Select
+            showSearch
+            optionFilterProp="searchValue"
+            popupMatchSelectWidth={false}
+            dropdownStyle={{ minWidth: 640, maxWidth: 'min(880px, 94vw)' }}
+            listHeight={360}
+            loading={loadingItems}
+            disabled={!selectedDivisionId}
+            placeholder={selectedDivisionId ? 'Search by item code or name' : 'Select a division first'}
+            notFoundContent={loadingItems ? 'Loading division items...' : 'No items found in this division'}
+            value={record.itemId || undefined}
+            onChange={(v) => updateLine(record.key, 'itemId', v)}
+            style={{ width: '100%' }}
+            optionLabelProp="shortLabel"
+            options={items.map((i) => ({
+              value: i.id,
+              shortLabel: `${i.code || i.item_code || ''} — ${i.name}`.trim(),
+              searchValue: `${i.code || ''} ${i.item_code || ''} ${i.name || ''}`,
+              code: i.code || i.item_code || '',
+              name: i.name,
+              itemType: i.itemType,
+              uomCode: i.uomCode,
+            }))}
+            optionRender={(option) => (
+              <div style={{ padding: '4px 2px', display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start' }}>
+                <div style={{ lineHeight: 1.4, whiteSpace: 'normal' }}>
+                  <span style={{ fontFamily: 'monospace', fontWeight: 700, color: 'var(--theme-primary)', marginRight: 8 }}>
+                    {option.data.code}
+                  </span>
+                  <span style={{ color: 'var(--theme-text)' }}>{option.data.name}</span>
+                </div>
+                <div style={{ whiteSpace: 'nowrap', fontSize: 11, color: 'var(--theme-text-muted)' }}>
+                  {option.data.itemType ? String(option.data.itemType).replace(/_/g, ' ') : ''}
+                  {option.data.uomCode ? ` · ${option.data.uomCode}` : ''}
+                </div>
+              </div>
+            )}
+          />
+          {record.itemId && record.itemName && (
+            <div style={{ fontSize: 12, marginTop: 4, lineHeight: 1.3, color: 'var(--theme-text-secondary)' }}>
+              {record.itemCode ? `${record.itemCode} — ` : ''}
+              {record.itemName}
+            </div>
+          )}
+        </div>
       ),
     },
     {
@@ -749,14 +814,15 @@ const OpeningStock: React.FC = () => {
             <Col xs={24} sm={12} md={6}>
               <Form.Item label={<span style={{ fontWeight: 600, fontSize: 12.5 }}>Division</span>} style={{ marginBottom: 0 }}>
                 <Select
-                  placeholder="All Divisions"
-                  allowClear
+                  placeholder="Select division"
                   showSearch
                   optionFilterProp="label"
                   value={selectedDivisionId}
                   onChange={(val) => {
                     setSelectedDivisionId(val);
                     form.setFieldValue('warehouseId', undefined);
+                    // Items belong to a division: reset lines so no foreign-division item remains
+                    setLines([{ key: `line-${Date.now()}`, itemId: '', uomId: '', quantity: 1, unitCost: 0 }]);
                   }}
                   options={divisions.map((d) => ({
                     value: d.id,
@@ -775,12 +841,15 @@ const OpeningStock: React.FC = () => {
                 style={{ marginBottom: 0 }}
               >
                 <Select
-                  placeholder="Select warehouse"
+                  placeholder={selectedDivisionId ? 'Select warehouse' : 'Select division first'}
+                  disabled={!selectedDivisionId}
+                  notFoundContent="No warehouse configured for this division"
+                  popupMatchSelectWidth={false}
                   showSearch
                   optionFilterProp="label"
                   options={filteredWarehouses.map((w) => ({
                     value: w.id,
-                    label: `${w.name} (${w.code || w.warehouse_code || ''})`,
+                    label: `${(w as any).warehouseCode || w.code || w.warehouse_code || ''} — ${w.name}`,
                   }))}
                   style={{ width: '100%' }}
                 />

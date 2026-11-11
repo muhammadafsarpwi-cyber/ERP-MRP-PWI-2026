@@ -3,10 +3,10 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsUuid } from '../../../common/validators';
 
 export class CreateSectionDto {
-  @ApiProperty({ description: 'Company ID' })
+  @ApiPropertyOptional({ description: 'Company ID (derived from division if omitted)' })
   @IsUuid()
-  @IsNotEmpty()
-  companyId: string;
+  @IsOptional()
+  companyId?: string;
 
   @ApiProperty({ description: 'Division ID' })
   @IsUuid()

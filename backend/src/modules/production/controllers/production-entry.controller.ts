@@ -354,7 +354,7 @@ export class ProductionEntryController {
   @ApiOperation({ summary: 'Deduct pending nipple stock from warehouse (WH-002) and complete batch' })
   async completeNipple(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: { warehouseId?: string; completionDate?: string },
+    @Body() dto: { warehouseId?: string; completionDate?: string; completedCartons?: number },
     @Req() req: any,
   ) {
     const companyId = this.getCompanyId(req);

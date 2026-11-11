@@ -13,6 +13,7 @@ import {
   Typography,
   Tooltip,
   Divider,
+  Popconfirm,
   theme,
 } from 'antd';
 import {
@@ -27,6 +28,7 @@ import {
   EyeOutlined,
   PrinterOutlined,
   EditOutlined,
+  DeleteOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { QmsInProcessInspection, InspectionSampleRow } from './types';
@@ -40,6 +42,7 @@ interface RunningInspectionsHistoryModalProps {
   onSelectInspection: (inspection: QmsInProcessInspection) => void;
   onOpenSheet: (inspection: QmsInProcessInspection) => void;
   onEditInspection?: (inspection: QmsInProcessInspection) => void;
+  onDeleteInspection?: (inspection: QmsInProcessInspection) => void;
   onRefresh?: () => void;
 }
 
@@ -50,6 +53,7 @@ export const RunningInspectionsHistoryModal: React.FC<RunningInspectionsHistoryM
   onSelectInspection,
   onOpenSheet,
   onEditInspection,
+  onDeleteInspection,
   onRefresh,
 }) => {
   const { token } = theme.useToken();
@@ -210,7 +214,7 @@ export const RunningInspectionsHistoryModal: React.FC<RunningInspectionsHistoryM
     {
       title: 'Actions',
       key: 'actions',
-      width: 310,
+      width: 350,
       align: 'right',
       render: (_, r) => (
         <Space size={4} wrap style={{ justifyContent: 'flex-end' }}>
@@ -269,6 +273,25 @@ export const RunningInspectionsHistoryModal: React.FC<RunningInspectionsHistoryM
               onClick={() => handleShareWhatsApp(r)}
             />
           </Tooltip>
+
+          {onDeleteInspection && (
+            <Popconfirm
+              title="Delete Inspection Record?"
+              description={`Permanently delete inspection "${r.inspectionNo}"? This action cannot be undone.`}
+              okText="Yes, Delete"
+              cancelText="Cancel"
+              okButtonProps={{ danger: true }}
+              placement="left"
+              onConfirm={() => onDeleteInspection(r)}
+            >
+              <Button
+                size="small"
+                danger
+                title="Delete Inspection"
+                icon={<DeleteOutlined />}
+              />
+            </Popconfirm>
+          )}
         </Space>
       ),
     },
@@ -326,6 +349,24 @@ export const RunningInspectionsHistoryModal: React.FC<RunningInspectionsHistoryM
             >
               Load on Main Page
             </Button>
+            {onDeleteInspection && (
+              <Popconfirm
+                title="Delete Inspection Record?"
+                description={`Permanently delete inspection "${record.inspectionNo}"? This action cannot be undone.`}
+                okText="Yes, Delete"
+                cancelText="Cancel"
+                okButtonProps={{ danger: true }}
+                onConfirm={() => onDeleteInspection(record)}
+              >
+                <Button
+                  size="small"
+                  danger
+                  icon={<DeleteOutlined />}
+                >
+                  Delete
+                </Button>
+              </Popconfirm>
+            )}
           </Space>
         </div>
 
@@ -502,6 +543,7 @@ export const RunningInspectionsHistoryModal: React.FC<RunningInspectionsHistoryM
       {/* Main Inspections Table with Expandable Samples Breakdown */}
       <Table
         size="small"
+        scroll={{ x: 1000 }}
         columns={columns}
         dataSource={filteredList}
         rowKey="id"

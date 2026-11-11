@@ -47,12 +47,13 @@ export class InventoryBalanceController {
     @Query('itemId') itemId?: string,
     @Query('warehouseId') warehouseId?: string,
     @Query('divisionId') divisionId?: string,
+    @Query('consolidate') consolidate?: boolean | string,
     @Query('sortField') sortField?: string,
     @Query('sortOrder') sortOrder?: string,
   ) {
     const result = await this.inventoryBalanceService.findAll({
       page: Number(page) || 1, limit: Number(limit) || 20,
-      companyId: this.resolveCompanyId(req, companyId), itemId, warehouseId, divisionId,
+      companyId: this.resolveCompanyId(req, companyId), itemId, warehouseId, divisionId, consolidate,
     });
     return { success: true, ...result };
   }

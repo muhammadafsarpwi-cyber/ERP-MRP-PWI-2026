@@ -160,8 +160,8 @@ const DISCOVERED_ROUTES: string[] = [
 
 /** Routes that redirect or render inside a parent entry (not in the menu). */
 const DETAIL_AND_ALIAS_ROUTES: Array<{ url: string; parent: string }> = [
-  { url: '/store/transfers', parent: '/inventory/transfers' },
-  { url: '/store/adjustments', parent: '/inventory/adjustments' },
+  { url: '/store/transfers', parent: '/inventory' },
+  { url: '/store/adjustments', parent: '/inventory' },
   { url: '/production/entries/new', parent: '/production/entries' },
   { url: '/production/entries/select', parent: '/production/entries' },
   { url: '/production/entries/123', parent: '/production/entries' },

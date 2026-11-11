@@ -190,7 +190,7 @@ export class DepartmentService {
     queryBuilder.leftJoinAndSelect('divisionScopes.division', 'scopeDivision');
 
     if (search) {
-      queryBuilder.where(
+      queryBuilder.andWhere(
         '(dept.name ILIKE :search OR dept.departmentCode ILIKE :search)',
         { search: `%${search}%` },
       );
@@ -213,7 +213,10 @@ export class DepartmentService {
     }
 
     if (divisionId) {
-      queryBuilder.andWhere('dept.divisionId = :divisionId', { divisionId });
+      queryBuilder.andWhere(
+        '(dept.divisionId = :divisionId OR divisionScopes.divisionId = :divisionId)',
+        { divisionId },
+      );
     }
 
     if (sectionId) {

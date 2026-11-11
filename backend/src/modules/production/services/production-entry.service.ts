@@ -3750,13 +3750,25 @@ addToDept(org, {
     // Component-level rejected pieces are added per line below, never by
     // shrinking the finished output.
     const isHandPacking = this.isHandPackingRef(entryRef);
+    const entryRemarks = String((entryRef as any)?.remarks || '');
+    const entryPackingMode = String((entryRef as any)?.packingMode || (entryRef as any)?.packing_mode || '');
+
+    const ctnMatch = entryRemarks.match(/Cartons:\s*(\d+(?:\.\d+)?)/i);
+    const parsedCartons = ctnMatch ? parseFloat(ctnMatch[1]) : 0;
+
+    const isCSProduct = entryRemarks.includes('CS Packing') ||
+      (product?.itemCode || '').toUpperCase().includes('011') ||
+      (product?.itemCode || '').toUpperCase().includes('012') ||
+      (product?.itemCode || '').toUpperCase().includes('CS');
+    const pcsPerCarton = isCSProduct ? 1520 : HAND_PACKING_PCS_PER_CARTON;
+
     const handPackingCartons = isHandPacking && bom
-      ? (await this.toPcs(output.uomId, productionQty)) / HAND_PACKING_PCS_PER_CARTON / Number(bom.baseQuantity || 1)
+      ? (parsedCartons > 0
+          ? parsedCartons
+          : (await this.toPcs(output.uomId, productionQty)) / pcsPerCarton / Number(bom.baseQuantity || 1))
       : 0;
 
     const requirements: Array<{ line: BomLine; required: number; uomCode: string; available: number; warehouseId: string; scrapPcs: number; scrapQty: number; scrapRemarks: string }> = [];
-    const entryRemarks = String((entryRef as any)?.remarks || '');
-    const entryPackingMode = String((entryRef as any)?.packingMode || (entryRef as any)?.packing_mode || '');
     const isWithoutNipple = isHandPacking && (
       entryPackingMode === 'WITHOUT_NIPPLE' ||
       entryRemarks.includes('WITHOUT_NIPPLE') ||
@@ -4469,9 +4481,9 @@ addToDept(org, {
    * in inventory_balances, logs PRODUCTION_CONSUMPTION in stock_ledger,
    * and updates entry remarks to COMPLETED.
    */
-  async completePendingNippleBatch(
+    async completePendingNippleBatch(
     entryId: string,
-    dto: { warehouseId?: string; completionDate?: string },
+    dto: { warehouseId?: string; completionDate?: string; completedCartons?: number },
     companyId: string,
     userId?: string,
   ) {
@@ -4487,17 +4499,29 @@ addToDept(org, {
       remarks.match(/Pending Nipple:\s*([A-Za-z0-9_-]+)\s*\(([\d.]+)\s*GRS\s*(?:\/\s*([\d.]+)\s*PCS)?\)/i) ||
       remarks.match(/Without Nipple:\s*([A-Za-z0-9_-]+)\s*\(([\d.]+)\s*GRS/i);
 
+    const ctnMatch = remarks.match(/Cartons:\s*(\d+(?:\.\d+)?)/i);
+    const totalCartons = ctnMatch ? parseFloat(ctnMatch[1]) : 0;
+    const requestedCartons = Number(dto.completedCartons || 0);
+    const isPartial = totalCartons > 0 && requestedCartons > 0 && requestedCartons < totalCartons;
+    const completedCartons = isPartial ? requestedCartons : totalCartons;
+    const ratio = totalCartons > 0 ? (completedCartons / totalCartons) : 1;
+
     const completionDateStr = dto.completionDate || new Date().toISOString().slice(0, 10);
     const targetWhId = dto.warehouseId || 'cf5c9db8-5e84-41d5-a4b4-988b8dfd122d'; // Dedicated WH-002 SPI Nipple Packing Warehouse
 
+    let totalPendingGross = 0;
+    let totalPendingPcs = 0;
     let deductedPcs = 0;
     let deductedGross = 0;
     let nippleItemCode = '';
 
     if (match) {
       nippleItemCode = match[1].trim();
-      deductedGross = parseFloat(match[2]) || 0;
-      deductedPcs = match[3] ? parseFloat(match[3]) : Math.round(deductedGross * 144);
+      totalPendingGross = parseFloat(match[2]) || 0;
+      totalPendingPcs = match[3] ? parseFloat(match[3]) : Math.round(totalPendingGross * 144);
+
+      deductedGross = Math.round((totalPendingGross * ratio) * 100) / 100;
+      deductedPcs = Math.round(totalPendingPcs * ratio);
 
       const item = await this.itemRepo.findOne({
         where: [{ itemCode: nippleItemCode, companyId }, { itemCode: nippleItemCode }],
@@ -4528,38 +4552,102 @@ addToDept(org, {
           referenceType: 'PRODUCTION_ENTRY',
           referenceId: entry.id,
           referenceNumber: entry.entryNumber ?? undefined,
-          notes: `Nipple stock issued for Batch ${entry.entryNumber} completion (${deductedGross} GRS / ${deductedPcs} PCS) from WH-002 SPI Nipple Packing Warehouse`,
+          notes: isPartial
+            ? `Nipple stock issued for Batch ${entry.entryNumber} partial completion (${completedCartons} of ${totalCartons} Cartons: ${deductedGross} GRS / ${deductedPcs} PCS) from WH-002 SPI Nipple Packing Warehouse`
+            : `Nipple stock issued for Batch ${entry.entryNumber} completion (${deductedGross} GRS / ${deductedPcs} PCS) from WH-002 SPI Nipple Packing Warehouse`,
           createdBy: userId,
         });
       }
     }
 
-    const cleanRemarks = remarks
-      .replace(/Status:\s*WITHOUT_NIPPLE/gi, 'Status: COMPLETED')
-      .replace(/\|?\s*Without Nipple:[^|]+/gi, '')
-      .replace(/\|?\s*Pending Nipple:[^|]+/gi, '')
-      .trim() + ` | Nipple Stock Deducted: ${completionDateStr} (${deductedGross} GRS / ${deductedPcs} PCS from WH-002) | Completed by User`;
+    if (isPartial) {
+      const remainingCartons = Math.round((totalCartons - completedCartons) * 100) / 100;
+      const remainingGross = Math.round((totalPendingGross - deductedGross) * 100) / 100;
+      const remainingPcs = Math.round(totalPendingPcs - deductedPcs);
 
-    entry.remarks = cleanRemarks;
-    // Preservation of production date truth: Do NOT overwrite entryDate with completionDateStr.
-    // The physical production & packing occurred on entry.entryDate; nipple stock deduction
-    // is recorded with completionDateStr in stock_ledger and entry.remarks.
-    await this.entryRepo.save(entry);
+      entry.actualQuantity = Number(remainingPcs);
+      let updatedRemarks = remarks
+        .replace(/Cartons:\s*\d+(?:\.\d+)?/i, `Cartons: ${remainingCartons}`)
+        .replace(/\(\s*[\d.]+\s*Gross/i, `(${remainingGross} Gross`)
+        .replace(/Without Nipple:[^|]+/gi, `Without Nipple: ${nippleItemCode} (${remainingGross} GRS) `)
+        .replace(/Pending Nipple:[^|]+/gi, `Pending Nipple: ${nippleItemCode} (${remainingGross} GRS / ${remainingPcs} PCS) `)
+        .trim();
+      updatedRemarks += ` | Partial Completed: ${completionDateStr} (${completedCartons} of ${totalCartons} CTN completed with nipples, ${remainingCartons} CTN remaining in Safety Stock)`;
+      entry.remarks = updatedRemarks;
+      await this.entryRepo.save(entry);
 
-    return {
-      success: true,
-      message: `Batch completed successfully! ${deductedGross} GRS (${deductedPcs.toLocaleString()} PCS) of nipple ${nippleItemCode} deducted from SPI Nipple Packing Warehouse (WH-002).`,
-      deductedPcs,
-      deductedGross,
-      nippleItemCode,
-    };
+      const completedEntry = this.entryRepo.create({
+        companyId: entry.companyId,
+        entryNumber: await this.generateEntryNumber(companyId),
+        productionOrderId: entry.productionOrderId,
+        productionOrderOperationId: entry.productionOrderOperationId,
+        divisionId: entry.divisionId,
+        sectionId: entry.sectionId,
+        departmentId: entry.departmentId,
+        entryDate: entry.entryDate,
+        shiftId: entry.shiftId,
+        machineId: entry.machineId,
+        machineNo: entry.machineNo,
+        operatorName: entry.operatorName,
+        supervisorName: entry.supervisorName,
+        coilSize: entry.coilSize,
+        itemId: entry.itemId,
+        uomId: entry.uomId,
+        targetQuantity: Math.round(Number(entry.targetQuantity || 0) * ratio),
+        actualQuantity: Number(deductedPcs),
+        packingMode: 'FULL_SET',
+        rawMaterialWarehouseId: entry.rawMaterialWarehouseId,
+        warehouseId: entry.warehouseId,
+        remarks: remarks
+          .replace(/Cartons:\s*\d+(?:\.\d+)?/i, `Cartons: ${completedCartons}`)
+          .replace(/\(\s*[\d.]+\s*Gross[^\)]*\)/i, `(${deductedGross} Gross / ${deductedPcs} PCS)`)
+          .replace(/Status:\s*WITHOUT_NIPPLE/gi, 'Status: COMPLETED')
+          .replace(/SpokePackingMode:\s*WITHOUT_NIPPLE/gi, 'SpokePackingMode: FULL_SET')
+          .replace(/\|?\s*Without Nipple:[^|]+/gi, '')
+          .replace(/\|?\s*Pending Nipple:[^|]+/gi, '')
+          .trim() + ` | Nipple Stock Deducted: ${completionDateStr} (${deductedGross} GRS / ${deductedPcs} PCS from WH-002) | Partial Completion from ${entry.entryNumber} (${completedCartons} of ${totalCartons} CTN) | Completed by User`,
+        createdBy: userId ?? null,
+        updatedBy: userId ?? null,
+      });
+      await this.entryRepo.save(completedEntry);
+
+      return {
+        success: true,
+        message: `Partial batch completed! ${completedCartons} Cartons finalized with ${deductedGross} GRS (${deductedPcs.toLocaleString()} PCS) of nipple ${nippleItemCode} deducted from WH-002. Remaining ${remainingCartons} Cartons remain in Safety Stock.`,
+        isPartial: true,
+        completedCartons,
+        remainingCartons,
+        deductedPcs,
+        deductedGross,
+        nippleItemCode,
+      };
+    } else {
+      const cleanRemarks = remarks
+        .replace(/Status:\s*WITHOUT_NIPPLE/gi, 'Status: COMPLETED')
+        .replace(/SpokePackingMode:\s*WITHOUT_NIPPLE/gi, 'SpokePackingMode: FULL_SET')
+        .replace(/\|?\s*Without Nipple:[^|]+/gi, '')
+        .replace(/\|?\s*Pending Nipple:[^|]+/gi, '')
+        .trim() + ` | Nipple Stock Deducted: ${completionDateStr} (${deductedGross} GRS / ${deductedPcs} PCS from WH-002) | Completed by User`;
+
+      entry.remarks = cleanRemarks;
+      entry.packingMode = 'FULL_SET';
+      await this.entryRepo.save(entry);
+
+      return {
+        success: true,
+        message: `Batch completed successfully! ${deductedGross} GRS (${deductedPcs.toLocaleString()} PCS) of nipple ${nippleItemCode} deducted from SPI Nipple Packing Warehouse (WH-002).`,
+        isPartial: false,
+        completedCartons: totalCartons,
+        deductedPcs,
+        deductedGross,
+        nippleItemCode,
+      };
+    }
   }
 }
 
 /**
  * Standalone TypeORM helper for extracting de-duplicated operator daily summary.
- * Groups by Operator Name on a specific date to prevent multiple machine entries
- * from inflating unique operator counts or duplicating overtime hours.
  */
 export async function getOperatorDailySummary(
   dataSource: DataSource,

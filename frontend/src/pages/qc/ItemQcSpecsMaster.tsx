@@ -693,7 +693,7 @@ export const ItemQcSpecsMaster: React.FC<ItemQcSpecsMasterProps> = ({
   ];
 
   return (
-    <div>
+    <div style={{ width: '100%', maxWidth: '100%', overflowX: 'hidden' }}>
       <div
         style={{
           display: 'flex',
@@ -732,7 +732,7 @@ export const ItemQcSpecsMaster: React.FC<ItemQcSpecsMasterProps> = ({
             Showing items strictly filtered to active department scope. Pre-configured tolerances auto-load in inspections.
           </Typography.Text>
         </div>
-        <Space wrap>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
           <Button icon={<DownloadOutlined />} onClick={exportSpecsTemplateCsv}>
             CSV Template
           </Button>
@@ -745,11 +745,12 @@ export const ItemQcSpecsMaster: React.FC<ItemQcSpecsMasterProps> = ({
           <Button type="primary" icon={<PlusOutlined />} onClick={handleOpenAdd}>
             Add Item Specs
           </Button>
-        </Space>
+        </div>
       </div>
 
       <Table
         size="small"
+        scroll={{ x: 750 }}
         columns={columns}
         dataSource={filteredSpecs}
         rowKey="id"
@@ -893,7 +894,8 @@ export const ItemQcSpecsMaster: React.FC<ItemQcSpecsMasterProps> = ({
             <Tag color="cyan">{divisionName} • {departmentName}</Tag>
           </div>
 
-          <table style={{ width: '100%', borderCollapse: 'collapse', border: `1px solid ${token.colorBorder}` }}>
+          <div style={{ width: '100%', overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+            <table style={{ width: '100%', minWidth: '550px', borderCollapse: 'collapse', border: `1px solid ${token.colorBorder}` }}>
             <thead>
               <tr style={{ backgroundColor: token.colorFillAlter, textAlign: 'left' }}>
                 <th style={{ padding: '6px 8px', border: `1px solid ${token.colorBorder}`, width: '32%' }}>
@@ -973,6 +975,7 @@ export const ItemQcSpecsMaster: React.FC<ItemQcSpecsMasterProps> = ({
               ))}
             </tbody>
           </table>
+        </div>
 
           <Button
             type="dashed"

@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException, ConflictException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, Not, DataSource } from 'typeorm';
-import { Division, DivisionStatus } from '../entities';
+import { Division, DivisionStatus, Company, CompanyStatus } from '../entities';
 import { CreateDivisionDto, UpdateDivisionDto } from '../dto';
 import { populateAuditNames } from '../helpers/audit-names';
 import { applyDivisionScopeFilter, isUnrestricted } from '../../../common/division-scope.util';
@@ -16,10 +16,25 @@ export class DivisionService {
   ) {}
 
   async create(createDivisionDto: CreateDivisionDto, userId?: string): Promise<Division> {
+    let companyId = createDivisionDto.companyId;
+    if (!companyId) {
+      const defaultCompany = await this.dataSource.getRepository(Company).findOne({
+        where: { status: CompanyStatus.ACTIVE },
+        select: ['id'],
+      });
+      if (defaultCompany) {
+        companyId = defaultCompany.id;
+      }
+    }
+
+    if (!companyId) {
+      throw new BadRequestException('companyId is required and could not be determined');
+    }
+
     const existingDivision = await this.divisionRepository.findOne({
       where: {
         divisionCode: createDivisionDto.divisionCode,
-        companyId: createDivisionDto.companyId,
+        companyId,
       },
     });
 
@@ -29,6 +44,7 @@ export class DivisionService {
 
     const division = this.divisionRepository.create({
       ...createDivisionDto,
+      companyId,
       createdBy: userId,
       updatedBy: userId,
     });

@@ -115,6 +115,15 @@ export class QcController {
     return { success: true, data, message: 'Inspection results recorded' };
   }
 
+  @Delete('inspections/:id')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('qc.inspection.manage')
+  @HttpCode(HttpStatus.OK)
+  async removeInspection(@Param('id') id: string) {
+    const data = await this.qcService.removeInspection(id);
+    return { success: true, data, message: 'Inspection deleted successfully' };
+  }
+
   // ---- NCR ----
   @Get('ncr')
   @UseGuards(PermissionGuard)

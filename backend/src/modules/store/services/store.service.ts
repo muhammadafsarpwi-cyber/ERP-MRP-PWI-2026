@@ -89,7 +89,7 @@ export class StoreService {
 
   async findAllStores(
     companyId: string,
-    query?: { status?: string; divisionId?: string; search?: string },
+    query?: { status?: string; divisionId?: string; sectionId?: string; departmentId?: string; search?: string },
     allowedDivisionIds?: DivisionAccess,
   ) {
     const qb = this.storeRepo.createQueryBuilder('s')
@@ -104,6 +104,12 @@ export class StoreService {
       // and the clause below guarantees the result can never exceed the
       // caller's own scope.
       qb.andWhere('s.division_id = :divisionId', { divisionId: query.divisionId });
+    }
+    if (query?.sectionId) {
+      qb.andWhere('s.section_id = :sectionId', { sectionId: query.sectionId });
+    }
+    if (query?.departmentId) {
+      qb.andWhere('s.department_id = :departmentId', { departmentId: query.departmentId });
     }
     // PROMPT #27 — this is what makes the list safe when the client omits
     // `divisionId` entirely. Not `includeUnassigned`: a store with no division
@@ -192,7 +198,74 @@ export class StoreService {
       qb.andWhere('si.status = :status', { status: query.status });
     }
 
-    return qb.getMany();
+    const rawItems = await qb.getMany();
+    if (rawItems.length === 0) return [];
+
+    const itemIds = Array.from(new Set(rawItems.map(i => i.itemId).filter(Boolean)));
+    let detailMap = new Map<string, any>();
+    let balanceMap = new Map<string, { onHand: number; available: number }>();
+
+    if (itemIds.length > 0) {
+      try {
+        const placeholders = itemIds.map((_, idx) => `$${idx + 1}`).join(', ');
+        const itemDetails = await this.storeRepo.manager.query(
+          `SELECT i.id, i.item_code, i.name, u.code as uom_code, u.name as uom_name
+           FROM items i
+           LEFT JOIN uoms u ON u.id = i.base_uom_id
+           WHERE i.id IN (${placeholders})`,
+          itemIds,
+        );
+        detailMap = new Map<string, any>(itemDetails.map((d: any) => [d.id, d]));
+      } catch (err) {
+        // Fallback gracefully if items query fails
+      }
+
+      if (store.warehouseId) {
+        try {
+          const placeholders = itemIds.map((_, idx) => `$${idx + 2}`).join(', ');
+          const balances = await this.storeRepo.manager.query(
+            `SELECT item_id, COALESCE(SUM(on_hand), 0)::numeric as on_hand, COALESCE(SUM(available), 0)::numeric as available
+             FROM inventory_balances
+             WHERE warehouse_id = $1 AND item_id IN (${placeholders})
+             GROUP BY item_id`,
+            [store.warehouseId, ...itemIds],
+          );
+          balances.forEach((b: any) => {
+            balanceMap.set(b.item_id, {
+              onHand: parseFloat(b.on_hand || '0'),
+              available: parseFloat(b.available || '0'),
+            });
+          });
+        } catch (err) {
+          // Fallback gracefully if balance query fails
+        }
+      }
+    }
+
+    let results = rawItems.map(rec => {
+      const d = detailMap.get(rec.itemId);
+      const b = balanceMap.get(rec.itemId);
+      return {
+        ...rec,
+        item: d ? { id: d.id, itemCode: d.item_code, name: d.name, uomCode: d.uom_code, uomName: d.uom_name } : null,
+        onHandStock: b ? b.onHand : 0,
+        availableStock: b ? b.available : 0,
+      };
+    });
+
+    if (query?.search) {
+      const s = query.search.toLowerCase();
+      results = results.filter(r =>
+        (r.item?.itemCode && r.item.itemCode.toLowerCase().includes(s)) ||
+        (r.item?.name && r.item.name.toLowerCase().includes(s)) ||
+        (r.bin && r.bin.toLowerCase().includes(s)) ||
+        (r.rack && r.rack.toLowerCase().includes(s)) ||
+        (r.shelf && r.shelf.toLowerCase().includes(s)) ||
+        (r.locationDetail && r.locationDetail.toLowerCase().includes(s))
+      );
+    }
+
+    return results;
   }
 
   async findStoreItemById(id: string, companyId?: string, allowedDivisionIds?: DivisionAccess) {

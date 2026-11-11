@@ -19,6 +19,9 @@ export class WarehouseService {
   private readonly logger = new Logger(WarehouseService.name);
 
   async create(createWarehouseDto: CreateWarehouseDto, userId?: string): Promise<Warehouse> {
+    if (createWarehouseDto.warehouseCode) {
+      createWarehouseDto.warehouseCode = createWarehouseDto.warehouseCode.trim().toUpperCase().replace(/\s+/g, '-');
+    }
     // Check for duplicate warehouse code within company
     const existingWarehouse = await this.warehouseRepository.findOne({
       where: {
@@ -137,6 +140,9 @@ export class WarehouseService {
   }
 
   async update(id: string, updateWarehouseDto: UpdateWarehouseDto, userId?: string): Promise<Warehouse> {
+    if (updateWarehouseDto.warehouseCode) {
+      updateWarehouseDto.warehouseCode = updateWarehouseDto.warehouseCode.trim().toUpperCase().replace(/\s+/g, '-');
+    }
     const warehouse = await this.findOne(id);
 
     // Check for duplicate code within company if code is being updated

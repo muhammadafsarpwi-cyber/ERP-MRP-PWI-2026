@@ -19,12 +19,14 @@ interface Division {
   id: string;
   divisionCode: string;
   name: string;
+  companyId?: string;
 }
 
 interface Section {
   id: string;
   sectionCode: string;
   name: string;
+  companyId?: string;
   divisionId: string;
   division?: Division;
   description: string;
@@ -267,7 +269,14 @@ const SectionManagement: React.FC = () => {
             await apiService.patch(`/sections/${editingSection.id}`, editable);
             message.success('Section updated successfully');
           } else {
-            await apiService.post('/sections', values);
+            const selectedDivision = divisions.find((d) => d.id === values.divisionId);
+            const payload: any = {
+              ...values,
+            };
+            if (selectedDivision?.companyId) {
+              payload.companyId = selectedDivision.companyId;
+            }
+            await apiService.post('/sections', payload);
             message.success('Section created successfully');
           }
           setModalVisible(false);

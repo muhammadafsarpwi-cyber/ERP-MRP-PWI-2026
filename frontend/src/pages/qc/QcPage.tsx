@@ -47,6 +47,7 @@ import {
   saveAllSpecs,
   fetchDbInProcessInspections,
   saveDbInProcessInspection,
+  deleteDbInspection,
   fetchDbSpecs,
   saveDbSpecs,
 } from './qcSpecsStore';
@@ -56,6 +57,7 @@ import { ItemQcSpecsMaster } from './ItemQcSpecsMaster';
 import { exportQmsToPdf } from './exportQmsPdf';
 import { shareQmsOnWhatsApp } from './exportQmsWhatsApp';
 import { RunningInspectionsHistoryModal } from './RunningInspectionsHistoryModal';
+import './qcPage.css';
 
 interface LegacyInspection {
   id: string;
@@ -654,6 +656,31 @@ const QcPage: React.FC = () => {
     }
   };
 
+  // Delete In-Process inspection from local state and database
+  const handleDeleteInspection = async (target: QmsInProcessInspection) => {
+    try {
+      const updated = inProcessInspections.filter(
+        (i) => i.id !== target.id && i.inspectionNo !== target.inspectionNo
+      );
+      setInProcessInspections(updated);
+      saveInProcessInspections(updated);
+
+      if (activeInspectionId === target.id) {
+        setActiveInspectionId(updated[0]?.id || '');
+      }
+
+      // If stored in database, delete from Supabase PostgreSQL
+      if (companyId && target.id) {
+        await deleteDbInspection(target.id);
+      }
+
+      message.success(`Inspection "${target.inspectionNo}" deleted successfully`);
+    } catch (err) {
+      console.error('Delete inspection error:', err);
+      message.error('Failed to delete inspection');
+    }
+  };
+
   // Sync Item QC Specifications to DB
   const handleSpecsChange = (updated: ItemQcSpecification[]) => {
     setSpecs(updated);
@@ -736,10 +763,10 @@ const QcPage: React.FC = () => {
           }}
         >
           <div>
-            <div style={{ fontSize: '20px', fontWeight: 800, color: token.colorTextHeading, letterSpacing: '0.5px' }}>
+            <div className="qc-report-title" style={{ fontSize: '20px', fontWeight: 800, color: token.colorTextHeading, letterSpacing: '0.5px' }}>
               PAKISTAN WIRE INDUSTRIES (PVT.) LTD.
             </div>
-            <div style={{ fontSize: '15px', fontWeight: 700, color: token.colorPrimary, marginTop: '2px' }}>
+            <div className="qc-report-subtitle" style={{ fontSize: '15px', fontWeight: 700, color: token.colorPrimary, marginTop: '2px' }}>
               IN-PROCESS QUALITY INSPECTION REPORT (QMS) — {activeDivision.name.toUpperCase()}
             </div>
             <div style={{ fontSize: '12px', color: token.colorTextSecondary, marginTop: '2px' }}>
@@ -805,6 +832,7 @@ const QcPage: React.FC = () => {
 
         {/* Prominent Metadata Strip (Responsive Grid) */}
         <div
+          className="qc-metadata-grid"
           style={{
             display: 'grid',
             gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
@@ -832,7 +860,7 @@ const QcPage: React.FC = () => {
             <div style={{ fontSize: '11px', color: token.colorTextSecondary, textTransform: 'uppercase' }}>Operator:</div>
             <div style={{ fontSize: '13px', fontWeight: 700, color: token.colorText }}>{insp.operatorName}</div>
           </div>
-          <div style={{ gridColumn: 'span 2' }}>
+          <div className="qc-meta-fullwidth" style={{ gridColumn: 'span 2' }}>
             <div style={{ fontSize: '11px', color: token.colorTextSecondary, textTransform: 'uppercase' }}>Part / Item Name:</div>
             <div style={{ fontSize: '14px', fontWeight: 800, color: token.colorPrimary }}>
               {insp.itemName} <span style={{ fontSize: '12px', color: token.colorTextSecondary }}>({insp.itemCode})</span>
@@ -851,8 +879,8 @@ const QcPage: React.FC = () => {
         </div>
 
         {/* 5-Sample Dimensional Table (Centerpiece) */}
-        <div style={{ marginBottom: '18px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+        <div style={{ marginBottom: '18px', width: '100%', maxWidth: '100%' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap', gap: '6px' }}>
             <span style={{ fontSize: '14px', fontWeight: 800, color: token.colorTextHeading, letterSpacing: '0.3px' }}>
               DIMENSIONAL INSPECTION DATA (5 SAMPLES PER SHIFT)
             </span>
@@ -861,53 +889,59 @@ const QcPage: React.FC = () => {
             </span>
           </div>
 
-          <table
-            style={{
-              width: '100%',
-              borderCollapse: 'collapse',
-              fontSize: '13px',
-              border: `1px solid ${token.colorBorder}`,
-              borderRadius: '6px',
-              overflow: 'hidden',
-            }}
-          >
-            <thead>
-              <tr style={{ backgroundColor: token.colorFillAlter, textAlign: 'left' }}>
-                <th style={{ padding: '10px 8px', border: `1px solid ${token.colorBorder}`, width: '35px', textAlign: 'center' }}>#</th>
-                <th style={{ padding: '10px 10px', border: `1px solid ${token.colorBorder}` }}>Characteristic</th>
-                <th style={{ padding: '10px 10px', border: `1px solid ${token.colorBorder}` }}>Dimension Requirement (Nominal &amp; Tol)</th>
-                <th style={{ padding: '10px 8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>Sample 1</th>
-                <th style={{ padding: '10px 8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>Sample 2</th>
-                <th style={{ padding: '10px 8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>Sample 3</th>
-                <th style={{ padding: '10px 8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>Sample 4</th>
-                <th style={{ padding: '10px 8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>Sample 5</th>
-                <th style={{ padding: '10px 8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center', width: '90px' }}>Average</th>
-                <th style={{ padding: '10px 8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center', width: '80px' }}>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {insp.samples.map((s, idx) => (
-                <tr key={s.id || idx}>
-                  <td style={{ padding: '8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center', fontWeight: 600 }}>{idx + 1}</td>
-                  <td style={{ padding: '8px 10px', border: `1px solid ${token.colorBorder}`, fontWeight: 700 }}>{s.charName}</td>
-                  <td style={{ padding: '8px 10px', border: `1px solid ${token.colorBorder}` }}>
-                    <span style={{ fontWeight: 600 }}>{s.nominal}</span> (±{s.tolPlus} {s.unit})
-                  </td>
-                  <td style={{ padding: '8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>{s.s1 ?? '-'}</td>
-                  <td style={{ padding: '8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>{s.s2 ?? '-'}</td>
-                  <td style={{ padding: '8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>{s.s3 ?? '-'}</td>
-                  <td style={{ padding: '8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>{s.s4 ?? '-'}</td>
-                  <td style={{ padding: '8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>{s.s5 ?? '-'}</td>
-                  <td style={{ padding: '8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center', fontWeight: 800 }}>
-                    {s.average ? `${s.average} ${s.unit}` : '-'}
-                  </td>
-                  <td style={{ padding: '8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>
-                    {renderSolidStatusBadge(s.status)}
-                  </td>
+          <div style={{ marginBottom: '6px' }}>
+            <Tag color="blue" className="qc-swipe-indicator" style={{ fontSize: '11px', margin: 0, padding: '2px 8px' }}>
+              ↔ Swipe table horizontally to view all 5 sample columns
+            </Tag>
+          </div>
+
+          <div className="qc-responsive-table-box" style={{ border: `1px solid ${token.colorBorder}` }}>
+            <table
+              style={{
+                width: '100%',
+                minWidth: '780px',
+                borderCollapse: 'collapse',
+                fontSize: '13px',
+              }}
+            >
+              <thead>
+                <tr style={{ backgroundColor: token.colorFillAlter, textAlign: 'left' }}>
+                  <th style={{ padding: '10px 8px', border: `1px solid ${token.colorBorder}`, width: '35px', textAlign: 'center' }}>#</th>
+                  <th style={{ padding: '10px 10px', border: `1px solid ${token.colorBorder}` }}>Characteristic</th>
+                  <th style={{ padding: '10px 10px', border: `1px solid ${token.colorBorder}` }}>Dimension Requirement (Nominal &amp; Tol)</th>
+                  <th style={{ padding: '10px 8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>Sample 1</th>
+                  <th style={{ padding: '10px 8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>Sample 2</th>
+                  <th style={{ padding: '10px 8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>Sample 3</th>
+                  <th style={{ padding: '10px 8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>Sample 4</th>
+                  <th style={{ padding: '10px 8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>Sample 5</th>
+                  <th style={{ padding: '10px 8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center', width: '90px' }}>Average</th>
+                  <th style={{ padding: '10px 8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center', width: '80px' }}>Status</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {insp.samples.map((s, idx) => (
+                  <tr key={s.id || idx}>
+                    <td style={{ padding: '8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center', fontWeight: 600 }}>{idx + 1}</td>
+                    <td style={{ padding: '8px 10px', border: `1px solid ${token.colorBorder}`, fontWeight: 700 }}>{s.charName}</td>
+                    <td style={{ padding: '8px 10px', border: `1px solid ${token.colorBorder}` }}>
+                      <span style={{ fontWeight: 600 }}>{s.nominal}</span> (±{s.tolPlus} {s.unit})
+                    </td>
+                    <td style={{ padding: '8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>{s.s1 ?? '-'}</td>
+                    <td style={{ padding: '8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>{s.s2 ?? '-'}</td>
+                    <td style={{ padding: '8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>{s.s3 ?? '-'}</td>
+                    <td style={{ padding: '8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>{s.s4 ?? '-'}</td>
+                    <td style={{ padding: '8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>{s.s5 ?? '-'}</td>
+                    <td style={{ padding: '8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center', fontWeight: 800 }}>
+                      {s.average ? `${s.average} ${s.unit}` : '-'}
+                    </td>
+                    <td style={{ padding: '8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>
+                      {renderSolidStatusBadge(s.status)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
 
         {/* Visual / Go-NoGo Attributes Section */}
@@ -1021,6 +1055,7 @@ const QcPage: React.FC = () => {
       children: (
         <Table
           size="small"
+          scroll={{ x: 650 }}
           columns={[
             { title: 'Inspection #', dataIndex: 'inspectionNo', key: 'no', width: 130 },
             { title: 'Type', dataIndex: 'inspectionType', key: 'type', width: 110 },
@@ -1057,6 +1092,7 @@ const QcPage: React.FC = () => {
           <Typography.Title level={5}>Non-Conformance Reports (NCR)</Typography.Title>
           <Table
             size="small"
+            scroll={{ x: 650 }}
             columns={[
               { title: 'NCR #', dataIndex: 'ncrNo', key: 'no', width: 120 },
               { title: 'Description', dataIndex: 'description', key: 'desc', ellipsis: true },
@@ -1085,14 +1121,14 @@ const QcPage: React.FC = () => {
   ];
 
   return (
-    <div>
+    <div className="qc-page-container">
       <PageHeader
         icon={<CheckOutlined />}
         title="Quality Control &amp; Assurance"
         showBreadcrumbs
         subtitle="In-Process Manufacturing QMS, Dimensional Inspections &amp; Defect Analysis"
         extra={
-          <Space>
+          <div className="qc-header-actions">
             <Button
               icon={<ReloadOutlined spin={refreshing} />}
               onClick={() => handleRefreshAll(true)}
@@ -1106,7 +1142,7 @@ const QcPage: React.FC = () => {
             <Button type="primary" icon={<PlusOutlined />} onClick={() => setRunningModalVisible(true)}>
               + New Running Inspection
             </Button>
-          </Space>
+          </div>
         }
       />
 
@@ -1125,8 +1161,8 @@ const QcPage: React.FC = () => {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
           {/* Row 1: Division Segmented Switcher (matching mockup pill aesthetics) */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontSize: '12px', fontWeight: 700, color: token.colorTextSecondary }}>
+            <div className="qc-division-segmented-wrapper" style={{ gap: '8px' }}>
+              <span style={{ fontSize: '12px', fontWeight: 700, color: token.colorTextSecondary, flexShrink: 0 }}>
                 DIVISION:
               </span>
               <Segmented
@@ -1149,72 +1185,78 @@ const QcPage: React.FC = () => {
           <Divider style={{ margin: '4px 0' }} />
 
           {/* Row 2: Cascading Department -> Machine -> Shift Filters */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
-            <Space size="middle" wrap>
-              <div>
-                <span style={{ fontSize: '11px', color: token.colorTextSecondary, display: 'block', marginBottom: '2px' }}>
-                  1. Department ({activeDivision.name}):
-                </span>
-                <Select
-                  value={selectedDepartmentCode}
-                  onChange={handleDepartmentChange}
-                  style={{ width: '180px', fontWeight: 600 }}
-                  options={activeDepartmentsList.map((dept) => ({
-                    value: dept.code,
-                    label: dept.name,
-                  }))}
-                />
-              </div>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+              gap: '10px',
+              alignItems: 'flex-end',
+            }}
+          >
+            <div>
+              <span style={{ fontSize: '11px', color: token.colorTextSecondary, display: 'block', marginBottom: '2px' }}>
+                1. Department ({activeDivision.name}):
+              </span>
+              <Select
+                value={selectedDepartmentCode}
+                onChange={handleDepartmentChange}
+                style={{ width: '100%', fontWeight: 600 }}
+                options={activeDepartmentsList.map((dept) => ({
+                  value: dept.code,
+                  label: dept.name,
+                }))}
+              />
+            </div>
 
-              <div>
-                <span style={{ fontSize: '11px', color: token.colorTextSecondary, display: 'block', marginBottom: '2px' }}>
-                  2. Machine (Filtered to {activeDepartment?.name || 'Dept'}):
-                </span>
-                <Select
-                  value={filterMachine}
-                  onChange={setFilterMachine}
-                  style={{ width: '220px', fontWeight: 600 }}
-                  options={[
-                    { value: 'ALL', label: `All Machines (${activeMachinesList.length})` },
-                    ...activeMachinesList.map((m) => ({
-                      value: m.code,
-                      label: m.name,
-                    })),
-                  ]}
-                />
-              </div>
+            <div>
+              <span style={{ fontSize: '11px', color: token.colorTextSecondary, display: 'block', marginBottom: '2px' }}>
+                2. Machine (Filtered to {activeDepartment?.name || 'Dept'}):
+              </span>
+              <Select
+                value={filterMachine}
+                onChange={setFilterMachine}
+                style={{ width: '100%', fontWeight: 600 }}
+                options={[
+                  { value: 'ALL', label: `All Machines (${activeMachinesList.length})` },
+                  ...activeMachinesList.map((m) => ({
+                    value: m.code,
+                    label: m.name,
+                  })),
+                ]}
+              />
+            </div>
 
-              <div>
-                <span style={{ fontSize: '11px', color: token.colorTextSecondary, display: 'block', marginBottom: '2px' }}>
-                  3. Production Shift:
-                </span>
-                <Select
-                  value={filterShift}
-                  onChange={setFilterShift}
-                  style={{ width: '150px' }}
-                  options={[{ value: 'ALL', label: 'All Shifts' }, ...SHIFT_OPTIONS]}
-                />
-              </div>
+            <div>
+              <span style={{ fontSize: '11px', color: token.colorTextSecondary, display: 'block', marginBottom: '2px' }}>
+                3. Production Shift:
+              </span>
+              <Select
+                value={filterShift}
+                onChange={setFilterShift}
+                style={{ width: '100%' }}
+                options={[{ value: 'ALL', label: 'All Shifts' }, ...SHIFT_OPTIONS]}
+              />
+            </div>
 
-              <div>
-                <span style={{ fontSize: '11px', color: token.colorTextSecondary, display: 'block', marginBottom: '2px' }}>
-                  4. Compliance Result:
-                </span>
-                <Select
-                  value={filterResult}
-                  onChange={setFilterResult}
-                  style={{ width: '130px' }}
-                  options={[
-                    { value: 'ALL', label: 'All Results' },
-                    { value: 'PASS', label: 'PASS Only' },
-                    { value: 'FAIL', label: 'Out of Spec' },
-                  ]}
-                />
-              </div>
-            </Space>
+            <div>
+              <span style={{ fontSize: '11px', color: token.colorTextSecondary, display: 'block', marginBottom: '2px' }}>
+                4. Compliance Result:
+              </span>
+              <Select
+                value={filterResult}
+                onChange={setFilterResult}
+                style={{ width: '100%' }}
+                options={[
+                  { value: 'ALL', label: 'All Results' },
+                  { value: 'PASS', label: 'PASS Only' },
+                  { value: 'FAIL', label: 'Out of Spec' },
+                ]}
+              />
+            </div>
 
-            <Space>
+            <div>
               <Button
+                style={{ width: '100%' }}
                 icon={<ReloadOutlined />}
                 onClick={() => {
                   setFilterMachine('ALL');
@@ -1225,13 +1267,13 @@ const QcPage: React.FC = () => {
               >
                 Reset Filter
               </Button>
-            </Space>
+            </div>
           </div>
         </div>
       </Card>
 
       {/* Main Tabs Container */}
-      <Tabs items={tabItems} defaultActiveKey="running" />
+      <Tabs className="qc-tabs" items={tabItems} defaultActiveKey="running" />
 
       {/* Running Inspections History Modal (Centered Popup) */}
       <RunningInspectionsHistoryModal
@@ -1249,6 +1291,7 @@ const QcPage: React.FC = () => {
           setEditingInspection(insp);
           setRunningModalVisible(true);
         }}
+        onDeleteInspection={handleDeleteInspection}
       />
 
       {/* In-Process Inspection Modal (Add / Edit / Revise) */}
