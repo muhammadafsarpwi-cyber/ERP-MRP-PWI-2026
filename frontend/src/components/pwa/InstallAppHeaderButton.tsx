@@ -9,7 +9,14 @@ interface Props {
 }
 
 export const InstallAppHeaderButton: React.FC<Props> = ({ variant = 'header', style }) => {
-  const { isInstalled, promptInstall } = usePwaInstall();
+  const { isInstalled, promptInstall, openInstallModal } = usePwaInstall();
+
+  const handleInstallClick = async () => {
+    const success = await promptInstall();
+    if (!success) {
+      openInstallModal();
+    }
+  };
 
   // If already running in standalone installed mode, show a discreet status indicator
   if (isInstalled) {
@@ -42,7 +49,7 @@ export const InstallAppHeaderButton: React.FC<Props> = ({ variant = 'header', st
     return (
       <button
         type="button"
-        onClick={promptInstall}
+        onClick={handleInstallClick}
         className="erp-top-install-pill"
         title="Install PWI ERP as a Desktop / Mobile Web App"
         style={style}
@@ -59,7 +66,7 @@ export const InstallAppHeaderButton: React.FC<Props> = ({ variant = 'header', st
         type="primary"
         size="small"
         icon={<DownloadOutlined />}
-        onClick={promptInstall}
+        onClick={handleInstallClick}
         style={{
           fontWeight: 700,
           fontSize: 11,

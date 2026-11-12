@@ -21,6 +21,7 @@ if (typeof window !== 'undefined') {
   window.addEventListener('beforeinstallprompt', (e) => {
     e.preventDefault();
     (window as any).__pwi_pwa_prompt = e;
+    window.dispatchEvent(new CustomEvent('pwi-pwa-prompt-ready', { detail: e }));
   });
 }
 

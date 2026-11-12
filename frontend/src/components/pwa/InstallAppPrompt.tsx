@@ -1,19 +1,15 @@
 import React, { useState, useMemo } from 'react';
-import { Modal, Button, Card, Typography, Space, QRCode, message, theme, Tooltip, Alert } from 'antd';
+import { Modal, Button, Card, Typography, Space, QRCode, message, theme } from 'antd';
 import {
   DownloadOutlined,
   CloseOutlined,
   MobileOutlined,
   DesktopOutlined,
   CheckCircleFilled,
-  ShareAltOutlined,
-  PlusSquareOutlined,
   ThunderboltFilled,
   WhatsAppOutlined,
   CopyOutlined,
-  QrcodeOutlined,
   InfoCircleOutlined,
-  CompassOutlined,
 } from '@ant-design/icons';
 import { usePwaInstall } from '../../context/PwaInstallContext';
 
@@ -23,18 +19,16 @@ export const InstallAppPrompt: React.FC = () => {
   const { token } = theme.useToken();
   const {
     isInstalled,
-    isInstallable,
     showBanner,
     dismissBanner,
     promptInstall,
-    isIos,
     isInstallModalOpen,
     closeInstallModal,
   } = usePwaInstall();
 
   const [desktopInstalling, setDesktopInstalling] = useState(false);
   const [showAddressBarHint, setShowAddressBarHint] = useState(false);
-  const [showMobileQr, setShowMobileQr] = useState(true);
+  const [mobileInstallFeedback, setMobileInstallFeedback] = useState<'idle' | 'prompted' | 'manual_guide'>('idle');
 
   // Compute LAN IP URL for mobile devices so scanning QR code works on phones on the same Wi-Fi
   const mobileInstallUrl = useMemo(() => {
@@ -44,6 +38,11 @@ export const InstallAppPrompt: React.FC = () => {
       return `${protocol}//192.168.1.2${port ? `:${port}` : ''}${pathname && pathname !== '/' ? pathname : ''}`;
     }
     return window.location.href;
+  }, []);
+
+  const isMobileUser = useMemo(() => {
+    if (typeof window === 'undefined') return false;
+    return /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent);
   }, []);
 
   const handleDesktopInstall = async () => {
@@ -58,15 +57,34 @@ export const InstallAppPrompt: React.FC = () => {
         closeInstallModal();
       } else {
         setShowAddressBarHint(true);
-        message.info(
-          'If the browser popup did not open, click the Install icon (⊕ or computer icon) in the right side of your browser address bar.'
-        );
       }
     } catch {
       setShowAddressBarHint(true);
     } finally {
       setDesktopInstalling(false);
     }
+  };
+
+  const handleMobileInstall = async () => {
+    if (isInstalled) {
+      message.info('Pakistan Wire Industries ERP is already installed on this device!');
+      return;
+    }
+
+    try {
+      const installed = await promptInstall();
+      if (installed) {
+        setMobileInstallFeedback('prompted');
+        closeInstallModal();
+        return;
+      }
+    } catch (err) {
+      console.warn('[PWA] Mobile install error:', err);
+    }
+
+    // If native prompt is not supplied by Chrome/Safari, activate the interactive 3-step guide immediately
+    setMobileInstallFeedback('manual_guide');
+    message.info('Follow the 3 quick steps below to install on your mobile home screen.');
   };
 
   const handleWhatsAppShare = () => {
@@ -84,11 +102,6 @@ export const InstallAppPrompt: React.FC = () => {
       message.info(mobileInstallUrl);
     }
   };
-
-  const isMobileUser = useMemo(() => {
-    if (typeof window === 'undefined') return false;
-    return /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent);
-  }, []);
 
   return (
     <>
@@ -394,17 +407,28 @@ export const InstallAppPrompt: React.FC = () => {
 
               {/* Browser Address Bar Hint (if native popup didn't fire) */}
               {showAddressBarHint && (
-                <Alert
-                  type="info"
-                  showIcon
-                  icon={<InfoCircleOutlined />}
-                  style={{ marginTop: 12, borderRadius: 8, fontSize: 12 }}
-                  message={
-                    <span>
-                      In your browser address bar (top right next to the URL/star ⭐), look for the <strong>Install icon (⊕ or 💻)</strong>, then click <strong>Install</strong>.
-                    </span>
-                  }
-                />
+                <div
+                  style={{
+                    marginTop: 12,
+                    padding: 12,
+                    borderRadius: 8,
+                    background: 'rgba(37, 99, 235, 0.08)',
+                    border: '1px solid rgba(37, 99, 235, 0.25)',
+                    fontSize: 12,
+                    color: token.colorText,
+                    lineHeight: 1.5,
+                  }}
+                >
+                  <div style={{ fontWeight: 700, color: token.colorPrimary, marginBottom: 4 }}>
+                    💡 In Google Chrome or Microsoft Edge:
+                  </div>
+                  <div>
+                    Look at the top-right of your address bar (next to the URL & star ⭐). Click the <strong>Install icon (⊕ or 💻)</strong>, then click <strong>Install</strong>.
+                  </div>
+                  <div style={{ marginTop: 6, direction: 'rtl', textAlign: 'right', fontSize: 11.5 }}>
+                    براؤزر کے ایڈریس بار میں اوپر دائیں جانب <strong>Install icon (⊕)</strong> پر کلک کریں اور <strong>Install</strong> دبائیں۔
+                  </div>
+                </div>
               )}
             </div>
 
@@ -412,10 +436,11 @@ export const InstallAppPrompt: React.FC = () => {
             <div
               style={{
                 borderRadius: 12,
-                border: `1px solid ${token.colorBorderSecondary}`,
+                border: `1.5px solid ${mobileInstallFeedback === 'manual_guide' ? '#10b981' : token.colorBorderSecondary}`,
                 background: token.colorBgContainer,
                 padding: '16px 18px',
-                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.04)',
+                boxShadow: mobileInstallFeedback === 'manual_guide' ? '0 4px 16px rgba(16, 185, 129, 0.15)' : '0 2px 8px rgba(0, 0, 0, 0.04)',
+                transition: 'all 0.3s ease',
               }}
             >
               <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
@@ -445,23 +470,132 @@ export const InstallAppPrompt: React.FC = () => {
                 </div>
               </div>
 
-              {/* If user is already on a mobile device */}
+              {/* If user is on a mobile device */}
               {isMobileUser ? (
-                <div style={{ marginTop: 12 }}>
+                <div style={{ marginTop: 14 }}>
                   <Button
                     type="primary"
+                    size="large"
                     icon={<DownloadOutlined />}
-                    onClick={() => void promptInstall()}
+                    onClick={handleMobileInstall}
+                    block
                     style={{
                       background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
                       borderColor: '#10b981',
                       fontWeight: 700,
-                      borderRadius: 8,
-                      height: 36,
+                      borderRadius: 10,
+                      height: 44,
+                      fontSize: 14,
+                      boxShadow: '0 4px 14px rgba(16, 185, 129, 0.35)',
                     }}
                   >
                     Install on this Mobile Phone
                   </Button>
+
+                  {/* Step-by-Step Android Installation Guide (Visible on Mobile) */}
+                  <div
+                    style={{
+                      marginTop: 14,
+                      padding: 14,
+                      borderRadius: 10,
+                      background: mobileInstallFeedback === 'manual_guide' ? 'rgba(16, 185, 129, 0.08)' : token.colorFillAlter,
+                      border: `1.5px solid ${mobileInstallFeedback === 'manual_guide' ? '#10b981' : token.colorBorderSecondary}`,
+                      transition: 'all 0.3s ease',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700, fontSize: 13, color: '#059669' }}>
+                      <span style={{ fontSize: 18 }}>👆</span>
+                      <span>How to Install on Android in 3 Seconds:</span>
+                    </div>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 10 }}>
+                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                        <span
+                          style={{
+                            width: 22,
+                            height: 22,
+                            borderRadius: '50%',
+                            background: '#10b981',
+                            color: '#fff',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: 11,
+                            fontWeight: 700,
+                            flexShrink: 0,
+                          }}
+                        >
+                          1
+                        </span>
+                        <div style={{ fontSize: 12.5, color: token.colorText, lineHeight: 1.4 }}>
+                          Look at the top-right corner of Chrome and tap the <strong>three dots (⋮)</strong> menu.
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                        <span
+                          style={{
+                            width: 22,
+                            height: 22,
+                            borderRadius: '50%',
+                            background: '#10b981',
+                            color: '#fff',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: 11,
+                            fontWeight: 700,
+                            flexShrink: 0,
+                          }}
+                        >
+                          2
+                        </span>
+                        <div style={{ fontSize: 12.5, color: token.colorText, lineHeight: 1.4 }}>
+                          In the menu, tap <strong>"Install app"</strong> (or <strong>"Add to Home screen"</strong>).
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                        <span
+                          style={{
+                            width: 22,
+                            height: 22,
+                            borderRadius: '50%',
+                            background: '#10b981',
+                            color: '#fff',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: 11,
+                            fontWeight: 700,
+                            flexShrink: 0,
+                          }}
+                        >
+                          3
+                        </span>
+                        <div style={{ fontSize: 12.5, color: token.colorText, lineHeight: 1.4 }}>
+                          Tap <strong>"Install"</strong> — The PWI ERP application will be added directly to your phone screen!
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Urdu Instruction */}
+                    <div
+                      style={{
+                        marginTop: 12,
+                        padding: '8px 10px',
+                        background: 'rgba(16, 185, 129, 0.12)',
+                        borderRadius: 6,
+                        fontSize: 12,
+                        color: token.colorText,
+                        direction: 'rtl',
+                        textAlign: 'right',
+                        lineHeight: 1.5,
+                      }}
+                    >
+                      📱 <strong>موبائل میں انسٹال کرنے کا طریقہ:</strong> براؤزر کے اوپر دائیں کونے میں <strong>3 نقطے (⋮)</strong> دبائیں اور مینو سے <strong>"Install app"</strong> یا <strong>"Add to Home screen"</strong> پر کلک کریں۔ ایپ موبائل میں انسٹال ہو جائے گی۔
+                    </div>
+                  </div>
                 </div>
               ) : (
                 /* When on desktop/laptop: show QR Code to scan with mobile + WhatsApp / Copy link */

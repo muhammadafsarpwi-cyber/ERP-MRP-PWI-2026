@@ -5,12 +5,14 @@
 
 export function registerServiceWorker(): void {
   if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
+    const register = () => {
       const swUrl = `${process.env.PUBLIC_URL || ''}/sw.js`;
 
       navigator.serviceWorker
-        .register(swUrl)
+        .register(swUrl, { scope: '/' })
         .then((registration) => {
+          console.log('[PWA] Service Worker registered with scope:', registration.scope);
+
           // Check for service worker updates
           registration.onupdatefound = () => {
             const installingWorker = registration.installing;
@@ -30,7 +32,14 @@ export function registerServiceWorker(): void {
         .catch((error) => {
           console.warn('[PWA] Service Worker registration failed:', error);
         });
-    });
+    };
+
+    // If window already loaded (typical in single-page apps), register immediately
+    if (document.readyState === 'complete' || document.readyState === 'interactive') {
+      register();
+    } else {
+      window.addEventListener('load', register);
+    }
   }
 }
 

@@ -75,6 +75,14 @@ export const PwaInstallProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
 
     // 3. Listen for Chromium/Edge native beforeinstallprompt
+    const handleEarlyPrompt = (e: any) => {
+      const installEvent = e?.detail || (window as any).__pwi_pwa_prompt;
+      if (installEvent) {
+        setDeferredPrompt(installEvent);
+        setIsInstallable(true);
+      }
+    };
+
     const handleBeforeInstallPrompt = (e: Event) => {
       // Prevent browser default mini-infobar
       e.preventDefault();
@@ -101,10 +109,12 @@ export const PwaInstallProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       message.success('Pakistan Wire Industries ERP has been installed on your device!');
     };
 
+    window.addEventListener('pwi-pwa-prompt-ready', handleEarlyPrompt);
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
     window.addEventListener('appinstalled', handleAppInstalled);
 
     return () => {
+      window.removeEventListener('pwi-pwa-prompt-ready', handleEarlyPrompt);
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
       window.removeEventListener('appinstalled', handleAppInstalled);
     };
@@ -116,7 +126,7 @@ export const PwaInstallProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       try {
         await activePrompt.prompt();
         const choice = await activePrompt.userChoice;
-        if (choice.outcome === 'accepted') {
+        if (choice && choice.outcome === 'accepted') {
           setIsInstalled(true);
           setShowBanner(false);
           setIsInstallModalOpen(false);
@@ -130,12 +140,9 @@ export const PwaInstallProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         }
       } catch (err) {
         console.error('[PWA] Prompt error:', err);
-        setIsInstallModalOpen(true);
         return false;
       }
     } else {
-      // If no native prompt (Safari or desktop manual install), show the modal guide
-      setIsInstallModalOpen(true);
       return false;
     }
   }, [deferredPrompt]);
