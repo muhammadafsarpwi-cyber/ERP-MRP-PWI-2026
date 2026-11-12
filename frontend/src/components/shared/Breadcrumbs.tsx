@@ -78,7 +78,7 @@ const ROUTE_LABELS: RouteLabel[] = [
   { pattern: /^\/hr\/dashboard/, label: 'HR Dashboard' },
   { pattern: /^\/hr\/my-attendance/, label: 'My Attendance' },
   { pattern: /^\/hr\/attendance-register/, label: 'Attendance Register' },
-  { pattern: /^\/settings$/, label: 'Company Settings' },
+  { pattern: /^\/settings$/, label: 'Settings' },
   { pattern: /^\/maintenance$/, label: 'Maintenance Dashboard' },
   { pattern: /^\/maintenance\/job-cards/, label: 'Maintenance Job Cards' },
   { pattern: /^\/maintenance\/teams/, label: 'Maintenance Teams' },
@@ -90,7 +90,7 @@ const ROUTE_LABELS: RouteLabel[] = [
 ];
 
 // Settings categories carry their own display labels so the trail reads
-// "Company Settings / Invoice Settings" instead of title-casing the URL slug.
+// "Settings / Invoice Settings" instead of title-casing the URL slug.
 // Generated from the single settings navigation registry.
 for (const item of SETTINGS_CATEGORIES) {
   ROUTE_LABELS.push({ pattern: new RegExp(`^${item.path}$`), label: item.label });
@@ -106,7 +106,7 @@ const PARENT_LABELS: Record<string, string> = {
   production: 'Production',
   qc: 'QC',
   hr: 'HR',
-  settings: 'Company Settings',
+  settings: 'Settings',
   maintenance: 'Maintenance',
 };
 
@@ -148,6 +148,7 @@ const Breadcrumbs: React.FC<BreadcrumbsProps> = ({ style }) => {
   }
 
   let prevLabel = 'Home';
+
   for (let i = 0; i < builtPaths.length; i++) {
     const path = builtPaths[i];
     const segment = segments[i];

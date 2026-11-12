@@ -12,6 +12,7 @@ import InventoryOptionsSettings from './InventoryOptionsSettings';
 import DocumentOptionsSettings from './DocumentOptionsSettings';
 import DocumentNumberingSettings from './DocumentNumberingSettings';
 import AppearanceSettings from './AppearanceSettings';
+import AiProviderSettingsPage from '../../pages/ai-assistant/AiProviderSettingsPage';
 import { SETTINGS_NAV_ITEMS, settingsRelativePath } from './settingsNavigationConfig';
 import './settings.css';
 
@@ -56,6 +57,10 @@ const SettingsRoutes: React.FC = () => (
       {/* `/settings/appearance` — the theme engine (mode, corner matrix, glass, accent) */}
       <Route path="appearance" element={<AppearanceSettings />} />
 
+      {/* `/settings/ai-provider` — Multi-Provider AI (BYOK) Configuration */}
+      <Route path="ai-provider" element={<AiProviderSettingsPage />} />
+      <Route path="ai" element={<Navigate to="/settings/ai-provider" replace />} />
+
       {/* One generated route per remaining category in the canonical registry. */}
       {SETTINGS_NAV_ITEMS.filter((item) =>
         !item.overview &&
@@ -67,7 +72,8 @@ const SettingsRoutes: React.FC = () => (
         item.id !== 'inventory' &&
         item.id !== 'document-options' &&
         item.id !== 'document-numbering' &&
-        item.id !== 'appearance'
+        item.id !== 'appearance' &&
+        item.id !== 'ai-provider'
       ).map((item) => (
         <Route
           key={item.id}

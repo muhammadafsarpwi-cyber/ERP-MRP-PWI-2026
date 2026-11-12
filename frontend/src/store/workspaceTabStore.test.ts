@@ -224,19 +224,19 @@ describe('workspaceTabStore', () => {
     ]);
   });
 
-  it('keeps Company Settings tab title persistent and collapses settings sub-routes into single tab', () => {
+  it('keeps Settings tab title persistent and collapses settings sub-routes into single tab', () => {
     // Open overview
     useWorkspaceTabStore.getState().openTab({
       id: '/settings',
       route: '/settings',
       pathname: '/settings',
-      title: 'Company Settings',
+      title: 'Settings',
     });
 
     let state = useWorkspaceTabStore.getState();
     expect(state.tabs).toHaveLength(2);
     expect(state.tabs[1].id).toBe('/settings');
-    expect(state.tabs[1].title).toBe('Company Settings');
+    expect(state.tabs[1].title).toBe('Settings');
 
     // Navigate to invoice settings subroute
     useWorkspaceTabStore.getState().openTab({
@@ -247,10 +247,10 @@ describe('workspaceTabStore', () => {
     });
 
     state = useWorkspaceTabStore.getState();
-    // Still only 2 tabs, id is /settings, title remains Company Settings
+    // Still only 2 tabs, id is /settings, title remains Settings
     expect(state.tabs).toHaveLength(2);
     expect(state.tabs[1].id).toBe('/settings');
-    expect(state.tabs[1].title).toBe('Company Settings');
+    expect(state.tabs[1].title).toBe('Settings');
     expect(state.tabs[1].route).toBe('/settings/invoice');
   });
 });

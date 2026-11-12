@@ -8,7 +8,7 @@ import {
   GeminiNarrationResponse,
   SchemaCatalog,
 } from '../interfaces/ai-assistant.interface';
-import { GeminiClientService } from './gemini-client.service';
+import { UniversalLlmService } from './universal-llm.service';
 import { ReadOnlyDataSourceService } from './read-only-datasource.service';
 import { extractSqlTableNames, maskSqlLiterals } from '../utils/read-only-sql.util';
 
@@ -67,7 +67,7 @@ export class EmptyResultAdvisorService {
   constructor(
     private readonly config: ConfigService,
     private readonly db: ReadOnlyDataSourceService,
-    private readonly gemini: GeminiClientService,
+    private readonly llm: UniversalLlmService,
   ) {}
 
   /**
@@ -422,7 +422,7 @@ export class EmptyResultAdvisorService {
     template: { en: string; ur: string },
   ): Promise<{ en: string; ur: string }> {
     try {
-      const result = await this.gemini.generateJson<GeminiNarrationResponse>(
+      const result = await this.llm.generateJson<GeminiNarrationResponse>(
         'You are a friendly assistant inside a manufacturing ERP used by Pakistani factory staff. ' +
           'Explain why a query returned no records, in a warm, practical tone. Be concise (max 2 sentences per language). ' +
           'Respond ONLY with JSON: {"message_en": "...", "message_ur": "..."} — the Urdu must be natural Urdu script.',

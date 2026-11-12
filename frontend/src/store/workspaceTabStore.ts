@@ -61,7 +61,7 @@ interface WorkspaceTabState {
 
 export function getWorkspaceTabDisplayTitle(tab: { id: string; pathname?: string; title?: string }): string {
   const path = tab.pathname || tab.id || '';
-  if (tab.id === '/settings' || path.startsWith('/settings')) return 'Company Settings';
+  if (tab.id === '/settings' || path.startsWith('/settings')) return 'Settings';
   if (/^\/production\/entries\/new\b/.test(path)) return 'New Daily Production Entry';
   if (/^\/production\/entries\/select\b/.test(path)) return 'New Daily Production Entry';
   if (/^\/production\/entries\/[^/]+\/edit\b/.test(path)) return 'Edit Daily Production Entry';
@@ -88,7 +88,7 @@ export const useWorkspaceTabStore = create<WorkspaceTabState>()(
         const path = tabData.pathname || canonicalId || '';
 
         let canonicalTitle: string | undefined;
-        if (isSettings) canonicalTitle = 'Company Settings';
+        if (isSettings) canonicalTitle = 'Settings';
         else if (/^\/production\/entries\/new\b/.test(path)) canonicalTitle = 'New Daily Production Entry';
         else if (/^\/production\/entries\/select\b/.test(path)) canonicalTitle = 'New Daily Production Entry';
         else if (/^\/production\/entries\/[^/]+\/edit\b/.test(path)) canonicalTitle = 'Edit Daily Production Entry';
@@ -102,7 +102,7 @@ export const useWorkspaceTabStore = create<WorkspaceTabState>()(
         if (existingIndex !== -1) {
           // Tab already exists! NEVER create duplicate.
           const existing = tabs[existingIndex];
-          const newTitle = canonicalTitle || (isSettings ? 'Company Settings' : (tabData.title || existing.title));
+          const newTitle = canonicalTitle || (isSettings ? 'Settings' : (tabData.title || existing.title));
           const newRoute = tabData.route;
 
           // Only update state if something actually changed to prevent render cascades
@@ -141,7 +141,7 @@ export const useWorkspaceTabStore = create<WorkspaceTabState>()(
           id: canonicalId,
           route: tabData.route,
           pathname: tabData.pathname,
-          title: canonicalTitle || (isSettings ? 'Company Settings' : (tabData.title || 'Page')),
+          title: canonicalTitle || (isSettings ? 'Settings' : (tabData.title || 'Page')),
           closable: canonicalId !== '/dashboard' ? (tabData.closable ?? true) : false,
           timestamp: Date.now(),
         };

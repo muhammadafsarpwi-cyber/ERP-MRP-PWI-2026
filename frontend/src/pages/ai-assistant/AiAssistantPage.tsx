@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Button,
   Input,
@@ -40,6 +41,7 @@ import {
   FilePdfOutlined,
   FileExcelOutlined,
   WhatsAppOutlined,
+  ApiOutlined,
 } from '@ant-design/icons';
 import {
   BarChart,
@@ -215,6 +217,7 @@ interface ChatSession {
 }
 
 const AiAssistantPage: React.FC = () => {
+  const navigate = useNavigate();
   const isDark = useThemeStore((state) => state.draft.mode === 'dark');
 
   const [divisionsList, setDivisionsList] = useState<DivisionMeta[]>(DEFAULT_DIVISIONS);
@@ -974,6 +977,24 @@ const AiAssistantPage: React.FC = () => {
           </div>
         </div>
 
+        {/* 4. BYOK Multi-Provider AI Settings Link */}
+        <div style={{ marginTop: 10, marginBottom: 8 }}>
+          <Button
+            type="primary"
+            ghost
+            icon={<ApiOutlined />}
+            block
+            size="small"
+            onClick={() => {
+              setSettingsOpen(false);
+              navigate('/settings/ai-provider');
+            }}
+            style={{ fontSize: 11, fontWeight: 600, height: 28 }}
+          >
+            Manage AI Provider Keys (BYOK)
+          </Button>
+        </div>
+
         <div
           style={{
             fontSize: 10.5,
@@ -1681,6 +1702,22 @@ const AiAssistantPage: React.FC = () => {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Button
+            size="small"
+            icon={<ApiOutlined />}
+            onClick={() => navigate('/settings/ai-provider')}
+            style={{
+              background: 'rgba(255, 255, 255, 0.15)',
+              color: '#ffffff',
+              borderColor: 'rgba(255, 255, 255, 0.35)',
+              fontWeight: 600,
+              fontSize: 12,
+              borderRadius: 6,
+              backdropFilter: 'blur(4px)',
+            }}
+          >
+            AI Providers (BYOK)
+          </Button>
           <Button
             type="primary"
             size="small"

@@ -532,7 +532,7 @@ export interface ResolvedNavMeta {
 /** Looks up a leaf nav item by its exact route key. */
 function getNavItemByKey(key: string): NavItem | null {
   if (key === '/settings') {
-    return { key: '/settings', label: 'Company Settings', icon: SettingOutlined, color: 'neutral' };
+    return { key: '/settings', label: 'Settings', icon: SettingOutlined, color: 'neutral' };
   }
   for (const entry of NAV_ENTRIES) {
     if (isNavGroup(entry)) {

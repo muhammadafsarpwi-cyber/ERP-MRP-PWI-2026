@@ -378,7 +378,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
     const isSettings = location.pathname.startsWith('/settings');
     const tabId = isSettings ? '/settings' : location.pathname;
 
-    let initialTitle = isSettings ? 'Company Settings' : undefined;
+    let initialTitle = isSettings ? 'Settings' : undefined;
     if (!initialTitle) {
       if (/^\/production\/entries\/new\b/.test(location.pathname)) initialTitle = 'New Daily Production Entry';
       else if (/^\/production\/entries\/select\b/.test(location.pathname)) initialTitle = 'New Daily Production Entry';
@@ -416,7 +416,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
   // If a tab has a custom dynamic header title explicitly registered for ITSELF, update the tab title
   React.useEffect(() => {
     const isSettings = location.pathname.startsWith('/settings');
-    if (isSettings) return; // Keep Settings tab label strictly 'Company Settings'
+    if (isSettings) return; // Keep Settings tab label strictly 'Settings'
 
     const metaForThisTab = useHeaderActions.getState().tabMetaMap[location.pathname];
     if (metaForThisTab?.title && typeof metaForThisTab.title === 'string') {
@@ -435,7 +435,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
     const isSettings = targetPath.startsWith('/settings');
     const canonicalKey = isSettings ? '/settings' : targetPath;
     const navMeta = resolveNavMeta(targetPath);
-    let menuTabTitle = isSettings ? 'Company Settings' : undefined;
+    let menuTabTitle = isSettings ? 'Settings' : undefined;
     if (!menuTabTitle) {
       if (targetPath === '/production/entries') menuTabTitle = 'Daily Production Entry';
       else menuTabTitle = navMeta?.label || 'Page';
@@ -633,10 +633,10 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
               gap: 4,
             }}
           >
-            {/* Company Settings */}
+            {/* Settings */}
             <div
               onClick={() => handleMenuClick({ key: '/settings' })}
-              title="Company Settings"
+              title="Settings"
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -667,7 +667,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
               }}
             >
               <SettingOutlined style={{ fontSize: 16 }} />
-              {!effectivelyCollapsed && <span>Company Settings</span>}
+              {!effectivelyCollapsed && <span>Settings</span>}
             </div>
 
             {/* User */}
@@ -800,7 +800,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
               }}
             >
               <SettingOutlined style={{ fontSize: 16 }} />
-              <span>Company Settings</span>
+              <span>Settings</span>
             </div>
           </div>
         </Drawer>

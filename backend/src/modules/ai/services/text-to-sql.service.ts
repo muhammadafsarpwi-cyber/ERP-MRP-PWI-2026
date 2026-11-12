@@ -11,7 +11,7 @@ import {
 } from '../interfaces/ai-assistant.interface';
 import { ReadOnlyDataSourceService } from './read-only-datasource.service';
 import { EmptyResultAdvisorService } from './empty-result-advisor.service';
-import { GeminiClientService } from './gemini-client.service';
+import { UniversalLlmService } from './universal-llm.service';
 import { SchemaCatalogService } from './schema-catalog.service';
 import { SqlGuardService } from './sql-guard.service';
 
@@ -54,7 +54,7 @@ export class TextToSqlService {
 
   constructor(
     private readonly config: ConfigService,
-    private readonly gemini: GeminiClientService,
+    private readonly llm: UniversalLlmService,
     private readonly catalogService: SchemaCatalogService,
     private readonly guard: SqlGuardService,
     private readonly db: ReadOnlyDataSourceService,
@@ -97,7 +97,7 @@ export class TextToSqlService {
       const llmStarted = Date.now();
       let candidate: GeminiSqlResponse;
       try {
-        candidate = await this.gemini.generateJson<GeminiSqlResponse>(
+        candidate = await this.llm.generateJson<GeminiSqlResponse>(
           this.buildSystemPrompt(catalog, input.allowedDivisionIds),
           this.buildUserPrompt(question, previousSql, lastIssue),
           0,

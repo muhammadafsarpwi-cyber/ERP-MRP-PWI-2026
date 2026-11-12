@@ -40,6 +40,7 @@ export interface DeptFleetWhatsAppParams {
     departmentCode?: string;
   };
   divisionName?: string;
+  sectionName?: string;
   shiftName?: string;
   shiftTiming?: string;
   dateStr?: string; // e.g. "2026-11-05" or "05-Nov-2026"
@@ -57,12 +58,59 @@ function naturalSortMachines(a: MachineStatusRow, b: MachineStatusRow): number {
   return codeA.localeCompare(codeB, undefined, { numeric: true, sensitivity: 'base' });
 }
 
+export const PROD_FLEET_WHATSAPP_STORAGE_KEY = 'erp_whatsapp_settings_v1';
+
+export const DEFAULT_FLEET_TEMPLATE = `*PAKISTAN WIRE INDUSTRIES (PVT.) LTD*
+*DAILY SHIFT PRODUCTION REPORT*
+━━━━━━━━━━━━━━━━━━━━
+*Department:* *{department}*
+*Date:* *{date}*
+{shift_line}*Division:* *{division}*
+{section_line}*Fleet Status:* {fleet_status}
+━━━━━━━━━━━━━━━━━━━━
+
+*MACHINE-WISE PRODUCTION:*
+
+{machine_rows}
+━━━━━━━━━━━━━━━━━━━━
+*{department} TOTALS:*
+• *Total Machines:* {fleet_status}
+• *Total Production:* *{total_production}*
+• *Overall Achievement:* *{overall_achievement}*
+
+*ITEM-WISE TOTAL SUMMARY:*
+{item_summary}
+━━━━━━━━━━━━━━━━━━━━
+_Generated via PWI ERP System_`;
+
+/**
+ * Retrieves custom Daily Production Fleet WhatsApp template configured in Settings > WhatsApp Messages
+ */
+export function getStoredFleetTemplate(): string | null {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const saved = window.localStorage.getItem(PROD_FLEET_WHATSAPP_STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (
+          parsed?.templates?.dailyProductionFleet &&
+          typeof parsed.templates.dailyProductionFleet === 'string' &&
+          parsed.templates.dailyProductionFleet.trim()
+        ) {
+          return parsed.templates.dailyProductionFleet.trim();
+        }
+      }
+    }
+  } catch {}
+  return null;
+}
+
 /**
  * Builds a clean, professional, mobile-ready WhatsApp report
  * for a specific manufacturing department fleet.
  */
 export function buildDepartmentFleetWhatsAppText(params: DeptFleetWhatsAppParams): string {
-  const { department, divisionName, shiftName, shiftTiming, dateStr, machines } = params;
+  const { department, divisionName, sectionName, shiftName, shiftTiming, dateStr, machines } = params;
 
   // Filter active machines for this department
   const deptMachines = (machines || [])
@@ -85,25 +133,7 @@ export function buildDepartmentFleetWhatsAppText(params: DeptFleetWhatsAppParams
   // Map to accumulate item-wise totals across all machines in this department
   const itemTotalsMap = new Map<string, { itemName: string; totalQty: number; uom: string }>();
 
-  const out: string[] = [];
-
-  // Header Banner
-  out.push('🏭 *PAKISTAN WIRE INDUSTRIES (PVT.) LTD*');
-  out.push('📋 *DAILY SHIFT PRODUCTION REPORT*');
-  out.push('━━━━━━━━━━━━━━━━━━━━');
-  out.push(`🏢 *Department:* *${department.name.toUpperCase()}*`);
-  out.push(`📅 *Date:* *${formattedDate}*`);
-  if (shiftName) {
-    out.push(`⏰ *Shift:* *${shiftName}*${shiftTiming ? ` (${shiftTiming})` : ''}`);
-  }
-  if (divisionName) {
-    out.push(`📍 *Division:* *${divisionName}*`);
-  }
-  out.push(`📊 *Fleet Status:* ${deptMachines.length} Machines (${enteredCount} Entered / ${pendingCount} Pending)`);
-  out.push('━━━━━━━━━━━━━━━━━━━━');
-  out.push('');
-  out.push('⚙️ *MACHINE-WISE PRODUCTION:*');
-  out.push('');
+  const machineRows: string[] = [];
 
   deptMachines.forEach((m, idx) => {
     const hasEntries = m.entries && m.entries.length > 0;
@@ -133,21 +163,23 @@ export function buildDepartmentFleetWhatsAppText(params: DeptFleetWhatsAppParams
     totalActual += actual;
 
     const numEmoji = idx < NUMBER_EMOJIS.length ? NUMBER_EMOJIS[idx] : `#${idx + 1}`;
-    const statusIcon = m.status === 'ENTERED' ? '✅ Entered' : '⏳ Entry Required';
-    // User requested achievement threshold indicator: >= 70% is ▲, below is ▼
-    const achTone = achievement >= 70 ? '▲' : '▼';
+    // Status text without tick or hourglass emoji as requested
+    const statusText = m.status === 'ENTERED' ? 'Entered' : 'Entry Required';
+    // Achievement tone: green circle up for >= 70%, red circle down for < 70%
+    const achTone = achievement >= 70 ? '🟢 ▲' : '🔴 ▼';
 
     const displayName = m.machineCode
       ? `${m.machineCode} — ${m.name}`
       : m.name || m.systemCode || `Machine ${idx + 1}`;
 
-    out.push(`${numEmoji} *${displayName}* [${statusIcon}]`);
-    out.push(`   📦 *Actual:* ${formatNumber(actual, 0)} ${uom}`);
-    out.push(`   📊 *Achievement:* ${achievement.toFixed(2)}% ${achTone}`);
+    machineRows.push(`${numEmoji} *${displayName}* [${statusText}]`);
+    machineRows.push(`   *Actual:* ${formatNumber(actual, 0)} ${uom}`);
+    machineRows.push(`   *Achievement:* ${achievement.toFixed(2)}% ${achTone}`);
 
-    // Items Breakdown & Item totals accumulation
+    // Items Breakdown & Item totals accumulation - multi-line bullet list as requested
     if (hasEntries) {
-      const itemSummaries = m.entries.map((e) => {
+      machineRows.push('   🏷️ *Items:*');
+      m.entries.forEach((e) => {
         const iName = e.itemName || e.itemCode || 'Item';
         const eUom = e.uom || uom;
         const eQty = Number(e.actualQuantity) || 0;
@@ -161,38 +193,52 @@ export function buildDepartmentFleetWhatsAppText(params: DeptFleetWhatsAppParams
           itemTotalsMap.set(key, { itemName: iName, totalQty: eQty, uom: eUom });
         }
 
-        return `${iName} (${formatNumber(eQty, 0)} ${eUom})`;
+        machineRows.push(`   * ${iName} (${formatNumber(eQty, 0)} ${eUom})`);
       });
-      out.push(`   🏷️ *Items:* ${itemSummaries.join(', ')}`);
     }
 
-    out.push('   ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄');
+    machineRows.push('   ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄');
   });
 
   const overallAch = totalTarget > 0 ? Number(((totalActual / totalTarget) * 100).toFixed(2)) : 0;
-  const overallTone = overallAch >= 70 ? '▲' : '▼';
-
-  // Summary Totals
-  out.push('');
-  out.push('━━━━━━━━━━━━━━━━━━━━');
-  out.push(`📊 *${department.name.toUpperCase()} TOTALS:*`);
-  out.push(`• *Total Machines:* ${deptMachines.length} (${enteredCount} Entered / ${pendingCount} Pending)`);
-  out.push(`• *Total Production:* *${formatNumber(totalActual, 0)} ${primaryUom}*`);
-  out.push(`• *Overall Achievement:* *${overallAch.toFixed(2)}%* ${overallTone}`);
+  const overallTone = overallAch >= 70 ? '🟢 ▲' : '🔴 ▼';
+  const overallAchText = `${overallAch.toFixed(2)}% ${overallTone}`;
+  const totalProdText = `${formatNumber(totalActual, 0)} ${primaryUom}`;
+  const fleetStatusText = `${deptMachines.length} Machines (${enteredCount} Entered / ${pendingCount} Pending)`;
 
   // Item-wise totals summary at the end
+  const itemSummaryLines: string[] = [];
   if (itemTotalsMap.size > 0) {
-    out.push('');
-    out.push('📦 *ITEM-WISE TOTAL SUMMARY:*');
     Array.from(itemTotalsMap.values()).forEach((item) => {
-      out.push(`• *${item.itemName}:* *${formatNumber(item.totalQty, 0)} ${item.uom}*`);
+      itemSummaryLines.push(`• *${item.itemName}:* *${formatNumber(item.totalQty, 0)} ${item.uom}*`);
     });
   }
 
-  out.push('━━━━━━━━━━━━━━━━━━━━');
-  out.push('📱 _Generated via PWI ERP System_');
+  const shiftText = shiftName ? `*${shiftName}*${shiftTiming ? ` (${shiftTiming})` : ''}` : '';
+  const shiftLine = shiftText ? `*Shift:* ${shiftText}\n` : '';
+  const sectionLine = sectionName ? `*Section:* *${sectionName}*\n` : '';
 
-  return out.join('\n');
+  // Load custom template from Settings > WhatsApp Messages if configured by user
+  const customTemplate = getStoredFleetTemplate();
+  const templateToUse = customTemplate || DEFAULT_FLEET_TEMPLATE;
+
+  return templateToUse
+    .replace(/\{company\}/gi, 'PAKISTAN WIRE INDUSTRIES (PVT.) LTD')
+    .replace(/\{department\}/gi, department.name.toUpperCase())
+    .replace(/\{date\}/gi, formattedDate)
+    .replace(/\{shift_line\}/gi, shiftLine)
+    .replace(/\{shift\}/gi, shiftText || '—')
+    .replace(/\{division\}/gi, divisionName || '—')
+    .replace(/\{section_line\}/gi, sectionLine)
+    .replace(/\{section\}/gi, sectionName || '—')
+    .replace(/\{fleet_status\}/gi, fleetStatusText)
+    .replace(/\{machines_count\}/gi, String(deptMachines.length))
+    .replace(/\{entered_count\}/gi, String(enteredCount))
+    .replace(/\{pending_count\}/gi, String(pendingCount))
+    .replace(/\{total_production\}/gi, totalProdText)
+    .replace(/\{overall_achievement\}/gi, overallAchText)
+    .replace(/\{machine_rows\}/gi, machineRows.join('\n'))
+    .replace(/\{item_summary\}/gi, itemSummaryLines.join('\n'));
 }
 
 /**

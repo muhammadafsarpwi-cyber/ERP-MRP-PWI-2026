@@ -104,18 +104,82 @@ describe('deptFleetWhatsApp', () => {
 
     // Actual, Achievement, Items should be present
     expect(text).toContain('*Actual:* 44,001 PCS');
-    expect(text).toContain('*Achievement:* 69.84% ▼');
-    expect(text).toContain('CD-250*17 Butted (44,001 PCS)');
+    expect(text).toContain('*Achievement:* 69.84% 🔴 ▼');
+    expect(text).toContain('* CD-250*17 Butted (44,001 PCS)');
+    expect(text).toContain('[Entered]');
+    expect(text).not.toContain('✅');
+    expect(text).not.toContain('📦 *Actual:*');
+    expect(text).not.toContain('📊 *Achievement:*');
 
     // Check totals
     expect(text).toContain('STRAIGHTENER TOTALS:');
-    expect(text).toContain('*Total Machines:* 3 (2 Entered / 1 Pending)');
+    expect(text).toContain('*Total Machines:* 3 Machines (2 Entered / 1 Pending)');
     // Sum actual: 44001 + 49509 + 0 = 93,510
     expect(text).toContain('*Total Production:* *93,510 PCS*');
+    expect(text).toContain('*Overall Achievement:* *44.45% 🔴 ▼*');
 
     // Check item-wise total summary
     expect(text).toContain('ITEM-WISE TOTAL SUMMARY:');
     expect(text).toContain('*CD-250*17 Butted:* *44,001 PCS*');
     expect(text).toContain('*S9-300*17 Inner Straight:* *49,509 PCS*');
+  });
+
+  it('correctly sets divisionName and optional sectionName', () => {
+    const text = buildDepartmentFleetWhatsAppText({
+      department: {
+        id: 'dept-spk',
+        name: 'Spoke Plating',
+        departmentCode: 'SPL',
+      },
+      divisionName: 'Spoke Division (DIV-SPD)',
+      sectionName: 'Auto Plating Section',
+      shiftName: 'General Shift (D+OT)',
+      shiftTiming: '08:30:00 - 20:30:00',
+      dateStr: '2026-11-11',
+      machines: sampleMachines,
+    });
+
+    expect(text).toContain('*Division:* *Spoke Division (DIV-SPD)*');
+    expect(text).toContain('*Section:* *Auto Plating Section*');
+    expect(text).not.toContain('*Division:* *Auto Plating Section*');
+  });
+
+  it('applies custom template configured in Settings > WhatsApp Messages', () => {
+    const customTemplate = `*CUSTOM REPORT: {department}*
+Date: {date}
+Division: {division}
+Total: {total_production}
+Overall Achievement: {overall_achievement}
+{machine_rows}`;
+
+    localStorage.setItem(
+      'erp_whatsapp_settings_v1',
+      JSON.stringify({
+        templates: {
+          dailyProductionFleet: customTemplate,
+        },
+      })
+    );
+
+    const text = buildDepartmentFleetWhatsAppText({
+      department: {
+        id: 'dept-st',
+        name: 'Straightener',
+        departmentCode: 'ST',
+      },
+      divisionName: 'Spoke Division (DIV-SPD)',
+      shiftName: 'General Shift (D)',
+      dateStr: '2026-11-05',
+      machines: sampleMachines,
+    });
+
+    expect(text).toContain('*CUSTOM REPORT: STRAIGHTENER*');
+    expect(text).toContain('Date: 05-Nov-2026');
+    expect(text).toContain('Division: Spoke Division (DIV-SPD)');
+    expect(text).toContain('Total: 93,510 PCS');
+    expect(text).toContain('Overall Achievement: 44.45% 🔴 ▼');
+    expect(text).toContain('ST-01 — Straightener Machine 01');
+
+    localStorage.removeItem('erp_whatsapp_settings_v1');
   });
 });

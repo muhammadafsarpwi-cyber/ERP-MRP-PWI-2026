@@ -70,9 +70,9 @@ describe('Sidebar — Company Settings pinned footer placement', () => {
     expect(keys).not.toContain('/settings');
   });
 
-  it('2. findNavEntry resolves Company Settings without permission gating', () => {
+  it('2. findNavEntry resolves Settings without permission gating', () => {
     expect(settingsEntry).toBeDefined();
-    expect(settingsEntry?.label).toBe('Company Settings');
+    expect(settingsEntry?.label).toBe('Settings');
     expect(settingsEntry?.icon).toBe(SettingOutlined);
     expect(settingsEntry?.color).toBe('neutral');
     expect(settingsEntry?.permissions).toBeUndefined();
@@ -105,10 +105,10 @@ describe('Sidebar — Company Settings pinned footer placement', () => {
     );
     expect(labels.filter((label) => label === 'Company Settings')).toHaveLength(0);
 
-    // The 24 settings nav items (overview + 23 categories) live only in the
+    // The 25 settings nav items (overview + 24 categories) live only in the
     // settings registry, which is never merged into NAV_ENTRIES, so the main
     // sidebar cannot grow copies.
-    expect(SETTINGS_NAV_ITEMS).toHaveLength(24);
+    expect(SETTINGS_NAV_ITEMS).toHaveLength(25);
     expect(keys.filter((key) => SETTINGS_NAV_KEYS.has(key))).toEqual([]);
   });
 

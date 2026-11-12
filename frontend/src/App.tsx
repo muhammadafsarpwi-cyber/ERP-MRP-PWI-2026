@@ -174,6 +174,7 @@ const App: React.FC = () => {
                   <Route path="/dashboard" element={<Dashboard />} />
                   <Route path="/reports" element={<GeneralReports />} />
                   <Route path="/ai-assistant" element={<AiAssistantPage />} />
+                  <Route path="/ai-assistant/settings" element={<Navigate to="/settings/ai-provider" replace />} />
                   <Route path="/settings/*" element={<SettingsRoutes />} />
                   <Route path="/profile" element={<ProfilePage />} />
                   <Route path="/change-password" element={<ChangePassword />} />

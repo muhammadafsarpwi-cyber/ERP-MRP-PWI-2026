@@ -7,9 +7,11 @@ import {
   UndoOutlined,
   FileTextOutlined,
   InboxOutlined,
+  ThunderboltOutlined,
 } from '@ant-design/icons';
 import { usePermission } from '../../hooks/usePermission';
 import { SETTINGS_PERMISSIONS } from './settingsNavigationConfig';
+import { DEFAULT_FLEET_TEMPLATE } from '../../pages/production/entries/deptFleetWhatsApp';
 import './whatsAppSettings.css';
 
 const { TextArea } = Input;
@@ -30,6 +32,7 @@ export interface WhatsAppSettingsData {
     receipt: string;
     rmReceipt: string;
     rmSummary: string;
+    dailyProductionFleet: string;
   };
 }
 
@@ -43,6 +46,7 @@ const DEFAULT_WHATSAPP_SETTINGS: WhatsAppSettingsData = {
     receipt: 'Dear {customer},\n\nWe have received {amount} (receipt {doc_no}) on {date}. Thank you!\n\n{company}',
     rmReceipt: '📦 *{company}*\n*RAW MATERIAL RECEIPT (GATE PASS)*\n━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 *Receipt Code:* {receipt_code}\n🎫 *Gate Pass No:* {gate_pass_no}\n📅 *Receipt Date:* {date}\n🏪 *Warehouse:* {warehouse}\n🏢 *Division:* {division}\n🏬 *Section:* {section}\n━━━━━━━━━━━━━━━━━━━━━━━━━\n{items}\n━━━━━━━━━━━━━━━━━━━━━━━━━\n📊 *RECEIPT SUMMARY TOTALS:*\n• Total Gate Pass Qty: {total_gp_qty}\n• Total Received Qty: {total_rcv_qty}\n• Net Variance: {net_variance}\n━━━━━━━━━━━━━━━━━━━━━━━━━\n🌐 _Generated via PWI ERP System (2026-2027)_',
     rmSummary: '📦 *{company}*\n*Raw Material Receiving — Summary*\n━━━━━━━━━━━━━━━━━━━━━━━━━\n🏢 *Division:* {division}\n🏪 *Warehouse:* {warehouse}\n📅 *Date Range:* {date}\n━━━━━━━━━━━━━━━━━━━━━━━━━\n• Gate Pass Qty: {total_gp_qty}\n• Received Qty: {total_rcv_qty}\n• Net Variance: {net_variance}\n━━━━━━━━━━━━━━━━━━━━━━━━━\n🌐 _Generated via PWI ERP System (2026-2027)_',
+    dailyProductionFleet: DEFAULT_FLEET_TEMPLATE,
   },
 };
 
@@ -66,6 +70,13 @@ const TAG_VARIABLES = [
   '{total_gp_qty}',
   '{total_rcv_qty}',
   '{net_variance}',
+  '{department}',
+  '{shift}',
+  '{fleet_status}',
+  '{total_production}',
+  '{overall_achievement}',
+  '{machine_rows}',
+  '{item_summary}',
 ];
 
 export const WhatsAppSettings: React.FC = () => {
@@ -309,6 +320,21 @@ export const WhatsAppSettings: React.FC = () => {
               onChange={(e) => handleTemplateChange('rmSummary', e.target.value)}
               className="wa-glowing-input"
               placeholder="Template for overall receiving summary WhatsApp message..."
+            />
+          </div>
+
+          {/* Daily Shift Production Report (Department Fleet) — [PROD-FLEET] */}
+          <div className="wa-template-box" style={{ gridColumn: 'span 2' }}>
+            <label className="wa-template-label">
+              <ThunderboltOutlined className="wa-field-icon" style={{ color: '#10b981' }} />
+              Daily Shift Production Report (Department Fleet) — [PROD-FLEET]
+            </label>
+            <TextArea
+              rows={9}
+              value={data.templates.dailyProductionFleet}
+              onChange={(e) => handleTemplateChange('dailyProductionFleet', e.target.value)}
+              className="wa-glowing-input"
+              placeholder="Template for Daily Production Shift Report WhatsApp share..."
             />
           </div>
         </div>

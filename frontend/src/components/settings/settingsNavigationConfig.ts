@@ -20,6 +20,7 @@ import {
   NumberOutlined,
   PercentageOutlined,
   PrinterOutlined,
+  RobotOutlined,
   SaveOutlined,
   SafetyCertificateOutlined,
   ScheduleOutlined,
@@ -173,6 +174,15 @@ export const SETTINGS_CATEGORIES: SettingsNavItem[] = [
     icon: BgColorsOutlined,
     viewPermissions: [SETTINGS_PERMISSIONS.view],
     editPermission: SETTINGS_PERMISSIONS.edit,
+  },
+  {
+    id: 'ai-provider',
+    path: '/settings/ai-provider',
+    label: 'AI Configuration (BYOK)',
+    description: 'Bring Your Own Key: Gemini, OpenRouter, Claude, OpenAI & Local Models',
+    icon: RobotOutlined,
+    viewPermissions: [SETTINGS_PERMISSIONS.view],
+    editPermission: SETTINGS_PERMISSIONS.sensitive,
   },
   {
     id: 'invoice',

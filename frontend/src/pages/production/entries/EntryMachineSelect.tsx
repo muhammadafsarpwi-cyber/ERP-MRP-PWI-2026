@@ -567,9 +567,12 @@ const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
   const getDeptWhatsAppParams = useCallback(
     (dept: { id: string; name: string; departmentCode?: string }): DeptFleetWhatsAppParams | null => {
       if (!dept) return null;
+      const selectedDiv = lookups.divisions.find((d) => d.id === divisionId);
+      const selectedSec = lookups.sections.find((s) => s.id === sectionId);
       return {
         department: dept,
-        divisionName: scopeLabel || lookups.divisions.find((d) => d.id === divisionId)?.name,
+        divisionName: selectedDiv ? formatDivLabel(selectedDiv) : undefined,
+        sectionName: selectedSec ? `${selectedSec.name} Section` : undefined,
         shiftName: effectiveShift?.name,
         shiftTiming: effectiveShift
           ? `${effectiveShift.startTime || ''} - ${effectiveShift.endTime || ''}`.trim()
@@ -578,7 +581,7 @@ const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
         machines,
       };
     },
-    [scopeLabel, lookups.divisions, divisionId, effectiveShift, dateIso, machines]
+    [lookups.divisions, lookups.sections, divisionId, sectionId, effectiveShift, dateIso, machines]
   );
 
   const handleDirectWhatsApp = useCallback(
