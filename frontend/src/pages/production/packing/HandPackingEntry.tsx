@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Card, Row, Col, Form, Select, DatePicker, Input, InputNumber, Button, Space,
   Typography, Progress, Tag, Table, Alert, Tooltip, App, Segmented,
-  Divider, Popconfirm, Spin, Badge, Modal, Switch, Checkbox,
+  Divider, Popconfirm, Spin, Badge, Modal, Switch, Checkbox, message,
 } from 'antd';
 import {
   ArrowLeftOutlined, SearchOutlined, SaveOutlined, PlusOutlined, DeleteOutlined,
@@ -16,7 +16,7 @@ import {
   EnvironmentOutlined, EyeOutlined, EditOutlined,
   MinusOutlined, FullscreenOutlined, FullscreenExitOutlined,
   ExpandAltOutlined, CloseOutlined, HolderOutlined, SettingOutlined, WhatsAppOutlined,
-  DownOutlined, RightOutlined, PlusCircleOutlined,
+  DownOutlined, RightOutlined, PlusCircleOutlined, PrinterOutlined, FilePdfOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import apiService from '../../../services/api';
@@ -26,6 +26,7 @@ import { getLookupsSnapshot, prefetchAllLookups } from '../../../services/lookup
 import { formatNumber, toNum } from '../../../utils/numberFormat';
 import PageHeader from '../../../components/shared/PageHeader';
 import { getSavedPackingTargetConfig, savePackingTargetConfig, PACKING_TARGET_EVENT } from './packingTargetConfig';
+import { PWI_LOGO_BASE64 } from '../../../assets/pwiLogoBase64';
 import './handPackingComponentTable.css';
 import '../../../styles/rejectionEntry.css';
 
@@ -116,54 +117,74 @@ export function lookupComponentWeightPerPieceKg(compCode?: string, compName?: st
 /**
  * Computes realistic Finished Good packing weight per batch.
  * Guarantees distinct, physically accurate weights for different gauges:
- * - 300X17 S9 (50 CTN) -> 1,156.0 KG (23.12 kg/ctn)
- * - 250*17 Straight (50 CTN) -> 1,007.3 KG (20.15 kg/ctn)
- * - 250X17 Butted (50 CTN) -> 919.4 KG (18.39 kg/ctn)
+ * - 300X17 S9 (50 CTN) -> 1,156.0 KG (23.12 kg/ctn full set, spokes only ~18.0792 kg/ctn -> 105 CTN = 1,898.3 KG)
+ * - 250*17 Straight (50 CTN) -> 946.8 KG (18.94 kg/ctn full, 15.13 kg/ctn without nipple)
+ * - 250X17 Butted (50 CTN) -> 919.4 KG (18.39 kg/ctn full, 14.59 kg/ctn without nipple)
  */
-export function computeFgBatchWeightKg(itemCode?: string, itemName?: string, cartons: number = 50): number {
+export function computeFgBatchWeightKg(itemCode?: string, itemName?: string, cartons: number = 50, withoutNipple: boolean = false): number {
   const ctn = Math.max(0, cartons || 0);
   const code = (itemCode || '').toUpperCase();
   const name = (itemName || '').toUpperCase();
 
-  // 1. 300X17 / 300X18 S9 gauge (Heavy straight spoke ~23.1192 kg/ctn -> 50 CTN = 1,156.0 KG)
+  // 1. 300X17 / 300X18 S9 gauge (Heavy straight spoke ~23.1192 kg/ctn full set, spokes only ~18.0792 kg/ctn -> 105 CTN = 1,898.3 KG)
   if (
     code === 'SPI-FG-SPK-007' ||
+    code === 'SPI-FG-SPK-006' ||
+    code === 'SPI-FG-SPK-011' ||
     name.includes('300X17') ||
     name.includes('300X18') ||
     name.includes('300*17') ||
     name.includes('125-S9') ||
     name.includes('S9')
   ) {
+    if (withoutNipple) {
+      return Math.round(ctn * 18.0792 * 10) / 10;
+    }
     return Math.round(ctn * 23.1192 * 10) / 10;
   }
-  // 2. 250*17 Straight spoke (Assembly: 36,000 Inner [10.53g] + 36,000 Outer [10.49g] + 72,000 Nipple [2.64g] = 946.8 KG per 50 CTN -> 18.936 kg/ctn)
+  // 2. 250*17 Straight spoke (Assembly: 36,000 Inner [10.53g] + 36,000 Outer [10.49g] + 72,000 Nipple [2.64g] = 946.8 KG per 50 CTN -> 18.936 kg/ctn full, 15.1344 kg/ctn without nipple)
   if (
     code === 'SPI-FG-SPK-004' ||
     (name.includes('250*17') && name.includes('STRAIGHT')) ||
     (name.includes('250X17') && name.includes('STRAIGHT')) ||
     (name.includes('RM-250*17'))
   ) {
+    if (withoutNipple) {
+      return Math.round(ctn * 15.1344 * 10) / 10;
+    }
     return Math.round(ctn * 18.936 * 10) / 10;
   }
-  // 3. DS Front Straight spoke (~22.0032 kg/ctn -> 50 CTN = 1,100.2 KG)
+  // 3. DS Front Straight spoke (~22.0032 kg/ctn full, ~18.2016 kg/ctn without nipple)
   if (code === 'SPI-FG-SPK-010' || name.includes('DS FRONT')) {
+    if (withoutNipple) {
+      return Math.round(ctn * 18.2016 * 10) / 10;
+    }
     return Math.round(ctn * 22.0032 * 10) / 10;
   }
-  // 4. 250X18 Butted spoke (~19.2528 kg/ctn -> 50 CTN = 962.6 KG)
+  // 4. 250X18 Butted spoke (~19.2528 kg/ctn full, ~15.4512 kg/ctn without nipple)
   if (code === 'SPI-FG-SPK-003' || name.includes('250X18')) {
+    if (withoutNipple) {
+      return Math.round(ctn * 15.4512 * 10) / 10;
+    }
     return Math.round(ctn * 19.2528 * 10) / 10;
   }
-  // 5. 250X17 Butted spoke (~18.3888 kg/ctn -> 50 CTN = 919.4 KG)
+  // 5. 250X17 Butted spoke (~18.3888 kg/ctn full, ~14.5872 kg/ctn without nipple)
   if (
     code === 'SPI-FG-SPK-001' ||
     code === 'SPI-FG-SPK-002' ||
     name.includes('250X17') ||
     name.includes('BUTTED')
   ) {
+    if (withoutNipple) {
+      return Math.round(ctn * 14.5872 * 10) / 10;
+    }
     return Math.round(ctn * 18.3888 * 10) / 10;
   }
 
   // Generic fallback
+  if (withoutNipple) {
+    return Math.round(ctn * 15.1344 * 10) / 10;
+  }
   return Math.round(ctn * 18.936 * 10) / 10;
 }
 
@@ -232,6 +253,25 @@ export interface RecentPackingLog {
     isOuter?: boolean;
     statusTag?: React.ReactNode;
   }>;
+}
+
+export interface GroupedPendingItem {
+  key: string;
+  fgItemId: string;
+  fgItemCode: string;
+  fgItemName: string;
+  totalPcs: number;
+  totalGross: number;
+  totalCartons: number;
+  totalWeightKg: number;
+  pendingNippleCode: string;
+  totalPendingNippleGross: number;
+  totalPendingNipplePcs: number;
+  batchCount: number;
+  batches: RecentPackingLog[];
+  customers: string[];
+  socList: string[];
+  latestEntryDate: string;
 }
 
 /** Parse a saved Production Entry (hand packing) back into a shift-log row using its structured remarks. */
@@ -371,11 +411,28 @@ const parseHandPackingEntry = (e: any): RecentPackingLog | null => {
     weightKg: (() => {
       const weightMatch = remarks.match(/Weight:\s*([\d.]+)\s*KG/i);
       const parsedWeight = weightMatch ? toNum(weightMatch[1]) : 0;
-      const accurate = computeFgBatchWeightKg(e.item?.itemCode, e.item?.name, cartons);
+      const accurateWithoutNipple = computeFgBatchWeightKg(e.item?.itemCode, e.item?.name, cartons, true);
+      const accurateFull = computeFgBatchWeightKg(e.item?.itemCode, e.item?.name, cartons, false);
+
+      if (withoutNippleMatch) {
+        // If this batch was packed without nipples (held in Safety Stock):
+        // Exclude deferred nipple weight from the packed batch weight!
+        const nipPcs = pendingNipplePcs > 0 ? pendingNipplePcs : (cartons * PCS_PER_CARTON);
+        const nipWpp = lookupComponentWeightPerPieceKg(pendingNippleCode || 'FG-NP', 'NIPPLE');
+        const deferredNippleWeightKg = Math.round(nipPcs * nipWpp * 10) / 10;
+
+        // If previously saved batch had included the full nipple weight (parsedWeight > accurateWithoutNipple + 5):
+        if (parsedWeight > accurateWithoutNipple + 5) {
+          const spokeOnly = Math.round((parsedWeight - deferredNippleWeightKg) * 10) / 10;
+          return spokeOnly > 0 ? spokeOnly : accurateWithoutNipple;
+        }
+        return parsedWeight > 0 ? parsedWeight : accurateWithoutNipple;
+      }
+
       if (parsedWeight > 0) {
         return parsedWeight;
       }
-      return accurate > 0 ? accurate : Math.round(cartons * 18.936 * 10) / 10;
+      return accurateFull > 0 ? accurateFull : Math.round(cartons * 18.936 * 10) / 10;
     })(),
     rejectionPcs,
     rejectionKg: compRejMatch ? toNum(compRejMatch[2]) : (legacyRejMatch ? toNum(legacyRejMatch[2]) : 0),
@@ -1114,6 +1171,558 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
   const pendingNippleEntries = useMemo(() => {
     return recentSavedEntries.filter((r) => r.withoutNipple || r.status === 'WITHOUT_NIPPLE');
   }, [recentSavedEntries]);
+
+  // Pending Nipple Queue View Mode: 'GROUPED' (Summary by Finished Good Item) vs 'DETAILED' (Flat Batch List)
+  const [pendingQueueViewMode, setPendingQueueViewMode] = useState<'GROUPED' | 'DETAILED'>('GROUPED');
+  const [expandedPendingItemKeys, setExpandedPendingItemKeys] = useState<string[]>([]);
+
+  // Group pending batches by Finished Good item
+  const groupedPendingNippleItems = useMemo<GroupedPendingItem[]>(() => {
+    const map = new Map<string, GroupedPendingItem>();
+    pendingNippleEntries.forEach((r) => {
+      const key = (r.fgItemCode || r.fgItemId || r.fgItemName || 'UNKNOWN_ITEM').trim();
+      if (!map.has(key)) {
+        map.set(key, {
+          key,
+          fgItemId: r.fgItemId || '',
+          fgItemCode: r.fgItemCode || 'UNKNOWN',
+          fgItemName: r.fgItemName || 'Finished Good Spokes',
+          totalPcs: 0,
+          totalGross: 0,
+          totalCartons: 0,
+          totalWeightKg: 0,
+          pendingNippleCode: r.pendingNippleCode || '',
+          totalPendingNippleGross: 0,
+          totalPendingNipplePcs: 0,
+          batchCount: 0,
+          batches: [],
+          customers: [],
+          socList: [],
+          latestEntryDate: r.entryDate || '',
+        });
+      }
+      const group = map.get(key)!;
+      group.totalPcs += Number(r.pcs || 0);
+      group.totalGross += Number(r.gross || 0);
+      group.totalCartons += Number(r.cartons || 0);
+      group.totalWeightKg += Number(r.weightKg || 0);
+      group.batchCount += 1;
+      group.batches.push(r);
+      if (r.pendingNippleCode && !group.pendingNippleCode) {
+        group.pendingNippleCode = r.pendingNippleCode;
+      }
+      group.totalPendingNippleGross += Number(r.pendingNippleGross || r.gross || 0);
+      group.totalPendingNipplePcs += Number(r.pendingNipplePcs || r.pcs || 0);
+      if (r.customerName && !group.customers.includes(r.customerName)) {
+        group.customers.push(r.customerName);
+      }
+      if (r.socNo && !group.socList.includes(r.socNo)) {
+        group.socList.push(r.socNo);
+      }
+      if (r.entryDate && (!group.latestEntryDate || r.entryDate > group.latestEntryDate)) {
+        group.latestEntryDate = r.entryDate;
+      }
+    });
+    return Array.from(map.values()).sort((a, b) => b.totalCartons - a.totalCartons);
+  }, [pendingNippleEntries]);
+
+  // Export & Share Suite for Without Nipple Pack (Safety Stock Holding)
+  const handlePrintPendingNippleSummary = useCallback(() => {
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      message.error('Please allow popups in your browser to print the report.');
+      return;
+    }
+
+    const dateStr = dayjs().format('DD-MMM-YYYY');
+    const timeStr = dayjs().format('hh:mm A');
+    const totalCartons = pendingNippleEntries.reduce((s, r) => s + (r.cartons || 0), 0);
+    const totalGross = pendingNippleEntries.reduce((s, r) => s + (r.gross || 0), 0);
+    const totalPcs = pendingNippleEntries.reduce((s, r) => s + (r.pcs || 0), 0);
+    const totalWeight = pendingNippleEntries.reduce((s, r) => s + (r.weightKg || 0), 0);
+    const totalNippleGross = groupedPendingNippleItems.reduce((s, g) => s + (g.totalPendingNippleGross || 0), 0);
+
+    const html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>PWI - Without Nipple Pack Safety Stock Summary - ${dateStr}</title>
+        <meta charset="utf-8" />
+        <style>
+          @page {
+            size: A4 portrait;
+            margin: 10mm 12mm;
+          }
+          body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+            color: #0f172a;
+            margin: 0;
+            padding: 0;
+            font-size: 11px;
+            background: #ffffff;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+          .header-table {
+            width: 100%;
+            border-bottom: 2.5px solid #0284c7;
+            padding-bottom: 8px;
+            margin-bottom: 12px;
+          }
+          .company-title {
+            font-size: 16px;
+            font-weight: 800;
+            color: #0f172a;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+          }
+          .report-title {
+            font-size: 12px;
+            font-weight: 700;
+            color: #0284c7;
+            margin-top: 2px;
+          }
+          .meta-text {
+            font-size: 9.5px;
+            color: #475569;
+            text-align: right;
+            line-height: 1.5;
+          }
+          .kpi-row {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 12px;
+          }
+          .kpi-box {
+            flex: 1;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            padding: 8px 10px;
+            background: #f8fafc;
+            text-align: center;
+          }
+          .kpi-title {
+            font-size: 9px;
+            font-weight: 700;
+            color: #64748b;
+            text-transform: uppercase;
+          }
+          .kpi-val {
+            font-size: 13.5px;
+            font-weight: 800;
+            color: #0f172a;
+            margin-top: 3px;
+          }
+          table.data-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 10px;
+            margin-bottom: 12px;
+          }
+          table.data-table th {
+            background: #f1f5f9;
+            color: #0f172a;
+            font-weight: 700;
+            padding: 6px 8px;
+            border: 1px solid #cbd5e1;
+            text-align: left;
+          }
+          table.data-table td {
+            padding: 6px 8px;
+            border: 1px solid #e2e8f0;
+            vertical-align: top;
+          }
+          table.data-table tr:nth-child(even) {
+            background: #f8fafc;
+          }
+          .total-row {
+            font-weight: 800;
+            background: #f1f5f9 !important;
+            border-top: 2px solid #0284c7;
+          }
+          .batch-tag {
+            display: inline-block;
+            background: #e0f2fe;
+            color: #0369a1;
+            border: 1px solid #bae6fd;
+            border-radius: 3px;
+            padding: 1px 4px;
+            font-size: 8.5px;
+            font-weight: 700;
+            margin: 1px 2px;
+          }
+          .alert-box {
+            background: #fffbeb;
+            border-left: 4px solid #f59e0b;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 10px;
+            color: #92400e;
+            margin-bottom: 12px;
+            font-weight: 600;
+          }
+          .signatures {
+            margin-top: 32px;
+            display: flex;
+            justify-content: space-between;
+            padding: 0 30px;
+          }
+          .sig-box {
+            text-align: center;
+            width: 180px;
+          }
+          .sig-line {
+            border-top: 1.2px solid #475569;
+            margin-bottom: 5px;
+          }
+          .footer-note {
+            margin-top: 20px;
+            font-size: 8.5px;
+            color: #94a3b8;
+            text-align: center;
+            border-top: 1px dashed #cbd5e1;
+            padding-top: 6px;
+          }
+        </style>
+      </head>
+      <body>
+        <table class="header-table">
+          <tr>
+            <td style="width: 70px; vertical-align: middle;">
+              <img src="${PWI_LOGO_BASE64}" style="width: 58px; height: 58px; object-fit: contain;" alt="PWI Logo" />
+            </td>
+            <td style="vertical-align: middle;">
+              <div class="company-title">Pakistan Wire Industries (Pvt.) LTD</div>
+              <div class="report-title">WITHOUT NIPPLE PACK · SAFETY STOCK INVENTORY REPORT</div>
+              <div style="font-size: 10px; color: #64748b; margin-top: 2px;">Item-Wise Consolidated Inventory Awaiting Store Nipple Arrival</div>
+            </td>
+            <td class="meta-text" style="vertical-align: middle;">
+              <div><b>Report Date:</b> ${dateStr}</div>
+              <div><b>Time:</b> ${timeStr}</div>
+              <div><b>Dept:</b> Packing Division (SPD)</div>
+              <div><b>System:</b> PWI ERP & MRP</div>
+            </td>
+          </tr>
+        </table>
+
+        <div class="alert-box">
+          ⚠️ <b>DISPATCH HOLD WARNING:</b> The items listed below are currently packed in White Poly Bags and held in Safety Stock. They CANNOT be dispatched to customers or sent to Finished Goods Warehouse until required nipples are received from stores and assembled.
+        </div>
+
+        <div class="kpi-row">
+          <div class="kpi-box">
+            <div class="kpi-title">Distinct FG Items</div>
+            <div class="kpi-val" style="color: #0284c7;">${groupedPendingNippleItems.length} Items</div>
+          </div>
+          <div class="kpi-box">
+            <div class="kpi-title">Incomplete Batches</div>
+            <div class="kpi-val" style="color: #ea580c;">${pendingNippleEntries.length} Batches</div>
+          </div>
+          <div class="kpi-box">
+            <div class="kpi-title">Total Cartons</div>
+            <div class="kpi-val" style="color: #d97706;">${formatNumber(totalCartons, 0)} Cartons</div>
+          </div>
+          <div class="kpi-box">
+            <div class="kpi-title">Total Quantity</div>
+            <div class="kpi-val">${formatNumber(totalGross, 0)} GRS <span style="font-size: 10px; color: #64748b;">(${formatNumber(totalPcs, 0)} PCS)</span></div>
+          </div>
+          <div class="kpi-box">
+            <div class="kpi-title">Total Nipple Deficit</div>
+            <div class="kpi-val" style="color: #dc2626;">${formatNumber(totalNippleGross, 0)} GRS Req</div>
+          </div>
+        </div>
+
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th style="width: 25px; text-align: center;">#</th>
+              <th style="width: 110px;">Item Code</th>
+              <th>Finished Good Description</th>
+              <th style="width: 140px;">Waiting Batches</th>
+              <th style="text-align: right; width: 75px;">Cartons</th>
+              <th style="text-align: right; width: 85px;">Gross</th>
+              <th style="text-align: right; width: 85px;">Pieces</th>
+              <th style="text-align: right; width: 75px;">Weight</th>
+              <th style="width: 140px;">Missing Nipple Required</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${groupedPendingNippleItems.map((item, idx) => `
+              <tr>
+                <td style="text-align: center;">${idx + 1}</td>
+                <td><b style="color: #0284c7;">${item.fgItemCode}</b></td>
+                <td>
+                  <b>${item.fgItemName}</b>
+                  <div style="font-size: 8.5px; color: #64748b; margin-top: 2px;">
+                    Customers/SOC: ${item.customers.join(', ') || 'Safety Stock'}
+                  </div>
+                </td>
+                <td>
+                  <b style="color: #ea580c;">${item.batchCount} Batches:</b><br/>
+                  ${item.batches.map(b => `<span class="batch-tag">${b.batchNo}</span>`).join('')}
+                </td>
+                <td style="text-align: right; font-weight: 800; color: #d97706;">${formatNumber(item.totalCartons, 0)}</td>
+                <td style="text-align: right; font-weight: 700;">${formatNumber(item.totalGross, 0)} GRS</td>
+                <td style="text-align: right;">${formatNumber(item.totalPcs, 0)}</td>
+                <td style="text-align: right;">${item.totalWeightKg ? formatNumber(item.totalWeightKg, 1) + ' KG' : '—'}</td>
+                <td style="background: #fef2f2;">
+                  <b style="color: #dc2626;">⚠️ ${item.pendingNippleCode || 'Nipple Required'}</b><br/>
+                  <span style="font-size: 9px; color: #991b1b; font-weight: 700;">Req: ${formatNumber(item.totalPendingNippleGross, 0)} GRS (${formatNumber(item.totalPendingNipplePcs, 0)} PCS)</span>
+                </td>
+              </tr>
+            `).join('')}
+            <tr class="total-row">
+              <td colspan="4" style="text-align: right; font-size: 11px;">GRAND TOTAL (SAFETY STOCK HOLDING):</td>
+              <td style="text-align: right; font-size: 12px; color: #d97706;">${formatNumber(totalCartons, 0)}</td>
+              <td style="text-align: right; font-size: 11px;">${formatNumber(totalGross, 0)} GRS</td>
+              <td style="text-align: right; font-size: 11px;">${formatNumber(totalPcs, 0)}</td>
+              <td style="text-align: right; font-size: 11px;">${formatNumber(totalWeight, 1)} KG</td>
+              <td style="text-align: left; font-size: 11px; color: #dc2626;">${formatNumber(totalNippleGross, 0)} GRS Needed</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="signatures">
+          <div class="sig-box">
+            <div class="sig-line"></div>
+            <div><b>Prepared By</b><br/><span style="font-size: 9px; color: #64748b;">Packing Supervisor</span></div>
+          </div>
+          <div class="sig-box">
+            <div class="sig-line"></div>
+            <div><b>Store Incharge</b><br/><span style="font-size: 9px; color: #64748b;">Hardware / Nipple Store (WH-002)</span></div>
+          </div>
+          <div class="sig-box">
+            <div class="sig-line"></div>
+            <div><b>Plant Manager / GM</b><br/><span style="font-size: 9px; color: #64748b;">Approved for Release</span></div>
+          </div>
+        </div>
+
+        <div class="footer-note">
+          Pakistan Wire Industries (Pvt.) LTD · Enterprise ERP & MRP System · Generated on ${dateStr} at ${timeStr}
+        </div>
+      </body>
+      </html>
+    `;
+
+    printWindow.document.open();
+    printWindow.document.write(html);
+    printWindow.document.close();
+    printWindow.focus();
+    setTimeout(() => {
+      printWindow.print();
+    }, 450);
+  }, [groupedPendingNippleItems, pendingNippleEntries]);
+
+  const handleExportPendingNipplePdf = useCallback(async () => {
+    try {
+      message.loading({ content: 'Generating vector PDF document...', key: 'pdf-export-pending' });
+      const { default: jsPDF } = await import('jspdf');
+      const { default: autoTable } = await import('jspdf-autotable');
+
+      const doc = new jsPDF({ orientation: 'landscape', format: 'a4', unit: 'mm' });
+      const pageWidth = doc.internal.pageSize.getWidth(); // 297 mm
+      const pageHeight = doc.internal.pageSize.getHeight(); // 210 mm
+      const dateStr = dayjs().format('DD-MMM-YYYY');
+      const timeStr = dayjs().format('hh:mm A');
+
+      // Top colored bar
+      doc.setFillColor(2, 132, 199); // #0284c7
+      doc.rect(0, 0, pageWidth, 4, 'F');
+
+      // Add Company Logo if available
+      try {
+        doc.addImage(PWI_LOGO_BASE64, 'PNG', 14, 8, 16, 16);
+      } catch (e) {
+        console.warn('Could not render logo in PDF', e);
+      }
+
+      // Header Text
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(14);
+      doc.setTextColor(15, 23, 42);
+      doc.text('PAKISTAN WIRE INDUSTRIES (PVT.) LTD.', 34, 14);
+
+      doc.setFontSize(10);
+      doc.setTextColor(2, 132, 199);
+      doc.text('WITHOUT NIPPLE PACK · SAFETY STOCK INVENTORY REPORT', 34, 20);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+      doc.setTextColor(100, 116, 139);
+      doc.text(`Report Date: ${dateStr} | Time: ${timeStr}`, pageWidth - 14, 14, { align: 'right' });
+      doc.text(`Department: Packing Division (SPD) | System: PWI ERP`, pageWidth - 14, 19, { align: 'right' });
+
+      // Dividing Line
+      doc.setDrawColor(2, 132, 199);
+      doc.setLineWidth(0.6);
+      doc.line(14, 26, pageWidth - 14, 26);
+
+      // Warning Note
+      doc.setFillColor(254, 243, 199); // #fef3c7
+      doc.setDrawColor(245, 158, 11);
+      doc.setLineWidth(0.4);
+      doc.roundedRect(14, 29, pageWidth - 28, 8, 1.5, 1.5, 'FD');
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7.5);
+      doc.setTextColor(146, 64, 14);
+      doc.text(
+        'DISPATCH HOLD WARNING: Items packed without nipples are held in Safety Stock and CANNOT be dispatched until nipples are issued from store.',
+        pageWidth / 2,
+        34,
+        { align: 'center' }
+      );
+
+      // Table Data
+      const tableRows = groupedPendingNippleItems.map((item, idx) => [
+        idx + 1,
+        item.fgItemCode,
+        `${item.fgItemName}\n(Customers: ${item.customers.join(', ') || 'Safety Stock'})`,
+        `${item.batchCount} Batches: ${item.batches.map(b => b.batchNo).join(', ')}`,
+        formatNumber(item.totalCartons, 0),
+        `${formatNumber(item.totalGross, 0)} GRS`,
+        formatNumber(item.totalPcs, 0),
+        item.totalWeightKg ? `${formatNumber(item.totalWeightKg, 1)} KG` : '—',
+        `${item.pendingNippleCode || 'Nipple Req'}\nReq: ${formatNumber(item.totalPendingNippleGross, 0)} GRS`,
+      ]);
+
+      const totalCartons = pendingNippleEntries.reduce((s, r) => s + (r.cartons || 0), 0);
+      const totalGross = pendingNippleEntries.reduce((s, r) => s + (r.gross || 0), 0);
+      const totalPcs = pendingNippleEntries.reduce((s, r) => s + (r.pcs || 0), 0);
+      const totalWeight = pendingNippleEntries.reduce((s, r) => s + (r.weightKg || 0), 0);
+      const totalNippleGross = groupedPendingNippleItems.reduce((s, g) => s + (g.totalPendingNippleGross || 0), 0);
+
+      autoTable(doc, {
+        startY: 40,
+        margin: { left: 14, right: 14, bottom: 25 },
+        head: [['#', 'Item Code', 'Finished Good Description', 'Batches Waiting', 'Cartons', 'Gross', 'Pieces', 'Weight', 'Missing Nipple Req']],
+        body: tableRows,
+        foot: [[
+          { content: 'TOTAL', colSpan: 2, styles: { halign: 'center', fontStyle: 'bold', fontSize: 8 } },
+          `${groupedPendingNippleItems.length} Finished Good Items`,
+          `${pendingNippleEntries.length} Incomplete Batches`,
+          formatNumber(totalCartons, 0),
+          `${formatNumber(totalGross, 0)} GRS`,
+          formatNumber(totalPcs, 0),
+          `${formatNumber(totalWeight, 1)} KG`,
+          `${formatNumber(totalNippleGross, 0)} GRS Needed`,
+        ]],
+        theme: 'striped',
+        headStyles: {
+          fillColor: [241, 245, 249],
+          textColor: [15, 23, 42],
+          fontStyle: 'bold',
+          fontSize: 8,
+          cellPadding: 2.5,
+          lineColor: [203, 213, 225],
+          lineWidth: 0.2,
+        },
+        bodyStyles: {
+          fontSize: 7.5,
+          cellPadding: 2,
+          textColor: [15, 23, 42],
+          lineColor: [226, 232, 240],
+          lineWidth: 0.2,
+        },
+        footStyles: {
+          fillColor: [254, 243, 199],
+          textColor: [146, 64, 14],
+          fontStyle: 'bold',
+          fontSize: 7.2,
+          cellPadding: 2.5,
+          lineColor: [245, 158, 11],
+          lineWidth: 0.3,
+        },
+        columnStyles: {
+          0: { cellWidth: 10, halign: 'center' },
+          1: { cellWidth: 28, fontStyle: 'bold', textColor: [2, 132, 199] },
+          2: { cellWidth: 58 },
+          3: { cellWidth: 46 },
+          4: { cellWidth: 18, halign: 'right', fontStyle: 'bold', textColor: [217, 119, 6] },
+          5: { cellWidth: 23, halign: 'right', fontStyle: 'bold' },
+          6: { cellWidth: 24, halign: 'right' },
+          7: { cellWidth: 27, halign: 'right' },
+          8: { cellWidth: 35, fontStyle: 'bold', textColor: [220, 38, 38] },
+        },
+      });
+
+      const finalY = (doc as any).lastAutoTable.finalY + 12;
+
+      // Signatures
+      if (finalY + 20 < pageHeight) {
+        doc.setDrawColor(100, 116, 139);
+        doc.setLineWidth(0.3);
+
+        doc.line(30, finalY + 10, 80, finalY + 10);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.5);
+        doc.setTextColor(100, 116, 139);
+        doc.text('Prepared By (Packing Supervisor)', 55, finalY + 14, { align: 'center' });
+
+        doc.line(pageWidth / 2 - 25, finalY + 10, pageWidth / 2 + 25, finalY + 10);
+        doc.text('Verified By (Hardware Store Incharge)', pageWidth / 2, finalY + 14, { align: 'center' });
+
+        doc.line(pageWidth - 80, finalY + 10, pageWidth - 30, finalY + 10);
+        doc.text('Approved By (Plant / GM)', pageWidth - 55, finalY + 14, { align: 'center' });
+      }
+
+      // Page numbering footer
+      const totalPages = (doc.internal as any).getNumberOfPages();
+      for (let p = 1; p <= totalPages; p++) {
+        doc.setPage(p);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7);
+        doc.setTextColor(148, 163, 184);
+        doc.text(`Pakistan Wire Industries (Pvt.) LTD · Page ${p} of ${totalPages}`, pageWidth / 2, pageHeight - 6, { align: 'center' });
+      }
+
+      doc.save(`PWI_Without_Nipple_Pack_Safety_Stock_Summary_${dayjs().format('YYYY-MM-DD')}.pdf`);
+      message.success({ content: 'Without Nipple Pack Stock Summary PDF exported successfully!', key: 'pdf-export-pending' });
+    } catch (err) {
+      console.error('Failed to generate PDF', err);
+      message.error({ content: 'Failed to generate PDF. Please try again.', key: 'pdf-export-pending' });
+    }
+  }, [groupedPendingNippleItems, pendingNippleEntries]);
+
+  const handleSharePendingNippleWhatsApp = useCallback(() => {
+    const dateStr = dayjs().format('DD-MMM-YYYY hh:mm A');
+    const totalCartons = pendingNippleEntries.reduce((s, r) => s + (r.cartons || 0), 0);
+    const totalGross = pendingNippleEntries.reduce((s, r) => s + (r.gross || 0), 0);
+    const totalPcs = pendingNippleEntries.reduce((s, r) => s + (r.pcs || 0), 0);
+    const totalWeight = pendingNippleEntries.reduce((s, r) => s + (r.weightKg || 0), 0);
+    const totalNippleGross = groupedPendingNippleItems.reduce((s, g) => s + (g.totalPendingNippleGross || 0), 0);
+
+    let text = `*PAKISTAN WIRE INDUSTRIES (PVT.) LTD.*\n`;
+    text += `📦 *WITHOUT NIPPLE PACK · SAFETY STOCK INVENTORY REPORT*\n`;
+    text += `📅 *Date & Time:* ${dateStr}\n`;
+    text += `🏢 *Department:* Packing Division (SPD)\n`;
+    text += `-------------------------------------------\n`;
+    text += `📊 *EXECUTIVE SUMMARY:*\n`;
+    text += `• *Distinct FG Items:* ${groupedPendingNippleItems.length} Items\n`;
+    text += `• *Waiting Incomplete Batches:* ${pendingNippleEntries.length} Batches\n`;
+    text += `• *Total Waiting Cartons:* *${formatNumber(totalCartons, 0)} Cartons*\n`;
+    text += `• *Total Packed Quantity:* ${formatNumber(totalGross, 0)} GRS (${formatNumber(totalPcs, 0)} PCS)\n`;
+    text += `• *Total Packed Weight:* *${formatNumber(totalWeight, 1)} KG (Spokes Only · Without Nipple)*\n`;
+    text += `• *Total Missing Nipple Deficit:* *${formatNumber(totalNippleGross, 0)} GRS Required*\n`;
+    text += `-------------------------------------------\n\n`;
+    text += `*ITEM-WISE CONSOLIDATED STOCK & NIPPLE DEFICIT:*\n\n`;
+
+    groupedPendingNippleItems.forEach((item, idx) => {
+      text += `*${idx + 1}. [${item.fgItemCode}]* ${item.fgItemName}\n`;
+      text += `   📦 *Cartons:* ${formatNumber(item.totalCartons, 0)} Cartons\n`;
+      text += `   📊 *Quantity:* ${formatNumber(item.totalGross, 0)} GRS (${formatNumber(item.totalPcs, 0)} PCS)\n`;
+      text += `   ⚖️ *Packed Weight:* ${formatNumber(item.totalWeightKg, 1)} KG (Spokes Only)\n`;
+      text += `   ⚠️ *Missing Nipple:* ${item.pendingNippleCode || 'Nipple Req'} ➔ *${formatNumber(item.totalPendingNippleGross, 0)} GRS Required*\n`;
+      text += `   📋 *Batches (${item.batchCount}):* ${item.batches.map(b => b.batchNo).join(', ')}\n`;
+      text += `   🏢 *Customers/SOC:* ${item.customers.join(', ') || 'Safety Stock'}\n\n`;
+    });
+
+    text += `⚠️ *STATUS NOTE:* All items above are packed in White Poly Bags and held in Safety Stock. Dispatch is blocked until nipples arrive from store.\n`;
+    text += `_Generated automatically via PWI ERP System_`;
+
+    const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
+    window.open(url, '_blank');
+  }, [groupedPendingNippleItems, pendingNippleEntries]);
 
   // Add Nipple Modal state for batches packed without nipples
   const [addNippleModalVisible, setAddNippleModalVisible] = useState<boolean>(false);
@@ -2816,11 +3425,22 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
       if (!backendSuccess) {
         const rawEntry = addNippleTargetBatch.rawEntry;
         const oldRemarks = String(rawEntry?.remarks || '');
-        const cleanRemarks = oldRemarks
+        const fullBatchWeight = computeFgBatchWeightKg(
+          addNippleTargetBatch.fgItemCode,
+          addNippleTargetBatch.fgItemName,
+          addNippleTargetBatch.cartons,
+          false
+        );
+        let cleanRemarks = oldRemarks
           .replace(/Status:\s*WITHOUT_NIPPLE/gi, 'Status: COMPLETED')
           .replace(/\|?\s*Without Nipple:[^|]+/gi, '')
-          .replace(/\|?\s*Pending Nipple:[^|]+/gi, '')
-          .trim() + ` | Nipple Added: ${completionDateStr} | Completed by: ${currentUserName}`;
+          .replace(/\|?\s*Pending Nipple:[^|]+/gi, '');
+        if (/Weight:\s*[\d.]+\s*KG/i.test(cleanRemarks)) {
+          cleanRemarks = cleanRemarks.replace(/Weight:\s*[\d.]+\s*KG/i, `Weight: ${fullBatchWeight} KG`);
+        } else {
+          cleanRemarks += ` | Weight: ${fullBatchWeight} KG`;
+        }
+        cleanRemarks = cleanRemarks.trim() + ` | Nipple Added: ${completionDateStr} | Completed by: ${currentUserName}`;
 
         const updatePayload: any = {
           ...(rawEntry || {}),
@@ -4104,19 +4724,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         ? parsedEntryDate.format('YYYY-MM-DD')
         : defaultProductionEntryDate().format('YYYY-MM-DD');
 
-      // Total Batch Weight: sum the exact component requirements if loaded (BOM components), or fallback to computeFgBatchWeightKg
       const comps = primaryItem.components || [];
-      const computedCompsWeightKg = comps.length > 0
-        ? Math.round(comps.reduce((s, c) => {
-            const r = computeRowRejection(c);
-            const wpp = r.perPieceWeightKg > 0 ? r.perPieceWeightKg : lookupComponentWeightPerPieceKg(c.componentItemCode, c.componentItemName);
-            return s + ((c.requiredPcs || 0) * wpp);
-          }, 0) * 10) / 10
-        : 0;
-      const computedBatchWeightKg = computedCompsWeightKg > 0
-        ? computedCompsWeightKg
-        : computeFgBatchWeightKg(primaryItem.itemCode, primaryItem.itemName, primaryItem.cartons);
-
       const hasInnerExcluded = primaryItem.components.some((c) => c.excludedFromPacking && (c.componentItemName?.toLowerCase().includes('inner') || c.componentItemCode?.toLowerCase().includes('inn')));
       const hasOuterExcluded = primaryItem.components.some((c) => c.excludedFromPacking && (c.componentItemName?.toLowerCase().includes('outer') || c.componentItemCode?.toLowerCase().includes('out')));
       const withoutNippleComps = primaryItem.components.filter((c) => c.packWithoutNipple);
@@ -4128,6 +4736,20 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
             ? 'INNER_ONLY'
             : (isWithoutNippleBatch ? 'WITHOUT_NIPPLE' : 'FULL_SET')
       );
+
+      // Total Batch Weight: sum the exact component requirements if loaded (BOM components), or fallback to computeFgBatchWeightKg.
+      // Excludes components that are excluded from packing OR deferred (packed without nipple).
+      const computedCompsWeightKg = comps.length > 0
+        ? Math.round(comps.reduce((s, c) => {
+            if (c.excludedFromPacking || c.packWithoutNipple) return s;
+            const r = computeRowRejection(c);
+            const wpp = r.perPieceWeightKg > 0 ? r.perPieceWeightKg : lookupComponentWeightPerPieceKg(c.componentItemCode, c.componentItemName);
+            return s + ((c.requiredPcs || 0) * wpp);
+          }, 0) * 10) / 10
+        : 0;
+      const computedBatchWeightKg = computedCompsWeightKg > 0
+        ? computedCompsWeightKg
+        : computeFgBatchWeightKg(primaryItem.itemCode, primaryItem.itemName, primaryItem.cartons, isWithoutNippleBatch);
 
       const chosenNippleComp = primaryItem.components.find((c) => c.componentItemName?.toLowerCase().includes('nipple') || c.componentItemCode?.toLowerCase().includes('np'));
       const chosenNippleCode = chosenNippleComp?.componentItemCode || '';
@@ -6600,7 +7222,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         const totalWeightKg = Math.round(items.reduce((s, r) => {
           const wt = r.weightKg > 0
             ? r.weightKg
-            : computeFgBatchWeightKg(r.fgItemCode, r.fgItemName, r.cartons || 50);
+            : computeFgBatchWeightKg(r.fgItemCode, r.fgItemName, r.cartons || 50, r.withoutNipple || r.status === 'WITHOUT_NIPPLE');
           return s + wt;
         }, 0) * 10) / 10;
         const totalRejectionPcs = items.reduce((s, r) => s + (r.rejectionPcs || 0), 0);
@@ -6657,7 +7279,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
       totalWeightKg: Math.round(recentSavedEntries.reduce((s, r) => {
         const wt = r.weightKg > 0
           ? r.weightKg
-          : computeFgBatchWeightKg(r.fgItemCode, r.fgItemName, r.cartons || 50);
+          : computeFgBatchWeightKg(r.fgItemCode, r.fgItemName, r.cartons || 50, r.withoutNipple || r.status === 'WITHOUT_NIPPLE');
         return s + wt;
       }, 0) * 10) / 10,
       totalBatches: recentSavedEntries.length,
@@ -6880,7 +7502,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         render: (_: any, r: RecentPackingLog) => {
           const wtKg = r.weightKg > 0
             ? r.weightKg
-            : computeFgBatchWeightKg(r.fgItemCode, r.fgItemName, r.cartons || 50);
+            : computeFgBatchWeightKg(r.fgItemCode, r.fgItemName, r.cartons || 50, r.withoutNipple || r.status === 'WITHOUT_NIPPLE');
           return (
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
@@ -7161,6 +7783,179 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
             + Add Nipple & Finalize
           </Button>
         ),
+      },
+    ];
+
+    // ── Dedicated Table Columns for Grouped Finished Good Items (Pending Nipple Queue) ──
+    const groupedPendingColumns: any = [
+      {
+        title: '#',
+        width: 45,
+        align: 'center',
+        render: (_: any, __: any, i: number) => (
+          <span style={{ fontWeight: 700, color: 'var(--theme-text-muted, #94a3b8)' }}>{i + 1}</span>
+        ),
+      },
+      {
+        title: <span style={{ fontWeight: 800 }}>Finished Good Item</span>,
+        key: 'item',
+        width: 270,
+        render: (_: any, r: GroupedPendingItem) => (
+          <div>
+            <Tag color="blue" style={{ fontSize: 11, fontWeight: 800, padding: '1px 8px', borderRadius: 4 }}>
+              {r.fgItemCode}
+            </Tag>
+            <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--theme-heading, var(--theme-text, #f8fafc))', marginTop: 3 }}>
+              {r.fgItemName}
+            </div>
+            <div style={{ marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+              {r.customers.slice(0, 3).map((c, ci) => (
+                <Tag key={ci} color="cyan" style={{ fontSize: 10, margin: 0, fontWeight: 600 }}>
+                  {c}
+                </Tag>
+              ))}
+              {r.customers.length > 3 && (
+                <Tag color="default" style={{ fontSize: 10, margin: 0 }}>
+                  +{r.customers.length - 3} more
+                </Tag>
+              )}
+            </div>
+          </div>
+        ),
+      },
+      {
+        title: <span style={{ fontWeight: 800 }}>Waiting Batches</span>,
+        key: 'batches',
+        width: 230,
+        render: (_: any, r: GroupedPendingItem) => (
+          <div>
+            <Space size={6} style={{ marginBottom: 4 }}>
+              <Tag color="orange" style={{ fontWeight: 800, fontSize: 11.5, padding: '2px 8px', borderRadius: 4 }}>
+                {r.batchCount} {r.batchCount === 1 ? 'Batch' : 'Batches'}
+              </Tag>
+              <span style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)' }}>
+                Latest: {(() => {
+                  if (!r.latestEntryDate) return '—';
+                  if (r.latestEntryDate.includes('/')) {
+                    const p = dayjs(r.latestEntryDate, 'DD/MM/YYYY');
+                    if (p.isValid()) return p.format('DD MMM');
+                  }
+                  const d = dayjs(r.latestEntryDate);
+                  if (d.isValid()) return d.format('DD MMM');
+                  return r.latestEntryDate;
+                })()}
+              </span>
+            </Space>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, maxHeight: 48, overflowY: 'auto' }}>
+              {r.batches.slice(0, 5).map((b) => (
+                <Tag key={b.id} color="default" style={{ fontSize: 10.5, fontWeight: 700, margin: 0 }}>
+                  {b.batchNo}
+                </Tag>
+              ))}
+              {r.batches.length > 5 && (
+                <Tag color="gold" style={{ fontSize: 10, fontWeight: 700, margin: 0 }}>
+                  +{r.batches.length - 5} more
+                </Tag>
+              )}
+            </div>
+          </div>
+        ),
+      },
+      {
+        title: <span style={{ fontWeight: 800 }}>Total Packed Quantity</span>,
+        key: 'qty',
+        width: 200,
+        render: (_: any, r: GroupedPendingItem) => (
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 13.5, color: 'var(--theme-heading, var(--theme-text, #f8fafc))' }}>
+              {formatNumber(r.totalPcs, 0)} PCS <span style={{ color: 'var(--theme-text-muted, #94a3b8)', fontWeight: 600, fontSize: 11.5 }}>({formatNumber(r.totalGross, 0)} GRS)</span>
+            </div>
+            <div style={{ fontSize: 12, color: '#fb923c', fontWeight: 700, marginTop: 3 }}>
+              📦 <strong style={{ fontSize: 13 }}>{formatNumber(r.totalCartons, 0)}</strong> Cartons · ⚖️ {formatNumber(r.totalWeightKg, 1)} KG
+            </div>
+          </div>
+        ),
+      },
+      {
+        title: <span style={{ fontWeight: 800 }}>Missing Nipple Requirement</span>,
+        key: 'pendingNipple',
+        width: 240,
+        render: (_: any, r: GroupedPendingItem) => (
+          <div style={{ background: 'rgba(239, 68, 68, 0.12)', padding: '6px 10px', borderRadius: 6, border: '1px dashed #ef4444' }}>
+            <div style={{ fontWeight: 800, fontSize: 12, color: '#f87171' }}>
+              ⚠️ {r.pendingNippleCode || 'Nipple Required'}
+            </div>
+            <div style={{ fontSize: 11.5, color: '#fca5a5', fontWeight: 600, marginTop: 2 }}>
+              Total Needed: <strong style={{ color: 'var(--theme-text, #ffffff)' }}>{formatNumber(r.totalPendingNippleGross, 0)} GRS</strong> ({formatNumber(r.totalPendingNipplePcs, 0)} PCS)
+            </div>
+          </div>
+        ),
+      },
+      {
+        title: <span style={{ fontWeight: 800 }}>Safety Stock Status</span>,
+        key: 'status',
+        width: 175,
+        align: 'center',
+        render: () => (
+          <div>
+            <Tag color="warning" icon={<ClockCircleOutlined />} style={{ fontWeight: 800, fontSize: 11, padding: '3px 8px' }}>
+              HELD IN SAFETY STOCK
+            </Tag>
+            <div style={{ fontSize: 10, color: '#dc2626', fontWeight: 700, marginTop: 4 }}>
+              ⛔ Blocked from Dispatch
+            </div>
+          </div>
+        ),
+      },
+      {
+        title: <span style={{ fontWeight: 800 }}>Action</span>,
+        key: 'action',
+        width: 170,
+        align: 'center',
+        render: (_: any, r: GroupedPendingItem) => {
+          const isExpanded = expandedPendingItemKeys.includes(r.key);
+          return (
+            <Space direction="vertical" size={4} style={{ width: '100%' }}>
+              <Button
+                size="small"
+                type="primary"
+                ghost
+                icon={isExpanded ? <DownOutlined /> : <RightOutlined />}
+                onClick={() => {
+                  setExpandedPendingItemKeys((prev) =>
+                    prev.includes(r.key) ? prev.filter((k) => k !== r.key) : [...prev, r.key]
+                  );
+                }}
+                style={{
+                  fontWeight: 700,
+                  fontSize: 11,
+                  width: '100%',
+                  borderRadius: 6,
+                }}
+              >
+                {isExpanded ? 'Hide Batches' : `View ${r.batchCount} Batches`}
+              </Button>
+              {r.batches.length === 1 && (
+                <Button
+                  size="small"
+                  type="primary"
+                  icon={<PlusCircleOutlined />}
+                  onClick={() => handleOpenAddNippleModal(r.batches[0])}
+                  style={{
+                    background: '#059669',
+                    borderColor: '#059669',
+                    fontWeight: 700,
+                    fontSize: 11,
+                    width: '100%',
+                    borderRadius: 6,
+                  }}
+                >
+                  + Add Nipple
+                </Button>
+              )}
+            </Space>
+          );
+        },
       },
     ];
 
@@ -7610,7 +8405,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
               marginBottom: 16,
               borderRadius: 8,
               border: '1.5px solid #f59e0b',
-              background: 'var(--theme-card-bg, #ffffff)',
+              background: 'var(--theme-card-bg, var(--theme-surface, #ffffff))',
               boxShadow: '0 4px 14px rgba(245, 158, 11, 0.12)',
             }}
             title={
@@ -7618,8 +8413,8 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                 <Space align="center" size={10}>
                   <div
                     style={{
-                      width: 32,
-                      height: 32,
+                      width: 34,
+                      height: 34,
                       borderRadius: 8,
                       background: 'rgba(245, 158, 11, 0.15)',
                       border: '1px solid #f59e0b',
@@ -7627,40 +8422,208 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                       alignItems: 'center',
                       justifyContent: 'center',
                       color: '#f59e0b',
-                      fontSize: 16,
+                      fontSize: 17,
                       fontWeight: 900,
                     }}
                   >
                     ⏳
                   </div>
                   <div>
-                    <div style={{ fontWeight: 800, fontSize: 14.5, color: '#f59e0b' }}>
-                      Pending Nipple Queue · Held in Safety Stock (Awaiting Store Arrival)
+                    <div style={{ fontWeight: 800, fontSize: 14.5, color: '#f59e0b', display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span>Without Nipple Pack · Held in Safety Stock</span>
+                      <Tag color="orange" style={{ fontWeight: 800, fontSize: 11, margin: 0 }}>
+                        {pendingQueueViewMode === 'GROUPED' ? 'Consolidated Item View' : 'Flat Batch List'}
+                      </Tag>
                     </div>
                     <div style={{ fontSize: 11.5, color: 'var(--theme-text-muted, #94a3b8)' }}>
                       Spokes packed in White Poly Bags. Held in temporary Safety Stock — CANNOT be dispatched to customer or sent to FG Dispatch Warehouse until nipples are added.
                     </div>
                   </div>
                 </Space>
-                <Space size={8}>
-                  <Tag color="warning" style={{ fontSize: 11.5, fontWeight: 800, padding: '3px 10px', borderRadius: 6 }}>
-                    {pendingNippleEntries.length} Incomplete {pendingNippleEntries.length === 1 ? 'Batch' : 'Batches'} Waiting
-                  </Tag>
-                  <Tag color="orange" style={{ fontSize: 11.5, fontWeight: 800, padding: '3px 10px', borderRadius: 6 }}>
-                    {formatNumber(pendingNippleEntries.reduce((s: number, r: RecentPackingLog) => s + (r.cartons || 0), 0), 0)} Cartons Total
-                  </Tag>
+
+                <Space size={8} wrap>
+                  {/* View Mode Switcher: Grouped by Item vs All Batches */}
+                  <Segmented
+                    value={pendingQueueViewMode}
+                    onChange={(val) => setPendingQueueViewMode(val as any)}
+                    options={[
+                      {
+                        label: (
+                          <Space size={4}>
+                            <AppstoreOutlined style={{ color: pendingQueueViewMode === 'GROUPED' ? '#f59e0b' : undefined }} />
+                            <span style={{ fontWeight: 700 }}>Grouped by Item</span>
+                            <Badge count={groupedPendingNippleItems.length} style={{ backgroundColor: '#f59e0b' }} />
+                          </Space>
+                        ),
+                        value: 'GROUPED',
+                      },
+                      {
+                        label: (
+                          <Space size={4}>
+                            <FileTextOutlined />
+                            <span style={{ fontWeight: 700 }}>All Batches</span>
+                            <Tag color="default" style={{ margin: 0, fontSize: 10.5 }}>{pendingNippleEntries.length}</Tag>
+                          </Space>
+                        ),
+                        value: 'DETAILED',
+                      },
+                    ]}
+                  />
+
+                  {pendingQueueViewMode === 'GROUPED' && (
+                    <>
+                      <Button
+                        size="small"
+                        icon={<DownOutlined style={{ fontSize: 11, color: '#f59e0b' }} />}
+                        onClick={() => setExpandedPendingItemKeys(groupedPendingNippleItems.map((g) => g.key))}
+                        style={{ fontWeight: 700, fontSize: 11.5, borderRadius: 6 }}
+                      >
+                        Expand All
+                      </Button>
+                      <Button
+                        size="small"
+                        icon={<RightOutlined style={{ fontSize: 11, color: '#64748b' }} />}
+                        onClick={() => setExpandedPendingItemKeys([])}
+                        style={{ fontWeight: 700, fontSize: 11.5, borderRadius: 6 }}
+                      >
+                        Collapse All
+                      </Button>
+                    </>
+                  )}
+
+                  {/* Export Actions Suite */}
+                  <Tooltip title="Share Without Nipple Pack Summary on WhatsApp">
+                    <Button
+                      size="small"
+                      icon={<WhatsAppOutlined style={{ color: '#25D366' }} />}
+                      onClick={handleSharePendingNippleWhatsApp}
+                      style={{
+                        borderColor: '#25D366',
+                        color: '#166534',
+                        background: '#f0fdf4',
+                        fontWeight: 700,
+                        fontSize: 11.5,
+                        borderRadius: 6,
+                      }}
+                    >
+                      WhatsApp
+                    </Button>
+                  </Tooltip>
+
+                  <Tooltip title="Print Without Nipple Pack Stock Sheet">
+                    <Button
+                      size="small"
+                      icon={<PrinterOutlined style={{ color: '#0284c7' }} />}
+                      onClick={handlePrintPendingNippleSummary}
+                      style={{
+                        borderColor: '#0284c7',
+                        color: '#0369a1',
+                        background: '#f0f9ff',
+                        fontWeight: 700,
+                        fontSize: 11.5,
+                        borderRadius: 6,
+                      }}
+                    >
+                      Print
+                    </Button>
+                  </Tooltip>
+
+                  <Tooltip title="Download Without Nipple Pack PDF Report">
+                    <Button
+                      size="small"
+                      icon={<FilePdfOutlined style={{ color: '#dc2626' }} />}
+                      onClick={handleExportPendingNipplePdf}
+                      style={{
+                        borderColor: '#dc2626',
+                        color: '#b91c1c',
+                        background: '#fef2f2',
+                        fontWeight: 700,
+                        fontSize: 11.5,
+                        borderRadius: 6,
+                      }}
+                    >
+                      PDF
+                    </Button>
+                  </Tooltip>
                 </Space>
               </div>
             }
           >
-            <Table
-              dataSource={pendingNippleEntries}
-              rowKey="id"
-              pagination={false}
-              size="middle"
-              bordered
-              columns={pendingQueueColumns}
-            />
+            {/* KPI Summary Strip */}
+            <div style={{ display: 'flex', gap: 10, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+              <Tag color="warning" style={{ fontSize: 12, fontWeight: 800, padding: '4px 12px', borderRadius: 6, margin: 0 }}>
+                🗂️ {groupedPendingNippleItems.length} Finished Good Items
+              </Tag>
+              <Tag color="orange" style={{ fontSize: 12, fontWeight: 800, padding: '4px 12px', borderRadius: 6, margin: 0 }}>
+                📋 {pendingNippleEntries.length} Incomplete Batches
+              </Tag>
+              <Tag color="gold" style={{ fontSize: 12, fontWeight: 800, padding: '4px 12px', borderRadius: 6, margin: 0 }}>
+                📦 {formatNumber(pendingNippleEntries.reduce((s: number, r: RecentPackingLog) => s + (r.cartons || 0), 0), 0)} Cartons Total
+              </Tag>
+              <Tag color="volcano" style={{ fontSize: 12, fontWeight: 800, padding: '4px 12px', borderRadius: 6, margin: 0 }}>
+                ⚖️ {formatNumber(pendingNippleEntries.reduce((s: number, r: RecentPackingLog) => s + (r.gross || 0), 0), 0)} GRS ({formatNumber(pendingNippleEntries.reduce((s: number, r: RecentPackingLog) => s + (r.pcs || 0), 0), 0)} PCS)
+              </Tag>
+              <Tag color="red" style={{ fontSize: 12, fontWeight: 800, padding: '4px 12px', borderRadius: 6, margin: 0 }}>
+                ⚠️ {formatNumber(groupedPendingNippleItems.reduce((s: number, g: GroupedPendingItem) => s + (g.totalPendingNippleGross || 0), 0), 0)} GRS Nipple Deficit
+              </Tag>
+            </div>
+
+            {pendingQueueViewMode === 'GROUPED' ? (
+              <Table
+                dataSource={groupedPendingNippleItems}
+                rowKey="key"
+                pagination={false}
+                size="middle"
+                bordered
+                columns={groupedPendingColumns}
+                expandable={{
+                  expandedRowKeys: expandedPendingItemKeys,
+                  onExpandedRowsChange: (keys) => setExpandedPendingItemKeys(keys as string[]),
+                  expandedRowRender: (record: GroupedPendingItem) => (
+                    <div
+                      style={{
+                        margin: '6px 0',
+                        background: 'var(--theme-surface-alt, #f8fafc)',
+                        padding: 12,
+                        borderRadius: 8,
+                        border: '1px solid var(--theme-border, #e2e8f0)',
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 6 }}>
+                        <span style={{ fontWeight: 800, fontSize: 13, color: 'var(--theme-heading, #0f172a)' }}>
+                          📦 Individual Batches for: <span style={{ color: '#0284c7' }}>{record.fgItemCode}</span> — {record.fgItemName} ({record.batchCount} {record.batchCount === 1 ? 'Batch' : 'Batches'})
+                        </span>
+                        <Space size={6}>
+                          <Tag color="orange" style={{ fontWeight: 700 }}>
+                            Total: {formatNumber(record.totalCartons, 0)} Cartons
+                          </Tag>
+                          <Tag color="volcano" style={{ fontWeight: 700 }}>
+                            {formatNumber(record.totalGross, 0)} GRS ({formatNumber(record.totalPcs, 0)} PCS)
+                          </Tag>
+                        </Space>
+                      </div>
+                      <Table
+                        dataSource={record.batches}
+                        rowKey="id"
+                        pagination={false}
+                        size="small"
+                        bordered
+                        columns={pendingQueueColumns}
+                      />
+                    </div>
+                  ),
+                }}
+              />
+            ) : (
+              <Table
+                dataSource={pendingNippleEntries}
+                rowKey="id"
+                pagination={false}
+                size="middle"
+                bordered
+                columns={pendingQueueColumns}
+              />
+            )}
           </Card>
         )}
 
@@ -9313,16 +10276,21 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                 const r = computeRowRejection(c);
                 const wpp = r.perPieceWeightKg > 0 ? r.perPieceWeightKg : lookupComponentWeightPerPieceKg(c.componentItemCode, c.componentItemName);
                 const reqKg = Math.round((c.requiredPcs || 0) * wpp * 10) / 10;
-                totalReqGross += toNum(c.requiredGross);
-                totalReqPcs += toNum(c.requiredPcs);
-                totalReqKg += reqKg;
-                totalScrapPcs += r.rejectionPcs;
-                totalScrapKg += r.rejectionKg;
-                const rowDeductGross = c.requiredGross + r.rejectionPcs / conversionFactors.pcsPerGross;
-                totalDeductGross += rowDeductGross;
-                totalDeductPcs += r.totalDeductPcs;
-                const availGross = toNum(c.availableGross ?? c.availableStock);
-                if (!c.packWithoutNipple && availGross < rowDeductGross) anyShortage = true;
+
+                // If this component is deferred (e.g. Pack Without Nipple), exclude its weight
+                // and deduction from the active batch totals!
+                if (!c.packWithoutNipple) {
+                  totalReqGross += toNum(c.requiredGross);
+                  totalReqPcs += toNum(c.requiredPcs);
+                  totalReqKg += reqKg;
+                  totalScrapPcs += r.rejectionPcs;
+                  totalScrapKg += r.rejectionKg;
+                  const rowDeductGross = c.requiredGross + r.rejectionPcs / conversionFactors.pcsPerGross;
+                  totalDeductGross += rowDeductGross;
+                  totalDeductPcs += r.totalDeductPcs;
+                  const availGross = toNum(c.availableGross ?? c.availableStock);
+                  if (availGross < rowDeductGross) anyShortage = true;
+                }
               });
 
               // Finished Good Assembly Output quantities (Item-specific standard):

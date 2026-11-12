@@ -1,48 +1,82 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { QmsInProcessInspection } from './types';
+import { PWI_LOGO_BASE64 } from '../../assets/pwiLogoBase64';
 
-export function exportQmsToPdf(inspection: QmsInProcessInspection): string {
-  const doc = new jsPDF({
-    orientation: 'portrait',
-    unit: 'pt',
-    format: 'a4',
-  });
-
+export function renderInspectionPage(doc: jsPDF, inspection: QmsInProcessInspection): void {
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
 
-  // Top Corporate Bar
-  doc.setFillColor(15, 23, 42); // Navy slate #0f172a
-  doc.rect(0, 0, pageWidth, 60, 'F');
+  // Top Corporate Header (Clean, ink-friendly white layout with colorful corporate typography)
+  // Embed Official Company Logo on white background
+  try {
+    doc.addImage(PWI_LOGO_BASE64, 'PNG', 36, 10, 46, 46);
+  } catch (err) {
+    console.warn('Failed to embed company logo in PDF:', err);
+  }
 
-  doc.setTextColor(255, 255, 255);
+  // QMS Reference Box in Top Right (Compact, ink-friendly light container with clean border)
+  const boxWidth = 126;
+  const boxX = pageWidth - 36 - boxWidth;
+  doc.setFillColor(248, 250, 252); // #f8fafc
+  doc.setDrawColor(226, 232, 240); // #e2e8f0
+  doc.setLineWidth(1);
+  doc.roundedRect(boxX, 10, boxWidth, 48, 4, 4, 'FD');
+
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(14);
-  doc.text('PAKISTAN WIRE INDUSTRIES (PVT.) LTD.', 36, 26);
-
-  doc.setFontSize(10);
-  doc.setTextColor(147, 197, 253); // Soft blue #93c5fd
-  doc.text(`IN-PROCESS QUALITY INSPECTION REPORT (QMS) — ${inspection.divisionName.toUpperCase()}`, 36, 42);
-
-  doc.setFontSize(8.5);
-  doc.setTextColor(203, 213, 225);
-  doc.text(`Department: ${inspection.departmentName}`, 36, 53);
-
-  // QMS Reference Box in Top Right
-  doc.setFillColor(30, 41, 59); // #1e293b
-  doc.roundedRect(pageWidth - 170, 10, 140, 42, 4, 4, 'F');
-  doc.setTextColor(255, 255, 255);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(8.5);
-  doc.text(`Doc Ref: ${inspection.docRef}`, pageWidth - 162, 22);
-  doc.setFont('helvetica', 'normal');
   doc.setFontSize(8);
-  doc.setTextColor(203, 213, 225);
-  doc.text(`Revision No: ${inspection.revNo}`, pageWidth - 162, 34);
-  doc.text(`Issue Date: ${inspection.issueDate}`, pageWidth - 162, 45);
+  doc.setTextColor(15, 23, 42);
+  doc.text('Doc Ref:', boxX + 8, 24);
+  doc.setTextColor(2, 132, 199); // Blue accent
+  doc.text(inspection.docRef, boxX + 48, 24);
 
-  let currentY = 76;
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
+  doc.setTextColor(100, 116, 139);
+  doc.text('Revision No:', boxX + 8, 36);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(15, 23, 42);
+  doc.text(String(inspection.revNo), boxX + 62, 36);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(100, 116, 139);
+  doc.text('Issue Date:', boxX + 8, 48);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(15, 23, 42);
+  doc.text(inspection.issueDate, boxX + 54, 48);
+
+  // Company Name & Report Subtitles (Slightly smaller, proportional text with zero overlap)
+  const textStartX = 90;
+  const maxTitleWidth = boxX - textStartX - 10; // Guaranteed safe distance from reference box
+
+  doc.setTextColor(15, 23, 42); // Deep Slate #0f172a
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(12); // Reduced from 14 for optimal proportion
+  doc.text('PAKISTAN WIRE INDUSTRIES (PVT.) LTD.', textStartX, 23);
+
+  // Dynamically calculate font size so long titles never collide or truncate
+  const titleText = `IN-PROCESS QUALITY INSPECTION REPORT (QMS) — ${inspection.divisionName.toUpperCase()}`;
+  let titleFontSize = 8.5;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(titleFontSize);
+  while (doc.getTextWidth(titleText) > maxTitleWidth && titleFontSize > 6.5) {
+    titleFontSize -= 0.5;
+    doc.setFontSize(titleFontSize);
+  }
+  doc.setTextColor(2, 132, 199); // Vibrant Corporate Blue #0284c7
+  doc.text(titleText, textStartX, 37);
+
+  doc.setFontSize(7.5);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(100, 116, 139); // Slate #64748b
+  doc.text(`Factory & Quality Assurance System  •  Department: ${inspection.departmentName}`, textStartX, 49);
+
+  // Corporate Accent Line under header (Saves ink, stylish & clean separation)
+  doc.setDrawColor(2, 132, 199); // #0284c7 Primary Blue accent
+  doc.setLineWidth(2);
+  doc.line(36, 66, pageWidth - 36, 66);
+
+  let currentY = 80;
 
   // Metadata Card
   doc.setFillColor(248, 250, 252); // #f8fafc
@@ -227,7 +261,7 @@ export function exportQmsToPdf(inspection: QmsInProcessInspection): string {
     },
   });
 
-  currentY = (doc as any).lastAutoTable.finalY + 20;
+  currentY = (doc as any).lastAutoTable.finalY + 16;
 
   // Section 3: Remarks and Sign-off Box
   if (currentY > pageHeight - 90) {
@@ -237,45 +271,78 @@ export function exportQmsToPdf(inspection: QmsInProcessInspection): string {
 
   doc.setFillColor(248, 250, 252);
   doc.setDrawColor(203, 213, 225);
-  doc.roundedRect(36, currentY, pageWidth - 72, 70, 4, 4, 'FD');
+  doc.roundedRect(36, currentY, pageWidth - 72, 64, 4, 4, 'FD');
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8.5);
   doc.setTextColor(100, 116, 139);
-  doc.text('Remarks / Observations:', 48, currentY + 16);
+  doc.text('Remarks / Observations:', 48, currentY + 14);
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(9);
   doc.setTextColor(15, 23, 42);
-  doc.text(inspection.remarks || 'Ok - All parameters meet quality specification standards.', 48, currentY + 30);
+  doc.text(inspection.remarks || 'Ok - All parameters meet quality specification standards.', 48, currentY + 27);
 
   // Inspector Signature block
   doc.setDrawColor(148, 163, 184);
-  doc.line(320, currentY + 46, 420, currentY + 46);
+  doc.line(320, currentY + 42, 420, currentY + 42);
   doc.setFontSize(8.5);
   doc.setTextColor(15, 23, 42);
-  doc.text(inspection.inspectorName || 'Mairaj', 345, currentY + 57);
+  doc.text(inspection.inspectorName || 'Mairaj', 345, currentY + 52);
   doc.setFontSize(7.5);
   doc.setTextColor(100, 116, 139);
-  doc.text('QC Inspector (Prepared By)', 330, currentY + 66);
+  doc.text('QC Inspector (Prepared By)', 330, currentY + 60);
 
   // Approval Signature block
-  doc.line(440, currentY + 46, 540, currentY + 46);
+  doc.line(440, currentY + 42, 540, currentY + 42);
   doc.setFontSize(8.5);
   doc.setTextColor(15, 23, 42);
-  doc.text(inspection.approvedBy || 'Quality Incharge', 452, currentY + 57);
+  doc.text(inspection.approvedBy || 'Quality Incharge', 452, currentY + 52);
   doc.setFontSize(7.5);
   doc.setTextColor(100, 116, 139);
-  doc.text('Approved / Verified By', 450, currentY + 66);
+  doc.text('Approved / Verified By', 450, currentY + 60);
 
   // Footer stamp
   doc.setFont('helvetica', 'italic');
   doc.setFontSize(7.5);
   doc.setTextColor(148, 163, 184);
-  doc.text('Generated via Pakistan Wire Industries (Pvt.) Ltd. Enterprise ERP & QMS System', 36, pageHeight - 16);
+  doc.text(`Generated via Pakistan Wire Industries (Pvt.) Ltd. Enterprise ERP & QMS System • ${inspection.inspectionNo}`, 36, pageHeight - 16);
+}
+
+export function exportQmsToPdf(inspection: QmsInProcessInspection): string {
+  const doc = new jsPDF({
+    orientation: 'portrait',
+    unit: 'pt',
+    format: 'a4',
+  });
+
+  renderInspectionPage(doc, inspection);
 
   const cleanPart = (inspection.itemName || 'Inspection').replace(/[^a-zA-Z0-9_-]/g, '_');
   const filename = `${inspection.docRef.replace(/[/]/g, '_')}_${inspection.inspectionNo}_${cleanPart}.pdf`;
+  doc.save(filename);
+  return filename;
+}
+
+export function exportBatchQmsToPdf(inspections: QmsInProcessInspection[]): string {
+  if (!inspections || inspections.length === 0) return '';
+  if (inspections.length === 1) return exportQmsToPdf(inspections[0]);
+
+  const doc = new jsPDF({
+    orientation: 'portrait',
+    unit: 'pt',
+    format: 'a4',
+  });
+
+  inspections.forEach((insp, idx) => {
+    if (idx > 0) {
+      doc.addPage();
+    }
+    renderInspectionPage(doc, insp);
+  });
+
+  const dateStr = new Date().toISOString().slice(0, 10);
+  const filename = `QMS_Batch_Inspections_${inspections.length}_Records_${dateStr}.pdf`;
   doc.save(filename);
   return filename;
 }

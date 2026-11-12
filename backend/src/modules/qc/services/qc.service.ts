@@ -93,11 +93,19 @@ export class QcService {
   }
 
   // ---- Inspections ----
+  // Uses MAX(numeric suffix) + 1 rather than COUNT(*) + 1, so deleted rows can never
+  // cause a collision with the (company_id, inspection_no) unique constraint.
   private nextInspectionNo(companyId: string): Promise<string> {
     return this.dataSource.query(
-      `SELECT 'INS-' || LPAD((COUNT(*)::int + 1)::text, 6, '0') AS num FROM qc_inspections WHERE company_id = $1`,
+      `SELECT 'INS-' || LPAD((COALESCE(MAX(NULLIF(regexp_replace(inspection_no, '\\D', '', 'g'), '')::bigint), 0) + 1)::text, 6, '0') AS num
+         FROM qc_inspections WHERE company_id = $1`,
       [companyId],
     ).then((r: any[]) => r[0].num);
+  }
+
+  /** Master-data documents (specs / operators / inspectors) are single living records, not inspections. */
+  private isMasterDocument(referenceType?: string): boolean {
+    return !!referenceType && /^QMS_[A-Z_]+_MASTER$/.test(referenceType);
   }
 
   async listInspections(companyId: string, query: { page?: number; limit?: number; status?: string; result?: string; referenceType?: string; from?: string; to?: string }) {
@@ -122,12 +130,40 @@ export class QcService {
   }
 
   async createInspection(dto: any) {
-    const no = await this.nextInspectionNo(dto.companyId);
-    const insp = this.inspectionRepo.create({
-      ...dto, inspectionNo: no, inspectionDate: dto.inspectionDate ? new Date(dto.inspectionDate) : new Date(),
-      result: 'PENDING', status: 'PENDING',
-    });
-    const saved = await this.inspectionRepo.save(insp) as unknown as QcInspection;
+    if (!dto?.companyId) throw new BadRequestException('companyId is required');
+
+    // Upsert master documents: update the single existing record instead of inserting a new row on every save.
+    if (this.isMasterDocument(dto.referenceType)) {
+      const existing = await this.inspectionRepo.findOne({
+        where: { companyId: dto.companyId, referenceType: dto.referenceType } as any,
+        order: { createdAt: 'DESC' } as any,
+      });
+      if (existing) {
+        (existing as any).remarks = dto.remarks ?? (existing as any).remarks;
+        (existing as any).inspectionDate = dto.inspectionDate ? new Date(dto.inspectionDate) : new Date();
+        (existing as any).status = 'COMPLETED';
+        (existing as any).result = 'PASS';
+        await this.inspectionRepo.save(existing);
+        return this.findInspection((existing as any).id);
+      }
+    }
+
+    // Retry on a unique-number race (two users saving at the same moment).
+    let saved: QcInspection | null = null;
+    for (let attempt = 0; attempt < 3 && !saved; attempt++) {
+      const no = await this.nextInspectionNo(dto.companyId);
+      const insp = this.inspectionRepo.create({
+        ...dto, inspectionNo: no, inspectionDate: dto.inspectionDate ? new Date(dto.inspectionDate) : new Date(),
+        result: this.isMasterDocument(dto.referenceType) ? 'PASS' : 'PENDING',
+        status: this.isMasterDocument(dto.referenceType) ? 'COMPLETED' : 'PENDING',
+      });
+      try {
+        saved = await this.inspectionRepo.save(insp) as unknown as QcInspection;
+      } catch (err: any) {
+        if (err?.code !== '23505' || attempt === 2) throw err;
+      }
+    }
+    if (!saved) throw new BadRequestException('Unable to allocate inspection number');
     // pre-create result rows from plan characteristics
     if (dto.planId) {
       const chars = await this.charRepo.find({ where: { planId: dto.planId } });
@@ -177,7 +213,7 @@ export class QcService {
   // ---- NCR ----
   private nextNcrNo(companyId: string): Promise<string> {
     return this.dataSource.query(
-      `SELECT 'NCR-' || LPAD((COUNT(*)::int + 1)::text, 6, '0') AS num FROM qc_ncr WHERE company_id = $1`,
+      `SELECT 'NCR-' || LPAD((COALESCE(MAX(NULLIF(regexp_replace(ncr_no, '\\D', '', 'g'), '')::bigint), 0) + 1)::text, 6, '0') AS num FROM qc_ncr WHERE company_id = $1`,
       [companyId],
     ).then((r: any[]) => r[0].num);
   }
@@ -212,7 +248,7 @@ export class QcService {
   // ---- CAPA ----
   private nextCapaNo(companyId: string): Promise<string> {
     return this.dataSource.query(
-      `SELECT 'CAPA-' || LPAD((COUNT(*)::int + 1)::text, 6, '0') AS num FROM qc_capa WHERE company_id = $1`,
+      `SELECT 'CAPA-' || LPAD((COALESCE(MAX(NULLIF(regexp_replace(capa_no, '\\D', '', 'g'), '')::bigint), 0) + 1)::text, 6, '0') AS num FROM qc_capa WHERE company_id = $1`,
       [companyId],
     ).then((r: any[]) => r[0].num);
   }

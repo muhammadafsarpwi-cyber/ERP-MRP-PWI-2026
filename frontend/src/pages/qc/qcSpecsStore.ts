@@ -25,12 +25,27 @@ export const DEFAULT_INSPECTORS: string[] = [
   'Asad Ali',
 ];
 
+export const DEFAULT_COMPANY_ID = '7725aa04-a270-4314-9e82-90949cbe7791';
+
+export function resolveCompanyId(candidate?: string): string {
+  if (candidate && candidate.trim()) return candidate.trim();
+  try {
+    const raw = localStorage.getItem('erp_user');
+    if (raw) {
+      const p = JSON.parse(raw);
+      const found = p?.defaultCompanyId || p?.default_company_id || p?.companyId || p?.company_id;
+      if (found && typeof found === 'string' && found.trim()) return found.trim();
+    }
+  } catch {}
+  return DEFAULT_COMPANY_ID;
+}
+
 export const normalizeSpecDepartment = (s: ItemQcSpecification): ItemQcSpecification => {
   if (!s || !s.itemCode) return s;
   const code = (s.itemCode || '').trim().toUpperCase();
-  let correctDept = s.departmentCode;
+  let correctDept = '';
 
-  // Spoke Division prefixes
+  // Strict prefix-to-department mapping to prevent any cross-department contamination
   if (code.startsWith('WIP-ST') || code.startsWith('ST-')) correctDept = 'SPD-DEPT001';
   else if (code.startsWith('WIP-SW') || code.startsWith('SW-')) correctDept = 'SPD-DEPT002';
   else if (code.startsWith('WIP-SPK') || code.startsWith('SPK-')) correctDept = 'SPD-DEPT003';
@@ -38,15 +53,14 @@ export const normalizeSpecDepartment = (s: ItemQcSpecification): ItemQcSpecifica
   else if (code.startsWith('WIP-NP') || code.startsWith('WIP-NPL') || code.startsWith('FG-NP') || code.startsWith('NP-')) correctDept = 'SPD-DEPT005';
   else if (code.startsWith('WIP-SPL') || code.startsWith('SPL-') || code.startsWith('BL-')) correctDept = 'SPD-DEPT006';
   else if (code.startsWith('PKS') || code.startsWith('SPI-FG') || code.startsWith('SP-')) correctDept = 'SPD-DEPT008';
-
-  // Control Cable Division prefixes
   else if (code.startsWith('FLAT') || code.startsWith('FL-') || code.startsWith('FT-')) correctDept = 'CCD-DEPT001';
   else if (code.startsWith('CCD-CAS') || code.startsWith('CAS-') || code.startsWith('CCD-FGR')) correctDept = 'CCD-DEPT002';
   else if (code.startsWith('CCD-IN') || code.startsWith('IN-') || code.startsWith('PV-')) correctDept = 'CCD-DEPT003';
   else if (code.startsWith('CCD-FG') || code.startsWith('CA-') || code.startsWith('CPK-') || code.startsWith('PK-')) correctDept = 'CCD-DEPT005';
+  else correctDept = (s.departmentCode || '').trim() || 'SPD-DEPT003';
 
   const isCcd =
-    (correctDept && correctDept.startsWith('CCD')) ||
+    correctDept.startsWith('CCD') ||
     code.startsWith('CCD') ||
     code.startsWith('FLAT') ||
     code.startsWith('CAS') ||
@@ -55,7 +69,7 @@ export const normalizeSpecDepartment = (s: ItemQcSpecification): ItemQcSpecifica
   return {
     ...s,
     itemCode: s.itemCode.trim(),
-    departmentCode: correctDept || s.departmentCode || 'SPD-DEPT003',
+    departmentCode: correctDept,
     divisionCode: isCcd ? 'DIV-CCD' : 'DIV-SPD',
   };
 };
@@ -114,6 +128,29 @@ export const DEFAULT_QC_SPECS: ItemQcSpecification[] = [
     issueDate: '09-Jun-2022',
     characteristics: [
       { id: 'c1', charName: 'Total Length', nominal: 159.5, tolPlus: 0.5, tolMinus: 0.5, unit: 'mm', isCritical: true },
+      { id: 'c2', charName: 'Head Dia', nominal: 6.6, tolPlus: 0.15, tolMinus: 0.15, unit: 'mm', isCritical: true },
+      { id: 'c3', charName: 'Bending Length', nominal: 9.8, tolPlus: 0.15, tolMinus: 0.15, unit: 'mm', isCritical: true },
+      { id: 'c4', charName: 'Thread Length', nominal: 14.0, tolPlus: 0.25, tolMinus: 0.25, unit: 'mm', isCritical: true },
+      { id: 'c5', charName: 'Thread Pressure', nominal: 30.0, tolPlus: 2.0, tolMinus: 2.0, unit: 'PSI', isCritical: false },
+    ],
+    attributes: [
+      { id: 'a1', checkName: 'Thread Checking', sampleSize: 10, maxAllowedDefects: 0 },
+      { id: 'a2', checkName: 'Bending Broken', sampleSize: 10, maxAllowedDefects: 0 },
+      { id: 'a3', checkName: 'Head Crack', sampleSize: 10, maxAllowedDefects: 0 },
+    ],
+    updatedAt: new Date().toISOString(),
+  },
+  {
+    id: 'spec-s9-inner-spk',
+    divisionCode: 'DIV-SPD',
+    departmentCode: 'SPD-DEPT003',
+    itemCode: 'WIP-SPK-013',
+    itemName: 'S9 (Inner) - 300*17 Inner Straight',
+    docRef: 'SPD/QMS/05',
+    revNo: '02',
+    issueDate: '09-Jun-2022',
+    characteristics: [
+      { id: 'c1', charName: 'Total Length', nominal: 161.0, tolPlus: 0.5, tolMinus: 0.5, unit: 'mm', isCritical: true },
       { id: 'c2', charName: 'Head Dia', nominal: 6.6, tolPlus: 0.15, tolMinus: 0.15, unit: 'mm', isCritical: true },
       { id: 'c3', charName: 'Bending Length', nominal: 9.8, tolPlus: 0.15, tolMinus: 0.15, unit: 'mm', isCritical: true },
       { id: 'c4', charName: 'Thread Length', nominal: 14.0, tolPlus: 0.25, tolMinus: 0.25, unit: 'mm', isCritical: true },
@@ -518,10 +555,11 @@ export async function deleteDbInspection(id: string): Promise<boolean> {
 }
 
 // Fetch Item QC Specs from DB
-export async function fetchDbSpecs(companyId: string): Promise<ItemQcSpecification[]> {
+export async function fetchDbSpecs(companyId?: string): Promise<ItemQcSpecification[]> {
+  const effectiveCompanyId = resolveCompanyId(companyId);
   try {
     const res = await apiService.get<{ data: any[] }>('/qc/inspections', {
-      companyId,
+      companyId: effectiveCompanyId,
       referenceType: 'QMS_SPECS_MASTER',
       limit: 1,
     });
@@ -534,11 +572,9 @@ export async function fetchDbSpecs(companyId: string): Promise<ItemQcSpecificati
           (s: any) => s && s.itemCode && Array.isArray(s.characteristics) && s.characteristics.length > 0
         );
         if (valid.length > 0) {
+          // The database record is the single source of truth: do NOT re-merge defaults,
+          // otherwise deleted specs would resurrect after every refresh.
           const map = new Map<string, ItemQcSpecification>();
-          DEFAULT_QC_SPECS.forEach((s) => {
-            const norm = normalizeSpecDepartment(s);
-            map.set(norm.itemCode.trim().toUpperCase(), norm);
-          });
           valid.forEach((s: ItemQcSpecification) => {
             const norm = normalizeSpecDepartment(s);
             map.set(norm.itemCode.trim().toUpperCase(), norm);
@@ -549,10 +585,9 @@ export async function fetchDbSpecs(companyId: string): Promise<ItemQcSpecificati
         }
       }
     }
+    // No master record yet: seed the database once from local cache / defaults.
     const initial = loadAllSpecs();
-    if (companyId) {
-      saveDbSpecs(companyId, initial).catch(() => {});
-    }
+    await saveDbSpecs(effectiveCompanyId, initial).catch(() => {});
     return initial;
   } catch (err) {
     console.warn('Failed to fetch specs from DB, using local cache:', err);
@@ -560,30 +595,27 @@ export async function fetchDbSpecs(companyId: string): Promise<ItemQcSpecificati
   }
 }
 
-// Save Item QC Specs to DB
-export async function saveDbSpecs(companyId: string, specs: ItemQcSpecification[]): Promise<void> {
-  try {
-    const map = new Map<string, ItemQcSpecification>();
-    (specs || []).forEach((s) => {
-      if (!s || !s.itemCode) return;
-      const norm = normalizeSpecDepartment(s);
-      map.set(norm.itemCode.trim().toUpperCase(), norm);
-    });
-    const clean = Array.from(map.values());
-    saveAllSpecs(clean);
-    if (!companyId) return;
-    await apiService.post('/qc/inspections', {
-      companyId,
-      inspectionType: 'IN_PROCESS',
-      referenceType: 'QMS_SPECS_MASTER',
-      inspectionDate: new Date().toISOString().slice(0, 10),
-      result: 'PASS',
-      status: 'COMPLETED',
-      remarks: JSON.stringify(clean),
-    });
-  } catch (err) {
-    console.warn('Failed to save specs to DB:', err);
-  }
+// Save Item QC Specs to DB. Throws on failure so the UI never reports a false "saved".
+export async function saveDbSpecs(companyId?: string, specs?: ItemQcSpecification[]): Promise<void> {
+  const effectiveCompanyId = resolveCompanyId(companyId);
+  const specsToSave = specs || loadAllSpecs();
+  const map = new Map<string, ItemQcSpecification>();
+  (specsToSave || []).forEach((s) => {
+    if (!s || !s.itemCode) return;
+    const norm = normalizeSpecDepartment(s);
+    map.set(norm.itemCode.trim().toUpperCase(), norm);
+  });
+  const clean = Array.from(map.values());
+  saveAllSpecs(clean);
+  await apiService.post('/qc/inspections', {
+    companyId: effectiveCompanyId,
+    inspectionType: 'IN_PROCESS',
+    referenceType: 'QMS_SPECS_MASTER',
+    inspectionDate: new Date().toISOString().slice(0, 10),
+    result: 'PASS',
+    status: 'COMPLETED',
+    remarks: JSON.stringify(clean),
+  });
 }
 
 // Load Operators from storage

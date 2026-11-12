@@ -83,3 +83,53 @@ export function shareQmsOnWhatsApp(insp: QmsInProcessInspection): void {
   window.open(url, '_blank');
 }
 
+/**
+ * Builds a clean, executive batch summary for multiple selected inspections.
+ * Suitable for WhatsApp character limits and high-level management review.
+ */
+export function buildBatchQmsWhatsAppMessage(inspections: QmsInProcessInspection[]): string {
+  if (!inspections || inspections.length === 0) return '';
+  if (inspections.length === 1) return buildQmsWhatsAppMessage(inspections[0]);
+
+  const lines: string[] = [];
+  lines.push('====================================');
+  lines.push('*PAKISTAN WIRE INDUSTRIES (PVT.) LTD.*');
+  lines.push(`*QMS INSPECTION BATCH SUMMARY (${inspections.length} RECORDS)*`);
+  lines.push('====================================');
+  lines.push('');
+  lines.push(`*Generated Date:* ${new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}`);
+  lines.push('');
+
+  inspections.forEach((insp, idx) => {
+    const isPass = (insp.overallResult || 'PASS') === 'PASS';
+    lines.push(`*${idx + 1}. Inspection #${insp.inspectionNo}*  -->  *${insp.overallResult || 'PASS'}*`);
+    lines.push(`   • *Part:* ${insp.itemName} (${insp.itemCode})`);
+    lines.push(`   • *Date / Shift:* ${insp.inspectionDate} | Shift ${insp.shift}`);
+    lines.push(`   • *Machine / Op:* ${insp.machineNo} | ${insp.operatorName}`);
+    lines.push(`   • *Standard:* ${insp.docRef} (Rev ${insp.revNo})`);
+    if (insp.samples && insp.samples.length > 0) {
+      const summaryList = insp.samples.slice(0, 3).map(s => `${s.charName}: ${Number(s.average || 0).toFixed(1)}${s.unit}`);
+      lines.push(`   • *Samples:* ${summaryList.join(', ')}${insp.samples.length > 3 ? '...' : ''}`);
+    }
+    lines.push('------------------------------------');
+  });
+
+  const passCount = inspections.filter(i => (i.overallResult || 'PASS') === 'PASS').length;
+  const failCount = inspections.length - passCount;
+  lines.push('');
+  lines.push(`*Batch Total:* ${inspections.length} Inspections | *Passed:* ${passCount} | *Failed:* ${failCount}`);
+  lines.push('');
+  lines.push('_Verified & Generated via PWI ERP System_');
+
+  return lines.join('\n');
+}
+
+/**
+ * Triggers WhatsApp share for multiple selected inspections.
+ */
+export function shareBatchQmsOnWhatsApp(inspections: QmsInProcessInspection[]): void {
+  const text = buildBatchQmsWhatsAppMessage(inspections);
+  const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
+  window.open(url, '_blank');
+}
+

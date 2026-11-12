@@ -50,6 +50,7 @@ import {
   deleteDbInspection,
   fetchDbSpecs,
   saveDbSpecs,
+  resolveCompanyId,
 } from './qcSpecsStore';
 import { InProcessInspectionModal } from './InProcessInspectionModal';
 import { QmsPrintableSheet } from './QmsPrintableSheet';
@@ -57,6 +58,7 @@ import { ItemQcSpecsMaster } from './ItemQcSpecsMaster';
 import { exportQmsToPdf } from './exportQmsPdf';
 import { shareQmsOnWhatsApp } from './exportQmsWhatsApp';
 import { RunningInspectionsHistoryModal } from './RunningInspectionsHistoryModal';
+import { RunningInspectionsRegister } from './RunningInspectionsRegister';
 import './qcPage.css';
 
 interface LegacyInspection {
@@ -230,7 +232,9 @@ const QcPage: React.FC = () => {
   const [sheetModalVisible, setSheetModalVisible] = useState(false);
   const [historyDrawerVisible, setHistoryDrawerVisible] = useState(false);
   const [selectedInspectionForSheet, setSelectedInspectionForSheet] = useState<QmsInProcessInspection | null>(null);
+  const [batchInspectionsForSheet, setBatchInspectionsForSheet] = useState<QmsInProcessInspection[]>([]);
   const [editingInspection, setEditingInspection] = useState<QmsInProcessInspection | null>(null);
+  const [activeTabKey, setActiveTabKey] = useState('running');
 
   const renderSolidStatusBadge = (status: 'PASS' | 'FAIL' | 'PENDING' | string) => {
     const isFail = status === 'FAIL';
@@ -276,19 +280,8 @@ const QcPage: React.FC = () => {
 
   // Load user & initialize store from database
   useEffect(() => {
-    let compId = '';
-    const erpUser = localStorage.getItem('erp_user');
-    if (erpUser) {
-      try {
-        const p = JSON.parse(erpUser);
-        if (p?.defaultCompanyId) {
-          compId = p.defaultCompanyId;
-          setCompanyId(compId);
-        }
-      } catch {
-        /* ignore */
-      }
-    }
+    const compId = resolveCompanyId(companyId);
+    setCompanyId(compId);
 
     // 1. Immediate offline cache display (0ms)
     const cachedSpecs = loadAllSpecs();
@@ -300,23 +293,21 @@ const QcPage: React.FC = () => {
     }
 
     // 2. Fetch latest shared data from PostgreSQL database
-    if (compId) {
-      (async () => {
-        try {
-          const [dbSpecs, dbInsps] = await Promise.all([
-            fetchDbSpecs(compId),
-            fetchDbInProcessInspections(compId, cachedSpecs),
-          ]);
-          if (dbSpecs && dbSpecs.length > 0) setSpecs(dbSpecs);
-          if (dbInsps && dbInsps.length > 0) {
-            setInProcessInspections(dbInsps);
-            setActiveInspectionId(dbInsps[0].id);
-          }
-        } catch (e) {
-          console.warn('Initial QC DB sync failed, using cached store:', e);
+    (async () => {
+      try {
+        const [dbSpecs, dbInsps] = await Promise.all([
+          fetchDbSpecs(compId),
+          fetchDbInProcessInspections(compId, cachedSpecs),
+        ]);
+        if (dbSpecs && dbSpecs.length > 0) setSpecs(dbSpecs);
+        if (dbInsps && dbInsps.length > 0) {
+          setInProcessInspections(dbInsps);
+          setActiveInspectionId(dbInsps[0].id);
         }
-      })();
-    }
+      } catch (e) {
+        console.warn('Initial QC DB sync failed, using cached store:', e);
+      }
+    })();
   }, []);
 
   // Fetch legacy backend QC data
@@ -681,21 +672,18 @@ const QcPage: React.FC = () => {
     }
   };
 
-  // Sync Item QC Specifications to DB
+  // Update Item QC Specifications state + local cache.
+  // The database write is performed (and awaited, with error feedback) inside ItemQcSpecsMaster.
   const handleSpecsChange = (updated: ItemQcSpecification[]) => {
     setSpecs(updated);
     saveAllSpecs(updated);
-    if (companyId) {
-      saveDbSpecs(companyId, updated).catch((err) => {
-        console.warn('Failed to save specs to DB:', err);
-      });
-    }
   };
 
   // Open QMS printable sheet
-  const handleOpenSheet = (insp: QmsInProcessInspection | null) => {
+  const handleOpenSheet = (insp: QmsInProcessInspection | null, batchList?: QmsInProcessInspection[]) => {
     if (!insp) return;
     setSelectedInspectionForSheet(insp);
+    setBatchInspectionsForSheet(batchList && batchList.length > 0 ? batchList : [insp]);
     setSheetModalVisible(true);
   };
 
@@ -741,6 +729,7 @@ const QcPage: React.FC = () => {
 
     return (
       <Card
+        id="qc-hero-sheet-top"
         style={{
           borderRadius: '12px',
           backgroundColor: token.colorBgContainer,
@@ -762,15 +751,30 @@ const QcPage: React.FC = () => {
             gap: '12px',
           }}
         >
-          <div>
-            <div className="qc-report-title" style={{ fontSize: '20px', fontWeight: 800, color: token.colorTextHeading, letterSpacing: '0.5px' }}>
-              PAKISTAN WIRE INDUSTRIES (PVT.) LTD.
-            </div>
-            <div className="qc-report-subtitle" style={{ fontSize: '15px', fontWeight: 700, color: token.colorPrimary, marginTop: '2px' }}>
-              IN-PROCESS QUALITY INSPECTION REPORT (QMS) — {activeDivision.name.toUpperCase()}
-            </div>
-            <div style={{ fontSize: '12px', color: token.colorTextSecondary, marginTop: '2px' }}>
-              Manufacturing &amp; Quality Management System • Department: <strong>{activeDepartment?.name || 'Spoke'}</strong>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+            <img
+              src="/logo.png"
+              alt="PWI Logo"
+              style={{
+                width: '46px',
+                height: '46px',
+                objectFit: 'contain',
+                borderRadius: '8px',
+                padding: '2px',
+                backgroundColor: token.colorFillAlter,
+                border: `1px solid ${token.colorBorderSecondary}`,
+              }}
+            />
+            <div>
+              <div className="qc-report-title" style={{ fontSize: '20px', fontWeight: 800, color: token.colorTextHeading, letterSpacing: '0.5px' }}>
+                PAKISTAN WIRE INDUSTRIES (PVT.) LTD.
+              </div>
+              <div className="qc-report-subtitle" style={{ fontSize: '15px', fontWeight: 700, color: token.colorPrimary, marginTop: '2px' }}>
+                IN-PROCESS QUALITY INSPECTION REPORT (QMS) — {activeDivision.name.toUpperCase()}
+              </div>
+              <div style={{ fontSize: '12px', color: token.colorTextSecondary, marginTop: '2px' }}>
+                Manufacturing &amp; Quality Management System • Department: <strong>{activeDepartment?.name || 'Spoke'}</strong>
+              </div>
             </div>
           </div>
 
@@ -1027,7 +1031,30 @@ const QcPage: React.FC = () => {
           <CheckCircleOutlined /> Running Production Inspection (SPD/QMS/05)
         </span>
       ),
-      children: renderHeroInspectionSheet(),
+      children: (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          {/* Top: Official In-Process Hero Inspection Sheet */}
+          {renderHeroInspectionSheet()}
+
+          {/* Bottom: Inline Running Inspections Register & History (Directly below sheet - NO popup required) */}
+          <RunningInspectionsRegister
+            inspections={inProcessInspections}
+            activeInspectionId={activeInspectionId}
+            onSelectInspection={(insp) => {
+              setActiveInspectionId(insp.id);
+              const el = document.getElementById('qc-hero-sheet-top');
+              if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }}
+            onOpenSheet={(insp, batchList) => handleOpenSheet(insp, batchList)}
+            onEditInspection={(insp) => {
+              setEditingInspection(insp);
+              setRunningModalVisible(true);
+            }}
+            onDeleteInspection={(insp) => handleDeleteInspection(insp)}
+            onRefresh={() => handleRefreshAll(true)}
+          />
+        </div>
+      ),
     },
     {
       key: 'specs',
@@ -1136,8 +1163,17 @@ const QcPage: React.FC = () => {
             >
               Refresh
             </Button>
-            <Button icon={<HistoryOutlined />} onClick={() => setHistoryDrawerVisible(true)}>
-              Inspection History ({inProcessInspections.length})
+            <Button
+              icon={<HistoryOutlined />}
+              onClick={() => {
+                setActiveTabKey('running');
+                setTimeout(() => {
+                  const el = document.getElementById('qc-inspections-register');
+                  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }, 50);
+              }}
+            >
+              Inspection Register ({inProcessInspections.length})
             </Button>
             <Button type="primary" icon={<PlusOutlined />} onClick={() => setRunningModalVisible(true)}>
               + New Running Inspection
@@ -1159,20 +1195,27 @@ const QcPage: React.FC = () => {
         }}
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          {/* Row 1: Division Segmented Switcher (matching mockup pill aesthetics) */}
+          {/* Row 1: Division Button-Tabs Switcher (Top line on click, bottom open / seamless) */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
-            <div className="qc-division-segmented-wrapper" style={{ gap: '8px' }}>
+            <div className="qc-division-segmented-wrapper" style={{ gap: '10px', alignItems: 'center' }}>
               <span style={{ fontSize: '12px', fontWeight: 700, color: token.colorTextSecondary, flexShrink: 0 }}>
                 DIVISION:
               </span>
-              <Segmented
-                value={selectedDivisionCode}
-                onChange={(val) => handleDivisionChange(String(val))}
-                options={activeDivisionsList.map((d) => ({
-                  value: d.code,
-                  label: d.name,
-                }))}
-              />
+              <div className="qc-division-tabs-bar">
+                {activeDivisionsList.map((d) => {
+                  const isActive = selectedDivisionCode === d.code;
+                  return (
+                    <button
+                      key={d.code}
+                      type="button"
+                      className={`qc-division-tab-btn ${isActive ? 'active' : ''}`}
+                      onClick={() => handleDivisionChange(d.code)}
+                    >
+                      {d.name}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
             <div>
@@ -1200,7 +1243,8 @@ const QcPage: React.FC = () => {
               <Select
                 value={selectedDepartmentCode}
                 onChange={handleDepartmentChange}
-                style={{ width: '100%', fontWeight: 600 }}
+                size="middle"
+                style={{ width: '100%', fontWeight: 700 }}
                 options={activeDepartmentsList.map((dept) => ({
                   value: dept.code,
                   label: dept.name,
@@ -1272,8 +1316,8 @@ const QcPage: React.FC = () => {
         </div>
       </Card>
 
-      {/* Main Tabs Container */}
-      <Tabs className="qc-tabs" items={tabItems} defaultActiveKey="running" />
+      {/* Main Tabs Container (Folder Tab with Top Accent Line & Bottom Open/Seamless) */}
+      <Tabs type="card" className="qc-folder-tabs" items={tabItems} activeKey={activeTabKey} onChange={setActiveTabKey} />
 
       {/* Running Inspections History Modal (Centered Popup) */}
       <RunningInspectionsHistoryModal
@@ -1284,8 +1328,8 @@ const QcPage: React.FC = () => {
         onSelectInspection={(insp) => {
           setActiveInspectionId(insp.id);
         }}
-        onOpenSheet={(insp) => {
-          handleOpenSheet(insp);
+        onOpenSheet={(insp, batchList) => {
+          handleOpenSheet(insp, batchList);
         }}
         onEditInspection={(insp) => {
           setEditingInspection(insp);
@@ -1315,8 +1359,12 @@ const QcPage: React.FC = () => {
       {/* QMS Printable Sheet Modal */}
       <QmsPrintableSheet
         visible={sheetModalVisible}
-        onClose={() => setSheetModalVisible(false)}
+        onClose={() => {
+          setSheetModalVisible(false);
+          setBatchInspectionsForSheet([]);
+        }}
         inspection={selectedInspectionForSheet}
+        batchInspections={batchInspectionsForSheet}
       />
     </div>
   );

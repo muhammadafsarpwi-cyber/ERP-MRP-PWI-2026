@@ -7,31 +7,138 @@
   box-sizing: border-box;
 }
 
-/* Tabs: Smooth horizontal touch scroll for tab items, zero page dragging */
-.qc-tabs {
+/* ── Folder Tab / Top-Accent Line Tab Styling (Light & Dark Theme Compatible) ── */
+.qc-folder-tabs {
   width: 100%;
   max-width: 100%;
 }
 
-.qc-tabs > .ant-tabs-nav {
-  max-width: 100%;
-  margin-bottom: 12px;
+.qc-folder-tabs > .ant-tabs-nav {
+  margin-bottom: 0px !important;
 }
 
-.qc-tabs > .ant-tabs-nav .ant-tabs-nav-wrap {
+.qc-folder-tabs > .ant-tabs-nav::before {
+  border-bottom: 1.5px solid var(--theme-border, #d9d9d9) !important;
+}
+
+.qc-folder-tabs > .ant-tabs-nav .ant-tabs-nav-wrap {
   overflow-x: auto !important;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
 }
 
-.qc-tabs > .ant-tabs-nav .ant-tabs-nav-wrap::-webkit-scrollbar {
+.qc-folder-tabs > .ant-tabs-nav .ant-tabs-nav-wrap::-webkit-scrollbar {
   display: none;
 }
 
-.qc-tabs .ant-tabs-tab {
-  white-space: nowrap;
+.qc-folder-tabs .ant-tabs-tab {
+  border-radius: 8px 8px 0 0 !important;
+  border: 1px solid var(--theme-border, #d9d9d9) !important;
+  border-bottom: 1.5px solid var(--theme-border, #d9d9d9) !important;
+  border-top: 3px solid transparent !important;
+  background-color: var(--theme-surface-alt, rgba(0, 0, 0, 0.03)) !important;
+  margin-right: 6px !important;
+  padding: 9px 18px !important;
+  font-weight: 600 !important;
+  font-size: 13px !important;
+  color: var(--theme-text-secondary, #64748b) !important;
+  transition: all 0.2s ease !important;
+  cursor: pointer;
+  box-shadow: none !important;
+}
+
+.qc-folder-tabs .ant-tabs-tab:hover {
+  background-color: var(--theme-surface-elevated, rgba(0, 0, 0, 0.05)) !important;
+  color: var(--theme-primary, #1677ff) !important;
+}
+
+/* Active Tab: Line on top, bottom open / seamless into the content container */
+.qc-folder-tabs .ant-tabs-tab.ant-tabs-tab-active {
+  background-color: var(--theme-surface, var(--theme-surface-elevated, #ffffff)) !important;
+  border-top: 3.5px solid var(--theme-primary, #1677ff) !important;
+  border-left: 1px solid var(--theme-border, #d9d9d9) !important;
+  border-right: 1px solid var(--theme-border, #d9d9d9) !important;
+  border-bottom: 2.5px solid var(--theme-surface, #ffffff) !important;
+  margin-bottom: -1px !important;
+  font-weight: 800 !important;
+  color: var(--theme-primary, #1677ff) !important;
+  box-shadow: 0 -2px 6px rgba(0, 0, 0, 0.04) !important;
+  z-index: 3 !important;
+}
+
+.qc-folder-tabs .ant-tabs-tab.ant-tabs-tab-active .ant-tabs-tab-btn {
+  color: var(--theme-primary, #1677ff) !important;
+  font-weight: 800 !important;
+}
+
+.qc-folder-tabs > .ant-tabs-content-holder {
+  background-color: transparent !important;
+  padding-top: 14px;
+}
+
+/* ── Division Button-Tabs Bar (Line on top, bottom open) ── */
+.qc-division-tabs-bar {
+  display: inline-flex;
+  align-items: flex-end;
+  border-bottom: 1.5px solid var(--theme-border, #d9d9d9);
+  gap: 6px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  max-width: 100%;
+}
+
+.qc-division-tabs-bar::-webkit-scrollbar {
+  display: none;
+}
+
+.qc-division-tab-btn {
+  padding: 8px 18px;
   font-size: 13px;
-  padding: 8px 12px;
+  font-weight: 600;
+  border-top: 3px solid transparent;
+  border-left: 1px solid var(--theme-border, #d9d9d9);
+  border-right: 1px solid var(--theme-border, #d9d9d9);
+  border-bottom: 1.5px solid var(--theme-border, #d9d9d9);
+  border-radius: 8px 8px 0 0;
+  background-color: var(--theme-surface-alt, rgba(0, 0, 0, 0.03));
+  color: var(--theme-text-secondary, #64748b);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  outline: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.qc-division-tab-btn:hover {
+  background-color: var(--theme-surface-elevated, rgba(0, 0, 0, 0.06));
+  color: var(--theme-primary, #1677ff);
+}
+
+.qc-division-tab-btn.active {
+  border-top: 3.5px solid var(--theme-primary, #1677ff) !important;
+  border-left: 1px solid var(--theme-border, #d9d9d9) !important;
+  border-right: 1px solid var(--theme-border, #d9d9d9) !important;
+  border-bottom: 2.5px solid var(--theme-surface, #ffffff) !important;
+  margin-bottom: -1px !important;
+  background-color: var(--theme-surface, #ffffff) !important;
+  color: var(--theme-primary, #1677ff) !important;
+  font-weight: 800 !important;
+  box-shadow: 0 -2px 6px rgba(0, 0, 0, 0.04);
+  z-index: 2;
+}
+
+/* Active row highlight in Running Inspections Register */
+.qc-row-active > td {
+  background-color: var(--theme-surface-alt, rgba(22, 119, 255, 0.06)) !important;
+  border-top: 1px solid var(--theme-primary, #1677ff) !important;
+  border-bottom: 1px solid var(--theme-primary, #1677ff) !important;
+}
+
+.qc-row-active > td:first-child {
+  border-left: 3.5px solid var(--theme-primary, #1677ff) !important;
 }
 
 /* Division Segmented Control scroll container */

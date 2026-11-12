@@ -3,7 +3,7 @@ import { Card, Table, Button, Space, Modal, Form, Input, InputNumber, Select, Ap
 import { PlusOutlined, DownloadOutlined, UploadOutlined, EditOutlined, DeleteOutlined, FileExcelOutlined, CheckCircleOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { ItemQcSpecification, DimensionalCharacteristic } from './types';
-import { saveAllSpecs, saveDbSpecs, exportSpecsToExcel, exportSpecsTemplateCsv } from './qcSpecsStore';
+import { saveAllSpecs, saveDbSpecs, exportSpecsToExcel, exportSpecsTemplateCsv, resolveCompanyId, normalizeSpecDepartment } from './qcSpecsStore';
 
 interface ItemQcSpecsMasterProps {
   specs: ItemQcSpecification[];
@@ -80,13 +80,13 @@ export const isSpecInDepartment = (
 
   // Straightener (SPD-DEPT001)
   if (activeDeptCode === 'SPD-DEPT001') {
-    return itemCode.startsWith('WIP-ST') || itemCode.startsWith('ST-') || specDept === 'SPD-DEPT001';
+    return itemCode.startsWith('WIP-ST') || itemCode.startsWith('ST-') || (specDept === 'SPD-DEPT001' && !itemCode.startsWith('WIP-SPK'));
   }
   // Swagging (SPD-DEPT002)
   if (activeDeptCode === 'SPD-DEPT002') {
     return itemCode.startsWith('WIP-SW') || itemCode.startsWith('SW-') || specDept === 'SPD-DEPT002';
   }
-  // Spoke (SPD-DEPT003)
+  // Spoke (SPD-DEPT003) - Strictly Spoke only! Straightener items WIP-ST-* are completely prohibited here.
   if (activeDeptCode === 'SPD-DEPT003') {
     if (
       itemCode.startsWith('WIP-ST') ||
@@ -108,7 +108,7 @@ export const isSpecInDepartment = (
     ) {
       return false;
     }
-    return itemCode.startsWith('WIP-SPK') || itemCode.startsWith('SPK-') || specDept === 'SPD-DEPT003';
+    return itemCode.startsWith('WIP-SPK') || itemCode.startsWith('SPK-') || (specDept === 'SPD-DEPT003' && !itemCode.startsWith('WIP-ST'));
   }
   // Header (SPD-DEPT004)
   if (activeDeptCode === 'SPD-DEPT004') {
@@ -266,6 +266,92 @@ const getDefaultCharsForScope = (divCode: string, deptCode: string): Dimensional
   ];
 };
 
+// Generate smart default visual & structural attribute checks based on division and department
+export const getDefaultAttributesForScope = (
+  divCode: string,
+  deptCode: string
+): Array<{ id: string; checkName: string; sampleSize: number; maxAllowedDefects: number }> => {
+  if (divCode === 'DIV-CCD' || (deptCode && deptCode.startsWith('CCD'))) {
+    if (deptCode === 'CCD-DEPT001' || deptCode.includes('FLAT')) {
+      return [
+        { id: `a-${Date.now()}-1`, checkName: 'Edge Burr Checking', sampleSize: 10, maxAllowedDefects: 0 },
+        { id: `a-${Date.now()}-2`, checkName: 'Surface Smoothness', sampleSize: 10, maxAllowedDefects: 0 },
+        { id: `a-${Date.now()}-3`, checkName: 'No Twisting / Camber', sampleSize: 10, maxAllowedDefects: 0 },
+      ];
+    } else if (deptCode === 'CCD-DEPT002') {
+      return [
+        { id: `a-${Date.now()}-1`, checkName: 'Outer Casing Smoothness', sampleSize: 10, maxAllowedDefects: 0 },
+        { id: `a-${Date.now()}-2`, checkName: 'Liner Integrity', sampleSize: 10, maxAllowedDefects: 0 },
+        { id: `a-${Date.now()}-3`, checkName: 'Flexible Bending Test', sampleSize: 10, maxAllowedDefects: 0 },
+      ];
+    } else if (deptCode === 'CCD-DEPT003') {
+      return [
+        { id: `a-${Date.now()}-1`, checkName: 'Wire Strand Uniformity', sampleSize: 10, maxAllowedDefects: 0 },
+        { id: `a-${Date.now()}-2`, checkName: 'No Broken Strands', sampleSize: 10, maxAllowedDefects: 0 },
+        { id: `a-${Date.now()}-3`, checkName: 'Smooth Coating Layer', sampleSize: 10, maxAllowedDefects: 0 },
+      ];
+    } else {
+      return [
+        { id: `a-${Date.now()}-1`, checkName: 'Fitting Crimp Security', sampleSize: 10, maxAllowedDefects: 0 },
+        { id: `a-${Date.now()}-2`, checkName: 'Inner Wire Free Movement', sampleSize: 10, maxAllowedDefects: 0 },
+        { id: `a-${Date.now()}-3`, checkName: 'End Cap / Boot Fitment', sampleSize: 10, maxAllowedDefects: 0 },
+      ];
+    }
+  }
+
+  // Spoke Division departments
+  if (deptCode === 'SPD-DEPT001') {
+    // Straightener
+    return [
+      { id: `a-${Date.now()}-1`, checkName: 'Straight Wire Checking', sampleSize: 10, maxAllowedDefects: 0 },
+      { id: `a-${Date.now()}-2`, checkName: 'Cut End Burrs', sampleSize: 10, maxAllowedDefects: 0 },
+      { id: `a-${Date.now()}-3`, checkName: 'Surface Rust / Scratch', sampleSize: 10, maxAllowedDefects: 0 },
+    ];
+  } else if (deptCode === 'SPD-DEPT002') {
+    // Swagging
+    return [
+      { id: `a-${Date.now()}-1`, checkName: 'Butted Transition Smoothness', sampleSize: 10, maxAllowedDefects: 0 },
+      { id: `a-${Date.now()}-2`, checkName: 'Surface Cracks', sampleSize: 10, maxAllowedDefects: 0 },
+      { id: `a-${Date.now()}-3`, checkName: 'Taper Uniformity', sampleSize: 10, maxAllowedDefects: 0 },
+    ];
+  } else if (deptCode === 'SPD-DEPT004') {
+    // Header
+    return [
+      { id: `a-${Date.now()}-1`, checkName: 'Head Crack Checking', sampleSize: 10, maxAllowedDefects: 0 },
+      { id: `a-${Date.now()}-2`, checkName: 'Head Concentricity', sampleSize: 10, maxAllowedDefects: 0 },
+      { id: `a-${Date.now()}-3`, checkName: 'Shank Burr & Chamfer', sampleSize: 10, maxAllowedDefects: 0 },
+    ];
+  } else if (deptCode === 'SPD-DEPT005') {
+    // Nipple
+    return [
+      { id: `a-${Date.now()}-1`, checkName: 'Thread Fitment Test', sampleSize: 10, maxAllowedDefects: 0 },
+      { id: `a-${Date.now()}-2`, checkName: 'Flange Head Burr', sampleSize: 10, maxAllowedDefects: 0 },
+      { id: `a-${Date.now()}-3`, checkName: 'Drive Slot Alignment', sampleSize: 10, maxAllowedDefects: 0 },
+    ];
+  } else if (deptCode === 'SPD-DEPT006') {
+    // Spoke Plating
+    return [
+      { id: `a-${Date.now()}-1`, checkName: 'Plating Adhesion / Peeling', sampleSize: 10, maxAllowedDefects: 0 },
+      { id: `a-${Date.now()}-2`, checkName: 'Brightness & Color Uniformity', sampleSize: 10, maxAllowedDefects: 0 },
+      { id: `a-${Date.now()}-3`, checkName: 'No Black Spots / Stains', sampleSize: 10, maxAllowedDefects: 0 },
+    ];
+  } else if (deptCode === 'SPD-DEPT008') {
+    // Spoke Packing
+    return [
+      { id: `a-${Date.now()}-1`, checkName: 'Box Label & Barcode Accuracy', sampleSize: 10, maxAllowedDefects: 0 },
+      { id: `a-${Date.now()}-2`, checkName: 'Correct Piece Count (72 Pcs)', sampleSize: 10, maxAllowedDefects: 0 },
+      { id: `a-${Date.now()}-3`, checkName: 'Carton Sealing Integrity', sampleSize: 10, maxAllowedDefects: 0 },
+    ];
+  }
+
+  // Spoke Department (SPD-DEPT003) standard default
+  return [
+    { id: `a-${Date.now()}-1`, checkName: 'Thread Checking', sampleSize: 10, maxAllowedDefects: 0 },
+    { id: `a-${Date.now()}-2`, checkName: 'Bending Broken', sampleSize: 10, maxAllowedDefects: 0 },
+    { id: `a-${Date.now()}-3`, checkName: 'Head Crack', sampleSize: 10, maxAllowedDefects: 0 },
+  ];
+};
+
 export const ItemQcSpecsMaster: React.FC<ItemQcSpecsMasterProps> = ({
   specs,
   onSpecsChange,
@@ -284,35 +370,33 @@ export const ItemQcSpecsMaster: React.FC<ItemQcSpecsMasterProps> = ({
   const [form] = Form.useForm();
 
   const [characteristics, setCharacteristics] = useState<DimensionalCharacteristic[]>([]);
+  const [attributes, setAttributes] = useState<
+    Array<{ id: string; checkName: string; sampleSize: number; maxAllowedDefects: number }>
+  >([]);
 
-  // Resolve companyId for DB sync
+  // Resolve companyId for DB sync with robust fallback
   const resolvedCompanyId = useMemo(() => {
-    if (companyId) return companyId;
-    try {
-      const raw = localStorage.getItem('erp_user');
-      return raw ? JSON.parse(raw)?.defaultCompanyId || '' : '';
-    } catch {
-      return '';
-    }
+    return resolveCompanyId(companyId);
   }, [companyId]);
 
   // Scope filter: Show only active department specs by default, or all division specs
   const [scopeFilter, setScopeFilter] = useState<'DEPARTMENT' | 'ALL'>('DEPARTMENT');
 
-  // Deduplicated specs across the division
+  // Deduplicated specs across the division with strict department normalization
   const deduplicatedDivisionSpecs = useMemo(() => {
     const uniqueMap = new Map<string, ItemQcSpecification>();
     (specs || []).forEach((s) => {
       if (!s || !s.itemCode) return;
-      const key = s.itemCode.trim().toUpperCase();
+      const norm = normalizeSpecDepartment(s);
+      const key = norm.itemCode.trim().toUpperCase();
       if (!uniqueMap.has(key)) {
-        uniqueMap.set(key, s);
+        uniqueMap.set(key, norm);
       } else {
         const existing = uniqueMap.get(key)!;
         const existingTime = existing.updatedAt ? new Date(existing.updatedAt).getTime() : 0;
-        const newTime = s.updatedAt ? new Date(s.updatedAt).getTime() : 0;
-        if (newTime >= existingTime && (s.characteristics?.length || 0) >= (existing.characteristics?.length || 0)) {
-          uniqueMap.set(key, s);
+        const newTime = norm.updatedAt ? new Date(norm.updatedAt).getTime() : 0;
+        if (newTime >= existingTime && (norm.characteristics?.length || 0) >= (existing.characteristics?.length || 0)) {
+          uniqueMap.set(key, norm);
         }
       }
     });
@@ -446,6 +530,7 @@ export const ItemQcSpecsMaster: React.FC<ItemQcSpecsMasterProps> = ({
       issueDate: '09-Jun-2022',
     });
     setCharacteristics(getDefaultCharsForScope(divisionCode, departmentCode));
+    setAttributes(getDefaultAttributesForScope(divisionCode, departmentCode));
     setModalVisible(true);
   };
 
@@ -459,6 +544,11 @@ export const ItemQcSpecsMaster: React.FC<ItemQcSpecsMasterProps> = ({
       issueDate: spec.issueDate,
     });
     setCharacteristics(spec.characteristics || []);
+    setAttributes(
+      spec.attributes && spec.attributes.length > 0
+        ? spec.attributes
+        : getDefaultAttributesForScope(spec.divisionCode, spec.departmentCode)
+    );
     setModalVisible(true);
   };
 
@@ -480,14 +570,56 @@ export const ItemQcSpecsMaster: React.FC<ItemQcSpecsMasterProps> = ({
     setCharacteristics((prev) => prev.filter((c) => c.id !== id));
   };
 
-  const handleDeleteSpec = (id: string) => {
-    const updated = specs.filter((s) => s.id !== id);
+  const handleAddAttrRow = () => {
+    const newAttr = {
+      id: `a-${Date.now()}-${attributes.length + 1}`,
+      checkName: '',
+      sampleSize: 10,
+      maxAllowedDefects: 0,
+    };
+    setAttributes((prev) => [...prev, newAttr]);
+  };
+
+  const handleRemoveAttr = (id: string) => {
+    setAttributes((prev) => prev.filter((a) => a.id !== id));
+  };
+
+  const handleUpdateAttr = (
+    id: string,
+    field: 'checkName' | 'sampleSize' | 'maxAllowedDefects',
+    val: any
+  ) => {
+    setAttributes((prev) => prev.map((a) => (a.id === id ? { ...a, [field]: val } : a)));
+  };
+
+  const [persisting, setPersisting] = useState(false);
+
+  /**
+   * Single persistence path: update UI state + local cache, then WAIT for the database
+   * to confirm. If the server rejects the write, the user is told immediately instead of
+   * discovering a missing record after a page refresh.
+   */
+  const persistSpecs = async (updated: ItemQcSpecification[], successMsg: string): Promise<boolean> => {
     onSpecsChange(updated);
     saveAllSpecs(updated);
-    if (resolvedCompanyId) {
-      saveDbSpecs(resolvedCompanyId, updated).catch(() => {});
+    setPersisting(true);
+    try {
+      await saveDbSpecs(resolvedCompanyId, updated);
+      message.success(`${successMsg} (saved to database)`);
+      return true;
+    } catch (err: any) {
+      const reason = err?.response?.data?.message || err?.message || 'Server did not accept the save';
+      message.error(`Database save failed: ${reason}. Your change is kept on this device only — please retry.`);
+      return false;
+    } finally {
+      setPersisting(false);
     }
-    message.success('Item specification deleted');
+  };
+
+  const handleDeleteSpec = async (record: ItemQcSpecification) => {
+    const targetCode = (record.itemCode || '').trim().toUpperCase();
+    const updated = specs.filter((s) => (s.itemCode || '').trim().toUpperCase() !== targetCode);
+    await persistSpecs(updated, `Item specification "${record.itemCode}" deleted`);
   };
 
   const handleSaveSpec = async () => {
@@ -500,6 +632,16 @@ export const ItemQcSpecsMaster: React.FC<ItemQcSpecsMasterProps> = ({
       const hasEmptyName = characteristics.some((c) => !c.charName || !c.charName.trim());
       if (hasEmptyName) {
         message.warning('Please enter a parameter name for all rows (e.g. Thickness, Width, Outer Dia...)');
+        return;
+      }
+
+      if (!attributes || attributes.length === 0) {
+        message.warning('Please add at least one visual & structural attribute check');
+        return;
+      }
+      const hasEmptyAttr = attributes.some((a) => !a.checkName || !a.checkName.trim());
+      if (hasEmptyAttr) {
+        message.warning('Please enter a check name for all visual & structural attribute check rows');
         return;
       }
 
@@ -524,11 +666,7 @@ export const ItemQcSpecsMaster: React.FC<ItemQcSpecsMasterProps> = ({
         revNo: values.revNo || '02',
         issueDate: values.issueDate || '09-Jun-2022',
         characteristics,
-        attributes: editingSpec?.attributes || [
-          { id: 'a1', checkName: isCcd ? 'Surface Burrs & Scratches' : 'Thread Checking', sampleSize: 10, maxAllowedDefects: 0 },
-          { id: 'a2', checkName: isCcd ? 'Edge Smoothness' : 'Bending Broken', sampleSize: 10, maxAllowedDefects: 0 },
-          { id: 'a3', checkName: isCcd ? 'Color Uniformity' : 'Head Crack', sampleSize: 10, maxAllowedDefects: 0 },
-        ],
+        attributes,
         updatedAt: new Date().toISOString(),
       };
 
@@ -538,13 +676,8 @@ export const ItemQcSpecsMaster: React.FC<ItemQcSpecsMasterProps> = ({
         ? specs.map((s) => (s.id === editingSpec.id || s.itemCode?.trim().toUpperCase() === targetCode ? newSpec : s))
         : [...specs.filter((s) => s.itemCode?.trim().toUpperCase() !== targetCode), newSpec];
 
-      onSpecsChange(updated);
-      saveAllSpecs(updated);
-      if (resolvedCompanyId) {
-        saveDbSpecs(resolvedCompanyId, updated).catch(() => {});
-      }
-      message.success(`Item QC Specifications for "${newSpec.itemCode}" saved successfully!`);
-      setModalVisible(false);
+      const ok = await persistSpecs(updated, `Item QC Specifications for "${newSpec.itemCode}" saved`);
+      if (ok) setModalVisible(false);
     } catch {
       message.error('Please verify all form fields');
     }
@@ -623,10 +756,8 @@ export const ItemQcSpecsMaster: React.FC<ItemQcSpecsMasterProps> = ({
           }
         });
 
-        onSpecsChange(updated);
-        saveAllSpecs(updated);
-        message.success(`Successfully imported specifications for ${newSpecs.length} items!`);
         setImportModalVisible(false);
+        void persistSpecs(updated, `Imported specifications for ${newSpecs.length} items`);
       } catch (err) {
         message.error('Failed to parse CSV file. Please check template format.');
       }
@@ -640,8 +771,31 @@ export const ItemQcSpecsMaster: React.FC<ItemQcSpecsMasterProps> = ({
       title: 'Item Code',
       dataIndex: 'itemCode',
       key: 'itemCode',
-      width: 140,
-      render: (code: string) => <Tag color="blue">{code}</Tag>,
+      width: 170,
+      render: (code: string, record: ItemQcSpecification) => (
+        <Button
+          type="primary"
+          ghost
+          size="small"
+          icon={<EditOutlined style={{ fontSize: '11px' }} />}
+          onClick={() => handleOpenEdit(record)}
+          style={{
+            fontWeight: 700,
+            fontSize: '12px',
+            borderRadius: '6px',
+            cursor: 'pointer',
+            padding: '2px 10px',
+            height: '28px',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+          }}
+          title={`Click to edit QC specifications for ${code}`}
+        >
+          {code}
+        </Button>
+      ),
     },
     {
       title: 'Item Name',
@@ -671,6 +825,27 @@ export const ItemQcSpecsMaster: React.FC<ItemQcSpecsMasterProps> = ({
       ),
     },
     {
+      title: 'Visual & Structural Checks',
+      dataIndex: 'attributes',
+      key: 'attributes',
+      width: 280,
+      render: (attrs: any[], record: ItemQcSpecification) => {
+        const list =
+          Array.isArray(attrs) && attrs.length > 0
+            ? attrs
+            : getDefaultAttributesForScope(record.divisionCode, record.departmentCode);
+        return (
+          <Space size={[4, 6]} wrap>
+            {list.map((a) => (
+              <Tag key={a.id} color="cyan" style={{ borderRadius: '4px' }}>
+                <strong>{a.checkName}</strong> ({a.sampleSize || 10} pcs)
+              </Tag>
+            ))}
+          </Space>
+        );
+      },
+    },
+    {
       title: 'Updated',
       dataIndex: 'updatedAt',
       key: 'updated',
@@ -686,7 +861,7 @@ export const ItemQcSpecsMaster: React.FC<ItemQcSpecsMasterProps> = ({
           <Button size="small" icon={<EditOutlined />} onClick={() => handleOpenEdit(r)}>
             Edit
           </Button>
-          <Button size="small" danger icon={<DeleteOutlined />} onClick={() => handleDeleteSpec(r.id)} />
+          <Button size="small" danger icon={<DeleteOutlined />} onClick={() => handleDeleteSpec(r)} />
         </Space>
       ),
     },
@@ -714,19 +889,59 @@ export const ItemQcSpecsMaster: React.FC<ItemQcSpecsMasterProps> = ({
                 ? `${departmentName} Department (${departmentSpecs.length} items)`
                 : `All ${divisionName} (${deduplicatedDivisionSpecs.length} items)`}
             </Tag>
-            <Radio.Group
-              value={scopeFilter}
-              onChange={(e) => setScopeFilter(e.target.value)}
-              size="small"
-              buttonStyle="solid"
+            <div
+              style={{
+                display: 'inline-flex',
+                alignItems: 'flex-end',
+                borderBottom: `1.5px solid ${token.colorBorderSecondary}`,
+                gap: '4px',
+              }}
             >
-              <Radio.Button value="DEPARTMENT">
+              <button
+                type="button"
+                onClick={() => setScopeFilter('DEPARTMENT')}
+                style={{
+                  padding: '5px 14px',
+                  fontSize: '12px',
+                  fontWeight: scopeFilter === 'DEPARTMENT' ? 800 : 600,
+                  borderTop: scopeFilter === 'DEPARTMENT' ? `3px solid ${token.colorPrimary}` : '3px solid transparent',
+                  borderLeft: `1px solid ${token.colorBorderSecondary}`,
+                  borderRight: `1px solid ${token.colorBorderSecondary}`,
+                  borderBottom: scopeFilter === 'DEPARTMENT' ? `2px solid ${token.colorBgContainer}` : `1px solid ${token.colorBorderSecondary}`,
+                  marginBottom: scopeFilter === 'DEPARTMENT' ? '-1px' : '0px',
+                  backgroundColor: scopeFilter === 'DEPARTMENT' ? token.colorBgContainer : token.colorFillAlter,
+                  color: scopeFilter === 'DEPARTMENT' ? token.colorPrimary : token.colorTextSecondary,
+                  borderRadius: '6px 6px 0 0',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                  outline: 'none',
+                }}
+              >
                 {departmentName} Only ({departmentSpecs.length})
-              </Radio.Button>
-              <Radio.Button value="ALL">
+              </button>
+              <button
+                type="button"
+                onClick={() => setScopeFilter('ALL')}
+                style={{
+                  padding: '5px 14px',
+                  fontSize: '12px',
+                  fontWeight: scopeFilter === 'ALL' ? 800 : 600,
+                  borderTop: scopeFilter === 'ALL' ? `3px solid ${token.colorPrimary}` : '3px solid transparent',
+                  borderLeft: `1px solid ${token.colorBorderSecondary}`,
+                  borderRight: `1px solid ${token.colorBorderSecondary}`,
+                  borderBottom: scopeFilter === 'ALL' ? `2px solid ${token.colorBgContainer}` : `1px solid ${token.colorBorderSecondary}`,
+                  marginBottom: scopeFilter === 'ALL' ? '-1px' : '0px',
+                  backgroundColor: scopeFilter === 'ALL' ? token.colorBgContainer : token.colorFillAlter,
+                  color: scopeFilter === 'ALL' ? token.colorPrimary : token.colorTextSecondary,
+                  borderRadius: '6px 6px 0 0',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                  outline: 'none',
+                }}
+              >
                 All {divisionName} ({deduplicatedDivisionSpecs.length})
-              </Radio.Button>
-            </Radio.Group>
+              </button>
+            </div>
           </div>
           <Typography.Text type="secondary" style={{ fontSize: '12px' }}>
             Showing items strictly filtered to active department scope. Pre-configured tolerances auto-load in inspections.
@@ -793,6 +1008,7 @@ export const ItemQcSpecsMaster: React.FC<ItemQcSpecsMasterProps> = ({
         open={modalVisible}
         onCancel={() => setModalVisible(false)}
         onOk={handleSaveSpec}
+        confirmLoading={persisting}
         width={780}
       >
         <Form form={form} layout="vertical">
@@ -849,6 +1065,11 @@ export const ItemQcSpecsMaster: React.FC<ItemQcSpecsMasterProps> = ({
                     );
                     if (existingSpec && existingSpec.characteristics && existingSpec.characteristics.length > 0) {
                       setCharacteristics(existingSpec.characteristics);
+                      setAttributes(
+                        existingSpec.attributes && existingSpec.attributes.length > 0
+                          ? existingSpec.attributes
+                          : getDefaultAttributesForScope(divisionCode, departmentCode)
+                      );
                       form.setFieldsValue({
                         docRef: existingSpec.docRef || form.getFieldValue('docRef'),
                         revNo: existingSpec.revNo || form.getFieldValue('revNo'),
@@ -856,6 +1077,7 @@ export const ItemQcSpecsMaster: React.FC<ItemQcSpecsMasterProps> = ({
                       });
                     } else {
                       setCharacteristics(getDefaultCharsForScope(divisionCode, departmentCode));
+                      setAttributes(getDefaultAttributesForScope(divisionCode, departmentCode));
                     }
                   }}
                   options={groupedItemOptions}
@@ -984,6 +1206,94 @@ export const ItemQcSpecsMaster: React.FC<ItemQcSpecsMasterProps> = ({
             style={{ width: '100%', marginTop: '10px' }}
           >
             + Add Characteristic Parameter
+          </Button>
+
+          {/* Visual & Structural Attribute Checks (GO / NO-GO) Section */}
+          <Divider style={{ margin: '18px 0 12px 0' }} />
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap', gap: '6px' }}>
+            <div>
+              <span style={{ fontSize: '13px', fontWeight: 700, color: token.colorTextHeading }}>
+                Visual &amp; Structural Attribute Checks (GO / NO-GO)
+              </span>
+              <div style={{ fontSize: '11px', color: token.colorTextSecondary }}>
+                Configure visual inspection parameters, GO/NO-GO checks, sample sizes, and defect thresholds
+              </div>
+            </div>
+            <Tag color="blue">{attributes.length} Check{attributes.length !== 1 ? 's' : ''} Configured</Tag>
+          </div>
+
+          <div style={{ width: '100%', overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+            <table style={{ width: '100%', minWidth: '550px', borderCollapse: 'collapse', border: `1px solid ${token.colorBorder}` }}>
+              <thead>
+                <tr style={{ backgroundColor: token.colorFillAlter, textAlign: 'left' }}>
+                  <th style={{ padding: '6px 8px', border: `1px solid ${token.colorBorder}`, width: '48%' }}>
+                    Attribute / Check Name (Visual &amp; Physical)
+                  </th>
+                  <th style={{ padding: '6px 8px', border: `1px solid ${token.colorBorder}`, width: '24%' }}>
+                    Sample Size (Pcs)
+                  </th>
+                  <th style={{ padding: '6px 8px', border: `1px solid ${token.colorBorder}`, width: '20%' }}>
+                    Max Allowed Defects
+                  </th>
+                  <th style={{ padding: '6px 8px', border: `1px solid ${token.colorBorder}`, textAlign: 'center', width: '45px' }}>
+                    Action
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {attributes.map((a) => (
+                  <tr key={a.id}>
+                    <td style={{ padding: '4px', border: `1px solid ${token.colorBorder}` }}>
+                      <Input
+                        value={a.checkName}
+                        placeholder="e.g. Thread Checking, Straight Wire, Bending Broken, Head Crack..."
+                        style={{ fontWeight: 600 }}
+                        onChange={(e) => handleUpdateAttr(a.id, 'checkName', e.target.value)}
+                      />
+                    </td>
+                    <td style={{ padding: '4px', border: `1px solid ${token.colorBorder}` }}>
+                      <InputNumber
+                        value={a.sampleSize}
+                        min={1}
+                        step={1}
+                        style={{ width: '100%' }}
+                        onChange={(v) => handleUpdateAttr(a.id, 'sampleSize', Number(v || 10))}
+                      />
+                    </td>
+                    <td style={{ padding: '4px', border: `1px solid ${token.colorBorder}` }}>
+                      <InputNumber
+                        value={a.maxAllowedDefects}
+                        min={0}
+                        step={1}
+                        style={{ width: '100%' }}
+                        onChange={(v) => handleUpdateAttr(a.id, 'maxAllowedDefects', Number(v || 0))}
+                      />
+                    </td>
+                    <td style={{ padding: '4px', border: `1px solid ${token.colorBorder}`, textAlign: 'center' }}>
+                      <Button
+                        type="text"
+                        danger
+                        size="small"
+                        icon={<DeleteOutlined />}
+                        onClick={() => handleRemoveAttr(a.id)}
+                        disabled={attributes.length <= 1}
+                        title="Delete attribute check"
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <Button
+            type="dashed"
+            icon={<PlusOutlined />}
+            onClick={handleAddAttrRow}
+            style={{ width: '100%', marginTop: '10px' }}
+          >
+            + Add Attribute Check
           </Button>
         </Form>
       </Modal>

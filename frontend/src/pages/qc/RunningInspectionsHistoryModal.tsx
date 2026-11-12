@@ -15,6 +15,7 @@ import {
   Divider,
   Popconfirm,
   theme,
+  App,
 } from 'antd';
 import {
   HistoryOutlined,
@@ -29,18 +30,22 @@ import {
   PrinterOutlined,
   EditOutlined,
   DeleteOutlined,
+  ArrowsAltOutlined,
+  ShrinkOutlined,
+  CheckSquareFilled,
+  ClearOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { QmsInProcessInspection, InspectionSampleRow } from './types';
-import { exportQmsToPdf } from './exportQmsPdf';
-import { shareQmsOnWhatsApp } from './exportQmsWhatsApp';
+import { exportQmsToPdf, exportBatchQmsToPdf } from './exportQmsPdf';
+import { shareQmsOnWhatsApp, shareBatchQmsOnWhatsApp } from './exportQmsWhatsApp';
 
 interface RunningInspectionsHistoryModalProps {
   visible: boolean;
   onClose: () => void;
   inspections: QmsInProcessInspection[];
   onSelectInspection: (inspection: QmsInProcessInspection) => void;
-  onOpenSheet: (inspection: QmsInProcessInspection) => void;
+  onOpenSheet: (inspection: QmsInProcessInspection, batchList?: QmsInProcessInspection[]) => void;
   onEditInspection?: (inspection: QmsInProcessInspection) => void;
   onDeleteInspection?: (inspection: QmsInProcessInspection) => void;
   onRefresh?: () => void;
@@ -57,6 +62,29 @@ export const RunningInspectionsHistoryModal: React.FC<RunningInspectionsHistoryM
   onRefresh,
 }) => {
   const { token } = theme.useToken();
+  const { message } = App.useApp();
+  const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
+  const [selectedRows, setSelectedRows] = useState<QmsInProcessInspection[]>([]);
+
+  const selectedInspections = useMemo(() => {
+    if (selectedRows.length > 0 && selectedRows.length === selectedRowKeys.length) {
+      return selectedRows;
+    }
+    return inspections.filter((item) => selectedRowKeys.includes(item.id || item.inspectionNo));
+  }, [inspections, selectedRowKeys, selectedRows]);
+
+  const rowSelection = {
+    selectedRowKeys,
+    onChange: (keys: React.Key[], rows: QmsInProcessInspection[]) => {
+      setSelectedRowKeys(keys);
+      setSelectedRows(rows);
+    },
+    selections: [
+      Table.SELECTION_ALL,
+      Table.SELECTION_INVERT,
+      Table.SELECTION_NONE,
+    ],
+  };
 
   const renderSolidBadge = (status: string) => {
     const isFail = status === 'FAIL';
@@ -540,17 +568,120 @@ export const RunningInspectionsHistoryModal: React.FC<RunningInspectionsHistoryM
         </Row>
       </Card>
 
-      {/* Main Inspections Table with Expandable Samples Breakdown */}
+      {/* Batch Action Toolbar when Checkboxes are selected */}
+      {selectedRowKeys.length > 0 && (
+        <Card
+          size="small"
+          bordered
+          style={{
+            marginBottom: '12px',
+            backgroundColor: token.colorPrimaryBg,
+            borderColor: token.colorPrimaryBorder,
+            borderRadius: '8px',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.05)',
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <Tag color="processing" style={{ fontSize: '13px', fontWeight: 700, padding: '4px 10px', borderRadius: '6px' }}>
+                <CheckSquareFilled style={{ marginRight: '6px' }} />
+                {selectedRowKeys.length} {selectedRowKeys.length === 1 ? 'Record' : 'Records'} Selected
+              </Tag>
+              <Button
+                type="link"
+                size="small"
+                icon={<ClearOutlined />}
+                onClick={() => setSelectedRowKeys([])}
+                style={{ fontSize: '12px', color: token.colorTextSecondary }}
+              >
+                Clear Selection
+              </Button>
+            </div>
+
+            <Space wrap size="small">
+              <Button
+                icon={<FileTextOutlined />}
+                onClick={() => {
+                  const targetList = selectedInspections.length > 0 ? selectedInspections : filteredList.slice(0, 1);
+                  onOpenSheet(targetList[0], targetList);
+                }}
+                style={{ fontWeight: 600 }}
+              >
+                Print View Selected ({selectedRowKeys.length})
+              </Button>
+
+              <Button
+                danger
+                type="primary"
+                icon={<FilePdfOutlined />}
+                onClick={() => {
+                  try {
+                    const filename = exportBatchQmsToPdf(selectedInspections);
+                    message.success(`Batch PDF generated with ${selectedRowKeys.length} records: ${filename}`);
+                  } catch (e) {
+                    message.error('Failed to generate batch PDF');
+                  }
+                }}
+                style={{ fontWeight: 700 }}
+              >
+                Download Combined PDF ({selectedRowKeys.length})
+              </Button>
+
+              <Button
+                style={{ color: '#25D366', borderColor: '#25D366', fontWeight: 600 }}
+                icon={<WhatsAppOutlined />}
+                onClick={() => shareBatchQmsOnWhatsApp(selectedInspections)}
+              >
+                WhatsApp Share Selected ({selectedRowKeys.length})
+              </Button>
+            </Space>
+          </div>
+        </Card>
+      )}
+
+      {/* Main Inspections Table with Checkbox Row Selection & Expandable Samples Breakdown */}
       <Table
         size="small"
         scroll={{ x: 1000 }}
         columns={columns}
         dataSource={filteredList}
-        rowKey="id"
+        rowKey={(record) => record.id || record.inspectionNo}
+        rowSelection={rowSelection}
         pagination={{ pageSize: 8, showSizeChanger: true, pageSizeOptions: ['8', '15', '30'] }}
         expandable={{
           expandedRowRender,
           rowExpandable: () => true,
+          expandIcon: ({ expanded, onExpand, record }) => (
+            <Button
+              type="text"
+              size="small"
+              icon={
+                expanded ? (
+                  <ShrinkOutlined style={{ fontSize: '13px', color: token.colorPrimary }} />
+                ) : (
+                  <ArrowsAltOutlined style={{ fontSize: '13px', color: token.colorPrimary }} />
+                )
+              }
+              onClick={(e) => {
+                e.stopPropagation();
+                onExpand(record, e);
+              }}
+              style={{
+                width: '26px',
+                height: '26px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderRadius: '6px',
+                backgroundColor: expanded ? token.colorFillAlter : token.colorBgContainer,
+                border: `1.5px solid ${expanded ? token.colorPrimary : token.colorBorderSecondary}`,
+                cursor: 'pointer',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+                transition: 'all 0.2s ease',
+              }}
+              title={expanded ? 'Collapse 5-sample details' : 'Expand 5-sample logs & details'}
+            />
+          ),
         }}
         locale={{
           emptyText: 'No running production inspection records found matching criteria',
