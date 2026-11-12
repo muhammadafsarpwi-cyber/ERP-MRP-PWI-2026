@@ -20,7 +20,7 @@ export interface PwaInstallContextType {
   /** Whether the auto-prompt modal / banner is currently visible */
   showBanner: boolean;
   /** Open the install prompt (triggers native dialog or iOS modal) */
-  promptInstall: () => Promise<void>;
+  promptInstall: () => Promise<boolean>;
   /** Hide the auto-prompt banner for this session */
   dismissBanner: () => void;
   /** Open the detailed install modal (for manual install instructions) */
@@ -42,6 +42,12 @@ export const PwaInstallProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [isInstallModalOpen, setIsInstallModalOpen] = useState(false);
 
   useEffect(() => {
+    // 0. Check if early capture already intercepted beforeinstallprompt
+    if (typeof window !== 'undefined' && (window as any).__pwi_pwa_prompt) {
+      setDeferredPrompt((window as any).__pwi_pwa_prompt);
+      setIsInstallable(true);
+    }
+
     // 1. Detect if running as standalone app
     const isStandalone =
       window.matchMedia('(display-mode: standalone)').matches ||
@@ -73,6 +79,7 @@ export const PwaInstallProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       // Prevent browser default mini-infobar
       e.preventDefault();
       const installEvent = e as BeforeInstallPromptEvent;
+      (window as any).__pwi_pwa_prompt = installEvent;
       setDeferredPrompt(installEvent);
       setIsInstallable(true);
 
@@ -90,6 +97,7 @@ export const PwaInstallProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       setShowBanner(false);
       setIsInstallModalOpen(false);
       setDeferredPrompt(null);
+      (window as any).__pwi_pwa_prompt = null;
       message.success('Pakistan Wire Industries ERP has been installed on your device!');
     };
 
@@ -102,26 +110,33 @@ export const PwaInstallProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     };
   }, []);
 
-  const promptInstall = useCallback(async () => {
-    if (deferredPrompt) {
+  const promptInstall = useCallback(async (): Promise<boolean> => {
+    const activePrompt = deferredPrompt || (typeof window !== 'undefined' ? (window as any).__pwi_pwa_prompt : null);
+    if (activePrompt) {
       try {
-        await deferredPrompt.prompt();
-        const choice = await deferredPrompt.userChoice;
+        await activePrompt.prompt();
+        const choice = await activePrompt.userChoice;
         if (choice.outcome === 'accepted') {
           setIsInstalled(true);
           setShowBanner(false);
           setIsInstallModalOpen(false);
           message.success('Installation started! PWI ERP is being added to your apps.');
+          setDeferredPrompt(null);
+          if (typeof window !== 'undefined') (window as any).__pwi_pwa_prompt = null;
+          return true;
         } else {
           setShowBanner(false);
+          return false;
         }
-        setDeferredPrompt(null);
       } catch (err) {
         console.error('[PWA] Prompt error:', err);
+        setIsInstallModalOpen(true);
+        return false;
       }
     } else {
       // If no native prompt (Safari or desktop manual install), show the modal guide
       setIsInstallModalOpen(true);
+      return false;
     }
   }, [deferredPrompt]);
 
@@ -162,7 +177,7 @@ const FALLBACK_PWA_CONTEXT: PwaInstallContextType = {
   isInstalled: false,
   isIos: false,
   showBanner: false,
-  promptInstall: async () => {},
+  promptInstall: async () => false,
   dismissBanner: () => {},
   openInstallModal: () => {},
   closeInstallModal: () => {},

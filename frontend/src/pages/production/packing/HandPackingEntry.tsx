@@ -42,6 +42,63 @@ export const DEFAULT_GROSS_PER_CARTON = GROSS_PER_CARTON;
 export const DEFAULT_PCS_PER_CARTON = PCS_PER_CARTON;
 
 /**
+ * Diagonal Expand / Collapse Icon (↖ ↘) matching user's custom icon specification.
+ * When collapsed: displays two outward diagonal arrows ↖ ↘.
+ * When expanded: displays two inward diagonal arrows ↘ ↖.
+ */
+export const DiagonalExpandIcon: React.FC<{ expanded: boolean; color?: string; size?: number }> = ({
+  expanded,
+  color = 'currentColor',
+  size = 14,
+}) => {
+  if (expanded) {
+    return (
+      <svg
+        width={size}
+        height={size}
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke={color}
+        strokeWidth="2.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        style={{ display: 'inline-block', verticalAlign: 'middle' }}
+      >
+        {/* Top-left inward arrow ↘ */}
+        <polyline points="3,10 10,10 10,3" />
+        <line x1="10" y1="10" x2="3" y2="3" />
+
+        {/* Bottom-right inward arrow ↖ */}
+        <polyline points="21,14 14,14 14,21" />
+        <line x1="14" y1="14" x2="21" y2="21" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke={color}
+      strokeWidth="2.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      style={{ display: 'inline-block', verticalAlign: 'middle' }}
+    >
+      {/* Top-left arrow ↖ */}
+      <polyline points="11,3 3,3 3,11" />
+      <line x1="3" y1="3" x2="10" y2="10" />
+
+      {/* Bottom-right arrow ↘ */}
+      <polyline points="13,21 21,21 21,13" />
+      <line x1="21" y1="21" x2="14" y2="14" />
+    </svg>
+  );
+};
+
+/**
  * Factory packaging standard lookup:
  * - Standard Spoke Packing: 1 Carton = 10 Gross = 1,440 PCS (720 Inner + 720 Outer + 1,440 Nipple)
  * - Customer Specification (CS): 1 Carton = 10.556 Gross = 1,520 PCS (760 Inner + 760 Outer + 1,520 Nipple)
@@ -8579,6 +8636,37 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                 expandable={{
                   expandedRowKeys: expandedPendingItemKeys,
                   onExpandedRowsChange: (keys) => setExpandedPendingItemKeys(keys as string[]),
+                  expandIcon: ({ expanded, onExpand, record }) => (
+                    <Button
+                      type="text"
+                      size="small"
+                      icon={
+                        <DiagonalExpandIcon
+                          expanded={expanded}
+                          color={expanded ? '#0284c7' : 'var(--theme-text-secondary, #64748b)'}
+                          size={14}
+                        />
+                      }
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onExpand(record, e);
+                      }}
+                      style={{
+                        width: '26px',
+                        height: '26px',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        borderRadius: '6px',
+                        backgroundColor: expanded ? 'rgba(2, 132, 199, 0.12)' : 'var(--theme-surface-alt, rgba(148, 163, 184, 0.12))',
+                        border: `1.5px solid ${expanded ? '#0284c7' : 'var(--theme-border-secondary, #cbd5e1)'}`,
+                        cursor: 'pointer',
+                        boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+                        transition: 'all 0.2s ease',
+                      }}
+                      title={expanded ? 'Collapse batch breakdown' : 'Expand individual batches (↖↘)'}
+                    />
+                  ),
                   expandedRowRender: (record: GroupedPendingItem) => (
                     <div
                       style={{

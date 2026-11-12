@@ -16,6 +16,14 @@ import { registerServiceWorker } from './serviceWorkerRegistration';
 import { PwaInstallProvider } from './context/PwaInstallContext';
 import InstallAppPrompt from './components/pwa/InstallAppPrompt';
 
+// Early capture of PWA beforeinstallprompt event so React never misses it
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    (window as any).__pwi_pwa_prompt = e;
+  });
+}
+
 const root = ReactDOM.createRoot(
   document.getElementById('root') as HTMLElement
 );

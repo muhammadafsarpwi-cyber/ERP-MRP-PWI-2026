@@ -771,7 +771,14 @@
 
 .erp-item-row { cursor: pointer; }
 .erp-item-row__code { font-size: 11px; }
-.erp-item-row__name { max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.erp-item-row__name,
+.erp-item-row__merged-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--theme-text);
+  line-height: 1.35;
+  word-break: break-word;
+}
 
 .erp-item-row__health {
   display: inline-block;

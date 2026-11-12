@@ -2397,10 +2397,10 @@ const ItemManagement: React.FC = () => {
     }
   };
 
-  const handleDelete = async (record: Item) => {
+  const handleDelete = async (record: Item, force: boolean = false) => {
     try {
-      await apiService.delete(`/master-data/items/${record.id}`);
-      message.success(`Item ${record.itemCode} deleted`);
+      await apiService.delete(`/master-data/items/${record.id}${force ? '?force=true' : ''}`);
+      message.success(`Item ${record.itemCode} ${force ? 'permanently force-deleted' : 'deleted'}`);
       invalidateLookupsCache();
       prefetchAllLookups(true).catch(() => {});
       try {
@@ -2408,7 +2408,19 @@ const ItemManagement: React.FC = () => {
       } catch {}
       fetchItems({ force: true });
     } catch (err: any) {
-      message.error(err?.response?.data?.message || 'Failed to delete item');
+      const errMsg = err?.response?.data?.message || err?.message || 'Failed to delete item';
+      if (!force && (errMsg.includes('Admin Force Delete') || errMsg.includes('referenced by'))) {
+        Modal.confirm({
+          title: `Admin Force Delete '${record.itemCode}'?`,
+          content: `${errMsg}\n\nDo you want to run Admin Force Delete to cascade-purge this item and unlink its dummy/sample references?`,
+          okText: 'Admin Force Delete',
+          okType: 'danger',
+          cancelText: 'Cancel',
+          onOk: () => handleDelete(record, true),
+        });
+      } else {
+        message.error(errMsg);
+      }
     }
   };
 
@@ -2429,25 +2441,41 @@ const ItemManagement: React.FC = () => {
     }
   };
 
-  const handleBulkDelete = async () => {
+  const handleBulkDelete = async (forceParam?: boolean | React.MouseEvent) => {
+    const force = forceParam === true;
     if (selectedRowKeys.length === 0) return;
+    const targetKeys = [...selectedRowKeys];
     Modal.confirm({
-      title: `Delete ${selectedRowKeys.length} Selected Items?`,
-      content: 'Are you sure you want to delete these selected items? This will remove or archive them from Master Data.',
-      okText: 'Delete Selected',
+      title: force ? `Admin Force Delete ${targetKeys.length} Selected Items?` : `Delete ${targetKeys.length} Selected Items?`,
+      content: force
+        ? 'Warning: This will permanently delete the selected items and cascade-remove any linked dummy/sample routings, operations, or unposted BOMs. This action cannot be undone.'
+        : 'Are you sure you want to delete these selected items? This will remove or archive them from Master Data.',
+      okText: force ? 'Force Delete All' : 'Delete Selected',
       okType: 'danger',
       cancelText: 'Cancel',
       onOk: async () => {
         setBulkActionLoading(true);
         try {
           await Promise.all(
-            selectedRowKeys.map((id) => apiService.delete(`/master-data/items/${id}`))
+            targetKeys.map((id) => apiService.delete(`/master-data/items/${id}${force ? '?force=true' : ''}`))
           );
-          message.success(`${selectedRowKeys.length} items deleted successfully`);
+          message.success(`${targetKeys.length} items ${force ? 'permanently force-deleted' : 'deleted'} successfully`);
           setSelectedRowKeys([]);
           fetchItems({ force: true });
         } catch (err: any) {
-          message.error(err?.response?.data?.message || 'Failed to delete selected items');
+          const errMsg = err?.response?.data?.message || err?.message || 'Failed to delete selected items';
+          if (!force && (errMsg.includes('Admin Force Delete') || errMsg.includes('referenced by'))) {
+            Modal.confirm({
+              title: 'Dependency Conflict - Use Admin Force Delete?',
+              content: `${errMsg}\n\nDo you want to run Admin Force Delete to cascade-purge these items and unlink their dummy/sample references?`,
+              okText: 'Admin Force Delete',
+              okType: 'danger',
+              cancelText: 'Cancel',
+              onOk: () => handleBulkDelete(true),
+            });
+          } else {
+            message.error(errMsg);
+          }
         } finally {
           setBulkActionLoading(false);
         }

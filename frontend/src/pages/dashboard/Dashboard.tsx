@@ -152,6 +152,7 @@ const Dashboard: React.FC = () => {
   const [itemDetail, setItemDetail] = useState<ItemOverviewType | null>(null);
   const [itemRoute, setItemRoute] = useState<ItemRoute | null>(null);
   const [itemSearch, setItemSearch] = useState('');
+  const [itemTypeFilter, setItemTypeFilter] = useState('ALL');
 
   // ── Shop Floor Touchscreen Operator Terminal ──
   const [touchscreenOpen, setTouchscreenOpen] = useState(false);
@@ -475,7 +476,7 @@ const Dashboard: React.FC = () => {
   };
 
   // Null-safe item search (itemCode/name/department may be missing from the API).
-  const filteredItems = filterItemOverview(itemOverview, itemSearch);
+  const filteredItems = filterItemOverview(itemOverview, itemSearch, itemTypeFilter);
 
   // Compact dashboard: keep the Item Overview focused, point "View All" at the
   // real inventory report instead of rendering every master-data item inline.
@@ -655,6 +656,9 @@ const Dashboard: React.FC = () => {
             loading={secondaryLoading}
             search={itemSearch}
             onSearch={setItemSearch}
+            typeFilter={itemTypeFilter}
+            onTypeFilterChange={setItemTypeFilter}
+            allItems={itemOverview}
             onOpen={openItemDetail}
             nav={() => navigate('/production/inventory-report')}
           />
