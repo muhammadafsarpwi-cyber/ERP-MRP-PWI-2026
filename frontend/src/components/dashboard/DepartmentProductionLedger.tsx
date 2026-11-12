@@ -79,8 +79,10 @@ const CircularProgressRing: React.FC<{
       ? label
       : safePercent >= 10
       ? `${Math.round(safePercent)}%`
-      : safePercent > 0
+      : safePercent >= 1
       ? `${safePercent.toFixed(1)}%`
+      : safePercent > 0
+      ? `${safePercent.toFixed(2)}%`
       : '0%';
 
   return (
@@ -120,7 +122,7 @@ const CircularProgressRing: React.FC<{
       <span
         style={{
           position: 'absolute',
-          fontSize: size < 36 ? 8.5 : 10,
+          fontSize: size < 36 ? (displayLabel.length > 4 ? 7 : 8.5) : (displayLabel.length > 4 ? 8.5 : 10),
           fontWeight: 800,
           color,
           textAlign: 'center',
@@ -525,8 +527,9 @@ export const DepartmentProductionLedger: React.FC<DepartmentProductionLedgerProp
 
   const formatScrapKg = (val: number): string => {
     const n = Number(val) || 0;
-    if (n > 0 && n < 1 && Number((n * 1000).toFixed(0)) % 10 !== 0) {
-      return n.toFixed(3);
+    if (n === 0) return '0.00';
+    if (n < 1) {
+      return Number(n.toFixed(3)).toString();
     }
     return n.toFixed(2);
   };
@@ -588,6 +591,7 @@ export const DepartmentProductionLedger: React.FC<DepartmentProductionLedgerProp
         title: 'Good Output',
         key: 'quantity',
         align: 'right' as const,
+        width: 130,
         render: (_: unknown, r: DepartmentLedgerTicket) => (
           <div>
             <div style={{ fontWeight: 700, color: '#10b981' }}>{r.quantityPcs.toLocaleString()} PCS</div>
@@ -596,30 +600,132 @@ export const DepartmentProductionLedger: React.FC<DepartmentProductionLedgerProp
         ),
       },
       {
-        title: 'Scrap / Rejection',
+        title: 'Scrap & Rejection Breakdown',
         key: 'scrap',
-        align: 'right' as const,
+        width: 320,
         render: (_: unknown, r: DepartmentLedgerTicket) => {
-          const ticketThroughput = r.quantityPcs + r.scrapPcs;
-          const ticketPctPcs = ticketThroughput > 0 ? (r.scrapPcs / ticketThroughput) * 100 : 0;
+          const partRejPcs = r.partRejectPcs !== undefined ? r.partRejectPcs : (r.scrapPcs || 0);
+          const procScrapKg = r.processScrapKg || 0;
+          const partRejKg =
+            r.partRejectKg !== undefined
+              ? r.partRejectKg
+              : procScrapKg > 0 && r.scrapKg > procScrapKg
+                ? Math.max(0, r.scrapKg - procScrapKg)
+                : r.scrapKg || 0;
+          const totalScrapKg = r.scrapKg > 0 ? r.scrapKg : (partRejKg + procScrapKg);
+
+          const throughputPcs = (r.quantityPcs || 0) + partRejPcs;
+          const partRejPctPcs = throughputPcs > 0 ? (partRejPcs / throughputPcs) * 100 : 0;
+
+          const throughputKg = (r.quantityKg || 0) + totalScrapKg;
+          const partRejPctKg = throughputKg > 0 ? (partRejKg / throughputKg) * 100 : 0;
+          const procScrapPctKg = throughputKg > 0 ? (procScrapKg / throughputKg) * 100 : 0;
+          const totalPctKg = throughputKg > 0 ? (totalScrapKg / throughputKg) * 100 : (throughputPcs > 0 ? partRejPctPcs : 0);
+
+          const hasScrap = totalScrapKg > 0 || partRejPcs > 0;
+
           return (
             <Tooltip
-              title={`Ticket Rejection: ${ticketPctPcs.toFixed(3)}% — Recorded: ${formatScrapKg(r.scrapKg)} KG / ${Math.round(r.scrapPcs).toLocaleString()} PCS`}
+              title={`Ticket Scrap Breakdown:
+• Part Rejection (PCS): ${partRejPcs.toLocaleString()} PCS (${partRejPctPcs.toFixed(2)}% of PCS)
+• Part Rejection (KG): ${formatScrapKg(partRejKg)} KG (${partRejPctKg.toFixed(2)}% of prod KG)
+• Process Scrap: ${formatScrapKg(procScrapKg)} KG (${procScrapPctKg.toFixed(2)}% of prod KG)
+• Total Ticket Loss: ${formatScrapKg(totalScrapKg)} KG (${totalPctKg.toFixed(2)}% total)`}
             >
-              <div>
-                <div style={{ fontWeight: 800, color: r.scrapKg > 0 ? '#ef4444' : 'var(--theme-text-muted, #94a3b8)' }}>
-                  {r.scrapPcs > 0 ? `${Math.round(r.scrapPcs).toLocaleString()} PCS` : '0 PCS'}
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 3,
+                  background: 'var(--theme-surface-alt, rgba(148, 163, 184, 0.05))',
+                  border: `1px solid ${hasScrap ? 'var(--theme-border, rgba(148, 163, 184, 0.28))' : 'var(--theme-border, rgba(148, 163, 184, 0.15))'}`,
+                  borderRadius: 6,
+                  padding: '4px 8px',
+                  minWidth: 290,
+                }}
+              >
+                {/* Header: Total scrap weight + Total percentage badge */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <span style={{ fontSize: 11, fontWeight: 800, color: hasScrap ? '#ef4444' : 'var(--theme-text-muted, #94a3b8)' }}>
+                      {hasScrap ? `${formatScrapKg(totalScrapKg)} KG` : '0.00 KG'}
+                    </span>
+                    <span style={{ fontSize: 9.5, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)' }}>
+                      Total Scrap
+                    </span>
+                  </div>
+                  <Tag
+                    color={hasScrap ? (totalPctKg >= 3 ? 'red' : 'orange') : 'default'}
+                    style={{
+                      margin: 0,
+                      fontSize: 9.5,
+                      fontWeight: 800,
+                      padding: '0 6px',
+                      lineHeight: '17px',
+                      borderRadius: 10,
+                      border: 'none',
+                    }}
+                  >
+                    Total {totalPctKg.toFixed(2)}%
+                  </Tag>
                 </div>
-                {r.scrapKg > 0 && (
-                  <div className="pwi-ledger-text-muted" style={{ fontSize: 10.5, fontWeight: 600 }}>
-                    ({formatScrapKg(r.scrapKg)} KG)
+
+                {/* 3-Category Breakdown Grid */}
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '1fr 1fr 1fr',
+                    gap: 3,
+                    borderTop: '1px dashed var(--theme-border, rgba(148, 163, 184, 0.25))',
+                    paddingTop: 3,
+                    textAlign: 'center',
+                  }}
+                >
+                  {/* 1. Rejection PCS */}
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                    <span style={{ fontSize: 8.5, fontWeight: 700, color: 'var(--theme-text-muted, #64748b)', display: 'inline-flex', alignItems: 'center', gap: 2.5 }}>
+                      <i style={{ width: 4.5, height: 4.5, borderRadius: '50%', background: '#f97316', display: 'inline-block' }} />
+                      REJ · PCS
+                    </span>
+                    <span style={{ fontSize: 11, fontWeight: 800, color: partRejPcs > 0 ? 'var(--theme-text, #0f172a)' : 'var(--theme-text-muted, #94a3b8)', lineHeight: 1.15 }}>
+                      {partRejPcs > 0 ? Math.round(partRejPcs).toLocaleString() : '0'}{' '}
+                      <span style={{ fontSize: 8, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)' }}>PCS</span>
+                    </span>
+                    <span style={{ fontSize: 9.5, fontWeight: 800, color: partRejPcs > 0 ? '#f97316' : 'var(--theme-text-muted, #94a3b8)' }}>
+                      {partRejPctPcs.toFixed(2)}%
+                    </span>
                   </div>
-                )}
-                {ticketPctPcs > 0 && (
-                  <div style={{ fontSize: 9.5, fontWeight: 700, color: '#ef4444' }}>
-                    {ticketPctPcs.toFixed(2)}% Rej
+
+                  {/* 2. Rejection KG */}
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', borderLeft: '1px dashed var(--theme-border, rgba(148, 163, 184, 0.25))', paddingLeft: 2 }}>
+                    <span style={{ fontSize: 8.5, fontWeight: 700, color: 'var(--theme-text-muted, #64748b)', display: 'inline-flex', alignItems: 'center', gap: 2.5 }}>
+                      <i style={{ width: 4.5, height: 4.5, borderRadius: '50%', background: '#ef4444', display: 'inline-block' }} />
+                      REJ · KG
+                    </span>
+                    <span style={{ fontSize: 11, fontWeight: 800, color: partRejKg > 0 ? 'var(--theme-text, #0f172a)' : 'var(--theme-text-muted, #94a3b8)', lineHeight: 1.15 }}>
+                      {formatScrapKg(partRejKg)}{' '}
+                      <span style={{ fontSize: 8, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)' }}>KG</span>
+                    </span>
+                    <span style={{ fontSize: 9.5, fontWeight: 800, color: partRejKg > 0 ? '#ef4444' : 'var(--theme-text-muted, #94a3b8)' }}>
+                      {partRejPctKg.toFixed(2)}%
+                    </span>
                   </div>
-                )}
+
+                  {/* 3. Process Scrap */}
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', borderLeft: '1px dashed var(--theme-border, rgba(148, 163, 184, 0.25))', paddingLeft: 2 }}>
+                    <span style={{ fontSize: 8.5, fontWeight: 700, color: 'var(--theme-text-muted, #64748b)', display: 'inline-flex', alignItems: 'center', gap: 2.5 }}>
+                      <i style={{ width: 4.5, height: 4.5, borderRadius: '50%', background: '#0ea5e9', display: 'inline-block' }} />
+                      PROCESS
+                    </span>
+                    <span style={{ fontSize: 11, fontWeight: 800, color: procScrapKg > 0 ? 'var(--theme-text, #0f172a)' : 'var(--theme-text-muted, #94a3b8)', lineHeight: 1.15 }}>
+                      {procScrapKg > 0 ? formatScrapKg(procScrapKg) : '0.00'}{' '}
+                      <span style={{ fontSize: 8, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)' }}>KG</span>
+                    </span>
+                    <span style={{ fontSize: 9.5, fontWeight: 800, color: procScrapKg > 0 ? '#0ea5e9' : 'var(--theme-text-muted, #94a3b8)' }}>
+                      {procScrapPctKg.toFixed(2)}%
+                    </span>
+                  </div>
+                </div>
               </div>
             </Tooltip>
           );
@@ -652,6 +758,7 @@ export const DepartmentProductionLedger: React.FC<DepartmentProductionLedgerProp
           columns={ticketColumns}
           rowKey="id"
           pagination={false}
+          scroll={{ x: 1180 }}
         />
       </div>
     );
@@ -821,64 +928,155 @@ export const DepartmentProductionLedger: React.FC<DepartmentProductionLedgerProp
     {
       title: <span className="pwi-ledger-th-title">Scrap / Loss</span>,
       key: 'scrap',
-      width: 175,
+      width: 300,
       render: (_: unknown, r: DepartmentLedgerTransaction) => {
         const rowThroughputPcs = r.outflowPcs + r.scrapPcs;
         const rowScrapPctPcs = rowThroughputPcs > 0 ? (r.scrapPcs / rowThroughputPcs) * 100 : 0;
         const rowThroughputKg = r.outflowKg + r.scrapKg;
         const rowScrapPctKg = rowThroughputKg > 0 ? (r.scrapKg / rowThroughputKg) * 100 : 0;
         const hasScrap = r.scrapKg > 0 || r.scrapPcs > 0;
-        const activePct = rowScrapPctPcs > 0 ? rowScrapPctPcs : rowScrapPctKg;
+        const partRejPcs = r.partRejectPcs !== undefined ? r.partRejectPcs : (r.scrapPcs || 0);
+        const procScrapKg = r.processScrapKg || 0;
+        const partRejKg =
+          r.partRejectKg !== undefined
+            ? r.partRejectKg
+            : procScrapKg > 0 && r.scrapKg > procScrapKg
+              ? Math.max(0, r.scrapKg - procScrapKg)
+              : r.scrapKg || 0;
+        const totalScrapKg = r.scrapKg > 0 ? r.scrapKg : (partRejKg + procScrapKg);
+        const rowPartRejPctKg = rowThroughputKg > 0 ? (partRejKg / rowThroughputKg) * 100 : 0;
+        const procScrapPct = rowThroughputKg > 0 ? (procScrapKg / rowThroughputKg) * 100 : 0;
 
         return (
           <Tooltip
-            title={`Daily Rejection Rate: ${rowScrapPctPcs.toFixed(3)}% (PCS basis: ${Math.round(r.scrapPcs).toLocaleString()} scrap / ${Math.round(rowThroughputPcs).toLocaleString()} total) | ${rowScrapPctKg.toFixed(3)}% (KG basis: ${formatScrapKg(r.scrapKg)} KG / ${rowThroughputKg.toFixed(2)} KG total)`}
+            title={`Daily Rejection Breakdown:
+• Part Rejection (PCS): ${partRejPcs.toLocaleString()} PCS (${rowScrapPctPcs.toFixed(2)}% of PCS)
+• Part Rejection (KG): ${formatScrapKg(partRejKg)} KG (${rowPartRejPctKg.toFixed(2)}% of prod KG)
+• Process Scrap: ${formatScrapKg(procScrapKg)} KG (${procScrapPct.toFixed(2)}% of prod KG)
+• Total Floor Scrap: ${formatScrapKg(totalScrapKg)} KG (${rowScrapPctKg.toFixed(2)}% total)`}
           >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
-              <div>
-                {/* PCS on Top in primary bold font */}
-                {isRmStoreStage ? (
+            {isRmStoreStage ? (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+                <div>
                   <div
                     className={hasScrap ? undefined : 'pwi-ledger-text-muted'}
                     style={{ fontWeight: 800, color: hasScrap ? '#ef4444' : undefined, fontSize: 13 }}
                   >
                     {formatScrapKg(r.scrapKg)} <span style={{ fontSize: 10, fontWeight: 700 }}>KG</span>
                   </div>
-                ) : (
-                  <>
-                    <div
-                      className={hasScrap ? undefined : 'pwi-ledger-text-muted'}
-                      style={{ fontWeight: 800, color: hasScrap ? '#ef4444' : undefined, fontSize: 13 }}
-                    >
-                      {hasScrap ? `${Math.round(r.scrapPcs).toLocaleString()} PCS` : '0 PCS'}
+                  {hasScrap && (
+                    <div style={{ fontSize: 10, fontWeight: 700, color: '#ef4444' }}>
+                      {rowScrapPctKg.toFixed(2)}% Loss
                     </div>
-                    {/* KG Below in secondary line */}
-                    {hasScrap && (
-                      <div className="pwi-ledger-text-muted" style={{ fontSize: 11, fontWeight: 600 }}>
-                        ({formatScrapKg(r.scrapKg)} KG)
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-
-              {/* Rejection Percentage Indicator matching user's circular ring icon */}
-              {hasScrap ? (
-                <div style={{ flexShrink: 0 }} title={`${activePct.toFixed(2)}% Rejection`}>
+                  )}
+                </div>
+                {hasScrap && (
                   <CircularProgressRing
-                    percent={activePct}
-                    size={32}
+                    percent={rowScrapPctKg}
+                    size={30}
                     strokeWidth={3}
                     color="#ef4444"
                     trackColor="rgba(239, 68, 68, 0.2)"
                   />
+                )}
+              </div>
+            ) : (
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 3,
+                  background: 'var(--theme-surface-alt, rgba(148, 163, 184, 0.05))',
+                  border: `1px solid ${hasScrap ? 'var(--theme-border, rgba(148, 163, 184, 0.28))' : 'var(--theme-border, rgba(148, 163, 184, 0.15))'}`,
+                  borderRadius: 6,
+                  padding: '4px 8px',
+                  minWidth: 275,
+                }}
+              >
+                {/* Header: Total scrap weight + Total percentage badge */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <span style={{ fontSize: 11, fontWeight: 800, color: hasScrap ? '#ef4444' : 'var(--theme-text-muted, #94a3b8)' }}>
+                      {hasScrap ? `${formatScrapKg(totalScrapKg)} KG` : '0.00 KG'}
+                    </span>
+                    <span style={{ fontSize: 9.5, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)' }}>
+                      Floor Scrap
+                    </span>
+                  </div>
+                  <Tag
+                    color={hasScrap ? (rowScrapPctKg >= 3 ? 'red' : 'orange') : 'default'}
+                    style={{
+                      margin: 0,
+                      fontSize: 9.5,
+                      fontWeight: 800,
+                      padding: '0 6px',
+                      lineHeight: '17px',
+                      borderRadius: 10,
+                      border: 'none',
+                    }}
+                  >
+                    Total {rowScrapPctKg.toFixed(2)}%
+                  </Tag>
                 </div>
-              ) : (
-                <span className="pwi-ledger-text-muted" style={{ fontSize: 10, fontWeight: 600 }}>
-                  0.0%
-                </span>
-              )}
-            </div>
+
+                {/* 3-Category Breakdown Grid */}
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '1fr 1fr 1fr',
+                    gap: 3,
+                    borderTop: '1px dashed var(--theme-border, rgba(148, 163, 184, 0.25))',
+                    paddingTop: 3,
+                    textAlign: 'center',
+                  }}
+                >
+                  {/* 1. Rejection PCS */}
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                    <span style={{ fontSize: 8.5, fontWeight: 700, color: 'var(--theme-text-muted, #64748b)', display: 'inline-flex', alignItems: 'center', gap: 2.5 }}>
+                      <i style={{ width: 4.5, height: 4.5, borderRadius: '50%', background: '#f97316', display: 'inline-block' }} />
+                      REJ · PCS
+                    </span>
+                    <span style={{ fontSize: 11, fontWeight: 800, color: partRejPcs > 0 ? 'var(--theme-text, #0f172a)' : 'var(--theme-text-muted, #94a3b8)', lineHeight: 1.15 }}>
+                      {partRejPcs > 0 ? Math.round(partRejPcs).toLocaleString() : '0'}{' '}
+                      <span style={{ fontSize: 8, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)' }}>PCS</span>
+                    </span>
+                    <span style={{ fontSize: 9.5, fontWeight: 800, color: partRejPcs > 0 ? '#f97316' : 'var(--theme-text-muted, #94a3b8)' }}>
+                      {rowScrapPctPcs.toFixed(2)}%
+                    </span>
+                  </div>
+
+                  {/* 2. Rejection KG */}
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', borderLeft: '1px dashed var(--theme-border, rgba(148, 163, 184, 0.25))', paddingLeft: 2 }}>
+                    <span style={{ fontSize: 8.5, fontWeight: 700, color: 'var(--theme-text-muted, #64748b)', display: 'inline-flex', alignItems: 'center', gap: 2.5 }}>
+                      <i style={{ width: 4.5, height: 4.5, borderRadius: '50%', background: '#ef4444', display: 'inline-block' }} />
+                      REJ · KG
+                    </span>
+                    <span style={{ fontSize: 11, fontWeight: 800, color: partRejKg > 0 ? 'var(--theme-text, #0f172a)' : 'var(--theme-text-muted, #94a3b8)', lineHeight: 1.15 }}>
+                      {formatScrapKg(partRejKg)}{' '}
+                      <span style={{ fontSize: 8, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)' }}>KG</span>
+                    </span>
+                    <span style={{ fontSize: 9.5, fontWeight: 800, color: partRejKg > 0 ? '#ef4444' : 'var(--theme-text-muted, #94a3b8)' }}>
+                      {rowPartRejPctKg.toFixed(2)}%
+                    </span>
+                  </div>
+
+                  {/* 3. Process Scrap */}
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', borderLeft: '1px dashed var(--theme-border, rgba(148, 163, 184, 0.25))', paddingLeft: 2 }}>
+                    <span style={{ fontSize: 8.5, fontWeight: 700, color: 'var(--theme-text-muted, #64748b)', display: 'inline-flex', alignItems: 'center', gap: 2.5 }}>
+                      <i style={{ width: 4.5, height: 4.5, borderRadius: '50%', background: '#0ea5e9', display: 'inline-block' }} />
+                      PROCESS
+                    </span>
+                    <span style={{ fontSize: 11, fontWeight: 800, color: procScrapKg > 0 ? 'var(--theme-text, #0f172a)' : 'var(--theme-text-muted, #94a3b8)', lineHeight: 1.15 }}>
+                      {procScrapKg > 0 ? formatScrapKg(procScrapKg) : '0.00'}{' '}
+                      <span style={{ fontSize: 8, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)' }}>KG</span>
+                    </span>
+                    <span style={{ fontSize: 9.5, fontWeight: 800, color: procScrapKg > 0 ? '#0ea5e9' : 'var(--theme-text-muted, #94a3b8)' }}>
+                      {procScrapPct.toFixed(2)}%
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
           </Tooltip>
         );
       },
@@ -1576,7 +1774,7 @@ export const DepartmentProductionLedger: React.FC<DepartmentProductionLedgerProp
           </Col>
 
           {/* 2. Total Inflow */}
-          <Col xs={12} sm={6} lg={5}>
+          <Col xs={12} sm={6} lg={4}>
             <div
               style={{
                 padding: '12px 14px',
@@ -1617,7 +1815,7 @@ export const DepartmentProductionLedger: React.FC<DepartmentProductionLedgerProp
           </Col>
 
           {/* 3. Total Outflow */}
-          <Col xs={12} sm={6} lg={5}>
+          <Col xs={12} sm={6} lg={4}>
             <div
               style={{
                 padding: '12px 14px',
@@ -1655,98 +1853,140 @@ export const DepartmentProductionLedger: React.FC<DepartmentProductionLedgerProp
             </div>
           </Col>
 
-          {/* 4. Total Scrap Card with Circular Rejection Gauge and Swapped Units (PCS Top, KG Bottom) */}
+          {/* 4. SCRAP & REJECTION — 3-Category Wide Card matching Top Dashboard style:
+              1) REJECTION · KG
+              2) REJECTION · PCS
+              3) PROCESS SCRAP (KG)
+              with Total loss % badge and clean segmented grid */}
           {(() => {
             const totalOutPcs = Number(data?.summary?.totalOutflowPcs || 0);
             const totalOutKg = Number(data?.summary?.totalOutflowKg || 0);
             const totalScrapPcs = Number(data?.summary?.totalScrapPcs || 0);
             const totalScrapKg = Number(data?.summary?.totalScrapKg || 0);
-            const totalPcsThroughput = totalOutPcs + totalScrapPcs;
-            const scrapPctPcs = totalPcsThroughput > 0 ? (totalScrapPcs / totalPcsThroughput) * 100 : 0;
+            const partRejPcs = Number(data?.summary?.totalPartRejectPcs ?? totalScrapPcs);
+            const partRejKg = Number(data?.summary?.totalPartRejectKg ?? 0);
+            const procScrapKg = Number(data?.summary?.totalProcessScrapKg ?? 0);
+
+            const totalPcsThroughput = totalOutPcs + partRejPcs;
             const totalKgThroughput = totalOutKg + totalScrapKg;
-            const scrapPctKg = totalKgThroughput > 0 ? (totalScrapKg / totalKgThroughput) * 100 : 0;
-            const activeGaugePct = scrapPctPcs > 0 ? scrapPctPcs : scrapPctKg;
+
+            const partRejPctPcs = totalPcsThroughput > 0 ? (partRejPcs / totalPcsThroughput) * 100 : 0;
+            const partRejPctKg = totalKgThroughput > 0 ? (partRejKg / totalKgThroughput) * 100 : 0;
+            const procScrapPct = totalKgThroughput > 0 ? (procScrapKg / totalKgThroughput) * 100 : 0;
+            const totalLossPct = totalKgThroughput > 0 ? (totalScrapKg / totalKgThroughput) * 100 : partRejPctPcs;
 
             return (
-              <Col xs={12} sm={6} lg={4}>
+              <Col xs={24} sm={12} lg={8}>
                 <Tooltip
-                  title={`Total Rejection / Scrap Rate: ${scrapPctPcs.toFixed(3)}% (PCS: ${Math.round(totalScrapPcs).toLocaleString()} scrap / ${Math.round(totalPcsThroughput).toLocaleString()} total) | ${scrapPctKg.toFixed(3)}% (KG: ${totalScrapKg.toFixed(2)} KG / ${totalKgThroughput.toFixed(2)} KG total)`}
+                  title={`Department Scrap & Rejection Engine:
+• Part Rejection (KG): ${partRejKg.toFixed(2)} KG (${partRejPctKg.toFixed(2)}% of prod KG)
+• Part Rejection (PCS): ${partRejPcs.toLocaleString()} PCS (${partRejPctPcs.toFixed(2)}% of prod PCS)
+• Process Scrap (KG): ${procScrapKg.toFixed(2)} KG (${procScrapPct.toFixed(2)}% of prod KG)
+• Total Loss: ${totalScrapKg.toFixed(2)} KG (${totalLossPct.toFixed(2)}%)`}
                 >
                   <div
                     style={{
-                      padding: '10px 12px',
+                      padding: '10px 14px',
                       borderRadius: 8,
-                      background: 'rgba(239, 68, 68, 0.08)',
+                      background: 'rgba(239, 68, 68, 0.05)',
                       border: '1px solid rgba(239, 68, 68, 0.35)',
+                      borderLeft: '4px solid #ef4444',
                       height: '100%',
                       display: 'flex',
                       flexDirection: 'column',
                       justifyContent: 'space-between',
                     }}
                   >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: 11, fontWeight: 700, color: '#ef4444', textTransform: 'uppercase' }}>
-                        Total Floor Scrap
+                    {/* Header */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: '#ef4444', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                        Scrap &amp; Rejection
                       </span>
-                      <WarningOutlined style={{ color: '#ef4444' }} />
+                      <span
+                        style={{
+                          fontSize: 10.5,
+                          fontWeight: 800,
+                          padding: '1px 7px',
+                          borderRadius: 4,
+                          background: 'rgba(239, 68, 68, 0.15)',
+                          color: '#ef4444',
+                        }}
+                      >
+                        Total {totalLossPct.toFixed(2)}%
+                      </span>
                     </div>
 
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginTop: 4 }}>
-                      <div>
-                        {isRmStoreStage ? (
-                          <>
-                            <div style={{ fontSize: 17, fontWeight: 900, color: '#ef4444', lineHeight: 1.2 }}>
-                              -{totalScrapKg.toFixed(2)} <span style={{ fontSize: 11 }}>KG</span>
-                            </div>
-                            <div style={{ fontSize: 11, color: '#ef4444', fontWeight: 600 }}>
-                              0.00% Rejection
-                            </div>
-                          </>
-                        ) : (
-                          <>
-                            {/* PCS on Top in primary large bold font */}
-                            <div style={{ fontSize: 17, fontWeight: 900, color: '#ef4444', lineHeight: 1.2 }}>
-                              -{Math.round(totalScrapPcs).toLocaleString()} <span style={{ fontSize: 11 }}>PCS</span>
-                            </div>
-                            {/* KG Below in secondary line */}
-                            <div style={{ fontSize: 11, color: '#ef4444', fontWeight: 600, marginTop: 1 }}>
-                              (-{totalScrapKg.toFixed(2)} KG)
-                            </div>
-                          </>
-                        )}
+                    {/* 3 Categories Grid */}
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+                        gap: 8,
+                        alignItems: 'center',
+                        padding: '4px 0',
+                      }}
+                    >
+                      {/* Segment 1: REJECTION · KG */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 700, color: 'var(--theme-text-muted, #64748b)', textTransform: 'uppercase' }}>
+                          <i style={{ width: 6, height: 6, borderRadius: '50%', background: '#ef4444', display: 'inline-block' }} />
+                          Rejection · KG
+                        </span>
+                        <div style={{ fontSize: 15, fontWeight: 900, color: 'var(--theme-text, #0f172a)', lineHeight: 1.1 }}>
+                          {formatScrapKg(partRejKg)} <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)' }}>KG</span>
+                        </div>
+                        <span style={{ fontSize: 10, fontWeight: 800, color: '#ef4444' }}>
+                          {partRejPctKg.toFixed(2)}%
+                        </span>
+                        <span style={{ fontSize: 8.5, color: 'var(--theme-text-muted, #94a3b8)', lineHeight: 1 }}>of prod KG</span>
                       </div>
 
-                      {/* Circular Gauge Ring matching user's screenshot */}
-                      <div style={{ flexShrink: 0 }}>
-                        <CircularProgressRing
-                          percent={activeGaugePct}
-                          size={44}
-                          strokeWidth={4.5}
-                          color="#ef4444"
-                          trackColor="rgba(239, 68, 68, 0.2)"
-                        />
-                      </div>
-                    </div>
-
-                    {/* Subline showing both % PCS and % KG */}
-                    {!isRmStoreStage && (
+                      {/* Segment 2: REJECTION · PCS */}
                       <div
                         style={{
                           display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          fontSize: 10,
-                          fontWeight: 700,
-                          color: '#ef4444',
-                          marginTop: 4,
-                          paddingTop: 3,
-                          borderTop: '1px dashed rgba(239, 68, 68, 0.25)',
+                          flexDirection: 'column',
+                          gap: 2,
+                          borderLeft: '1px dashed var(--theme-border, rgba(148, 163, 184, 0.35))',
+                          paddingLeft: 8,
                         }}
                       >
-                        <span>{scrapPctPcs.toFixed(2)}% PCS</span>
-                        <span>{scrapPctKg.toFixed(2)}% KG</span>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 700, color: 'var(--theme-text-muted, #64748b)', textTransform: 'uppercase' }}>
+                          <i style={{ width: 6, height: 6, borderRadius: '50%', background: '#f97316', display: 'inline-block' }} />
+                          Rejection · PCS
+                        </span>
+                        <div style={{ fontSize: 15, fontWeight: 900, color: 'var(--theme-text, #0f172a)', lineHeight: 1.1 }}>
+                          {Math.round(partRejPcs).toLocaleString()} <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)' }}>PCS</span>
+                        </div>
+                        <span style={{ fontSize: 10, fontWeight: 800, color: '#f97316' }}>
+                          {partRejPctPcs.toFixed(2)}%
+                        </span>
+                        <span style={{ fontSize: 8.5, color: 'var(--theme-text-muted, #94a3b8)', lineHeight: 1 }}>of prod PCS</span>
                       </div>
-                    )}
+
+                      {/* Segment 3: PROCESS SCRAP */}
+                      <div
+                        style={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: 2,
+                          borderLeft: '1px dashed var(--theme-border, rgba(148, 163, 184, 0.35))',
+                          paddingLeft: 8,
+                        }}
+                      >
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 700, color: 'var(--theme-text-muted, #64748b)', textTransform: 'uppercase' }}>
+                          <i style={{ width: 6, height: 6, borderRadius: '50%', background: '#0ea5e9', display: 'inline-block' }} />
+                          Process Scrap
+                        </span>
+                        <div style={{ fontSize: 15, fontWeight: 900, color: 'var(--theme-text, #0f172a)', lineHeight: 1.1 }}>
+                          {formatScrapKg(procScrapKg)} <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--theme-text-muted, #64748b)' }}>KG</span>
+                        </div>
+                        <span style={{ fontSize: 10, fontWeight: 800, color: '#0ea5e9' }}>
+                          {procScrapPct.toFixed(2)}%
+                        </span>
+                        <span style={{ fontSize: 8.5, color: 'var(--theme-text-muted, #94a3b8)', lineHeight: 1 }}>of prod KG</span>
+                      </div>
+                    </div>
                   </div>
                 </Tooltip>
               </Col>
@@ -1754,7 +1994,7 @@ export const DepartmentProductionLedger: React.FC<DepartmentProductionLedgerProp
           })()}
 
           {/* 5. Current Net Floor Balance */}
-          <Col xs={24} sm={12} lg={6}>
+          <Col xs={24} sm={12} lg={4}>
             <Tooltip title="Current Net Floor Balance (LIVE WIP) = (Opening Balance + Actual Inflow) - (Actual Outflow + Scrap KG)">
               <div className="pwi-ledger-kpi-net">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1796,6 +2036,7 @@ export const DepartmentProductionLedger: React.FC<DepartmentProductionLedgerProp
             dataSource={filteredTransactions}
             columns={columns}
             rowKey="date"
+            scroll={{ x: 1260 }}
             expandable={{
               expandedRowRender,
               columnWidth: 44,

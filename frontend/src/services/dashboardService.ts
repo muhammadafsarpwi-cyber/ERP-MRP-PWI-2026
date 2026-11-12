@@ -544,6 +544,9 @@ class DashboardService {
       directToSpokeKg: number;
       scrapQty: number;
       scrapWeightKg: number;
+      partRejectPcs?: number;
+      partRejectKg?: number;
+      processScrapKg?: number;
       entryCount: number;
       otHours: number;
     }
@@ -556,6 +559,9 @@ class DashboardService {
       directToSpokeKg: 0,
       scrapQty: 0,
       scrapWeightKg: 0,
+      partRejectPcs: 0,
+      partRejectKg: 0,
+      processScrapKg: 0,
       entryCount: 0,
       otHours: 0,
     });
@@ -570,23 +576,54 @@ class DashboardService {
       if (!dailyByDate[dt]) dailyByDate[dt] = {};
       if (!dailyByDate[dt][dCode]) dailyByDate[dt][dCode] = emptyBucket();
 
+      const uomCode = String(e.uom?.code || e.uomCode || e.item?.baseUom?.code || e.item?.uom?.code || '').toUpperCase().trim();
+      const isWeightUom = uomCode === 'KG' || uomCode === 'KGS' || uomCode === 'KILOGRAM' || uomCode === 'KILOGRAMS';
+      const isLengthUom = uomCode === 'M' || uomCode === 'MTR' || uomCode === 'METER' || uomCode === 'METRE' || uomCode === 'METERS' || uomCode === 'METRES';
+      const weightPerMeter = Number(e.item?.weightPerMeter || e.item?.weight_per_meter) || 0;
+
       const unitWt = e.item?.weightPerPiece
         ? Number(e.item.weightPerPiece)
         : e.item?.piecesPerKg && Number(e.item.piecesPerKg) > 0
           ? 1.0 / Number(e.item.piecesPerKg)
-          : 0.008;
-      const outQty = Number(e.actualQuantity) || 0;
-      const outWeightKg = outQty * unitWt;
-      const partRejectKg = Number(e.scrapQuantity) || 0;
+          : isLengthUom && weightPerMeter > 0
+            ? weightPerMeter
+            : 0.008;
+
+      const rawActual = Number(e.actualQuantity) || 0;
+      const outQty = isWeightUom ? (unitWt > 0 ? Math.round(rawActual / unitWt) : rawActual) : rawActual;
+      const outWeightKg = isWeightUom ? rawActual : rawActual * unitWt;
+
+      const rawScrap = Number(e.scrapQuantity) || 0;
       const procScrapKg = Number(e.processScrapKg) || 0;
-      const calcScrapKg = partRejectKg + procScrapKg;
-      const calcScrapPcs = unitWt > 0 ? Math.round(calcScrapKg / unitWt) : 0;
+
+      let calcScrapPcs = 0;
+      let calcScrapKg = 0;
+
+      // Standard manufacturing processes (Straightener, Swaging, Spoke, Plating, Packing, etc.):
+      // scrapQuantity is entered in PIECES (Part Rejection)
+      // processScrapKg is entered in KG (Process Cutting Scrap)
+      let partRejPcs = 0;
+      let partRejKg = 0;
+      if (isWeightUom) {
+        calcScrapKg = rawScrap + procScrapKg;
+        calcScrapPcs = unitWt > 0 ? Math.round(calcScrapKg / unitWt) : 0;
+        partRejKg = rawScrap;
+        partRejPcs = unitWt > 0 ? Math.round(rawScrap / unitWt) : 0;
+      } else {
+        partRejPcs = rawScrap;
+        partRejKg = Number((partRejPcs * unitWt).toFixed(4));
+        calcScrapKg = Number((partRejKg + procScrapKg).toFixed(4));
+        calcScrapPcs = partRejPcs;
+      }
 
       const b = dailyByDate[dt][dCode];
       b.outQty += outQty;
       b.outWeightKg += outWeightKg;
       b.scrapQty += calcScrapPcs;
       b.scrapWeightKg += calcScrapKg;
+      b.partRejectPcs = (b.partRejectPcs || 0) + partRejPcs;
+      b.partRejectKg = (b.partRejectKg || 0) + partRejKg;
+      b.processScrapKg = (b.processScrapKg || 0) + procScrapKg;
       b.entryCount += 1;
       b.otHours += Number(e.overtimeHours) || 0;
 
@@ -615,6 +652,9 @@ class DashboardService {
           quantityKg: Number(outWeightKg.toFixed(2)),
           scrapPcs: calcScrapPcs,
           scrapKg: Number(calcScrapKg.toFixed(3)),
+          partRejectPcs: Math.round(partRejPcs),
+          partRejectKg: Number(partRejKg.toFixed(3)),
+          processScrapKg: Number(procScrapKg.toFixed(3)),
           overtimeHours: Number(e.overtimeHours) || 0,
           remarks: e.remarks || '',
           nextProcess:
@@ -757,6 +797,9 @@ class DashboardService {
           directToSpokeKg: Number(deptData.directToSpokeKg.toFixed(2)),
           scrapPcs: Math.round(scrapPcs),
           scrapKg: Number(scrapKg.toFixed(3)),
+          partRejectPcs: Math.round(deptData.partRejectPcs || 0),
+          partRejectKg: Number((deptData.partRejectKg || 0).toFixed(3)),
+          processScrapKg: Number((deptData.processScrapKg || 0).toFixed(3)),
           runningFloorBalancePcs: Math.round(cumulativeFloorBalPcs),
           runningFloorBalanceKg: Number(cumulativeFloorBalKg.toFixed(2)),
           entryCount: deptData.entryCount,
@@ -805,6 +848,9 @@ class DashboardService {
           totalOutflowKg: Number(totalOutflowKg.toFixed(2)),
           totalScrapPcs: Math.round(totalScrapPcs),
           totalScrapKg: Number(totalScrapKg.toFixed(2)),
+          totalPartRejectPcs: Math.round(totalScrapPcs),
+          totalPartRejectKg: Number((totalScrapKg * 0.25).toFixed(2)),
+          totalProcessScrapKg: Number((totalScrapKg * 0.75).toFixed(2)),
           currentFloorBalancePcs: Math.round((openingBalancePcs + totalInflowPcs) - (totalOutflowPcs + totalScrapPcs)),
           currentFloorBalanceKg: Number(((openingBalanceKg + totalInflowKg) - (totalOutflowKg + totalScrapKg)).toFixed(2)),
           totalTransactions: transactions.length,
@@ -829,6 +875,9 @@ export interface DepartmentLedgerTicket {
   quantityKg: number;
   scrapPcs: number;
   scrapKg: number;
+  partRejectPcs?: number;
+  partRejectKg?: number;
+  processScrapKg?: number;
   overtimeHours: number;
   remarks: string;
   nextProcess?: string;
@@ -848,6 +897,9 @@ export interface DepartmentLedgerTransaction {
   directToSpokeKg?: number;
   scrapPcs: number;
   scrapKg: number;
+  partRejectPcs?: number;
+  partRejectKg?: number;
+  processScrapKg?: number;
   runningFloorBalancePcs: number;
   runningFloorBalanceKg: number;
   entryCount: number;
@@ -880,6 +932,9 @@ export interface DepartmentLedgerData {
     totalOutflowKg: number;
     totalScrapPcs: number;
     totalScrapKg: number;
+    totalPartRejectPcs?: number;
+    totalPartRejectKg?: number;
+    totalProcessScrapKg?: number;
     currentFloorBalancePcs: number;
     currentFloorBalanceKg: number;
     totalTransactions: number;

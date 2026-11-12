@@ -2194,10 +2194,12 @@ export class DashboardService {
       .createQueryBuilder('pe')
       .innerJoin('pe.department', 'd', "d.is_active = true AND d.status = 'ACTIVE'")
       .leftJoin('pe.item', 'i')
+      .leftJoin('pe.uom', 'u')
       .where('pe.company_id = :companyId', { companyId })
       .andWhere('pe.deleted_at IS NULL')
       .select("TO_CHAR(pe.entry_date, 'YYYY-MM-DD')", 'entryDate')
       .addSelect('d.department_code', 'departmentCode')
+      .addSelect('u.code', 'uomCode')
       .addSelect('i.id', 'itemId')
       .addSelect('i.item_code', 'itemCode')
       .addSelect('i.name', 'itemName')
@@ -2213,6 +2215,7 @@ export class DashboardService {
       .addSelect('COALESCE(SUM(pe.overtime_hours), 0)', 'otHours')
       .groupBy("TO_CHAR(pe.entry_date, 'YYYY-MM-DD')")
       .addGroupBy('d.department_code')
+      .addGroupBy('u.code')
       .addGroupBy('i.id')
       .addGroupBy('i.item_code')
       .addGroupBy('i.name')
@@ -2254,6 +2257,9 @@ export class DashboardService {
       directToSpokeKg: number;
       scrapQty: number;
       scrapWeightKg: number;
+      partRejectPcs: number;
+      partRejectKg: number;
+      processScrapKg: number;
       entryCount: number;
       otHours: number;
     }
@@ -2267,6 +2273,9 @@ export class DashboardService {
       directToSpokeKg: 0,
       scrapQty: 0,
       scrapWeightKg: 0,
+      partRejectPcs: 0,
+      partRejectKg: 0,
+      processScrapKg: 0,
       entryCount: 0,
       otHours: 0,
     });
@@ -2279,22 +2288,42 @@ export class DashboardService {
       const deptCode = r.departmentCode || 'UNKNOWN';
       if (!dailyByDate[dt][deptCode]) dailyByDate[dt][deptCode] = emptyBucket();
 
+      const uomCode = String(r.uomCode || '').toUpperCase().trim();
+      const isWeightUom = uomCode === 'KG' || uomCode === 'KGS' || uomCode === 'KILOGRAM' || uomCode === 'KILOGRAMS';
       const unitWt = parseFloat(r.unitWeightKg) || 0.008;
-      const outQty = parseFloat(r.outQty) || 0;
-      const outWeightKg = outQty * unitWt;
-      // CRITICAL: On Production EntryForm, pe.scrap_quantity (Part Rejection) AND pe.process_scrap_kg (Process Scrap)
-      // are BOTH recorded in KILOGRAMS (KG), e.g., 0.14 KG, 0.245 KG, 79.341 KG.
-      // Equivalent defective pieces are derived by dividing KG by Item Master weight_per_piece.
-      const partRejectKg = parseFloat(r.scrapQty) || 0;
+      const rawOut = parseFloat(r.outQty) || 0;
+      const outQty = isWeightUom ? (unitWt > 0 ? Math.round(rawOut / unitWt) : rawOut) : rawOut;
+      const outWeightKg = isWeightUom ? rawOut : outQty * unitWt;
+
+      // On Production EntryForm, pe.scrap_quantity is recorded in PIECES for piece-based items (Part Rejection),
+      // and pe.process_scrap_kg is recorded in KG (Process Cutting Scrap).
+      const rawScrap = parseFloat(r.scrapQty) || 0;
       const procScrapKg = parseFloat(r.processScrapKg) || 0;
-      const calcScrapKg = partRejectKg + procScrapKg;
-      const calcScrapPcs = unitWt > 0 ? Math.round(calcScrapKg / unitWt) : 0;
+      let calcScrapPcs = 0;
+      let calcScrapKg = 0;
+      let partRejPcs = 0;
+      let partRejKg = 0;
+
+      if (isWeightUom) {
+        calcScrapKg = rawScrap + procScrapKg;
+        calcScrapPcs = unitWt > 0 ? Math.round(calcScrapKg / unitWt) : 0;
+        partRejKg = rawScrap;
+        partRejPcs = unitWt > 0 ? Math.round(rawScrap / unitWt) : 0;
+      } else {
+        partRejPcs = rawScrap;
+        partRejKg = Number((partRejPcs * unitWt).toFixed(4));
+        calcScrapKg = Number((partRejKg + procScrapKg).toFixed(4));
+        calcScrapPcs = partRejPcs;
+      }
 
       const b = dailyByDate[dt][deptCode];
       b.outQty += outQty;
       b.outWeightKg += outWeightKg;
       b.scrapQty += calcScrapPcs;
       b.scrapWeightKg += calcScrapKg;
+      b.partRejectPcs += partRejPcs;
+      b.partRejectKg += partRejKg;
+      b.processScrapKg += procScrapKg;
       b.entryCount += parseInt(r.entryCount, 10) || 0;
       b.otHours += parseFloat(r.otHours) || 0;
 
@@ -2428,6 +2457,7 @@ export class DashboardService {
         .createQueryBuilder('pe')
         .leftJoinAndSelect('pe.item', 'i')
         .leftJoinAndSelect('pe.shift', 's')
+        .leftJoinAndSelect('pe.uom', 'u')
         .where('pe.company_id = :companyId', { companyId })
         .andWhere('pe.department_id = :deptId', { deptId: targetDept.id })
         .andWhere('pe.deleted_at IS NULL')
@@ -2457,15 +2487,33 @@ export class DashboardService {
         const dt = formatLocalYmd(t.entryDate);
         if (!dt) continue;
         if (!ticketsByDate[dt]) ticketsByDate[dt] = [];
+        const uomCode = String(t.uom?.code || '').toUpperCase().trim();
+        const isWeightUom = uomCode === 'KG' || uomCode === 'KGS' || uomCode === 'KILOGRAM' || uomCode === 'KILOGRAMS';
         const unitWt = t.item?.weightPerPiece
           ? Number(t.item.weightPerPiece)
           : (t.item?.piecesPerKg && Number(t.item.piecesPerKg) > 0 ? 1.0 / Number(t.item.piecesPerKg) : 0.008);
-        const actQty = Number(t.actualQuantity) || 0;
-        // Both scrapQuantity (Part Rejection) and processScrapKg are stored in KG on ProductionEntry
-        const partRejectKg = Number(t.scrapQuantity) || 0;
+        const rawAct = Number(t.actualQuantity) || 0;
+        const actQty = isWeightUom ? (unitWt > 0 ? Math.round(rawAct / unitWt) : rawAct) : rawAct;
+        const actWeightKg = isWeightUom ? rawAct : actQty * unitWt;
+
+        const rawScrap = Number(t.scrapQuantity) || 0;
         const procScKg = Number(t.processScrapKg) || 0;
-        const calcScrapKg = partRejectKg + procScKg;
-        const calcScrapPcs = unitWt > 0 ? Math.round(calcScrapKg / unitWt) : 0;
+        let calcScrapPcs = 0;
+        let calcScrapKg = 0;
+        let partRejPcs = 0;
+        let partRejKg = 0;
+
+        if (isWeightUom) {
+          calcScrapKg = rawScrap + procScKg;
+          calcScrapPcs = unitWt > 0 ? Math.round(calcScrapKg / unitWt) : 0;
+          partRejKg = rawScrap;
+          partRejPcs = unitWt > 0 ? Math.round(rawScrap / unitWt) : 0;
+        } else {
+          partRejPcs = rawScrap;
+          partRejKg = Number((partRejPcs * unitWt).toFixed(4));
+          calcScrapKg = Number((partRejKg + procScKg).toFixed(4));
+          calcScrapPcs = partRejPcs;
+        }
 
         let ticketNextProcess = targetDeptName;
         if (targetDept?.departmentCode === 'SPD-DEPT001') {
@@ -2493,6 +2541,9 @@ export class DashboardService {
           quantityKg: Number((actQty * unitWt).toFixed(2)),
           scrapPcs: calcScrapPcs,
           scrapKg: Number(calcScrapKg.toFixed(3)),
+          partRejectPcs: Math.round(partRejPcs),
+          partRejectKg: Number(partRejKg.toFixed(3)),
+          processScrapKg: Number(procScKg.toFixed(3)),
           overtimeHours: Number(t.overtimeHours) || 0,
           remarks: t.remarks || '',
           nextProcess: ticketNextProcess,
@@ -2634,6 +2685,9 @@ export class DashboardService {
     let totalOutflowKg = 0;
     let totalScrapPcs = 0;
     let totalScrapKg = 0;
+    let totalPartRejectPcs = 0;
+    let totalPartRejectKg = 0;
+    let totalProcessScrapKg = 0;
 
     const transactions: any[] = [];
 
@@ -2651,6 +2705,9 @@ export class DashboardService {
       let outflowKg = deptData.outWeightKg;
       let scrapPcs = deptData.scrapQty;
       let scrapKg = deptData.scrapWeightKg;
+      let partRejPcs = deptData.partRejectPcs;
+      let partRejKg = deptData.partRejectKg;
+      let procScrapKg = deptData.processScrapKg;
       let rowSourceDept = sourceDeptName;
       let rowTargetDept = targetDeptName;
 
@@ -2673,6 +2730,9 @@ export class DashboardService {
         inflowKg = voucherData && voucherData.rmInKg > 0 ? voucherData.rmInKg : 0;
         scrapPcs = 0;
         scrapKg = 0;
+        partRejPcs = 0;
+        partRejKg = 0;
+        procScrapKg = 0;
         rowSourceDept = 'Vendor / Steel Wire Mill (GRN Receipt)';
         rowTargetDept = isCcd ? '2. Flattening' : '2. Straightener';
       } else if (targetCode === 'SPD-DEPT001') {
@@ -2760,6 +2820,9 @@ export class DashboardService {
         outflowKg = voucherData && voucherData.fgDispatchOutKg > 0 ? voucherData.fgDispatchOutKg : 0;
         scrapPcs = 0;
         scrapKg = 0;
+        partRejPcs = 0;
+        partRejKg = 0;
+        procScrapKg = 0;
       } else if (currentStageInfo && currentStageInfo.prevCode && dayData[currentStageInfo.prevCode]) {
         // Control Cable & other multi-stage sequential departments: pull strictly from preceding stage outflow
         const prevStageData = dayData[currentStageInfo.prevCode];
@@ -2803,6 +2866,9 @@ export class DashboardService {
         totalOutflowKg += outflowKg;
         totalScrapPcs += scrapPcs;
         totalScrapKg += scrapKg;
+        totalPartRejectPcs += partRejPcs;
+        totalPartRejectKg += partRejKg;
+        totalProcessScrapKg += procScrapKg;
 
         transactions.push({
           date: dt,
@@ -2818,6 +2884,9 @@ export class DashboardService {
           directToSpokeKg: Number(deptData.directToSpokeKg.toFixed(2)),
           scrapPcs: Math.round(scrapPcs),
           scrapKg: Number(scrapKg.toFixed(3)),
+          partRejectPcs: Math.round(partRejPcs),
+          partRejectKg: Number(partRejKg.toFixed(3)),
+          processScrapKg: Number(procScrapKg.toFixed(3)),
           runningFloorBalancePcs: Math.round(cumulativeFloorBalPcs),
           runningFloorBalanceKg: Number(cumulativeFloorBalKg.toFixed(2)),
           entryCount: deptData.entryCount,
@@ -2926,6 +2995,9 @@ export class DashboardService {
         totalOutflowKg: Number(totalOutflowKg.toFixed(2)),
         totalScrapPcs: Math.round(totalScrapPcs),
         totalScrapKg: Number(totalScrapKg.toFixed(2)),
+        totalPartRejectPcs: Math.round(totalPartRejectPcs),
+        totalPartRejectKg: Number(totalPartRejectKg.toFixed(2)),
+        totalProcessScrapKg: Number(totalProcessScrapKg.toFixed(2)),
         currentFloorBalancePcs: netFloorBalancePcs,
         currentFloorBalanceKg: netFloorBalanceKg,
         totalTransactions: transactions.length,
