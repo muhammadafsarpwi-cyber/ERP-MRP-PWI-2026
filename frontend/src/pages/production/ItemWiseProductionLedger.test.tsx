@@ -4,6 +4,7 @@ import {
   buildChainGrid,
   bucketDailyProduction,
   bucketDailyPackingSplit,
+  bucketDailyPartRejection,
   mergeChainsByGroups,
   DEFAULT_MERGED_FG_GROUPS,
   crc32,
@@ -727,6 +728,128 @@ describe('ItemWiseProductionLedger — Inner-Only / Outer-Only Packing Split & M
       const b5 = getUnitBreakdownSubtext(328081, 'FG', 'PCS', 'FG-NP-005');
       expect(b5).not.toBeNull();
       expect(b5?.text).toBe('(227.8 CTN • 2,278.3 GRS)');
+    });
+  });
+
+  describe('ItemWiseProductionLedger — Part Rejection in Pieces and KG', () => {
+    it('buckets part rejections by PKT day and item code from child output lines', () => {
+      const entries = [
+        {
+          entryDate: '2026-11-10T19:00:00.000Z', // 2026-11-11 in PKT (+5h)
+          isActive: true,
+          nestedItems: [
+            { itemCode: 'WIP-SPK-002', entryKind: 'OUTPUT', actualQuantity: 43000, scrapQuantity: 10 },
+            { itemCode: 'RM-WIRE-009', entryKind: 'INPUT', actualQuantity: 250, scrapQuantity: 5 },
+          ],
+        },
+      ];
+      const buckets = bucketDailyPartRejection(entries);
+      const day11 = buckets.get('2026-11-11');
+      expect(day11).toBeDefined();
+      expect(day11?.get('WIP-SPK-002')).toBe(10);
+      // INPUT lines must never be bucketed as product part rejection
+      expect(day11?.get('RM-WIRE-009')).toBeUndefined();
+    });
+
+    it('falls back to parent entry scrapQuantity when children have no scrap or entry is flat', () => {
+      const entries = [
+        {
+          entryDate: '2026-11-10T19:00:00.000Z',
+          isActive: true,
+          itemCode: 'WIP-SPK-002',
+          actualQuantity: 43000,
+          scrapQuantity: 10,
+          nestedItems: [],
+        },
+      ];
+      const buckets = bucketDailyPartRejection(entries);
+      const day11 = buckets.get('2026-11-11');
+      expect(day11?.get('WIP-SPK-002')).toBe(10);
+    });
+
+    it('calculates dual-unit scrap (PCS and KG) accurately in buildChainGrid', () => {
+      const rows = [
+        reportRow('RM-WIRE-009', 'KG', 2428.59, 0),
+        reportRow('WIP-ST-001', 'PCS', 13462, 26000),
+        reportRow('WIP-SW-001', 'PCS', 133678, 29024),
+        reportRow('WIP-SP-001', 'PCS', 125914, 0),
+        { ...reportRow('WIP-SP-002', 'PCS', 158602, 43000), scrapOut: 10 },
+        reportRow('WIP-SPL-001', 'PCS', 49693, 0),
+        reportRow('WIP-SPL-002', 'PCS', 51657, 0),
+        reportRow('SPI-FG-SPK-001', 'PCS', 0, 0),
+        reportRow('SPI-FG-SPK-002', 'PCS', 0, 0),
+      ];
+
+      const monthScrap = {
+        'WIP-ST-001': 294,
+        'WIP-SW-001': 56,
+        'WIP-SP-001': 327,
+        'WIP-SP-002': 289,
+      };
+
+      const weights = {
+        'RM-WIRE-009': 1,
+        'WIP-ST-001': 0.0097,
+        'WIP-SW-001': 0.0097,
+        'WIP-SP-001': 0.00929,
+        'WIP-SP-002': 0.00925,
+      };
+
+      const grid = buildChainGrid(butted, rows, monthScrap, weights);
+      const sp2 = grid.rows.find((r) => r.itemCode === 'WIP-SP-002')!;
+      expect(sp2).toBeDefined();
+
+      // Today: 10 PCS, and 10 * 0.00925 = 0.0925 KG
+      expect(sp2.scrapTodayPcs).toBe(10);
+      expect(sp2.scrapTodayKg).toBeCloseTo(0.0925, 4);
+
+      // Total: 289 PCS, and 289 * 0.00925 = 2.67325 KG
+      expect(sp2.scrapMonthPcs).toBe(289);
+      expect(sp2.scrapMonthKg).toBeCloseTo(2.6733, 4);
+    });
+
+    it('deducts downstream (Production + Rejection) from upstream stage issuance across the entire chain', () => {
+      // Replicating real shop floor data on 2026-11-10:
+      // ST: 52,062 PCS Prod + 19 PCS Rejection -> RM consumed: (52062 + 19) * 0.00967 = 503.62 KG
+      // SW: 54,623 PCS Prod + 18 PCS Rejection -> ST issuance: (54623 + 18) = 54,641 PCS
+      // SP Outer: 40,200 PCS Prod + 45 PCS Rejection -> SW issuance: (40200 + 45) = 40,245 PCS
+      const rows = [
+        reportRow('RM-WIRE-009', 'KG', 2932.03, 0),
+        { ...reportRow('WIP-ST-001', 'PCS', 16023, 52062), scrapOut: 19 },
+        { ...reportRow('WIP-SW-001', 'PCS', 119255, 54623), scrapOut: 18 },
+        reportRow('WIP-SP-001', 'PCS', 125914, 0),
+        { ...reportRow('WIP-SP-002', 'PCS', 118402, 40200), scrapOut: 45 },
+        reportRow('WIP-SPL-001', 'PCS', 49693, 0),
+        reportRow('WIP-SPL-002', 'PCS', 49693, 0),
+        reportRow('SPI-FG-SPK-001', 'PCS', 0, 0),
+        reportRow('SPI-FG-SPK-002', 'PCS', 0, 0),
+      ];
+
+      const weights = {
+        'RM-WIRE-009': 1,
+        'WIP-ST-001': 0.00967,
+        'WIP-SW-001': 0.00967,
+        'WIP-SP-001': 0.00929,
+        'WIP-SP-002': 0.00925,
+      };
+
+      const grid = buildChainGrid(butted, rows, {}, weights);
+      const at = (code: string) => grid.rows.find((r) => r.itemCode === code)!;
+
+      // 1. RM Issuance = (52,062 + 19) * 0.00967 = 503.62 KG
+      expect(at('RM-WIRE-009').issuance).toBeCloseTo(503.62, 2);
+      expect(at('RM-WIRE-009').closingPieces).toBeCloseTo(2932.03 - 503.62, 2);
+
+      // 2. ST Issuance = SW Prod (54,623) + SW Rejection (18) = 54,641 PCS
+      expect(at('WIP-ST-001').issuance).toBe(54641);
+      expect(at('WIP-ST-001').closingPieces).toBe(16023 + 52062 - 54641);
+
+      // 3. SW Issuance = SP Outer Prod (40,200) + SP Outer Rejection (45) = 40,245 PCS
+      expect(at('WIP-SW-001').issuance).toBe(40245);
+      expect(at('WIP-SW-001').closingPieces).toBe(119255 + 54623 - 40245);
+
+      // 4. Reconciliation check: every row is mathematically balanced
+      expect(grid.summary.balanced).toBe(true);
     });
   });
 });

@@ -377,6 +377,8 @@ interface StagePass {
   src?: ReportRow;
   opBalance: number;
   production: number;
+  scrapTodayPcs: number;
+  scrapTodayKg: number;
   /** 1 for RM (already KG), weight_per_piece for PCS/GRS, null if unknown. */
   multiplier: number | null;
   found: boolean;
@@ -421,6 +423,10 @@ interface LedgerMetrics {
   totalWeight: number | null;
   scrapToday: number;
   scrapMonth: number;
+  scrapTodayPcs: number;
+  scrapTodayKg: number;
+  scrapMonthPcs: number;
+  scrapMonthKg: number;
   found: boolean;
 }
 
@@ -845,6 +851,85 @@ export const bucketDailyProduction = (
     const code = String(entry?.item?.itemCode ?? entry?.itemCode ?? '').trim();
     const qty = num(entry?.actualQuantity);
     if (code && qty > 0) add(day, code, qty);
+  }
+
+  return buckets;
+};
+
+/**
+ * Groups Part Rejection (product rejection) entries by business day -> item code -> pieces.
+ *
+ * Extracts scrapQuantity / scrap_quantity from OUTPUT child lines if present,
+ * or from the parent entry if scrap was recorded at the entry header level.
+ * Strictly focuses on Part Rejection (scrapQuantity), not process cutting scrap.
+ * Date keys keep the PKT (+5h) shift the rolling window has always used.
+ */
+export const bucketDailyPartRejection = (
+  entries: readonly any[],
+): Map<string, Map<string, number>> => {
+  const buckets = new Map<string, Map<string, number>>();
+
+  const dayOf = (rawDate: unknown): string => {
+    if (!rawDate) return '';
+    if (typeof rawDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(rawDate.trim())) {
+      return rawDate.trim();
+    }
+    const dt = new Date(rawDate as any);
+    if (!isNaN(dt.getTime())) {
+      const pkt = new Date(dt.getTime() + 5 * 3600 * 1000);
+      return pkt.toISOString().slice(0, 10);
+    }
+    return dayjs(rawDate as any).format('YYYY-MM-DD');
+  };
+
+  const add = (day: string, code: string, qty: number): void => {
+    if (!code || qty <= 0) return;
+    let bucket = buckets.get(day);
+    if (!bucket) {
+      bucket = new Map<string, number>();
+      buckets.set(day, bucket);
+    }
+    bucket.set(code, round4((bucket.get(code) ?? 0) + qty));
+  };
+
+  for (const entry of entries) {
+    if (entry?.isActive === false) continue;
+    const parentRem = String(entry?.remarks || '').toUpperCase();
+    if (parentRem.includes('SHIFTED FROM SAFETY') || parentRem.includes('ALLOCATED FROM SAFETY')) {
+      continue;
+    }
+    const day = dayOf(entry?.entryDate);
+    if (!day) continue;
+
+    const children = Array.isArray(entry?.nestedItems) ? entry.nestedItems : [];
+    let childScrapSum = 0;
+    if (children.length > 0) {
+      for (const child of children) {
+        const kind = String(child?.entryKind ?? child?.entry_kind ?? 'OUTPUT').toUpperCase();
+        if (kind === 'INPUT') continue;
+        const code = String(child?.itemCode ?? child?.item_code ?? '').trim();
+        const scrapQty = num(child?.scrapQuantity ?? child?.scrap_quantity);
+        if (code && scrapQty > 0) {
+          add(day, code, scrapQty);
+          childScrapSum += scrapQty;
+        }
+      }
+    }
+
+    const parentScrap = num(entry?.scrapQuantity ?? entry?.scrap_quantity);
+    if (parentScrap > 0 && childScrapSum === 0) {
+      const parentCode = String(entry?.item?.itemCode ?? entry?.itemCode ?? '').trim();
+      if (parentCode) {
+        add(day, parentCode, parentScrap);
+      } else if (children.length > 0) {
+        const outputChildren = children.filter(
+          (c: any) => String(c?.entryKind ?? c?.entry_kind ?? 'OUTPUT').toUpperCase() !== 'INPUT',
+        );
+        const targetChild = outputChildren[0] ?? children[0];
+        const code = String(targetChild?.itemCode ?? targetChild?.item_code ?? '').trim();
+        if (code) add(day, code, parentScrap);
+      }
+    }
   }
 
   return buckets;
@@ -1282,6 +1367,11 @@ export const buildChainGrid = (
             ? round4(num(dpRowSource?.openingBalance ?? dpParentFgSrc?.openingDispatched ?? 0))
             : round4(num(src?.openingBalance));
 
+    const rawScrapToday = round4(num(src?.scrapOut));
+    const isKgStage = rowDef.stage === 'RM' || (src?.uomCode ?? '').toUpperCase() === 'KG';
+    const scrapTodayPcs = isKgStage ? 0 : rawScrapToday;
+    const scrapTodayKg = isKgStage ? rawScrapToday : round4(rawScrapToday * (multiplier ?? 0));
+
     return {
       def: rowDef,
       src,
@@ -1293,8 +1383,10 @@ export const buildChainGrid = (
               ? num(src?.totalIn)
               : rowDef.stage === 'FG' || rowDef.stage === 'NP'
                 ? (num(src?.produced) > 0 ? num(src?.produced) : num(src?.totalIn))
-                : num(src?.produced),
+                : (src?.produced !== undefined ? num(src?.produced) : num(src?.totalIn)),
           ),
+      scrapTodayPcs,
+      scrapTodayKg,
       multiplier,
       found: isDp ? Boolean(dpRowSource) : Boolean(src),
     };
@@ -1385,7 +1477,7 @@ export const buildChainGrid = (
 
     const downstreamRows = matched.length > 0 ? matched : consumers;
     const downstreamLive = downstreamRows.some(
-      (c) => Math.abs(c.opBalance) > 1e-9 || Math.abs(c.production) > 1e-9,
+      (c) => Math.abs(c.opBalance) > 1e-9 || Math.abs(c.production) > 1e-9 || Math.abs(c.scrapTodayPcs) > 1e-9,
     );
     if (!downstreamLive) {
       return {
@@ -1399,13 +1491,14 @@ export const buildChainGrid = (
       };
     }
 
-    // RM converts its successor's pieces into KG using that successor's weight.
+    // RM converts its successor's pieces (production output + part rejection) into KG using that successor's weight.
     const needsKg = stage === 'RM';
     const convert = (c: StagePass): number | null => {
-      if (!needsKg) return c.production;
+      const grossDemand = round4(c.production + c.scrapTodayPcs);
+      if (!needsKg) return grossDemand;
       const w = c.multiplier ?? STANDARD_ITEM_WEIGHTS[c.def.itemCode] ?? null;
       if (w === null) return null;
-      return round4(c.production * w);
+      return round4(grossDemand * w);
     };
 
     if (matched.length > 0) {
@@ -1420,21 +1513,27 @@ export const buildChainGrid = (
       let remarks = '—';
       if (stage === 'RM') {
         const nextProdQty = matched[0]?.production ?? consumers[0]?.production ?? 0;
+        const nextRejQty = matched[0]?.scrapTodayPcs ?? consumers[0]?.scrapTodayPcs ?? 0;
+        const nextTotalQty = round4(nextProdQty + nextRejQty);
+        const rejSuffix = nextRejQty > 0 ? ` (incl. ${fmtDisplayQty(nextRejQty, 'PCS')} Rej)` : '';
         if (prodValue > 0 && nonProdOut > 0) {
-          remarks = `Prod: ${fmtDisplayKg(prodValue)} KG (Next: ${fmtDisplayQty(nextProdQty, 'PCS')} PCS) | Return: ${fmtDisplayKg(nonProdOut)} KG`;
+          remarks = `Prod: ${fmtDisplayKg(prodValue)} KG (Next: ${fmtDisplayQty(nextTotalQty, 'PCS')} PCS${rejSuffix}) | Return: ${fmtDisplayKg(nonProdOut)} KG`;
         } else if (nonProdOut > 0) {
           remarks = `Return Out: ${fmtDisplayKg(nonProdOut)} KG`;
         } else if (totalValue > 0) {
-          remarks = `Prod Consumed: ${fmtDisplayKg(totalValue)} KG (Next Stage Prod: ${fmtDisplayQty(nextProdQty, 'PCS')} PCS)`;
+          remarks = `Prod Consumed: ${fmtDisplayKg(totalValue)} KG (Next Stage Prod: ${fmtDisplayQty(nextTotalQty, 'PCS')} PCS${rejSuffix})`;
         }
       } else {
         const targetDept = DEPARTMENT_NAME[nextStage] || nextStage;
+        const nextProdQty = round4(matched.reduce((s, c) => s + c.production, 0));
+        const nextRejQty = round4(matched.reduce((s, c) => s + c.scrapTodayPcs, 0));
+        const rejSuffix = nextRejQty > 0 ? ` (incl. ${fmtDisplayQty(nextRejQty, p.src?.uomCode)} Rej)` : '';
         if (prodValue > 0 && nonProdOut > 0) {
-          remarks = `Issued to ${targetDept} (Next Stage Prod: ${fmtDisplayQty(prodValue, p.src?.uomCode)}) | Return Out: ${fmtDisplayQty(nonProdOut, p.src?.uomCode)}`;
+          remarks = `Issued to ${targetDept} (Next Stage Prod: ${fmtDisplayQty(prodValue, p.src?.uomCode)}${rejSuffix}) | Return Out: ${fmtDisplayQty(nonProdOut, p.src?.uomCode)}`;
         } else if (nonProdOut > 0) {
           remarks = `Return Out: ${fmtDisplayQty(nonProdOut, p.src?.uomCode)}`;
         } else if (prodValue > 0) {
-          remarks = `Issued to ${targetDept} (Next Stage Prod: ${fmtDisplayQty(prodValue, p.src?.uomCode)})`;
+          remarks = `Issued to ${targetDept} (Next Stage Prod: ${fmtDisplayQty(prodValue, p.src?.uomCode)}${rejSuffix})`;
         } else if (totalValue > 0) {
           remarks = `Issued to ${targetDept} (${fmtDisplayQty(totalValue, p.src?.uomCode)})`;
         } else if (nextStage === 'FG') {
@@ -1446,7 +1545,7 @@ export const buildChainGrid = (
 
       return {
         value: totalValue,
-        rule: needsKg ? `${label} Production × weight (KG)` : `= ${label} Production`,
+        rule: needsKg ? `${label} (Production + Rejection) × weight (KG)` : `= ${label} (Production + Rejection)`,
         driven: true,
         remarks,
         prodValue,
@@ -1473,7 +1572,7 @@ export const buildChainGrid = (
       const contribList: number[] = [];
 
       consumers.forEach((c) => {
-        const fgProd = round4(c.production);
+        const fgProd = round4(c.production + c.scrapTodayPcs);
         let sideQty = round4(fgProd / shareCount);
 
         if (c.src && (c.src.innerPacked !== undefined || c.src.outerPacked !== undefined)) {
@@ -1507,7 +1606,7 @@ export const buildChainGrid = (
       const fgLabel = consumers.map((c) => c.def.itemCode).join(' + ');
       rule = anyExplicitSplit
         ? `${fgLabel} Packing (${side === 'INNER' ? 'Inner' : 'Outer'} Split)`
-        : `${fgLabel} Production ${shareCount > 1 ? `÷ ${shareCount}` : ''} (shared)`;
+        : `${fgLabel} (Production + Rejection) ${shareCount > 1 ? `÷ ${shareCount}` : ''} (shared)`;
     } else {
       const parts = consumers.map(convert);
       const pool = parts.some((v) => v === null) ? 0 : round4(parts.reduce<number>((s, v) => s + (v ?? 0), 0));
@@ -1515,7 +1614,7 @@ export const buildChainGrid = (
     }
 
     const totalValue = round4(prodValue + nonProdOut);
-    const totalFgProd = round4(consumers.reduce((s, c) => s + c.production, 0));
+    const totalFgProd = round4(consumers.reduce((s, c) => s + c.production + c.scrapTodayPcs, 0));
 
     let remarks = '—';
     if (stage === 'RM') {
@@ -1575,6 +1674,16 @@ export const buildChainGrid = (
     const dpParentFgCode = p.def.stage === 'DP' ? (p.def.itemCode.replace(/-DISP$/, '') || fgItemCode) : fgItemCode;
     const dpParentFgSrc = p.def.stage === 'DP' ? (rowByCode.get(dpParentFgCode) ?? fgSrc) : fgSrc;
 
+    const rawScrapToday = round4(num(p.src?.scrapOut));
+    const rawScrapMonth = round4(num(monthScrap[p.def.itemCode] ?? 0));
+    const isKgStage = p.def.stage === 'RM' || (p.src?.uomCode ?? '').toUpperCase() === 'KG';
+    const ppw = p.multiplier ?? (p.def.itemCode ? STANDARD_ITEM_WEIGHTS[p.def.itemCode] : null) ?? 0;
+
+    const scrapTodayPcs = isKgStage ? 0 : rawScrapToday;
+    const scrapTodayKg = isKgStage ? rawScrapToday : round4(rawScrapToday * ppw);
+    const scrapMonthPcs = isKgStage ? 0 : rawScrapMonth;
+    const scrapMonthKg = isKgStage ? rawScrapMonth : round4(rawScrapMonth * ppw);
+
     return {
       key: `${p.def.stage}-${p.def.itemCode}${p.def.splitSide ?? ''}`,
       order: p.def.order,
@@ -1599,8 +1708,12 @@ export const buildChainGrid = (
       closingPieces,
       perPieceWeight: p.multiplier,
       totalWeight,
-      scrapToday: round4(num(p.src?.scrapOut)),
-      scrapMonth: monthScrap[p.def.itemCode] ?? 0,
+      scrapToday: rawScrapToday,
+      scrapMonth: rawScrapMonth,
+      scrapTodayPcs,
+      scrapTodayKg,
+      scrapMonthPcs,
+      scrapMonthKg,
       found: p.found,
     };
   });
@@ -1671,14 +1784,14 @@ export const COL = {
 
 const EXPORT_HEADERS = [
   'Stage', 'Item (Code / Name)', 'Op Balance', 'Production', 'Sub-Total', 'Issuance',
-  'Closing Pieces', 'UoM', 'Per Piece Weight', 'Total Weight', 'Today Scrap', 'Total Month Scrap',
+  'Closing Pieces', 'UoM', 'Per Piece Weight', 'Total Weight', 'Today Part Rejection', 'Total Part Rejection',
   'Remarks',
 ];
 
 /** §8 — ONE string for the merged scrap block: the grid title, the printed
  *  header and the PDF's merged parent cell all read this exact value, so the
  *  three surfaces can never drift apart again. */
-const SCRAP_HEADER = 'SCRAP — KG';
+const SCRAP_HEADER = 'PART REJECTION — PCS / KG';
 
 /**
  * §12 — the PDF's printable content width: A4 landscape minus BOTH x-margins,
@@ -1710,8 +1823,8 @@ const PDF_W: number[] = [
   24, // uom
   54, // per piece weight
   46, // total weight
-  36, // today scrap — compact
-  36, // total scrap — compact
+  42, // today scrap — comfortable for PCS + KG
+  42, // total scrap — comfortable for PCS + KG
   0, // remarks — filled below (elastic gutter taking all remaining width)
 ];
 PDF_W[COL.remarks] =
@@ -1755,9 +1868,19 @@ const exportDisplayRow = (r: LedgerMetrics): (string | number | null)[] => {
     uomText,
     fmtPpw(r.perPieceWeight),
     fmtKg(r.totalWeight),
-    // §12 — bare numbers; the `SCRAP — KG` parent already names the unit.
-    fmtQty(r.scrapToday, r.uomCode),
-    fmtQty(r.scrapMonth, r.uomCode),
+    // §12 — dual unit display: PCS on line 1, KG on line 2 (or KG for RM)
+    (() => {
+      const isKg = r.stage === 'RM' || (r.uomCode ?? '').toUpperCase() === 'KG';
+      if (isKg) return r.scrapTodayKg > 0 ? `${fmtKg(r.scrapTodayKg)} KG` : '0';
+      if (r.scrapTodayPcs === 0 && r.scrapTodayKg === 0) return '0';
+      return `${fmtQty(r.scrapTodayPcs, 'PCS')} PCS\n(${fmtKg(r.scrapTodayKg)} KG)`;
+    })(),
+    (() => {
+      const isKg = r.stage === 'RM' || (r.uomCode ?? '').toUpperCase() === 'KG';
+      if (isKg) return r.scrapMonthKg > 0 ? `${fmtKg(r.scrapMonthKg)} KG` : '0';
+      if (r.scrapMonthPcs === 0 && r.scrapMonthKg === 0) return '0';
+      return `${fmtQty(r.scrapMonthPcs, 'PCS')} PCS\n(${fmtKg(r.scrapMonthKg)} KG)`;
+    })(),
     r.remarks ?? '—',
   ];
 };
@@ -2566,6 +2689,18 @@ const ItemWiseProductionLedger: React.FC = () => {
       // Group Hand Packing entries by PKT YYYY-MM-DD -> itemCode -> { innerPacked, outerPacked }
       // so Inner Only, Outer Only, and Full Set packing deduct from the exact PL Inner / PL Outer row.
       const dailySplitMap = bucketDailyPackingSplit(entriesList);
+      // Group Part Rejections by PKT YYYY-MM-DD -> itemCode -> pieces
+      const dailyPartRejectionMap = bucketDailyPartRejection(entriesList);
+
+      // Aggregate month-to-date Part Rejections from entriesList [monthFrom, endDate]
+      const rejectionTotalsByCode = new Map<string, number>();
+      dailyPartRejectionMap.forEach((dayMap, day) => {
+        if (day >= monthFrom && day <= endDate) {
+          dayMap.forEach((qty, code) => {
+            rejectionTotalsByCode.set(code, round4((rejectionTotalsByCode.get(code) ?? 0) + qty));
+          });
+        }
+      });
 
       // Aggregate range-wide packing splits for Date Range view
       const rangeSplitByCode = new Map<string, DailyPackingSplit>();
@@ -2597,8 +2732,31 @@ const ItemWiseProductionLedger: React.FC = () => {
         }
       });
 
+      if (isRange) {
+        const rangeStart = range[0].format('YYYY-MM-DD');
+        const rangeEnd = range[1].format('YYYY-MM-DD');
+        const rangeScrapMap = new Map<string, number>();
+        dailyPartRejectionMap.forEach((dayMap, day) => {
+          if (day >= rangeStart && day <= rangeEnd) {
+            dayMap.forEach((qty, code) => {
+              rangeScrapMap.set(code, round4((rangeScrapMap.get(code) ?? 0) + qty));
+            });
+          }
+        });
+        monthItems.forEach((targetRow) => {
+          const rangeScrap = rangeScrapMap.get(targetRow.itemCode);
+          if (rangeScrap !== undefined) {
+            targetRow.scrapOut = rangeScrap;
+          }
+        });
+      }
+
       const computedMonthScrap = Object.fromEntries(
-        monthItems.map((r) => [r.itemCode, round4(num(r.scrapOut))]),
+        monthItems.map((r) => {
+          const fromEntries = rejectionTotalsByCode.get(r.itemCode) ?? 0;
+          const fromReport = round4(num(r.scrapOut));
+          return [r.itemCode, Math.max(fromEntries, fromReport)];
+        }),
       );
 
       let displayRows: ReportRow[] = monthItems;
@@ -2616,9 +2774,14 @@ const ItemWiseProductionLedger: React.FC = () => {
           // Day 1 of the month: baseline opening balances from monthItems are directly valid
           const prodForEndDay = dailyProdMap.get(endDate) ?? new Map<string, number>();
           const splitForEndDay = dailySplitMap.get(endDate) ?? new Map<string, DailyPackingSplit>();
+          const scrapForEndDay = dailyPartRejectionMap.get(endDate) ?? new Map<string, number>();
           seededDayItems.forEach((targetRow) => {
             const dayProd = prodForEndDay.get(targetRow.itemCode);
             targetRow.produced = dayProd !== undefined ? dayProd : round4(num(targetRow.produced ?? 0));
+            const dayScrap = scrapForEndDay.get(targetRow.itemCode);
+            if (dayScrap !== undefined) {
+              targetRow.scrapOut = dayScrap;
+            }
             const daySplit = splitForEndDay.get(targetRow.itemCode);
             if (daySplit) {
               targetRow.innerPacked = daySplit.innerPacked;
@@ -2777,9 +2940,14 @@ const ItemWiseProductionLedger: React.FC = () => {
 
             const prodForDay = dailyProdMap.get(d) ?? new Map<string, number>();
             const splitForDay = dailySplitMap.get(d) ?? new Map<string, DailyPackingSplit>();
+            const scrapForDay = dailyPartRejectionMap.get(d) ?? new Map<string, number>();
             itemsForDay.forEach((targetRow) => {
               const dayProd = prodForDay.get(targetRow.itemCode);
               targetRow.produced = dayProd !== undefined ? dayProd : round4(num(targetRow.produced ?? 0));
+              const dayScrap = scrapForDay.get(targetRow.itemCode);
+              if (dayScrap !== undefined) {
+                targetRow.scrapOut = dayScrap;
+              }
               const daySplit = splitForDay.get(targetRow.itemCode);
               if (daySplit) {
                 targetRow.innerPacked = daySplit.innerPacked;
@@ -3288,44 +3456,89 @@ const ItemWiseProductionLedger: React.FC = () => {
         },
       },
       {
-        // §5/§7/§8 — two scrap trackers under one grouped parent header. The
-        // parent cell carries NOTHING but this single string — no qualifier,
-        // no suffix, no nested node — so the slate band reads exactly
-        // `SCRAP — KG` on screen, on paper and in the PDF.
+        // §5/§7/§8 — two scrap trackers under one grouped parent header.
         title: SCRAP_HEADER,
         key: 'scrapGroup',
         align: 'center' as const,
         children: [
           {
-            // §2 — the merged SCRAP block above already says the word, so the
-            // leaf reads strictly 'Today'. Same for 'Total' underneath.
             title: 'Today',
             dataIndex: 'scrapToday',
             key: 'scrapToday',
             align: 'center' as const,
-            width: 72,
+            width: 95,
             // §3 — the whole column is forced crimson, zeros included.
             onCell: () => ({ className: 'iwl-cell-scrap iwl-cell-num' }),
-            // §12 — a bare, centre-aligned crimson figure; the parent band
-            // already reads `SCRAP — KG`, so no suffix is repeated here.
-            render: (v: number, row: LedgerMetrics) => (
-              <Tooltip title={`Rejections recorded on ${endDate}`}>
-                <span style={{ fontWeight: 700, fontSize: 13 }}>{fmtDisplayQty(v, row.uomCode)}</span>
-              </Tooltip>
-            ),
+            render: (_: number, row: LedgerMetrics) => {
+              const isKg = row.stage === 'RM' || (row.uomCode ?? '').toUpperCase() === 'KG';
+              const pcs = row.scrapTodayPcs;
+              const kg = row.scrapTodayKg;
+
+              if (isKg) {
+                if (kg === 0) return <span style={{ fontWeight: 700, fontSize: 13, color: '#dc2626' }}>0</span>;
+                return (
+                  <Tooltip title={`Part Rejections recorded on ${endDate}: ${fmtDisplayKg(kg)} KG`}>
+                    <span style={{ fontWeight: 700, fontSize: 13, color: '#dc2626' }}>{fmtDisplayKg(kg)} KG</span>
+                  </Tooltip>
+                );
+              }
+
+              if (pcs === 0 && kg === 0) {
+                return <span style={{ fontWeight: 700, fontSize: 13, color: '#dc2626' }}>0</span>;
+              }
+
+              return (
+                <Tooltip title={`Part Rejections on ${endDate}: ${fmtDisplayQty(pcs, 'PCS')} PCS (${fmtDisplayKg(kg)} KG)`}>
+                  <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1.25 }}>
+                    <span style={{ fontWeight: 800, fontSize: 13, color: '#dc2626', whiteSpace: 'nowrap' }}>
+                      {fmtDisplayQty(pcs, 'PCS')} PCS
+                    </span>
+                    <span style={{ fontSize: 11, fontWeight: 600, color: '#b91c1c', opacity: 0.85, whiteSpace: 'nowrap' }}>
+                      {fmtDisplayKg(kg)} KG
+                    </span>
+                  </div>
+                </Tooltip>
+              );
+            },
           },
           {
             title: 'Total',
             dataIndex: 'scrapMonth',
             key: 'scrapMonth',
             align: 'center' as const,
-            width: 72,
+            width: 95,
             onCell: () => ({ className: 'iwl-cell-scrap iwl-cell-num' }),
-            render: (v: number, row: LedgerMetrics) => (
-              <Tooltip title={`Cumulative from ${monthFrom} to ${endDate}`}>
-                <span style={{ fontWeight: 700, fontSize: 13 }}>{fmtDisplayQty(v, row.uomCode)}</span>
-              </Tooltip>
-            ),
+            render: (_: number, row: LedgerMetrics) => {
+              const isKg = row.stage === 'RM' || (row.uomCode ?? '').toUpperCase() === 'KG';
+              const pcs = row.scrapMonthPcs;
+              const kg = row.scrapMonthKg;
+
+              if (isKg) {
+                if (kg === 0) return <span style={{ fontWeight: 700, fontSize: 13, color: '#dc2626' }}>0</span>;
+                return (
+                  <Tooltip title={`Cumulative Part Rejections (${monthFrom} to ${endDate}): ${fmtDisplayKg(kg)} KG`}>
+                    <span style={{ fontWeight: 700, fontSize: 13, color: '#dc2626' }}>{fmtDisplayKg(kg)} KG</span>
+                  </Tooltip>
+                );
+              }
+
+              if (pcs === 0 && kg === 0) {
+                return <span style={{ fontWeight: 700, fontSize: 13, color: '#dc2626' }}>0</span>;
+              }
+
+              return (
+                <Tooltip title={`Cumulative Part Rejections (${monthFrom} to ${endDate}): ${fmtDisplayQty(pcs, 'PCS')} PCS (${fmtDisplayKg(kg)} KG)`}>
+                  <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1.25 }}>
+                    <span style={{ fontWeight: 800, fontSize: 13, color: '#dc2626', whiteSpace: 'nowrap' }}>
+                      {fmtDisplayQty(pcs, 'PCS')} PCS
+                    </span>
+                    <span style={{ fontSize: 11, fontWeight: 600, color: '#b91c1c', opacity: 0.85, whiteSpace: 'nowrap' }}>
+                      {fmtDisplayKg(kg)} KG
+                    </span>
+                  </div>
+                </Tooltip>
+              );
+            },
           },
         ],
       },
@@ -4099,12 +4312,12 @@ const ItemWiseProductionLedger: React.FC = () => {
               border-bottom: 1px solid #94a3b8 !important;
             }
             .col-scrap-sub {
-              width: 38px !important;
+              width: 52px !important;
               font-size: 7.2pt !important;
               padding: 2px !important;
             }
             .col-scrap {
-              width: 38px !important;
+              width: 52px !important;
               color: #dc2626;
               font-weight: 700;
             }
@@ -4173,7 +4386,7 @@ const ItemWiseProductionLedger: React.FC = () => {
                     <th rowspan="2" class="col-close">Closing Pieces</th>
                     <th rowspan="2" class="col-uom">UoM</th>
                     <th rowspan="2" class="col-weight">Total Weight<br><span class="th-subtext">(Per Piece Wt)</span></th>
-                    <th colspan="2" class="col-scrap-group">SCRAP — KG</th>
+                    <th colspan="2" class="col-scrap-group">${SCRAP_HEADER}</th>
                     <th rowspan="2" class="col-remarks">Remarks / Movement</th>
                   </tr>
                   <tr>
@@ -4253,8 +4466,22 @@ const ItemWiseProductionLedger: React.FC = () => {
                           <div class="wt-total">${fmtKg(r.totalWeight)}</div>
                           <div class="wt-ppw">${fmtPpw(r.perPieceWeight)}</div>
                         </td>
-                        <td class="col-num col-scrap">${fmtDisplayQty(r.scrapToday, r.uomCode)}</td>
-                        <td class="col-num col-scrap">${fmtDisplayQty(r.scrapMonth, r.uomCode)}</td>
+                        <td class="col-num col-scrap">
+                          ${(() => {
+                            const isKg = r.stage === 'RM' || (r.uomCode ?? '').toUpperCase() === 'KG';
+                            if (isKg) return r.scrapTodayKg > 0 ? `<div class="val-main">${fmtDisplayKg(r.scrapTodayKg)} KG</div>` : '0';
+                            if (r.scrapTodayPcs === 0 && r.scrapTodayKg === 0) return '0';
+                            return `<div class="val-main">${fmtDisplayQty(r.scrapTodayPcs, 'PCS')} PCS</div><div style="font-size:6.8pt;color:#b91c1c;opacity:0.85;">${fmtDisplayKg(r.scrapTodayKg)} KG</div>`;
+                          })()}
+                        </td>
+                        <td class="col-num col-scrap">
+                          ${(() => {
+                            const isKg = r.stage === 'RM' || (r.uomCode ?? '').toUpperCase() === 'KG';
+                            if (isKg) return r.scrapMonthKg > 0 ? `<div class="val-main">${fmtDisplayKg(r.scrapMonthKg)} KG</div>` : '0';
+                            if (r.scrapMonthPcs === 0 && r.scrapMonthKg === 0) return '0';
+                            return `<div class="val-main">${fmtDisplayQty(r.scrapMonthPcs, 'PCS')} PCS</div><div style="font-size:6.8pt;color:#b91c1c;opacity:0.85;">${fmtDisplayKg(r.scrapMonthKg)} KG</div>`;
+                          })()}
+                        </td>
                         <td class="col-remarks">${r.remarks || '—'}</td>
                       </tr>
                     `;
