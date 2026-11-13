@@ -213,7 +213,8 @@ export const ItemStockLedgerModal: React.FC<ItemStockLedgerModalProps> = ({
   }), [isDark]);
 
   const fetchLedger = useCallback(async () => {
-    if (!itemId) return;
+    const targetId = itemId || itemCode;
+    if (!targetId) return;
     setLoading(true);
     setError(null);
     try {
@@ -223,12 +224,12 @@ export const ItemStockLedgerModal: React.FC<ItemStockLedgerModalProps> = ({
       let res: any;
       try {
         res = await apiService.get<{ success: boolean; data: ItemStockLedgerData }>(
-          `/inventory/balances/items/${itemId}/ledger`,
+          `/inventory/balances/items/${targetId}/ledger`,
           params,
         );
       } catch {
         res = await apiService.get<{ success: boolean; data: ItemStockLedgerData }>(
-          `/inventory/receipts/items/${itemId}/ledger`,
+          `/inventory/receipts/items/${targetId}/ledger`,
           params,
         );
       }
@@ -238,10 +239,10 @@ export const ItemStockLedgerModal: React.FC<ItemStockLedgerModalProps> = ({
     } finally {
       setLoading(false);
     }
-  }, [itemId, selectedWarehouseId]);
+  }, [itemId, itemCode, selectedWarehouseId]);
 
   useEffect(() => {
-    if (open && itemId) {
+    if (open && (itemId || itemCode)) {
       setFilterText('');
       setIsMinimized(false);
       void fetchLedger();
@@ -250,7 +251,7 @@ export const ItemStockLedgerModal: React.FC<ItemStockLedgerModalProps> = ({
       setError(null);
       setIsMinimized(false);
     }
-  }, [open, itemId, fetchLedger]);
+  }, [open, itemId, itemCode, fetchLedger]);
 
   const activeItemCode = data?.item?.itemCode || itemCode || '';
   const currentUom = (data?.item?.uomCode || 'PCS').toUpperCase();

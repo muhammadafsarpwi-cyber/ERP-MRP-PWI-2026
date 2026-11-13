@@ -617,7 +617,7 @@ html[data-theme='dark'] .erp-theme-popover .ant-popover-inner {
 .pwi-app-logo {
   filter: none !important;
   display: block;
-  background: #ffffff;
+  background: transparent;
   border-radius: 6px;
   object-fit: contain;
   transition: transform 0.2s ease;
@@ -625,7 +625,7 @@ html[data-theme='dark'] .erp-theme-popover .ant-popover-inner {
 
 [data-theme='dark'] .pwi-app-logo {
   filter: none !important;
-  background: #ffffff;
+  background: transparent;
 }
 
 .pwi-marquee-dot {

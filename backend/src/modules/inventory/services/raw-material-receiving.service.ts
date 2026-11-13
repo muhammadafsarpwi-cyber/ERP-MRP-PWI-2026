@@ -1896,8 +1896,9 @@ export class RawMaterialReceivingService implements OnModuleInit {
     warehouseId?: string,
     allowedDivisionIds?: DivisionScope,
   ) {
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(itemId);
     const item = await this.itemRepo.findOne({
-      where: { id: itemId, companyId },
+      where: isUuid ? { id: itemId, companyId } : { itemCode: itemId, companyId },
       relations: ['baseUom'],
     });
     if (!item) throw new NotFoundException(`Item '${itemId}' not found in this company.`);
@@ -1910,7 +1911,7 @@ export class RawMaterialReceivingService implements OnModuleInit {
       .leftJoinAndSelect('sl.section', 'section')
       .leftJoinAndSelect('sl.department', 'department')
       .where('sl.companyId = :companyId', { companyId })
-      .andWhere('sl.itemId = :itemId', { itemId });
+      .andWhere('sl.itemId = :itemId', { itemId: item.id });
 
     RawMaterialReceivingService.scopeQuery(qb, 'sl.divisionId', allowedDivisionIds);
 

@@ -6,6 +6,7 @@ import {
 import {
   CheckCircleFilled, DeleteOutlined, FileExcelOutlined, FilePdfOutlined, LeftOutlined, LinkOutlined, PlusOutlined, PrinterOutlined,
   ApartmentOutlined, AppstoreOutlined, BorderOutlined, CalendarOutlined, CheckCircleOutlined, CheckSquareOutlined, NodeIndexOutlined, ReloadOutlined, RightOutlined, SafetyCertificateOutlined, SearchOutlined, SettingOutlined, SyncOutlined,
+  HistoryOutlined,
 } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
 import { jsPDF } from 'jspdf';
@@ -13,6 +14,7 @@ import autoTable from 'jspdf-autotable';
 import { useLocation } from 'react-router-dom';
 import apiService from '../../services/api';
 import { useHeaderActions, type HeaderAction } from '../../components/layout/headerActionsStore';
+import { ItemStockLedgerModal } from '../../components/shared';
 
 const { RangePicker } = DatePicker;
 const { Text, Title } = Typography;
@@ -403,6 +405,7 @@ interface LedgerMetrics {
   order: number;
   stage: string;
   stageLabel: string;
+  itemId?: string | null;
   itemCode: string;
   itemName: string;
   splitSide?: SplitSide;
@@ -1689,6 +1692,7 @@ export const buildChainGrid = (
       order: p.def.order,
       stage: p.def.stage,
       stageLabel: p.def.stageLabel,
+      itemId: p.src?.itemId ?? null,
       itemCode: p.def.itemCode,
       itemName: p.def.stage === 'DP'
         ? (p.def.itemLabel ?? `${dpParentFgSrc?.itemName ?? def.label} — Outward Dispatch Stage`)
@@ -2168,6 +2172,11 @@ const ItemWiseProductionLedger: React.FC = () => {
   const [chainSearchText, setChainSearchText] = useState('');
 
   const [rows, setRows] = useState<ReportRow[]>([]);
+  const [selectedLedgerItem, setSelectedLedgerItem] = useState<{
+    itemId?: string | null;
+    itemCode: string;
+    itemName: string;
+  } | null>(null);
   const [chainOpeningOverrides, setChainOpeningOverrides] = useState<Map<string, number>>(new Map());
   const [monthScrap, setMonthScrap] = useState<Record<string, number>>({});
   const [weightMap, setWeightMap] = useState<Record<string, number | null>>(() => ({
@@ -3227,40 +3236,66 @@ const ItemWiseProductionLedger: React.FC = () => {
             (row.production > 0 || row.issuance > 0 || row.opBalance > 0 || row.closingPieces > 0)
           );
           return (
-            <div
-              className="iwl-item-stack"
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'flex-start',
-                justifyContent: 'center',
-                gap: 2,
-              }}
-            >
+            <Tooltip title={`Click to view Stock Movement Ledger for ${row.itemCode}`} mouseEnterDelay={0.5}>
               <div
-                className={`iwl-item-code ${isDataRow ? 'iwl-item-code--active' : 'iwl-item-code--inactive'}`}
+                className="iwl-item-stack"
+                onClick={() => {
+                  setSelectedLedgerItem({
+                    itemId: row.itemId || null,
+                    itemCode: row.itemCode,
+                    itemName: row.itemName,
+                  });
+                }}
                 style={{
-                  whiteSpace: 'nowrap',
-                  fontWeight: 800,
-                  fontSize: 12.5,
-                  letterSpacing: '0.2px',
-                  display: 'block',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'flex-start',
+                  justifyContent: 'center',
+                  gap: 2,
+                  cursor: 'pointer',
+                  padding: '2px 4px',
+                  borderRadius: 4,
+                  transition: 'background-color 0.2s ease',
+                }}
+                onMouseEnter={(e) => {
+                  (e.currentTarget as HTMLElement).style.backgroundColor = token.colorFillAlter;
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent';
                 }}
               >
-                {row.itemCode}
+                <div
+                  className={`iwl-item-code ${isDataRow ? 'iwl-item-code--active' : 'iwl-item-code--inactive'}`}
+                  style={{
+                    whiteSpace: 'nowrap',
+                    fontWeight: 800,
+                    fontSize: 12.5,
+                    letterSpacing: '0.2px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 5,
+                    color: token.colorPrimary,
+                    textDecoration: 'underline',
+                    textDecorationStyle: 'dotted',
+                  }}
+                >
+                  <span>{row.itemCode}</span>
+                  <HistoryOutlined style={{ fontSize: 11, opacity: 0.7 }} />
+                </div>
+                <div
+                  className={`iwl-item-name ${isDataRow ? 'iwl-item-name--active' : 'iwl-item-name--inactive'}`}
+                  style={{
+                    fontSize: 11.5,
+                    wordBreak: 'break-word',
+                    lineHeight: 1.25,
+                    display: 'block',
+                    color: token.colorTextSecondary,
+                  }}
+                >
+                  {row.itemName}
+                </div>
               </div>
-              <div
-                className={`iwl-item-name ${isDataRow ? 'iwl-item-name--active' : 'iwl-item-name--inactive'}`}
-                style={{
-                  fontSize: 11.5,
-                  wordBreak: 'break-word',
-                  lineHeight: 1.25,
-                  display: 'block',
-                }}
-              >
-                {row.itemName}
-              </div>
-            </div>
+            </Tooltip>
           );
         },
       },
@@ -6692,6 +6727,15 @@ const ItemWiseProductionLedger: React.FC = () => {
             </div>
           </div>
         </Modal>
+
+        {/* Item Stock Movement Ledger Modal */}
+        <ItemStockLedgerModal
+          open={Boolean(selectedLedgerItem)}
+          itemId={selectedLedgerItem?.itemId || null}
+          itemCode={selectedLedgerItem?.itemCode}
+          itemName={selectedLedgerItem?.itemName}
+          onClose={() => setSelectedLedgerItem(null)}
+        />
       </Card>
     </div>
   );
