@@ -23,7 +23,7 @@ import dayjs from 'dayjs';
 import './targetManagement.css';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import apiService from '../../services/api';
+import apiService, { describeRequestError } from '../../services/api';
 import {
   PageHeader, ERPTable, TableActions, PageToolbar, TabKeepAlive, GlobalLoading,
   StatusBadge, DraggableResizableModal, HeaderCell, HighlightedCell,
@@ -531,24 +531,39 @@ const TargetManagement: React.FC = () => {
   }, []);
 
   const buildQuery = useCallback((params: Record<string, unknown>) => {
-    if (search) params.search = search;
-    if (fMachineId) params.machineId = fMachineId;
-    if (fDivision) params.divisionId = fDivision;
-    if (fSection) params.sectionId = fSection;
-    if (fDepartment) params.departmentId = fDepartment;
-    if (fShift) params.shiftId = fShift;
-    if (fItem) params.itemId = fItem;
-    if (fUom) params.uomId = fUom;
-    if (fStatus) params.status = fStatus;
-    return params;
-  }, [search, fMachineId, fDivision, fSection, fDepartment, fShift, fItem, fUom, fStatus]);
+    const p: Record<string, unknown> = { ...params };
+    const qSearch = typeof search === 'string' ? search.trim() : '';
+    if (qSearch) p.search = qSearch;
+    if (fMachineId && fMachineId !== 'ALL' && fMachineId !== 'all') p.machineId = fMachineId;
+    if (fDivision && fDivision !== 'ALL' && fDivision !== 'all') p.divisionId = fDivision;
+    if (fSection && fSection !== 'ALL' && fSection !== 'all') p.sectionId = fSection;
+    if (fDepartment && fDepartment !== 'ALL' && fDepartment !== 'all') p.departmentId = fDepartment;
+    if (fShift && fShift !== 'ALL' && fShift !== 'all') p.shiftId = fShift;
+    if (fItem && fItem !== 'ALL' && fItem !== 'all') p.itemId = fItem;
+    if (fUom && fUom !== 'ALL' && fUom !== 'all') p.uomId = fUom;
+    if (fStatus && (fStatus === 'ACTIVE' || fStatus === 'INACTIVE')) p.status = fStatus;
+    if (sortBy) p.sortBy = sortBy;
+    if (sortDir) p.sortDir = sortDir === 'DESC' ? 'DESC' : 'ASC';
+    return p;
+  }, [search, fMachineId, fDivision, fSection, fDepartment, fShift, fItem, fUom, fStatus, sortBy, sortDir]);
 
-  const fetchTargets = async (pageNum: number = page) => {
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  const fetchTargets = async (pageNum: number = page, overrideParams?: Record<string, unknown>) => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    const abortCtrl = new AbortController();
+    abortControllerRef.current = abortCtrl;
+
     setLoading(true);
     try {
-      const params: any = buildQuery({ page: pageNum, limit: pageSize, sortBy, sortDir });
+      const baseParams = buildQuery({ page: pageNum, limit: pageSize, sortBy, sortDir });
+      const params = overrideParams ? { ...baseParams, ...overrideParams } : baseParams;
       const response = await apiService.get<{ data: MachineTarget[]; total: number }>(
-        '/production/machine-targets', params,
+        '/production/machine-targets',
+        params,
+        { signal: abortCtrl.signal },
       );
       setTargets(response.data || []);
       setTotal(response.total ?? response.data?.length ?? 0);
@@ -561,9 +576,14 @@ const TargetManagement: React.FC = () => {
         filters: { search, fMachineId, fDivision, fSection, fDepartment, fShift, fItem, fUom, fStatus, page: pageNum, pageSize, sortBy, sortDir },
       });
     } catch (error: any) {
-      message.error(error?.response?.data?.message || 'Failed to fetch machine targets');
+      if (error?.name === 'CanceledError' || error?.name === 'AbortError' || error?.code === 'ERR_CANCELED') {
+        return; // Aborted request, safely ignore
+      }
+      message.error(error?.response?.data?.message || describeRequestError(error) || 'Failed to fetch machine targets');
     } finally {
-      setLoading(false);
+      if (abortControllerRef.current === abortCtrl) {
+        setLoading(false);
+      }
     }
   };
 
@@ -571,15 +591,9 @@ const TargetManagement: React.FC = () => {
   fetchTargetsRef.current = fetchTargets;
 
   useEffect(() => {
-    // If the tab was already loaded in this session, DO NOT re-fetch when
-    // returning to it — the cached targets are already seeded into state.
-    //
-    // `fetchTargets` is deliberately NOT a dependency: it is a plain async
-    // function whose identity changes on every render, so listing it here made
-    // this effect re-run after every render (setLoading(true) → render →
-    // effect → fetch, forever). The ref always points at the latest closure,
-    // so only the pagination inputs should ever retrigger the fetch.
-    if (!tabSessionCache.has(MASTER_MACHINE_TARGETS_TAB_ID)) {
+    // Only re-fetch on pagination page/size changes when beyond initial page.
+    // Initial mount and TAB_REFRESH_EVENT are managed by TabKeepAlive.
+    if (page > 1 || pageSize !== DEFAULT_PAGE_SIZE) {
       void fetchTargetsRef.current(page);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -609,10 +623,9 @@ const TargetManagement: React.FC = () => {
         apiService.get<{ data: SectionLk[] }>('/sections', { limit: 500, status: 'ACTIVE' }),
         apiService.get<{ data: DepartmentLk[] }>('/departments', { limit: 500, status: 'ACTIVE' }),
         apiService.get<{ data: UomLk[] }>('/master-data/uom', { limit: 200, status: 'ACTIVE' }),
-        apiService.get<{ data: ItemLk[] }>('/master-data/items', { limit: 10000, status: 'ACTIVE' }),
-        apiService.get<{ data: MachineTarget[] }>('/production/machine-targets', { limit: 10000, status: 'ACTIVE' }),
+        apiService.get<{ data: ItemLk[] }>('/master-data/items', { limit: 2000, status: 'ACTIVE' }),
       ]);
-      const [mch, shf, div, sec, dep, uom, itm, act] = results;
+      const [mch, shf, div, sec, dep, uom, itm] = results;
       const failed: string[] = [];
       if (mch.status === 'fulfilled') setMachines(mch.value.data || []); else failed.push('machine');
       if (shf.status === 'fulfilled') setShifts(shf.value.data || []); else failed.push('shift');
@@ -629,28 +642,11 @@ const TargetManagement: React.FC = () => {
       } else {
         failed.push('item');
       }
-      if (act.status === 'fulfilled') {
-        setAllActiveTargets(act.value.data || []);
-      }
       if (failed.length > 0) {
         message.warning(`Could not load ${failed.join(' / ')} lookups`);
       }
     })();
   }, [message]);
-
-  // Global header/tab refresh event listener
-  useEffect(() => {
-    const handleGlobalRefresh = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (!detail?.tabId || String(detail.tabId).startsWith(MASTER_MACHINE_TARGETS_TAB_ID)) {
-        tabSessionCache.remove(MASTER_MACHINE_TARGETS_TAB_ID);
-        void fetchTargetsRef.current(page);
-      }
-    };
-    window.addEventListener(TAB_REFRESH_EVENT, handleGlobalRefresh);
-    return () => window.removeEventListener(TAB_REFRESH_EVENT, handleGlobalRefresh);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page]);
 
   const sectionsForDivision = useCallback(
     (divisionId?: string) => (divisionId ? sections.filter((s) => s.divisionId === divisionId) : sections),
@@ -892,6 +888,21 @@ const TargetManagement: React.FC = () => {
     setPage(1);
     setSortBy('machineCode');
     setSortDir('ASC');
+    tabSessionCache.remove(MASTER_MACHINE_TARGETS_TAB_ID);
+    void fetchTargets(1, {
+      search: undefined,
+      machineId: undefined,
+      divisionId: undefined,
+      sectionId: undefined,
+      departmentId: undefined,
+      shiftId: undefined,
+      itemId: undefined,
+      uomId: undefined,
+      status: undefined,
+      sortBy: 'machineCode',
+      sortDir: 'ASC',
+      page: 1,
+    });
   };
 
   const uomSymbolOf = (t: MachineTarget) => t.uom?.code ?? '';
@@ -2150,7 +2161,8 @@ const TargetManagement: React.FC = () => {
             onChange: (p, ps) => { setPage(p); setPageSize(ps); },
           }}
           onChange={(_pg, _flt, sorter: any) => {
-            if (sorter && sorter.field) {
+            const field = sorter?.field || sorter?.columnKey;
+            if (field) {
               const map: Record<string, string> = {
                 machineCode: 'machineCode',
                 machineName: 'machineName',
@@ -2162,12 +2174,15 @@ const TargetManagement: React.FC = () => {
                 effectiveFrom: 'effectiveFrom',
                 status: 'status',
               };
-              const col = map[sorter.field] || 'machineCode';
+              const col = map[field] || 'machineCode';
+              const dir = sorter.order === 'descend' ? 'DESC' : 'ASC';
               setSortBy(col);
-              setSortDir(sorter.order === 'descend' ? 'DESC' : 'ASC');
+              setSortDir(dir);
+              void fetchTargets(page, { sortBy: col, sortDir: dir });
             } else {
               setSortBy('machineCode');
               setSortDir('ASC');
+              void fetchTargets(page, { sortBy: 'machineCode', sortDir: 'ASC' });
             }
           }}
           emptyTitle="No machine targets found"

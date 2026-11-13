@@ -10,7 +10,7 @@ import {
   Max,
   MaxLength,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { MachineTargetStatus } from '../entities/machine-target.entity';
 import { IsUUID } from '../../../common/uuid-loose.validator';
@@ -115,20 +115,58 @@ export class ChangeMachineTargetStatusDto {
 export class MachineTargetQueryDto {
   @IsOptional() @Type(() => Number) @Min(1) page?: number;
   @IsOptional() @Type(() => Number) @Min(1) limit?: number;
-  @IsOptional() @IsUUID() machineId?: string;
-  @IsOptional() @IsUUID() shiftId?: string;
-  @IsOptional() @Matches(UUID_LOOSE, { message: 'itemId must be a UUID' }) itemId?: string;
-  @IsOptional() @IsUUID() uomId?: string;
-  @IsOptional() @Matches(UUID_LOOSE, { message: 'divisionId must be a UUID' }) divisionId?: string;
-  @IsOptional() @Matches(UUID_LOOSE, { message: 'sectionId must be a UUID' }) sectionId?: string;
-  @IsOptional() @Matches(UUID_LOOSE, { message: 'departmentId must be a UUID' }) departmentId?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => (value === '' || value === 'ALL' || value === 'all' || value === 'null' ? undefined : value))
+  @Matches(UUID_LOOSE, { message: 'machineId must be a UUID' })
+  machineId?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => (value === '' || value === 'ALL' || value === 'all' || value === 'null' ? undefined : value))
+  @Matches(UUID_LOOSE, { message: 'shiftId must be a UUID' })
+  shiftId?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => (value === '' || value === 'ALL' || value === 'all' || value === 'null' ? undefined : value))
+  @Matches(UUID_LOOSE, { message: 'itemId must be a UUID' })
+  itemId?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => (value === '' || value === 'ALL' || value === 'all' || value === 'null' ? undefined : value))
+  @Matches(UUID_LOOSE, { message: 'uomId must be a UUID' })
+  uomId?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => (value === '' || value === 'ALL' || value === 'all' || value === 'null' ? undefined : value))
+  @Matches(UUID_LOOSE, { message: 'divisionId must be a UUID' })
+  divisionId?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => (value === '' || value === 'ALL' || value === 'all' || value === 'null' ? undefined : value))
+  @Matches(UUID_LOOSE, { message: 'sectionId must be a UUID' })
+  sectionId?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => (value === '' || value === 'ALL' || value === 'all' || value === 'null' ? undefined : value))
+  @Matches(UUID_LOOSE, { message: 'departmentId must be a UUID' })
+  departmentId?: string;
+
   @IsOptional() @IsString() machineCode?: string;
   @IsOptional() @IsString() machineNumber?: string;
-  @IsOptional() @IsIn(['ACTIVE', 'INACTIVE']) status?: MachineTargetStatus;
+
+  @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' && value.trim() ? (value.trim().toUpperCase() === 'ALL' ? undefined : value.trim().toUpperCase()) : undefined))
+  @IsIn(['ACTIVE', 'INACTIVE'])
+  status?: MachineTargetStatus;
+
   @IsOptional() @IsDateString() effectiveOn?: string;
   @IsOptional() @IsString() search?: string;
   @IsOptional() @IsString() sortBy?: string;
-  @IsOptional() @IsIn(['ASC', 'DESC']) sortDir?: 'ASC' | 'DESC';
+
+  @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? (value.toUpperCase() as 'ASC' | 'DESC') : value))
+  @IsIn(['ASC', 'DESC'])
+  sortDir?: 'ASC' | 'DESC';
 }
 
 export class ResolveMachineTargetQueryDto {
