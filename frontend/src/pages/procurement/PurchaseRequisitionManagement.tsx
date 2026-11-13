@@ -268,7 +268,7 @@ const PurchaseRequisitionManagement: React.FC = () => {
 
       // 2. Divisions
       try {
-        const d = await apiService.get<any>('/divisions', { limit: 50 });
+        const d = await apiService.get<any>('/divisions', { limit: 50, status: 'ACTIVE' });
         const divItems = Array.isArray(d) ? d : d?.data?.items || d?.data || [];
         if (divItems.length > 0) {
           const apiDivs = divItems.map((x: any) => ({ id: x.id, code: x.divisionCode, name: x.name }));

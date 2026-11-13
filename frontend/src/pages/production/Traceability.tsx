@@ -175,7 +175,7 @@ const Traceability: React.FC = () => {
 
   const loadDivisions = useCallback(async () => {
     try {
-      const res = await apiService.get<{ data: Array<{ id: string; name: string }> }>('/divisions', { limit: 200 });
+      const res = await apiService.get<{ data: Array<{ id: string; name: string }> }>('/divisions', { limit: 200, status: 'ACTIVE' });
       setDivisions(res.data || []);
     } catch { setDivisions([]); }
   }, []);

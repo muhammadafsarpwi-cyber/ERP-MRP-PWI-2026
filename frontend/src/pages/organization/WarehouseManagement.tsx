@@ -230,7 +230,7 @@ const WarehouseManagement: React.FC = () => {
 
   const fetchDivisions = useCallback(async () => {
     try {
-      const response = await apiService.get<{ data: Division[] }>('/divisions', { limit: 100 });
+      const response = await apiService.get<{ data: Division[] }>('/divisions', { limit: 100, status: 'ACTIVE' });
       setDivisions(response.data);
       const c = tabSessionCache.get<WarehouseTabCache>(ORGANIZATION_WAREHOUSES_TAB_ID);
       tabSessionCache.set<WarehouseTabCache>(ORGANIZATION_WAREHOUSES_TAB_ID, {

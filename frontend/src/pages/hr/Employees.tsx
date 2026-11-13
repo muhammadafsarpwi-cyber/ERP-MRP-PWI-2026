@@ -374,9 +374,9 @@ const EmployeesPage: React.FC = () => {
   const loadLookups = useCallback(async (cid: string) => {
     try {
       const [divRes, secRes, deptRes, desigRes] = await Promise.allSettled([
-        apiService.get<{ data: OrgOption[] }>('/divisions', { limit: 200 }),
+        apiService.get<{ data: OrgOption[] }>('/divisions', { limit: 200, status: 'ACTIVE' }),
         apiService.get<{ data: OrgOption[] }>('/sections', { limit: 200 }),
-        apiService.get<{ data: OrgOption[] }>('/departments', { limit: 200 }),
+        apiService.get<{ data: OrgOption[] }>('/departments', { limit: 200, status: 'ACTIVE' }),
         apiService.get<{ data: DesignationOption[] }>('/hr/designations', { companyId: cid }),
       ]);
 

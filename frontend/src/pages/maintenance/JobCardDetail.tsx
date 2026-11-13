@@ -139,7 +139,7 @@ export const JobCardDetail: React.FC = () => {
     editForm.setFieldsValue({ complaint: card.complaint, complaintCategoryId: card.complaintCategoryId || undefined, assignedDepartmentId: card.assignedDepartmentId || undefined, description: card.description || undefined });
     const companyId = card.companyId; const divisionId = card.machine?.divisionId; const sectionId = card.machine?.sectionId;
     if (companyId) apiService.get<any>('/master-data/maintenance/categories/complaint', { companyId }).then(r => setCategories(uuidRowsOf(r))).catch(() => setCategories([]));
-    if (companyId && divisionId && sectionId) apiService.get<any>('/departments', { companyId, divisionId, sectionId, limit: 100 }).then(r => setDepartments(uuidRowsOf(r))).catch(() => setDepartments([]));
+    if (companyId && divisionId && sectionId) apiService.get<any>('/departments', { companyId, divisionId, sectionId, status: 'ACTIVE', departmentType: 'PRODUCTION', limit: 100 }).then(r => setDepartments(uuidRowsOf(r))).catch(() => setDepartments([]));
   }, [card, editForm]);
 
   const run = async (action: { label: string; endpoint: string; permission: string }, body: any = {}) => {

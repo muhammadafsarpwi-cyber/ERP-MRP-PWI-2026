@@ -193,7 +193,7 @@ const FinishedGoodsInventory: React.FC = () => {
   useEffect(() => {
     (async () => {
       try {
-        const divRes = await apiService.get<any>('/divisions', { limit: 50 });
+        const divRes = await apiService.get<any>('/divisions', { limit: 50, status: 'ACTIVE' });
         const divList = divRes.data || divRes;
         if (Array.isArray(divList)) {
           setDivisions(divList.filter((d: any) => d.status === 'ACTIVE' || d.isActive !== false));

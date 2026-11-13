@@ -90,8 +90,9 @@ export const maintenanceCache = {
       return cache.divisions || [];
     }
     try {
-      const res = await apiService.get<any>('/divisions', { limit: 200 });
-      cache.divisions = Array.isArray(res?.data) ? res.data : (Array.isArray(res) ? res : []);
+      const res = await apiService.get<any>('/divisions', { limit: 200, status: 'ACTIVE' });
+      const raw = Array.isArray(res?.data) ? res.data : (Array.isArray(res) ? res : []);
+      cache.divisions = raw.filter((d: any) => d?.isActive !== false && d?.is_active !== false && String(d?.status ?? 'ACTIVE').toUpperCase() === 'ACTIVE');
       cache.lastFetchedAt['divisions'] = Date.now();
       return cache.divisions || [];
     } catch (err) {
@@ -106,7 +107,7 @@ export const maintenanceCache = {
       return cache.sections[key] || [];
     }
     try {
-      const params: Record<string, any> = { limit: 200 };
+      const params: Record<string, any> = { limit: 200, status: 'ACTIVE' };
       if (divisionId) params.divisionId = divisionId;
       const res = await apiService.get<any>('/sections', params);
       const list = Array.isArray(res?.data) ? res.data : (Array.isArray(res) ? res : []);
@@ -125,7 +126,7 @@ export const maintenanceCache = {
       return cache.departments[key] || [];
     }
     try {
-      const params: Record<string, any> = { limit: 200 };
+      const params: Record<string, any> = { limit: 200, status: 'ACTIVE', departmentType: 'PRODUCTION' };
       if (sectionId) params.sectionId = sectionId;
       const res = await apiService.get<any>('/departments', params);
       const list = Array.isArray(res?.data) ? res.data : (Array.isArray(res) ? res : []);

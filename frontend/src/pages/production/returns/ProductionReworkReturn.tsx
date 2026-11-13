@@ -528,8 +528,8 @@ const DEFAULT_UOMS = [
     (async () => {
       try {
         const [divRes, deptRes, itemRes, uomRes] = await Promise.all([
-          apiService.get<any>('/divisions', { limit: 50 }).catch(() => null),
-          apiService.get<any>('/departments', { limit: 100 }).catch(() => null),
+          apiService.get<any>('/divisions', { limit: 50, status: 'ACTIVE' }).catch(() => null),
+          apiService.get<any>('/departments', { limit: 100, status: 'ACTIVE', departmentType: 'PRODUCTION' }).catch(() => null),
           apiService.get<any>('/master-data/items', { limit: 1000 }).catch(() => null),
           apiService.get<any>('/master-data/uom', { limit: 100 }).catch(() => null),
         ]);

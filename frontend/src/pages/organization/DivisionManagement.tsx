@@ -80,7 +80,7 @@ const DivisionManagement: React.FC = () => {
   const fetchDivisionsRef = useCallback(async (pageNum: number = page) => {
     setLoading(true);
     try {
-      const response = await apiService.get<{ data: Division[]; total: number }>('/divisions', { page: pageNum, limit: 20 });
+      const response = await apiService.get<{ data: Division[]; total: number }>('/divisions', { page: pageNum, limit: 20, includeInactive: true });
       setDivisions(response.data);
       setTotal(response.total);
       tabSessionCache.set<DivisionTabCache>(ORGANIZATION_DIVISIONS_TAB_ID, { divisions: response.data, total: response.total, page: pageNum });

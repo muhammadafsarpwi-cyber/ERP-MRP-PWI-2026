@@ -247,9 +247,9 @@ const MachineToolingManagement: React.FC = () => {
           apiService.get<{ data: MachineLk[] }>('/machines', { limit: 500, sortBy: 'machineCode' }),
           apiService.get<{ data: ItemLk[] }>('/master-data/items', { limit: 200, sortBy: 'itemCode' }),
           apiService.get<{ data: UomLk[] }>('/master-data/uom', { limit: 500, sortBy: 'code' }),
-          apiService.get<{ data: DivisionLk[] }>('/divisions', { limit: 200 }),
+          apiService.get<{ data: DivisionLk[] }>('/divisions', { limit: 200, status: 'ACTIVE' }),
           apiService.get<{ data: SectionLk[] }>('/sections', { limit: 500 }),
-          apiService.get<{ data: DepartmentLk[] }>('/departments', { limit: 500 }),
+          apiService.get<{ data: DepartmentLk[] }>('/departments', { limit: 500, status: 'ACTIVE', departmentType: 'PRODUCTION' }),
           apiService.get<{ data: MasterItemTypeLk[] }>('/master-data/item-types', { limit: 500 }),
         ]);
         const unpack = (res: PromiseSettledResult<any>) =>

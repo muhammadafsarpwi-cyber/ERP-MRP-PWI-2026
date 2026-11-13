@@ -37,6 +37,7 @@ export class DivisionController {
   @ApiQuery({ name: 'limit', required: false, type: Number })
   @ApiQuery({ name: 'search', required: false, type: String })
   @ApiQuery({ name: 'status', required: false, enum: DivisionStatus })
+  @ApiQuery({ name: 'includeInactive', required: false, type: Boolean })
   @ApiQuery({ name: 'companyId', required: false, type: String })
   async findAll(
     @Req() req: any,
@@ -44,6 +45,7 @@ export class DivisionController {
     @Query('limit') limit?: number,
     @Query('search') search?: string,
     @Query('status') status?: DivisionStatus,
+    @Query('includeInactive') includeInactive?: string,
     @Query('companyId') companyId?: string,
   ) {
     const result = await this.divisionService.findAll({
@@ -51,6 +53,7 @@ export class DivisionController {
       limit: Number(limit) || 20,
       search,
       status,
+      includeInactive: includeInactive === 'true',
       companyId,
       allowedDivisionIds: this.divisions(req),
     });

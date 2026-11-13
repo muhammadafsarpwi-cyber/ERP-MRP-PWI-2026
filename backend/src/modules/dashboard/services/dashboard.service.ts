@@ -112,7 +112,8 @@ export class DashboardService {
       .createQueryBuilder('d')
       .where('d.company_id = :companyId', { companyId })
       .andWhere('d.is_active = true')
-      .andWhere("d.status = 'ACTIVE'");
+      .andWhere("d.status = 'ACTIVE'")
+      .andWhere("d.department_type = 'PRODUCTION'");
 
     if (opts.sectionId) {
       qb.andWhere('d.section_id = :sectionId', { sectionId: opts.sectionId });

@@ -1,7 +1,7 @@
 import { IsString, IsNotEmpty, IsOptional, MaxLength, Matches, ValidateIf, IsEnum, IsBoolean } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsUuid } from '../../../common/validators';
-import { PrimaryUom, SecondaryUom } from '../entities/department.entity';
+import { PrimaryUom, SecondaryUom, DepartmentType } from '../entities/department.entity';
 
 export class CreateDepartmentDto {
   @ApiProperty({ description: 'Company ID' })
@@ -33,6 +33,11 @@ export class CreateDepartmentDto {
   @ValidateIf((_, v) => v != null && v !== '')
   @IsUuid()
   sectionId?: string | null;
+
+  @ApiPropertyOptional({ enum: DepartmentType, description: 'Department category: PRODUCTION or CORPORATE', default: DepartmentType.PRODUCTION })
+  @IsOptional()
+  @IsEnum(DepartmentType)
+  departmentType?: DepartmentType;
 
   @ApiProperty({ description: 'Unique department code within company' })
   @IsString()
@@ -114,6 +119,11 @@ export class UpdateDepartmentDto {
   @ValidateIf((_, v) => v != null && v !== '')
   @IsUuid()
   sectionId?: string | null;
+
+  @ApiPropertyOptional({ enum: DepartmentType, description: 'Department category: PRODUCTION or CORPORATE' })
+  @IsOptional()
+  @IsEnum(DepartmentType)
+  departmentType?: DepartmentType;
 
   @ApiPropertyOptional({ description: 'Department name' })
   @IsString()

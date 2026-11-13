@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, Not, TreeRepository, DataSource } from 'typeorm';
-import { Department, DepartmentStatus, Division, Section, Company } from '../entities';
+import { Department, DepartmentStatus, DepartmentType, Division, Section, Company } from '../entities';
 import { CreateDepartmentDto, UpdateDepartmentDto } from '../dto';
 
 @Injectable()
@@ -142,16 +142,19 @@ export class DepartmentService {
     const primaryUom = (createDepartmentDto.primaryUom || createDepartmentDto.reportingUom || 'PCS').toUpperCase();
     const secondaryUom = (createDepartmentDto.secondaryUom || 'NONE').toUpperCase();
     const bridgeConversion = Boolean(createDepartmentDto.bridgeConversion ?? createDepartmentDto.enableConversionBridge ?? false);
+    const departmentType = createDepartmentDto.departmentType || DepartmentType.PRODUCTION;
+    const isCorporate = departmentType === DepartmentType.CORPORATE;
 
     const department = this.departmentRepository.create({
       ...createDepartmentDto,
+      departmentType,
       primaryUom,
       reportingUom: primaryUom,
       secondaryUom,
       bridgeConversion,
       enableConversionBridge: bridgeConversion,
-      divisionId: createDepartmentDto.divisionId || (null as any),
-      sectionId: createDepartmentDto.sectionId || (null as any),
+      divisionId: isCorporate ? (null as any) : (createDepartmentDto.divisionId || (null as any)),
+      sectionId: isCorporate ? (null as any) : (createDepartmentDto.sectionId || (null as any)),
       branchId: createDepartmentDto.branchId || (null as any),
       businessUnitId: createDepartmentDto.businessUnitId || (null as any),
       parentDepartmentId: createDepartmentDto.parentDepartmentId || (null as any),
@@ -176,8 +179,9 @@ export class DepartmentService {
     parentDepartmentId?: string;
     centralizedOnly?: boolean;
     productionOnly?: boolean;
+    departmentType?: DepartmentType;
   }): Promise<{ data: Department[]; total: number }> {
-    const { page = 1, limit = 20, search, status, companyId, branchId, businessUnitId, divisionId, sectionId, parentDepartmentId, centralizedOnly, productionOnly } = options || {};
+    const { page = 1, limit = 20, search, status, companyId, branchId, businessUnitId, divisionId, sectionId, parentDepartmentId, centralizedOnly, productionOnly, departmentType } = options || {};
 
     const queryBuilder = this.departmentRepository.createQueryBuilder('dept');
     queryBuilder.leftJoinAndSelect('dept.company', 'company');
@@ -227,12 +231,16 @@ export class DepartmentService {
       queryBuilder.andWhere('dept.parentDepartmentId = :parentDepartmentId', { parentDepartmentId });
     }
 
+    if (departmentType) {
+      queryBuilder.andWhere('dept.departmentType = :departmentType', { departmentType });
+    }
+
     if (centralizedOnly) {
-      queryBuilder.andWhere('dept.divisionId IS NULL');
+      queryBuilder.andWhere('(dept.departmentType = :corpType OR dept.divisionId IS NULL)', { corpType: DepartmentType.CORPORATE });
     }
 
     if (productionOnly) {
-      queryBuilder.andWhere('dept.divisionId IS NOT NULL');
+      queryBuilder.andWhere('dept.departmentType = :prodType', { prodType: DepartmentType.PRODUCTION });
     }
 
     queryBuilder.orderBy('dept.name', 'ASC');
@@ -310,12 +318,18 @@ export class DepartmentService {
       }
     }
 
-    const targetDivisionId = updateDepartmentDto.divisionId !== undefined
-      ? updateDepartmentDto.divisionId
-      : department.divisionId;
-    const targetSectionId = updateDepartmentDto.sectionId !== undefined
-      ? updateDepartmentDto.sectionId
-      : department.sectionId;
+    const targetType = updateDepartmentDto.departmentType ?? department.departmentType;
+    const isCorporate = targetType === DepartmentType.CORPORATE;
+    const targetDivisionId = isCorporate
+      ? null
+      : updateDepartmentDto.divisionId !== undefined
+        ? updateDepartmentDto.divisionId
+        : department.divisionId;
+    const targetSectionId = isCorporate
+      ? null
+      : updateDepartmentDto.sectionId !== undefined
+        ? updateDepartmentDto.sectionId
+        : department.sectionId;
 
     await this.validateHierarchy(
       department.companyId,
@@ -327,6 +341,14 @@ export class DepartmentService {
       updatedBy: userId || null,
       updatedAt: new Date(),
     };
+
+    if (updateDepartmentDto.departmentType !== undefined) {
+      updatePayload.departmentType = updateDepartmentDto.departmentType;
+      if (isCorporate) {
+        updatePayload.divisionId = null;
+        updatePayload.sectionId = null;
+      }
+    }
 
     if (updateDepartmentDto.departmentCode !== undefined) {
       updatePayload.departmentCode = updateDepartmentDto.departmentCode;

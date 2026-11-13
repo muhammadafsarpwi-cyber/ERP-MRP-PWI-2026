@@ -12,6 +12,11 @@ export enum DepartmentStatus {
   INACTIVE = 'INACTIVE',
 }
 
+export enum DepartmentType {
+  PRODUCTION = 'PRODUCTION',
+  CORPORATE = 'CORPORATE',
+}
+
 export enum PrimaryUom {
   KG = 'KG',
   METER = 'METER',
@@ -85,6 +90,9 @@ export class Department extends BaseEntity {
 
   @Column({ type: 'varchar', length: 20, default: DepartmentStatus.ACTIVE })
   status: DepartmentStatus;
+
+  @Column({ name: 'department_type', type: 'varchar', length: 20, default: DepartmentType.PRODUCTION })
+  departmentType: DepartmentType;
 
   @Column({ name: 'reporting_uom', type: 'varchar', length: 20, default: 'PCS' })
   reportingUom: string;

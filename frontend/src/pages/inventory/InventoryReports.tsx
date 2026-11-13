@@ -104,7 +104,7 @@ const InventoryReports: React.FC = () => {
       setWarehouses(whItems);
 
       try {
-        const divRes: any = await apiService.get('/divisions', { limit: 100 });
+        const divRes: any = await apiService.get('/divisions', { limit: 100, status: 'ACTIVE' });
         const divItems = Array.isArray(divRes)
           ? divRes
           : Array.isArray(divRes?.data)

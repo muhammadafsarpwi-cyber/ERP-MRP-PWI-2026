@@ -32,7 +32,7 @@ export function useMaintenanceHierarchy(
     // companyId is missing/null on mount, fall back to an unscoped ACTIVE
     // lookup so the Division panel is never left blank.
     const divisionParams: Record<string, unknown> = companyId
-      ? { companyId, limit: 200 }
+      ? { companyId, status: 'ACTIVE', limit: 200 }
       : { status: 'ACTIVE', limit: 200 };
     apiService.get<any>('/divisions', divisionParams)
       .then(r => setDivisions(uuidRowsOf(r)))
@@ -58,8 +58,8 @@ export function useMaintenanceHierarchy(
     // Company scoping only when known; otherwise fall back to ACTIVE rows for
     // the selected division/section so the Department panel never blanks out.
     const departmentParams: Record<string, unknown> = companyId
-      ? { companyId, divisionId, sectionId, limit: 500 }
-      : { status: 'ACTIVE', divisionId, sectionId, limit: 200 };
+      ? { companyId, divisionId, sectionId, status: 'ACTIVE', departmentType: 'PRODUCTION', limit: 500 }
+      : { status: 'ACTIVE', departmentType: 'PRODUCTION', divisionId, sectionId, limit: 200 };
     apiService.get<any>('/departments', departmentParams)
       .then(r => setDepartments(uuidRowsOf(r)))
       .catch(() => setDepartments([]));

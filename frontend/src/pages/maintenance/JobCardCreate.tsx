@@ -737,7 +737,7 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
     setDepartmentsError('');
 
     apiService
-      .get<any>('/departments', { status: 'ACTIVE', ...(resolvedCompanyId ? { companyId: resolvedCompanyId } : {}), divisionId: form.getFieldValue('divisionId'), sectionId: secId, limit: 100 })
+      .get<any>('/departments', { status: 'ACTIVE', departmentType: 'PRODUCTION', ...(resolvedCompanyId ? { companyId: resolvedCompanyId } : {}), divisionId: form.getFieldValue('divisionId'), sectionId: secId, limit: 100 })
       .then((r) => {
         if (cancelled) return;
         const deptList = (uuidRowsOf(r) as any[]).map(d => ({ id: d.id, name: d.name, departmentCode: d.departmentCode ?? d.department_code }));

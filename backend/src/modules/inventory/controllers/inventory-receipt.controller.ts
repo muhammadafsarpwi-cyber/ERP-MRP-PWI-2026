@@ -909,7 +909,7 @@ export class InventoryReceiptController {
   async getDivisions(@Req() req: any) {
     const companyId = this.getCompanyId(req);
     const data = await this.divisionRepo.find({
-      where: narrowWhereByDivision({ companyId, status: 'ACTIVE' as any }, 'id', this.divisionScope(req)),
+      where: narrowWhereByDivision({ companyId, isActive: true, status: 'ACTIVE' as any }, 'id', this.divisionScope(req)),
       order: { name: 'ASC' },
     });
     return { success: true, data };

@@ -39,17 +39,23 @@ export interface DivisionSelectProps {
 
 const EMPTY: DivisionOption[] = [];
 
+function isActiveDivisionRow(row: { isActive?: boolean; is_active?: boolean; status?: string } | null | undefined): boolean {
+  if (!row) return false;
+  if (row.isActive === false || row.is_active === false) return false;
+  if (row.status && String(row.status).toUpperCase() !== 'ACTIVE') return false;
+  return true;
+}
+
 function buildOptions(
-  rows: ReadonlyArray<{ id: string; divisionCode?: string; name?: string; status?: string }> | null | undefined,
+  rows: ReadonlyArray<{ id: string; divisionCode?: string; name?: string; status?: string; isActive?: boolean; is_active?: boolean }> | null | undefined,
   showCode: boolean,
 ): DivisionOption[] {
   if (!Array.isArray(rows)) return EMPTY;
-  return rows.map(row => ({
+  return rows.filter(isActiveDivisionRow).map(row => ({
     value: row.id,
     divisionCode: row.divisionCode ?? '',
     name: row.name ?? '',
     label: showCode && row.divisionCode ? `${row.divisionCode} · ${row.name ?? ''}` : (row.name ?? ''),
-    disabled: row.status === 'INACTIVE',
   }));
 }
 

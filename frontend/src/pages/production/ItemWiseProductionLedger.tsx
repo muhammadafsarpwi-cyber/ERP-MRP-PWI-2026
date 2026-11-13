@@ -2197,11 +2197,13 @@ const ItemWiseProductionLedger: React.FC = () => {
 
   useEffect(() => {
     let isMounted = true;
-    apiService.get('/divisions', { limit: 100 })
+    apiService.get('/divisions', { limit: 100, status: 'ACTIVE' })
       .then((res: any) => {
         if (!isMounted) return;
         const list = Array.isArray(res?.data) ? res.data : (Array.isArray(res) ? res : []);
-        setDivisionsList(list.filter((d: any) => d.status !== 'INACTIVE'));
+        setDivisionsList(
+          list.filter((d: any) => d?.isActive !== false && d?.is_active !== false && d?.status !== 'INACTIVE'),
+        );
       })
       .catch(() => {});
     return () => { isMounted = false; };

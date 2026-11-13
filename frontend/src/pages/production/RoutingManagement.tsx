@@ -147,9 +147,9 @@ const RoutingManagement: React.FC = () => {
       const [itemsRes, bomRes, divRes, secRes, deptRes, uomRes, rtRes, machineRes, whRes] = await Promise.all([
         apiService.get<{ data: Item[] }>('/master-data/items', { limit: 500 }),
         apiService.get<{ data: Bom[] }>('/bom'),
-        apiService.get<{ data: Division[] }>('/divisions', { limit: 200 }),
+        apiService.get<{ data: Division[] }>('/divisions', { limit: 200, status: 'ACTIVE' }),
         apiService.get<{ data: Section[] }>('/sections', { limit: 200 }),
-        apiService.get<{ data: Department[] }>('/departments', { limit: 200 }),
+        apiService.get<{ data: Department[] }>('/departments', { limit: 200, status: 'ACTIVE', departmentType: 'PRODUCTION' }),
         apiService.get<{ data: Uom[] }>('/master-data/uom', { limit: 200 }),
         apiService.get<{ data: RouteType[] }>('/master-data/route-types', { limit: 200 }),
         apiService.get<{ data: Machine[] }>('/production/machines'),

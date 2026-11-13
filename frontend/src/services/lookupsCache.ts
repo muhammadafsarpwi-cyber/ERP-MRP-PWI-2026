@@ -183,8 +183,10 @@ export const FALLBACK_WAREHOUSES: CachedWarehouse[] = [
 ];
 
 /** Strict filter for the 4 manufacturing divisions (Spoke, Control Cable, Main E-51, NB) */
-export function isProductionDivision(div: { name?: string; divisionCode?: string; code?: string; id?: string }): boolean {
+export function isProductionDivision(div: { name?: string; divisionCode?: string; code?: string; id?: string; status?: string; isActive?: boolean; is_active?: boolean }): boolean {
   if (!div) return false;
+  if (div.isActive === false || div.is_active === false) return false;
+  if (div.status && String(div.status).toUpperCase() !== 'ACTIVE') return false;
   const code = (div.divisionCode || div.code || '').toUpperCase().trim();
   const name = (div.name || '').toUpperCase().trim();
 
@@ -359,9 +361,9 @@ export async function prefetchAllLookups(forceRefresh = false): Promise<LookupsS
     try {
       // 1. Fetch Fast Organizational Core (< 100ms) and notify subscribers immediately
       const [rawDivisions, sections, departments, shifts, uoms] = await Promise.all([
-        fetchList<CachedDivision>('/divisions', { limit: 200 }),
+        fetchList<CachedDivision>('/divisions', { limit: 200, status: 'ACTIVE' }),
         fetchList<CachedSection>('/sections', { limit: 500 }),
-        fetchList<CachedDepartment>('/departments', { limit: 500 }),
+        fetchList<CachedDepartment>('/departments', { limit: 500, status: 'ACTIVE', departmentType: 'PRODUCTION' }),
         fetchList<CachedShift>('/production/shifts'),
         fetchList<CachedUom>('/master-data/uom', { limit: 200 }),
       ]);
@@ -373,6 +375,7 @@ export async function prefetchAllLookups(forceRefresh = false): Promise<LookupsS
         (d) =>
           d.divisionId &&
           d.sectionId &&
+          (!(d as any).departmentType || (d as any).departmentType === 'PRODUCTION') &&
           (!d.status || String(d.status).toUpperCase() === 'ACTIVE') &&
           (d as any).isActive !== false,
       );

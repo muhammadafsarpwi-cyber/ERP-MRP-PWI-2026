@@ -376,7 +376,7 @@ const PurchaseOrderManagement: React.FC = () => {
 
     (async () => {
       try {
-        const divRes = await apiService.get<any>('/divisions', { limit: 100 });
+        const divRes = await apiService.get<any>('/divisions', { limit: 100, status: 'ACTIVE' });
         const d = divRes?.data || divRes;
         const list = d?.data || (Array.isArray(d) ? d : []);
         if (list.length > 0) {

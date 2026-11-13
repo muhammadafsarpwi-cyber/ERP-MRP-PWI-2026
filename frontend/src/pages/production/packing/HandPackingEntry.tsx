@@ -3001,9 +3001,9 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
 
       try {
         const [divList, secList, depList, shiftList, itemList, uomList, convList, whList] = await Promise.all([
-          safeFetch('/divisions?limit=100', '/organization/divisions'),
+          safeFetch('/divisions?limit=100&status=ACTIVE', '/organization/divisions?status=ACTIVE'),
           safeFetch('/sections?limit=100', '/organization/sections'),
-          safeFetch('/departments?limit=100', '/organization/departments'),
+          safeFetch('/departments?limit=100&status=ACTIVE&departmentType=PRODUCTION', '/organization/departments?status=ACTIVE&departmentType=PRODUCTION'),
           safeFetch('/production/shifts'),
           safeFetch('/master-data/items?itemType=FINISHED_GOOD&limit=1000', '/items?itemType=FINISHED_GOOD&limit=1000'),
           safeFetch('/master-data/uom', '/uoms'),

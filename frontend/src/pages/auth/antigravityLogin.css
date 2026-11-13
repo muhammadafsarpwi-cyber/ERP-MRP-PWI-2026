@@ -26,6 +26,13 @@
   --ag-pill-border: var(--theme-border-strong);
   --ag-org-badge-bg: color-mix(in srgb, var(--theme-accent) 12%, transparent);
   --ag-org-badge-border: color-mix(in srgb, var(--theme-accent) 32%, transparent);
+  --ag-medallion-bg: radial-gradient(
+    circle at 35% 30%,
+    color-mix(in srgb, var(--theme-accent) 26%, rgba(226, 232, 240, 0.78)) 0%,
+    color-mix(in srgb, var(--theme-accent) 44%, rgba(148, 163, 184, 0.56)) 65%,
+    color-mix(in srgb, var(--theme-accent) 55%, rgba(15, 23, 42, 0.42)) 100%
+  );
+  --ag-medallion-border: color-mix(in srgb, var(--theme-accent) 45%, transparent);
   --ag-input-bg: color-mix(in srgb, var(--theme-surface-elevated) 72%, var(--theme-background));
   --ag-input-bg-hover: color-mix(in srgb, var(--theme-surface-elevated) 90%, var(--theme-background));
   --ag-input-border: var(--theme-border-strong);
@@ -59,6 +66,12 @@ html[data-theme='light'] .erp-auth-root.is-antigravity {
     0 6px 20px -4px rgba(15, 23, 42, 0.06),
     inset 0 1px 0 rgba(255, 255, 255, 0.85);
   --ag-pill-bg: color-mix(in srgb, var(--theme-surface) 86%, transparent);
+  --ag-medallion-bg: radial-gradient(
+    circle at 35% 30%,
+    color-mix(in srgb, var(--theme-accent) 8%, var(--theme-surface)) 0%,
+    color-mix(in srgb, var(--theme-accent) 20%, var(--theme-surface-alt)) 100%
+  );
+  --ag-medallion-border: color-mix(in srgb, var(--theme-accent) 28%, transparent);
   --ag-input-bg: var(--theme-surface);
   --ag-input-bg-hover: var(--theme-surface-alt);
   --ag-btn-shadow:
@@ -230,22 +243,39 @@ html[data-theme='light'] .erp-auth-root.is-antigravity {
 }
 
 .erp-ag-logo-medallion {
-  width: 56px;
-  height: 56px;
-  border-radius: 16px;
-  padding: 6px;
+  width: 74px;
+  height: 74px;
+  margin: 0 auto;
+  border-radius: 50%;
+  padding: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--theme-surface-elevated);
-  border: 1px solid var(--ag-pill-border);
-  box-shadow: 0 8px 20px -6px rgba(15, 23, 42, 0.18);
+  overflow: hidden;
+  background: var(--ag-medallion-bg);
+  border: 1px solid var(--ag-medallion-border);
+  box-shadow:
+    0 0 22px -4px color-mix(in srgb, var(--theme-accent) 32%, transparent),
+    0 8px 20px -6px rgba(2, 6, 23, 0.36);
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+
+.erp-ag-logo-medallion:hover {
+  transform: translateY(-1px) scale(1.02);
+  box-shadow:
+    0 0 28px -2px color-mix(in srgb, var(--theme-accent) 44%, transparent),
+    0 12px 26px -6px rgba(2, 6, 23, 0.42);
 }
 
 .erp-ag-logo-medallion .erp-brand-mark {
+  display: block;
   width: 100%;
   height: 100%;
+  margin: 0;
   object-fit: contain;
+  object-position: center center;
+  border-radius: 50%;
+  transform: scale(1.18);
 }
 
 .erp-ag-org-pill {
@@ -500,8 +530,9 @@ html[data-theme='light'] .erp-auth-root.is-antigravity {
     margin-bottom: 16px;
   }
   .erp-ag-logo-medallion {
-    width: 48px;
-    height: 48px;
+    width: 66px;
+    height: 66px;
+    padding: 0;
   }
 }
 

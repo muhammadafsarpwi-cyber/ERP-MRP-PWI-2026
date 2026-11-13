@@ -255,7 +255,7 @@ const Login: React.FC = () => {
     return null;
   }
 
-  const logoSrc = config.logoUrl || `${process.env.PUBLIC_URL || ''}/logo.png`;
+  const logoSrc = `${process.env.PUBLIC_URL || ''}/logo.png?v=9`;
 
   return (
     <AuthShell

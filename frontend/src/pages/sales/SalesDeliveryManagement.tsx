@@ -222,7 +222,7 @@ const SalesDeliveryManagement: React.FC = () => {
     }
     (async () => {
       try {
-        const divRes = await apiService.get<any>('/divisions', { limit: 50 });
+        const divRes = await apiService.get<any>('/divisions', { limit: 50, status: 'ACTIVE' });
         const list = Array.isArray(divRes) ? divRes : (divRes?.data || divRes?.items || []);
         setDivisions(Array.isArray(list) ? list.filter((d: any) => d.status === 'ACTIVE' || d.isActive !== false) : []);
       } catch { /* ignore */ }

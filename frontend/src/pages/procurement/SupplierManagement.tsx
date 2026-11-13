@@ -178,10 +178,12 @@ const SupplierManagement: React.FC = () => {
   const [divisions, setDivisions] = useState<DivisionOption[]>(DEFAULT_DIVISIONS);
 
   useEffect(() => {
-    apiService.get<any>('/divisions', { limit: 100 })
+    apiService.get<any>('/divisions', { limit: 100, status: 'ACTIVE' })
       .then(res => {
         const d = res?.data || res;
-        const list = d?.data || (Array.isArray(d) ? d : []);
+        const list = (d?.data || (Array.isArray(d) ? d : [])).filter(
+          (item: any) => item?.isActive !== false && item?.is_active !== false && item?.status !== 'INACTIVE',
+        );
         if (list.length > 0) {
           setDivisions(list.map((item: any) => ({
             id: item.id,

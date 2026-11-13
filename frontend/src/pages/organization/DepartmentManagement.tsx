@@ -15,12 +15,15 @@ import {
   BankOutlined,
   SettingOutlined,
   SearchOutlined,
+  ShopOutlined,
+  BuildOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import apiService from '../../services/api';
 import { formatApiError } from '../../utils/apiError';
 import { TabKeepAlive, GlobalLoading, DraggableResizableModal } from '../../components/shared';
+import CardSelectDropdown from '../../components/dashboard/CardSelectDropdown';
 import { tabSessionCache, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 import { useHeaderActions } from '../../components/layout/headerActionsStore';
 
@@ -43,6 +46,7 @@ interface Department {
   section?: Section;
   children?: Department[];
   divisionScopes?: DivisionScope[];
+  departmentType?: 'PRODUCTION' | 'CORPORATE';
   status: string;
   createdAt: string;
   updatedAt?: string;
@@ -145,6 +149,7 @@ const DepartmentManagement: React.FC = () => {
   const [form] = Form.useForm();
   const watchCompanyId = Form.useWatch('companyId', form);
   const watchDivisionId = Form.useWatch('divisionId', form);
+  const watchDepartmentType = Form.useWatch('departmentType', form);
 
   // ── Enterprise column visibility toggle state ─────────────────────────────
   const [visibleCols, setVisibleCols] = useState<Record<string, boolean>>({
@@ -193,7 +198,10 @@ const DepartmentManagement: React.FC = () => {
       const params: any = { limit: 100, status: 'ACTIVE' };
       if (companyId) params.companyId = companyId;
       const response = await apiService.get<{ data: Division[] }>('/divisions', params);
-      setDivisions(response.data || []);
+      const activeOnly = (response.data || []).filter(
+        (d: any) => d?.isActive !== false && d?.is_active !== false && (!d?.status || d.status === 'ACTIVE'),
+      );
+      setDivisions(activeOnly);
     } catch (error) {
       message.error(formatApiError(error, 'Failed to fetch divisions'));
     }
@@ -284,7 +292,10 @@ const DepartmentManagement: React.FC = () => {
       const params: any = { limit: 100, status: 'ACTIVE' };
       if (companyId) params.companyId = companyId;
       const response = await apiService.get<{ data: Division[] }>('/divisions', params);
-      setFormDivisions(response.data);
+      const activeOnly = (response.data || []).filter(
+        (d: any) => d?.isActive !== false && d?.is_active !== false && (!d?.status || d.status === 'ACTIVE'),
+      );
+      setFormDivisions(activeOnly);
     } catch (error) {
       message.error(formatApiError(error, 'Failed to fetch divisions'));
     }
@@ -305,7 +316,7 @@ const DepartmentManagement: React.FC = () => {
     if (!cachedMaster || !cachedMaster.departments || cachedMaster.departments.length === 0) void fetchDepartments(page);
     if (!cachedMaster || !cachedMaster.hierarchy || cachedMaster.hierarchy.length === 0) void fetchHierarchy();
     if (!cachedMaster || !cachedMaster.companies || cachedMaster.companies.length === 0) void fetchCompanies();
-    if (!cachedMaster || !cachedMaster.divisions || cachedMaster.divisions.length === 0) void fetchDivisions();
+    void fetchDivisions();
     if (!cachedMaster || !cachedMaster.sections || cachedMaster.sections.length === 0) void fetchSections();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page]);
@@ -354,12 +365,16 @@ const DepartmentManagement: React.FC = () => {
     setEditingDepartment(null);
     form.resetFields();
     setFormSections([]);
+    const defaultType = filterType === 'centralized' ? 'CORPORATE' : 'PRODUCTION';
+    form.setFieldValue('departmentType', defaultType);
     const defaultCompany = filterCompanyId || (companies.length > 0 ? companies[0].id : undefined);
     if (defaultCompany) {
       form.setFieldValue('companyId', defaultCompany);
       loadFormDivisions(defaultCompany);
-      if (filterDivisionId) form.setFieldValue('divisionId', filterDivisionId);
-      if (filterSectionId) form.setFieldValue('sectionId', filterSectionId);
+      if (defaultType === 'PRODUCTION') {
+        if (filterDivisionId) form.setFieldValue('divisionId', filterDivisionId);
+        if (filterSectionId) form.setFieldValue('sectionId', filterSectionId);
+      }
     } else {
       setFormDivisions([]);
     }
@@ -368,17 +383,19 @@ const DepartmentManagement: React.FC = () => {
 
   const handleEdit = (record: Department) => {
     setEditingDepartment(record);
+    const resolvedType = record.departmentType || (record.divisionId ? 'PRODUCTION' : 'CORPORATE');
     form.setFieldsValue({
       companyId: record.companyId,
-      divisionId: record.divisionId || undefined,
-      sectionId: record.sectionId || undefined,
+      departmentType: resolvedType,
+      divisionId: resolvedType === 'CORPORATE' ? undefined : (record.divisionId || undefined),
+      sectionId: resolvedType === 'CORPORATE' ? undefined : (record.sectionId || undefined),
       departmentCode: record.departmentCode,
       name: record.name,
       description: record.description,
       parentDepartmentId: record.parentDepartmentId || undefined,
     });
     loadFormDivisions(record.companyId);
-    if (record.divisionId) {
+    if (resolvedType === 'PRODUCTION' && record.divisionId) {
       loadFormSections(record.divisionId);
     } else {
       setFormSections([]);
@@ -475,7 +492,11 @@ const DepartmentManagement: React.FC = () => {
     }
 
     // Business Hierarchy Validation
-    if (values.sectionId && !values.divisionId) {
+    const isCorporate = values.departmentType === 'CORPORATE';
+    if (isCorporate) {
+      values.divisionId = null;
+      values.sectionId = null;
+    } else if (values.sectionId && !values.divisionId) {
       modal.error({
         title: 'Validation Failed',
         content: 'Cannot assign a Section without selecting a Division.',
@@ -563,7 +584,9 @@ const DepartmentManagement: React.FC = () => {
       width: 240,
       sorter: (a, b) => a.name.localeCompare(b.name),
       render: (_, record) => {
-        const isProd = Boolean(record.divisionId);
+        const isProd = record.departmentType
+          ? record.departmentType === 'PRODUCTION'
+          : Boolean(record.divisionId);
         return (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 5, alignItems: 'flex-start' }}>
             <span style={{ fontWeight: 600, fontSize: 13.5, color: 'var(--theme-text)' }}>
@@ -584,7 +607,7 @@ const DepartmentManagement: React.FC = () => {
                 border: isProd ? '1px solid rgba(59, 130, 246, 0.25)' : '1px solid rgba(168, 85, 247, 0.25)',
               }}
             >
-              {isProd ? 'Production' : 'Centralized'}
+              {isProd ? 'Production' : 'Corporate'}
             </Tag>
           </div>
         );
@@ -784,25 +807,121 @@ return (
       <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700, padding: '8px 0' }}>Department Management</h2>
 
       <Card title="Department Management" bodyStyle={{ padding: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 16px', flexWrap: 'wrap' }}>
-          <Button
-            type={showFilters ? 'primary' : 'default'}
-            icon={<FilterOutlined />}
-            onClick={() => setShowFilters((prev) => !prev)}
-            style={{ fontWeight: 600 }}
-          >
-            Filters
-            {activeFilterCount > 0 && (
-              <Badge
-                count={activeFilterCount}
-                style={{
-                  marginLeft: 6,
-                  backgroundColor: showFilters ? '#ffffff' : 'var(--theme-primary, #3b82f6)',
-                  color: showFilters ? 'var(--theme-primary, #3b82f6)' : '#ffffff',
+        {/* Dashboard-style Collapsible Filter Header & Active Chips */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 10,
+            padding: '12px 16px',
+            flexWrap: 'wrap',
+            borderBottom: showFilters ? '1px solid var(--theme-border, rgba(148, 163, 184, 0.2))' : undefined,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <Button
+              type={showFilters ? 'primary' : 'default'}
+              icon={<FilterOutlined />}
+              onClick={() => setShowFilters((prev) => !prev)}
+              style={{ fontWeight: 600, borderRadius: 10 }}
+            >
+              {showFilters ? 'Close Filters' : 'Filters'}
+              {activeFilterCount > 0 && (
+                <Badge
+                  count={activeFilterCount}
+                  style={{
+                    marginLeft: 6,
+                    backgroundColor: showFilters ? 'var(--theme-surface, #ffffff)' : 'var(--theme-primary, #3b82f6)',
+                    color: showFilters ? 'var(--theme-primary, #3b82f6)' : 'var(--theme-surface, #ffffff)',
+                  }}
+                />
+              )}
+            </Button>
+
+            {filterDivisionId && (
+              <Tag
+                closable
+                onClose={() => {
+                  setFilterDivisionId(undefined);
+                  setFilterSectionId(undefined);
+                  fetchSections();
                 }}
-              />
+                style={{
+                  margin: 0,
+                  borderRadius: 16,
+                  padding: '3px 10px',
+                  fontSize: 12,
+                  fontWeight: 600,
+                }}
+              >
+                Division: {(() => {
+                  const div = divisions.find((d) => d.id === filterDivisionId);
+                  return div ? `${div.divisionCode ? `${div.divisionCode} ` : ''}${div.name}` : 'Selected';
+                })()}
+              </Tag>
             )}
-          </Button>
+
+            {filterSectionId && (
+              <Tag
+                closable
+                onClose={() => setFilterSectionId(undefined)}
+                style={{
+                  margin: 0,
+                  borderRadius: 16,
+                  padding: '3px 10px',
+                  fontSize: 12,
+                  fontWeight: 600,
+                }}
+              >
+                Section: {sections.find((s) => s.id === filterSectionId)?.name || 'Selected'}
+              </Tag>
+            )}
+
+            {filterType !== 'all' && (
+              <Tag
+                closable
+                onClose={() => setFilterType('all')}
+                style={{
+                  margin: 0,
+                  borderRadius: 16,
+                  padding: '3px 10px',
+                  fontSize: 12,
+                  fontWeight: 600,
+                }}
+              >
+                Category: {filterType === 'centralized' ? 'Corporate / Shared' : 'Production'}
+              </Tag>
+            )}
+
+            {filterSearch && filterSearch.trim() && (
+              <Tag
+                closable
+                onClose={() => setFilterSearch('')}
+                style={{
+                  margin: 0,
+                  borderRadius: 16,
+                  padding: '3px 10px',
+                  fontSize: 12,
+                  fontWeight: 600,
+                }}
+              >
+                Search: {filterSearch.trim()}
+              </Tag>
+            )}
+
+            {activeFilterCount > 0 && (
+              <Button
+                type="link"
+                size="small"
+                danger
+                onClick={handleClearFilters}
+                style={{ padding: '0 6px', fontWeight: 600 }}
+              >
+                Clear all
+              </Button>
+            )}
+          </div>
 
           <Dropdown
             overlay={
@@ -824,182 +943,158 @@ return (
             }
             trigger={['click']}
           >
-            <Button icon={<AppstoreOutlined />}>Columns</Button>
+            <Button icon={<AppstoreOutlined />} style={{ borderRadius: 10 }}>Columns</Button>
           </Dropdown>
         </div>
 
-        {/* Collapsible Panel with ALL Filters */}
+        {/* Dashboard-style Card Filter Grid */}
         {showFilters && (
           <div
             style={{
               display: 'flex',
               flexDirection: 'column',
               gap: 12,
-              margin: '0 16px 14px 16px',
-              padding: '12px 14px',
-              background: 'var(--theme-surface-subtle, rgba(0, 0, 0, 0.02))',
-              border: '1px solid var(--theme-border, #e2e8f0)',
-              borderRadius: 8,
+              margin: '12px 16px 14px 16px',
+              padding: '14px',
+              background: 'var(--theme-surface-alt, rgba(148, 163, 184, 0.05))',
+              border: '1px solid var(--theme-border, rgba(148, 163, 184, 0.22))',
+              borderRadius: 12,
             }}
           >
-            {/* Header: Title + Active Count + Close */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 6, borderBottom: '1px dashed var(--theme-border, #e2e8f0)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <FilterOutlined style={{ color: 'var(--theme-primary, #3b82f6)', fontSize: 14 }} />
-                <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--theme-text, #1e293b)' }}>
-                  Filter Departments
-                </span>
-                {activeFilterCount > 0 && (
-                  <Tag color="blue" style={{ margin: 0, borderRadius: 10, fontSize: 11, fontWeight: 600 }}>
-                    {activeFilterCount} Active
-                  </Tag>
-                )}
-              </div>
-              <Button
-                type="text"
-                size="small"
-                icon={<CloseOutlined />}
-                onClick={() => setShowFilters(false)}
-                style={{ color: 'var(--theme-text-muted, #64748b)', fontSize: 12 }}
-                title="Close Filters"
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                gap: 10,
+                alignItems: 'stretch',
+              }}
+            >
+              {/* 1. Division CardSelectDropdown */}
+              <CardSelectDropdown
+                label="Division"
+                title="Switch Division"
+                subtitle="Filter departments by active division"
+                allLabel="All Divisions"
+                allSubtitle="Enterprise overview across all lines"
+                icon={<ShopOutlined />}
+                options={divisions.map((d) => ({
+                  id: d.id,
+                  name: d.name,
+                  code: d.divisionCode,
+                  subtext: 'Production Division',
+                }))}
+                activeId={filterDivisionId}
+                onSelect={(val) => {
+                  setFilterDivisionId(val);
+                  if (val) {
+                    fetchSections(val);
+                    if (filterSectionId) {
+                      const sec = sections.find((s) => s.id === filterSectionId);
+                      if (sec && sec.divisionId !== val) {
+                        setFilterSectionId(undefined);
+                      }
+                    }
+                  } else {
+                    fetchSections();
+                  }
+                }}
+                badgeBg="#fef9c3"
+                badgeColor="#854d0e"
+              />
+
+              {/* 2. Section CardSelectDropdown */}
+              <CardSelectDropdown
+                label="Section"
+                title="Switch Section"
+                subtitle="Filter by workshop section"
+                allLabel="All Sections"
+                allSubtitle="View all workshop sections"
+                icon={<ApartmentOutlined />}
+                options={sections.map((s) => ({
+                  id: s.id,
+                  name: s.name,
+                  code: s.sectionCode,
+                  subtext: 'Workshop Section',
+                }))}
+                activeId={filterSectionId}
+                onSelect={(val) => {
+                  setFilterSectionId(val);
+                  if (val && !filterDivisionId) {
+                    const sec = sections.find((s) => s.id === val);
+                    if (sec?.divisionId) {
+                      setFilterDivisionId(sec.divisionId);
+                      fetchSections(sec.divisionId);
+                    }
+                  }
+                }}
+                badgeBg="#e0f2fe"
+                badgeColor="#0369a1"
+              />
+
+              {/* 3. Department Category CardSelectDropdown */}
+              <CardSelectDropdown
+                label="Department Type"
+                title="Switch Category"
+                subtitle="Production vs Corporate departments"
+                allLabel="All Types"
+                allSubtitle="Production & Corporate departments"
+                icon={<BuildOutlined />}
+                options={[
+                  {
+                    id: 'production',
+                    name: 'Production',
+                    code: 'PROD',
+                    subtext: 'Division-specific shop floor',
+                  },
+                  {
+                    id: 'centralized',
+                    name: 'Corporate / Shared',
+                    code: 'CORP',
+                    subtext: 'Accounts, Admin, Sales, HR',
+                  },
+                ]}
+                activeId={filterType === 'all' ? undefined : filterType}
+                onSelect={(val) => setFilterType((val as 'production' | 'centralized') || 'all')}
+                badgeBg="#f3e8ff"
+                badgeColor="#7e22ce"
+              />
+
+              {/* 4. Search Card */}
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'center',
+                  padding: '8px 12px',
+                  borderRadius: 12,
+                  background: 'var(--theme-surface)',
+                  border: '1px solid var(--theme-border)',
+                  minHeight: 58,
+                }}
               >
-                Close
-              </Button>
-            </div>
-
-            {/* Grid of the Filter Boxes */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
-              <div>
-                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
-                  DIVISION
-                </div>
-                <Select
-                  placeholder="All Divisions"
-                  allowClear
-                  showSearch
-                  optionFilterProp="children"
-                  style={{ width: '100%' }}
-                  value={filterDivisionId}
-                  onChange={(val) => {
-                    setFilterDivisionId(val);
-                    if (val) {
-                      fetchSections(val);
-                      if (filterSectionId) {
-                        const sec = sections.find((s) => s.id === filterSectionId);
-                        if (sec && sec.divisionId !== val) {
-                          setFilterSectionId(undefined);
-                        }
-                      }
-                    } else {
-                      fetchSections();
-                    }
+                <div
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 700,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.06em',
+                    color: 'var(--theme-text-muted)',
+                    marginBottom: 4,
                   }}
                 >
-                  {divisions.map((division) => (
-                    <Select.Option key={division.id} value={division.id}>
-                      {division.divisionCode ? `${division.divisionCode} - ` : ''}{division.name}
-                    </Select.Option>
-                  ))}
-                </Select>
-              </div>
-
-              <div>
-                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
-                  SECTION
-                </div>
-                <Select
-                  placeholder="All Sections"
-                  allowClear
-                  showSearch
-                  optionFilterProp="children"
-                  style={{ width: '100%' }}
-                  value={filterSectionId}
-                  onChange={(val) => {
-                    setFilterSectionId(val);
-                    if (val && !filterDivisionId) {
-                      const sec = sections.find((s) => s.id === val);
-                      if (sec?.divisionId) {
-                        setFilterDivisionId(sec.divisionId);
-                        fetchSections(sec.divisionId);
-                      }
-                    }
-                  }}
-                >
-                  {sections.map((section) => (
-                    <Select.Option key={section.id} value={section.id}>
-                      {section.sectionCode ? `${section.sectionCode} - ` : ''}{section.name}
-                    </Select.Option>
-                  ))}
-                </Select>
-              </div>
-
-              <div>
-                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
-                  DEPARTMENT TYPE
-                </div>
-                <Select
-                  placeholder="All Types"
-                  allowClear
-                  style={{ width: '100%' }}
-                  value={filterType}
-                  onChange={(v) => setFilterType(v || 'all')}
-                >
-                  <Select.Option value="all">All Types</Select.Option>
-                  <Select.Option value="centralized">Centralized (Company-Wide)</Select.Option>
-                  <Select.Option value="production">Production (Division-Specific)</Select.Option>
-                </Select>
-              </div>
-
-              <div>
-                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--theme-text-muted, #64748b)', marginBottom: 4 }}>
-                  SEARCH
+                  Search
                 </div>
                 <Input
                   placeholder="Search code or name..."
                   prefix={<SearchOutlined style={{ color: 'var(--theme-text-muted)' }} />}
                   allowClear
+                  size="small"
+                  variant="borderless"
+                  style={{ padding: 0 }}
                   value={filterSearch}
                   onChange={(e) => setFilterSearch(e.target.value)}
                   onPressEnter={() => fetchDepartments(1)}
                 />
-              </div>
-            </div>
-
-            {/* Footer with Clear Filters and Close inside */}
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                flexWrap: 'wrap',
-                gap: 8,
-                paddingTop: 8,
-                borderTop: '1px solid var(--theme-border, #e2e8f0)',
-              }}
-            >
-              <Button
-                icon={<ClearOutlined />}
-                onClick={handleClearFilters}
-                danger={activeFilterCount > 0}
-              >
-                Clear Filters
-              </Button>
-
-              <div style={{ display: 'flex', gap: 8 }}>
-                <Button onClick={() => setShowFilters(false)}>
-                  Close
-                </Button>
-                <Button
-                  type="primary"
-                  icon={<FilterOutlined />}
-                  onClick={() => {
-                    fetchDepartments(1);
-                    setShowFilters(false);
-                  }}
-                  style={{ fontWeight: 600 }}
-                >
-                  Apply Filters
-                </Button>
               </div>
             </div>
           </div>
@@ -1071,40 +1166,62 @@ return (
               ))}
             </Select>
           </Form.Item>
-          <Form.Item name="divisionId" label="Division">
+          <Form.Item
+            name="departmentType"
+            label="Department Category"
+            initialValue="PRODUCTION"
+            rules={[{ required: true, message: 'Please select department category' }]}
+          >
             <Select
-              placeholder="Select division (optional)"
-              allowClear
-              disabled={!watchCompanyId}
-              onChange={(value) => {
-                form.setFieldsValue({ sectionId: undefined });
-                if (value) {
-                  loadFormSections(value);
-                } else {
+              onChange={(val) => {
+                if (val === 'CORPORATE') {
+                  form.setFieldsValue({ divisionId: undefined, sectionId: undefined });
                   setFormSections([]);
                 }
               }}
             >
-              {formDivisions.map((division) => (
-                <Select.Option key={division.id} value={division.id}>
-                  {division.divisionCode} - {division.name}
-                </Select.Option>
-              ))}
+              <Select.Option value="PRODUCTION">Production (Linked to Division / Section)</Select.Option>
+              <Select.Option value="CORPORATE">Corporate / Shared (Company-Wide — Accounts, Admin, Sales, HR)</Select.Option>
             </Select>
           </Form.Item>
-          <Form.Item name="sectionId" label="Section">
-            <Select
-              placeholder="Select section (optional)"
-              allowClear
-              disabled={!watchDivisionId}
-            >
-              {formSections.map((section) => (
-                <Select.Option key={section.id} value={section.id}>
-                  {section.sectionCode} - {section.name}
-                </Select.Option>
-              ))}
-            </Select>
-          </Form.Item>
+          {watchDepartmentType !== 'CORPORATE' && (
+            <>
+              <Form.Item name="divisionId" label="Division">
+                <Select
+                  placeholder="Select division (optional)"
+                  allowClear
+                  disabled={!watchCompanyId}
+                  onChange={(value) => {
+                    form.setFieldsValue({ sectionId: undefined });
+                    if (value) {
+                      loadFormSections(value);
+                    } else {
+                      setFormSections([]);
+                    }
+                  }}
+                >
+                  {formDivisions.map((division) => (
+                    <Select.Option key={division.id} value={division.id}>
+                      {division.divisionCode} - {division.name}
+                    </Select.Option>
+                  ))}
+                </Select>
+              </Form.Item>
+              <Form.Item name="sectionId" label="Section">
+                <Select
+                  placeholder="Select section (optional)"
+                  allowClear
+                  disabled={!watchDivisionId}
+                >
+                  {formSections.map((section) => (
+                    <Select.Option key={section.id} value={section.id}>
+                      {section.sectionCode} - {section.name}
+                    </Select.Option>
+                  ))}
+                </Select>
+              </Form.Item>
+            </>
+          )}
           <Form.Item
             name="departmentCode"
             label="Department Code"

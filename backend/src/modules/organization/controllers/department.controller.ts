@@ -5,7 +5,7 @@ import { OrgScopeGuard } from '../../auth/guards/org-scope.guard';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery } from '@nestjs/swagger';
 import { DepartmentService } from '../services';
 import { CreateDepartmentDto, UpdateDepartmentDto } from '../dto';
-import { DepartmentStatus } from '../entities';
+import { DepartmentStatus, DepartmentType } from '../entities';
 
 @ApiTags('organization/departments')
 @Controller(['departments', 'organization/departments'])
@@ -66,6 +66,7 @@ export class DepartmentController {
   @ApiQuery({ name: 'parentDepartmentId', required: false, type: String })
   @ApiQuery({ name: 'centralizedOnly', required: false, type: Boolean, description: 'Filter to centralized (company-level) departments only' })
   @ApiQuery({ name: 'productionOnly', required: false, type: Boolean, description: 'Filter to production-scoped (division-level) departments only' })
+  @ApiQuery({ name: 'departmentType', required: false, enum: DepartmentType, description: 'Filter by department type (PRODUCTION or CORPORATE)' })
   async findAll(
     @Req() req: any,
     @Query('page') page?: number,
@@ -80,6 +81,7 @@ export class DepartmentController {
     @Query('parentDepartmentId') parentDepartmentId?: string,
     @Query('centralizedOnly') centralizedOnly?: string,
     @Query('productionOnly') productionOnly?: string,
+    @Query('departmentType') departmentType?: DepartmentType,
   ) {
     const allowed = this.getAllowedCompanyIds(req);
     if (companyId) {
@@ -92,6 +94,7 @@ export class DepartmentController {
       page: Number(page) || 1, limit: Number(limit) || 20, search, status, companyId, branchId, businessUnitId, divisionId, sectionId, parentDepartmentId,
       centralizedOnly: centralizedOnly === 'true',
       productionOnly: productionOnly === 'true',
+      departmentType,
     });
     return { success: true, ...result };
   }

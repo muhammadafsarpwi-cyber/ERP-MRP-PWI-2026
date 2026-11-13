@@ -1842,7 +1842,7 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
         const [div, sec, dep] = await Promise.all([
           apiService.get<{ data: DivisionLk[] }>('/divisions', { limit: 200, status: 'ACTIVE' }),
           apiService.get<{ data: SectionLk[] }>('/sections', { limit: 500, status: 'ACTIVE' }),
-          apiService.get<{ data: DepartmentLk[] }>('/departments', { limit: 500, status: 'ACTIVE' }),
+          apiService.get<{ data: DepartmentLk[] }>('/departments', { limit: 500, status: 'ACTIVE', departmentType: 'PRODUCTION' }),
         ]);
         setDivisions(div.data || []);
         setSections(sec.data || []);

@@ -176,7 +176,7 @@ const SalesOrderDivisionReview: React.FC = () => {
     try {
       const [ordersRes, divisionsRes] = await Promise.all([
         apiService.get<any>('/sales/orders', { page: 1, limit: 100 }),
-        apiService.get<any>('/divisions', { limit: 100 }),
+        apiService.get<any>('/divisions', { limit: 100, status: 'ACTIVE' }),
       ]);
       const rawOrders: any[] = Array.isArray(ordersRes?.data)
         ? ordersRes.data

@@ -621,7 +621,7 @@ const TargetManagement: React.FC = () => {
         apiService.get<{ success?: boolean; data: ShiftLk[] }>('/production/shifts'),
         apiService.get<{ data: DivisionLk[] }>('/divisions', { limit: 200, status: 'ACTIVE' }),
         apiService.get<{ data: SectionLk[] }>('/sections', { limit: 500, status: 'ACTIVE' }),
-        apiService.get<{ data: DepartmentLk[] }>('/departments', { limit: 500, status: 'ACTIVE' }),
+        apiService.get<{ data: DepartmentLk[] }>('/departments', { limit: 500, status: 'ACTIVE', departmentType: 'PRODUCTION' }),
         apiService.get<{ data: UomLk[] }>('/master-data/uom', { limit: 200, status: 'ACTIVE' }),
         apiService.get<{ data: ItemLk[] }>('/master-data/items', { limit: 2000, status: 'ACTIVE' }),
       ]);

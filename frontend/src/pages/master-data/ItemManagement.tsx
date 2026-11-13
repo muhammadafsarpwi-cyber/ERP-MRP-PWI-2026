@@ -1415,9 +1415,9 @@ const ItemManagement: React.FC = () => {
       const [uomSettled, catSettled, divSettled, secSettled, depSettled, rtSettled, itSettled] = await Promise.allSettled([
         apiService.get<{ data: UomOption[] }>('/master-data/uom', { limit: 200 }),
         apiService.get<{ data: CategoryOption[] }>('/master-data/categories', { limit: 500 }),
-        apiService.get<{ data: DivisionOption[] }>('/divisions', { limit: 200 }),
+        apiService.get<{ data: DivisionOption[] }>('/divisions', { limit: 200, status: 'ACTIVE' }),
         apiService.get<{ data: SectionOption[] }>('/sections', { limit: 500 }),
-        apiService.get<{ data: DepartmentOption[] }>('/departments', { limit: 500 }),
+        apiService.get<{ data: DepartmentOption[] }>('/departments', { limit: 500, status: 'ACTIVE', departmentType: 'PRODUCTION' }),
         apiService.get<{ data: Array<{ id: string; routeCode: string; name: string; status: string }> }>('/master-data/route-types', { limit: 200 }),
         apiService.get<{ data: MasterItemType[] }>('/master-data/item-types', { limit: 500 }),
       ]);
@@ -1425,7 +1425,7 @@ const ItemManagement: React.FC = () => {
       if (uomSettled.status === 'fulfilled') setUoms(uomSettled.value.data || []);
       if (catSettled.status === 'fulfilled') setCategories(catSettled.value.data || []);
       if (divSettled.status === 'fulfilled') {
-        const loadedDivs = divSettled.value.data || [];
+        const loadedDivs = (divSettled.value.data || []).filter((d: any) => d?.isActive !== false && d?.is_active !== false && String(d?.status ?? 'ACTIVE').toUpperCase() === 'ACTIVE');
         setDivisions(loadedDivs);
         if (loadedDivs.length === 1 && !fDivision) {
           setFDivision(loadedDivs[0].id);

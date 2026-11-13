@@ -425,7 +425,7 @@ const SalesOrderManagement: React.FC = () => {
         setWarehouses(w.data || []);
       } catch { /* ignore */ }
       try {
-        const divRes = await apiService.get<any>('/divisions', { limit: 50 });
+        const divRes = await apiService.get<any>('/divisions', { limit: 50, status: 'ACTIVE' });
         const list = divRes.data || divRes;
         setDivisions(Array.isArray(list) ? list.filter((d: any) => d.status === 'ACTIVE' || d.isActive !== false) : []);
       } catch { /* ignore */ }

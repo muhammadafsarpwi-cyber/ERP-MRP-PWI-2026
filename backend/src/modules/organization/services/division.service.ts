@@ -57,11 +57,12 @@ export class DivisionService {
     limit?: number;
     search?: string;
     status?: DivisionStatus;
+    includeInactive?: boolean;
     companyId?: string;
     /** §21 — divisions outside this list are never returned. */
     allowedDivisionIds?: string[];
   }): Promise<{ data: Division[]; total: number }> {
-    const { page = 1, limit = 20, search, status, companyId, allowedDivisionIds } = options || {};
+    const { page = 1, limit = 20, search, status, includeInactive = false, companyId, allowedDivisionIds } = options || {};
 
     const queryBuilder = this.divisionRepository.createQueryBuilder('div');
     queryBuilder.leftJoinAndSelect('div.company', 'company');
@@ -74,8 +75,15 @@ export class DivisionService {
       );
     }
 
-    if (status) {
+    if (includeInactive) {
+      if (status) {
+        queryBuilder.andWhere('div.status = :status', { status });
+      }
+    } else if (status === DivisionStatus.INACTIVE) {
       queryBuilder.andWhere('div.status = :status', { status });
+    } else {
+      queryBuilder.andWhere('div.isActive = true');
+      queryBuilder.andWhere('div.status = :activeStatus', { activeStatus: DivisionStatus.ACTIVE });
     }
 
     if (companyId) {
@@ -134,6 +142,7 @@ export class DivisionService {
     }
 
     division.status = DivisionStatus.ACTIVE;
+    division.isActive = true;
     division.updatedBy = userId || null;
 
     return this.divisionRepository.save(division);
@@ -154,6 +163,7 @@ export class DivisionService {
     }
 
     division.status = DivisionStatus.INACTIVE;
+    division.isActive = false;
     division.updatedBy = userId || null;
 
     return this.divisionRepository.save(division);

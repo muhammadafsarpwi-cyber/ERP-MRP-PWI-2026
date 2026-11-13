@@ -344,7 +344,7 @@ const AiAssistantPage: React.FC = () => {
     let isMounted = true;
     (async () => {
       try {
-        const res: any = await apiService.get('/divisions', { limit: 50 });
+        const res: any = await apiService.get('/divisions', { limit: 50, status: 'ACTIVE' });
         const list = res?.data || (Array.isArray(res) ? res : []);
         if (isMounted && list.length > 0) {
           const activeList = list.filter((d: any) => d.status === 'ACTIVE' || !d.status);

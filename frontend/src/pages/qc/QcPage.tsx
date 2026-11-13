@@ -405,8 +405,8 @@ const QcPage: React.FC = () => {
     (async () => {
       try {
         const [divsRes, deptsRes, machsRes] = await Promise.all([
-          apiService.get<any>('/divisions?limit=50').catch(() => null),
-          apiService.get<any>('/departments?limit=100').catch(() => null),
+          apiService.get<any>('/divisions?limit=50&status=ACTIVE').catch(() => null),
+          apiService.get<any>('/departments?limit=100&status=ACTIVE&departmentType=PRODUCTION').catch(() => null),
           apiService.get<any>('/machines?limit=500').catch(() => null),
         ]);
 

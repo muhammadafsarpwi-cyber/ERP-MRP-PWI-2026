@@ -119,7 +119,7 @@ const SectionManagement: React.FC = () => {
 
   const fetchDivisions = useCallback(async () => {
     try {
-      const response = await apiService.get<{ data: Division[] }>('/divisions', { limit: 100 });
+      const response = await apiService.get<{ data: Division[] }>('/divisions', { limit: 100, status: 'ACTIVE' });
       setDivisions(response.data);
       const c = tabSessionCache.get<SectionTabCache>(ORGANIZATION_SECTIONS_TAB_ID);
       tabSessionCache.set<SectionTabCache>(ORGANIZATION_SECTIONS_TAB_ID, {

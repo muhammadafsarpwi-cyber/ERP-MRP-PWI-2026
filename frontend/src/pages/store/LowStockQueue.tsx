@@ -164,7 +164,7 @@ const LowStockQueue: React.FC = () => {
       setStores([]);
     }
     try {
-      const divRes = await apiService.get<{ data: Array<{ id: string; name: string }>; total: number }>('/divisions', { limit: 100 });
+      const divRes = await apiService.get<{ data: Array<{ id: string; name: string }>; total: number }>('/divisions', { limit: 100, status: 'ACTIVE' });
       setDivisions(divRes.data || []);
     } catch {
       setDivisions([]);
