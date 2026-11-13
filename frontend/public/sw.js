@@ -1,5 +1,5 @@
 // PWI ERP & MRP Progressive Web App Service Worker
-const CACHE_NAME = 'pwi-erp-cache-v7';
+const CACHE_NAME = 'pwi-erp-cache-v8';
 const PRECACHE_ASSETS = [
   '/',
   '/index.html',
@@ -7,6 +7,7 @@ const PRECACHE_ASSETS = [
   '/favicon.ico',
   '/favicon.svg',
   '/logo-mark.png',
+  '/logo-marquee.png',
   '/logo.png',
   '/logo192.png',
   '/logo512.png',

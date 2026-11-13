@@ -431,8 +431,8 @@ const ArrowChip: React.FC<{
       clipPath: isFirst
         ? 'polygon(0 0, calc(100% - 10px) 0, 100% 50%, calc(100% - 10px) 100%, 0 100%)'
         : isLast
-        ? 'polygon(10px 0, 100% 0, 100% 100%, 10px 100%, 0 50%)'
-        : 'polygon(10px 0, calc(100% - 10px) 0, 100% 50%, calc(100% - 10px) 100%, 10px 100%, 0 50%)',
+          ? 'polygon(10px 0, 100% 0, 100% 100%, 10px 100%, 0 50%)'
+          : 'polygon(10px 0, calc(100% - 10px) 0, 100% 50%, calc(100% - 10px) 100%, 10px 100%, 0 50%)',
       transition: 'all 0.18s ease',
       outline: 'none',
       boxShadow: active ? `0 2px 8px ${color}55` : 'none',
@@ -483,26 +483,26 @@ const JcKpiTile: React.FC<{
 );
 
 const JC_ALL_COLS = [
-  { key: 'no',  title: 'Job Card No' },
-  { key: 'rd',  title: 'Requested Date' },
-  { key: 'cm',  title: 'Complaint' },
-  { key: 'st',  title: 'Status' },
-  { key: 'pr',  title: 'Priority' },
-  { key: 'ty',  title: 'Type' },
-  { key: 'rb',  title: 'Requested By' },
-  { key: 'sa',  title: 'Started' },
-  { key: 'cl',  title: 'Closed' },
-  { key: 'dt',  title: 'Downtime' },
+  { key: 'no', title: 'Job Card No' },
+  { key: 'rd', title: 'Requested Date' },
+  { key: 'cm', title: 'Complaint' },
+  { key: 'st', title: 'Status' },
+  { key: 'pr', title: 'Priority' },
+  { key: 'ty', title: 'Type' },
+  { key: 'rb', title: 'Requested By' },
+  { key: 'sa', title: 'Started' },
+  { key: 'cl', title: 'Closed' },
+  { key: 'dt', title: 'Downtime' },
 ] as const;
 
 type JcColKey = typeof JC_ALL_COLS[number]['key'];
 
-const JC_STATUS_FILTERS: Array<{ key: string; label: string; color: string; bg: string; match: (s?: string|null) => boolean }> = [
-  { key: 'all',        label: 'ALL',        color: '#374151', bg: '#f3f4f6', match: () => true },
-  { key: 'inprogress', label: 'IN PROGRESS',color: '#2563eb', bg: '#eff6ff', match: (s) => (s ?? '').toLowerCase().includes('progress') },
-  { key: 'approved',   label: 'APPROVED',   color: '#16a34a', bg: '#f0fdf4', match: (s) => (s ?? '').toLowerCase().includes('approv') },
-  { key: 'pending',    label: 'PENDING',    color: '#d97706', bg: '#fffbeb', match: (s) => (s ?? '').toLowerCase().includes('pending') || (s ?? '').toLowerCase().includes('open') },
-  { key: 'closed',     label: 'CLOSED',     color: '#6b7280', bg: '#f9fafb', match: (s) => (s ?? '').toLowerCase().includes('clos') || (s ?? '').toLowerCase().includes('complet') },
+const JC_STATUS_FILTERS: Array<{ key: string; label: string; color: string; bg: string; match: (s?: string | null) => boolean }> = [
+  { key: 'all', label: 'ALL', color: '#374151', bg: '#f3f4f6', match: () => true },
+  { key: 'inprogress', label: 'IN PROGRESS', color: '#2563eb', bg: '#eff6ff', match: (s) => (s ?? '').toLowerCase().includes('progress') },
+  { key: 'approved', label: 'APPROVED', color: '#16a34a', bg: '#f0fdf4', match: (s) => (s ?? '').toLowerCase().includes('approv') },
+  { key: 'pending', label: 'PENDING', color: '#d97706', bg: '#fffbeb', match: (s) => (s ?? '').toLowerCase().includes('pending') || (s ?? '').toLowerCase().includes('open') },
+  { key: 'closed', label: 'CLOSED', color: '#6b7280', bg: '#f9fafb', match: (s) => (s ?? '').toLowerCase().includes('clos') || (s ?? '').toLowerCase().includes('complet') },
 ];
 
 const JobCardsSection: React.FC<{ jobCards: JobCardLite[]; jobCardsLoading: boolean }> = ({
@@ -717,25 +717,25 @@ const TOOLING_TYPE_FILTERS: Array<{
   key: string; label: string; color: string; bg: string;
   match: (c: ToolingComponentLite) => boolean;
 }> = [
-  { key: 'all',       label: 'ALL',       color: '#374151', bg: '#f3f4f6', match: () => true },
-  { key: 'active',    label: 'ACTIVE',    color: '#16a34a', bg: '#f0fdf4', match: (c) => c.isActive },
-  { key: 'inactive',  label: 'INACTIVE',  color: '#6b7280', bg: '#f9fafb', match: (c) => !c.isActive },
-  { key: 'die',       label: 'DIE',       color: '#f97316', bg: '#fff7ed', match: (c) => c.componentType === 'DIE' },
-  { key: 'mould',     label: 'MOULD',     color: '#a855f7', bg: '#faf5ff', match: (c) => c.componentType === 'MOULD' },
-  { key: 'tool',      label: 'TOOL',      color: '#3b82f6', bg: '#eff6ff', match: (c) => c.componentType === 'TOOL' },
-  { key: 'fixture',   label: 'FIXTURE',   color: '#f59e0b', bg: '#fffbeb', match: (c) => c.componentType === 'FIXTURE' },
-];
+    { key: 'all', label: 'ALL', color: '#374151', bg: '#f3f4f6', match: () => true },
+    { key: 'active', label: 'ACTIVE', color: '#16a34a', bg: '#f0fdf4', match: (c) => c.isActive },
+    { key: 'inactive', label: 'INACTIVE', color: '#6b7280', bg: '#f9fafb', match: (c) => !c.isActive },
+    { key: 'die', label: 'DIE', color: '#f97316', bg: '#fff7ed', match: (c) => c.componentType === 'DIE' },
+    { key: 'mould', label: 'MOULD', color: '#a855f7', bg: '#faf5ff', match: (c) => c.componentType === 'MOULD' },
+    { key: 'tool', label: 'TOOL', color: '#3b82f6', bg: '#eff6ff', match: (c) => c.componentType === 'TOOL' },
+    { key: 'fixture', label: 'FIXTURE', color: '#f59e0b', bg: '#fffbeb', match: (c) => c.componentType === 'FIXTURE' },
+  ];
 
 const TOOLING_COLS_DEF = [
-  { key: 'code',  title: 'Code' },
-  { key: 'name',  title: 'Name' },
-  { key: 'type',  title: 'Type' },
-  { key: 'item',  title: 'Item (Store)' },
-  { key: 'life',  title: 'Expected Life' },
-  { key: 'min',   title: 'Min Threshold' },
-  { key: 'max',   title: 'Max Threshold' },
-  { key: 'uom',   title: 'UOM' },
-  { key: 'status',title: 'Status' },
+  { key: 'code', title: 'Code' },
+  { key: 'name', title: 'Name' },
+  { key: 'type', title: 'Type' },
+  { key: 'item', title: 'Item (Store)' },
+  { key: 'life', title: 'Expected Life' },
+  { key: 'min', title: 'Min Threshold' },
+  { key: 'max', title: 'Max Threshold' },
+  { key: 'uom', title: 'UOM' },
+  { key: 'status', title: 'Status' },
 ] as const;
 
 type ToolingColKey = typeof TOOLING_COLS_DEF[number]['key'];
@@ -917,11 +917,11 @@ const PROD_SHIFT_FILTERS: Array<{
   key: string; label: string; color: string; bg: string;
   match: (e: ProductionEntry) => boolean;
 }> = [
-  { key: 'all',       label: 'ALL',        color: '#374151', bg: '#f3f4f6', match: () => true },
-  { key: 'morning',   label: 'MORNING',    color: '#f59e0b', bg: '#fffbeb', match: (e) => (e.shift?.name ?? '').toLowerCase().includes('morning') || (e.shift?.name ?? '').toLowerCase().includes('a') },
-  { key: 'afternoon', label: 'AFTERNOON',  color: '#3b82f6', bg: '#eff6ff', match: (e) => (e.shift?.name ?? '').toLowerCase().includes('afternoon') || (e.shift?.name ?? '').toLowerCase().includes('b') },
-  { key: 'night',     label: 'NIGHT',      color: '#7c3aed', bg: '#f5f3ff', match: (e) => (e.shift?.name ?? '').toLowerCase().includes('night') || (e.shift?.name ?? '').toLowerCase().includes('c') },
-];
+    { key: 'all', label: 'ALL', color: '#374151', bg: '#f3f4f6', match: () => true },
+    { key: 'morning', label: 'MORNING', color: '#f59e0b', bg: '#fffbeb', match: (e) => (e.shift?.name ?? '').toLowerCase().includes('morning') || (e.shift?.name ?? '').toLowerCase().includes('a') },
+    { key: 'afternoon', label: 'AFTERNOON', color: '#3b82f6', bg: '#eff6ff', match: (e) => (e.shift?.name ?? '').toLowerCase().includes('afternoon') || (e.shift?.name ?? '').toLowerCase().includes('b') },
+    { key: 'night', label: 'NIGHT', color: '#7c3aed', bg: '#f5f3ff', match: (e) => (e.shift?.name ?? '').toLowerCase().includes('night') || (e.shift?.name ?? '').toLowerCase().includes('c') },
+  ];
 
 const PROD_ENTRY_COLS = [
   { key: 'date', title: 'Date' },
@@ -1126,8 +1126,8 @@ const ModalProcessChevronNav: React.FC<{
         const clipPath = isFirst
           ? 'polygon(0 0, calc(100% - 14px) 0, 100% 50%, calc(100% - 14px) 100%, 0 100%)'
           : isLast
-          ? 'polygon(0 0, 100% 0, 100% 100%, 0 100%, 14px 50%)'
-          : 'polygon(0 0, calc(100% - 14px) 0, 100% 50%, calc(100% - 14px) 100%, 0 100%, 14px 50%)';
+            ? 'polygon(0 0, 100% 0, 100% 100%, 0 100%, 14px 50%)'
+            : 'polygon(0 0, calc(100% - 14px) 0, 100% 50%, calc(100% - 14px) 100%, 0 100%, 14px 50%)';
 
         return (
           <button
@@ -1143,8 +1143,8 @@ const ModalProcessChevronNav: React.FC<{
               padding: isFirst
                 ? '10px 22px 10px 16px'
                 : isLast
-                ? '10px 18px 10px 24px'
-                : '10px 20px 10px 24px',
+                  ? '10px 18px 10px 24px'
+                  : '10px 20px 10px 24px',
               marginLeft: isFirst ? 0 : -6,
               zIndex: isActive ? 10 : sections.length - idx,
               fontSize: 12.5,
@@ -1245,8 +1245,8 @@ const StatusChevronRibbon: React.FC<{
         const clipPath = isFirst
           ? 'polygon(0 0, calc(100% - 14px) 0, 100% 50%, calc(100% - 14px) 100%, 0 100%)'
           : isLast
-          ? 'polygon(0 0, 100% 0, 100% 100%, 0 100%, 14px 50%)'
-          : 'polygon(0 0, calc(100% - 14px) 0, 100% 50%, calc(100% - 14px) 100%, 0 100%, 14px 50%)';
+            ? 'polygon(0 0, 100% 0, 100% 100%, 0 100%, 14px 50%)'
+            : 'polygon(0 0, calc(100% - 14px) 0, 100% 50%, calc(100% - 14px) 100%, 0 100%, 14px 50%)';
 
         return (
           <button
@@ -1262,8 +1262,8 @@ const StatusChevronRibbon: React.FC<{
               padding: isFirst
                 ? '10px 22px 10px 16px'
                 : isLast
-                ? '10px 18px 10px 24px'
-                : '10px 20px 10px 24px',
+                  ? '10px 18px 10px 24px'
+                  : '10px 20px 10px 24px',
               marginLeft: isFirst ? 0 : -6,
               zIndex: isSelected ? 12 : STATUS_CHEVRONS.length - idx,
               fontSize: 12.5,
@@ -1610,7 +1610,7 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
             setHistoryModalMachine(m);
             window.history.replaceState({}, document.title);
           }
-        }).catch(() => {});
+        }).catch(() => { });
       }
     }
   }, [location.state, machines]);
@@ -1668,7 +1668,7 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
     try {
       const saved = localStorage.getItem('pwi_machine_table_columns_v1');
       if (saved) return { ...DEFAULT_VISIBLE_COLUMNS, ...JSON.parse(saved) };
-    } catch {}
+    } catch { }
     return DEFAULT_VISIBLE_COLUMNS;
   });
 
@@ -1876,20 +1876,38 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
     [departments],
   );
 
+  // Helper to resolve org entity display names from lookups or loaded machine rows,
+  // never exposing a raw UUID in filter chips or export headers.
+  const resolveOrgLabel = useCallback(
+    (kind: 'division' | 'section' | 'department', id: string): string => {
+      if (kind === 'division') {
+        const d = divisions.find((x) => x.id === id);
+        if (d) return d.divisionCode ? `[${d.divisionCode}] ${d.name}` : d.name;
+        const mDiv = machines.find((m) => m.division?.id === id)?.division;
+        if (mDiv) return mDiv.name;
+      } else if (kind === 'section') {
+        const s = sections.find((x) => x.id === id) || machines.find((m) => m.section?.id === id)?.section;
+        if (s) return s.name;
+      } else {
+        const dep = departments.find((x) => x.id === id) || machines.find((m) => m.department?.id === id)?.department;
+        if (dep) return dep.name;
+      }
+      return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id) ? 'Loading…' : id;
+    },
+    [divisions, sections, departments, machines],
+  );
+
   // Active Filter Chips
   const chips = useMemo(() => {
     const result: Array<{ key: string; label: string; value: string }> = [];
     if (fDivision) {
-      const d = divisions.find((x) => x.id === fDivision);
-      result.push({ key: 'division', label: 'Division', value: d ? (d.divisionCode ? `[${d.divisionCode}] ${d.name}` : d.name) : fDivision });
+      result.push({ key: 'division', label: 'Division', value: resolveOrgLabel('division', fDivision) });
     }
     if (fSection) {
-      const s = sections.find((x) => x.id === fSection);
-      result.push({ key: 'section', label: 'Section', value: s ? s.name : fSection });
+      result.push({ key: 'section', label: 'Section', value: resolveOrgLabel('section', fSection) });
     }
     if (fDepartment) {
-      const dep = departments.find((x) => x.id === fDepartment);
-      result.push({ key: 'department', label: 'Department', value: dep ? dep.name : fDepartment });
+      result.push({ key: 'department', label: 'Department', value: resolveOrgLabel('department', fDepartment) });
     }
     if (fStatus) {
       const statusMap: Record<string, string> = {
@@ -1913,7 +1931,7 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
       result.push({ key: 'machineId', label: 'Machine', value: fMachineId.trim() });
     }
     return result;
-  }, [fDivision, fSection, fDepartment, fStatus, fCriticality, fMachineId, divisions, sections, departments]);
+  }, [fDivision, fSection, fDepartment, fStatus, fCriticality, fMachineId, resolveOrgLabel]);
 
   const onRemoveChip = (key: string) => {
     if (key === 'division') {
@@ -2040,7 +2058,7 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
       try {
         window.dispatchEvent(new CustomEvent('pwi:machine-status-changed', { detail: { id: m.id, machineCode: m.machineCode, status } }));
         window.dispatchEvent(new CustomEvent('pwi:machine-updated'));
-      } catch {}
+      } catch { }
       fetchMachines();
     } catch (error: any) {
       message.error(error?.response?.data?.message || 'Failed to change status');
@@ -2156,9 +2174,9 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
     const parts: string[] = [];
     if (search) parts.push(`Search: "${search}"`);
     if (fMachineId) parts.push(`Machine ID: ${fMachineId}`);
-    if (fDivision) parts.push(`Division: ${divisions.find((d) => d.id === fDivision)?.name ?? fDivision}`);
-    if (fSection) parts.push(`Section: ${sections.find((s) => s.id === fSection)?.name ?? fSection}`);
-    if (fDepartment) parts.push(`Department: ${departments.find((d) => d.id === fDepartment)?.name ?? fDepartment}`);
+    if (fDivision) parts.push(`Division: ${resolveOrgLabel('division', fDivision)}`);
+    if (fSection) parts.push(`Section: ${resolveOrgLabel('section', fSection)}`);
+    if (fDepartment) parts.push(`Department: ${resolveOrgLabel('department', fDepartment)}`);
     if (fStatus) parts.push(`Status: ${fStatus}`);
     if (fCriticality) parts.push(`Criticality: ${fCriticality}`);
     return parts.length ? parts.join('   |   ') : 'All machines';
@@ -3100,525 +3118,525 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
       serialize={() => ({ machines, total, statusCounts, divisions, sections, departments, filters: { search, fMachineId, fDivision, fSection, fDepartment, fStatus, fCriticality, page, pageSize, sortBy, sortDir } })}
     >
       <div style={{ padding: '4px 6px', width: '100%' }}>
-      <PageHeader
-        icon={<ToolOutlined />}
-        title="Machine Master"
-        subtitle={`Production machines, tools and equipment · ${total} records`}
-        showBreadcrumbs
-        extra={headerExtra}
-      />
-
-      <Card styles={{ body: { padding: '12px 14px 14px' } }} style={{ marginBottom: 16 }}>
-        {/* 2027 Status Chevron Ribbon (Attendance style as requested in Image 2) */}
-        <StatusChevronRibbon
-          counts={statusCounts}
-          activeKey={activeStatusKey}
-          onSelect={handleStatusRibbonSelect}
+        <PageHeader
+          icon={<ToolOutlined />}
+          title="Machine Master"
+          subtitle={`Production machines, tools and equipment · ${total} records`}
+          showBreadcrumbs
+          extra={headerExtra}
         />
 
-        {/* ── UNIFIED ERP FILTER BAR (Matching ERP Standard / CardSelectDropdown) ── */}
-        <div
-          className="erp-filter-bar"
-          aria-label="Machine Register filters"
-          style={{
-            marginTop: 12,
-            paddingTop: 12,
-            borderTop: '1px solid var(--theme-border, #f0f0f0)',
-          }}
-        >
-          {/* Top Header Row: Filter Toggle & Active Chips on Left | Search & Columns on Right */}
+        <Card styles={{ body: { padding: '12px 14px 14px' } }} style={{ marginBottom: 16 }}>
+          {/* 2027 Status Chevron Ribbon (Attendance style as requested in Image 2) */}
+          <StatusChevronRibbon
+            counts={statusCounts}
+            activeKey={activeStatusKey}
+            onSelect={handleStatusRibbonSelect}
+          />
+
+          {/* ── UNIFIED ERP FILTER BAR (Matching ERP Standard / CardSelectDropdown) ── */}
           <div
+            className="erp-filter-bar"
+            aria-label="Machine Register filters"
             style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              flexWrap: 'wrap',
-              gap: 10,
-              paddingBottom: showFilters ? 10 : 0,
-              borderBottom: showFilters ? '1px solid var(--theme-border, #e2e8f0)' : 'none',
-              marginBottom: showFilters ? 12 : 0,
+              marginTop: 12,
+              paddingTop: 12,
+              borderTop: '1px solid var(--theme-border, #f0f0f0)',
             }}
           >
-            {/* Left: Filter Toggle Button + Active Chips */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              <Button
-                type={showFilters ? 'primary' : 'default'}
-                icon={<FilterOutlined />}
-                onClick={() => setShowFilters((prev) => !prev)}
-                data-testid="toggle-filters-btn"
-                style={{
-                  fontWeight: 600,
-                  borderRadius: 8,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 6,
-                }}
-              >
-                <span>{showFilters ? 'Close Filters' : 'Filters'}</span>
-                {activeFilterCount > 0 && (
-                  <Badge
-                    count={activeFilterCount}
-                    style={{
-                      backgroundColor: showFilters ? '#ffffff' : 'var(--theme-primary, #3b82f6)',
-                      color: showFilters ? 'var(--theme-primary, #3b82f6)' : '#ffffff',
-                      fontWeight: 700,
-                    }}
-                  />
-                )}
-              </Button>
-
-              {chips.length > 0 && (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
-                  {chips.map((chip) => (
-                    <Tag
-                      key={chip.key}
-                      closable
-                      onClose={(e) => {
-                        e.preventDefault();
-                        onRemoveChip(chip.key);
-                      }}
+            {/* Top Header Row: Filter Toggle & Active Chips on Left | Search & Columns on Right */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: 10,
+                paddingBottom: showFilters ? 10 : 0,
+                borderBottom: showFilters ? '1px solid var(--theme-border, #e2e8f0)' : 'none',
+                marginBottom: showFilters ? 12 : 0,
+              }}
+            >
+              {/* Left: Filter Toggle Button + Active Chips */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <Button
+                  type={showFilters ? 'primary' : 'default'}
+                  icon={<FilterOutlined />}
+                  onClick={() => setShowFilters((prev) => !prev)}
+                  data-testid="toggle-filters-btn"
+                  style={{
+                    fontWeight: 600,
+                    borderRadius: 8,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                >
+                  <span>{showFilters ? 'Close Filters' : 'Filters'}</span>
+                  {activeFilterCount > 0 && (
+                    <Badge
+                      count={activeFilterCount}
                       style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: 4,
-                        padding: '2px 8px',
-                        borderRadius: 6,
-                        fontSize: 12,
-                        fontWeight: 500,
-                        background: 'var(--theme-surface-subtle, #f1f5f9)',
-                        border: '1px solid var(--theme-border, #cbd5e1)',
-                        color: 'var(--theme-text, #1e293b)',
+                        backgroundColor: showFilters ? '#ffffff' : 'var(--theme-primary, #3b82f6)',
+                        color: showFilters ? 'var(--theme-primary, #3b82f6)' : '#ffffff',
+                        fontWeight: 700,
                       }}
-                    >
-                      <span style={{ color: 'var(--theme-text-muted, #64748b)', fontWeight: 600 }}>{chip.label}:</span>
-                      <span>{chip.value}</span>
-                    </Tag>
-                  ))}
-                  <Button
-                    type="link"
-                    size="small"
-                    danger
-                    onClick={resetFilters}
-                    style={{ padding: '0 4px', height: 'auto', fontSize: 12, fontWeight: 600 }}
-                  >
-                    Clear all
-                  </Button>
-                </div>
-              )}
-            </div>
+                    />
+                  )}
+                </Button>
 
-            {/* Right: Quick Search, Columns Dropdown & Sort Info */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <Input
-                allowClear
-                prefix={<SearchOutlined style={{ color: 'var(--theme-text-muted, #94a3b8)' }} />}
-                placeholder="Search Machine Register..."
-                style={{ width: 260, borderRadius: 8 }}
-                value={search}
-                onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-              />
-
-              {/* Columns Toggle Dropdown */}
-              <Dropdown
-                trigger={['click']}
-                placement="bottomRight"
-                popupRender={() => (
-                  <div
-                    style={{
-                      background: 'var(--theme-surface, #ffffff)',
-                      padding: '12px 16px',
-                      borderRadius: 8,
-                      boxShadow: '0 10px 30px rgba(0, 0, 0, 0.15)',
-                      minWidth: 200,
-                      border: '1px solid var(--theme-border, #e2e8f0)',
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        marginBottom: 10,
-                        paddingBottom: 8,
-                        borderBottom: '1px solid var(--theme-border, #f1f5f9)',
-                      }}
-                    >
-                      <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--theme-text, #1e293b)' }}>
-                        Table Columns
-                      </span>
-                      <Button
-                        type="link"
-                        size="small"
-                        style={{ padding: 0, height: 'auto', fontSize: 11 }}
-                        onClick={() => {
-                          setVisibleCols(DEFAULT_VISIBLE_COLUMNS);
-                          try { localStorage.removeItem('pwi_machine_table_columns_v1'); } catch {}
+                {chips.length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+                    {chips.map((chip) => (
+                      <Tag
+                        key={chip.key}
+                        closable
+                        onClose={(e) => {
+                          e.preventDefault();
+                          onRemoveChip(chip.key);
+                        }}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 4,
+                          padding: '2px 8px',
+                          borderRadius: 6,
+                          fontSize: 12,
+                          fontWeight: 500,
+                          background: 'var(--theme-surface-subtle, #f1f5f9)',
+                          border: '1px solid var(--theme-border, #cbd5e1)',
+                          color: 'var(--theme-text, #1e293b)',
                         }}
                       >
-                        Reset All
-                      </Button>
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                      {Object.entries(COLUMN_LABELS).map(([key, label]) => (
-                        <Checkbox
-                          key={key}
-                          checked={visibleCols[key] !== false}
-                          disabled={key === 'codeNo' || key === 'actions'}
-                          onChange={(e) => {
-                            const next = { ...visibleCols, [key]: e.target.checked };
-                            setVisibleCols(next);
-                            try { localStorage.setItem('pwi_machine_table_columns_v1', JSON.stringify(next)); } catch {}
-                          }}
-                          style={{ fontSize: 13, color: 'var(--theme-text, #334155)' }}
-                        >
-                          {label}
-                        </Checkbox>
-                      ))}
-                    </div>
+                        <span style={{ color: 'var(--theme-text-muted, #64748b)', fontWeight: 600 }}>{chip.label}:</span>
+                        <span>{chip.value}</span>
+                      </Tag>
+                    ))}
+                    <Button
+                      type="link"
+                      size="small"
+                      danger
+                      onClick={resetFilters}
+                      style={{ padding: '0 4px', height: 'auto', fontSize: 12, fontWeight: 600 }}
+                    >
+                      Clear all
+                    </Button>
                   </div>
                 )}
-              >
-                <Button icon={<AppstoreOutlined />} style={{ fontWeight: 600, borderRadius: 8 }}>
-                  Columns
-                </Button>
-              </Dropdown>
+              </div>
 
-              {sortInfo && <Text type="secondary" style={{ fontSize: 12 }}>{sortInfo}</Text>}
+              {/* Right: Quick Search, Columns Dropdown & Sort Info */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <Input
+                  allowClear
+                  prefix={<SearchOutlined style={{ color: 'var(--theme-text-muted, #94a3b8)' }} />}
+                  placeholder="Search Machine Register..."
+                  style={{ width: 260, borderRadius: 8 }}
+                  value={search}
+                  onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+                />
+
+                {/* Columns Toggle Dropdown */}
+                <Dropdown
+                  trigger={['click']}
+                  placement="bottomRight"
+                  popupRender={() => (
+                    <div
+                      style={{
+                        background: 'var(--theme-surface, #ffffff)',
+                        padding: '12px 16px',
+                        borderRadius: 8,
+                        boxShadow: '0 10px 30px rgba(0, 0, 0, 0.15)',
+                        minWidth: 200,
+                        border: '1px solid var(--theme-border, #e2e8f0)',
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          marginBottom: 10,
+                          paddingBottom: 8,
+                          borderBottom: '1px solid var(--theme-border, #f1f5f9)',
+                        }}
+                      >
+                        <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--theme-text, #1e293b)' }}>
+                          Table Columns
+                        </span>
+                        <Button
+                          type="link"
+                          size="small"
+                          style={{ padding: 0, height: 'auto', fontSize: 11 }}
+                          onClick={() => {
+                            setVisibleCols(DEFAULT_VISIBLE_COLUMNS);
+                            try { localStorage.removeItem('pwi_machine_table_columns_v1'); } catch { }
+                          }}
+                        >
+                          Reset All
+                        </Button>
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {Object.entries(COLUMN_LABELS).map(([key, label]) => (
+                          <Checkbox
+                            key={key}
+                            checked={visibleCols[key] !== false}
+                            disabled={key === 'codeNo' || key === 'actions'}
+                            onChange={(e) => {
+                              const next = { ...visibleCols, [key]: e.target.checked };
+                              setVisibleCols(next);
+                              try { localStorage.setItem('pwi_machine_table_columns_v1', JSON.stringify(next)); } catch { }
+                            }}
+                            style={{ fontSize: 13, color: 'var(--theme-text, #334155)' }}
+                          >
+                            {label}
+                          </Checkbox>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                >
+                  <Button icon={<AppstoreOutlined />} style={{ fontWeight: 600, borderRadius: 8 }}>
+                    Columns
+                  </Button>
+                </Dropdown>
+
+                {sortInfo && <Text type="secondary" style={{ fontSize: 12 }}>{sortInfo}</Text>}
+              </div>
             </div>
-          </div>
 
-          {/* ── Main 5 Filters Row & Actions (Visible when Filters toggle is open) ── */}
-          {showFilters && (
-            <>
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: screens.xl
-                    ? 'repeat(5, 1fr)'
-                    : screens.md
-                      ? 'repeat(3, 1fr)'
-                      : '1fr',
-                  gap: 12,
-                  marginTop: 12,
-                }}
-              >
-                {/* 1. Division Dropdown */}
-                <CardSelectDropdown
-                  label="Division"
-                  title="Switch Division"
-                  subtitle="Filter machines by division"
-                  allLabel="All Divisions"
-                  allSubtitle="View machines across all divisions"
-                  icon={<ShopOutlined />}
-                  badgeBg="#fef9c3"
-                  badgeColor="#854d0e"
-                  options={divisions.map((d) => ({
-                    id: d.id,
-                    name: d.name,
-                    code: d.divisionCode,
-                    subtext: 'Plant Division',
-                  }))}
-                  activeId={fDivision}
-                  onSelect={(id) => {
-                    setFDivision(id);
-                    setFSection(undefined);
-                    setFDepartment(undefined);
-                    setPage(1);
-                  }}
-                />
-
-                {/* 2. Section Dropdown */}
-                <CardSelectDropdown
-                  label="Section"
-                  title="Switch Section"
-                  subtitle="Filter machines by section"
-                  allLabel="All Sections"
-                  allSubtitle="View machines across all sections"
-                  icon={<ApartmentOutlined />}
-                  badgeBg="#e0f2fe"
-                  badgeColor="#0369a1"
-                  options={sectionsForDivision(fDivision).map((s) => ({
-                    id: s.id,
-                    name: s.name,
-                    subtext: 'Operational Section',
-                  }))}
-                  activeId={fSection}
-                  onSelect={(id) => {
-                    setFSection(id);
-                    setFDepartment(undefined);
-                    setPage(1);
-                  }}
-                  disabled={Boolean(fDivision && sectionsForDivision(fDivision).length === 0)}
-                  disabledReason={fDivision ? 'No sections defined in this division' : undefined}
-                />
-
-                {/* 3. Department Dropdown */}
-                <CardSelectDropdown
-                  label="Department"
-                  title="Switch Department"
-                  subtitle="Filter machines by department"
-                  allLabel="All Departments"
-                  allSubtitle="View machines across all departments"
-                  icon={<SubnodeOutlined />}
-                  badgeBg="#fae8ff"
-                  badgeColor="#86198f"
-                  options={(fSection
-                    ? departmentsForSection(fSection)
-                    : fDivision
-                      ? departments.filter((d) => d.divisionId === fDivision)
-                      : departments
-                  ).map((d) => ({
-                    id: d.id,
-                    name: d.name,
-                    subtext: 'Department unit',
-                  }))}
-                  activeId={fDepartment}
-                  onSelect={(id) => {
-                    setFDepartment(id);
-                    setPage(1);
-                  }}
-                />
-
-                {/* 4. Machine Status Dropdown */}
-                <CardSelectDropdown
-                  label="Status"
-                  title="Filter by Machine Status"
-                  subtitle="Operational readiness of machines"
-                  allLabel="All Statuses"
-                  allSubtitle="Include all operational states"
-                  icon={<CheckCircleOutlined />}
-                  badgeBg="#ecfdf5"
-                  badgeColor="#047857"
-                  options={[
-                    { id: 'ACTIVE', name: 'Active', subtext: 'In active production' },
-                    { id: 'MAINTENANCE', name: 'Maintenance', subtext: 'Under preventive or breakdown repair' },
-                    { id: 'INACTIVE', name: 'Inactive', subtext: 'Temporarily halted / standby' },
-                    { id: 'RETIRED', name: 'Retired', subtext: 'Decommissioned asset' },
-                  ]}
-                  activeId={fStatus}
-                  onSelect={(id) => {
-                    setFStatus(id);
-                    setPage(1);
-                  }}
-                />
-
-                {/* 5. Criticality Dropdown */}
-                <CardSelectDropdown
-                  label="Criticality"
-                  title="Filter by Criticality"
-                  subtitle="Production bottleneck criticality"
-                  allLabel="All Criticalities"
-                  allSubtitle="Include all criticality levels"
-                  icon={<AlertOutlined />}
-                  badgeBg="#fef2f2"
-                  badgeColor="#b91c1c"
-                  options={[
-                    { id: 'CRITICAL', name: 'Critical', subtext: 'Single point of failure' },
-                    { id: 'HIGH', name: 'High Impact', subtext: 'High line priority' },
-                    { id: 'MEDIUM', name: 'Medium Impact', subtext: 'Standard production line' },
-                    { id: 'LOW', name: 'Low Impact', subtext: 'Non-critical / auxiliary' },
-                  ]}
-                  activeId={fCriticality}
-                  onSelect={(id) => {
-                    setFCriticality(id);
-                    setPage(1);
-                  }}
-                />
-              </div>
-
-              {/* Bottom Actions Row: Clear Filters Left, Apply Right */}
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  flexWrap: 'wrap',
-                  gap: 8,
-                  marginTop: 14,
-                  paddingTop: 10,
-                  borderTop: '1px solid var(--theme-border, #e2e8f0)',
-                }}
-              >
-                <Button
-                  icon={<ClearOutlined />}
-                  onClick={resetFilters}
-                  danger={activeFilterCount > 0}
+            {/* ── Main 5 Filters Row & Actions (Visible when Filters toggle is open) ── */}
+            {showFilters && (
+              <>
+                <div
                   style={{
-                    borderRadius: 8,
-                    fontWeight: 600,
+                    display: 'grid',
+                    gridTemplateColumns: screens.xl
+                      ? 'repeat(5, 1fr)'
+                      : screens.md
+                        ? 'repeat(3, 1fr)'
+                        : '1fr',
+                    gap: 12,
+                    marginTop: 12,
                   }}
                 >
-                  Clear Filters
-                </Button>
+                  {/* 1. Division Dropdown */}
+                  <CardSelectDropdown
+                    label="Division"
+                    title="Switch Division"
+                    subtitle="Filter machines by division"
+                    allLabel="All Divisions"
+                    allSubtitle="View machines across all divisions"
+                    icon={<ShopOutlined />}
+                    badgeBg="#fef9c3"
+                    badgeColor="#854d0e"
+                    options={divisions.map((d) => ({
+                      id: d.id,
+                      name: d.name,
+                      code: d.divisionCode,
+                      subtext: 'Plant Division',
+                    }))}
+                    activeId={fDivision}
+                    onSelect={(id) => {
+                      setFDivision(id);
+                      setFSection(undefined);
+                      setFDepartment(undefined);
+                      setPage(1);
+                    }}
+                  />
 
-                <Button
-                  type="primary"
-                  icon={<SearchOutlined />}
-                  onClick={() => {
-                    fetchMachines();
-                    setShowFilters(false);
-                  }}
-                  loading={loading}
+                  {/* 2. Section Dropdown */}
+                  <CardSelectDropdown
+                    label="Section"
+                    title="Switch Section"
+                    subtitle="Filter machines by section"
+                    allLabel="All Sections"
+                    allSubtitle="View machines across all sections"
+                    icon={<ApartmentOutlined />}
+                    badgeBg="#e0f2fe"
+                    badgeColor="#0369a1"
+                    options={sectionsForDivision(fDivision).map((s) => ({
+                      id: s.id,
+                      name: s.name,
+                      subtext: 'Operational Section',
+                    }))}
+                    activeId={fSection}
+                    onSelect={(id) => {
+                      setFSection(id);
+                      setFDepartment(undefined);
+                      setPage(1);
+                    }}
+                    disabled={Boolean(fDivision && sectionsForDivision(fDivision).length === 0)}
+                    disabledReason={fDivision ? 'No sections defined in this division' : undefined}
+                  />
+
+                  {/* 3. Department Dropdown */}
+                  <CardSelectDropdown
+                    label="Department"
+                    title="Switch Department"
+                    subtitle="Filter machines by department"
+                    allLabel="All Departments"
+                    allSubtitle="View machines across all departments"
+                    icon={<SubnodeOutlined />}
+                    badgeBg="#fae8ff"
+                    badgeColor="#86198f"
+                    options={(fSection
+                      ? departmentsForSection(fSection)
+                      : fDivision
+                        ? departments.filter((d) => d.divisionId === fDivision)
+                        : departments
+                    ).map((d) => ({
+                      id: d.id,
+                      name: d.name,
+                      subtext: 'Department unit',
+                    }))}
+                    activeId={fDepartment}
+                    onSelect={(id) => {
+                      setFDepartment(id);
+                      setPage(1);
+                    }}
+                  />
+
+                  {/* 4. Machine Status Dropdown */}
+                  <CardSelectDropdown
+                    label="Status"
+                    title="Filter by Machine Status"
+                    subtitle="Operational readiness of machines"
+                    allLabel="All Statuses"
+                    allSubtitle="Include all operational states"
+                    icon={<CheckCircleOutlined />}
+                    badgeBg="#ecfdf5"
+                    badgeColor="#047857"
+                    options={[
+                      { id: 'ACTIVE', name: 'Active', subtext: 'In active production' },
+                      { id: 'MAINTENANCE', name: 'Maintenance', subtext: 'Under preventive or breakdown repair' },
+                      { id: 'INACTIVE', name: 'Inactive', subtext: 'Temporarily halted / standby' },
+                      { id: 'RETIRED', name: 'Retired', subtext: 'Decommissioned asset' },
+                    ]}
+                    activeId={fStatus}
+                    onSelect={(id) => {
+                      setFStatus(id);
+                      setPage(1);
+                    }}
+                  />
+
+                  {/* 5. Criticality Dropdown */}
+                  <CardSelectDropdown
+                    label="Criticality"
+                    title="Filter by Criticality"
+                    subtitle="Production bottleneck criticality"
+                    allLabel="All Criticalities"
+                    allSubtitle="Include all criticality levels"
+                    icon={<AlertOutlined />}
+                    badgeBg="#fef2f2"
+                    badgeColor="#b91c1c"
+                    options={[
+                      { id: 'CRITICAL', name: 'Critical', subtext: 'Single point of failure' },
+                      { id: 'HIGH', name: 'High Impact', subtext: 'High line priority' },
+                      { id: 'MEDIUM', name: 'Medium Impact', subtext: 'Standard production line' },
+                      { id: 'LOW', name: 'Low Impact', subtext: 'Non-critical / auxiliary' },
+                    ]}
+                    activeId={fCriticality}
+                    onSelect={(id) => {
+                      setFCriticality(id);
+                      setPage(1);
+                    }}
+                  />
+                </div>
+
+                {/* Bottom Actions Row: Clear Filters Left, Apply Right */}
+                <div
                   style={{
-                    fontWeight: 600,
-                    borderRadius: 8,
-                    minWidth: 120,
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    flexWrap: 'wrap',
+                    gap: 8,
+                    marginTop: 14,
+                    paddingTop: 10,
+                    borderTop: '1px solid var(--theme-border, #e2e8f0)',
                   }}
                 >
-                  Apply Filters
-                </Button>
-              </div>
-            </>
-          )}
-        </div>
-      </Card>
+                  <Button
+                    icon={<ClearOutlined />}
+                    onClick={resetFilters}
+                    danger={activeFilterCount > 0}
+                    style={{
+                      borderRadius: 8,
+                      fontWeight: 600,
+                    }}
+                  >
+                    Clear Filters
+                  </Button>
 
-      {error && (
-        <Alert
-          type="error"
-          showIcon
-          message="Could not load machines"
-          description={error}
-          action={<Button size="small" danger onClick={() => fetchMachines()}>Retry</Button>}
-          style={{ marginBottom: 16 }}
-          closable
-        />
-      )}
-
-      {/* 2027 Dynamic Floating Bulk Actions Toolbar */}
-      {selectedRowKeys.length > 0 && (
-        <div className="erp-table-bulk-toolbar" style={{ marginBottom: 12 }}>
-          <div className="bulk-count-badge">
-            <Badge count={selectedRowKeys.length} style={{ backgroundColor: '#f59e0b', fontWeight: 800 }} />
-            <span>{selectedRowKeys.length} machine{selectedRowKeys.length === 1 ? '' : 's'} selected</span>
-            <Button
-              size="small"
-              type="link"
-              onClick={() => setSelectedRowKeys([])}
-              style={{ color: '#94a3b8', padding: '0 4px', fontSize: 12 }}
-            >
-              Clear
-            </Button>
+                  <Button
+                    type="primary"
+                    icon={<SearchOutlined />}
+                    onClick={() => {
+                      fetchMachines();
+                      setShowFilters(false);
+                    }}
+                    loading={loading}
+                    style={{
+                      fontWeight: 600,
+                      borderRadius: 8,
+                      minWidth: 120,
+                    }}
+                  >
+                    Apply Filters
+                  </Button>
+                </div>
+              </>
+            )}
           </div>
-          <Space className="bulk-actions-group" wrap>
-            <Button
-              size="small"
-              icon={<CheckCircleOutlined />}
-              onClick={() => handleBulkStatusChange('ACTIVE')}
-              loading={bulkActionLoading}
-              style={{ color: '#10b981', borderColor: '#10b981', fontWeight: 600 }}
-            >
-              Set Active
-            </Button>
-            <Button
-              size="small"
-              icon={<ToolOutlined />}
-              onClick={() => handleBulkStatusChange('MAINTENANCE')}
-              loading={bulkActionLoading}
-              style={{ color: '#f59e0b', borderColor: '#f59e0b', fontWeight: 600 }}
-            >
-              Set Maintenance
-            </Button>
-            <Button
-              size="small"
-              icon={<MinusOutlined />}
-              onClick={() => handleBulkStatusChange('INACTIVE')}
-              loading={bulkActionLoading}
-              style={{ color: '#64748b', borderColor: '#64748b', fontWeight: 600 }}
-            >
-              Deactivate
-            </Button>
-            <Button
-              size="small"
-              icon={<DownloadOutlined />}
-              onClick={handleBulkExport}
-              loading={bulkActionLoading}
-              style={{ fontWeight: 600 }}
-            >
-              Export Selected
-            </Button>
-            <Button
-              size="small"
-              danger
-              type="primary"
-              icon={<DeleteOutlined />}
-              onClick={handleBulkDelete}
-              loading={bulkActionLoading}
-              style={{ fontWeight: 600 }}
-            >
-              Delete Selected
-            </Button>
-          </Space>
-        </div>
-      )}
+        </Card>
 
-      <Card title={<span style={{ fontSize: 14, fontWeight: 600 }}>Machines</span>} styles={{ body: { padding: '8px 0 0' } }}>
-        <div className="erp-table-container erp-table-container--dense">
-          {loading && machines.length === 0 ? (
-            <GlobalLoading title="Loading Machine Registry..." subtitle="Fetching machine configurations and shift assignments..." badgeText="LIVE DATABASE QUERY" minHeight={450} />
-          ) : (
-          <Table
-            rowKey="id"
-            rowSelection={{
-              selectedRowKeys,
-              onChange: (keys) => setSelectedRowKeys(keys),
-              preserveSelectedRowKeys: true,
-            }}
-            columns={filteredColumns}
-            dataSource={machines}
-            loading={false}
-            scroll={{ x: 1040 }}
-            sticky={{ offsetHeader: 0 }}
-            size="middle"
-            pagination={{
-              current: page,
-              pageSize,
-              total,
-              showSizeChanger: true,
-              pageSizeOptions: [10, 20, 50, 100],
-              showTotal: (t, range) => `${range[0]}-${range[1]} of ${t} machines`,
-              onChange: (p, ps) => { setPage(ps !== pageSize ? 1 : p); setPageSize(ps); },
-            }}
-            onChange={(_pg, _flt, sorter: any) => {
-              if (sorter && sorter.field && !Array.isArray(sorter.field)) {
-                const map: Record<string, string> = {
-                  machineId: 'machineId', machineCode: 'machineCode', name: 'name', criticality: 'criticality', status: 'status',
-                };
-                const col = map[sorter.field] || 'machineCode';
-                setSortBy(col);
-                setSortDir(sorter.order === 'descend' ? 'DESC' : 'ASC');
-              }
-            }}
-            locale={{
-              emptyText: (
-                <EmptyState
-                  title={search || activeFilterCount > 0 ? 'No machines match your filters' : 'No machines found'}
-                  description={search || activeFilterCount > 0 ? 'Try adjusting your search or filter criteria.' : 'Get started by adding your first machine.'}
-                  actionLabel="Add Machine"
-                  onAction={openCreate}
-                />
-              ),
-            }}
+        {error && (
+          <Alert
+            type="error"
+            showIcon
+            message="Could not load machines"
+            description={error}
+            action={<Button size="small" danger onClick={() => fetchMachines()}>Retry</Button>}
+            style={{ marginBottom: 16 }}
+            closable
           />
-          )}
-        </div>
-      </Card>
+        )}
 
-      <DraggableResizableModal
-        title="Machine Details"
-        subtitle={detail ? `${detail.name ?? ''}${detail.machineCode ? ` · ${detail.machineCode}` : ''}`.trim() : ' '}
-        open={(!!detail || detailLoading) && !isDetailMinimized}
-        onCancel={() => { setDetail(null); setDetailLoading(false); setViewSection('identity'); setIsDetailMinimized(false); }}
-        onMinimize={() => setIsDetailMinimized(true)}
-        width={900}
-        height={640}
-        minWidth={560}
-        minHeight={420}
-        destroyOnHidden
-        styles={{ body: { overflow: 'auto' } }}
-        footer={
-          detail
-            ? [
+        {/* 2027 Dynamic Floating Bulk Actions Toolbar */}
+        {selectedRowKeys.length > 0 && (
+          <div className="erp-table-bulk-toolbar" style={{ marginBottom: 12 }}>
+            <div className="bulk-count-badge">
+              <Badge count={selectedRowKeys.length} style={{ backgroundColor: '#f59e0b', fontWeight: 800 }} />
+              <span>{selectedRowKeys.length} machine{selectedRowKeys.length === 1 ? '' : 's'} selected</span>
+              <Button
+                size="small"
+                type="link"
+                onClick={() => setSelectedRowKeys([])}
+                style={{ color: '#94a3b8', padding: '0 4px', fontSize: 12 }}
+              >
+                Clear
+              </Button>
+            </div>
+            <Space className="bulk-actions-group" wrap>
+              <Button
+                size="small"
+                icon={<CheckCircleOutlined />}
+                onClick={() => handleBulkStatusChange('ACTIVE')}
+                loading={bulkActionLoading}
+                style={{ color: '#10b981', borderColor: '#10b981', fontWeight: 600 }}
+              >
+                Set Active
+              </Button>
+              <Button
+                size="small"
+                icon={<ToolOutlined />}
+                onClick={() => handleBulkStatusChange('MAINTENANCE')}
+                loading={bulkActionLoading}
+                style={{ color: '#f59e0b', borderColor: '#f59e0b', fontWeight: 600 }}
+              >
+                Set Maintenance
+              </Button>
+              <Button
+                size="small"
+                icon={<MinusOutlined />}
+                onClick={() => handleBulkStatusChange('INACTIVE')}
+                loading={bulkActionLoading}
+                style={{ color: '#64748b', borderColor: '#64748b', fontWeight: 600 }}
+              >
+                Deactivate
+              </Button>
+              <Button
+                size="small"
+                icon={<DownloadOutlined />}
+                onClick={handleBulkExport}
+                loading={bulkActionLoading}
+                style={{ fontWeight: 600 }}
+              >
+                Export Selected
+              </Button>
+              <Button
+                size="small"
+                danger
+                type="primary"
+                icon={<DeleteOutlined />}
+                onClick={handleBulkDelete}
+                loading={bulkActionLoading}
+                style={{ fontWeight: 600 }}
+              >
+                Delete Selected
+              </Button>
+            </Space>
+          </div>
+        )}
+
+        <Card title={<span style={{ fontSize: 14, fontWeight: 600 }}>Machines</span>} styles={{ body: { padding: '8px 0 0' } }}>
+          <div className="erp-table-container erp-table-container--dense">
+            {loading && machines.length === 0 ? (
+              <GlobalLoading title="Loading Machine Registry..." subtitle="Fetching machine configurations and shift assignments..." badgeText="LIVE DATABASE QUERY" minHeight={450} />
+            ) : (
+              <Table
+                rowKey="id"
+                rowSelection={{
+                  selectedRowKeys,
+                  onChange: (keys) => setSelectedRowKeys(keys),
+                  preserveSelectedRowKeys: true,
+                }}
+                columns={filteredColumns}
+                dataSource={machines}
+                loading={false}
+                scroll={{ x: 1040 }}
+                sticky={{ offsetHeader: 0 }}
+                size="middle"
+                pagination={{
+                  current: page,
+                  pageSize,
+                  total,
+                  showSizeChanger: true,
+                  pageSizeOptions: [10, 20, 50, 100],
+                  showTotal: (t, range) => `${range[0]}-${range[1]} of ${t} machines`,
+                  onChange: (p, ps) => { setPage(ps !== pageSize ? 1 : p); setPageSize(ps); },
+                }}
+                onChange={(_pg, _flt, sorter: any) => {
+                  if (sorter && sorter.field && !Array.isArray(sorter.field)) {
+                    const map: Record<string, string> = {
+                      machineId: 'machineId', machineCode: 'machineCode', name: 'name', criticality: 'criticality', status: 'status',
+                    };
+                    const col = map[sorter.field] || 'machineCode';
+                    setSortBy(col);
+                    setSortDir(sorter.order === 'descend' ? 'DESC' : 'ASC');
+                  }
+                }}
+                locale={{
+                  emptyText: (
+                    <EmptyState
+                      title={search || activeFilterCount > 0 ? 'No machines match your filters' : 'No machines found'}
+                      description={search || activeFilterCount > 0 ? 'Try adjusting your search or filter criteria.' : 'Get started by adding your first machine.'}
+                      actionLabel="Add Machine"
+                      onAction={openCreate}
+                    />
+                  ),
+                }}
+              />
+            )}
+          </div>
+        </Card>
+
+        <DraggableResizableModal
+          title="Machine Details"
+          subtitle={detail ? `${detail.name ?? ''}${detail.machineCode ? ` · ${detail.machineCode}` : ''}`.trim() : ' '}
+          open={(!!detail || detailLoading) && !isDetailMinimized}
+          onCancel={() => { setDetail(null); setDetailLoading(false); setViewSection('identity'); setIsDetailMinimized(false); }}
+          onMinimize={() => setIsDetailMinimized(true)}
+          width={900}
+          height={640}
+          minWidth={560}
+          minHeight={420}
+          destroyOnHidden
+          styles={{ body: { overflow: 'auto' } }}
+          footer={
+            detail
+              ? [
                 <Button key="qr" icon={<QrcodeOutlined />} onClick={() => showQr(detail)}>
                   QR
                 </Button>,
@@ -3629,26 +3647,26 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
                   Close
                 </Button>,
               ]
-            : null
-        }
-      >
-        {detailLoading ? (
-          <GlobalLoading title="Loading Machine Details..." subtitle="Fetching machine metadata..." badgeText="LIVE DATABASE QUERY" minHeight={260} />
-        ) : detail && detailModel ? (
-          <Space direction="vertical" size={14} style={{ width: '100%' }}>
-            <div className="erp-modal-nav" style={{ overflowX: 'auto', paddingBottom: 4 }}>
-              <ModalProcessChevronNav
-                sections={VIEW_SECTIONS}
-                active={viewSection}
-                onChange={setViewSection}
-              />
-            </div>
+              : null
+          }
+        >
+          {detailLoading ? (
+            <GlobalLoading title="Loading Machine Details..." subtitle="Fetching machine metadata..." badgeText="LIVE DATABASE QUERY" minHeight={260} />
+          ) : detail && detailModel ? (
+            <Space direction="vertical" size={14} style={{ width: '100%' }}>
+              <div className="erp-modal-nav" style={{ overflowX: 'auto', paddingBottom: 4 }}>
+                <ModalProcessChevronNav
+                  sections={VIEW_SECTIONS}
+                  active={viewSection}
+                  onChange={setViewSection}
+                />
+              </div>
 
-            {viewSection !== 'production' && viewSection !== 'jobcards' && viewSection !== 'tooling' && (
-              <MachineSection model={detailModel} section={viewSection} />
-            )}
+              {viewSection !== 'production' && viewSection !== 'jobcards' && viewSection !== 'tooling' && (
+                <MachineSection model={detailModel} section={viewSection} />
+              )}
 
-            {viewSection === 'production' && (
+              {viewSection === 'production' && (
                 <ProductionSection
                   entries={prodEntries}
                   targets={prodTargets}
@@ -3673,382 +3691,382 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
               )}
             </Space>
           ) : null}
-      </DraggableResizableModal>
+        </DraggableResizableModal>
 
-      <FormModal
-        open={modalVisible && !isFormMinimized}
-        onMinimize={() => setIsFormMinimized(true)}
-        editing={editing}
-        saving={saving}
-        form={form}
-        formDivisionId={formDivisionId}
-        formSectionId={formSectionId}
-        divisions={divisions}
-        sections={sections}
-        departments={departments}
-        sectionsForDivision={sectionsForDivision}
-        departmentsForSection={departmentsForSection}
-        width={workspace.width}
-        height={workspace.height}
-        minWidth={isMobile ? Math.min(340, vw - 16) : 720}
-        minHeight={420}
-        stacked={workspaceStacked}
-        previewModel={previewModel}
-        onCancel={() => setModalVisible(false)}
-        onOk={handleSave}
-        onFormTick={() => setFormTick((t) => t + 1)}
-      />
-
-      <Modal
-        title={`QR Code — ${qrModal.machine?.machineCode ?? ''}`}
-        open={qrModal.visible}
-        onCancel={() => setQrModal({ visible: false, machine: null, dataUrl: '', payload: '', url: '' })}
-        footer={[
-          <Button key="print" type="primary" icon={<PrinterOutlined />} onClick={printQr}>
-            Print Label
-          </Button>,
-        ]}
-        centered
-      >
-        <div style={{ textAlign: 'center' }}>
-          {qrModal.machine && (
-            <>
-              <h3 style={{ marginBottom: 4 }}>{qrModal.machine.name}</h3>
-              <p style={{ color: 'var(--theme-text-muted)', marginTop: 0 }}>
-                <b>{qrModal.machine.machineId}</b> · {qrModal.machine.machineCode}
-                {qrModal.machine.location ? ` · ${qrModal.machine.location}` : ''}
-              </p>
-            </>
-          )}
-          {qrModal.dataUrl && <img src={qrModal.dataUrl} alt="Machine QR" style={{ width: 260, height: 260 }} />}
-          <p style={{ marginTop: 8 }}>
-            <code style={{ fontSize: 11, color: 'var(--theme-text-muted)' }}>{qrModal.url || qrModal.payload}</code>
-          </p>
-        </div>
-      </Modal>
-      <BarcodePrint
-        open={printModal.visible}
-        onClose={() => setPrintModal({ visible: false, machine: null })}
-        itemCode={printModal.machine?.machineCode || ''}
-        itemName={printModal.machine?.name || ''}
-        barcode={printModal.machine?.qrPayload || null}
-        companyName="PWI ERP"
-      />
-
-      <BarcodeScanner
-        open={scannerOpen}
-        onClose={() => setScannerOpen(false)}
-        onScan={handleBarcodeScan}
-      />
-
-      {historyModalMachine && (
-        <ScannedMachineHistoryModal
-          open={!!historyModalMachine}
-          onClose={() => setHistoryModalMachine(null)}
-          machineId={historyModalMachine.id}
-          machineCode={historyModalMachine.machineCode}
-          barcodeValue={historyModalMachine.barcode || historyModalMachine.qrCode || historyModalMachine.qrPayload || historyModalMachine.machineCode}
+        <FormModal
+          open={modalVisible && !isFormMinimized}
+          onMinimize={() => setIsFormMinimized(true)}
+          editing={editing}
+          saving={saving}
+          form={form}
+          formDivisionId={formDivisionId}
+          formSectionId={formSectionId}
+          divisions={divisions}
+          sections={sections}
+          departments={departments}
+          sectionsForDivision={sectionsForDivision}
+          departmentsForSection={departmentsForSection}
+          width={workspace.width}
+          height={workspace.height}
+          minWidth={isMobile ? Math.min(340, vw - 16) : 720}
+          minHeight={420}
+          stacked={workspaceStacked}
+          previewModel={previewModel}
+          onCancel={() => setModalVisible(false)}
+          onOk={handleSave}
+          onFormTick={() => setFormTick((t) => t + 1)}
         />
-      )}
 
-      <SaveResultDialog
-        open={resultOpen}
-        phase={resultPhase}
-        result={resultData}
-        errorMessage={resultError}
-        errorTitle={resultError?.includes('required field(s)') ? 'Required Information Missing' : 'Save Failed'}
-        errorLead={resultError?.includes('required field(s)') ? 'Please complete all required fields.' : 'The request was not persisted.'}
-        onRetry={resultError?.includes('required field(s)') ? undefined : handleResultRetry}
-        onClose={handleResultClose}
-        successTitle="Successful Save"
-        okLabel="OK"
-      />
+        <Modal
+          title={`QR Code — ${qrModal.machine?.machineCode ?? ''}`}
+          open={qrModal.visible}
+          onCancel={() => setQrModal({ visible: false, machine: null, dataUrl: '', payload: '', url: '' })}
+          footer={[
+            <Button key="print" type="primary" icon={<PrinterOutlined />} onClick={printQr}>
+              Print Label
+            </Button>,
+          ]}
+          centered
+        >
+          <div style={{ textAlign: 'center' }}>
+            {qrModal.machine && (
+              <>
+                <h3 style={{ marginBottom: 4 }}>{qrModal.machine.name}</h3>
+                <p style={{ color: 'var(--theme-text-muted)', marginTop: 0 }}>
+                  <b>{qrModal.machine.machineId}</b> · {qrModal.machine.machineCode}
+                  {qrModal.machine.location ? ` · ${qrModal.machine.location}` : ''}
+                </p>
+              </>
+            )}
+            {qrModal.dataUrl && <img src={qrModal.dataUrl} alt="Machine QR" style={{ width: 260, height: 260 }} />}
+            <p style={{ marginTop: 8 }}>
+              <code style={{ fontSize: 11, color: 'var(--theme-text-muted)' }}>{qrModal.url || qrModal.payload}</code>
+            </p>
+          </div>
+        </Modal>
+        <BarcodePrint
+          open={printModal.visible}
+          onClose={() => setPrintModal({ visible: false, machine: null })}
+          itemCode={printModal.machine?.machineCode || ''}
+          itemName={printModal.machine?.name || ''}
+          barcode={printModal.machine?.qrPayload || null}
+          companyName="PWI ERP"
+        />
 
-      {/* Enterprise In-Modal Delete & Deactivate Dialog */}
-      <DeleteConfirmModal
-        open={deleteModalVisible}
-        itemType="Machine"
-        itemCode={machineToDelete?.machineCode}
-        itemName={machineToDelete?.name}
-        description="Permanent deletion is blocked automatically if this machine is referenced by production entries, maintenance schedules, job cards, or tooling links."
-        onConfirm={async () => {
-          if (!machineToDelete) return;
-          await apiService.delete(`/machines/${machineToDelete.id}`);
-          message.success(`Machine '${machineToDelete.machineCode}' deleted successfully`);
-          setDeleteModalVisible(false);
-          setMachineToDelete(null);
-          fetchMachines();
-        }}
-        onCancel={() => {
-          setDeleteModalVisible(false);
-          setMachineToDelete(null);
-        }}
-        onDeactivateInstead={
-          machineToDelete?.status === 'ACTIVE'
-            ? async () => {
+        <BarcodeScanner
+          open={scannerOpen}
+          onClose={() => setScannerOpen(false)}
+          onScan={handleBarcodeScan}
+        />
+
+        {historyModalMachine && (
+          <ScannedMachineHistoryModal
+            open={!!historyModalMachine}
+            onClose={() => setHistoryModalMachine(null)}
+            machineId={historyModalMachine.id}
+            machineCode={historyModalMachine.machineCode}
+            barcodeValue={historyModalMachine.barcode || historyModalMachine.qrCode || historyModalMachine.qrPayload || historyModalMachine.machineCode}
+          />
+        )}
+
+        <SaveResultDialog
+          open={resultOpen}
+          phase={resultPhase}
+          result={resultData}
+          errorMessage={resultError}
+          errorTitle={resultError?.includes('required field(s)') ? 'Required Information Missing' : 'Save Failed'}
+          errorLead={resultError?.includes('required field(s)') ? 'Please complete all required fields.' : 'The request was not persisted.'}
+          onRetry={resultError?.includes('required field(s)') ? undefined : handleResultRetry}
+          onClose={handleResultClose}
+          successTitle="Successful Save"
+          okLabel="OK"
+        />
+
+        {/* Enterprise In-Modal Delete & Deactivate Dialog */}
+        <DeleteConfirmModal
+          open={deleteModalVisible}
+          itemType="Machine"
+          itemCode={machineToDelete?.machineCode}
+          itemName={machineToDelete?.name}
+          description="Permanent deletion is blocked automatically if this machine is referenced by production entries, maintenance schedules, job cards, or tooling links."
+          onConfirm={async () => {
+            if (!machineToDelete) return;
+            await apiService.delete(`/machines/${machineToDelete.id}`);
+            message.success(`Machine '${machineToDelete.machineCode}' deleted successfully`);
+            setDeleteModalVisible(false);
+            setMachineToDelete(null);
+            fetchMachines();
+          }}
+          onCancel={() => {
+            setDeleteModalVisible(false);
+            setMachineToDelete(null);
+          }}
+          onDeactivateInstead={
+            machineToDelete?.status === 'ACTIVE'
+              ? async () => {
                 await handleStatus(machineToDelete, 'INACTIVE');
                 message.success(`Machine '${machineToDelete.machineCode}' deactivated successfully`);
                 setDeleteModalVisible(false);
                 setMachineToDelete(null);
               }
-            : undefined
-        }
-        deactivateLabel="Deactivate Machine Instead"
-      />
+              : undefined
+          }
+          deactivateLabel="Deactivate Machine Instead"
+        />
 
-      <DraggableResizableModal
-        open={importOpen && !isImportMinimized}
-        onCancel={closeImport}
-        onMinimize={() => setIsImportMinimized(true)}
-        width={960}
-        height={620}
-        minWidth={640}
-        minHeight={480}
-        footer={
-          importSummary ? (
-            <Button type="primary" onClick={closeImport}>Done</Button>
-          ) : importRows.length > 0 ? (
-            [
-              <Button key="back" onClick={() => { setImportRows([]); setImportFileName(null); }}>Choose another file</Button>,
-              <Button
-                key="import"
-                type="primary"
-                disabled={importRows.every((r) => r.status !== 'VALID')}
-                loading={importing}
-                onClick={runImport}
-              >
-                Import {importRows.filter((r) => r.status === 'VALID').length} valid row(s)
-              </Button>,
-            ]
-          ) : (
-            <Button type="primary" onClick={closeImport}>Close</Button>
-          )
-        }
-        title={
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-            <ImportOutlined style={{ color: 'var(--theme-accent, #10b981)' }} />
-            Import Machines
-          </span>
-        }
-        subtitle="Bulk import from CSV — Machine Code and Machine Name required, remaining fields optional"
-        styles={{ body: { overflow: 'auto' } }}
-      >
-        {importRows.length === 0 && !importSummary && (
-          <div style={{ padding: '8px 0' }}>
-            <Alert
-              type="info"
-              showIcon
-              message="CSV import with validation and preview"
-              description="Upload a CSV file with machine data. Each row is matched on Machine Code first: an existing code is patched in place (only the columns you filled in), a new code is inserted when its required columns are complete. Blank cells always keep the stored value."
-              style={{ marginBottom: 16 }}
-            />
-            <Space style={{ marginBottom: 16 }}>
-              <Button icon={<DownloadOutlined />} onClick={downloadImportTemplate}>
-                Download Template
-              </Button>
-              <Button icon={<FileTextOutlined />} loading={exportingTemplate} onClick={exportCurrentDataAsTemplate}>
-                Export Current Data as Template
-              </Button>
-            </Space>
-            <Upload.Dragger
-              name="file"
-              accept=".csv,.txt"
-              maxCount={1}
-              showUploadList={false}
-              beforeUpload={handleImportFile}
-            >
-              <p className="ant-upload-drag-icon"><InboxOutlined /></p>
-              <p className="ant-upload-text">Click or drag a CSV file here</p>
-              <p className="ant-upload-hint">
-                Required column: Machine Code. Existing codes update in place; new codes need Machine Name.<br />
-                Blank cells or dropped columns retain their stored value — they are never zeroed out.
-              </p>
-            </Upload.Dragger>
-          </div>
-        )}
-
-        {importRows.length > 0 && !importSummary && (
-          <div>
-            <Alert
-              type="info"
-              showIcon
-              message={`Preview: ${importFileName}`}
-              description={
-                <span>
-                  Total rows: <b>{importRows.length}</b> ·{' '}
-                  Valid: <b style={{ color: '#1a7f37' }}>{importRows.filter((r) => r.status === 'VALID').length}</b> ·{' '}
-                  Invalid: <b style={{ color: '#c0392b' }}>{importRows.filter((r) => r.status === 'INVALID').length}</b> ·{' '}
-                  Will update: <b style={{ color: '#1d4ed8' }}>{importRows.filter((r) => r.action === 'UPDATE').length}</b> ·{' '}
-                  Will insert: <b style={{ color: '#1a7f37' }}>{importRows.filter((r) => r.action === 'INSERT').length}</b>
-                </span>
-              }
-              style={{ marginBottom: 12 }}
-            />
-            <Table
-              rowKey="rowNumber"
-              size="small"
-              dataSource={importRows}
-              pagination={{ pageSize: 8, showSizeChanger: false }}
-              columns={[
-                { title: 'Row', dataIndex: 'rowNumber', width: 50 },
-                {
-                  title: 'Machine Code', width: 120,
-                  render: (_: unknown, r: ImportRow) => <b>{r.data['machineCode'] || r.data['Machine Code'] || r.data['machinecode'] || ''}</b>,
-                },
-                {
-                  title: 'Machine Name', width: 180,
-                  render: (_: unknown, r: ImportRow) => r.data['machineName'] || r.data['Machine Name'] || r.data['machinename'] || '',
-                },
-                {
-                  title: 'Type', width: 110,
-                  render: (_: unknown, r: ImportRow) => r.data['machineType'] || r.data['Machine Type'] || r.data['machinetype'] || '—',
-                },
-                {
-                  title: 'Status', width: 90,
-                  render: (_: unknown, r: ImportRow) => r.data['status'] || r.data['Status'] || 'ACTIVE',
-                },
-                {
-                  title: 'Action', width: 90,
-                  render: (_: unknown, r: ImportRow) =>
-                    r.action === 'UPDATE'
-                      ? <Tag color="blue">Update</Tag>
-                      : <Tag color="green">Insert</Tag>,
-                },
-                {
-                  title: 'Result', width: 90,
-                  render: (_: unknown, r: ImportRow) => {
-                    if (r.status === 'VALID') return <span style={{ color: '#1a7f37', fontWeight: 600 }}>Valid</span>;
-                    if (r.status === 'DUPLICATE') return <span style={{ color: '#b45309', fontWeight: 600 }}>Duplicate</span>;
-                    return <span style={{ color: '#c0392b', fontWeight: 600 }}>Invalid</span>;
-                  },
-                },
-                {
-                  title: 'Details',
-                  render: (_: unknown, r: ImportRow) =>
-                    r.errors.length > 0 ? (
-                      <Typography.Text type="danger" style={{ fontSize: 11 }}>{r.errors.join('; ')}</Typography.Text>
-                    ) : (
-                      <Typography.Text type="secondary" style={{ fontSize: 11 }}>Ready to import</Typography.Text>
-                    ),
-                },
-              ]}
-            />
-          </div>
-        )}
-
-        {importing && (
-          <div style={{ textAlign: 'center', padding: 32 }}>
-            <GlobalLoading spinnerOnly size="large" />
-            <div style={{ marginTop: 12 }}>Importing machines… this may take a moment.</div>
-          </div>
-        )}
-
-        {importSummary && !importing && (
-          <div>
-            <Alert
-              type={importSummary.failed > 0 ? 'warning' : 'success'}
-              showIcon
-              message={importSummary.failed > 0 ? 'Import completed with errors' : `Bulk Sync Complete: ${importSummary.updated} records successfully updated / ${importSummary.created} new rows inserted.`}
-              style={{ marginBottom: 16 }}
-            />
-            <Descriptions bordered size="small" column={1} styles={{ label: { width: 180 } }}>
-              <Descriptions.Item label="Total rows">{importSummary.total}</Descriptions.Item>
-              <Descriptions.Item label="Valid rows">{importSummary.valid}</Descriptions.Item>
-              <Descriptions.Item label="Invalid rows">{importSummary.invalid}</Descriptions.Item>
-              <Descriptions.Item label="Duplicate rows">{importSummary.duplicate}</Descriptions.Item>
-              <Descriptions.Item label="Updated (existing code)"><b style={{ color: '#1d4ed8' }}>{importSummary.updated}</b></Descriptions.Item>
-              <Descriptions.Item label="Created (new code)"><b style={{ color: '#1a7f37' }}>{importSummary.created}</b></Descriptions.Item>
-              <Descriptions.Item label="Imported rows"><b style={{ color: '#1a7f37' }}>{importSummary.imported}</b></Descriptions.Item>
-              <Descriptions.Item label="Failed rows">{importSummary.failed}</Descriptions.Item>
-            </Descriptions>
-            {importSummary.errors.length > 0 && (
+        <DraggableResizableModal
+          open={importOpen && !isImportMinimized}
+          onCancel={closeImport}
+          onMinimize={() => setIsImportMinimized(true)}
+          width={960}
+          height={620}
+          minWidth={640}
+          minHeight={480}
+          footer={
+            importSummary ? (
+              <Button type="primary" onClick={closeImport}>Done</Button>
+            ) : importRows.length > 0 ? (
+              [
+                <Button key="back" onClick={() => { setImportRows([]); setImportFileName(null); }}>Choose another file</Button>,
+                <Button
+                  key="import"
+                  type="primary"
+                  disabled={importRows.every((r) => r.status !== 'VALID')}
+                  loading={importing}
+                  onClick={runImport}
+                >
+                  Import {importRows.filter((r) => r.status === 'VALID').length} valid row(s)
+                </Button>,
+              ]
+            ) : (
+              <Button type="primary" onClick={closeImport}>Close</Button>
+            )
+          }
+          title={
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              <ImportOutlined style={{ color: 'var(--theme-accent, #10b981)' }} />
+              Import Machines
+            </span>
+          }
+          subtitle="Bulk import from CSV — Machine Code and Machine Name required, remaining fields optional"
+          styles={{ body: { overflow: 'auto' } }}
+        >
+          {importRows.length === 0 && !importSummary && (
+            <div style={{ padding: '8px 0' }}>
               <Alert
-                type="error"
-                style={{ marginTop: 12 }}
-                message="Row errors"
-                description={
-                  <ul style={{ margin: 0, paddingLeft: 20, maxHeight: 160, overflowY: 'auto' }}>
-                    {importSummary.errors.map((e, i) => <li key={i} style={{ fontSize: 12 }}>{e}</li>)}
-                  </ul>
-                }
+                type="info"
+                showIcon
+                message="CSV import with validation and preview"
+                description="Upload a CSV file with machine data. Each row is matched on Machine Code first: an existing code is patched in place (only the columns you filled in), a new code is inserted when its required columns are complete. Blank cells always keep the stored value."
+                style={{ marginBottom: 16 }}
               />
+              <Space style={{ marginBottom: 16 }}>
+                <Button icon={<DownloadOutlined />} onClick={downloadImportTemplate}>
+                  Download Template
+                </Button>
+                <Button icon={<FileTextOutlined />} loading={exportingTemplate} onClick={exportCurrentDataAsTemplate}>
+                  Export Current Data as Template
+                </Button>
+              </Space>
+              <Upload.Dragger
+                name="file"
+                accept=".csv,.txt"
+                maxCount={1}
+                showUploadList={false}
+                beforeUpload={handleImportFile}
+              >
+                <p className="ant-upload-drag-icon"><InboxOutlined /></p>
+                <p className="ant-upload-text">Click or drag a CSV file here</p>
+                <p className="ant-upload-hint">
+                  Required column: Machine Code. Existing codes update in place; new codes need Machine Name.<br />
+                  Blank cells or dropped columns retain their stored value — they are never zeroed out.
+                </p>
+              </Upload.Dragger>
+            </div>
+          )}
+
+          {importRows.length > 0 && !importSummary && (
+            <div>
+              <Alert
+                type="info"
+                showIcon
+                message={`Preview: ${importFileName}`}
+                description={
+                  <span>
+                    Total rows: <b>{importRows.length}</b> ·{' '}
+                    Valid: <b style={{ color: '#1a7f37' }}>{importRows.filter((r) => r.status === 'VALID').length}</b> ·{' '}
+                    Invalid: <b style={{ color: '#c0392b' }}>{importRows.filter((r) => r.status === 'INVALID').length}</b> ·{' '}
+                    Will update: <b style={{ color: '#1d4ed8' }}>{importRows.filter((r) => r.action === 'UPDATE').length}</b> ·{' '}
+                    Will insert: <b style={{ color: '#1a7f37' }}>{importRows.filter((r) => r.action === 'INSERT').length}</b>
+                  </span>
+                }
+                style={{ marginBottom: 12 }}
+              />
+              <Table
+                rowKey="rowNumber"
+                size="small"
+                dataSource={importRows}
+                pagination={{ pageSize: 8, showSizeChanger: false }}
+                columns={[
+                  { title: 'Row', dataIndex: 'rowNumber', width: 50 },
+                  {
+                    title: 'Machine Code', width: 120,
+                    render: (_: unknown, r: ImportRow) => <b>{r.data['machineCode'] || r.data['Machine Code'] || r.data['machinecode'] || ''}</b>,
+                  },
+                  {
+                    title: 'Machine Name', width: 180,
+                    render: (_: unknown, r: ImportRow) => r.data['machineName'] || r.data['Machine Name'] || r.data['machinename'] || '',
+                  },
+                  {
+                    title: 'Type', width: 110,
+                    render: (_: unknown, r: ImportRow) => r.data['machineType'] || r.data['Machine Type'] || r.data['machinetype'] || '—',
+                  },
+                  {
+                    title: 'Status', width: 90,
+                    render: (_: unknown, r: ImportRow) => r.data['status'] || r.data['Status'] || 'ACTIVE',
+                  },
+                  {
+                    title: 'Action', width: 90,
+                    render: (_: unknown, r: ImportRow) =>
+                      r.action === 'UPDATE'
+                        ? <Tag color="blue">Update</Tag>
+                        : <Tag color="green">Insert</Tag>,
+                  },
+                  {
+                    title: 'Result', width: 90,
+                    render: (_: unknown, r: ImportRow) => {
+                      if (r.status === 'VALID') return <span style={{ color: '#1a7f37', fontWeight: 600 }}>Valid</span>;
+                      if (r.status === 'DUPLICATE') return <span style={{ color: '#b45309', fontWeight: 600 }}>Duplicate</span>;
+                      return <span style={{ color: '#c0392b', fontWeight: 600 }}>Invalid</span>;
+                    },
+                  },
+                  {
+                    title: 'Details',
+                    render: (_: unknown, r: ImportRow) =>
+                      r.errors.length > 0 ? (
+                        <Typography.Text type="danger" style={{ fontSize: 11 }}>{r.errors.join('; ')}</Typography.Text>
+                      ) : (
+                        <Typography.Text type="secondary" style={{ fontSize: 11 }}>Ready to import</Typography.Text>
+                      ),
+                  },
+                ]}
+              />
+            </div>
+          )}
+
+          {importing && (
+            <div style={{ textAlign: 'center', padding: 32 }}>
+              <GlobalLoading spinnerOnly size="large" />
+              <div style={{ marginTop: 12 }}>Importing machines… this may take a moment.</div>
+            </div>
+          )}
+
+          {importSummary && !importing && (
+            <div>
+              <Alert
+                type={importSummary.failed > 0 ? 'warning' : 'success'}
+                showIcon
+                message={importSummary.failed > 0 ? 'Import completed with errors' : `Bulk Sync Complete: ${importSummary.updated} records successfully updated / ${importSummary.created} new rows inserted.`}
+                style={{ marginBottom: 16 }}
+              />
+              <Descriptions bordered size="small" column={1} styles={{ label: { width: 180 } }}>
+                <Descriptions.Item label="Total rows">{importSummary.total}</Descriptions.Item>
+                <Descriptions.Item label="Valid rows">{importSummary.valid}</Descriptions.Item>
+                <Descriptions.Item label="Invalid rows">{importSummary.invalid}</Descriptions.Item>
+                <Descriptions.Item label="Duplicate rows">{importSummary.duplicate}</Descriptions.Item>
+                <Descriptions.Item label="Updated (existing code)"><b style={{ color: '#1d4ed8' }}>{importSummary.updated}</b></Descriptions.Item>
+                <Descriptions.Item label="Created (new code)"><b style={{ color: '#1a7f37' }}>{importSummary.created}</b></Descriptions.Item>
+                <Descriptions.Item label="Imported rows"><b style={{ color: '#1a7f37' }}>{importSummary.imported}</b></Descriptions.Item>
+                <Descriptions.Item label="Failed rows">{importSummary.failed}</Descriptions.Item>
+              </Descriptions>
+              {importSummary.errors.length > 0 && (
+                <Alert
+                  type="error"
+                  style={{ marginTop: 12 }}
+                  message="Row errors"
+                  description={
+                    <ul style={{ margin: 0, paddingLeft: 20, maxHeight: 160, overflowY: 'auto' }}>
+                      {importSummary.errors.map((e, i) => <li key={i} style={{ fontSize: 12 }}>{e}</li>)}
+                    </ul>
+                  }
+                />
+              )}
+            </div>
+          )}
+        </DraggableResizableModal>
+
+        {/* Universal Floating Minimized Dock for Machine Management */}
+        {(isFormMinimized || isDetailMinimized || isImportMinimized) && (
+          <div className="erp-minimized-dock" data-testid="machine-minimized-dock">
+            {isFormMinimized && (
+              <div
+                className="erp-minimized-tab"
+                onClick={() => {
+                  setIsFormMinimized(false);
+                  setModalVisible(true);
+                }}
+              >
+                <span className="erp-minimized-pulse" />
+                <SettingOutlined style={{ color: '#4f46e5' }} />
+                <span>{editing ? `Edit: ${editing.machineCode}` : 'Add Machine'}</span>
+                <span
+                  className="erp-minimized-close"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsFormMinimized(false);
+                  }}
+                >
+                  ×
+                </span>
+              </div>
+            )}
+            {isDetailMinimized && detail && (
+              <div
+                className="erp-minimized-tab"
+                onClick={() => {
+                  setIsDetailMinimized(false);
+                }}
+              >
+                <span className="erp-minimized-pulse" />
+                <DesktopOutlined style={{ color: '#0ea5e9' }} />
+                <span>{`Machine: ${detail.machineCode}`}</span>
+                <span
+                  className="erp-minimized-close"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsDetailMinimized(false);
+                    setDetail(null);
+                  }}
+                >
+                  ×
+                </span>
+              </div>
+            )}
+            {isImportMinimized && (
+              <div
+                className="erp-minimized-tab"
+                onClick={() => {
+                  setIsImportMinimized(false);
+                }}
+              >
+                <span className="erp-minimized-pulse" />
+                <ImportOutlined style={{ color: '#10b981' }} />
+                <span>Import Machines</span>
+                <span
+                  className="erp-minimized-close"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsImportMinimized(false);
+                    closeImport();
+                  }}
+                >
+                  ×
+                </span>
+              </div>
             )}
           </div>
         )}
-      </DraggableResizableModal>
-
-      {/* Universal Floating Minimized Dock for Machine Management */}
-      {(isFormMinimized || isDetailMinimized || isImportMinimized) && (
-        <div className="erp-minimized-dock" data-testid="machine-minimized-dock">
-          {isFormMinimized && (
-            <div
-              className="erp-minimized-tab"
-              onClick={() => {
-                setIsFormMinimized(false);
-                setModalVisible(true);
-              }}
-            >
-              <span className="erp-minimized-pulse" />
-              <SettingOutlined style={{ color: '#4f46e5' }} />
-              <span>{editing ? `Edit: ${editing.machineCode}` : 'Add Machine'}</span>
-              <span
-                className="erp-minimized-close"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setIsFormMinimized(false);
-                }}
-              >
-                ×
-              </span>
-            </div>
-          )}
-          {isDetailMinimized && detail && (
-            <div
-              className="erp-minimized-tab"
-              onClick={() => {
-                setIsDetailMinimized(false);
-              }}
-            >
-              <span className="erp-minimized-pulse" />
-              <DesktopOutlined style={{ color: '#0ea5e9' }} />
-              <span>{`Machine: ${detail.machineCode}`}</span>
-              <span
-                className="erp-minimized-close"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setIsDetailMinimized(false);
-                  setDetail(null);
-                }}
-              >
-                ×
-              </span>
-            </div>
-          )}
-          {isImportMinimized && (
-            <div
-              className="erp-minimized-tab"
-              onClick={() => {
-                setIsImportMinimized(false);
-              }}
-            >
-              <span className="erp-minimized-pulse" />
-              <ImportOutlined style={{ color: '#10b981' }} />
-              <span>Import Machines</span>
-              <span
-                className="erp-minimized-close"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setIsImportMinimized(false);
-                  closeImport();
-                }}
-              >
-                ×
-              </span>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
+      </div>
     </TabKeepAlive>
   );
 };
@@ -4250,7 +4268,7 @@ const FormModal: React.FC<FormModalProps> = ({
         )}
       </div>
     </div>
-    </DraggableResizableModal>
-  );
+  </DraggableResizableModal>
+);
 
 export default MachineManagement;

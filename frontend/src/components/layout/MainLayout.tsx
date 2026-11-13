@@ -839,19 +839,19 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
           <div className="pwi-company-marquee-banner" role="marquee" aria-label="Company Announcement">
             <div className="pwi-marquee-track">
               <span className="pwi-marquee-item">
-                <img src={`${process.env.PUBLIC_URL}/logo-mark.png`} alt="PWI Logo" className="pwi-marquee-logo" style={{ height: 16, width: 16, borderRadius: 3, objectFit: 'contain', verticalAlign: 'middle', marginRight: 6 }} />
+                <img src={`${process.env.PUBLIC_URL}/logo-marquee.png`} alt="" aria-hidden="true" className="pwi-marquee-logo" draggable={false} />
                 <strong>Pakistan Wire Industries (Pvt.) LTD</strong> &nbsp;•&nbsp; Enterprise ERP & MRP System
               </span>
               <span className="pwi-marquee-item">
-                <img src={`${process.env.PUBLIC_URL}/logo-mark.png`} alt="PWI Logo" className="pwi-marquee-logo" style={{ height: 16, width: 16, borderRadius: 3, objectFit: 'contain', verticalAlign: 'middle', marginRight: 6 }} />
+                <img src={`${process.env.PUBLIC_URL}/logo-marquee.png`} alt="" aria-hidden="true" className="pwi-marquee-logo" draggable={false} />
                 <strong>Pakistan Wire Industries (Pvt.) LTD</strong> &nbsp;•&nbsp; Enterprise ERP & MRP System
               </span>
               <span className="pwi-marquee-item">
-                <img src={`${process.env.PUBLIC_URL}/logo-mark.png`} alt="PWI Logo" className="pwi-marquee-logo" style={{ height: 16, width: 16, borderRadius: 3, objectFit: 'contain', verticalAlign: 'middle', marginRight: 6 }} />
+                <img src={`${process.env.PUBLIC_URL}/logo-marquee.png`} alt="" aria-hidden="true" className="pwi-marquee-logo" draggable={false} />
                 <strong>Pakistan Wire Industries (Pvt.) LTD</strong> &nbsp;•&nbsp; Enterprise ERP & MRP System
               </span>
               <span className="pwi-marquee-item">
-                <img src={`${process.env.PUBLIC_URL}/logo-mark.png`} alt="PWI Logo" className="pwi-marquee-logo" style={{ height: 16, width: 16, borderRadius: 3, objectFit: 'contain', verticalAlign: 'middle', marginRight: 6 }} />
+                <img src={`${process.env.PUBLIC_URL}/logo-marquee.png`} alt="" aria-hidden="true" className="pwi-marquee-logo" draggable={false} />
                 <strong>Pakistan Wire Industries (Pvt.) LTD</strong> &nbsp;•&nbsp; Enterprise ERP & MRP System
               </span>
             </div>

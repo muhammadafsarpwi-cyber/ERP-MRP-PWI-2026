@@ -6,7 +6,7 @@ import {
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import type { DashboardFilters as SystemFilters, FilterOption, MachinePerformanceItem } from '../../services/dashboardService';
-import { DATE_RANGE_PRESET_OPTIONS, DateRangePreset } from './dashboardShared';
+import { DATE_RANGE_PRESET_OPTIONS, DateRangePreset, DEFAULT_DATE_RANGE_PRESET } from './dashboardShared';
 import CardSelectDropdown from './CardSelectDropdown';
 
 const { useBreakpoint } = Grid;
@@ -21,7 +21,7 @@ interface DashboardFiltersProps {
   appliedFilters: SystemFilters;
   optionsLoading: boolean;
   loading?: boolean;
-  /** Active date-range preset (defaults to "Yesterday" on the main dashboard). */
+  /** Active date-range preset (defaults to "This Month" on the main dashboard). */
   dateRangePreset: DateRangePreset;
   /** Most recent recorded entry date (e.g. "2026-10-17") if known */
   lastEntryDate?: string | null;
@@ -232,7 +232,7 @@ const DashboardFilters: React.FC<DashboardFiltersProps> = ({
                 id: o.value,
                 name: o.value === 'lastEntry' && lastEntryDate ? `Last Entry (${lastEntryDate})` : o.label,
                 code: o.value === 'lastEntry' ? 'L.E' : undefined,
-                subtext: o.value === 'yesterday' ? 'Default view' : undefined,
+                subtext: o.value === DEFAULT_DATE_RANGE_PRESET ? 'Default view' : undefined,
               }))}
               activeId={dateRangePreset}
               onSelect={(v) => {

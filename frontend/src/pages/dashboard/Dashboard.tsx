@@ -36,16 +36,26 @@ import { tabSessionCache } from '../../services/tabSessionCache';
 
 const { Text } = Typography;
 
-const MAIN_DASHBOARD_TAB_ID = '/dashboard/v4';
+const MAIN_DASHBOARD_TAB_ID = '/dashboard/v5';
 
-// Evict legacy unversioned dashboard tab caches to prevent stale unfiltered restores
+// Evict legacy dashboard tab caches to prevent stale unfiltered or old-preset restores
 try {
   sessionStorage.removeItem('erp_tab_session_/dashboard');
   sessionStorage.removeItem('erp_tab_session_/dashboard/v2');
   sessionStorage.removeItem('erp_tab_session_/dashboard/v3');
+  sessionStorage.removeItem('erp_tab_session_/dashboard/v4');
 } catch {
   // ignore
 }
+
+/**
+ * Tracks whether this browser page load has already initialized the Dashboard.
+ * On fresh app open, login, or browser refresh, this starts `false` so the
+ * date range always resets to `DEFAULT_DATE_RANGE_PRESET` ('thisMonth').
+ * During the same active SPA session, switching tabs preserves any temporary
+ * date-range change until page reload or logout.
+ */
+let hasBootedDashboard = false;
 
 /**
  * Default active division on load — "DIV-SPD Spoke Division" instead of
@@ -80,11 +90,18 @@ interface MainDashboardTabCache {
 
 const Dashboard: React.FC = () => {
   const navigate = useNavigate();
-  const cachedTab = useMemo(() => tabSessionCache.get<MainDashboardTabCache>(MAIN_DASHBOARD_TAB_ID), []);
+  const cachedTab = useMemo(() => {
+    if (!hasBootedDashboard) {
+      hasBootedDashboard = true;
+      tabSessionCache.remove(MAIN_DASHBOARD_TAB_ID);
+      return undefined;
+    }
+    return tabSessionCache.get<MainDashboardTabCache>(MAIN_DASHBOARD_TAB_ID);
+  }, []);
 
   // ── Global Filters ──
-  // Requirement 4 — the dashboard opens on a single date-range preset
-  // ("Yesterday" by default) and Requirement 1 — the DIV-SPD Spoke Division
+  // Requirement 4 — the dashboard always opens on "This Month" by default
+  // on login/refresh/open, and Requirement 1 — the DIV-SPD Spoke Division
   // is the default active division instead of "All Divisions".
   const [dateRangePreset, setDateRangePreset] = useState<DateRangePreset>(
     () => cachedTab?.dateRangePreset ?? DEFAULT_DATE_RANGE_PRESET,

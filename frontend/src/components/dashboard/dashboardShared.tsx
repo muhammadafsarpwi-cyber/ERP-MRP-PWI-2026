@@ -86,8 +86,8 @@ export type DateRangePreset =
   | 'lastQuarter'
   | 'custom';
 
-/** Dashboard opens on "Yesterday" — the last complete production day. */
-export const DEFAULT_DATE_RANGE_PRESET: DateRangePreset = 'yesterday';
+/** Dashboard opens on "This Month" by default on login/refresh/open. */
+export const DEFAULT_DATE_RANGE_PRESET: DateRangePreset = 'thisMonth';
 
 export const DATE_RANGE_PRESET_OPTIONS: Array<{ value: DateRangePreset; label: string }> = [
   { value: 'today', label: 'Today' },

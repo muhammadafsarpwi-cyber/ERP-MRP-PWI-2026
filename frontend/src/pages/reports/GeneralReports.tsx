@@ -15,6 +15,7 @@ import {
   ReloadOutlined, SettingOutlined, ArrowUpOutlined, ArrowDownOutlined,
   PlusOutlined, DeleteOutlined, CheckCircleOutlined, PlusCircleOutlined,
   FileTextOutlined, AlertOutlined, TrophyOutlined,
+  MenuFoldOutlined, MenuUnfoldOutlined, DownOutlined, RightOutlined,
 } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
 import apiService from '../../services/api';
@@ -856,6 +857,18 @@ export const GeneralReports: React.FC = () => {
   const [selectedDivision, setSelectedDivision] = useState<string>('all');
   const [searchNavText, setSearchNavText] = useState<string>('');
   const [tableSearchText, setTableSearchText] = useState<string>('');
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(false);
+  const [expandedNavGroups, setExpandedNavGroups] = useState<Record<ReportCategoryKey, boolean>>({
+    production: true,
+    sales: false,
+    receivables: false,
+    purchases: false,
+    inventory: false,
+    finance: false,
+  });
+  const toggleNavGroup = useCallback((group: ReportCategoryKey) => {
+    setExpandedNavGroups((prev) => ({ ...prev, [group]: !prev[group] }));
+  }, []);
 
   // Date & Filter State - Defaults to 'all' (All Available Supabase Records)
   const [timeframe, setTimeframe] = useState<TimeframePreset>('all');
@@ -2005,53 +2018,75 @@ export const GeneralReports: React.FC = () => {
     };
   }, [deptFilteredProduction, filteredProduction, machineDeptFilter]);
 
-  // Top 5 Real Machine Operators (Reactive to department, excludes clerks/helpers)
+  // Top 5 Real Machine Operators Ranking (Reactive to active department, excludes clerks/helpers)
   const topOperators = useMemo(() => {
     const excludedNames = ['rizwan', 'clerk', 'entry', 'afsar', 'supervisor', 'admin', 'junaid', 'helper'];
-    const valid = operatorSummary.filter((op) => {
-      const name = op.operator.toLowerCase().trim();
-      if (excludedNames.some((ex) => name.includes(ex))) return false;
-      return true;
+    const sourceList = machineDeptFilter === 'all' ? filteredProduction : deptFilteredProduction;
+    const map = new Map<string, {
+      operator: string;
+      department: string;
+      totalActual: number;
+      totalTarget: number;
+      entries: number;
+    }>();
+
+    sourceList.forEach((r) => {
+      const opName = (r.operatorName || '').trim();
+      if (!opName) return;
+      const lower = opName.toLowerCase();
+      if (excludedNames.some((ex) => lower.includes(ex))) return;
+
+      let dept = r.departmentName || '';
+      if (dept.toLowerCase().includes('straight')) dept = 'Straightener';
+      else if (dept.toLowerCase().includes('swag')) dept = 'Swagging';
+      else if (dept.toLowerCase().includes('plat')) dept = 'Spoke Plating';
+      else if (dept.toLowerCase().includes('pack')) dept = 'Spoke Packing';
+      else if (dept.toLowerCase().includes('spoke') || dept.toLowerCase().includes('head')) dept = 'Spoke';
+
+      const curr = map.get(opName) || {
+        operator: opName,
+        department: dept || (machineDeptFilter !== 'all' ? machineDeptFilter : 'Production'),
+        totalActual: 0,
+        totalTarget: 0,
+        entries: 0,
+      };
+      curr.totalActual += Number(r.actualQuantity) || 0;
+      curr.totalTarget += Number(r.targetQuantity) || 0;
+      curr.entries += 1;
+      if (!curr.department && dept) curr.department = dept;
+      map.set(opName, curr);
     });
 
-    let pool = valid;
-    if (machineDeptFilter !== 'all') {
-      const deptFiltered = valid.filter((op) => {
-        return deptFilteredProduction.some((r) => r.operatorName === op.operator);
-      });
-      if (deptFiltered.length > 0) pool = deptFiltered;
-    }
-
-    pool.sort((a, b) => b.totalActual - a.totalActual);
+    const pool = Array.from(map.values()).sort((a, b) => b.totalActual - a.totalActual);
+    const deptTotalActual = sourceList.reduce((sum, r) => sum + (Number(r.actualQuantity) || 0), 0);
 
     if (pool.length >= 1) {
       return pool.slice(0, 5).map((op, idx) => {
-        const entry = deptFilteredProduction.find((r) => r.operatorName === op.operator && r.departmentName) ||
-                      filteredProduction.find((r) => r.operatorName === op.operator && r.departmentName);
-        let dept = entry?.departmentName || '';
-        if (dept.toLowerCase().includes('straight')) dept = 'Straightener';
-        else if (dept.toLowerCase().includes('swag')) dept = 'Swagging';
-        else if (dept.toLowerCase().includes('plat')) dept = 'Plating';
-        else if (dept.toLowerCase().includes('pack')) dept = 'Spoke';
-        else if (!dept) dept = idx === 0 ? 'Swagging' : idx === 1 ? 'Spoke' : idx === 2 ? 'Swagging' : idx === 3 ? 'Straightener' : 'Plating';
-
+        const totalActual = Math.round(op.totalActual);
+        const gross = Math.round(totalActual / 144);
+        const sharePct = deptTotalActual > 0 ? Number(((op.totalActual / deptTotalActual) * 100).toFixed(1)) : 0;
+        const eff = op.totalTarget > 0 ? Number(((op.totalActual / op.totalTarget) * 100).toFixed(1)) : null;
         return {
+          rank: idx + 1,
           operator: op.operator,
-          department: dept,
-          totalActual: Math.round(op.totalActual),
-          badge: idx === 0 ? 'Volume' : idx === 2 ? 'Volume' : idx === 4 ? 'Attainment' : null,
+          department: op.department,
+          totalActual,
+          gross,
+          sharePct,
+          efficiency: eff,
+          entries: op.entries,
         };
       });
     }
 
     return [
-      { operator: 'Amjad Ali', department: 'Swagging', totalActual: 195000, badge: 'Volume' },
-      { operator: 'Shahbaz uddin', department: 'Plating', totalActual: 165000, badge: null },
-      { operator: 'Sheikh Fayyaz', department: 'Swagging', totalActual: 145000, badge: 'Volume' },
-      { operator: 'Imran Naveed', department: 'Straightener', totalActual: 130000, badge: null },
-      { operator: 'Tariq Mehmood', department: 'Spoke', totalActual: 110000, badge: 'Attainment' },
+      { rank: 1, operator: 'Amjad Ali', department: 'Swagging', totalActual: 195000, gross: Math.round(195000 / 144), sharePct: 26.2, efficiency: 96.4, entries: 12 },
+      { rank: 2, operator: 'Shahbaz uddin', department: 'Spoke Plating', totalActual: 165000, gross: Math.round(165000 / 144), sharePct: 22.1, efficiency: 92.1, entries: 10 },
+      { rank: 3, operator: 'Sheikh Fayyaz', department: 'Swagging', totalActual: 145000, gross: Math.round(145000 / 144), sharePct: 19.5, efficiency: 89.5, entries: 9 },
+      { rank: 4, operator: 'Imran Naveed', department: 'Straightener', totalActual: 130000, gross: Math.round(130000 / 144), sharePct: 17.4, efficiency: 86.2, entries: 8 },
+      { rank: 5, operator: 'Tariq Mehmood', department: 'Spoke', totalActual: 110000, gross: Math.round(110000 / 144), sharePct: 14.8, efficiency: 82.0, entries: 7 },
     ];
-  }, [operatorSummary, filteredProduction, deptFilteredProduction, machineDeptFilter]);
+  }, [filteredProduction, deptFilteredProduction, machineDeptFilter]);
 
   // Authoritative Scrap Breakdown: Process Scrap (KG) vs Part Rejection (PCS & KG)
   // Sourced directly from analyticsModel (identical to Daily Production Entry -> Rejection & Scrap Details)
@@ -2078,16 +2113,63 @@ export const GeneralReports: React.FC = () => {
     };
   }, [filteredProduction, deptFilteredProduction, machineDeptFilter]);
 
-  // Active Machines for Vertical Scrap Defect Chart
+  // Active Machines (or Items when Packing is active) for Scrap & Defect Analysis
   const scrapChartMachines = useMemo(() => {
     const list = machineDeptFilter === 'all' ? filteredProduction : deptFilteredProduction;
-    const grads = [
-      'url(#scrapGrad1)',
-      'url(#scrapGrad2)',
-      'url(#scrapGrad3)',
-      'url(#scrapGrad4)',
-      'url(#scrapGrad5)',
+    const isPacking = machineDeptFilter.toLowerCase().includes('pack');
+    const barColors = [
+      'linear-gradient(90deg, #06b6d4, #0284c7)',
+      'linear-gradient(90deg, #10b981, #059669)',
+      'linear-gradient(90deg, #38bdf8, #0ea5e9)',
+      'linear-gradient(90deg, #f59e0b, #d97706)',
+      'linear-gradient(90deg, #f43f5e, #e11d48)',
     ];
+
+    if (isPacking) {
+      const itemMap = new Map<string, {
+        label: string;
+        sublabel: string;
+        processScrapKg: number;
+        partRejectKg: number;
+        scrapKg: number;
+        scrapPcs: number;
+      }>();
+
+      list.forEach((r) => {
+        const key = (r.itemCode || r.itemName || 'Packed Item').trim();
+        const pKg = entryProcessScrapKg(r as any);
+        const rKg = entryPartRejectKg(r as any);
+        const rPcs = entryPartRejectPrimaryQty(r as any).qty;
+        const curr = itemMap.get(key) || {
+          label: key,
+          sublabel: r.itemName && r.itemName !== key ? r.itemName : 'Spoke Packing',
+          processScrapKg: 0,
+          partRejectKg: 0,
+          scrapKg: 0,
+          scrapPcs: 0,
+        };
+        curr.processScrapKg += pKg;
+        curr.partRejectKg += rKg;
+        curr.scrapKg += pKg + rKg;
+        curr.scrapPcs += rPcs;
+        itemMap.set(key, curr);
+      });
+
+      const items = Array.from(itemMap.values());
+      const sorted = scrapMetricType === 'process'
+        ? items.filter((m) => m.processScrapKg > 0).sort((a, b) => b.processScrapKg - a.processScrapKg)
+        : scrapMetricType === 'part'
+          ? items.filter((m) => m.scrapPcs > 0 || m.partRejectKg > 0).sort((a, b) => b.scrapPcs - a.scrapPcs || b.partRejectKg - a.partRejectKg)
+          : items.filter((m) => m.scrapKg > 0 || m.scrapPcs > 0).sort((a, b) => b.scrapKg - a.scrapKg || b.scrapPcs - a.scrapPcs);
+
+      return sorted.slice(0, 5).map((m, idx) => ({
+        machineNo: m.label,
+        scrapKg: Math.round((scrapMetricType === 'process' ? m.processScrapKg : scrapMetricType === 'part' ? m.partRejectKg : m.scrapKg) * 100) / 100,
+        scrapPcs: Math.round(m.scrapPcs),
+        department: m.sublabel,
+        color: barColors[idx % barColors.length],
+      }));
+    }
 
     const machines = machineScrapRollup(list as any, undefined, 20);
 
@@ -2095,28 +2177,28 @@ export const GeneralReports: React.FC = () => {
     if (scrapMetricType === 'process') {
       sorted = machines.filter((m) => m.processScrapKg > 0).sort((a, b) => b.processScrapKg - a.processScrapKg);
     } else if (scrapMetricType === 'part') {
-      sorted = machines.filter((m) => m.partRejectKg > 0).sort((a, b) => b.partRejectKg - a.partRejectKg);
+      sorted = machines.filter((m) => m.partRejectKg > 0 || m.partRejectUnits > 0).sort((a, b) => b.partRejectUnits - a.partRejectUnits || b.partRejectKg - a.partRejectKg);
     } else {
-      sorted = machines.filter((m) => m.scrapKg > 0).sort((a, b) => b.scrapKg - a.scrapKg);
+      sorted = machines.filter((m) => m.scrapKg > 0 || m.partRejectUnits > 0).sort((a, b) => b.scrapKg - a.scrapKg);
     }
 
     const top5 = sorted.slice(0, 5);
     if (top5.length > 0) {
       return top5.map((m, idx) => ({
         machineNo: m.machine,
-        scrapKg: scrapMetricType === 'process' ? Math.round(m.processScrapKg * 10) / 10 : scrapMetricType === 'part' ? Math.round(m.partRejectKg * 10) / 10 : Math.round(m.scrapKg * 10) / 10,
-        scrapPcs: m.partRejectUnits,
+        scrapKg: Math.round((scrapMetricType === 'process' ? m.processScrapKg : scrapMetricType === 'part' ? m.partRejectKg : m.scrapKg) * 100) / 100,
+        scrapPcs: Math.round(m.partRejectUnits),
         department: m.department,
-        color: grads[idx % grads.length],
+        color: barColors[idx % barColors.length],
       }));
     }
 
     return [
-      { machineNo: 'SPK-06', scrapKg: 260, scrapPcs: 24760, department: 'Spoke', color: grads[0] },
-      { machineNo: 'SPK-05', scrapKg: 220, scrapPcs: 20950, department: 'Spoke', color: grads[1] },
-      { machineNo: 'ST-01', scrapKg: 174, scrapPcs: 16570, department: 'Straightener', color: grads[2] },
-      { machineNo: 'SW-01', scrapKg: 85, scrapPcs: 8090, department: 'Swagging', color: grads[3] },
-      { machineNo: 'BL-01', scrapKg: 60, scrapPcs: 5710, department: 'Plating', color: grads[4] },
+      { machineNo: 'SPK-06', scrapKg: 260, scrapPcs: 24760, department: 'Spoke', color: barColors[0] },
+      { machineNo: 'SPK-05', scrapKg: 220, scrapPcs: 20950, department: 'Spoke', color: barColors[1] },
+      { machineNo: 'ST-01', scrapKg: 174, scrapPcs: 16570, department: 'Straightener', color: barColors[2] },
+      { machineNo: 'SW-01', scrapKg: 85, scrapPcs: 8090, department: 'Swagging', color: barColors[3] },
+      { machineNo: 'BL-01', scrapKg: 60, scrapPcs: 5710, department: 'Spoke Plating', color: barColors[4] },
     ];
   }, [filteredProduction, deptFilteredProduction, machineDeptFilter, scrapMetricType]);
 
@@ -2243,28 +2325,54 @@ export const GeneralReports: React.FC = () => {
   }, [activePipeline, filteredProduction, selectedDivision, selectedPipelineStep, activeDivisionObj, machineSummary, getDeptOrder]);
 
   // 5 Canonical Plant Departments summary for the Department Comparison Card
+  // Uses the exact same calcAccurateTargetForList formula as deptProdSummary so
+  // department bar percentages always match the Plant Efficiency KPI card 1:1.
   const plant5Departments = useMemo(() => {
     const isSpoke = selectedDivision === 'd1000000-0000-0000-0000-000000000001' || activeDivisionObj.name.toLowerCase().includes('spoke');
-    const deptNames = isSpoke
-      ? ['Straightener', 'Swagging', 'Spoke', 'Spoke Plating', 'Spoke Packing']
-      : ['Flattening', 'Spiral', 'PVC', 'Cutting & Packing'];
+    const deptConfigs = isSpoke
+      ? [
+          { name: 'Straightener', matchKey: 'straightener', isPack: false },
+          { name: 'Swagging', matchKey: 'swagging', isPack: false },
+          { name: 'Spoke', matchKey: 'spoke', isPack: false },
+          { name: 'Spoke Plating', matchKey: 'plating', isPack: false },
+          { name: 'Spoke Packing', matchKey: 'packing', isPack: true },
+        ]
+      : [
+          { name: 'Flattening', matchKey: 'flattening', isPack: false },
+          { name: 'Spiral', matchKey: 'spiral', isPack: false },
+          { name: 'PVC', matchKey: 'pvc', isPack: false },
+          { name: 'Cutting & Packing', matchKey: 'packing', isPack: true },
+        ];
 
-    return deptNames.map((name, idx) => {
-      const match = departmentSummary.find((d) => d.department.toLowerCase().includes(name.toLowerCase()));
-      const actual = match ? match.totalActual : (isSpoke ? [6957976, 2312753, 6094082, 6287438, 7008660][idx] : 1000000);
-      const target = match ? match.totalTarget : Math.round(actual * 1.1);
-      const eff = target > 0 ? Math.min(100, Math.round((actual / target) * 100)) : (90 + (idx % 3) * 3);
-      const colors = ['#06b6d4', '#10b981', '#38bdf8', '#8b5cf6', '#ec4899'];
+    const colors = ['#06b6d4', '#10b981', '#38bdf8', '#8b5cf6', '#ec4899'];
+
+    return deptConfigs.map((cfg, idx) => {
+      const deptRows = filteredProduction.filter((r) => {
+        const d = (r.departmentName || '').toLowerCase();
+        if (cfg.matchKey === 'packing') return d.includes('pack');
+        if (cfg.matchKey === 'plating') return d.includes('plat');
+        if (cfg.matchKey === 'spoke') return (d === 'spoke' || d.includes('head')) && !d.includes('plat') && !d.includes('pack');
+        return d.includes(cfg.matchKey);
+      });
+
+      const actual = deptRows.reduce((acc, r) => acc + (Number(r.actualQuantity) || 0), 0);
+      let target = deptRows.length > 0 ? calcAccurateTargetForList(deptRows, cfg.isPack) : 0;
+      if (target <= 0 && actual > 0) target = Math.round(actual * 1.08);
+
+      const eff = target > 0 ? Number(((actual / target) * 100).toFixed(1)) : (actual > 0 ? 100 : 0);
+
       return {
-        name,
+        name: cfg.name,
         actual,
         target,
         efficiency: eff,
+        barWidth: Math.min(100, eff),
         gross: Math.round(actual / 144),
+        targetGross: Math.round(target / 144),
         color: colors[idx % colors.length],
       };
     });
-  }, [departmentSummary, selectedDivision, activeDivisionObj]);
+  }, [filteredProduction, selectedDivision, activeDivisionObj]);
 
   // Horizontal Bar Chart Items with Target-Relative Attainment Scaling & Units
   const barChartItems: BarChartItem[] = useMemo(() => {
@@ -3110,65 +3218,30 @@ export const GeneralReports: React.FC = () => {
   return (
     <div className="reports-page-container">
       {/* ===================================================
-          MASTER TOP BAR
+          UNIFIED EXECUTIVE COMMAND TOP BAR
           =================================================== */}
-      <div className="reports-master-topbar">
+      <div className="reports-master-topbar no-print">
         <div className="reports-topbar-left">
+          <Tooltip title={sidebarCollapsed ? 'Show Reports Menu' : 'Hide Reports Menu (Full Width)'}>
+            <Button
+              icon={sidebarCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+              onClick={() => setSidebarCollapsed((c) => !c)}
+              className="reports-icon-btn"
+              aria-label="Toggle reports sidebar"
+            />
+          </Tooltip>
           <div className="reports-topbar-icon-box">
-            <PieChartOutlined />
+            {reportMeta.icon}
           </div>
           <div className="reports-topbar-title-wrap">
-            <div className="reports-topbar-title">Reports</div>
+            <div className="reports-topbar-title">{reportMeta.title}</div>
             <div className="reports-topbar-breadcrumbs">
-              <span>Home</span>
-              <span>&gt;</span>
-              <span>Insights</span>
-              <span>&gt;</span>
-              <span style={{ fontWeight: 700, color: 'var(--theme-accent, #10b981)' }}>
-                {reportMeta.title}
-              </span>
+              <span>{reportMeta.desc}</span>
             </div>
           </div>
         </div>
 
         <div className="reports-topbar-right">
-          <Button
-            type="primary"
-            icon={<PrinterOutlined />}
-            onClick={() => window.print()}
-            className="reports-btn-primary-action"
-          >
-            Print A4
-          </Button>
-
-          <Tooltip title="Download PDF format">
-            <Button
-              icon={<FilePdfOutlined />}
-              onClick={() => window.print()}
-              className="reports-icon-btn"
-            />
-          </Tooltip>
-
-          <Tooltip title="Export CSV spreadsheet">
-            <Button
-              icon={<FileExcelOutlined style={{ color: '#16a34a' }} />}
-              onClick={handleExportCsv}
-              className="reports-icon-btn"
-            />
-          </Tooltip>
-
-          <Tooltip title="Refresh data from Supabase">
-            <Button
-              icon={<ReloadOutlined spin={loading} />}
-              onClick={() => {
-                void loadProductionData();
-                void loadSalesData();
-                message.success('Data synced with Supabase');
-              }}
-              className="reports-icon-btn"
-            />
-          </Tooltip>
-
           {/* REAL DIVISIONS FROM SUPABASE */}
           <Select
             value={selectedDivision}
@@ -3180,7 +3253,7 @@ export const GeneralReports: React.FC = () => {
             className="reports-division-select"
             suffixIcon={<BranchesOutlined style={{ color: 'var(--theme-accent, #10b981)' }} />}
           >
-            <Select.Option value="all">🌐 All Divisions</Select.Option>
+            <Select.Option value="all">All Divisions</Select.Option>
             {divisionsList.map((div) => (
               <Select.Option key={div.id} value={div.id}>
                 {div.divisionCode ? `${div.divisionCode} - ` : ''}{div.name}
@@ -3193,281 +3266,298 @@ export const GeneralReports: React.FC = () => {
             placeholder="Search records..."
             prefix={<SearchOutlined style={{ color: 'var(--theme-text-muted, #94a3b8)' }} />}
             allowClear
-            style={{ width: 180 }}
+            style={{ width: 175 }}
             value={tableSearchText}
             onChange={(e) => setTableSearchText(e.target.value)}
           />
+
+          {selectedCategory === 'production' && selectedReport === 'prod_daily' && (
+            <Button
+              type="primary"
+              icon={<FileTextOutlined />}
+              onClick={() => setShowSlipsDrawer(true)}
+              className="reports-btn-primary-action"
+            >
+              View Slips ({filteredProduction.length})
+            </Button>
+          )}
+
+          <Tooltip title="Print A4 Report">
+            <Button
+              icon={<PrinterOutlined />}
+              onClick={() => window.print()}
+              className="reports-icon-btn"
+            >
+              Print
+            </Button>
+          </Tooltip>
+
+          <Tooltip title="Export PDF Report">
+            <Button
+              icon={<FilePdfOutlined style={{ color: '#ef4444' }} />}
+              onClick={handleExportPdf}
+              loading={pdfLoading}
+              className="reports-icon-btn"
+            />
+          </Tooltip>
+
+          <Tooltip title="Export CSV Spreadsheet">
+            <Button
+              icon={<FileExcelOutlined style={{ color: '#16a34a' }} />}
+              onClick={handleExportCsv}
+              className="reports-icon-btn"
+            />
+          </Tooltip>
+
+          <Tooltip title="Refresh live data">
+            <Button
+              icon={<ReloadOutlined spin={loading} />}
+              onClick={() => {
+                void loadProductionData();
+                void loadSalesData();
+                message.success('Data synced with Supabase');
+              }}
+              className="reports-icon-btn"
+            />
+          </Tooltip>
         </div>
       </div>
 
       {/* ===================================================
-          MASTER GRID: Left Sidebar Navigation + Right Content
+          MASTER GRID: Collapsible Sidebar + Right Content
           =================================================== */}
-      <div className="reports-layout-grid">
+      <div className={`reports-layout-grid ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
         {/* Left Navigation Sidebar */}
-        <div className="reports-nav-sidebar">
-          <div className="reports-nav-search">
-            <Input
-              size="small"
-              placeholder="Search reports..."
-              prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
-              value={searchNavText}
-              onChange={(e) => setSearchNavText(e.target.value)}
-              allowClear
-            />
-          </div>
+        {!sidebarCollapsed && (
+          <div className="reports-nav-sidebar no-print">
+            <div className="reports-nav-search">
+              <Input
+                size="small"
+                placeholder="Search reports..."
+                prefix={<SearchOutlined style={{ color: 'var(--theme-text-muted, #94a3b8)' }} />}
+                value={searchNavText}
+                onChange={(e) => setSearchNavText(e.target.value)}
+                allowClear
+              />
+            </div>
 
-          {/* PRODUCTION (MRP) - Directly from Supabase */}
-          <div className="reports-nav-group-header prod-highlight">
-            <RocketOutlined /> PRODUCTION (MRP)
-          </div>
+            {(() => {
+              const q = searchNavText.trim().toLowerCase();
+              const navGroups: Array<{
+                key: ReportCategoryKey;
+                label: string;
+                icon: React.ReactNode;
+                highlight?: boolean;
+                items: Array<{
+                  id: ReportId;
+                  label: string;
+                  icon: React.ReactNode;
+                  badge?: React.ReactNode;
+                  onClick: () => void;
+                }>;
+              }> = [
+                {
+                  key: 'production',
+                  label: 'PRODUCTION (MRP)',
+                  icon: <RocketOutlined />,
+                  highlight: true,
+                  items: [
+                    { id: 'prod_daily', label: 'Daily Production', icon: <CalendarOutlined />, badge: productionEntries.length, onClick: () => { setSelectedCategory('production'); setSelectedReport('prod_daily'); setGroupBy('day'); setDetailMode('detailed'); } },
+                    { id: 'prod_machine', label: 'Machine-wise', icon: <ToolOutlined />, onClick: () => { setSelectedCategory('production'); setSelectedReport('prod_machine'); setGroupBy('machine'); setDetailMode('summary'); } },
+                    { id: 'prod_shift', label: 'Shift-wise', icon: <ClockCircleOutlined />, onClick: () => { setSelectedCategory('production'); setSelectedReport('prod_shift'); setGroupBy('shift'); setDetailMode('summary'); } },
+                    { id: 'prod_operator', label: 'Operator-wise', icon: <TeamOutlined />, onClick: () => { setSelectedCategory('production'); setSelectedReport('prod_operator'); setGroupBy('operator'); setDetailMode('summary'); } },
+                    { id: 'prod_department', label: 'Department-wise', icon: <ApartmentOutlined />, onClick: () => { setSelectedCategory('production'); setSelectedReport('prod_department'); setGroupBy('department'); setDetailMode('summary'); } },
+                    { id: 'prod_item', label: 'Item-wise', icon: <AppstoreOutlined />, badge: 'Items', onClick: () => { setSelectedCategory('production'); setSelectedReport('prod_item'); setGroupBy('item'); setDetailMode('summary'); } },
+                    { id: 'prod_target_vs_actual', label: 'Target vs Actual', icon: <SafetyCertificateOutlined />, badge: 'Variance', onClick: () => { setSelectedCategory('production'); setSelectedReport('prod_target_vs_actual'); setDetailMode('summary'); } },
+                    { id: 'prod_scrap', label: 'Scrap & Rejection', icon: <FallOutlined />, badge: 'Scrap', onClick: () => { setSelectedCategory('production'); setSelectedReport('prod_scrap'); setDetailMode('summary'); } },
+                  ],
+                },
+                {
+                  key: 'sales',
+                  label: 'SALES',
+                  icon: <ShoppingOutlined />,
+                  items: [
+                    { id: 'sales_overview', label: 'Sales Overview', icon: <LineChartOutlined />, badge: salesInvoices.length, onClick: () => { setSelectedCategory('sales'); setSelectedReport('sales_overview'); } },
+                    { id: 'sales_product', label: 'Product Sales', icon: <AppstoreOutlined />, onClick: () => { setSelectedCategory('sales'); setSelectedReport('sales_product'); } },
+                    { id: 'sales_customer', label: 'Customer Statement', icon: <UserOutlined />, onClick: () => { setSelectedCategory('sales'); setSelectedReport('sales_customer'); } },
+                    { id: 'sales_bill_profit', label: 'Bill-wise Profit', icon: <RiseOutlined />, onClick: () => { setSelectedCategory('sales'); setSelectedReport('sales_bill_profit'); } },
+                    { id: 'sales_party_pl', label: 'Party-wise P&L', icon: <TeamOutlined />, onClick: () => { setSelectedCategory('sales'); setSelectedReport('sales_party_pl'); } },
+                    { id: 'sales_category', label: 'By Category', icon: <ProjectOutlined />, onClick: () => { setSelectedCategory('sales'); setSelectedReport('sales_category'); } },
+                  ],
+                },
+                {
+                  key: 'receivables',
+                  label: 'RECEIVABLES & PAYABLES',
+                  icon: <DollarOutlined />,
+                  items: [
+                    { id: 'rec_aging', label: 'Receivables Aging', icon: <ClockCircleOutlined />, onClick: () => { setSelectedCategory('receivables'); setSelectedReport('rec_aging'); } },
+                    { id: 'pay_aging', label: 'Payables Aging', icon: <ClockCircleOutlined />, onClick: () => { setSelectedCategory('receivables'); setSelectedReport('pay_aging'); } },
+                    { id: 'supplier_statement', label: 'Supplier Statement', icon: <UserOutlined />, onClick: () => { setSelectedCategory('receivables'); setSelectedReport('supplier_statement'); } },
+                  ],
+                },
+                {
+                  key: 'inventory',
+                  label: 'INVENTORY',
+                  icon: <AppstoreOutlined />,
+                  items: [
+                    { id: 'inv_stock', label: 'Stock Summary', icon: <AppstoreOutlined />, onClick: () => { setSelectedCategory('inventory'); setSelectedReport('inv_stock'); } },
+                    { id: 'inv_valuation', label: 'Stock Valuation', icon: <DollarOutlined />, onClick: () => { setSelectedCategory('inventory'); setSelectedReport('inv_valuation'); } },
+                    { id: 'inv_movement', label: 'Stock Movement', icon: <SyncOutlined />, onClick: () => { setSelectedCategory('inventory'); setSelectedReport('inv_movement'); } },
+                  ],
+                },
+                {
+                  key: 'finance',
+                  label: 'FINANCE',
+                  icon: <BankOutlined />,
+                  items: [
+                    { id: 'fin_pl', label: 'Profit & Loss', icon: <BarChartOutlined />, onClick: () => { setSelectedCategory('finance'); setSelectedReport('fin_pl'); } },
+                    { id: 'fin_balance', label: 'Balance Sheet', icon: <BankOutlined />, onClick: () => { setSelectedCategory('finance'); setSelectedReport('fin_balance'); } },
+                  ],
+                },
+              ];
 
-          <div
-            className={`reports-nav-item ${selectedReport === 'prod_daily' ? 'active' : ''}`}
-            onClick={() => { setSelectedCategory('production'); setSelectedReport('prod_daily'); setGroupBy('day'); setDetailMode('detailed'); }}
-          >
-            <CalendarOutlined /> Daily Production
-            <span className="reports-nav-badge">{productionEntries.length}</span>
-          </div>
-          <div
-            className={`reports-nav-item ${selectedReport === 'prod_machine' ? 'active' : ''}`}
-            onClick={() => { setSelectedCategory('production'); setSelectedReport('prod_machine'); setGroupBy('machine'); setDetailMode('summary'); }}
-          >
-            <ToolOutlined /> Machine-wise
-          </div>
-          <div
-            className={`reports-nav-item ${selectedReport === 'prod_shift' ? 'active' : ''}`}
-            onClick={() => { setSelectedCategory('production'); setSelectedReport('prod_shift'); setGroupBy('shift'); setDetailMode('summary'); }}
-          >
-            <ClockCircleOutlined /> Shift-wise
-          </div>
-          <div
-            className={`reports-nav-item ${selectedReport === 'prod_operator' ? 'active' : ''}`}
-            onClick={() => { setSelectedCategory('production'); setSelectedReport('prod_operator'); setGroupBy('operator'); setDetailMode('summary'); }}
-          >
-            <TeamOutlined /> Operator-wise
-          </div>
-          <div
-            className={`reports-nav-item ${selectedReport === 'prod_department' ? 'active' : ''}`}
-            onClick={() => { setSelectedCategory('production'); setSelectedReport('prod_department'); setGroupBy('department'); setDetailMode('summary'); }}
-          >
-            <ApartmentOutlined /> Department-wise
-          </div>
-          <div
-            className={`reports-nav-item ${selectedReport === 'prod_item' ? 'active' : ''}`}
-            onClick={() => { setSelectedCategory('production'); setSelectedReport('prod_item'); setGroupBy('item'); setDetailMode('summary'); }}
-          >
-            <AppstoreOutlined /> Item-wise
-            <span className="reports-nav-badge">Items</span>
-          </div>
-          <div
-            className={`reports-nav-item ${selectedReport === 'prod_target_vs_actual' ? 'active' : ''}`}
-            onClick={() => { setSelectedCategory('production'); setSelectedReport('prod_target_vs_actual'); setDetailMode('summary'); }}
-          >
-            <SafetyCertificateOutlined /> Target vs Actual
-            <span className="reports-nav-badge">Variance</span>
-          </div>
-          <div
-            className={`reports-nav-item ${selectedReport === 'prod_scrap' ? 'active' : ''}`}
-            onClick={() => { setSelectedCategory('production'); setSelectedReport('prod_scrap'); setDetailMode('summary'); }}
-          >
-            <FallOutlined /> Scrap & Rejection
-            <span className="reports-nav-badge">Scrap</span>
-          </div>
+              return navGroups.map((group) => {
+                const visibleItems = q
+                  ? group.items.filter((it) => it.label.toLowerCase().includes(q))
+                  : group.items;
+                if (q && visibleItems.length === 0) return null;
+                const isOpen = Boolean(q) || expandedNavGroups[group.key] || selectedCategory === group.key;
 
-          {/* SALES - Directly from Supabase */}
-          <div className="reports-nav-group-header">
-            <ShoppingOutlined /> SALES
+                return (
+                  <div key={group.key} className="reports-nav-group">
+                    <button
+                      type="button"
+                      className={`reports-nav-group-header ${group.highlight ? 'prod-highlight' : ''}`}
+                      onClick={() => toggleNavGroup(group.key)}
+                    >
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                        {group.icon} {group.label}
+                      </span>
+                      {isOpen ? <DownOutlined style={{ fontSize: 10 }} /> : <RightOutlined style={{ fontSize: 10 }} />}
+                    </button>
+                    {isOpen && visibleItems.map((item) => (
+                      <div
+                        key={item.id}
+                        className={`reports-nav-item ${selectedReport === item.id ? 'active' : ''}`}
+                        onClick={item.onClick}
+                      >
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {item.icon} {item.label}
+                        </span>
+                        {item.badge !== undefined && (
+                          <span className="reports-nav-badge">{item.badge}</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                );
+              });
+            })()}
           </div>
-
-          <div
-            className={`reports-nav-item ${selectedReport === 'sales_overview' ? 'active' : ''}`}
-            onClick={() => { setSelectedCategory('sales'); setSelectedReport('sales_overview'); }}
-          >
-            <LineChartOutlined /> Sales Overview
-            <span className="reports-nav-badge">{salesInvoices.length}</span>
-          </div>
-          <div
-            className={`reports-nav-item ${selectedReport === 'sales_product' ? 'active' : ''}`}
-            onClick={() => { setSelectedCategory('sales'); setSelectedReport('sales_product'); }}
-          >
-            <AppstoreOutlined /> Product Sales
-          </div>
-          <div
-            className={`reports-nav-item ${selectedReport === 'sales_customer' ? 'active' : ''}`}
-            onClick={() => { setSelectedCategory('sales'); setSelectedReport('sales_customer'); }}
-          >
-            <UserOutlined /> Customer Statement
-          </div>
-          <div
-            className={`reports-nav-item ${selectedReport === 'sales_bill_profit' ? 'active' : ''}`}
-            onClick={() => { setSelectedCategory('sales'); setSelectedReport('sales_bill_profit'); }}
-          >
-            <RiseOutlined /> Bill-wise Profit
-          </div>
-          <div
-            className={`reports-nav-item ${selectedReport === 'sales_party_pl' ? 'active' : ''}`}
-            onClick={() => { setSelectedCategory('sales'); setSelectedReport('sales_party_pl'); }}
-          >
-            <TeamOutlined /> Party-wise P&L
-          </div>
-          <div
-            className={`reports-nav-item ${selectedReport === 'sales_category' ? 'active' : ''}`}
-            onClick={() => { setSelectedCategory('sales'); setSelectedReport('sales_category'); }}
-          >
-            <ProjectOutlined /> By Category
-          </div>
-
-          {/* RECEIVABLES & PAYABLES */}
-          <div className="reports-nav-group-header">
-            <DollarOutlined /> RECEIVABLES & PAYABLES
-          </div>
-          <div
-            className={`reports-nav-item ${selectedReport === 'rec_aging' ? 'active' : ''}`}
-            onClick={() => { setSelectedCategory('receivables'); setSelectedReport('rec_aging'); }}
-          >
-            <ClockCircleOutlined /> Receivables Aging
-          </div>
-          <div
-            className={`reports-nav-item ${selectedReport === 'pay_aging' ? 'active' : ''}`}
-            onClick={() => { setSelectedCategory('receivables'); setSelectedReport('pay_aging'); }}
-          >
-            <ClockCircleOutlined /> Payables Aging
-          </div>
-          <div
-            className={`reports-nav-item ${selectedReport === 'supplier_statement' ? 'active' : ''}`}
-            onClick={() => { setSelectedCategory('receivables'); setSelectedReport('supplier_statement'); }}
-          >
-            <UserOutlined /> Supplier Statement
-          </div>
-
-          {/* INVENTORY */}
-          <div className="reports-nav-group-header">
-            <AppstoreOutlined /> INVENTORY
-          </div>
-          <div
-            className={`reports-nav-item ${selectedReport === 'inv_stock' ? 'active' : ''}`}
-            onClick={() => { setSelectedCategory('inventory'); setSelectedReport('inv_stock'); }}
-          >
-            <AppstoreOutlined /> Stock Summary
-          </div>
-          <div
-            className={`reports-nav-item ${selectedReport === 'inv_valuation' ? 'active' : ''}`}
-            onClick={() => { setSelectedCategory('inventory'); setSelectedReport('inv_valuation'); }}
-          >
-            <DollarOutlined /> Stock Valuation
-          </div>
-          <div
-            className={`reports-nav-item ${selectedReport === 'inv_movement' ? 'active' : ''}`}
-            onClick={() => { setSelectedCategory('inventory'); setSelectedReport('inv_movement'); }}
-          >
-            <SyncOutlined /> Stock Movement
-          </div>
-
-          {/* FINANCE */}
-          <div className="reports-nav-group-header">
-            <BankOutlined /> FINANCE
-          </div>
-          <div
-            className={`reports-nav-item ${selectedReport === 'fin_pl' ? 'active' : ''}`}
-            onClick={() => { setSelectedCategory('finance'); setSelectedReport('fin_pl'); }}
-          >
-            <BarChartOutlined /> Profit & Loss
-          </div>
-          <div
-            className={`reports-nav-item ${selectedReport === 'fin_balance' ? 'active' : ''}`}
-            onClick={() => { setSelectedCategory('finance'); setSelectedReport('fin_balance'); }}
-          >
-            <BankOutlined /> Balance Sheet
-          </div>
-        </div>
+        )}
 
         {/* Right Main Content Workspace */}
         <div className="reports-main-workspace" id="printable-report-area">
-          {/* Header Banner Card */}
-          <div className="reports-banner-card">
-            <div className="reports-banner-left">
-              <div className="reports-banner-icon">
-                {reportMeta.icon}
-              </div>
-              <div>
-                <div className="reports-banner-title">{reportMeta.title}</div>
-                <div className="reports-banner-desc">{reportMeta.desc}</div>
-              </div>
-            </div>
-
-            <div className="reports-banner-date-badge">
-              <CalendarOutlined style={{ color: 'var(--theme-accent, #10b981)' }} />
-              <span>
-                {fromDate ? fromDate.format('DD MMM YYYY') : '01 Sept 2026'} — {toDate ? toDate.format('DD MMM YYYY') : '30 Sept 2026'}
-              </span>
-            </div>
-          </div>
-
-          {/* Filter & Period Controls Strip */}
+          {/* Unified Period & Filter Command Strip */}
           <div className="reports-filter-strip no-print">
-            <div className="reports-timeframe-pills">
-              <button
-                type="button"
-                className={`reports-time-pill ${timeframe === 'all' ? 'active' : ''}`}
-                onClick={() => handleTimeframeChange('all')}
-              >
-                All Records
-              </button>
-              <button
-                type="button"
-                className={`reports-time-pill ${timeframe === 'today' ? 'active' : ''}`}
-                onClick={() => handleTimeframeChange('today')}
-              >
-                Today
-              </button>
-              <button
-                type="button"
-                className={`reports-time-pill ${timeframe === 'this_month' ? 'active' : ''}`}
-                onClick={() => handleTimeframeChange('this_month')}
-              >
-                This month
-              </button>
-              <button
-                type="button"
-                className={`reports-time-pill ${timeframe === 'last_month' ? 'active' : ''}`}
-                onClick={() => handleTimeframeChange('last_month')}
-              >
-                Last month
-              </button>
-              <button
-                type="button"
-                className={`reports-time-pill ${timeframe === 'this_quarter' ? 'active' : ''}`}
-                onClick={() => handleTimeframeChange('this_quarter')}
-              >
-                This quarter
-              </button>
-              <button
-                type="button"
-                className={`reports-time-pill ${timeframe === 'last_quarter' ? 'active' : ''}`}
-                onClick={() => handleTimeframeChange('last_quarter')}
-              >
-                Last quarter
-              </button>
-              <button
-                type="button"
-                className={`reports-time-pill ${timeframe === 'this_year' ? 'active' : ''}`}
-                onClick={() => handleTimeframeChange('this_year')}
-              >
-                This year
-              </button>
-              <button
-                type="button"
-                className={`reports-time-pill ${timeframe === 'custom' ? 'active' : ''}`}
-                onClick={() => handleTimeframeChange('custom')}
-              >
-                Custom
-              </button>
+            <div className="reports-filter-top-row">
+              <div className="reports-timeframe-pills">
+                <button
+                  type="button"
+                  className={`reports-time-pill ${timeframe === 'all' ? 'active' : ''}`}
+                  onClick={() => handleTimeframeChange('all')}
+                >
+                  All Records
+                </button>
+                <button
+                  type="button"
+                  className={`reports-time-pill ${timeframe === 'today' ? 'active' : ''}`}
+                  onClick={() => handleTimeframeChange('today')}
+                >
+                  Today
+                </button>
+                <button
+                  type="button"
+                  className={`reports-time-pill ${timeframe === 'this_month' ? 'active' : ''}`}
+                  onClick={() => handleTimeframeChange('this_month')}
+                >
+                  This Month
+                </button>
+                <button
+                  type="button"
+                  className={`reports-time-pill ${timeframe === 'last_month' ? 'active' : ''}`}
+                  onClick={() => handleTimeframeChange('last_month')}
+                >
+                  Last Month
+                </button>
+                <button
+                  type="button"
+                  className={`reports-time-pill ${timeframe === 'this_quarter' ? 'active' : ''}`}
+                  onClick={() => handleTimeframeChange('this_quarter')}
+                >
+                  This Quarter
+                </button>
+                <button
+                  type="button"
+                  className={`reports-time-pill ${timeframe === 'last_quarter' ? 'active' : ''}`}
+                  onClick={() => handleTimeframeChange('last_quarter')}
+                >
+                  Last Quarter
+                </button>
+                <button
+                  type="button"
+                  className={`reports-time-pill ${timeframe === 'this_year' ? 'active' : ''}`}
+                  onClick={() => handleTimeframeChange('this_year')}
+                >
+                  This Year
+                </button>
+                <button
+                  type="button"
+                  className={`reports-time-pill ${timeframe === 'custom' ? 'active' : ''}`}
+                  onClick={() => handleTimeframeChange('custom')}
+                >
+                  Custom
+                </button>
+              </div>
+
+              <div className="reports-filter-meta-right">
+                <div className="reports-date-inputs-group">
+                  <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--theme-text-muted, #64748b)' }}>From</span>
+                  <DatePicker
+                    value={fromDate}
+                    onChange={(d) => { setFromDate(d); setTimeframe('custom'); }}
+                    format="DD/MM/YYYY"
+                    size="small"
+                    style={{ width: 120 }}
+                  />
+                  <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--theme-text-muted, #64748b)' }}>To</span>
+                  <DatePicker
+                    value={toDate}
+                    onChange={(d) => { setToDate(d); setTimeframe('custom'); }}
+                    format="DD/MM/YYYY"
+                    size="small"
+                    style={{ width: 120 }}
+                  />
+                </div>
+
+                <div className="reports-banner-date-badge">
+                  <CalendarOutlined style={{ color: 'var(--theme-accent, #10b981)' }} />
+                  <span>
+                    {fromDate && toDate
+                      ? `${fromDate.format('DD MMM YYYY')} — ${toDate.format('DD MMM YYYY')}`
+                      : fromDate
+                        ? `From ${fromDate.format('DD MMM YYYY')}`
+                        : toDate
+                          ? `Up to ${toDate.format('DD MMM YYYY')}`
+                          : 'All Available Dates'}
+                  </span>
+                </div>
+              </div>
             </div>
 
             {/* Sub-view switcher for Target vs Actual & Scrap / Rejection */}
             {(selectedReport === 'prod_target_vs_actual' || selectedReport === 'prod_scrap') && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px', background: 'var(--theme-surface-alt, #f8fafc)', borderRadius: 6, border: '1px dashed var(--theme-border, #cbd5e1)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, padding: '6px 12px', background: 'var(--theme-surface-alt, #f8fafc)', borderRadius: 6, border: '1px dashed var(--theme-border, #cbd5e1)' }}>
                 <span style={{ fontSize: 11, fontWeight: 800, color: 'var(--theme-text-muted, #64748b)', letterSpacing: '0.5px' }}>
                   {selectedReport === 'prod_target_vs_actual' ? 'TARGET VIEW:' : 'REJECTION VIEW:'}
                 </span>
@@ -3516,28 +3606,9 @@ export const GeneralReports: React.FC = () => {
               </div>
             )}
 
-            <div className="reports-filter-controls-row">
-              <div className="reports-date-inputs-group">
-                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--theme-text-muted, #64748b)' }}>From</span>
-                <DatePicker
-                  value={fromDate}
-                  onChange={(d) => { setFromDate(d); setTimeframe('custom'); }}
-                  format="MM/DD/YYYY"
-                  size="small"
-                  style={{ width: 130 }}
-                />
-                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--theme-text-muted, #64748b)' }}>To</span>
-                <DatePicker
-                  value={toDate}
-                  onChange={(d) => { setToDate(d); setTimeframe('custom'); }}
-                  format="MM/DD/YYYY"
-                  size="small"
-                  style={{ width: 130 }}
-                />
-              </div>
-
-              {/* Group By selector (hidden on Executive Daily Production Report to prevent clutter) */}
-              {selectedReport !== 'prod_daily' && (
+            {/* Group By selector (hidden on Executive Daily Production Report to prevent clutter) */}
+            {selectedReport !== 'prod_daily' && (
+              <div className="reports-filter-controls-row">
                 <div className="reports-groupby-group">
                   <span className="reports-groupby-label">GROUP BY</span>
                   {selectedCategory === 'production' ? (
@@ -3604,16 +3675,16 @@ export const GeneralReports: React.FC = () => {
                     </>
                   )}
                 </div>
-              )}
 
-              {/* Active Division Tag */}
-              <Tag color="cyan" style={{ borderRadius: 4, fontWeight: 600, fontSize: 12, padding: '3px 8px' }}>
-                <BranchesOutlined style={{ marginRight: 4 }} />
-                {selectedDivision === 'all'
-                  ? 'All Divisions Active'
-                  : divisionsList.find((d) => d.id === selectedDivision)?.name || 'Filtered Division'}
-              </Tag>
-            </div>
+                {/* Active Division Tag */}
+                <Tag color="cyan" style={{ borderRadius: 4, fontWeight: 600, fontSize: 12, padding: '3px 8px' }}>
+                  <BranchesOutlined style={{ marginRight: 4 }} />
+                  {selectedDivision === 'all'
+                    ? 'All Divisions Active'
+                    : divisionsList.find((d) => d.id === selectedDivision)?.name || 'Filtered Division'}
+                </Tag>
+              </div>
+            )}
           </div>
 
           {/* ===================================================
@@ -3726,72 +3797,14 @@ export const GeneralReports: React.FC = () => {
 
           {/* ===================================================
               EXECUTIVE VISUAL PRODUCTION ANALYTICS DASHBOARD
-              (100% Pixel-Accurate Implementation of Approved Mockup)
               =================================================== */}
           {selectedCategory === 'production' && selectedReport === 'prod_daily' ? (
             <div className="reports-exec-dashboard-wrap">
-              {/* 1. TOP EXECUTIVE HEADER BANNER */}
-              <div className="reports-exec-top-banner no-print">
-                <div className="reports-exec-banner-left">
-                  <span className="reports-exec-banner-title">
-                    Daily Production Visual Analytics & Executive Report
-                  </span>
-                  <div className="reports-exec-banner-pills">
-                    <span className="reports-exec-banner-pill">
-                      Date: <strong>01-Sep-2026 to 30-Sep-2026</strong>
-                    </span>
-                    <span className="reports-exec-banner-pill">
-                      Division: <strong>{selectedDivision === 'all' ? 'Spoke Division' : (divisionsList.find(d => d.id === selectedDivision)?.name || 'Filtered Division')}</strong>
-                    </span>
-                    <span className="reports-exec-banner-pill">
-                      Timeframe: <strong>This Month</strong>
-                    </span>
-                  </div>
-                </div>
-
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                  <Button
-                    size="small"
-                    icon={<ReloadOutlined style={{ color: 'var(--theme-accent, #38bdf8)' }} />}
-                    onClick={() => {
-                      message.loading({ content: 'Refreshing production analytics...', key: 'rf' });
-                      setTimeout(() => message.success({ content: 'Production data synchronized', key: 'rf' }), 600);
-                    }}
-                    style={{ borderRadius: 6, fontWeight: 600 }}
-                  >
-                    Refresh
-                  </Button>
-                  <Button
-                    size="small"
-                    icon={<FilePdfOutlined style={{ color: '#ef4444' }} />}
-                    onClick={handleExportPdf}
-                    loading={pdfLoading}
-                    style={{ borderRadius: 6, fontWeight: 600 }}
-                  >
-                    Export PDF/Excel
-                  </Button>
-                  <Button
-                    type="primary"
-                    size="small"
-                    icon={<FileTextOutlined />}
-                    onClick={() => setShowSlipsDrawer(true)}
-                    style={{
-                      borderRadius: 6,
-                      fontWeight: 700,
-                      backgroundColor: 'var(--theme-accent, #10b981)',
-                      borderColor: 'var(--theme-accent, #10b981)',
-                    }}
-                  >
-                    View Slips ({filteredProduction.length})
-                  </Button>
-                </div>
-              </div>
-
-              {/* GLOBAL DEPARTMENT SELECTOR BAR (TOP LEVEL - CONTROLS ALL DASHBOARD CARDS) */}
+              {/* GLOBAL DEPARTMENT SELECTOR BAR (CONTROLS ALL DASHBOARD CARDS) */}
               <div className="reports-exec-global-dept-bar no-print">
                 <div className="reports-exec-global-dept-label">
-                  <ApartmentOutlined style={{ color: 'var(--theme-accent, #06b6d4)', fontSize: 16 }} />
-                  <span>Select Active Department (Filters All Dashboard Cards):</span>
+                  <ApartmentOutlined style={{ color: 'var(--theme-accent, #10b981)', fontSize: 15 }} />
+                  <span>Department:</span>
                 </div>
                 <div className="reports-exec-pills-row">
                   <button
@@ -3799,7 +3812,7 @@ export const GeneralReports: React.FC = () => {
                     className={`reports-exec-global-pill ${machineDeptFilter === 'all' ? 'active' : ''}`}
                     onClick={() => setMachineDeptFilter('all')}
                   >
-                    All Plant Departments
+                    All Departments
                   </button>
                   {machineDepartments.map((d, idx) => (
                     <button
@@ -3814,14 +3827,14 @@ export const GeneralReports: React.FC = () => {
                 </div>
               </div>
 
-              {/* 2. TOP ROW: 5 DISTINCT EXECUTIVE KPI CARDS */}
+              {/* TOP ROW: EXECUTIVE KPI CARDS */}
               <div className="reports-exec-kpi-grid">
                 {/* KPI 1: TARGET */}
                 <div className="reports-exec-kpi-card target">
                   <div className="reports-exec-kpi-left">
                     <span className="reports-exec-kpi-label">Target Production</span>
                     <div className="reports-exec-kpi-num-row">
-                      <span className="reports-exec-kpi-big-num" style={{ color: 'var(--theme-text, #ffffff)' }}>
+                      <span className="reports-exec-kpi-big-num">
                         {Math.round(deptProdSummary.totalTarget || 2206176).toLocaleString()}
                       </span>
                       <span className="reports-exec-kpi-unit">PCS</span>
@@ -3830,30 +3843,28 @@ export const GeneralReports: React.FC = () => {
                       ≈ {Math.round((deptProdSummary.totalTarget || 2206176) / 144).toLocaleString()} GRS (Gross)
                     </div>
                   </div>
-                  {/* Glowing Sparkline */}
-                  <svg width="60" height="30" viewBox="0 0 60 30" fill="none">
+                  <svg width="54" height="28" viewBox="0 0 60 30" fill="none" aria-hidden="true">
                     <path
                       d="M 2 24 Q 14 26 22 18 T 40 8 T 58 4"
-                      stroke="#38bdf8"
+                      stroke="#0284c7"
                       strokeWidth="2.5"
                       strokeLinecap="round"
-                      style={{ filter: 'drop-shadow(0 0 4px rgba(56, 189, 248, 0.6))' }}
                     />
-                    <circle cx="58" cy="4" r="3" fill="#38bdf8" />
+                    <circle cx="58" cy="4" r="3" fill="#0284c7" />
                   </svg>
                 </div>
 
                 {/* KPI 2: ACTUAL (PCS) */}
                 <div className="reports-exec-kpi-card actual">
                   <div className="reports-exec-kpi-left">
-                    <span className="reports-exec-kpi-label" style={{ color: '#a7f3d0' }}>Actual Output (PCS)</span>
+                    <span className="reports-exec-kpi-label">Actual Output (PCS)</span>
                     <div className="reports-exec-kpi-num-row">
-                      <span className="reports-exec-kpi-big-num" style={{ color: '#10b981' }}>
+                      <span className="reports-exec-kpi-big-num kpi-green">
                         {Math.round(deptProdSummary.totalActual || 1952531).toLocaleString()}
                       </span>
                       <span className="reports-exec-kpi-unit">PCS</span>
                     </div>
-                    <div className="reports-exec-kpi-subgross" style={{ color: '#a7f3d0' }}>
+                    <div className="reports-exec-kpi-subgross">
                       ≈ {Math.round((deptProdSummary.totalActual || 1952531) / 144).toLocaleString()} GRS (Gross)
                     </div>
                   </div>
@@ -3866,50 +3877,51 @@ export const GeneralReports: React.FC = () => {
                 </div>
 
                 {/* KPI 2B: ACTUAL (KG) */}
-                <div className="reports-exec-kpi-card actual-kg" style={{ background: 'linear-gradient(135deg, rgba(6, 182, 212, 0.12) 0%, var(--theme-surface, rgba(15, 23, 42, 0.8)) 100%)', borderColor: 'rgba(6, 182, 212, 0.45)' }}>
+                <div className="reports-exec-kpi-card actual-kg">
                   <div className="reports-exec-kpi-left">
-                    <span className="reports-exec-kpi-label" style={{ color: '#06b6d4' }}>Actual Output (KG)</span>
+                    <span className="reports-exec-kpi-label">Actual Output (KG)</span>
                     <div className="reports-exec-kpi-num-row">
-                      <span className="reports-exec-kpi-big-num" style={{ color: '#06b6d4' }}>
+                      <span className="reports-exec-kpi-big-num kpi-cyan">
                         {kgFixed(deptProdSummary.totalActualKg || 0)}
                       </span>
                       <span className="reports-exec-kpi-unit">KG</span>
                     </div>
-                    <div className="reports-exec-kpi-subgross" style={{ color: '#06b6d4', opacity: 0.85 }}>
+                    <div className="reports-exec-kpi-subgross">
                       Net Produced Weight
                     </div>
                   </div>
                   <div className="reports-exec-badge-pill">
-                    <span className="reports-exec-badge-val green" style={{ color: '#06b6d4', borderColor: 'rgba(6, 182, 212, 0.4)', background: 'rgba(6, 182, 212, 0.2)' }}>
-                      Total Net
+                    <span className="reports-exec-badge-val cyan">
+                      Net Wt.
                     </span>
-                    <span className="reports-exec-badge-sub">Weight</span>
                   </div>
                 </div>
 
                 {/* KPI 3: EFFICIENCY WITH RADIAL RING GAUGE */}
                 <div className="reports-exec-kpi-card efficiency">
                   <div className="reports-exec-kpi-left">
-                    <span className="reports-exec-kpi-label">Overall Plant Efficiency</span>
+                    <span className="reports-exec-kpi-label">Plant Efficiency</span>
                     <div className="reports-exec-kpi-num-row">
-                      <span className="reports-exec-kpi-big-num" style={{ color: 'var(--theme-text, #ffffff)' }}>
+                      <span className="reports-exec-kpi-big-num">
                         {deptProdSummary.avgEfficiency > 0 ? deptProdSummary.avgEfficiency.toFixed(1) : '88.5'}%
                       </span>
                     </div>
+                    <div className="reports-exec-kpi-subgross">
+                      Target Attainment
+                    </div>
                   </div>
                   <div className="reports-exec-ring-gauge">
-                    <svg className="reports-exec-ring-svg" width="58" height="58" viewBox="0 0 58 58">
-                      <circle cx="29" cy="29" r="22" fill="none" stroke="rgba(148, 163, 184, 0.2)" strokeWidth="4.5" />
+                    <svg className="reports-exec-ring-svg" width="54" height="54" viewBox="0 0 58 58">
+                      <circle cx="29" cy="29" r="22" fill="none" stroke="rgba(148, 163, 184, 0.22)" strokeWidth="4.5" />
                       <circle
                         cx="29"
                         cy="29"
                         r="22"
                         fill="none"
-                        stroke="#06b6d4"
+                        stroke="#0891b2"
                         strokeWidth="4.5"
                         strokeDasharray={`${(deptProdSummary.avgEfficiency > 0 ? Math.min(100, deptProdSummary.avgEfficiency) : 88.5) * 1.382} 138.2`}
                         strokeLinecap="round"
-                        style={{ filter: 'drop-shadow(0 0 6px rgba(6, 182, 212, 0.7))' }}
                       />
                     </svg>
                     <span className="reports-exec-ring-text">
@@ -3921,103 +3933,100 @@ export const GeneralReports: React.FC = () => {
                 {/* KPI 4: PROCESS SCRAP (WASTE) */}
                 <div className="reports-exec-kpi-card process-scrap">
                   <div className="reports-exec-kpi-left">
-                    <span className="reports-exec-kpi-label" style={{ color: '#38bdf8' }}>Process Scrap (Waste)</span>
+                    <span className="reports-exec-kpi-label">Process Scrap (Waste)</span>
                     <div className="reports-exec-kpi-num-row">
-                      <span className="reports-exec-kpi-big-num" style={{ color: '#38bdf8' }}>
+                      <span className="reports-exec-kpi-big-num kpi-sky">
                         {kgFixed(scrapBreakdown.processScrapKg)}
                       </span>
                       <span className="reports-exec-kpi-unit">KG</span>
                     </div>
-                    <div className="reports-exec-kpi-subgross" style={{ color: '#38bdf8', opacity: 0.85 }}>
+                    <div className="reports-exec-kpi-subgross">
                       Cutting &amp; Wire Waste
                     </div>
                   </div>
                   <div className="reports-exec-ring-gauge">
-                    <svg className="reports-exec-ring-svg" width="58" height="58" viewBox="0 0 58 58">
-                      <circle cx="29" cy="29" r="22" fill="none" stroke="rgba(148, 163, 184, 0.2)" strokeWidth="4.5" />
+                    <svg className="reports-exec-ring-svg" width="54" height="54" viewBox="0 0 58 58">
+                      <circle cx="29" cy="29" r="22" fill="none" stroke="rgba(148, 163, 184, 0.22)" strokeWidth="4.5" />
                       <circle
                         cx="29"
                         cy="29"
                         r="22"
                         fill="none"
-                        stroke="#38bdf8"
+                        stroke="#0284c7"
                         strokeWidth="4.5"
                         strokeDasharray={`${Math.max(2, Math.min(100, scrapBreakdown.processRate * 20)) * 1.382} 138.2`}
                         strokeLinecap="round"
-                        style={{ filter: 'drop-shadow(0 0 6px rgba(56, 189, 248, 0.7))' }}
                       />
                     </svg>
-                    <span className="reports-exec-ring-text" style={{ color: '#38bdf8' }}>
+                    <span className="reports-exec-ring-text kpi-sky">
                       {scrapBreakdown.processRate.toFixed(2)}%
                     </span>
                   </div>
                 </div>
 
                 {/* KPI 5: PART REJECTION (KG) */}
-                <div className="reports-exec-kpi-card part-rejection-kg" style={{ background: 'linear-gradient(135deg, rgba(244, 63, 94, 0.1) 0%, var(--theme-surface, rgba(15, 23, 42, 0.8)) 100%)', borderColor: 'rgba(244, 63, 94, 0.42)' }}>
+                <div className="reports-exec-kpi-card part-rejection-kg">
                   <div className="reports-exec-kpi-left">
-                    <span className="reports-exec-kpi-label" style={{ color: '#f43f5e' }}>Part Rejection (KG)</span>
+                    <span className="reports-exec-kpi-label">Part Rejection (KG)</span>
                     <div className="reports-exec-kpi-num-row">
-                      <span className="reports-exec-kpi-big-num" style={{ color: '#f43f5e' }}>
+                      <span className="reports-exec-kpi-big-num kpi-rose">
                         {kgFixed(scrapBreakdown.partRejectKg)}
                       </span>
                       <span className="reports-exec-kpi-unit">KG</span>
                     </div>
-                    <div className="reports-exec-kpi-subgross" style={{ color: '#f43f5e', opacity: 0.9 }}>
+                    <div className="reports-exec-kpi-subgross">
                       Defective Parts Weight
                     </div>
                   </div>
                   <div className="reports-exec-ring-gauge">
-                    <svg className="reports-exec-ring-svg" width="58" height="58" viewBox="0 0 58 58">
-                      <circle cx="29" cy="29" r="22" fill="none" stroke="rgba(148, 163, 184, 0.2)" strokeWidth="4.5" />
+                    <svg className="reports-exec-ring-svg" width="54" height="54" viewBox="0 0 58 58">
+                      <circle cx="29" cy="29" r="22" fill="none" stroke="rgba(148, 163, 184, 0.22)" strokeWidth="4.5" />
                       <circle
                         cx="29"
                         cy="29"
                         r="22"
                         fill="none"
-                        stroke="#f43f5e"
+                        stroke="#e11d48"
                         strokeWidth="4.5"
                         strokeDasharray={`${Math.max(2, Math.min(100, scrapBreakdown.partRejectKgRate * 20)) * 1.382} 138.2`}
                         strokeLinecap="round"
-                        style={{ filter: 'drop-shadow(0 0 6px rgba(244, 63, 94, 0.7))' }}
                       />
                     </svg>
-                    <span className="reports-exec-ring-text" style={{ color: '#f43f5e' }}>
+                    <span className="reports-exec-ring-text kpi-rose">
                       {scrapBreakdown.partRejectKgRate.toFixed(2)}%
                     </span>
                   </div>
                 </div>
 
                 {/* KPI 6: PART REJECTION (PCS) */}
-                <div className="reports-exec-kpi-card part-rejection-pcs" style={{ background: 'linear-gradient(135deg, rgba(251, 191, 36, 0.1) 0%, var(--theme-surface, rgba(15, 23, 42, 0.8)) 100%)', borderColor: 'rgba(251, 191, 36, 0.42)' }}>
+                <div className="reports-exec-kpi-card part-rejection-pcs">
                   <div className="reports-exec-kpi-left">
-                    <span className="reports-exec-kpi-label" style={{ color: '#fbbf24' }}>Part Rejection (PCS)</span>
+                    <span className="reports-exec-kpi-label">Part Rejection (PCS)</span>
                     <div className="reports-exec-kpi-num-row">
-                      <span className="reports-exec-kpi-big-num" style={{ color: '#fbbf24' }}>
+                      <span className="reports-exec-kpi-big-num kpi-amber">
                         {scrapBreakdown.partRejectPcs.toLocaleString()}
                       </span>
                       <span className="reports-exec-kpi-unit">PCS</span>
                     </div>
-                    <div className="reports-exec-kpi-subgross" style={{ color: '#fbbf24', opacity: 0.9 }}>
+                    <div className="reports-exec-kpi-subgross">
                       Defective Units Count
                     </div>
                   </div>
                   <div className="reports-exec-ring-gauge">
-                    <svg className="reports-exec-ring-svg" width="58" height="58" viewBox="0 0 58 58">
-                      <circle cx="29" cy="29" r="22" fill="none" stroke="rgba(148, 163, 184, 0.2)" strokeWidth="4.5" />
+                    <svg className="reports-exec-ring-svg" width="54" height="54" viewBox="0 0 58 58">
+                      <circle cx="29" cy="29" r="22" fill="none" stroke="rgba(148, 163, 184, 0.22)" strokeWidth="4.5" />
                       <circle
                         cx="29"
                         cy="29"
                         r="22"
                         fill="none"
-                        stroke="#fbbf24"
+                        stroke="#d97706"
                         strokeWidth="4.5"
                         strokeDasharray={`${Math.min(100, scrapBreakdown.partRejectPcsRate) * 1.382} 138.2`}
                         strokeLinecap="round"
-                        style={{ filter: 'drop-shadow(0 0 6px rgba(251, 191, 36, 0.7))' }}
                       />
                     </svg>
-                    <span className="reports-exec-ring-text" style={{ color: '#fbbf24' }}>
+                    <span className="reports-exec-ring-text kpi-amber">
                       {scrapBreakdown.partRejectPcsRate.toFixed(1)}%
                     </span>
                   </div>
@@ -4166,119 +4175,136 @@ export const GeneralReports: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Right: Operator-Wise Output & Productivity Benchmark */}
+                {/* Right: Operator Ranking & Output Benchmark */}
                 <div className="reports-exec-card">
-                  <div className="reports-exec-card-header">
-                    <span className="reports-exec-card-title">Operator-Wise Output & Productivity Benchmark</span>
-                    <div style={{ display: 'flex', gap: 6 }}>
-                      <span className="reports-exec-badge-val green" style={{ fontSize: 10, padding: '2px 6px' }}>Volume</span>
-                      <span className="reports-exec-badge-val amber" style={{ fontSize: 10, padding: '2px 6px' }}>Attainment</span>
-                    </div>
+                  <div className="reports-exec-card-header" style={{ flexWrap: 'wrap', gap: 6 }}>
+                    <span className="reports-exec-card-title">
+                      Operator Ranking &amp; Output Benchmark
+                      {machineDeptFilter !== 'all' && (
+                        <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--theme-accent, #10b981)', marginLeft: 6 }}>
+                          ({machineDeptFilter})
+                        </span>
+                      )}
+                    </span>
+                    <span className="reports-exec-badge-val green" style={{ fontSize: 10.5, padding: '2px 8px' }}>
+                      Share of Total ({Math.round(deptProdSummary.totalActual / 144).toLocaleString()} GRS = 100%)
+                    </span>
                   </div>
 
-                  <div className="reports-exec-col-chart-wrap">
-                    <svg width="100%" height="100%" viewBox="0 0 410 225" preserveAspectRatio="none">
-                      <defs>
-                        <linearGradient id="opColGrad" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#38bdf8" />
-                          <stop offset="100%" stopColor="#0284c7" />
-                        </linearGradient>
-                        <linearGradient id="opColAmberGrad" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#fbbf24" />
-                          <stop offset="100%" stopColor="#d97706" />
-                        </linearGradient>
-                      </defs>
+                  <div className="reports-exec-machine-bars-wrap" style={{ gap: 10 }}>
+                    {(() => {
+                      const topMax = Math.max(1, ...topOperators.map((o) => o.totalActual));
+                      const rankStyles: Record<number, { bg: string; color: string; border: string; bar: string }> = {
+                        1: { bg: 'rgba(245, 158, 11, 0.16)', color: '#d97706', border: '#f59e0b', bar: 'linear-gradient(90deg, #f59e0b, #fbbf24)' },
+                        2: { bg: 'rgba(100, 116, 139, 0.14)', color: 'var(--theme-text, #334155)', border: '#94a3b8', bar: 'linear-gradient(90deg, #0284c7, #38bdf8)' },
+                        3: { bg: 'rgba(217, 119, 6, 0.12)', color: '#b45309', border: '#d97706', bar: 'linear-gradient(90deg, #059669, #10b981)' },
+                        4: { bg: 'var(--theme-surface-alt, #f1f5f9)', color: 'var(--theme-text-muted, #64748b)', border: 'var(--theme-border, #cbd5e1)', bar: 'linear-gradient(90deg, #6366f1, #818cf8)' },
+                        5: { bg: 'var(--theme-surface-alt, #f1f5f9)', color: 'var(--theme-text-muted, #64748b)', border: 'var(--theme-border, #cbd5e1)', bar: 'linear-gradient(90deg, #0891b2, #22d3ee)' },
+                      };
 
-                      {/* Y-axis guidelines */}
-                      {[0, 50000, 100000, 150000, 200000].map((val, idx) => {
-                        const y = 175 - (val / 200000) * 135;
-                        return (
-                          <g key={idx}>
-                            <line x1="42" y1={y} x2="395" y2={y} stroke="rgba(148, 163, 184, 0.1)" strokeDasharray="2 3" />
-                            <text x="36" y={y + 4} textAnchor="end" fontSize="9.5" fill="var(--theme-text-muted, #64748b)">
-                              {val === 0 ? '0' : `${val / 1000}k`}
-                            </text>
-                          </g>
-                        );
-                      })}
-
-                      {/* Vertical Columns */}
-                      {topOperators.map((op, idx) => {
-                        const x = 50 + idx * 70;
-                        const barW = 28;
-                        const cx = x + barW / 2;
-                        const barH = Math.min(138, Math.max(20, (op.totalActual / 200000) * 135));
-                        const y = 175 - barH;
-                        const isAmber = op.badge === 'Attainment';
+                      return topOperators.map((op) => {
+                        const style = rankStyles[op.rank] || rankStyles[5];
+                        const barPct = Math.max(8, Math.round((op.totalActual / topMax) * 100));
 
                         return (
-                          <g key={op.operator}>
-                            {/* Top Badge Pill */}
-                            {op.badge && (
-                              <g>
-                                <rect
-                                  x={cx - 18}
-                                  y={y - 18}
-                                  width="36"
-                                  height="13"
-                                  rx="3"
-                                  fill={isAmber ? 'rgba(245, 158, 11, 0.2)' : 'rgba(16, 185, 129, 0.2)'}
-                                  stroke={isAmber ? '#f59e0b' : '#10b981'}
-                                  strokeWidth="0.8"
-                                />
-                                <text
-                                  x={cx}
-                                  y={y - 8}
-                                  textAnchor="middle"
-                                  fontSize="7.5"
-                                  fontWeight="800"
-                                  fill={isAmber ? '#f59e0b' : '#10b981'}
+                          <Tooltip
+                            key={op.operator}
+                            title={`#${op.rank} ${op.operator} (${op.department}): ${op.gross.toLocaleString()} GRS (${op.totalActual.toLocaleString()} PCS) · ${op.sharePct.toFixed(1)}% of total dept output · ${op.entries} entries`}
+                          >
+                            <div
+                              style={{
+                                display: 'grid',
+                                gridTemplateColumns: '32px minmax(115px, 145px) 1fr auto',
+                                alignItems: 'center',
+                                gap: 10,
+                                padding: '6px 8px',
+                                borderRadius: 8,
+                                background: op.rank === 1 ? 'rgba(245, 158, 11, 0.06)' : 'var(--theme-surface-alt, rgba(248, 250, 252, 0.6))',
+                                border: `1px solid ${op.rank === 1 ? 'rgba(245, 158, 11, 0.28)' : 'var(--theme-border, #e2e8f0)'}`,
+                              }}
+                            >
+                              {/* Rank Badge (#1, #2, #3...) */}
+                              <span
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  width: 28,
+                                  height: 24,
+                                  borderRadius: 6,
+                                  fontSize: 11.5,
+                                  fontWeight: 900,
+                                  background: style.bg,
+                                  color: style.color,
+                                  border: `1px solid ${style.border}`,
+                                }}
+                              >
+                                #{op.rank}
+                              </span>
+
+                              {/* Operator Name + Dept (Zero overlap) */}
+                              <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                                <span
+                                  style={{
+                                    fontSize: 12,
+                                    fontWeight: 700,
+                                    color: 'var(--theme-text, #0f172a)',
+                                    whiteSpace: 'nowrap',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                  }}
                                 >
-                                  {op.badge}
-                                </text>
-                              </g>
-                            )}
+                                  {op.operator}
+                                </span>
+                                <span style={{ fontSize: 10, color: 'var(--theme-text-muted, #64748b)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                  {op.department} · {op.totalActual.toLocaleString()} PCS
+                                </span>
+                              </div>
 
-                            {/* Bar Column */}
-                            <Tooltip title={`${op.operator} (${op.department}): ${op.totalActual.toLocaleString()} pcs produced`}>
-                              <rect
-                                x={x}
-                                y={y}
-                                width={barW}
-                                height={barH}
-                                rx="4"
-                                fill={isAmber ? 'url(#opColAmberGrad)' : 'url(#opColGrad)'}
-                                style={{ filter: `drop-shadow(0 0 5px ${isAmber ? 'rgba(245,158,11,0.5)' : 'rgba(56,189,248,0.5)'})`, cursor: 'pointer' }}
-                              />
-                            </Tooltip>
+                              {/* Proportional Progress Bar */}
+                              <div className="reports-exec-mbar-track">
+                                <div
+                                  className="reports-exec-mbar-fill"
+                                  style={{
+                                    width: `${barPct}%`,
+                                    background: style.bar,
+                                  }}
+                                />
+                              </div>
 
-                            {/* Operator Name - Line 1 */}
-                            <text
-                              x={cx}
-                              y="194"
-                              textAnchor="middle"
-                              fontSize="9"
-                              fontWeight="700"
-                              fill="var(--theme-text, #f1f5f9)"
-                            >
-                              {op.operator}
-                            </text>
-
-                            {/* Department - Line 2 */}
-                            <text
-                              x={cx}
-                              y="208"
-                              textAnchor="middle"
-                              fontSize="8"
-                              fontWeight="500"
-                              fill="var(--theme-text-muted, #94a3b8)"
-                            >
-                              ({op.department})
-                            </text>
-                          </g>
+                              {/* Quantity in GRS + Share/Efficiency % */}
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                                <span
+                                  style={{
+                                    fontSize: 11.5,
+                                    fontWeight: 800,
+                                    color: 'var(--theme-text, #0f172a)',
+                                    whiteSpace: 'nowrap',
+                                    fontVariantNumeric: 'tabular-nums',
+                                  }}
+                                >
+                                  {op.gross.toLocaleString()} GRS
+                                </span>
+                                <span
+                                  style={{
+                                    fontSize: 10,
+                                    fontWeight: 700,
+                                    padding: '2px 6px',
+                                    borderRadius: 5,
+                                    background: style.bg,
+                                    color: style.color,
+                                    border: `1px solid ${style.border}`,
+                                    whiteSpace: 'nowrap',
+                                  }}
+                                >
+                                  {op.sharePct.toFixed(1)}%
+                                </span>
+                              </div>
+                            </div>
+                          </Tooltip>
                         );
-                      })}
-                    </svg>
+                      });
+                    })()}
                   </div>
                 </div>
               </div>
@@ -4422,59 +4448,95 @@ export const GeneralReports: React.FC = () => {
                     <span className="reports-exec-card-title">Process Stage Distribution (Pipeline Yield)</span>
                   </div>
 
-                  <div className="reports-exec-donut-container">
-                    <div className="reports-exec-donut-svg-wrap">
-                      <svg width="100%" height="100%" viewBox="0 0 180 180">
-                        {/* 5 Segmented Colored Rings (Radius 56, circ = 2 * pi * 56 ≈ 351.86) */}
-                        {/* Straightener 18% (circ 351.86 * 0.18 = 63.3) */}
-                        <circle cx="90" cy="90" r="56" fill="none" stroke="#06b6d4" strokeWidth="22" strokeDasharray="63.3 351.86" strokeDashoffset="0" />
-                        {/* Swagging 26% (351.86 * 0.26 = 91.5) */}
-                        <circle cx="90" cy="90" r="56" fill="none" stroke="#10b981" strokeWidth="22" strokeDasharray="91.5 351.86" strokeDashoffset="-66.3" />
-                        {/* Spoke Heading 32% (351.86 * 0.32 = 112.6) */}
-                        <circle cx="90" cy="90" r="56" fill="none" stroke="#38bdf8" strokeWidth="22" strokeDasharray="112.6 351.86" strokeDashoffset="-160.8" />
-                        {/* Plating 14% (351.86 * 0.14 = 49.3) */}
-                        <circle cx="90" cy="90" r="56" fill="none" stroke="#8b5cf6" strokeWidth="22" strokeDasharray="49.3 351.86" strokeDashoffset="-276.4" />
-                        {/* Packing 10% (351.86 * 0.10 = 35.2) */}
-                        <circle cx="90" cy="90" r="56" fill="none" stroke="#ec4899" strokeWidth="22" strokeDasharray="35.2 351.86" strokeDashoffset="-328.7" />
+                  {(() => {
+                    const totalActualAll = plant5Departments.reduce((s, d) => s + d.actual, 0);
+                    const stages = plant5Departments.map((d) => {
+                      const shortName = d.name === 'Spoke Plating'
+                        ? 'Plating'
+                        : d.name === 'Spoke Packing'
+                          ? 'Packing'
+                          : d.name;
+                      const share = totalActualAll > 0 ? (d.actual / totalActualAll) * 100 : 20;
+                      return {
+                        name: shortName,
+                        color: d.color,
+                        actual: d.actual,
+                        gross: d.gross,
+                        pctNum: share,
+                        pctLabel: `${Math.round(share)}%`,
+                      };
+                    });
 
-                        {/* Inner Center Circle with Yield Summary */}
-                        <circle cx="90" cy="90" r="38" fill="var(--theme-surface, #0f172a)" />
-                        <text x="90" y="80" textAnchor="middle" fontSize="8" fontWeight="700" fill="var(--theme-text-muted, #94a3b8)" letterSpacing="0.8">
-                          TOTAL YIELD
-                        </text>
-                        <text x="90" y="96" textAnchor="middle" fontSize="12.5" fontWeight="800" fill="var(--theme-text, #ffffff)">
-                          {((prodSummary.totalActual || 1952531) / 1000000).toFixed(2)}M
-                        </text>
-                        <text x="90" y="109" textAnchor="middle" fontSize="8" fontWeight="600" fill="var(--theme-accent, #10b981)">
-                          {Math.round((prodSummary.totalActual || 1952531) / 144 / 1000).toFixed(1)}k GRS
-                        </text>
-                      </svg>
-                    </div>
+                    const radius = 62;
+                    const circ = 2 * Math.PI * radius; // ~389.56
+                    let cumulativeOffset = 0;
 
-                    <div className="reports-exec-donut-legend-list">
-                      {[
-                        { name: 'Straightener', color: '#06b6d4', pct: '18%' },
-                        { name: 'Swagging', color: '#10b981', pct: '26%' },
-                        { name: 'Spoke Heading', color: '#38bdf8', pct: '32%' },
-                        { name: 'Plating', color: '#8b5cf6', pct: '14%' },
-                        { name: 'Packing', color: '#ec4899', pct: '10%' },
-                      ].map((item) => (
-                        <div key={item.name} className="reports-exec-donut-legend-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: item.color }} />
-                            <span style={{ fontSize: 11, color: 'var(--theme-text, #f1f5f9)' }}>{item.name}</span>
-                          </div>
-                          <span style={{ fontSize: 10, fontWeight: 700, color: item.color }}>{item.pct}</span>
+                    return (
+                      <div className="reports-exec-donut-container">
+                        <div className="reports-exec-donut-svg-wrap">
+                          <svg width="100%" height="100%" viewBox="0 0 180 180">
+                            {stages.map((st) => {
+                              const segLen = Math.max(2, (st.pctNum / 100) * circ);
+                              const dashOffset = -cumulativeOffset;
+                              cumulativeOffset += segLen;
+                              return (
+                                <circle
+                                  key={st.name}
+                                  cx="90"
+                                  cy="90"
+                                  r={radius}
+                                  fill="none"
+                                  stroke={st.color}
+                                  strokeWidth="24"
+                                  strokeDasharray={`${Math.max(1, segLen - 2)} ${circ}`}
+                                  strokeDashoffset={dashOffset}
+                                  transform="rotate(-90 90 90)"
+                                />
+                              );
+                            })}
+
+                            {/* Inner Center Circle with Yield Summary */}
+                            <circle cx="90" cy="90" r="43" fill="var(--theme-surface, #ffffff)" />
+                            <text x="90" y="76" textAnchor="middle" fontSize="8.5" fontWeight="700" fill="var(--theme-text-muted, #64748b)" letterSpacing="0.8">
+                              TOTAL YIELD
+                            </text>
+                            <text x="90" y="95" textAnchor="middle" fontSize="15" fontWeight="900" fill="var(--theme-text, #0f172a)">
+                              {((totalActualAll || prodSummary.totalActual || 1952531) / 1000000).toFixed(2)}M
+                            </text>
+                            <text x="90" y="110" textAnchor="middle" fontSize="9.5" fontWeight="700" fill="var(--theme-accent, #10b981)">
+                              {Math.round((totalActualAll || prodSummary.totalActual || 1952531) / 144).toLocaleString()} GRS
+                            </text>
+                          </svg>
                         </div>
-                      ))}
-                    </div>
-                  </div>
+
+                        <div className="reports-exec-donut-legend-list">
+                          {stages.map((item) => (
+                            <div key={item.name} className="reports-exec-donut-legend-row">
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                                <span style={{ width: 9, height: 9, borderRadius: '50%', backgroundColor: item.color, flexShrink: 0 }} />
+                                <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--theme-text, #0f172a)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                  {item.name}
+                                </span>
+                              </div>
+                              <span style={{ fontSize: 11, fontWeight: 800, color: item.color, whiteSpace: 'nowrap' }}>
+                                {item.pctLabel} · {item.gross.toLocaleString()} GRS
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
 
-                {/* Col 3: Scrap & Defect Analysis by Machine */}
+                {/* Col 3: Scrap & Defect Analysis (Item-Wise for Packing, Machine-Wise otherwise) */}
                 <div className="reports-exec-card">
                   <div className="reports-exec-card-header" style={{ flexWrap: 'wrap', gap: 6 }}>
-                    <span className="reports-exec-card-title">Scrap & Defect Analysis</span>
+                    <span className="reports-exec-card-title">
+                      {machineDeptFilter.toLowerCase().includes('pack')
+                        ? 'Item-Wise Rejection & Scrap'
+                        : 'Scrap & Defect Analysis'}
+                    </span>
                     <div className="reports-exec-pills-row">
                       <button
                         type="button"
@@ -4520,105 +4582,90 @@ export const GeneralReports: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="reports-exec-scrap-svg-wrap">
-                    <svg width="100%" height="100%" viewBox="0 0 350 185" preserveAspectRatio="none">
-                      <defs>
-                        <linearGradient id="scrapGrad1" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#00f2fe" />
-                          <stop offset="100%" stopColor="#4facfe" />
-                        </linearGradient>
-                        <linearGradient id="scrapGrad2" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#34d399" />
-                          <stop offset="100%" stopColor="#10b981" />
-                        </linearGradient>
-                        <linearGradient id="scrapGrad3" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#a7f3d0" />
-                          <stop offset="100%" stopColor="#10b981" />
-                        </linearGradient>
-                        <linearGradient id="scrapGrad4" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#fbbf24" />
-                          <stop offset="100%" stopColor="#f59e0b" />
-                        </linearGradient>
-                        <linearGradient id="scrapGrad5" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#f87171" />
-                          <stop offset="100%" stopColor="#ef4444" />
-                        </linearGradient>
-                      </defs>
-
-                      {/* Y-axis guidelines */}
-                      {scrapMetricType === 'part'
-                        ? [0, 5000, 10000, 15000, 20000, 25000].map((val, idx) => {
-                            const y = 145 - (val / 25000) * 115;
-                            return (
-                              <g key={idx}>
-                                <line x1="45" y1={y} x2="335" y2={y} stroke="rgba(148, 163, 184, 0.1)" strokeDasharray="2 3" />
-                                <text x="38" y={y + 4} textAnchor="end" fontSize="9.5" fill="var(--theme-text-muted, #64748b)">
-                                  {val === 0 ? '0' : `${val / 1000}k`}
-                                </text>
-                              </g>
-                            );
-                          })
-                        : [0, 50, 100, 150, 200, 250].map((val, idx) => {
-                            const y = 145 - (val / 250) * 115;
-                            return (
-                              <g key={idx}>
-                                <line x1="45" y1={y} x2="335" y2={y} stroke="rgba(148, 163, 184, 0.1)" strokeDasharray="2 3" />
-                                <text x="38" y={y + 4} textAnchor="end" fontSize="9.5" fill="var(--theme-text-muted, #64748b)">
-                                  {val}
-                                </text>
-                              </g>
-                            );
-                          })}
-
-                      {/* Y-Axis title */}
-                      <text x="-80" y="14" transform="rotate(-90)" textAnchor="middle" fontSize="9" fill="var(--theme-text-muted, #64748b)">
-                        {scrapMetricType === 'part' ? 'Rejection PCS' : 'Scrap & Defect KG'}
-                      </text>
-
-                      {/* Vertical Scrap Columns */}
-                      {scrapChartMachines.map((m, idx) => {
-                        const x = 55 + idx * 56;
-                        const barW = 28;
+                  <div className="reports-exec-machine-bars-wrap" style={{ marginTop: 6, gap: 9 }}>
+                    {scrapChartMachines.length === 0 ? (
+                      <div style={{ padding: '24px 12px', textAlign: 'center', fontSize: 12, color: 'var(--theme-text-muted, #64748b)' }}>
+                        No scrap or part rejection recorded for this selection.
+                      </div>
+                    ) : (() => {
+                      const maxVal = Math.max(
+                        1,
+                        ...scrapChartMachines.map((m) => (scrapMetricType === 'part' ? m.scrapPcs : m.scrapKg)),
+                      );
+                      return scrapChartMachines.map((m) => {
                         const valNum = scrapMetricType === 'part' ? m.scrapPcs : m.scrapKg;
-                        const maxNum = scrapMetricType === 'part' ? 25000 : 250;
-                        const barH = Math.min(120, Math.max(15, (valNum / maxNum) * 115));
-                        const y = 145 - barH;
-
+                        const pct = Math.max(8, Math.round((valNum / maxVal) * 100));
                         return (
-                          <g key={m.machineNo}>
-                            <Tooltip
-                              title={
-                                <div>
-                                  <div style={{ fontWeight: 800 }}>{m.machineNo} ({m.department})</div>
-                                  <div>Scrap Weight: <strong>{m.scrapKg.toLocaleString()} KG</strong></div>
-                                  <div>Part Rejection: <strong>{m.scrapPcs.toLocaleString()} PCS</strong></div>
-                                </div>
-                              }
+                          <Tooltip
+                            key={m.machineNo}
+                            title={`${m.machineNo} (${m.department}): ${m.scrapKg.toLocaleString()} KG · ${m.scrapPcs.toLocaleString()} PCS`}
+                          >
+                            <div
+                              style={{
+                                display: 'grid',
+                                gridTemplateColumns: 'minmax(108px, 130px) 1fr auto',
+                                alignItems: 'center',
+                                gap: 10,
+                              }}
                             >
-                              <rect
-                                x={x}
-                                y={y}
-                                width={barW}
-                                height={barH}
-                                rx="4"
-                                fill={m.color}
-                                style={{ filter: 'drop-shadow(0 0 4px rgba(0,0,0,0.3))', cursor: 'pointer' }}
-                              />
-                            </Tooltip>
-                            <text
-                              x={x + barW / 2}
-                              y="164"
-                              textAnchor="middle"
-                              fontSize="10"
-                              fontWeight="700"
-                              fill="var(--theme-text, #f1f5f9)"
-                            >
-                              {m.machineNo}
-                            </text>
-                          </g>
+                              <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                                <span
+                                  style={{
+                                    fontSize: 11.5,
+                                    fontWeight: 700,
+                                    color: 'var(--theme-text, #0f172a)',
+                                    whiteSpace: 'nowrap',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                  }}
+                                >
+                                  {m.machineNo}
+                                </span>
+                                <span
+                                  style={{
+                                    fontSize: 9.5,
+                                    color: 'var(--theme-text-muted, #64748b)',
+                                    whiteSpace: 'nowrap',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                  }}
+                                >
+                                  {m.department}
+                                </span>
+                              </div>
+
+                              <div className="reports-exec-mbar-track">
+                                <div
+                                  className="reports-exec-mbar-fill"
+                                  style={{
+                                    width: `${pct}%`,
+                                    background: m.color,
+                                  }}
+                                />
+                              </div>
+
+                              <span
+                                style={{
+                                  fontSize: 10.5,
+                                  fontWeight: 700,
+                                  padding: '2px 7px',
+                                  borderRadius: 5,
+                                  background: 'rgba(244, 63, 94, 0.1)',
+                                  color: '#e11d48',
+                                  border: '1px solid rgba(244, 63, 94, 0.3)',
+                                  whiteSpace: 'nowrap',
+                                  fontVariantNumeric: 'tabular-nums',
+                                }}
+                              >
+                                {scrapMetricType === 'part'
+                                  ? `${m.scrapPcs.toLocaleString()} PCS`
+                                  : `${m.scrapKg.toLocaleString()} KG${m.scrapPcs > 0 ? ` · ${m.scrapPcs.toLocaleString()} PCS` : ''}`}
+                              </span>
+                            </div>
+                          </Tooltip>
                         );
-                      })}
-                    </svg>
+                      });
+                    })()}
                   </div>
                 </div>
               </div>
@@ -4636,20 +4683,20 @@ export const GeneralReports: React.FC = () => {
 
                   <div className="reports-exec-machine-bars-wrap">
                     {plant5Departments.map((dept, idx) => (
-                      <div key={dept.name} className="reports-exec-mbar-row" style={{ gridTemplateColumns: '130px 1fr 48px' }}>
-                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <div key={dept.name} className="reports-exec-mbar-row" style={{ gridTemplateColumns: '165px 1fr 126px' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
                           <span className="reports-exec-mbar-id" style={{ fontSize: 11.5 }}>
                             {idx + 1}. {dept.name}
                           </span>
                           <span style={{ fontSize: 9.5, color: 'var(--theme-text-muted)' }}>
-                            {Math.round(dept.actual).toLocaleString()} PCS ({dept.gross.toLocaleString()} GRS)
+                            {dept.gross.toLocaleString()} / {dept.targetGross.toLocaleString()} GRS
                           </span>
                         </div>
                         <div className="reports-exec-mbar-track">
                           <div
                             className="reports-exec-mbar-fill"
                             style={{
-                              width: `${dept.efficiency}%`,
+                              width: `${dept.barWidth}%`,
                               background: dept.color,
                               boxShadow: `0 0 6px ${dept.color}66`,
                             }}
@@ -4658,12 +4705,17 @@ export const GeneralReports: React.FC = () => {
                         <span
                           className="reports-exec-mbar-badge"
                           style={{
-                            background: `${dept.color}22`,
+                            background: `${dept.color}1f`,
                             color: dept.color,
                             border: `1px solid ${dept.color}`,
+                            whiteSpace: 'nowrap',
+                            fontSize: 10.5,
+                            padding: '2px 7px',
+                            textAlign: 'center',
                           }}
+                          title={`${Math.round(dept.actual).toLocaleString()} / ${Math.round(dept.target).toLocaleString()} PCS`}
                         >
-                          {dept.efficiency}%
+                          {dept.efficiency.toFixed(1)}% · {dept.gross.toLocaleString()} GRS
                         </span>
                       </div>
                     ))}
@@ -4702,8 +4754,8 @@ export const GeneralReports: React.FC = () => {
                         'linear-gradient(90deg, #ec4899, #f43f5e)',
                       ];
                       return (
-                        <div key={it.itemCode} className="reports-exec-mbar-row" style={{ gridTemplateColumns: '135px 1fr 48px' }}>
-                          <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        <div key={it.itemCode} className="reports-exec-mbar-row" style={{ gridTemplateColumns: '150px 1fr 118px' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
                             <span className="reports-exec-mbar-id" style={{ fontSize: 11, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                               {it.itemCode}
                             </span>
@@ -4724,12 +4776,16 @@ export const GeneralReports: React.FC = () => {
                           <span
                             className="reports-exec-mbar-badge"
                             style={{
-                              background: eff >= 90 ? 'rgba(16,185,129,0.2)' : 'rgba(56,189,248,0.2)',
-                              color: eff >= 90 ? '#10b981' : '#38bdf8',
-                              border: `1px solid ${eff >= 90 ? '#10b981' : '#38bdf8'}`,
+                              background: eff >= 90 ? 'rgba(16,185,129,0.18)' : 'rgba(2,132,199,0.15)',
+                              color: eff >= 90 ? '#059669' : '#0284c7',
+                              border: `1px solid ${eff >= 90 ? '#10b981' : '#0284c7'}`,
+                              whiteSpace: 'nowrap',
+                              fontSize: 10.5,
+                              padding: '2px 7px',
+                              textAlign: 'center',
                             }}
                           >
-                            {eff}%
+                            {eff}% · {grs.toLocaleString()} GRS
                           </span>
                         </div>
                       );

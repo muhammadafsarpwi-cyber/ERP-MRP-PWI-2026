@@ -1157,6 +1157,22 @@ const ItemManagement: React.FC = () => {
   // the filters separately used to overwrite that snapshot with a different
   // shape, which restored rows that did not belong to the restored filters.
 
+  const flatCategories = useMemo(() => {
+    const seen = new Set<string>();
+    const out: SimpleOption[] = [];
+    const walk = (nodes: CategoryOption[]) => {
+      nodes?.forEach((n) => {
+        if (n && n.id && !seen.has(n.id)) {
+          seen.add(n.id);
+          out.push({ id: n.id, name: n.name });
+        }
+        if (n?.children?.length) walk(n.children);
+      });
+    };
+    walk(categories || []);
+    return out;
+  }, [categories]);
+
   // Active Filter Chips
   const chips = useMemo(() => {
     const result: Array<{ key: string; label: string; value: string }> = [];
@@ -1165,13 +1181,16 @@ const ItemManagement: React.FC = () => {
       result.push({ key: 'division', label: 'Division', value: d ? (d.divisionCode ? `[${d.divisionCode}] ${d.name}` : d.name) : fDivision });
     }
     if (fCategory) {
-      result.push({ key: 'category', label: 'Category', value: fCategory });
+      const c = flatCategories.find((x) => x.id === fCategory || x.name === fCategory);
+      result.push({ key: 'category', label: 'Category', value: c ? c.name : fCategory });
     }
     if (fSection) {
-      result.push({ key: 'section', label: 'Section', value: fSection });
+      const s = sections.find((x) => x.id === fSection || x.name === fSection);
+      result.push({ key: 'section', label: 'Section', value: s ? s.name : fSection });
     }
     if (fDepartment) {
-      result.push({ key: 'department', label: 'Department', value: fDepartment });
+      const dep = departments.find((x) => x.id === fDepartment || x.name === fDepartment);
+      result.push({ key: 'department', label: 'Department', value: dep ? dep.name : fDepartment });
     }
     if (fRouteType) {
       const rt = routeTypes.find((x) => x.id === fRouteType || x.routeCode === fRouteType || x.name === fRouteType);
@@ -1184,7 +1203,7 @@ const ItemManagement: React.FC = () => {
       result.push({ key: 'roleUsage', label: 'Role', value: fRoleUsage });
     }
     return result;
-  }, [fDivision, fCategory, fSection, fDepartment, fRouteType, fStatus, fRoleUsage, divisions, routeTypes]);
+  }, [fDivision, fCategory, fSection, fDepartment, fRouteType, fStatus, fRoleUsage, divisions, flatCategories, sections, departments, routeTypes]);
 
   const onRemoveChip = (key: string) => {
     if (key === 'division') {
@@ -1212,22 +1231,6 @@ const ItemManagement: React.FC = () => {
     () => [fDivision, fSection, fDepartment, fCategory, fItemType, fRoleUsage, fRouteType, fStatus].filter(Boolean).length,
     [fDivision, fSection, fDepartment, fCategory, fItemType, fRoleUsage, fRouteType, fStatus],
   );
-
-  const flatCategories = useMemo(() => {
-    const seen = new Set<string>();
-    const out: SimpleOption[] = [];
-    const walk = (nodes: CategoryOption[]) => {
-      nodes?.forEach((n) => {
-        if (n && n.id && !seen.has(n.id)) {
-          seen.add(n.id);
-          out.push({ id: n.id, name: n.name });
-        }
-        if (n?.children?.length) walk(n.children);
-      });
-    };
-    walk(categories || []);
-    return out;
-  }, [categories]);
 
   const toUnique = useCallback(
     <T extends { id?: string }>(list: T[], getLabel: (item: T) => React.ReactNode, getValue?: (item: T) => string) => {
@@ -4530,7 +4533,7 @@ const ItemManagement: React.FC = () => {
                   badgeBg="#fae8ff"
                   badgeColor="#86198f"
                   options={flatCategories.map((c) => ({
-                    id: c.name,
+                    id: c.id,
                     name: c.name,
                     subtext: 'Item Category',
                   }))}
@@ -4552,7 +4555,7 @@ const ItemManagement: React.FC = () => {
                   badgeBg="#e0f2fe"
                   badgeColor="#0369a1"
                   options={sectionsForDivision(fDivision).map((s) => ({
-                    id: s.name,
+                    id: s.id,
                     name: s.name,
                     subtext: 'Production Section',
                   }))}
@@ -4575,7 +4578,7 @@ const ItemManagement: React.FC = () => {
                   badgeBg="#f3e8ff"
                   badgeColor="#7e22ce"
                   options={departmentsForSection(fDivision, fSection).map((d) => ({
-                    id: d.name,
+                    id: d.id,
                     name: d.name,
                     subtext: 'Department unit',
                   }))}
@@ -4597,7 +4600,7 @@ const ItemManagement: React.FC = () => {
                   badgeBg="#e0e7ff"
                   badgeColor="#3730a3"
                   options={routeTypes.map((rt) => ({
-                    id: rt.name?.trim() ? rt.name : rt.routeCode,
+                    id: rt.id,
                     name: rt.name?.trim() ? rt.name : rt.routeCode,
                     code: rt.routeCode,
                     subtext: 'Workflow routing',

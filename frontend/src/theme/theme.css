@@ -596,22 +596,41 @@ html[data-theme='dark'] .erp-theme-popover .ant-popover-inner {
   transition: color 0.25s ease;
 }
 
+/* Marquee emblem — transparent, no chip/box behind it. The PNG itself is
+   alpha-cut, so it sits directly on the banner in every theme. */
 .pwi-marquee-item img,
 .pwi-marquee-logo {
-  filter: none !important;
-  border-radius: 50%;
-  background: #ffffff;
-  padding: 1.5px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  object-fit: contain;
+  background: transparent !important;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  margin-right: 2px;
+  box-shadow: none !important;
   vertical-align: middle;
   display: inline-block;
+  user-select: none;
+  pointer-events: none;
+  image-rendering: auto;
+  /* Hairline light rim keeps the black gear crisp on tinted (light / crystal) banners */
+  filter: drop-shadow(0 0 0.6px rgba(255, 255, 255, 0.9)) !important;
   transition: transform 0.2s ease;
 }
 
+/* Dark mode: black emblem on a dark banner needs a soft light halo to stay legible */
 [data-theme='dark'] .pwi-marquee-item img,
 [data-theme='dark'] .pwi-marquee-logo {
-  filter: none !important;
-  background: #ffffff;
+  background: transparent !important;
+  filter:
+    drop-shadow(0 0 0.8px rgba(255, 255, 255, 0.95))
+    drop-shadow(0 0 2px rgba(255, 255, 255, 0.35)) !important;
+}
+
+.pwi-marquee-track:hover .pwi-marquee-logo {
+  transform: rotate(-12deg) scale(1.08);
 }
 
 .pwi-app-logo {
