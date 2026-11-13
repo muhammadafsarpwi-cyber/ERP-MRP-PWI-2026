@@ -39,7 +39,7 @@
   },
   "scripts": {
     "start": "react-scripts start",
-    "build": "node -e \"process.env.CI='false'; require('react-scripts/scripts/build');\"",
+    "build": "node --max-old-space-size=4096 -e \"process.env.CI='false'; process.env.GENERATE_SOURCEMAP='false'; require('react-scripts/scripts/build');\"",
     "test": "react-scripts test",
     "eject": "react-scripts eject",
     "postinstall": "node scripts/fix-html5-qrcode-sourcemaps.js && patch-package"
