@@ -36,6 +36,7 @@ const ROUTE_LABELS: RouteLabel[] = [
   { pattern: /^\/inventory\/reservations/, label: 'Reservations' },
   { pattern: /^\/inventory\/ledger/, label: 'Stock Ledger' },
   { pattern: /^\/inventory\/reports/, label: 'Inventory Reports' },
+  { pattern: /^\/inventory\/nipple-demand/, label: 'Nipple Demand & Balance' },
   { pattern: /^\/procurement\/suppliers/, label: 'Suppliers' },
   { pattern: /^\/procurement\/requisitions/, label: 'Purchase Requisitions' },
   { pattern: /^\/procurement\/rfqs/, label: 'RFQs' },

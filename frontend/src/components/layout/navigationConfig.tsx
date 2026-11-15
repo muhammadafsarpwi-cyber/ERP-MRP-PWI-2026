@@ -353,6 +353,7 @@ export const NAV_ENTRIES: NavEntry[] = [
       { key: '/inventory/policies', label: 'Inventory Policies', icon: SafetyOutlined, color: 'indigo', permissions: ['inventory.policy.view'] },
       { key: '/inventory/ledger', label: 'Stock Ledger', icon: DatabaseOutlined, color: 'indigo', permissions: ['inventory.view'] },
       { key: '/inventory/reports', label: 'Reports', icon: BarChartOutlined, color: 'violet', permissions: ['inventory.reports.view'] },
+      { key: '/inventory/nipple-demand', label: 'Nipple Demand & Balance', icon: BuildOutlined, color: 'cyan', permissions: ['inventory.view'] },
     ],
   },
 

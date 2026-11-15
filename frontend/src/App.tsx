@@ -56,6 +56,7 @@ import {
   ReservationManagement,
   StockLedgerView,
   InventoryReports,
+  NippleDemandBalancePage,
   SerialNumberManagement,
 } from './pages/inventory';
 import Production from './pages/production/Production';
@@ -213,6 +214,7 @@ const App: React.FC = () => {
                   <Route path="/inventory/reservations" element={<ReservationManagement />} />
                   <Route path="/inventory/ledger" element={<StockLedgerView />} />
                   <Route path="/inventory/reports" element={<InventoryReports />} />
+                  <Route path="/inventory/nipple-demand" element={<NippleDemandBalancePage />} />
                   <Route path="/procurement/suppliers" element={<SupplierManagement />} />
                   <Route path="/suppliers" element={<Navigate to="/procurement/suppliers" replace />} />
                   <Route path="/procurement/requisitions" element={<PurchaseRequisitionManagement />} />

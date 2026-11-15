@@ -6,6 +6,7 @@ export { default as StockTransferManagement } from './StockTransferManagement';
 export { default as ReservationManagement } from './ReservationManagement';
 export { default as StockLedgerView } from './StockLedgerView';
 export { default as InventoryReports } from './InventoryReports';
+export { default as NippleDemandBalancePage } from './NippleDemandBalancePage';
 export { default as InventoryReceiving } from './InventoryReceiving';
 export { default as OpeningStock } from './OpeningStock';
 export { default as SerialNumberManagement } from './SerialNumberManagement';
