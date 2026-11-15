@@ -332,6 +332,15 @@ export class Item extends BaseEntity {
   @Column({ name: 'selling_price', type: 'decimal', precision: 15, scale: 4, nullable: true })
   sellingPrice: number | null;
 
+  @Column({ name: 'manual_monthly_usage_grs', type: 'decimal', precision: 18, scale: 2, nullable: true })
+  manualMonthlyUsageGrs?: number | null;
+
+  @Column({ name: 'import_lead_time_months', type: 'decimal', precision: 6, scale: 2, default: 4 })
+  importLeadTimeMonths?: number;
+
+  @Column({ name: 'safety_buffer_months', type: 'decimal', precision: 6, scale: 2, default: 1 })
+  safetyBufferMonths?: number;
+
   @OneToMany(() => ItemBarcode, (barcode) => barcode.item)
   barcodes: ItemBarcode[];
 

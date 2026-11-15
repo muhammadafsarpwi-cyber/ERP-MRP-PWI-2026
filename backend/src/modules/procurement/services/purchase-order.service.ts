@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, ConflictException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, In } from 'typeorm';
 import { PurchaseOrder, PurchaseOrderLine, PurchaseOrderImportUpdate } from '../entities';
 import { CreatePurchaseOrderDto, UpdatePurchaseOrderDto, PurchaseOrderFilterDto, AddPoImportUpdateDto } from '../dto';
 import { Item, Uom } from '../../item/entities';
@@ -297,12 +297,25 @@ export class PurchaseOrderService {
           uomCode: row.uomCode || null,
         });
       }
+      const allLines = await this.lineRepo.find({
+        where: { poId: In(poIds) },
+        relations: ['item', 'uom'],
+        order: { lineNumber: 'ASC' },
+      });
+      const linesByPo = new Map<string, PurchaseOrderLine[]>();
+      for (const l of allLines) {
+        const list = linesByPo.get(l.poId) || [];
+        list.push(l);
+        linesByPo.set(l.poId, list);
+      }
+
       for (const po of data) {
         const a = map.get(po.id) || { orderedQty: 0, receivedQty: 0, lineCount: 0, uomCode: null };
         (po as any).orderedQty = a.orderedQty;
         (po as any).receivedQty = a.receivedQty;
         (po as any).lineCount = a.lineCount;
         (po as any).uomCode = a.uomCode;
+        po.lines = linesByPo.get(po.id) || [];
       }
     } else {
       for (const po of data) {
@@ -366,6 +379,8 @@ export class PurchaseOrderService {
       if (dto.vesselName !== undefined && dto.vesselName !== '') po.vesselName = dto.vesselName;
       if (dto.blAwbNumber !== undefined && dto.blAwbNumber !== '') po.blAwbNumber = dto.blAwbNumber;
       if (dto.containerNumber !== undefined && dto.containerNumber !== '') po.containerNumber = dto.containerNumber;
+      if (dto.lcTtNumber !== undefined && dto.lcTtNumber !== '') po.lcTtNumber = dto.lcTtNumber;
+      if (dto.fileNumber !== undefined && dto.fileNumber !== '') po.lcTtNumber = dto.fileNumber;
       po.purchaseOrigin = 'IMPORT';
       po.updatedBy = user?.id || null;
       await poRepo.save(po);

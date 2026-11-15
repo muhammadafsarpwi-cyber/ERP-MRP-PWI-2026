@@ -22,6 +22,7 @@ import ShopfloorTouchscreenModal from '../../components/dashboard/ShopfloorTouch
 import DepartmentTrendChart from '../../components/dashboard/DepartmentTrendChart';
 import TodayScheduleCard from '../../components/dashboard/TodayScheduleCard';
 import MiniCalendarWidget from '../../components/dashboard/MiniCalendarWidget';
+import NippleImportAlertBanner from '../../components/analytics/NippleImportAlertBanner';
 import { GlobalLoading, TabKeepAlive } from '../../components/shared';
 import {
   dateRangePresetToFilters, DateRangePreset, DEFAULT_DATE_RANGE_PRESET,
@@ -539,6 +540,8 @@ const Dashboard: React.FC = () => {
         />
 
       {error && <Alert message={error} type="warning" showIcon closable className="erp-alert-bar" onClose={() => setError(null)} />}
+
+      <NippleImportAlertBanner marginBottom={12} />
 
       <DashboardFilters
         divisions={divisions}

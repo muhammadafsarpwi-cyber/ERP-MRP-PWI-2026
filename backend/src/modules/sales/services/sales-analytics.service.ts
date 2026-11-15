@@ -347,7 +347,7 @@ export class SalesAnalyticsService {
     const finishedGoodsWithOpenOrders = fgPlanning.filter(p => p.openSalesOrderQuantity > 0).slice(0, 5);
     const finishedGoodsBelowSafetyStock = fgPlanning.filter(p => ['BELOW_REQUIREMENT', 'SHORTAGE'].includes(p.status)).slice(0, 5);
 
-    // 11. Nipple Analytics: Map Spoke Set orders to required Nipple components and compare with FG Stock
+    // 11. Nipple Analytics: Map Spoke Set orders to required Nipple components and compare with FG Stock & Purchase Orders
     const nippleItems = itemAgg.filter(i => 
       (i.itemCode && i.itemCode.startsWith('FG-NP-')) || 
       (i.itemName && i.itemName.toLowerCase().includes('nipple') && !i.itemName.includes('_'))
@@ -355,20 +355,121 @@ export class SalesAnalyticsService {
 
     const spokeSetsWithNipples = itemAgg.filter(i => i.itemName && i.itemName.includes('_'));
 
+    // Fetch linked Purchase Orders for Nipple items
+    const nipplePoRows: any[] = this.orderRepo.manager?.query
+      ? await this.orderRepo.manager
+          .query(
+            `SELECT po.id as po_id, po.po_code, po.order_date, po.expected_delivery_date, po.eta_date, po.etd_date,
+                    po.status, po.purchase_origin, po.import_stage, po.lc_tt_number, po.vessel_name, po.container_number,
+                    s.name as supplier_name, i.item_code, i.name as item_name,
+                    COALESCE(pol.quantity, 0) as ordered_qty,
+                    COALESCE(pol.received_quantity, 0) as received_qty,
+                    COALESCE(u.code, 'GRS') as uom_code
+             FROM public.purchase_order_lines pol
+             JOIN public.purchase_orders po ON po.id = pol.po_id
+             LEFT JOIN public.suppliers s ON s.id = po.supplier_id
+             LEFT JOIN public.items i ON i.id = pol.item_id
+             LEFT JOIN public.uoms u ON u.id = pol.uom_id
+             WHERE (i.item_code LIKE 'FG-NP-%' OR LOWER(i.name) LIKE '%nipple%')
+               AND UPPER(COALESCE(po.status, 'DRAFT')) NOT IN ('FULLY_RECEIVED', 'RECEIVED', 'CLOSED', 'CANCELLED', 'VOID')
+               AND (COALESCE(pol.quantity, 0) - COALESCE(pol.received_quantity, 0)) > 0
+             ORDER BY COALESCE(po.eta_date, po.expected_delivery_date, po.order_date) ASC, po.po_code ASC`,
+          )
+          .catch(() => [])
+      : [];
+
+    const poByItemCode = new Map<string, any[]>();
+    for (const row of nipplePoRows) {
+      const code = String(row.item_code || '').trim().toUpperCase();
+      if (!code) continue;
+      const statusUpper = String(row.status || 'DRAFT').toUpperCase();
+      if (['FULLY_RECEIVED', 'RECEIVED', 'CLOSED', 'CANCELLED', 'VOID'].includes(statusUpper)) continue;
+      const ordQty = this.convertQty(Number(row.ordered_qty) || 0, row.uom_code || 'GRS', 'GRS');
+      const recQty = this.convertQty(Number(row.received_qty) || 0, row.uom_code || 'GRS', 'GRS');
+      const pendingQty = Math.max(0, Math.round((ordQty - recQty) * 100) / 100);
+      if (pendingQty <= 0) continue;
+      const list = poByItemCode.get(code) || [];
+      list.push({
+        poId: row.po_id,
+        poCode: row.po_code,
+        fileNumber: row.lc_tt_number || row.po_code,
+        lcTtNumber: row.lc_tt_number || null,
+        vesselName: row.vessel_name || null,
+        containerNumber: row.container_number || null,
+        orderDate: row.order_date,
+        expectedDeliveryDate: row.expected_delivery_date,
+        etaDate: row.eta_date || row.expected_delivery_date,
+        etdDate: row.etd_date || null,
+        status: row.status || 'DRAFT',
+        purchaseOrigin: row.purchase_origin || 'IMPORT',
+        importStage: row.import_stage || null,
+        supplierName: row.supplier_name || 'Overseas Supplier',
+        orderedQuantity: Math.round(ordQty * 100) / 100,
+        receivedQuantity: Math.round(recQty * 100) / 100,
+        pendingQuantity: pendingQty,
+        uom: 'GRS',
+      });
+      poByItemCode.set(code, list);
+    }
+
+    const nippleConfigRows: any[] = this.orderRepo.manager?.query
+      ? await this.orderRepo.manager
+          .query(
+            `SELECT id, manual_monthly_usage_grs, import_lead_time_months, safety_buffer_months
+             FROM public.items
+             WHERE company_id = $1
+               AND (item_code LIKE 'FG-NP-%' OR LOWER(name) LIKE '%nipple%')`,
+            [companyId],
+          )
+          .catch(() => [])
+      : [];
+
+    const nippleConfigById = new Map<
+      string,
+      {
+        manualMonthlyUsageGrs: number | null;
+        importLeadTimeMonths: number;
+        safetyBufferMonths: number;
+      }
+    >();
+    for (const row of nippleConfigRows) {
+      nippleConfigById.set(String(row.id), {
+        manualMonthlyUsageGrs:
+          row.manual_monthly_usage_grs !== null && row.manual_monthly_usage_grs !== undefined
+            ? Number(row.manual_monthly_usage_grs)
+            : null,
+        importLeadTimeMonths:
+          row.import_lead_time_months !== null && row.import_lead_time_months !== undefined
+            ? Number(row.import_lead_time_months)
+            : 4,
+        safetyBufferMonths:
+          row.safety_buffer_months !== null && row.safety_buffer_months !== undefined
+            ? Number(row.safety_buffer_months)
+            : 1,
+      });
+    }
+
     const nippleAnalytics = nippleItems.map(nItem => {
       const nName = (nItem.itemName || '').toLowerCase().replace(/[^a-z0-9]/g, '');
       const linkedSpokeSets: Array<{
         spokeName: string;
         itemCode: string;
         orderedQuantity: number;
+        dispatchedQuantity: number;
+        pendingOrderQuantity: number;
         packedQuantity: number;
+        withoutNippleQuantity: number;
+        balanceToPackQuantity: number;
         pendingQuantity: number;
         uom: string;
       }> = [];
 
       let totalDemand = 0;
+      let totalDispatchedInSpokes = 0;
+      let totalPendingOrderInSpokes = 0;
       let totalPackedInSpokes = 0;
-      let netPendingDemand = 0;
+      let totalWithoutNippleInSpokes = 0;
+      let totalBalanceToPackInSpokes = 0;
 
       spokeSetsWithNipples.forEach(sItem => {
         const parts = sItem.itemName.split('_');
@@ -386,43 +487,112 @@ export class SalesAnalyticsService {
         }
 
         if (matches && ((Number(sItem.orderedQuantity) || 0) > 0 || (Number(sItem.deliveredQuantity) || 0) > 0)) {
-          const ordQty = Number(sItem.orderedQuantity) || 0;
-          const packedQty = Number(sItem.finishedGoodsAvailable) || 0;
-          const pendingQty = Math.max(0, ordQty - packedQty);
+          // 1. Exclude already-dispatched quantities: Pending Order = Total Order - Dispatched
+          const totalOrderedGrs = Math.max(0, Math.round((Number(sItem.orderedQuantity) || 0) * 100) / 100);
+          const dispatchedGrs = Math.max(0, Math.round((Number(sItem.deliveredQuantity) || 0) * 100) / 100);
+          const pendingOrderGrs = Math.max(0, Math.round((totalOrderedGrs - dispatchedGrs) * 100) / 100);
+
+          // 2. Exclude WITHOUT_NIPPLE cartons from Packed FGR; only verified With-Nipple cartons consume nipples
+          const packedWithNipplesGrs = Math.max(
+            0,
+            Math.round((Number((sItem as any).withNippleFgrAvailable ?? sItem.finishedGoodsAvailable) || 0) * 100) / 100,
+          );
+          const withoutNippleCartonsGrs = Math.max(
+            0,
+            Math.round((Number((sItem as any).withoutNippleFgrGrs) || 0) * 100) / 100,
+          );
+
+          // 3. Balance Remaining to Pack = max(0, Pending Order - Packed With Nipples)
+          const balanceToPackGrs = Math.max(0, Math.round((pendingOrderGrs - packedWithNipplesGrs) * 100) / 100);
 
           linkedSpokeSets.push({
             spokeName: parts[0].trim(),
             itemCode: sItem.itemCode,
-            orderedQuantity: ordQty,
-            packedQuantity: packedQty,
-            pendingQuantity: pendingQty,
+            orderedQuantity: totalOrderedGrs,
+            dispatchedQuantity: dispatchedGrs,
+            pendingOrderQuantity: pendingOrderGrs,
+            packedQuantity: packedWithNipplesGrs,
+            withoutNippleQuantity: withoutNippleCartonsGrs,
+            balanceToPackQuantity: balanceToPackGrs,
+            pendingQuantity: balanceToPackGrs,
             uom: sItem.uom || 'GRS',
           });
-          totalDemand += ordQty;
-          totalPackedInSpokes += packedQty;
-          netPendingDemand += pendingQty;
+          totalDemand += totalOrderedGrs;
+          totalDispatchedInSpokes += dispatchedGrs;
+          totalPendingOrderInSpokes += pendingOrderGrs;
+          totalPackedInSpokes += packedWithNipplesGrs;
+          totalWithoutNippleInSpokes += withoutNippleCartonsGrs;
+          totalBalanceToPackInSpokes += balanceToPackGrs;
         }
       });
 
-      const fgStock = Number(nItem.finishedGoodsAvailable) || 0;
-      // Step 1 (Sum Available Stock): Total Available Stock = [Packed in Cartons (FGR)] + [Current FG Stock]
-      const packedInCartonsFgr = Math.round(totalPackedInSpokes * 100) / 100;
-      const currentFgStock = Math.round(fgStock * 100) / 100;
+      const totalOrderDemand = Math.round(totalDemand * 100) / 100;
+      const totalDispatched = Math.round(totalDispatchedInSpokes * 100) / 100;
+      const netPendingOrder = Math.round(totalPendingOrderInSpokes * 100) / 100;
+      const packedInCartonsFgr = Math.max(0, Math.round(totalPackedInSpokes * 100) / 100);
+      const withoutNippleCartonsFgr = Math.max(0, Math.round(totalWithoutNippleInSpokes * 100) / 100);
+      const remainingToPack = Math.max(0, Math.round(totalBalanceToPackInSpokes * 100) / 100);
+
+      // 4. Current Unpacked Nipple Stock (WH-002) & Packable Balance (compare against remainingToPack without double-adding packedWithNipplesFgr)
+      const currentFgStock = Math.max(0, Math.round((Number(nItem.finishedGoodsAvailable) || 0) * 100) / 100);
+      const packableFromStockGrs = Math.round(Math.min(currentFgStock, remainingToPack) * 100) / 100;
       const totalAvailableStock = Math.round((packedInCartonsFgr + currentFgStock) * 100) / 100;
 
-      // Step 2 (Deduct from Pending Demand): Final Balance / Shortage = Net Pending Demand - Total Available Stock
-      const finalBalanceShortage = Math.round((netPendingDemand - totalAvailableStock) * 100) / 100;
+      // Net Nipple Shortage / Surplus: remainingToPack - currentUnpackedNippleStock
+      const finalBalanceShortage = Math.round((remainingToPack - currentFgStock) * 100) / 100;
       const netDeficitRequired = Math.max(0, finalBalanceShortage);
-      const stockSurplus = Math.max(0, Math.round((totalAvailableStock - netPendingDemand) * 100) / 100);
+      const stockSurplus = Math.max(0, Math.round((currentFgStock - remainingToPack) * 100) / 100);
 
       // Step 3 (Advanced 3-Month Sales Forecasting & Safety Stock Buffer)
-      const rolling3MonthVolume = Math.round(Math.max(totalDemand, Number(nItem.orderedQuantity) || 0, Number(nItem.deliveredQuantity) || 0) * 100) / 100;
+      const rolling3MonthVolume = Math.round(Math.max(totalOrderDemand, Number(nItem.orderedQuantity) || 0, Number(nItem.deliveredQuantity) || 0) * 100) / 100;
       const monthlyAvgConsumption = Math.round((rolling3MonthVolume / 3) * 100) / 100;
       const trendMinMonthly = Math.round(monthlyAvgConsumption * 0.85);
       const trendMaxMonthly = Math.round(monthlyAvgConsumption * 1.15);
-      const threeMonthForecast = Math.round(Math.max(rolling3MonthVolume * 1.1, netPendingDemand + monthlyAvgConsumption));
+      const threeMonthForecast = Math.round(Math.max(rolling3MonthVolume * 1.1, remainingToPack + monthlyAvgConsumption));
       const safetyStockBuffer = Math.round(Math.max(monthlyAvgConsumption * 0.75, threeMonthForecast * 0.25, rolling3MonthVolume > 0 ? 500 : 0));
       const recommendedOrderQty = Math.round(netDeficitRequired + safetyStockBuffer);
+
+      // Step 4 (Purchase Orders & Import Coverage)
+      const linkedPurchaseOrders = poByItemCode.get(String(nItem.itemCode || '').trim().toUpperCase()) || [];
+      const totalPoOrdered = Math.round(linkedPurchaseOrders.reduce((s, p) => s + (Number(p.orderedQuantity) || 0), 0) * 100) / 100;
+      const totalPoReceived = Math.round(linkedPurchaseOrders.reduce((s, p) => s + (Number(p.receivedQuantity) || 0), 0) * 100) / 100;
+      const openPoPendingQty = Math.round(linkedPurchaseOrders.reduce((s, p) => s + (Number(p.pendingQuantity) || 0), 0) * 100) / 100;
+      const remainingImportRequirement = Math.max(0, Math.round((netDeficitRequired - openPoPendingQty) * 100) / 100);
+      const remainingTargetImportReq = Math.max(0, Math.round((recommendedOrderQty - openPoPendingQty) * 100) / 100);
+
+      // Step 5 (Hybrid 4-Month Advance Import Lead-Time Planning: Auto + Manual Monthly Usage Override)
+      const cfg = nippleConfigById.get(String(nItem.itemId)) || {
+        manualMonthlyUsageGrs: null,
+        importLeadTimeMonths: 4,
+        safetyBufferMonths: 1,
+      };
+      const manualMonthlyUsageGrs = cfg.manualMonthlyUsageGrs;
+      const importLeadTimeMonths = Number(cfg.importLeadTimeMonths > 0 ? cfg.importLeadTimeMonths : 4);
+      const safetyBufferMonths = Number(cfg.safetyBufferMonths >= 0 ? cfg.safetyBufferMonths : 1);
+      const effectiveMonthlyUsage =
+        manualMonthlyUsageGrs !== null && manualMonthlyUsageGrs > 0
+          ? Math.round(manualMonthlyUsageGrs * 100) / 100
+          : monthlyAvgConsumption;
+      const usageSource: 'MANUAL' | 'AUTO' =
+        manualMonthlyUsageGrs !== null && manualMonthlyUsageGrs > 0 ? 'MANUAL' : 'AUTO';
+
+      const totalPipelineSupply = Math.round((currentFgStock + openPoPendingQty) * 100) / 100;
+      const netAvailableAfterPendingOrders = Math.round((totalPipelineSupply - remainingToPack) * 100) / 100;
+      const coverageMonths =
+        effectiveMonthlyUsage > 0
+          ? Number((netAvailableAfterPendingOrders / effectiveMonthlyUsage).toFixed(1))
+          : 999;
+      let projectedStockoutDate: string | null = null;
+      if (effectiveMonthlyUsage > 0 && coverageMonths < 999) {
+        const d = new Date();
+        d.setUTCDate(d.getUTCDate() + Math.max(0, Math.round(coverageMonths * 30)));
+        projectedStockoutDate = d.toISOString().slice(0, 10);
+      }
+      const targetCoverageMonths = Math.round((importLeadTimeMonths + safetyBufferMonths) * 100) / 100;
+      const targetStockNeeded = Math.round(effectiveMonthlyUsage * targetCoverageMonths);
+      const orderTodayQty = Math.max(0, Math.round(targetStockNeeded - netAvailableAfterPendingOrders));
+      const reorderAlertStatus: 'ORDER_TODAY' | 'COVERED' =
+        coverageMonths < importLeadTimeMonths || orderTodayQty > 0 ? 'ORDER_TODAY' : 'COVERED';
 
       return {
         itemId: nItem.itemId,
@@ -430,17 +600,45 @@ export class SalesAnalyticsService {
         itemName: nItem.itemName,
         uom: 'GRS',
         linkedSpokeSets,
-        totalDemand: Math.round(totalDemand * 100) / 100,
+        linkedPurchaseOrders,
+        totalPoOrdered,
+        totalPoReceived,
+        openPoPendingQty,
+        remainingImportRequirement,
+        remainingTargetImportReq,
+        manualMonthlyUsageGrs,
+        importLeadTimeMonths,
+        safetyBufferMonths,
+        effectiveMonthlyUsage,
+        usageSource,
+        totalPipelineSupply,
+        netAvailableAfterPendingOrders,
+        coverageMonths,
+        projectedStockoutDate,
+        targetCoverageMonths,
+        targetStockNeeded,
+        orderTodayQty,
+        reorderAlertStatus,
+        totalDemand: totalOrderDemand,
+        totalOrderDemand,
+        totalDispatched,
+        netPendingOrder,
         totalPackedInSpokes: packedInCartonsFgr,
         packedInCartonsFgr,
-        netPendingDemand: Math.round(netPendingDemand * 100) / 100,
+        packedWithNipplesFgr: packedInCartonsFgr,
+        withoutNippleCartonsFgr,
+        remainingToPack,
+        netPendingDemand: remainingToPack,
         fgStock: currentFgStock,
         currentFgStock,
+        currentUnpackedNippleStock: currentFgStock,
+        packableFromStockGrs,
         totalAvailableStock,
         baseQuantity: nItem.baseQuantity || 0,
         baseUom: nItem.baseUom || 'PCS',
         balance: finalBalanceShortage,
         finalBalanceShortage,
+        netShortageOrSurplus: finalBalanceShortage,
         netDeficitRequired,
         stockSurplus,
         rolling3MonthVolume,
@@ -450,9 +648,9 @@ export class SalesAnalyticsService {
         threeMonthForecast,
         safetyStockBuffer,
         recommendedOrderQty,
-        status: finalBalanceShortage > 0 ? 'SHORTAGE' : finalBalanceShortage === 0 && netPendingDemand > 0 ? 'EXACT' : 'SUFFICIENT',
+        status: finalBalanceShortage > 0 ? 'SHORTAGE' : finalBalanceShortage === 0 && remainingToPack > 0 ? 'EXACT' : 'SUFFICIENT',
       };
-    }).sort((a, b) => b.totalDemand - a.totalDemand);
+    }).sort((a, b) => String(a.itemCode || '').localeCompare(String(b.itemCode || '')));
 
     return {
       kpis: {
@@ -778,7 +976,7 @@ export class SalesAnalyticsService {
 
     const itemIds = items.map(i => i.id);
 
-    const [orderItems, deliveryLines, returnLines, allReturns, prodOrders, balances, orders] = await Promise.all([
+    const [orderItems, deliveryLines, returnLines, allReturns, prodOrders, balances, orders, withoutNippleRows] = await Promise.all([
       this.orderItemRepo.createQueryBuilder('soi')
         .where('soi.itemId IN (:...itemIds)', { itemIds })
         .getMany(),
@@ -798,7 +996,38 @@ export class SalesAnalyticsService {
         .andWhere('ib.itemId IN (:...itemIds)', { itemIds })
         .getMany(),
       this.orderRepo.find({ where: narrowWhereByDivision({ companyId }, 'divisionId', allowedDivisionIds), select: ['id', 'customerId', 'orderDate', 'divisionId', 'status'] }),
+      this.orderRepo.manager?.query
+        ? this.orderRepo.manager
+            .query(
+              `SELECT pe.item_id,
+                      COALESCE(SUM(pe.actual_quantity), 0) AS without_nipple_pcs
+               FROM public.production_entries pe
+               WHERE pe.company_id = $1
+                 AND pe.deleted_at IS NULL
+                 AND pe.is_active = true
+                 AND NOT (
+                   pe.remarks ILIKE '%Status: COMPLETED%'
+                   OR pe.remarks ILIKE '%Nipple Stock Deducted:%'
+                   OR pe.remarks ILIKE '%Nipple Added:%'
+                 )
+                 AND (
+                   pe.packing_mode = 'WITHOUT_NIPPLE'
+                   OR pe.remarks ILIKE '%WITHOUT_NIPPLE%'
+                   OR pe.remarks ILIKE '%Without Nipple%'
+                 )
+               GROUP BY pe.item_id`,
+              [companyId],
+            )
+            .catch(() => [])
+        : Promise.resolve([]),
     ]);
+
+    const withoutNippleBaseByItem = new Map<string, number>();
+    for (const r of (withoutNippleRows || []) as any[]) {
+      if (r.item_id) {
+        withoutNippleBaseByItem.set(String(r.item_id), Math.max(0, Number(r.without_nipple_pcs) || 0));
+      }
+    }
 
     // Only committed returns (approved or later) may reduce returned quantities/values;
     // DRAFT/SUBMITTED return lines are proposals and are excluded.
@@ -835,13 +1064,37 @@ export class SalesAnalyticsService {
       const salesUomCode = item.salesUom?.code || baseUomCode || 'GRS';
 
       const orderedQuantity = curOrderItems.reduce((sum, oi) => sum + (Number(oi.quantity) || 0), 0);
-      const deliveredQuantity = curDelLines.reduce((sum, dl) => sum + (Number(dl.quantity) || 0), 0);
+      const shippedFromOrderItems = curOrderItems.reduce((sum, oi) => sum + (Number((oi as any).shippedQuantity) || 0), 0);
+      const deliveredFromLines = curDelLines.reduce((sum, dl) => sum + (Number(dl.quantity) || 0), 0);
+      const deliveredQuantity = Math.max(deliveredFromLines, shippedFromOrderItems);
       const returnedQuantity = curReturnLines.reduce((sum, rl) => sum + (Number(rl.quantity) || 0), 0);
       const producedQuantityBase = curProdOrders.reduce((sum, po) => sum + (Number(po.completedQuantity) || 0), 0);
       const producedQuantity = Math.round(this.convertQty(producedQuantityBase, baseUomCode, salesUomCode) * 100) / 100;
       
-      const rawAvailableBase = curBalances.reduce((sum, b) => sum + (Number(b.available) || 0), 0);
-      const finishedGoodsAvailable = Math.round(this.convertQty(rawAvailableBase, baseUomCode, salesUomCode) * 100) / 100;
+      const isSpokeSetItem = Boolean(
+        (item.name && item.name.includes('_')) ||
+          (item.itemCode && item.itemCode.toUpperCase().startsWith('SPI-FG-SPK-')),
+      );
+      const rawOnHandBase = Math.max(0, curBalances.reduce((sum, b) => sum + (Number(b.onHand) || 0), 0));
+      const positiveOnHandBase = Math.max(0, curBalances.reduce((sum, b) => sum + Math.max(0, Number(b.onHand) || 0), 0));
+      const withoutNippleBase = Math.max(0, withoutNippleBaseByItem.get(item.id) || 0);
+      const verifiedWithNippleBase = Math.max(0, rawOnHandBase - withoutNippleBase);
+      const withNippleFgrAvailable = Math.max(
+        0,
+        Math.round(this.convertQty(verifiedWithNippleBase, baseUomCode, salesUomCode) * 100) / 100,
+      );
+      const withoutNippleFgrGrs = Math.max(
+        0,
+        Math.round(this.convertQty(withoutNippleBase, baseUomCode, salesUomCode) * 100) / 100,
+      );
+
+      // For loose Nipple / non-spoke items, sum positive warehouse on_hand balances (e.g. WH-002) clamped >= 0
+      const rawAvailableBase = isSpokeSetItem
+        ? verifiedWithNippleBase
+        : positiveOnHandBase;
+      const finishedGoodsAvailable = isSpokeSetItem
+        ? withNippleFgrAvailable
+        : Math.max(0, Math.round(this.convertQty(positiveOnHandBase, baseUomCode, salesUomCode) * 100) / 100);
 
       const netSoldQuantity = Math.max(0, deliveredQuantity - returnedQuantity);
       const salesAmount = curDelLines.reduce((sum, dl) => sum + (Number(dl.lineTotal) || 0), 0);
@@ -888,6 +1141,8 @@ export class SalesAnalyticsService {
         producedQuantity,
         finishedGoodsAvailable,
         fgAvailable: finishedGoodsAvailable,
+        withNippleFgrAvailable,
+        withoutNippleFgrGrs,
         packedInCartonsFgr,
         currentFgStock,
         totalAvailableStock,
@@ -1600,5 +1855,316 @@ export class SalesAnalyticsService {
     }
 
     return report;
+  }
+
+  /**
+   * 8. TIME-PHASED NIPPLE IMPORT SHIPMENT PROJECTION & AUTO-REORDER MATRIX
+   */
+  async getNippleShipmentPlan(
+    companyId: string,
+    options?: {
+      safetyMonths?: number;
+      horizonDate?: string;
+      includeFgrStock?: boolean;
+      asOfDate?: string;
+    },
+    allowedDivisionIds?: DivisionAccess,
+  ) {
+    const safetyMonths = Number(options?.safetyMonths || 4);
+    const includeFgrStock = Boolean(options?.includeFgrStock);
+    const todayIso = options?.asOfDate
+      ? String(options.asOfDate).slice(0, 10)
+      : new Date().toISOString().slice(0, 10);
+
+    const defaultHorizon = new Date(`${todayIso}T00:00:00Z`);
+    defaultHorizon.setUTCMonth(defaultHorizon.getUTCMonth() + Math.round(safetyMonths));
+    const horizonDate = options?.horizonDate
+      ? String(options.horizonDate).slice(0, 10)
+      : defaultHorizon.toISOString().slice(0, 10);
+
+    const dashboard = await this.getSalesDashboard(
+      companyId,
+      { period: SalesAnalyticsPeriod.ALL },
+      allowedDivisionIds,
+    );
+    const nippleAnalytics: any[] = dashboard?.nippleAnalytics || dashboard?.itemSection?.nippleAnalytics || [];
+
+    const toIsoDate = (val: any): string => {
+      if (!val) return todayIso;
+      if (val instanceof Date) return val.toISOString().slice(0, 10);
+      return String(val).slice(0, 10);
+    };
+
+    const daysBetween = (startIso: string, endIso: string): number => {
+      const d1 = new Date(`${toIsoDate(startIso)}T00:00:00Z`).getTime();
+      const d2 = new Date(`${toIsoDate(endIso)}T00:00:00Z`).getTime();
+      if (isNaN(d1) || isNaN(d2)) return 0;
+      return Math.max(0, Math.round((d2 - d1) / (1000 * 60 * 60 * 24)));
+    };
+
+    // Build chronological open shipment milestones across all Nipple items
+    const shipmentMap = new Map<
+      string,
+      {
+        poId: string;
+        poNumber: string;
+        fileNumber: string;
+        lcTtNumber: string | null;
+        vendorName: string;
+        etaDate: string;
+        etdDate: string | null;
+        orderDate: string | null;
+        importStage: string;
+        status: string;
+        purchaseOrigin: string;
+        vesselName: string | null;
+        containerNumber: string | null;
+        totalShipmentQtyGrs: number;
+        itemQuantities: Record<string, number>;
+      }
+    >();
+
+    for (const nItem of nippleAnalytics) {
+      const code = String(nItem.itemCode || '').trim().toUpperCase();
+      const pos: any[] = Array.isArray(nItem.linkedPurchaseOrders) ? nItem.linkedPurchaseOrders : [];
+      for (const po of pos) {
+        const pendingGrs = Number(po.pendingQuantity || 0);
+        if (pendingGrs <= 0) continue;
+        const poKey = String(po.poId || po.poCode);
+        const etaIso = toIsoDate(po.etaDate || po.expectedDeliveryDate || po.orderDate || todayIso);
+        let entry = shipmentMap.get(poKey);
+        if (!entry) {
+          entry = {
+            poId: po.poId,
+            poNumber: po.poCode,
+            fileNumber: po.lcTtNumber || po.fileNumber || po.poCode,
+            lcTtNumber: po.lcTtNumber || null,
+            vendorName: po.supplierName || 'Overseas Supplier',
+            etaDate: etaIso,
+            etdDate: po.etdDate ? toIsoDate(po.etdDate) : null,
+            orderDate: po.orderDate ? toIsoDate(po.orderDate) : null,
+            importStage: po.importStage || 'ORDER_PLACED',
+            status: po.status || 'DRAFT',
+            purchaseOrigin: po.purchaseOrigin || 'IMPORT',
+            vesselName: po.vesselName || null,
+            containerNumber: po.containerNumber || null,
+            totalShipmentQtyGrs: 0,
+            itemQuantities: {},
+          };
+          shipmentMap.set(poKey, entry);
+        }
+        entry.itemQuantities[code] = Math.round(((entry.itemQuantities[code] || 0) + pendingGrs) * 100) / 100;
+        entry.totalShipmentQtyGrs = Math.round((entry.totalShipmentQtyGrs + pendingGrs) * 100) / 100;
+      }
+    }
+
+    const shipmentMilestones = Array.from(shipmentMap.values()).sort((a, b) => {
+      const cmp = a.etaDate.localeCompare(b.etaDate);
+      return cmp !== 0 ? cmp : a.poNumber.localeCompare(b.poNumber);
+    });
+
+    const rows = nippleAnalytics.map((nItem, idx) => {
+      const code = String(nItem.itemCode || '').trim().toUpperCase();
+      const last3MonthSales = Math.round(Number(nItem.rolling3MonthVolume ?? nItem.totalDemand ?? 0) * 100) / 100;
+      const monthlyAverage =
+        Math.round((Number(nItem.effectiveMonthlyUsage || 0) || last3MonthSales / 3) * 100) / 100;
+      const dailyConsumptionRate = Math.round((monthlyAverage / 30) * 10000) / 10000;
+      const forecastSafetyStock = Math.round(monthlyAverage * safetyMonths);
+
+      const unpackedFgStock = Math.round(Number(nItem.currentFgStock ?? nItem.fgStock ?? 0) * 100) / 100;
+      const packedInCartonsFgr = Math.round(Number(nItem.packedInCartonsFgr ?? nItem.totalPackedInSpokes ?? 0) * 100) / 100;
+      const totalAvailableStock = Math.round((unpackedFgStock + packedInCartonsFgr) * 100) / 100;
+      const stockInHand = includeFgrStock ? totalAvailableStock : unpackedFgStock;
+
+      let runningStock = stockInHand;
+      let prevDate = todayIso;
+      let hasStockoutAlert = false;
+
+      const milestoneProjections = shipmentMilestones.map((ms, msIdx) => {
+        const shipmentQtyGrs = Number(ms.itemQuantities[code] || 0);
+        const daysElapsed =
+          msIdx === 0
+            ? daysBetween(todayIso, ms.etaDate)
+            : daysBetween(prevDate, ms.etaDate);
+        const materialConsumedTillEta = Math.round(daysElapsed * dailyConsumptionRate);
+        const stockBeforeShipment = Math.round(runningStock - materialConsumedTillEta);
+        const isStockoutBeforeArrival = stockBeforeShipment < 0;
+        if (isStockoutBeforeArrival) hasStockoutAlert = true;
+
+        const stockAfterShipment = Math.round(stockBeforeShipment + shipmentQtyGrs);
+
+        const nextEta =
+          msIdx + 1 < shipmentMilestones.length
+            ? shipmentMilestones[msIdx + 1].etaDate
+            : horizonDate;
+        const daysTillNextEta = daysBetween(ms.etaDate, nextEta);
+        const materialConsumedTillNextEta = Math.round(daysTillNextEta * dailyConsumptionRate);
+
+        runningStock = stockAfterShipment;
+        prevDate = ms.etaDate;
+
+        return {
+          poId: ms.poId,
+          poNumber: ms.poNumber,
+          fileNumber: ms.fileNumber,
+          vendorName: ms.vendorName,
+          etaDate: ms.etaDate,
+          importStage: ms.importStage,
+          daysElapsed,
+          materialConsumedTillEta,
+          stockBeforeShipment,
+          isStockoutBeforeArrival,
+          shipmentQtyGrs,
+          daysTillNextEta,
+          materialConsumedTillNextEta,
+          stockAfterShipment,
+        };
+      });
+
+      const endingProjectedStock = Math.round(runningStock);
+      const safeInMonths =
+        monthlyAverage > 0 ? Number((endingProjectedStock / monthlyAverage).toFixed(2)) : 999;
+      const recommendedOrderQty = Math.max(0, Math.round(forecastSafetyStock - endingProjectedStock));
+
+      return {
+        sNo: idx + 1,
+        itemId: nItem.itemId,
+        itemCode: nItem.itemCode,
+        itemName: nItem.itemName,
+        uom: 'GRS',
+        last3MonthSales,
+        monthlyAverage,
+        dailyConsumptionRate,
+        safetyMonths,
+        forecastSafetyStock,
+        unpackedFgStock,
+        currentUnpackedNippleStock: unpackedFgStock,
+        packedInCartonsFgr,
+        packedWithNipplesFgr: packedInCartonsFgr,
+        withoutNippleCartonsFgr: Number(nItem.withoutNippleCartonsFgr || 0),
+        totalAvailableStock,
+        stockInHand,
+        totalOrderDemand: Number(nItem.totalOrderDemand ?? nItem.totalDemand ?? 0),
+        totalDispatched: Number(nItem.totalDispatched || 0),
+        netPendingOrder: Number(nItem.netPendingOrder || 0),
+        remainingToPack: Number(nItem.remainingToPack ?? nItem.netPendingDemand ?? 0),
+        packableFromStockGrs: Number(nItem.packableFromStockGrs || 0),
+        netShortageOrSurplus: Number(nItem.netShortageOrSurplus ?? nItem.finalBalanceShortage ?? 0),
+        netPendingDemand: Number(nItem.netPendingDemand || 0),
+        openPoPendingQty: Number(nItem.openPoPendingQty || 0),
+        milestoneProjections,
+        endingProjectedStock,
+        safeInMonths,
+        recommendedOrderQty,
+        hasStockoutAlert,
+        manualMonthlyUsageGrs: nItem.manualMonthlyUsageGrs ?? null,
+        importLeadTimeMonths: Number(nItem.importLeadTimeMonths ?? 4),
+        safetyBufferMonths: Number(nItem.safetyBufferMonths ?? 1),
+        effectiveMonthlyUsage: Number(nItem.effectiveMonthlyUsage ?? monthlyAverage),
+        usageSource: nItem.usageSource || 'AUTO',
+        totalPipelineSupply: Number(nItem.totalPipelineSupply ?? 0),
+        netAvailableAfterPendingOrders: Number(nItem.netAvailableAfterPendingOrders ?? 0),
+        coverageMonths: Number(nItem.coverageMonths ?? 999),
+        projectedStockoutDate: nItem.projectedStockoutDate ?? null,
+        targetCoverageMonths: Number(nItem.targetCoverageMonths ?? 5),
+        targetStockNeeded: Number(nItem.targetStockNeeded ?? 0),
+        orderTodayQty: Number(nItem.orderTodayQty ?? 0),
+        reorderAlertStatus: nItem.reorderAlertStatus || 'COVERED',
+        linkedSpokeSets: nItem.linkedSpokeSets || [],
+        linkedPurchaseOrders: nItem.linkedPurchaseOrders || [],
+      };
+    });
+
+    return {
+      asOfDate: todayIso,
+      horizonDate,
+      safetyMonths,
+      includeFgrStock,
+      shipmentMilestones,
+      rows,
+    };
+  }
+
+  /**
+   * 9. UPDATE PER-NIPPLE LEAD-TIME & MONTHLY USAGE PLANNING CONFIG
+   */
+  async updateNipplePlanningConfig(
+    companyId: string,
+    itemId: string,
+    dto: {
+      manualMonthlyUsageGrs?: number | null;
+      importLeadTimeMonths?: number;
+      safetyBufferMonths?: number;
+    },
+  ) {
+    const manualUsage =
+      dto.manualMonthlyUsageGrs === null || dto.manualMonthlyUsageGrs === undefined || dto.manualMonthlyUsageGrs === ('' as any)
+        ? null
+        : Math.max(0, Number(dto.manualMonthlyUsageGrs));
+    const leadTime =
+      dto.importLeadTimeMonths !== undefined && dto.importLeadTimeMonths !== null
+        ? Math.max(0.5, Math.min(24, Number(dto.importLeadTimeMonths) || 4))
+        : undefined;
+    const safetyBuffer =
+      dto.safetyBufferMonths !== undefined && dto.safetyBufferMonths !== null
+        ? Math.max(0, Math.min(12, Number(dto.safetyBufferMonths)))
+        : undefined;
+
+    await this.orderRepo.manager.query(
+      `UPDATE public.items
+       SET manual_monthly_usage_grs = $1,
+           import_lead_time_months = COALESCE($2, import_lead_time_months),
+           safety_buffer_months = COALESCE($3, safety_buffer_months),
+           updated_at = NOW()
+       WHERE id = $4 AND company_id = $5`,
+      [manualUsage, leadTime ?? null, safetyBuffer ?? null, itemId, companyId],
+    );
+
+    const [updated] = await this.orderRepo.manager.query(
+      `SELECT id as "itemId", item_code as "itemCode", name as "itemName",
+              manual_monthly_usage_grs as "manualMonthlyUsageGrs",
+              import_lead_time_months as "importLeadTimeMonths",
+              safety_buffer_months as "safetyBufferMonths"
+       FROM public.items
+       WHERE id = $1 AND company_id = $2`,
+      [itemId, companyId],
+    );
+
+    return updated || {
+      itemId,
+      manualMonthlyUsageGrs: manualUsage,
+      importLeadTimeMonths: leadTime ?? 4,
+      safetyBufferMonths: safetyBuffer ?? 1,
+    };
+  }
+
+  /**
+   * 10. PROACTIVE NIPPLE IMPORT REORDER ALERTS (4-Month Lead-Time Coverage)
+   */
+  async getNippleImportAlerts(companyId: string, allowedDivisionIds?: DivisionAccess) {
+    const dashboard = await this.getSalesDashboard(
+      companyId,
+      { period: SalesAnalyticsPeriod.ALL },
+      allowedDivisionIds,
+    );
+    const nippleAnalytics: any[] = dashboard?.nippleAnalytics || dashboard?.itemSection?.nippleAnalytics || [];
+    return nippleAnalytics
+      .filter((n) => Number(n.orderTodayQty || 0) > 0 || Number(n.coverageMonths ?? 999) < Number(n.importLeadTimeMonths ?? 4))
+      .map((n) => ({
+        itemId: n.itemId,
+        itemCode: n.itemCode,
+        itemName: n.itemName,
+        coverageMonths: Number(n.coverageMonths ?? 0),
+        projectedStockoutDate: n.projectedStockoutDate ?? null,
+        orderTodayQty: Number(n.orderTodayQty || 0),
+        openPoQty: Number(n.openPoPendingQty || 0),
+        currentUnpackedNippleStock: Number(n.currentUnpackedNippleStock ?? n.currentFgStock ?? 0),
+        remainingToPack: Number(n.remainingToPack || 0),
+        effectiveMonthlyUsage: Number(n.effectiveMonthlyUsage || 0),
+        importLeadTimeMonths: Number(n.importLeadTimeMonths ?? 4),
+        safetyBufferMonths: Number(n.safetyBufferMonths ?? 1),
+        usageSource: n.usageSource || 'AUTO',
+        reorderAlertStatus: n.reorderAlertStatus || 'ORDER_TODAY',
+      }));
   }
 }

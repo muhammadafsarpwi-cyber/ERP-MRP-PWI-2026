@@ -16,6 +16,8 @@ import {
   WarningOutlined,
 } from '@ant-design/icons';
 import { apiService } from '../../services/api';
+import { fetchNippleImportAlerts, type NippleImportAlert } from '../../services/nippleAlertsService';
+import { formatDecimal } from '../../utils/numberFormat';
 import { useNavigate } from 'react-router-dom';
 
 interface NotificationItem {
@@ -80,6 +82,7 @@ function formatTime(iso: string): string {
 const NotificationBell: React.FC = () => {
   const [unreadCount, setUnreadCount] = useState(0);
   const [items, setItems] = useState<NotificationItem[]>([]);
+  const [nippleAlerts, setNippleAlerts] = useState<NippleImportAlert[]>([]);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const mountedRef = useRef(true);
@@ -89,9 +92,13 @@ const NotificationBell: React.FC = () => {
   const refresh = useCallback(async () => {
     const seq = ++countReqRef.current;
     try {
-      const countRes = await apiService.get<UnreadCountResponse>('/notifications/unread-count', undefined, { silent: true });
+      const [countRes, alerts] = await Promise.all([
+        apiService.get<UnreadCountResponse>('/notifications/unread-count', undefined, { silent: true }),
+        fetchNippleImportAlerts(),
+      ]);
       if (mountedRef.current && seq === countReqRef.current) {
         setUnreadCount(countRes.data?.count ?? 0);
+        setNippleAlerts(alerts);
       }
     } catch {
       /* polling failure is non-fatal */
@@ -101,8 +108,14 @@ const NotificationBell: React.FC = () => {
   const loadList = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await apiService.get<ListResponse>('/notifications', { limit: 20 }, { silent: true });
-      if (mountedRef.current) setItems(res.data ?? []);
+      const [res, alerts] = await Promise.all([
+        apiService.get<ListResponse>('/notifications', { limit: 20 }, { silent: true }),
+        fetchNippleImportAlerts(),
+      ]);
+      if (mountedRef.current) {
+        setItems(res.data ?? []);
+        setNippleAlerts(alerts);
+      }
     } catch {
       /* ignore */
     } finally {
@@ -221,11 +234,53 @@ const NotificationBell: React.FC = () => {
         </Button>
       </div>
       <div style={{ maxHeight: 420, overflowY: 'auto' }}>
-        {loading && items.length === 0 ? (
+        {nippleAlerts.length > 0 && (
+          <div style={{ borderBottom: '1px solid var(--theme-border)' }}>
+            {nippleAlerts.map((alert) => (
+              <div
+                key={`nipple-alert-${alert.itemId || alert.itemCode}`}
+                onClick={() => {
+                  setOpen(false);
+                  navigate('/inventory/nipple-demand');
+                }}
+                style={{
+                  cursor: 'pointer',
+                  padding: '10px 14px',
+                  background: 'var(--theme-accent-soft)',
+                  borderBottom: '1px solid var(--theme-border)',
+                  display: 'flex',
+                  gap: 8,
+                  alignItems: 'flex-start',
+                }}
+              >
+                <WarningOutlined style={{ color: '#ef4444', marginTop: 4, flexShrink: 0 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--theme-text)' }}>
+                    Order Today: {alert.itemName} ({alert.itemCode})
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--theme-text-muted)', marginTop: 2 }}>
+                    Coverage: <strong>{alert.coverageMonths >= 999 ? '999M' : `${alert.coverageMonths.toFixed(1)}M`}</strong>
+                    {alert.projectedStockoutDate ? ` · Stockout ${alert.projectedStockoutDate}` : ''} · Order{' '}
+                    <strong>{formatDecimal(alert.orderTodayQty, 0)} GRS</strong>
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
+                    <Tag color="red" style={{ fontSize: 10, lineHeight: '14px', margin: 0 }}>
+                      4M Import Lead-Time
+                    </Tag>
+                    <Tag color="blue" style={{ fontSize: 10, lineHeight: '14px', margin: 0 }}>
+                      Open PO: {formatDecimal(alert.openPoQty, 0)} GRS
+                    </Tag>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        {loading && items.length === 0 && nippleAlerts.length === 0 ? (
           <div style={{ padding: 28, textAlign: 'center' }}>
             <Spin />
           </div>
-        ) : items.length === 0 ? (
+        ) : items.length === 0 && nippleAlerts.length === 0 ? (
           <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No notifications" style={{ padding: 20 }} />
         ) : (
           <List
@@ -326,7 +381,7 @@ const NotificationBell: React.FC = () => {
           }}
         >
           <Badge
-            count={unreadCount}
+            count={unreadCount + nippleAlerts.length}
             overflowCount={99}
             showZero={false}
             offset={[4, -4]}

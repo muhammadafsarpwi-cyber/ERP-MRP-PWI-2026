@@ -507,6 +507,16 @@ export class AddPoImportUpdateDto {
   @IsOptional()
   containerNumber?: string;
 
+  @ApiPropertyOptional({ description: 'LC / TT / Import File Number (e.g. File 12/27)' })
+  @IsString()
+  @IsOptional()
+  lcTtNumber?: string;
+
+  @ApiPropertyOptional({ description: 'Alias for LC / TT / Import File Number' })
+  @IsString()
+  @IsOptional()
+  fileNumber?: string;
+
   @ApiPropertyOptional({ description: 'Remarks / reason for revision or delay' })
   @IsString()
   @IsOptional()

@@ -1,6 +1,8 @@
 import {
   Controller,
   Get,
+  Patch,
+  Body,
   Query,
   Param,
   UseGuards,
@@ -66,6 +68,63 @@ export class SalesAnalyticsController {
       this.resolveCompanyId(req),
       filter,
       this.divisionScope(req),
+    );
+    return { success: true, data };
+  }
+
+  @Get('nipple-shipment-plan')
+  @RequireOrgScope()
+  @ApiOperation({ summary: 'Get Time-Phased Nipple Import Shipment Projection & Auto-Reorder Matrix' })
+  async getNippleShipmentPlan(
+    @Query('safetyMonths') safetyMonths?: string,
+    @Query('horizonDate') horizonDate?: string,
+    @Query('includeFgrStock') includeFgrStock?: string,
+    @Query('asOfDate') asOfDate?: string,
+    @Request() req?: any,
+  ) {
+    const parsedSafetyMonths = safetyMonths ? Math.max(1, Math.min(12, Number(safetyMonths) || 4)) : 4;
+    const includeFgr = includeFgrStock === 'true' || includeFgrStock === '1';
+    const data = await this.analyticsService.getNippleShipmentPlan(
+      this.resolveCompanyId(req),
+      {
+        safetyMonths: parsedSafetyMonths,
+        horizonDate,
+        includeFgrStock: includeFgr,
+        asOfDate,
+      },
+      this.divisionScope(req),
+    );
+    return { success: true, data };
+  }
+
+  @Get('nipple-import-alerts')
+  @RequireOrgScope()
+  @ApiOperation({ summary: 'Get proactive Nipple Import Reorder Alerts (4-month advance lead-time coverage)' })
+  async getNippleImportAlerts(@Request() req: any) {
+    const data = await this.analyticsService.getNippleImportAlerts(
+      this.resolveCompanyId(req),
+      this.divisionScope(req),
+    );
+    return { success: true, data };
+  }
+
+  @Patch('nipple-planning-config/:itemId')
+  @RequireOrgScope()
+  @ApiOperation({ summary: 'Update manual monthly usage override, import lead time, and safety buffer for a Nipple item' })
+  async updateNipplePlanningConfig(
+    @Param('itemId') itemId: string,
+    @Body()
+    body: {
+      manualMonthlyUsageGrs?: number | null;
+      importLeadTimeMonths?: number;
+      safetyBufferMonths?: number;
+    },
+    @Request() req: any,
+  ) {
+    const data = await this.analyticsService.updateNipplePlanningConfig(
+      this.resolveCompanyId(req),
+      itemId,
+      body || {},
     );
     return { success: true, data };
   }

@@ -25,6 +25,7 @@ import ProcurementFunnel from './components/dashboard/procurementFunnel';
 import RecentActivity from './components/dashboard/recentActivity';
 import LowStockQueue from './components/dashboard/lowStockQueue';
 import ReportCards from './components/dashboard/reportCards';
+import NippleImportAlertBanner from '../../components/analytics/NippleImportAlertBanner';
 
 const { useBreakpoint } = Grid;
 
@@ -208,6 +209,8 @@ const StoreDashboard: React.FC = () => {
   return (
     <div style={{ padding: '16px 24px 32px' }}>
       <PageHeader icon={<DashboardOutlined />} title="Store Dashboard" subtitle="Store operations control center" />
+
+      <NippleImportAlertBanner marginBottom={14} />
 
       <div
         style={{

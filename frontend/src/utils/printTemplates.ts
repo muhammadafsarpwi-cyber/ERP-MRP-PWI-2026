@@ -2,7 +2,7 @@ import dayjs from 'dayjs';
 import { formatDecimal, formatQty } from './numberFormat';
 import { renderVisitorSlipHtml, type VisitorSlipAssets, type VisitorSlipData } from './visitorSlipHtml';
 
-function getLogoUrl(): string {
+export function getLogoUrl(): string {
   if (typeof window !== 'undefined' && window.location?.origin) {
     return `${window.location.origin}/logo.png`;
   }

@@ -9,8 +9,12 @@ import {
   HistoryOutlined,
 } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
-import { jsPDF } from 'jspdf';
-import autoTable from 'jspdf-autotable';
+import {
+  exportProductionLedgerExcel,
+  exportProductionLedgerPdf,
+  printProductionLedgerReport,
+  type ProductionLedgerExportOptions,
+} from '../../utils/productionLedgerExport';
 import { useLocation } from 'react-router-dom';
 import apiService from '../../services/api';
 import { useHeaderActions, type HeaderAction } from '../../components/layout/headerActionsStore';
@@ -3685,863 +3689,97 @@ const ItemWiseProductionLedger: React.FC = () => {
 
   const stamp = () => `${endDate}-${dayjs().format('HHmmss')}`;
 
-  const handleExcel = () => {
+  const buildExportPayload = (): ProductionLedgerExportOptions => ({
+    companyName: 'Pakistan Wire Industry',
+    subtitle: LETTERHEAD.subtitle,
+    reportTitle: 'Item-Wise Production Ledger',
+    divisionName: selectedDivisionName || LETTERHEAD.division,
+    viewMode,
+    endDate,
+    monthFrom,
+    rangeStart: range[0].format('YYYY-MM-DD'),
+    showAll,
+    fileStamp: stamp(),
+    summary: {
+      found: summary.found,
+      total: summary.total,
+      balanced: summary.balanced,
+      totalPacked: summary.totalPacked,
+    },
+    chains: visibleGrids.map((g) => ({
+      key: g.def.key,
+      label: g.def.label,
+      fgItemCode: g.def.fgItemCode,
+      summary: {
+        found: g.summary.found,
+        total: g.summary.total,
+        balanced: g.summary.balanced,
+        totalPacked: g.summary.totalPacked,
+      },
+      rows: g.rows.map((r) => ({
+        key: r.key,
+        order: r.order,
+        stage: r.stage,
+        stageLabel: r.stageLabel,
+        departmentName: stageLabel(r),
+        itemCode: r.itemCode,
+        itemName: r.itemName,
+        splitSide: r.splitSide,
+        uomCode: r.uomCode,
+        opBalance: r.opBalance,
+        production: r.production,
+        subTotal: r.subTotal,
+        issuance: r.issuance,
+        suppressed: r.suppressed,
+        closingPieces: r.closingPieces,
+        perPieceWeight: r.perPieceWeight,
+        totalWeight: r.totalWeight,
+        scrapTodayPcs: r.scrapTodayPcs,
+        scrapTodayKg: r.scrapTodayKg,
+        scrapMonthPcs: r.scrapMonthPcs,
+        scrapMonthKg: r.scrapMonthKg,
+        remarks: r.remarks ?? '—',
+        found: r.found,
+      })),
+    })),
+  });
+
+  const handleExcel = async () => {
     if (visibleGrids.length === 0) {
       message.warning('No item chain is included in the export');
       return;
     }
     try {
-      const matrix: SheetCell[][] = [
-        [LETTERHEAD.company],
-        [LETTERHEAD.subtitle],
-        [],
-        ['Report Title', LETTERHEAD.reportTitle],
-        ['Selected Division', selectedDivisionName],
-        ['Production Date', endDate],
-        ['Month Window', `${monthFrom} to ${endDate}`],
-        ['Generated', dayjs().format('YYYY-MM-DD HH:mm')],
-        ['Chains Included', String(visibleGrids.length)],
-        [],
-      ];
-      // §1 — excluded chains never reach the workbook.
-      const EXCEL_HEADERS = [
-        'Stage',
-        'Department',
-        'Item Code',
-        'Item Name',
-        'Op Balance',
-        'Production',
-        'Sub-Total',
-        'Issuance',
-        'Closing Pieces',
-        'Closing (CTN)',
-        'Closing (GRS)',
-        'UoM',
-        'Per Piece Weight (KG)',
-        'Total Weight (KG)',
-        'Today Scrap (KG)',
-        'Total Month Scrap (KG)',
-        'Remarks / Movement',
-      ];
-      visibleGrids.forEach((g) => {
-        matrix.push([]);
-        matrix.push([g.def.label]);
-        matrix.push(EXCEL_HEADERS);
-        g.rows.forEach((r) => {
-          const subClose = getUnitBreakdownSubtext(r.closingPieces, r.stage, r.uomCode, r.itemCode);
-          matrix.push([
-            r.stage,
-            stageLabel(r),
-            r.itemCode,
-            r.itemName,
-            exportCell(r.opBalance, r.uomCode),
-            exportCell(r.production, r.uomCode),
-            exportCell(r.subTotal, r.uomCode),
-            r.suppressed ? '—' : exportCell(r.issuance, r.uomCode),
-            exportCell(r.closingPieces, r.uomCode),
-            subClose?.isFgOrDp ? Math.round(subClose.cartons * 10) / 10 : (subClose ? '—' : null),
-            subClose ? Math.round(subClose.gross * 10) / 10 : null,
-            r.uomCode ?? '—',
-            exportCell(r.perPieceWeight, 'KG'),
-            exportCell(r.totalWeight, 'KG'),
-            exportCell(r.scrapToday, r.uomCode),
-            exportCell(r.scrapMonth, r.uomCode),
-            r.remarks ?? '—',
-          ]);
-        });
-      });
-      // Copy into a fresh ArrayBuffer-backed view so it satisfies BlobPart.
-      const bytes = new Uint8Array(buildXlsx(matrix, 'Item-Wise Ledger'));
-      saveBlob(
-        new Blob([bytes], {
-          type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        }),
-        `item-wise-production-ledger-${stamp()}.xlsx`,
-      );
+      await exportProductionLedgerExcel(buildExportPayload());
       message.success('Excel workbook exported');
     } catch {
       message.error('Excel export failed');
     }
   };
 
-  /* ── §3 corporate letterhead for the PDF sheet ─────────────────────── */
-
-  const drawPdfLetterhead = (doc: jsPDF): void => {
-    // Check if on-screen logo image exists to paint in PDF
-    const logoImg = document.querySelector('.iwl-lh-logo') as HTMLImageElement | null;
-    let textStartX = PDF_MARGIN_X;
-    if (logoImg && logoImg.complete && logoImg.naturalWidth > 0) {
-      try {
-        doc.addImage(logoImg, 'PNG', PDF_MARGIN_X, 12, 28, 28);
-        textStartX = PDF_MARGIN_X + 34;
-      } catch {
-        // Continue without image if drawing throws
-      }
-    }
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(13);
-    doc.setTextColor(15, 23, 42);
-    doc.text(LETTERHEAD.company, textStartX, 24);
-
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8);
-    doc.setTextColor(91, 100, 114);
-    doc.text(
-      `${LETTERHEAD.reportTitle} — ${selectedDivisionName || LETTERHEAD.division}`,
-      textStartX,
-      36,
-    );
-
-    // Right-aligned Date badge & Month Window
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9.5);
-    doc.setTextColor(15, 23, 42);
-    doc.text(`AS-ON: ${endDate}`, PDF_PAGE_W - PDF_MARGIN_X, 24, { align: 'right' });
-
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7.5);
-    doc.setTextColor(100, 116, 139);
-    doc.text(`Month Window: ${monthFrom} to ${endDate}`, PDF_PAGE_W - PDF_MARGIN_X, 36, {
-      align: 'right',
-    });
-
-    doc.setDrawColor(15, 23, 42);
-    doc.setLineWidth(1.2);
-    doc.line(PDF_MARGIN_X, PDF_RULE_TOP, PDF_PAGE_W - PDF_MARGIN_X, PDF_RULE_TOP);
-  };
-
-  /** Compact continuation banner for pages after the first. */
-  const drawPdfRunningHeader = (doc: jsPDF): void => {
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9);
-    doc.setTextColor(15, 23, 42);
-    doc.text(LETTERHEAD.company, PDF_MARGIN_X, 24);
-    doc.text(`Production Date: ${endDate}`, PDF_PAGE_W - PDF_MARGIN_X, 24, { align: 'right' });
-
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7.5);
-    doc.setTextColor(107, 114, 128);
-    doc.text(`${LETTERHEAD.reportTitle}  ·  ${selectedDivisionName}`, PDF_MARGIN_X, 35);
-
-    // §13 — the continuation banner's own rule uses the same charcoal as the
-    // grid, so page 2+ never reverts to the old washed-out hairline.
-    doc.setDrawColor(148, 163, 184);
-    doc.setLineWidth(0.6);
-    doc.line(PDF_MARGIN_X, PDF_RULE_BOTTOM, PDF_PAGE_W - PDF_MARGIN_X, PDF_RULE_BOTTOM);
-  };
-
-  /** Page footer — division stamp left, page number right. */
-  const drawPdfFooter = (doc: jsPDF, pageNumber: number): void => {
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7);
-    doc.setTextColor(150, 160, 175);
-    doc.text(selectedDivisionName, PDF_MARGIN_X, PDF_PAGE_H - 16);
-    doc.text(`Page ${pageNumber}`, PDF_PAGE_W - PDF_MARGIN_X, PDF_PAGE_H - 16, { align: 'right' });
-  };
-
-  const handlePdf = () => {
+  const handlePdf = async () => {
     if (visibleGrids.length === 0) {
       message.warning('No item chain is included in the export');
       return;
     }
     try {
-      const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
-      drawPdfLetterhead(doc);
-
-      /** Minimum room one chain needs — used to decide "new page". */
-      const CHAIN_SLOT = 140;
-      const pageBottom = PDF_PAGE_H - 34;
-      let placed = 0;
-      let cursor = 0;
-
-      // §1 — only the chains the operator left ticked are rendered.
-      visibleGrids.forEach((g) => {
-        let startY: number;
-        if (placed === 0) {
-          startY = PDF_RULE_TOP + 8;
-        } else if (cursor + CHAIN_SLOT > pageBottom) {
-          // §2 — no room for a WHOLE chain ⇒ push it to the next page.
-          doc.addPage();
-          startY = PDF_RULE_BOTTOM + 6;
-        } else {
-          startY = cursor + 14;
-        }
-
-        autoTable(doc, {
-          // §1 — the Item Chain identifier, dead-centre at the head of its
-          // own table, mirroring the printed sheet exactly. It is a merged,
-          // full-width HEAD row rather than a floating caption so it travels
-          // with the table and can never be orphaned on a page break.
-          head: [
-            [
-              {
-                content: g.def.label,
-                colSpan: EXPORT_HEADERS.length,
-                styles: {
-                  halign: 'center',
-                  fontStyle: 'bold',
-                  fontSize: 11,
-                  fillColor: [255, 255, 255],
-                  textColor: [15, 23, 42],
-                  cellPadding: 3,
-                  // One heavy statement rule under the title, no box around it.
-                  // §13 — charcoal, the same solid grid ink every other line
-                  // in this table now uses.
-                  lineWidth: { top: 0, left: 0, right: 0, bottom: 2 },
-                  lineColor: [148, 163, 184],
-                },
-              },
-            ],
-            // §8 — the scrap pair is topped by its own merged parent so the
-            // sheet carries the exact same string as the grid: `SCRAP — KG`.
-            // The ten plain headers ride across both header rows (rowSpan 2),
-            // leaving only the two leaves to fill in underneath.
-            [
-              ...EXPORT_HEADERS.slice(0, COL.scrapToday).map((h) => ({
-                content: h,
-                rowSpan: 2,
-              })),
-              { content: SCRAP_HEADER, colSpan: 2 },
-              { content: 'Remarks', rowSpan: 2 },
-            ],
-            ['Today', 'Total'],
-          ],
-          body: g.rows.map((r) => exportDisplayRow(r)),
-          startY,
-          // §2 — autotable's own guard: a chain table is never split.
-          pageBreak: 'avoid',
-          margin: {
-            top: PDF_RULE_BOTTOM + 6,
-            right: PDF_MARGIN_X,
-            bottom: 24,
-            left: PDF_MARGIN_X,
-          },
-          theme: 'grid',
-          styles: {
-            fontSize: 8,
-            cellPadding: 2,
-            overflow: 'linebreak',
-            // §2 — one uniform centre alignment across the whole data matrix.
-            halign: 'center',
-            // §13 — CHARCOAL GRID: 0.75pt is exactly the 1px the printed
-            // sheet uses (1px @96dpi), and #94a3b8 is the solid medium-dark
-            // charcoal that finally survives the printer instead of washing
-            // out like the old #e2e8f0 hairline.
-            lineWidth: 0.75,
-            lineColor: [148, 163, 184],
-            // §2/§4 — clean white sheet with black figures, never the app theme.
-            fillColor: [255, 255, 255],
-            textColor: [0, 0, 0],
-          },
-          headStyles: {
-            // §2 — commanding slate band, white ultra-bold type, statement rule.
-            fillColor: [30, 41, 59],
-            textColor: [255, 255, 255],
-            fontStyle: 'bold',
-            halign: 'center',
-            // §13 — the header separators join the same charcoal grid. `top`
-            // stays 0: the chain title's own 2pt rule already draws that
-            // boundary, so a second pass would only stripe it.
-            lineColor: [148, 163, 184],
-            lineWidth: { top: 0, bottom: 2, left: 0.75, right: 0.75 },
-          },
-          // §13 — the OUTER FRAMEWORK uses the identical ink and weight, so
-          // the sheet's edge and every inner rule are one continuous grid.
-          tableLineWidth: 0.75,
-          tableLineColor: [148, 163, 184],
-          columnStyles: {
-            // §12 — ABSOLUTE WIDTHS: all gutters pinned to `PDF_W`, so
-            // the data itself can no longer resize a column. Their total is
-            // exactly `PDF_TABLE_W`, which is the same figure autotable draws
-            // its outer frame with — frame and inner rules therefore coincide,
-            // and no grid line is ever left hanging or truncated.
-            // §3 — Stage holds the composite code — name on ONE line at 9pt,
-            // and §9 makes it the sheet's ruled left margin, never centred.
-            [COL.stage]: { cellWidth: PDF_W[COL.stage], halign: 'left' },
-            // §2 — the stacked Item column is the sole flush-left column.
-            [COL.item]: { cellWidth: PDF_W[COL.item], halign: 'left' },
-            [COL.op]: { cellWidth: PDF_W[COL.op] },
-            [COL.production]: { cellWidth: PDF_W[COL.production] },
-            [COL.subTotal]: { cellWidth: PDF_W[COL.subTotal] },
-            [COL.issuance]: { cellWidth: PDF_W[COL.issuance] },
-            [COL.closing]: { cellWidth: PDF_W[COL.closing] },
-            [COL.uom]: { cellWidth: PDF_W[COL.uom] },
-            [COL.perPieceWeight]: { cellWidth: PDF_W[COL.perPieceWeight] },
-            [COL.totalWeight]: { cellWidth: PDF_W[COL.totalWeight] },
-            [COL.scrapToday]: { cellWidth: PDF_W[COL.scrapToday] },
-            [COL.scrapMonth]: { cellWidth: PDF_W[COL.scrapMonth] },
-            [COL.remarks]: { cellWidth: PDF_W[COL.remarks], halign: 'left' },
-          },
-          // §3 — the same colour pathways the screen uses, but with the §5
-          // accounting rule on top: a clean white cell, never a tinted fill.
-          didParseCell: (data) => {
-            // §2/§9 — Item, Stage, Remarks are the flush-left columns, head AND
-            // body. The merged chain title (head row 0 — the only cell ever
-            // sitting on column 0 while being a header) keeps its centre.
-            const isChainTitle = data.section === 'head' && data.row.index === 0;
-            if (
-              !isChainTitle &&
-              (data.column.index === COL.item || data.column.index === COL.stage || data.column.index === COL.remarks)
-            ) {
-              data.cell.styles.halign = 'left';
-            }
-            if (data.section === 'head') return;
-            // §5 — NO colour fills on data rows: every body cell is painted
-            // pure white and separated only by the shared charcoal rule from
-            // `styles` (0.75pt), so all rows carry identical borders.
-            data.cell.styles.fillColor = [255, 255, 255];
-            // §12/§13 — PERFECT HAIRLINES: re-assert the shared theme border on
-            // all four sides of EVERY data cell (0.75pt = the printed 1px
-            // solid #94a3b8). Nothing downstream may drop a line, so the grid
-            // stays fully continuous row after row — charcoal, not the old
-            // #e2e8f0 that washed straight out of a printer.
-            data.cell.styles.lineWidth = 0.75;
-            data.cell.styles.lineColor = [148, 163, 184];
-            const idx = data.column.index;
-            const isNumeric =
-              idx !== COL.stage && idx !== COL.item && idx !== COL.uom && idx !== COL.remarks;
-            if (isNumeric) {
-              data.cell.styles.fontSize = 9.5;
-              data.cell.styles.fontStyle = 'bold';
-              data.cell.styles.textColor = [0, 0, 0];
-            }
-            if (idx === COL.production) {
-              data.cell.styles.textColor = [4, 120, 87];
-            } else if (idx === COL.closing) {
-              const rawStr = String(data.cell.raw ?? '').trim();
-              const isMultiLine = rawStr.includes('\n');
-              const isNeg = rawStr.startsWith('-');
-              data.cell.styles.fontSize = isMultiLine ? 7.2 : 9.5;
-              data.cell.styles.cellPadding = isMultiLine ? { top: 1.5, bottom: 1.5, left: 1, right: 1 } : 2.5;
-              if (isNeg) {
-                data.cell.styles.textColor = [220, 38, 38];
-                data.cell.styles.fillColor = [254, 226, 226];
-              } else {
-                data.cell.styles.textColor = [180, 83, 9];
-              }
-            } else if (idx === COL.uom) {
-              data.cell.styles.fontSize = 8;
-              data.cell.styles.fontStyle = 'bold';
-              data.cell.styles.textColor = [71, 85, 105];
-            } else if (idx === COL.scrapToday || idx === COL.scrapMonth) {
-              data.cell.styles.textColor = [255, 77, 79];
-            }
-          },
-          // §12/§13 — HIERARCHY STACKED ITEM TYPE: the code is a heavily bold
-          // deep corporate navy (#0f172a); the name sits directly beneath it
-          // ULTRA-BOLD in Corporate Royal Blue (#1e40af), so the product
-          // description pops out of the row instead of fading away.
-          // jsPDF-autotable can only apply ONE font/weight/colour per cell,
-          // so the pair is drawn by hand — and it has to span two hooks,
-          // because the built-in text is painted between them.
-          willDrawCell: (data) => {
-            if (data.section !== 'body' || data.column.index !== COL.item) return;
-            // Row heights were already resolved from the genuine two-line
-            // text (calculateWidths runs before any drawing), so blanking the
-            // built-in draw loses no height — didDrawCell repaints it below.
-            data.cell.text = [''];
-          },
-          didDrawCell: (data) => {
-            if (data.section !== 'body' || data.column.index !== COL.item) return;
-            const cell = data.cell;
-            const rawStr = String(cell.raw ?? '');
-            const [code = '', ...nameParts] = rawStr.split('\n');
-            const name = nameParts.join('\n');
-            const fs = 8.5; // compact, readable 8.5pt font
-            const padX = cell.padding('left');
-            const padR = cell.padding('right');
-            const maxW = Math.max(cell.width - padX - padR, 20);
-            const x = cell.x + padX;
-            let y = cell.y + cell.padding('top') + fs * 0.9;
-            // Draw Item Code on line 1 - never broken
-            doc.setFont('helvetica', 'bold');
-            doc.setFontSize(fs);
-            doc.setTextColor(15, 23, 42); // #0f172a — deep corporate navy
-            doc.text(code, x, y);
-            if (name) {
-              // Draw Item Name wrapped cleanly on line 2 in Corporate Royal Blue
-              doc.setFont('helvetica', 'bold');
-              doc.setFontSize(fs - 0.7);
-              doc.setTextColor(30, 64, 175); // #1e40af — Corporate Royal Blue
-              const splitLines = doc.splitTextToSize(name, maxW);
-              y += fs * 1.15;
-              doc.text(splitLines, x, y);
-            }
-          },
-          didDrawPage: () => {
-            const pageNumber = doc.getCurrentPageInfo().pageNumber;
-            if (pageNumber > 1) drawPdfRunningHeader(doc);
-            drawPdfFooter(doc, pageNumber);
-          },
-        });
-
-        // Fall back to the page bottom so a chain can never be stacked on
-        // top of the previous one if `finalY` is unavailable.
-        const finalY = (doc as any).lastAutoTable?.finalY;
-        cursor = typeof finalY === 'number' ? finalY : PDF_PAGE_H;
-        placed += 1;
-      });
-
-      doc.save(`item-wise-production-ledger-${stamp()}.pdf`);
+      await exportProductionLedgerPdf(buildExportPayload());
       message.success('PDF downloaded');
     } catch {
       message.error('PDF export failed');
     }
   };
 
-  const handlePrint = () => {
+  const handlePrint = async () => {
     if (visibleGrids.length === 0) {
       message.warning('No item chain is included in the print output');
       return;
     }
-
-    let printFrame = document.getElementById('iwl-print-iframe') as HTMLIFrameElement | null;
-    if (printFrame) {
-      printFrame.remove();
+    try {
+      await printProductionLedgerReport(buildExportPayload());
+    } catch {
+      message.error('Print preparation failed');
     }
-    printFrame = document.createElement('iframe');
-    printFrame.id = 'iwl-print-iframe';
-    printFrame.style.position = 'fixed';
-    printFrame.style.right = '0';
-    printFrame.style.bottom = '0';
-    printFrame.style.width = '0';
-    printFrame.style.height = '0';
-    printFrame.style.border = '0';
-    document.body.appendChild(printFrame);
-
-    const doc = printFrame.contentWindow?.document;
-    if (!doc) {
-      window.print();
-      return;
-    }
-
-    const printHtml = `
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <title>${LETTERHEAD.reportTitle} - ${endDate}</title>
-          <style>
-            @page {
-              size: A4 landscape;
-              margin: 5mm 6mm;
-            }
-            * {
-              box-sizing: border-box;
-              margin: 0;
-              padding: 0;
-            }
-            body {
-              font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-              background: #ffffff !important;
-              color: #0f172a !important;
-              -webkit-print-color-adjust: exact !important;
-              print-color-adjust: exact !important;
-            }
-            .iwl-print-chain {
-              width: 100%;
-              page-break-inside: avoid;
-              break-inside: avoid;
-            }
-            .iwl-print-chain + .iwl-print-chain {
-              page-break-before: always;
-              break-before: page;
-              margin-top: 0;
-            }
-            .iwl-pl-header {
-              display: flex;
-              justify-content: space-between;
-              align-items: center;
-              border-bottom: 2px solid #0f172a;
-              padding-bottom: 3px;
-              margin-bottom: 5px;
-            }
-            .iwl-pl-left {
-              display: flex;
-              align-items: center;
-              gap: 10px;
-            }
-            .iwl-pl-company {
-              font-size: 13pt;
-              font-weight: 800;
-              color: #0f172a;
-              line-height: 1.15;
-            }
-            .iwl-pl-sub {
-              font-size: 8pt;
-              color: #475569;
-              font-weight: 600;
-              margin-top: 1px;
-            }
-            .iwl-pl-right {
-              text-align: right;
-            }
-            .iwl-pl-date-badge {
-              font-size: 9.5pt;
-              font-weight: 800;
-              color: #0f172a;
-            }
-            .iwl-pl-meta {
-              font-size: 7.5pt;
-              color: #64748b;
-              margin-top: 1px;
-            }
-            .iwl-pch-banner {
-              text-align: center;
-              margin-bottom: 4px;
-              padding: 2px 6px;
-              background: #f8fafc;
-              border: 1px solid #cbd5e1;
-              border-radius: 4px;
-            }
-            .iwl-pch-title {
-              font-size: 10pt;
-              font-weight: 800;
-              color: #0f172a;
-              letter-spacing: 0.2px;
-            }
-            .iwl-pch-sub {
-              font-size: 8pt;
-              color: #475569;
-              margin-left: 8px;
-              font-weight: 600;
-            }
-            .iwl-p-table {
-              width: 100%;
-              border-collapse: collapse;
-              table-layout: fixed;
-              border: 1px solid #94a3b8;
-              font-size: 8.5pt;
-            }
-            .iwl-p-table thead th {
-              background: #1e293b !important;
-              color: #ffffff !important;
-              font-weight: 800;
-              border: 1px solid #94a3b8;
-              padding: 2.5px 3px;
-              text-align: center;
-              font-size: 8pt;
-              line-height: 1.15;
-            }
-            .iwl-p-table tbody td {
-              border: 1px solid #94a3b8;
-              padding: 2px 3px;
-              vertical-align: middle;
-              font-size: 8pt;
-              color: #0f172a;
-              line-height: 1.2;
-            }
-            .col-stage {
-              width: 78px;
-              text-align: left !important;
-              padding-left: 4px !important;
-            }
-            .st-code {
-              font-size: 8.5pt;
-              font-weight: 800;
-              color: #0f172a;
-            }
-            .st-dept {
-              font-size: 7.2pt;
-              font-weight: 600;
-              color: #64748b;
-              white-space: nowrap;
-              overflow: hidden;
-              text-overflow: ellipsis;
-            }
-            .col-item {
-              width: 155px;
-              text-align: left !important;
-              padding-left: 4px !important;
-            }
-            .it-code {
-              font-size: 8.8pt;
-              font-weight: 800;
-              color: #0284c7;
-              white-space: nowrap !important;
-              letter-spacing: 0.1px;
-            }
-            .it-name {
-              font-size: 7.5pt;
-              font-weight: 600;
-              color: #1e293b;
-              margin-top: 1px;
-              line-height: 1.15;
-              word-break: break-word;
-            }
-            .col-num {
-              text-align: center;
-              font-weight: 700;
-              font-variant-numeric: tabular-nums;
-            }
-            .col-op {
-              color: #ea580c;
-              font-weight: 800;
-              width: 60px;
-            }
-            .col-prod {
-              color: #047857;
-              font-weight: 800;
-              width: 60px;
-            }
-            .col-sub {
-              width: 60px;
-            }
-            .col-iss {
-              width: 58px;
-            }
-            .col-close {
-              color: #b45309;
-              font-weight: 800;
-              width: 76px;
-              padding: 2px 2px !important;
-            }
-            .col-close.neg-val {
-              color: #dc2626 !important;
-              background-color: #fee2e2 !important;
-            }
-            .col-uom {
-              width: 32px;
-              text-align: center;
-              font-size: 8pt;
-              font-weight: 700;
-              color: #334155;
-              white-space: nowrap !important;
-            }
-            .val-main {
-              font-size: 8.5pt !important;
-              font-weight: 800 !important;
-              white-space: nowrap !important;
-              line-height: 1.15 !important;
-            }
-            .sub-unit-line {
-              font-size: 6.8pt !important;
-              font-weight: 700 !important;
-              white-space: nowrap !important;
-              line-height: 1.15 !important;
-              margin-top: 1px !important;
-            }
-            .sub-unit-ctn {
-              color: #0284c7 !important;
-            }
-            .sub-unit-grs {
-              color: #4f46e5 !important;
-            }
-            .iwl-pl-logo {
-              height: 36px;
-              width: auto;
-              object-fit: contain;
-              margin-right: 10px;
-            }
-            .col-weight {
-              width: 64px;
-            }
-            .wt-total {
-              font-size: 8pt;
-              font-weight: 800;
-            }
-            .wt-ppw {
-              font-size: 6.8pt;
-              font-weight: 600;
-              color: #64748b;
-            }
-            .col-scrap-group {
-              border-bottom: 1px solid #94a3b8 !important;
-            }
-            .col-scrap-sub {
-              width: 52px !important;
-              font-size: 7.2pt !important;
-              padding: 2px !important;
-            }
-            .col-scrap {
-              width: 52px !important;
-              color: #dc2626;
-              font-weight: 700;
-            }
-            .col-remarks {
-              width: auto !important;
-              text-align: left;
-              font-size: 7.2pt;
-              color: #475569;
-              word-break: break-word;
-              padding-left: 6px !important;
-            }
-            .th-subtext {
-              font-size: 6.8pt;
-              font-weight: 500;
-              opacity: 0.85;
-            }
-          </style>
-        </head>
-        <body>
-          ${visibleGrids
-            .map(
-              (g) => `
-            <div class="iwl-print-chain">
-              <div class="iwl-pl-header">
-                <div class="iwl-pl-left">
-                  <img src="${window.location.origin}/logo.png" class="iwl-pl-logo" alt="PWI Logo" />
-                  <div>
-                    <div class="iwl-pl-company">${LETTERHEAD.company}</div>
-                    <div class="iwl-pl-sub">${LETTERHEAD.reportTitle} — ${selectedDivisionName || LETTERHEAD.division}</div>
-                  </div>
-                </div>
-                <div class="iwl-pl-right">
-                  <div class="iwl-pl-date-badge">AS-ON: ${endDate}</div>
-                  <div class="iwl-pl-meta">Month Window: ${monthFrom} to ${endDate}</div>
-                </div>
-              </div>
-
-              <div class="iwl-pch-banner">
-                <span class="iwl-pch-title">${g.def.label}</span>
-                <span class="iwl-pch-sub">(${g.summary.found}/${g.summary.total} stages)</span>
-              </div>
-
-              <table class="iwl-p-table">
-                <colgroup>
-                  <col style="width: 74px;" />
-                  <col style="width: 146px;" />
-                  <col style="width: 58px;" />
-                  <col style="width: 58px;" />
-                  <col style="width: 58px;" />
-                  <col style="width: 56px;" />
-                  <col style="width: 76px;" />
-                  <col style="width: 32px;" />
-                  <col style="width: 64px;" />
-                  <col style="width: 38px;" />
-                  <col style="width: 38px;" />
-                  <col style="width: auto;" />
-                </colgroup>
-                <thead>
-                  <tr>
-                    <th rowspan="2" class="col-stage">Stage</th>
-                    <th rowspan="2" class="col-item">Item (Code / Name)</th>
-                    <th rowspan="2" class="col-op">Op Balance</th>
-                    <th rowspan="2" class="col-prod">Production</th>
-                    <th rowspan="2" class="col-sub">Sub-Total</th>
-                    <th rowspan="2" class="col-iss">Issuance</th>
-                    <th rowspan="2" class="col-close">Closing Pieces</th>
-                    <th rowspan="2" class="col-uom">UoM</th>
-                    <th rowspan="2" class="col-weight">Total Weight<br><span class="th-subtext">(Per Piece Wt)</span></th>
-                    <th colspan="2" class="col-scrap-group">${SCRAP_HEADER}</th>
-                    <th rowspan="2" class="col-remarks">Remarks / Movement</th>
-                  </tr>
-                  <tr>
-                    <th class="col-scrap-sub">Today</th>
-                    <th class="col-scrap-sub">Total</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${g.rows
-                    .map((r) => {
-                      const isNeg = r.closingPieces < 0;
-                      return `
-                      <tr>
-                        <td class="col-stage">
-                          <div class="st-code">${r.stage}</div>
-                          <div class="st-dept">${stageLabel(r)}</div>
-                        </td>
-                        <td class="col-item">
-                          <div class="it-code">${r.itemCode}</div>
-                          <div class="it-name">${r.itemName}</div>
-                        </td>
-                        <td class="col-num col-op">
-                          <div class="val-main">${fmtDisplayQty(r.opBalance, r.uomCode)}</div>
-                          ${(() => {
-                            const s = getUnitBreakdownSubtext(r.opBalance, r.stage, r.uomCode, r.itemCode);
-                            if (!s) return '';
-                            return s.isFgOrDp
-                              ? `<div class="sub-unit-line sub-unit-ctn">${s.cartonsText}</div><div class="sub-unit-line sub-unit-grs">${s.grossText}</div>`
-                              : `<div class="sub-unit-line sub-unit-grs">${s.grossText}</div>`;
-                          })()}
-                        </td>
-                        <td class="col-num col-prod">
-                          <div class="val-main">${fmtDisplayQty(r.production, r.uomCode)}</div>
-                          ${(() => {
-                            const s = getUnitBreakdownSubtext(r.production, r.stage, r.uomCode, r.itemCode);
-                            if (!s) return '';
-                            return s.isFgOrDp
-                              ? `<div class="sub-unit-line sub-unit-ctn">${s.cartonsText}</div><div class="sub-unit-line sub-unit-grs">${s.grossText}</div>`
-                              : `<div class="sub-unit-line sub-unit-grs">${s.grossText}</div>`;
-                          })()}
-                        </td>
-                        <td class="col-num col-sub">
-                          <div class="val-main">${fmtDisplayQty(r.subTotal, r.uomCode)}</div>
-                          ${(() => {
-                            const s = getUnitBreakdownSubtext(r.subTotal, r.stage, r.uomCode, r.itemCode);
-                            if (!s) return '';
-                            return s.isFgOrDp
-                              ? `<div class="sub-unit-line sub-unit-ctn">${s.cartonsText}</div><div class="sub-unit-line sub-unit-grs">${s.grossText}</div>`
-                              : `<div class="sub-unit-line sub-unit-grs">${s.grossText}</div>`;
-                          })()}
-                        </td>
-                        <td class="col-num col-iss">
-                          <div class="val-main">${issuanceCell(r)}</div>
-                          ${(() => {
-                            if (r.suppressed) return '';
-                            const s = getUnitBreakdownSubtext(r.issuance, r.stage, r.uomCode, r.itemCode);
-                            if (!s) return '';
-                            return s.isFgOrDp
-                              ? `<div class="sub-unit-line sub-unit-ctn">${s.cartonsText}</div><div class="sub-unit-line sub-unit-grs">${s.grossText}</div>`
-                              : `<div class="sub-unit-line sub-unit-grs">${s.grossText}</div>`;
-                          })()}
-                        </td>
-                        <td class="col-num col-close ${isNeg ? 'neg-val' : ''}">
-                          <div class="val-main">${fmtDisplayQty(r.closingPieces, r.uomCode)}</div>
-                          ${(() => {
-                            const s = getUnitBreakdownSubtext(r.closingPieces, r.stage, r.uomCode, r.itemCode);
-                            if (!s) return '';
-                            return s.isFgOrDp
-                              ? `<div class="sub-unit-line sub-unit-ctn">${s.cartonsText}</div><div class="sub-unit-line sub-unit-grs">${s.grossText}</div>`
-                              : `<div class="sub-unit-line sub-unit-grs">${s.grossText}</div>`;
-                          })()}
-                        </td>
-                        <td class="col-uom">
-                          <div>${r.uomCode || (r.stage === 'RM' ? 'KG' : 'PCS')}</div>
-                        </td>
-                        <td class="col-num col-weight">
-                          <div class="wt-total">${fmtKg(r.totalWeight)}</div>
-                          <div class="wt-ppw">${fmtPpw(r.perPieceWeight)}</div>
-                        </td>
-                        <td class="col-num col-scrap">
-                          ${(() => {
-                            const isKg = r.stage === 'RM' || (r.uomCode ?? '').toUpperCase() === 'KG';
-                            if (isKg) return r.scrapTodayKg > 0 ? `<div class="val-main">${fmtDisplayKg(r.scrapTodayKg)} KG</div>` : '0';
-                            if (r.scrapTodayPcs === 0 && r.scrapTodayKg === 0) return '0';
-                            return `<div class="val-main">${fmtDisplayQty(r.scrapTodayPcs, 'PCS')} PCS</div><div style="font-size:6.8pt;color:#b91c1c;opacity:0.85;">${fmtDisplayKg(r.scrapTodayKg)} KG</div>`;
-                          })()}
-                        </td>
-                        <td class="col-num col-scrap">
-                          ${(() => {
-                            const isKg = r.stage === 'RM' || (r.uomCode ?? '').toUpperCase() === 'KG';
-                            if (isKg) return r.scrapMonthKg > 0 ? `<div class="val-main">${fmtDisplayKg(r.scrapMonthKg)} KG</div>` : '0';
-                            if (r.scrapMonthPcs === 0 && r.scrapMonthKg === 0) return '0';
-                            return `<div class="val-main">${fmtDisplayQty(r.scrapMonthPcs, 'PCS')} PCS</div><div style="font-size:6.8pt;color:#b91c1c;opacity:0.85;">${fmtDisplayKg(r.scrapMonthKg)} KG</div>`;
-                          })()}
-                        </td>
-                        <td class="col-remarks">${r.remarks || '—'}</td>
-                      </tr>
-                    `;
-                    })
-                    .join('')}
-                </tbody>
-              </table>
-            </div>
-          `,
-            )
-            .join('')}
-        </body>
-      </html>
-    `;
-
-    doc.open();
-    doc.write(printHtml);
-    doc.close();
-
-    setTimeout(() => {
-      printFrame?.contentWindow?.focus();
-      printFrame?.contentWindow?.print();
-    }, 250);
   };
 
   /**
@@ -4642,67 +3880,75 @@ const ItemWiseProductionLedger: React.FC = () => {
         ) : null,
       },
       {
-        key: 'iwl-excel',
+        key: 'iwl-export-group',
         node: (
-          <Tooltip title={loading ? 'Please wait, ledger is updating...' : 'Download exactly what is on screen as an Excel workbook'}>
-            <Button
-              type="primary"
-              icon={<FileExcelOutlined />}
-              disabled={loading}
-              onClick={() => actionsRef.current.handleExcel()}
-            >
-              Export to Excel
-            </Button>
-          </Tooltip>
-        ),
-      },
-      {
-        key: 'iwl-pdf',
-        node: (
-          <Tooltip title={loading ? 'Please wait, ledger is updating...' : 'Landscape PDF, one page per item chain'}>
-            <Button
-              icon={<FilePdfOutlined />}
-              disabled={loading}
-              onClick={() => actionsRef.current.handlePdf()}
-            >
-              Download PDF
-            </Button>
-          </Tooltip>
-        ),
-      },
-      {
-        key: 'iwl-print',
-        node: (
-          <Tooltip title={loading ? 'Please wait, ledger is updating...' : 'Open the browser print dialog (Landscape)'}>
-            <Button
-              icon={<PrinterOutlined />}
-              disabled={loading}
-              onClick={() => actionsRef.current.handlePrint()}
-            >
-              Print Ledger
-            </Button>
-          </Tooltip>
-        ),
-      },
-      {
-        key: 'iwl-refresh',
-        node: (
-          <Tooltip title="Reload the ledger for the selected window">
-            <Button
-              icon={<ReloadOutlined />}
-              loading={loading}
-              onClick={() => {
-                const cacheKey = `${endDate}__${monthFrom}`;
-                ledgerReportCache.delete(cacheKey);
-                cachedAllChainsList = null;
-                cachedWeightMapData = { ...STANDARD_ITEM_WEIGHTS };
-                loadWeights(true);
-                setTick((t) => t + 1);
-              }}
-            >
-              Refresh
-            </Button>
-          </Tooltip>
+          <Space.Compact size="middle">
+            <Tooltip title={loading ? 'Please wait, ledger is updating...' : 'Export styled OOXML Excel (.xlsx) workbook with logo, formulas & A4 print setup'}>
+              <Button
+                icon={<FileExcelOutlined />}
+                disabled={loading}
+                onClick={() => actionsRef.current.handleExcel()}
+                style={{
+                  color: token.colorSuccess,
+                  borderColor: token.colorBorder,
+                  background: token.colorBgContainer,
+                  fontWeight: 600,
+                }}
+              >
+                Export to Excel
+              </Button>
+            </Tooltip>
+            <Tooltip title={loading ? 'Please wait, ledger is updating...' : 'Download boardroom-ready A4 Landscape PDF'}>
+              <Button
+                icon={<FilePdfOutlined />}
+                disabled={loading}
+                onClick={() => actionsRef.current.handlePdf()}
+                style={{
+                  color: token.colorError,
+                  borderColor: token.colorBorder,
+                  background: token.colorBgContainer,
+                  fontWeight: 600,
+                }}
+              >
+                Download PDF
+              </Button>
+            </Tooltip>
+            <Tooltip title={loading ? 'Please wait, ledger is updating...' : 'Open clean A4 Landscape print preview'}>
+              <Button
+                icon={<PrinterOutlined />}
+                disabled={loading}
+                onClick={() => actionsRef.current.handlePrint()}
+                style={{
+                  borderColor: token.colorBorder,
+                  background: token.colorBgContainer,
+                  fontWeight: 600,
+                }}
+              >
+                Print Ledger
+              </Button>
+            </Tooltip>
+            <Tooltip title="Reload the ledger for the selected window">
+              <Button
+                icon={<ReloadOutlined />}
+                loading={loading}
+                onClick={() => {
+                  const cacheKey = `${endDate}__${monthFrom}`;
+                  ledgerReportCache.delete(cacheKey);
+                  cachedAllChainsList = null;
+                  cachedWeightMapData = { ...STANDARD_ITEM_WEIGHTS };
+                  loadWeights(true);
+                  setTick((t) => t + 1);
+                }}
+                style={{
+                  borderColor: token.colorBorder,
+                  background: token.colorBgContainer,
+                  fontWeight: 600,
+                }}
+              >
+                Refresh
+              </Button>
+            </Tooltip>
+          </Space.Compact>
         ),
       },
     ];
