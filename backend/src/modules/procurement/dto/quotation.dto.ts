@@ -141,6 +141,12 @@ export class CreateQuotationDto {
   @MaxLength(100)
   deliveryTerms?: string;
 
+  @ApiPropertyOptional({ description: 'Delivery lead time in days' })
+  @IsNumber()
+  @IsOptional()
+  @Min(0)
+  deliveryLeadTimeDays?: number;
+
   @ApiPropertyOptional({ description: 'Total amount' })
   @IsNumber()
   @IsOptional()

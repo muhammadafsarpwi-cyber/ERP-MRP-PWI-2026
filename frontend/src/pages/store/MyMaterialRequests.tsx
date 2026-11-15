@@ -67,10 +67,18 @@ const MyMaterialRequests: React.FC = () => {
       title: 'Status',
       dataIndex: 'status',
       key: 'status',
-      width: 120,
+      width: 150,
       render: (v: string) => {
-        const colors: Record<string, string> = { DRAFT: 'default', SUBMITTED: 'processing', APPROVED: 'success', REJECTED: 'error', CANCELLED: 'warning' };
-        return <Tag color={colors[v] || 'default'}>{v}</Tag>;
+        const colors: Record<string, string> = {
+          DRAFT: 'default',
+          SUBMITTED: 'processing',
+          APPROVED: 'success',
+          PARTIALLY_CONVERTED: 'cyan',
+          FULLY_CONVERTED: 'purple',
+          REJECTED: 'error',
+          CANCELLED: 'warning',
+        };
+        return <Tag color={colors[v] || 'default'}>{v.replace(/_/g, ' ')}</Tag>;
       },
     },
     {
@@ -99,6 +107,8 @@ const MyMaterialRequests: React.FC = () => {
     { key: 'DRAFT', label: `Draft (${data.filter(d => d.status === 'DRAFT').length})` },
     { key: 'SUBMITTED', label: `Submitted (${data.filter(d => d.status === 'SUBMITTED').length})` },
     { key: 'APPROVED', label: `Approved (${data.filter(d => d.status === 'APPROVED').length})` },
+    { key: 'PARTIALLY_CONVERTED', label: `Partial PR (${data.filter(d => d.status === 'PARTIALLY_CONVERTED').length})` },
+    { key: 'FULLY_CONVERTED', label: `Converted (${data.filter(d => d.status === 'FULLY_CONVERTED').length})` },
     { key: 'REJECTED', label: `Rejected (${data.filter(d => d.status === 'REJECTED').length})` },
     { key: 'CANCELLED', label: `Cancelled (${data.filter(d => d.status === 'CANCELLED').length})` },
   ];
@@ -109,9 +119,9 @@ const MyMaterialRequests: React.FC = () => {
         icon={<FileAddOutlined />}
         title="My Material Requests"
         subtitle="Requests created by you and their approval status"
-        extra={<Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/store/material-requests')}>New Request</Button>}
+        extra={<Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/store/material-requests?create=1')}>New Request</Button>}
       />
-      <div style={{ padding: '0 24px' }}>
+      <div style={{ padding: '0 16px' }}>
         <Card>
           <Tabs activeKey={activeTab} onChange={setActiveTab} items={tabItems} />
           <Table
@@ -120,7 +130,7 @@ const MyMaterialRequests: React.FC = () => {
             rowKey="id"
             loading={loading}
             pagination={{ pageSize: 15 }}
-            scroll={{ x: 1000 }}
+            scroll={{ x: 'max-content' }}
             size="middle"
           />
         </Card>

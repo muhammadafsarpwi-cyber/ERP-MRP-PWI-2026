@@ -1172,7 +1172,7 @@ const SupplierManagement: React.FC = () => {
             rowKey="id"
             loading={loading}
             pagination={false}
-            scroll={{ x: 1000 }}
+            scroll={{ x: 'max-content' }}
           />
         )}
 
@@ -2036,8 +2036,8 @@ const SupplierManagement: React.FC = () => {
           >
             <InputNumber style={{ width: '100%' }} min={1} />
           </Form.Item>
-          <Row gutter={16}>
-            <Col span={12}>
+          <Row gutter={[16, 12]}>
+            <Col xs={24} sm={12}>
               <Form.Item
                 name="paymentDate"
                 label="Payment Date"
@@ -2046,7 +2046,7 @@ const SupplierManagement: React.FC = () => {
                 <DatePicker style={{ width: '100%' }} />
               </Form.Item>
             </Col>
-            <Col span={12}>
+            <Col xs={24} sm={12}>
               <Form.Item name="paymentMethod" label="Payment Method" initialValue="Bank Transfer">
                 <Select>
                   <Select.Option value="Bank Transfer">Bank Transfer</Select.Option>

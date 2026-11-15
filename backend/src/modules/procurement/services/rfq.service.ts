@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException, ConflictException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { RequestForQuotation, RfqLine } from '../entities';
+import { RequestForQuotation, RfqLine, RfqSupplier } from '../entities';
 import { CreateRfqDto, RfqFilterDto } from '../dto';
 
 @Injectable()
@@ -13,6 +13,8 @@ export class RfqService {
     private readonly repo: Repository<RequestForQuotation>,
     @InjectRepository(RfqLine)
     private readonly lineRepo: Repository<RfqLine>,
+    @InjectRepository(RfqSupplier)
+    private readonly rfqSupplierRepo: Repository<RfqSupplier>,
   ) {}
 
   async create(dto: CreateRfqDto, userId?: string): Promise<RequestForQuotation> {
@@ -23,14 +25,36 @@ export class RfqService {
       throw new ConflictException(`RFQ code '${dto.rfqCode}' already exists`);
     }
 
-    const { lines, purchaseType, divisionId, warehouseId, ...restDto } = dto;
+    const supplierIds = Array.from(
+      new Set([
+        ...(Array.isArray(dto.supplierIds) ? dto.supplierIds.filter(Boolean) : []),
+        ...(dto.supplierId ? [dto.supplierId] : []),
+      ]),
+    );
+    if (supplierIds.length === 0) {
+      throw new BadRequestException('At least one supplier must be selected for the RFQ');
+    }
+
+    const { lines, purchaseType, divisionId, warehouseId, supplierIds: _sIds, ...restDto } = dto;
     const rfq = this.repo.create({
       ...restDto,
+      supplierId: supplierIds[0],
       status: 'DRAFT',
       createdBy: userId || null,
       updatedBy: userId || null,
     });
     const saved = await this.repo.save(rfq);
+
+    for (const sId of supplierIds) {
+      const rs = this.rfqSupplierRepo.create({
+        rfqId: saved.id,
+        supplierId: sId,
+        status: 'PENDING',
+        createdBy: userId || null,
+        updatedBy: userId || null,
+      });
+      await this.rfqSupplierRepo.save(rs);
+    }
 
     if (dto.lines && dto.lines.length > 0) {
       for (const lineDto of dto.lines) {
@@ -50,10 +74,18 @@ export class RfqService {
   async findAll(filter: RfqFilterDto): Promise<{ data: RequestForQuotation[]; total: number }> {
     const { page = 1, limit = 20, companyId, supplierId, status, search, sortField = 'createdAt', sortOrder = 'DESC' } = filter;
     const qb = this.repo.createQueryBuilder('rfq')
-      .leftJoinAndSelect('rfq.supplier', 'supplier');
+      .leftJoinAndSelect('rfq.supplier', 'supplier')
+      .leftJoinAndSelect('rfq.rfqSuppliers', 'rfqSuppliers')
+      .leftJoinAndSelect('rfqSuppliers.supplier', 'rfqSupplierEntity');
     let hasWhere = false;
     if (companyId) { qb.where('rfq.companyId = :companyId', { companyId }); hasWhere = true; }
-    if (supplierId) { qb[hasWhere ? 'andWhere' : 'where']('rfq.supplierId = :supplierId', { supplierId }); hasWhere = true; }
+    if (supplierId) {
+      qb[hasWhere ? 'andWhere' : 'where'](
+        '(rfq.supplierId = :supplierId OR rfqSuppliers.supplierId = :supplierId)',
+        { supplierId },
+      );
+      hasWhere = true;
+    }
     if (status) { qb[hasWhere ? 'andWhere' : 'where']('rfq.status = :status', { status }); hasWhere = true; }
     if (search) { qb[hasWhere ? 'andWhere' : 'where']('(rfq.title ILIKE :search OR rfq.rfqCode ILIKE :search)', { search: `%${search}%` }); hasWhere = true; }
     const validSortFields = ['createdAt', 'rfqCode', 'title', 'status'];
@@ -68,7 +100,15 @@ export class RfqService {
   async findOne(id: string): Promise<RequestForQuotation> {
     const rfq = await this.repo.findOne({
       where: { id },
-      relations: ['supplier', 'requisition', 'lines', 'lines.item', 'lines.uom'],
+      relations: [
+        'supplier',
+        'rfqSuppliers',
+        'rfqSuppliers.supplier',
+        'requisition',
+        'lines',
+        'lines.item',
+        'lines.uom',
+      ],
     });
     if (!rfq) throw new NotFoundException(`RFQ with ID '${id}' not found`);
     return rfq;
@@ -81,7 +121,39 @@ export class RfqService {
     }
     rfq.status = 'SENT';
     rfq.updatedBy = userId || null;
-    return this.repo.save(rfq);
+    await this.repo.save(rfq);
+
+    await this.rfqSupplierRepo
+      .createQueryBuilder()
+      .update(RfqSupplier)
+      .set({ sentAt: new Date(), updatedBy: userId || null })
+      .where('rfq_id = :rfqId AND sent_at IS NULL', { rfqId: id })
+      .execute();
+
+    return this.findOne(id);
+  }
+
+  async addSuppliers(rfqId: string, supplierIds: string[], userId?: string): Promise<RequestForQuotation> {
+    const rfq = await this.findOne(rfqId);
+    if (rfq.status === 'CANCELLED' || rfq.status === 'AWARDED' || rfq.status === 'CLOSED') {
+      throw new BadRequestException(`Cannot add suppliers to an RFQ in '${rfq.status}' status`);
+    }
+    const existingIds = new Set((rfq.rfqSuppliers || []).map((rs) => rs.supplierId));
+    for (const sId of Array.from(new Set(supplierIds.filter(Boolean)))) {
+      if (!existingIds.has(sId)) {
+        await this.rfqSupplierRepo.save(
+          this.rfqSupplierRepo.create({
+            rfqId,
+            supplierId: sId,
+            status: 'PENDING',
+            sentAt: rfq.status === 'SENT' ? new Date() : null,
+            createdBy: userId || null,
+            updatedBy: userId || null,
+          }),
+        );
+      }
+    }
+    return this.findOne(rfqId);
   }
 
   async cancel(id: string, userId?: string): Promise<RequestForQuotation> {

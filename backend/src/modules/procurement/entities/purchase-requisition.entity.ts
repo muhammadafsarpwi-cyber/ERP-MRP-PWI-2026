@@ -45,6 +45,33 @@ export class PurchaseRequisition extends BaseEntity {
   @Column({ type: 'text', nullable: true })
   notes: string | null;
 
+  @Column({ name: 'purchase_origin', type: 'varchar', length: 20, default: 'LOCAL' })
+  purchaseOrigin: string;
+
+  @Column({ name: 'import_cargo_type', type: 'varchar', length: 30, nullable: true })
+  importCargoType: string | null;
+
+  @Column({ name: 'incoterm', type: 'varchar', length: 20, nullable: true })
+  incoterm: string | null;
+
+  @Column({ name: 'port_of_loading', type: 'varchar', length: 150, nullable: true })
+  portOfLoading: string | null;
+
+  @Column({ name: 'port_of_discharge', type: 'varchar', length: 150, nullable: true })
+  portOfDischarge: string | null;
+
+  @Column({ name: 'currency_code', type: 'varchar', length: 10, default: 'PKR' })
+  currencyCode: string;
+
+  @Column({ name: 'expected_etd', type: 'date', nullable: true })
+  expectedEtd: string | null;
+
+  @Column({ name: 'expected_eta', type: 'date', nullable: true })
+  expectedEta: string | null;
+
+  @Column({ name: 'import_remarks', type: 'text', nullable: true })
+  importRemarks: string | null;
+
   @OneToMany(() => PurchaseRequisitionLine, (line) => line.requisition)
   lines: PurchaseRequisitionLine[];
 }

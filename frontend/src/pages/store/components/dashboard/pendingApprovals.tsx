@@ -4,6 +4,7 @@ import { AuditOutlined, CrownOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import type { PendingApprovalRow } from '../../../../services/storeDashboard';
 import { cardStyle, fmt, statusColor } from './helpers';
+import '../../storeResponsive.css';
 
 interface PendingApprovalsProps {
   manager: PendingApprovalRow[];
@@ -54,7 +55,7 @@ const renderTable = (rows: PendingApprovalRow[], onReview: (path: string) => voi
 
 const PendingApprovals: React.FC<PendingApprovalsProps> = ({ manager, gm, onReview }) => {
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))', gap: 12 }}>
+    <div className="store-approval-grid">
       <Card
         size="small"
         title={

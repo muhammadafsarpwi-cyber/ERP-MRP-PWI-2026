@@ -156,7 +156,7 @@ const StoreItems: React.FC = () => {
         const list = Array.isArray(raw) ? raw : raw?.data || [];
         const map = new Map<string, { itemCode: string; name: string; uomCode?: string }>();
         list.forEach((it: any) => {
-          if (it.id) {
+          if (it.id && it.itemType !== 'FINISHED_GOOD') {
             map.set(it.id, {
               itemCode: it.itemCode,
               name: it.name,
@@ -834,7 +834,7 @@ const StoreItems: React.FC = () => {
                 pageSizeOptions: ['10', '20', '50', '100'],
                 showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} items`,
               }}
-              scroll={{ x: 1200 }}
+              scroll={{ x: 'max-content' }}
               size="middle"
             />
           )}

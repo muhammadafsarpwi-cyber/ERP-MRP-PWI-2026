@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Card, Table, Button, Modal, Form, Input, Select, Tag, message } from 'antd';
+import { Card, Table, Button, Modal, Form, Input, Select, Tag, App } from 'antd';
 import { SettingOutlined, EditOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
 import { usePermission } from '../../hooks/usePermission';
 import PageHeader from '../../components/shared/PageHeader';
+import { STORE_TYPE_OPTIONS } from './StoreManagement';
+import './storeResponsive.css';
 
 interface Store {
   id: string;
@@ -23,6 +25,7 @@ interface Store {
 }
 
 const StoreSettings: React.FC = () => {
+  const { message } = App.useApp();
   const { can } = usePermission();
   const canEdit = can('store.update');
   const [data, setData] = useState<Store[]>([]);
@@ -90,7 +93,7 @@ const StoreSettings: React.FC = () => {
   return (
     <div>
       <PageHeader icon={<SettingOutlined />} title="Store Settings" />
-      <div style={{ padding: '0 24px' }}>
+      <div style={{ padding: '0 16px' }}>
         <Card>
           <Table
             columns={columns}
@@ -98,7 +101,7 @@ const StoreSettings: React.FC = () => {
             rowKey="id"
             loading={loading}
             pagination={{ pageSize: 20 }}
-            scroll={{ x: 800 }}
+            scroll={{ x: 'max-content' }}
             size="middle"
           />
         </Card>
@@ -115,7 +118,7 @@ const StoreSettings: React.FC = () => {
               <Input />
             </Form.Item>
             <Form.Item name="storeType" label="Store Type">
-              <Select options={[{ value: 'GENERAL', label: 'General' }, { value: 'RAW_MATERIAL', label: 'Raw Material' }, { value: 'FINISHED_GOODS', label: 'Finished Goods' }, { value: 'SPARE_PARTS', label: 'Spare Parts' }, { value: 'CONSUMABLES', label: 'Consumables' }]} />
+              <Select options={STORE_TYPE_OPTIONS} />
             </Form.Item>
             <Form.Item name="address" label="Address">
               <Input.TextArea rows={2} />

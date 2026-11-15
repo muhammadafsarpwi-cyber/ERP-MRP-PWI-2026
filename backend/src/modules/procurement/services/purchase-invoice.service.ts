@@ -110,6 +110,93 @@ export class PurchaseInvoiceService {
     return Math.round(lines.reduce((s, l) => s + Number(l.value || 0), 0) * 100) / 100;
   }
 
+  private async validateLineThreeWayMatch(
+    poId: string,
+    lines: Array<{ poLineId?: string | null; grnLineId?: string | null; itemId: string; quantity?: number; invoicedQty?: number }>,
+    excludeInvoiceId?: string,
+  ): Promise<void> {
+    if (!lines || lines.length === 0) return;
+
+    const postedGrns = await this.grRepo.find({ where: { poId, status: 'POSTED' } });
+    if (!postedGrns || postedGrns.length === 0) return;
+    const grnIds = postedGrns.map((g) => g.id);
+
+    const grnLines = await this.grLineRepo
+      .createQueryBuilder('gl')
+      .where('gl.receipt_id IN (:...grnIds)', { grnIds })
+      .getMany();
+
+    if (!grnLines || grnLines.length === 0) return;
+
+    // Sum already invoiced quantities on POSTED/APPROVED invoices for this PO
+    const existingInvLines: Array<{ po_line_id: string | null; item_id: string; qty: string }> =
+      await this.poRepo.manager.query(
+        `
+        SELECT pil.po_line_id, pil.item_id, COALESCE(SUM(pil.quantity), 0) AS qty
+        FROM purchase_invoice_lines pil
+        INNER JOIN purchase_invoices pi ON pi.id = pil.invoice_id
+        WHERE pi.po_id = $1
+          AND pi.status IN ('APPROVED', 'POSTED')
+          AND pi.deleted_at IS NULL
+          AND pil.deleted_at IS NULL
+          ${excludeInvoiceId ? 'AND pi.id != $2' : ''}
+        GROUP BY pil.po_line_id, pil.item_id
+        `,
+        excludeInvoiceId ? [poId, excludeInvoiceId] : [poId],
+      );
+
+    // Sum completed purchase return quantities for this PO
+    const returnedLines: Array<{ po_line_id: string | null; item_id: string; qty: string }> =
+      await this.poRepo.manager.query(
+        `
+        SELECT prl.po_line_id, prl.item_id, COALESCE(SUM(prl.quantity), 0) AS qty
+        FROM purchase_return_lines prl
+        INNER JOIN purchase_returns pr ON pr.id = prl.return_id
+        WHERE pr.po_id = $1
+          AND pr.status = 'COMPLETED'
+          AND pr.deleted_at IS NULL
+          AND prl.deleted_at IS NULL
+        GROUP BY prl.po_line_id, prl.item_id
+        `,
+        [poId],
+      );
+
+    for (const line of lines) {
+      const reqQty = Number(line.quantity ?? line.invoicedQty ?? 0);
+      if (reqQty <= 0) continue;
+
+      const matchingGrnLines = line.grnLineId
+        ? grnLines.filter((g) => g.id === line.grnLineId)
+        : line.poLineId
+        ? grnLines.filter((g) => g.poLineId === line.poLineId)
+        : grnLines.filter((g) => g.itemId === line.itemId);
+
+      const grnReceivedQty = matchingGrnLines.reduce(
+        (s, g) => s + Number(g.quantityAccepted || 0),
+        0,
+      );
+
+      const alreadyInvoicedQty = existingInvLines
+        .filter((e) =>
+          line.poLineId ? e.po_line_id === line.poLineId : e.item_id === line.itemId,
+        )
+        .reduce((s, e) => s + Number(e.qty || 0), 0);
+
+      const returnedQty = returnedLines
+        .filter((r) =>
+          line.poLineId ? r.po_line_id === line.poLineId : r.item_id === line.itemId,
+        )
+        .reduce((s, r) => s + Number(r.qty || 0), 0);
+
+      const maxBillable = Math.max(0, grnReceivedQty - alreadyInvoicedQty - returnedQty);
+      if (reqQty > maxBillable + MATCH_EPSILON) {
+        throw new BadRequestException(
+          `3-Way Match failed: invoiced qty (${reqQty}) exceeds net received GRN qty (${maxBillable.toFixed(2)} = received ${grnReceivedQty} - invoiced ${alreadyInvoicedQty} - returned ${returnedQty}).`,
+        );
+      }
+    }
+  }
+
   async create(dto: CreatePurchaseInvoiceDto, companyId: string, userId?: string): Promise<PurchaseInvoice> {
     if (dto.companyId !== companyId) {
       throw new ForbiddenException('Company ID is outside your organization scope');
@@ -135,21 +222,39 @@ export class PurchaseInvoiceService {
     const saved = await this.repo.save(invoice);
 
     if (dto.lines && dto.lines.length > 0) {
+      await this.validateLineThreeWayMatch(po.id, dto.lines);
+
       let subtotal = 0;
+      let totalLineTax = 0;
       for (const lineDto of dto.lines) {
-        const totalPrice = lineDto.quantity * lineDto.unitPrice;
+        const qty = Number(lineDto.quantity ?? lineDto.invoicedQty ?? 0);
+        const unitPrice = Number(lineDto.unitPrice || 0);
+        const lineTaxPct = Number(lineDto.taxPercent ?? dto.taxPercent ?? 0);
+        const lineNet = Math.round(qty * unitPrice * 100) / 100;
+        const lineTax = Math.round(lineNet * (lineTaxPct / 100) * 100) / 100;
+        const totalPrice =
+          lineDto.lineTotal !== undefined ? Number(lineDto.lineTotal) : lineNet + lineTax;
         const line = this.lineRepo.create({
           invoiceId: saved.id,
-          ...lineDto,
+          poLineId: lineDto.poLineId || null,
+          grnLineId: lineDto.grnLineId || null,
+          itemId: lineDto.itemId,
+          uomId: lineDto.uomId,
+          quantity: qty,
+          unitPrice,
+          taxPercent: lineTaxPct,
           totalPrice,
+          notes: lineDto.notes || null,
           createdBy: userId || null,
           updatedBy: userId || null,
         });
         await this.lineRepo.save(line);
-        subtotal += totalPrice;
+        subtotal += lineNet;
+        totalLineTax += lineTax;
       }
       saved.subtotal = subtotal;
-      saved.taxAmount = subtotal * (dto.taxPercent || 0) / 100;
+      saved.taxAmount =
+        totalLineTax > 0 ? totalLineTax : subtotal * (dto.taxPercent || 0) / 100;
       saved.totalAmount = subtotal + saved.taxAmount - (dto.discountAmount || 0);
       await this.repo.save(saved);
     }
@@ -261,6 +366,10 @@ export class PurchaseInvoiceService {
       throw new BadRequestException(`Cannot post an over-invoiced amount: ${match.notes}`);
     }
 
+    if (invoice.lines && invoice.lines.length > 0) {
+      await this.validateLineThreeWayMatch(po.id, invoice.lines, invoice.id);
+    }
+
     const proposedInvoiced = Math.round((currentInvoiced + totalAmount) * 100) / 100;
     const nextPoStatus = proposedInvoiced >= poTotal - MATCH_EPSILON ? 'FULLY_INVOICED' : po.status as string;
 
@@ -269,6 +378,21 @@ export class PurchaseInvoiceService {
         invoicedAmount: proposedInvoiced,
         status: nextPoStatus,
       });
+
+      // Track line-level invoiced quantity on PO lines
+      for (const invLine of invoice.lines || []) {
+        if (invLine.poLineId) {
+          const poLine = await manager.getRepository(PurchaseOrderLine).findOne({
+            where: { id: invLine.poLineId },
+          });
+          if (poLine) {
+            const nextInvQty = Number(poLine.invoicedQuantity || 0) + Number(invLine.quantity || 0);
+            await manager.getRepository(PurchaseOrderLine).update(poLine.id, {
+              invoicedQuantity: nextInvQty,
+            });
+          }
+        }
+      }
 
       await manager.getRepository(PurchaseInvoice).update(invoice.id, {
         status: 'POSTED',

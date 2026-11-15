@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { useThemeStore } from '../../theme/themeStore';
+import { resolveThemeMode } from '../../theme/palettes';
 import {
   createCommandCenterScene,
   type CommandCenterHandle,
@@ -55,7 +56,7 @@ const CommandCenterScene: React.FC = () => {
     host.appendChild(canvas);
 
     const scene = createCommandCenterScene(canvas, {
-      mode: useThemeStore.getState().draft.mode,
+      mode: resolveThemeMode(useThemeStore.getState().draft.mode),
       reducedMotion,
     });
     if (!scene) {
@@ -101,7 +102,7 @@ const CommandCenterScene: React.FC = () => {
   // Appearance preview, persisted preference restore). The mount effect
   // creates the scene once — this only starts the 0.8 s cross-fade.
   useEffect(() => {
-    sceneRef.current?.setTheme(mode);
+    sceneRef.current?.setTheme(resolveThemeMode(mode));
   }, [mode]);
 
   return <div className="erp-command-scene" ref={hostRef} aria-hidden="true" />;

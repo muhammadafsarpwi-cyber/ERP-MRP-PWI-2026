@@ -4,6 +4,7 @@ import {
   BgColorsOutlined,
   BorderOutlined,
   CheckCircleFilled,
+  DesktopOutlined,
   EyeOutlined,
   FormatPainterOutlined,
   MoonOutlined,
@@ -19,6 +20,7 @@ import {
   PALETTES,
   findPalette,
   resolveRoles,
+  resolveThemeMode,
   PaletteDef,
   ThemeMode,
 } from './palettes';
@@ -77,12 +79,14 @@ export const AppearanceControls: React.FC<AppearanceControlsProps> = ({
     []
   );
 
+  const resolvedMode = resolveThemeMode(draft.mode);
+
   // The roles the UI is actually painting right now — palette-derived, or
   // derived from the custom hex if one is set.
   const activeRoles = useMemo(() => {
-    if (!draft.customAccent) return resolveRoles(findPalette(draft.paletteId), draft.mode);
-    return deriveRolesFromAccent(draft.customAccent, draft.mode);
-  }, [draft.paletteId, draft.mode, draft.customAccent]);
+    if (!draft.customAccent) return resolveRoles(findPalette(draft.paletteId), resolvedMode);
+    return deriveRolesFromAccent(draft.customAccent, resolvedMode);
+  }, [draft.paletteId, resolvedMode, draft.customAccent]);
 
   const glassOn = draft.glass;
   const isCustom = Boolean(draft.customAccent);
@@ -115,6 +119,14 @@ export const AppearanceControls: React.FC<AppearanceControlsProps> = ({
                 </span>
               ),
               value: 'dark',
+            },
+            {
+              label: (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <DesktopOutlined style={{ color: '#0ea5e9' }} /> System
+                </span>
+              ),
+              value: 'system',
             },
           ]}
         />
@@ -397,7 +409,7 @@ const buildRoleChecks = (
   roles: { primary: string; surface: string; accent: string; background: string },
   mode: ThemeMode
 ): RoleCheck[] => {
-  const bodyText = mode === 'dark' ? '#e2e8ff' : '#0f172a';
+  const bodyText = resolveThemeMode(mode) === 'dark' ? '#e2e8ff' : '#0f172a';
   return [
     { key: 'primary', label: 'Primary', hex: roles.primary, against: '#ffffff', note: 'white label' },
     { key: 'surface', label: 'Surface', hex: roles.surface, against: bodyText, note: 'body text' },

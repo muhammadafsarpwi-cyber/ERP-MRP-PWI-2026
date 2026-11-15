@@ -1,6 +1,13 @@
 import React from 'react';
 import { App as AntApp, ConfigProvider, Spin, theme as antdTheme } from 'antd';
-import { findPalette, resolveRoles, CORNER_RADIUS_SCALE, ThemePrefs } from './palettes';
+import {
+  findPalette,
+  getOsPrefersDark,
+  resolveRoles,
+  resolveThemeMode,
+  CORNER_RADIUS_SCALE,
+  ThemePrefs,
+} from './palettes';
 import { useThemeStore } from './themeStore';
 import {
   darkenHex,
@@ -284,10 +291,26 @@ export const buildAppearanceCssVars = (
 const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
   const draft = useThemeStore((state) => state.draft);
   const initializeForUser = useThemeStore((state) => state.initializeForUser);
+  const [osPrefersDark, setOsPrefersDark] = React.useState<boolean>(() => getOsPrefersDark());
 
   React.useEffect(() => {
     initializeForUser();
   }, [initializeForUser]);
+
+  React.useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    setOsPrefersDark(mq.matches);
+    const onChange = (e: MediaQueryListEvent) => setOsPrefersDark(e.matches);
+    if (typeof mq.addEventListener === 'function') {
+      mq.addEventListener('change', onChange);
+      return () => mq.removeEventListener('change', onChange);
+    }
+    mq.addListener(onChange);
+    return () => mq.removeListener(onChange);
+  }, []);
+
+  const resolvedMode = resolveThemeMode(draft.mode, osPrefersDark);
 
   // A custom hex (from the Theme Color picker) overrides the palette wholesale:
   // the four roles are derived from that one colour, WCAG-guarded, so the whole
@@ -295,21 +318,21 @@ const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
   const roles = React.useMemo(() => {
     const palette = findPalette(draft.paletteId);
     return draft.customAccent
-      ? deriveRolesFromAccent(draft.customAccent, draft.mode)
-      : resolveRoles(palette, draft.mode);
-  }, [draft.paletteId, draft.mode, draft.customAccent]);
+      ? deriveRolesFromAccent(draft.customAccent, resolvedMode)
+      : resolveRoles(palette, resolvedMode, osPrefersDark);
+  }, [draft.paletteId, resolvedMode, osPrefersDark, draft.customAccent]);
 
   React.useEffect(() => {
     const root = document.documentElement;
-    root.setAttribute('data-theme', draft.mode);
+    root.setAttribute('data-theme', resolvedMode);
     // Drives the glassmorphism layer in theme-glass.css. Kept as an
     // attribute (not a class) so it is available before first paint and
     // trivially inspectable in devtools.
     root.setAttribute('data-glass', draft.glass ? 'on' : 'off');
     root.setAttribute('data-corner-style', draft.cornerStyle);
-    applyCssVars(buildCssVars(draft.mode, roles));
+    applyCssVars(buildCssVars(resolvedMode, roles));
     applyCssVars(
-      buildAppearanceCssVars(draft.mode, roles, {
+      buildAppearanceCssVars(resolvedMode, roles, {
         cornerStyle: draft.cornerStyle,
         glass: draft.glass,
         glassBlur: draft.glassBlur,
@@ -317,7 +340,7 @@ const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
       })
     );
   }, [
-    draft.mode,
+    resolvedMode,
     draft.cornerStyle,
     draft.glass,
     draft.glassBlur,
@@ -326,7 +349,7 @@ const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
   ]);
 
   const themeConfig = React.useMemo(() => {
-    const dark = draft.mode === 'dark';
+    const dark = resolvedMode === 'dark';
     // Subtle accent tint over the surface — replaces the dark navy slab.
     const computedHeaderBg = dark
       ? mixHex(roles.surface, roles.accent, 0.16)
@@ -426,7 +449,7 @@ const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
         },
       },
     };
-  }, [draft.mode, draft.cornerStyle, roles]);
+  }, [resolvedMode, draft.cornerStyle, roles]);
 
   return (
     <ConfigProvider theme={themeConfig}>

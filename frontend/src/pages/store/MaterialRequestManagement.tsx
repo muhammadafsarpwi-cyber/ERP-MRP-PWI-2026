@@ -3,6 +3,7 @@ import {
   Table, Button, Space, Tag, Modal, Form, Input, Select, DatePicker, App, Card,
   Row, Col, Tabs,
 } from 'antd';
+import { useSearchParams } from 'react-router-dom';
 import {
   PlusOutlined, SearchOutlined, EyeOutlined, EditOutlined, DeleteOutlined, FileSearchOutlined,
 } from '@ant-design/icons';
@@ -73,6 +74,7 @@ const toLinePayload = (lines: StoreLineItem[]) =>
 const MaterialRequestManagement: React.FC = () => {
   const { message } = App.useApp();
   const { can } = usePermission();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [data, setData] = useState<MaterialRequest[]>([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
@@ -129,13 +131,22 @@ const MaterialRequestManagement: React.FC = () => {
 
   useEffect(() => { fetchData(page); }, [page, fetchData]);
 
-  const handleCreate = () => {
+  const handleCreate = useCallback(() => {
     form.resetFields();
     setStoreOrg({});
     form.setFieldsValue({ requestDate: dayjs(), priority: 'NORMAL' });
     setLineItems([]);
     setModalState({ open: true, edit: null });
-  };
+  }, [form]);
+
+  useEffect(() => {
+    if (searchParams.get('create') === '1' && can('store.request.create')) {
+      handleCreate();
+      const next = new URLSearchParams(searchParams);
+      next.delete('create');
+      setSearchParams(next, { replace: true });
+    }
+  }, [searchParams, setSearchParams, can, handleCreate]);
 
   const handleStoreChange = (storeId?: string) => {
     const selected = stores.find((s) => s.id === storeId);
@@ -250,9 +261,9 @@ const MaterialRequestManagement: React.FC = () => {
     }
   };
 
-  const handleAction = async (id: string, action: string) => {
+  const handleAction = async (id: string, action: string, body: Record<string, any> = {}) => {
     try {
-      await apiService.post(`/store/material-requests/${id}/${action}`, {});
+      await apiService.post(`/store/material-requests/${id}/${action}`, body);
       message.success(`Request ${action.replace('-', ' ')}d`);
       fetchData(page);
       if (detailRequestId === id) setDetailRequestId(null);
@@ -302,7 +313,7 @@ const MaterialRequestManagement: React.FC = () => {
             <Button size="small" onClick={() => handleAction(record.id, 'gm-approve')}>GM Approve</Button>
           )}
           {record.status === 'APPROVED' && record.gmApprovedAt && can('store.request.convert') && (
-            <Button size="small" type="primary" onClick={() => handleAction(record.id, 'convert-pr')}>Convert to PR</Button>
+            <Button size="small" type="primary" onClick={() => handleAction(record.id, 'convert-pr', { useShortageOnly: true })}>Convert to PR</Button>
           )}
           {(record.status === 'SUBMITTED' || record.status === 'APPROVED') && can('store.request.reject') && (
             <Button size="small" danger onClick={() => handleAction(record.id, 'reject')}>Reject</Button>
@@ -318,14 +329,14 @@ const MaterialRequestManagement: React.FC = () => {
   return (
     <Card>
       <PageHeader icon={<FileSearchOutlined />} title="Material Requests" subtitle="Request materials from stores through the approval workflow" />
-      <Row gutter={16} style={{ marginBottom: 16 }}>
-        <Col span={8}>
+      <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
+        <Col xs={24} sm={12} md={8}>
           <Input placeholder="Search by request number..." prefix={<SearchOutlined />} value={search} onChange={(e) => setSearch(e.target.value)} onPressEnter={() => fetchData(1)} />
         </Col>
-        <Col span={4}>
+        <Col xs={12} sm={6} md={4}>
           <Button type="default" onClick={() => fetchData(1)}>Search</Button>
         </Col>
-        <Col span={4} style={{ textAlign: 'right' }}>
+        <Col xs={12} sm={6} md={12} style={{ textAlign: 'right' }}>
           {can('store.request.create') ? (
             <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>New Request</Button>
           ) : null}
@@ -339,7 +350,7 @@ const MaterialRequestManagement: React.FC = () => {
           label: s === 'ALL' ? 'All' : s === 'MINE' ? 'My Requests' : s.split('_').map((w) => w[0] + w.slice(1).toLowerCase()).join(' '),
         }))}
       />
-      <Table columns={columns} dataSource={data} rowKey="id" loading={loading} scroll={{ x: 1200 }}
+      <Table columns={columns} dataSource={data} rowKey="id" loading={loading} scroll={{ x: 'max-content' }}
         pagination={{ current: page, total, pageSize, showSizeChanger: false, onChange: setPage }} />
 
       <Modal
@@ -351,23 +362,23 @@ const MaterialRequestManagement: React.FC = () => {
         destroyOnHidden
       >
         <Form form={form} layout="vertical">
-          <Row gutter={16}>
-            <Col span={6}>
+          <Row gutter={[16, 8]}>
+            <Col xs={24} sm={12} md={6}>
               <Form.Item name="requestNumber" label="Request Number" rules={[{ required: true }]}>
                 <Input placeholder="MR-2026-0001" disabled={!!modalState.edit} />
               </Form.Item>
             </Col>
-            <Col span={6}>
+            <Col xs={24} sm={12} md={6}>
               <Form.Item name="requestDate" label="Request Date" rules={[{ required: true }]}>
                 <DatePicker style={{ width: '100%' }} />
               </Form.Item>
             </Col>
-            <Col span={6}>
+            <Col xs={24} sm={12} md={6}>
               <Form.Item name="requiredDate" label="Required Date">
                 <DatePicker style={{ width: '100%' }} />
               </Form.Item>
             </Col>
-            <Col span={6}>
+            <Col xs={24} sm={12} md={6}>
               <Form.Item name="storeId" label="Store" rules={[{ required: true }]}>
                 <Select
                   showSearch
@@ -379,8 +390,8 @@ const MaterialRequestManagement: React.FC = () => {
               </Form.Item>
             </Col>
           </Row>
-          <Row gutter={16}>
-            <Col span={8}>
+          <Row gutter={[16, 8]}>
+            <Col xs={24} sm={8}>
               <Form.Item name="departmentId" label="Department">
                 <Select
                   showSearch
@@ -390,7 +401,7 @@ const MaterialRequestManagement: React.FC = () => {
                 />
               </Form.Item>
             </Col>
-            <Col span={8}>
+            <Col xs={24} sm={8}>
               <Form.Item name="priority" label="Priority">
                 <Select options={[{ value: 'NORMAL', label: 'NORMAL' }, { value: 'HIGH', label: 'HIGH' }, { value: 'URGENT', label: 'URGENT' }]} />
               </Form.Item>

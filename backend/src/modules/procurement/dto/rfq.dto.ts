@@ -100,10 +100,16 @@ export class CreateRfqDto {
   @IsOptional()
   description?: string;
 
-  @ApiProperty({ description: 'Supplier ID' })
+  @ApiPropertyOptional({ description: 'Primary Supplier ID (legacy single-supplier)' })
   @IsString()
-  @IsNotEmpty()
-  supplierId: string;
+  @IsOptional()
+  supplierId?: string;
+
+  @ApiPropertyOptional({ description: 'Multiple Supplier IDs for multi-vendor RFQ' })
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  supplierIds?: string[];
 
   @ApiPropertyOptional({ description: 'Requisition ID' })
   @IsString()

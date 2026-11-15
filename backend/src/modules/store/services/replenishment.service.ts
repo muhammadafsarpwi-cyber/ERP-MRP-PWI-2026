@@ -103,6 +103,12 @@ export class ReplenishmentService {
             : In([]) };
 
     for (const companyId of companyIds) {
+      const activeDivisionRows = await this.dataSource.query<{ id: string }[]>(
+        `SELECT id FROM divisions WHERE company_id = $1 AND is_active = true AND status = 'ACTIVE'`,
+        [companyId],
+      );
+      const activeDivisionIds = new Set(activeDivisionRows.map((d) => d.id));
+
       const stores = await this.storeRepo.find({
         where: {
           companyId,
@@ -111,6 +117,9 @@ export class ReplenishmentService {
         },
       });
       for (const store of stores) {
+        if (store.divisionId && !activeDivisionIds.has(store.divisionId)) {
+          continue;
+        }
         const storeItems = await this.storeItemRepo.find({ where: { storeId: store.id, status: 'ACTIVE' as any } });
         for (const storeItem of storeItems) {
           checkedRows += 1;

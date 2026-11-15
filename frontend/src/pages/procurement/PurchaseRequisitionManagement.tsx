@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
+import './procurementResponsive.css';
 import {
   Table, Button, Space, Tag, Form, Input, Select, App, Card,
   Row, Col, DatePicker, Segmented, Tooltip, Popconfirm, Divider, Spin, Steps,
@@ -51,12 +53,10 @@ interface DepartmentOption {
 }
 
 const DEFAULT_DIVISIONS: DivisionOption[] = [
-  { id: 'd1000000-0000-0000-0000-000000000001', code: 'DIV-SPD', name: 'Spoke Division' },
-  { id: 'd1000000-0000-0000-0000-000000000002', code: 'DIV-CCD', name: 'Control Cable Division' },
-  { id: '83ecd746-1cc9-4849-bec4-d00bcc3ceeec', code: 'DIV-PWI', name: 'Main Division E-51' },
-  { id: '50824516-9c24-4122-86e7-c8e6fa1c5869', code: 'DIV-001', name: 'Manufacturing Division' },
-  { id: '3f222d46-6f96-44f6-9ead-27467c7e93a1', code: 'DIV-003', name: 'Supply Chain Division' },
-  { id: 'b28f9d4f-53f3-4883-afb4-2af73c4dcca7', code: 'DIV-002', name: 'Sales & Marketing Division' },
+  { id: 'd1000000-0000-0000-0000-000000000001', code: 'DIV-001-SPI', name: 'Spoke Division' },
+  { id: 'd1000000-0000-0000-0000-000000000002', code: 'DIV-002-CCD', name: 'Control Cable Division' },
+  { id: '0653339b-94d0-4cc5-b880-e07908b2015f', code: 'DIV-003-NB', name: 'NB Division' },
+  { id: '83ecd746-1cc9-4849-bec4-d00bcc3ceeec', code: 'DIV-004-MDE51', name: 'Main Division E-51' },
 ];
 
 const DEFAULT_DEPARTMENTS: DepartmentOption[] = [
@@ -120,6 +120,7 @@ const statusColorMap: Record<string, string> = {
 
 const PurchaseRequisitionManagement: React.FC = () => {
   const { message } = App.useApp();
+  const navigate = useNavigate();
   const [data, setData] = useState<PurchaseRequisition[]>([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
@@ -133,6 +134,7 @@ const PurchaseRequisitionManagement: React.FC = () => {
   const [form] = Form.useForm();
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState<string | undefined>(undefined);
+  const [originFilter, setOriginFilter] = useState<'ALL' | 'LOCAL' | 'IMPORT'>('ALL');
   const [pageSize] = useState(20);
   const [lineItems, setLineItems] = useState<ERPLine[]>([]);
   const [companyId, setCompanyId] = useState('');
@@ -170,6 +172,7 @@ const PurchaseRequisitionManagement: React.FC = () => {
 
   const watchedDivisionId = Form.useWatch('divisionId', form);
   const watchedWarehouseId = Form.useWatch('warehouseId', form);
+  const watchedOrigin = Form.useWatch('purchaseType', form);
   const selectedWarehouse = warehouses.find((w) => w.id === watchedWarehouseId);
 
   // Filtered/prioritized options based on selected division
@@ -181,8 +184,7 @@ const PurchaseRequisitionManagement: React.FC = () => {
       const isMatch = Boolean(
         watchedDivisionId && (
           d.divisionId === watchedDivisionId ||
-          (divCode && d.code && d.code.toUpperCase().includes(divCode)) ||
-          (divCode && d.name.toUpperCase().includes(divCode))
+          (!d.divisionId && divCode && d.code && d.code.toUpperCase().includes(divCode))
         )
       );
       return {
@@ -193,11 +195,9 @@ const PurchaseRequisitionManagement: React.FC = () => {
     });
 
     if (watchedDivisionId) {
-      return [...list].sort((a, b) => {
-        if (a.isMatch && !b.isMatch) return -1;
-        if (!a.isMatch && b.isMatch) return 1;
-        return a.label.localeCompare(b.label);
-      });
+      return list
+        .filter((item) => item.isMatch)
+        .sort((a, b) => a.label.localeCompare(b.label));
     }
 
     return list;
@@ -260,9 +260,13 @@ const PurchaseRequisitionManagement: React.FC = () => {
           items = Array.isArray(w2) ? w2 : w2?.data?.items || w2?.items || w2?.data || [];
         }
         if (items.length > 0) {
-          const existingIds = new Set(items.map((x: any) => x.id));
-          const merged = [...items, ...DEFAULT_WAREHOUSES.filter((d) => !existingIds.has(d.id))];
-          setWarehouses(merged.filter((w) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(w.id)));
+          const activeWhs = items.filter(
+            (w: any) =>
+              w.isActive !== false &&
+              (!w.status || String(w.status).toUpperCase() === 'ACTIVE') &&
+              /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(w.id)
+          );
+          if (activeWhs.length > 0) setWarehouses(activeWhs);
         }
       } catch { /* keep DEFAULT_WAREHOUSES */ }
 
@@ -271,9 +275,10 @@ const PurchaseRequisitionManagement: React.FC = () => {
         const d = await apiService.get<any>('/divisions', { limit: 50, status: 'ACTIVE' });
         const divItems = Array.isArray(d) ? d : d?.data?.items || d?.data || [];
         if (divItems.length > 0) {
-          const apiDivs = divItems.map((x: any) => ({ id: x.id, code: x.divisionCode, name: x.name }));
-          const existingIds = new Set(apiDivs.map((x: any) => x.id));
-          setDivisions([...apiDivs, ...DEFAULT_DIVISIONS.filter((def) => !existingIds.has(def.id))]);
+          const activeDivs = divItems
+            .filter((x: any) => x.isActive !== false && (!x.status || String(x.status).toUpperCase() === 'ACTIVE'))
+            .map((x: any) => ({ id: x.id, code: x.divisionCode, name: x.name }));
+          setDivisions(activeDivs.length > 0 ? activeDivs : DEFAULT_DIVISIONS);
         }
       } catch { /* keep DEFAULT_DIVISIONS */ }
 
@@ -288,15 +293,15 @@ const PurchaseRequisitionManagement: React.FC = () => {
           deptItems = Array.isArray(deptRes2) ? deptRes2 : deptRes2?.data?.items || deptRes2?.items || deptRes2?.data || [];
         }
         if (deptItems.length > 0) {
-          const apiDepts: DepartmentOption[] = deptItems.map((x: any) => ({
-            id: x.id,
-            code: x.departmentCode,
-            name: x.name,
-            divisionId: x.divisionId,
-          }));
-          const existingNames = new Set(apiDepts.map((x) => x.name.toLowerCase()));
-          const merged = [...apiDepts, ...DEFAULT_DEPARTMENTS.filter((d) => !existingNames.has(d.name.toLowerCase()))];
-          setDepartments(merged);
+          const apiDepts: DepartmentOption[] = deptItems
+            .filter((x: any) => x.isActive !== false && (!x.status || String(x.status).toUpperCase() === 'ACTIVE'))
+            .map((x: any) => ({
+              id: x.id,
+              code: x.departmentCode,
+              name: x.name,
+              divisionId: x.divisionId,
+            }));
+          if (apiDepts.length > 0) setDepartments(apiDepts);
         }
       } catch { /* keep DEFAULT_DEPARTMENTS */ }
     })();
@@ -308,6 +313,7 @@ const PurchaseRequisitionManagement: React.FC = () => {
       const params: any = { page: pageNum, limit: pageSize };
       if (search) params.search = search;
       if (filterStatus) params.status = filterStatus;
+      if (originFilter !== 'ALL') params.origin = originFilter;
       const response = await apiService.get<{ data: PurchaseRequisition[]; total: number }>('/procurement/requisitions', params);
       setData(response.data || []);
       setTotal(response.total || 0);
@@ -316,7 +322,7 @@ const PurchaseRequisitionManagement: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [search, filterStatus, pageSize, message]);
+  }, [search, filterStatus, originFilter, pageSize, message]);
 
   const fetchSuppliers = useCallback(async () => {
     try {
@@ -430,6 +436,8 @@ const PurchaseRequisitionManagement: React.FC = () => {
       requisitionCode: autoCode,
       requestType: 'STANDARD',
       purchaseType: 'LOCAL',
+      currencyCode: 'PKR',
+      portOfDischarge: 'Karachi Port (KICT / PICT / QICT)',
       requestedDeliveryDate: dayjs().add(7, 'day'),
     });
     setLineItems([]);
@@ -444,7 +452,9 @@ const PurchaseRequisitionManagement: React.FC = () => {
       form.setFieldsValue({
         ...pr,
         requestedDeliveryDate: pr.requestedDeliveryDate ? dayjs(pr.requestedDeliveryDate) : undefined,
-        purchaseType: pr.purchaseType || 'LOCAL',
+        expectedEtd: pr.expectedEtd ? dayjs(pr.expectedEtd) : undefined,
+        expectedEta: pr.expectedEta ? dayjs(pr.expectedEta) : undefined,
+        purchaseType: pr.purchaseOrigin || pr.purchaseType || 'LOCAL',
       });
       if (pr.lines) {
         setLineItems(pr.lines.map((l: any, idx: number) => ({
@@ -529,7 +539,16 @@ const PurchaseRequisitionManagement: React.FC = () => {
         notes: combinedNotes || undefined,
         divisionId: isUuid(values.divisionId) ? values.divisionId : undefined,
         warehouseId: targetWarehouseId,
-        purchaseType: values.purchaseType || undefined,
+        purchaseType: values.purchaseType || 'LOCAL',
+        purchaseOrigin: values.purchaseType || 'LOCAL',
+        importCargoType: values.purchaseType === 'IMPORT' ? values.importCargoType : undefined,
+        incoterm: values.purchaseType === 'IMPORT' ? values.incoterm : undefined,
+        portOfLoading: values.purchaseType === 'IMPORT' ? values.portOfLoading : undefined,
+        portOfDischarge: values.purchaseType === 'IMPORT' ? values.portOfDischarge : undefined,
+        currencyCode: values.purchaseType === 'IMPORT' ? (values.currencyCode || 'USD') : 'PKR',
+        expectedEtd: values.purchaseType === 'IMPORT' && values.expectedEtd ? dayjs(values.expectedEtd).format('YYYY-MM-DD') : undefined,
+        expectedEta: values.purchaseType === 'IMPORT' && values.expectedEta ? dayjs(values.expectedEta).format('YYYY-MM-DD') : undefined,
+        importRemarks: values.purchaseType === 'IMPORT' ? values.importRemarks : undefined,
         lines: validLines.map((l, idx) => ({
           lineNumber: idx + 1,
           itemId: l.itemId,
@@ -605,7 +624,7 @@ const PurchaseRequisitionManagement: React.FC = () => {
 
     const division = divMatch ? divMatch[1] : (divisions.find((d) => d.id === item.divisionId)?.name || item.divisionName || '—');
     const store = storeMatch ? storeMatch[1] : (warehouses.find((w) => w.id === item.warehouseId)?.name || item.warehouseName || '—');
-    const origin = item.purchaseType || (originMatch ? originMatch[1] : 'LOCAL');
+    const origin = item.purchaseOrigin || item.purchaseType || (originMatch ? originMatch[1] : 'LOCAL');
 
     const cleanNotes = rawNotes
       .replace(/\[Division:\s*[^\]]+\]/gi, '')
@@ -747,11 +766,28 @@ const PurchaseRequisitionManagement: React.FC = () => {
       render: (t) => <span style={{ fontWeight: 600 }}>{t || '—'}</span>,
     },
     {
-      title: 'Type',
+      title: 'Type / Origin',
       dataIndex: 'requestType',
       key: 'requestType',
-      width: 110,
-      render: (t) => <Tag color={t === 'URGENT' ? 'red' : 'blue'}>{t}</Tag>,
+      width: 170,
+      render: (t, record: any) => {
+        const origin = (record.purchaseOrigin || parsePrMeta(record).origin || 'LOCAL').toUpperCase();
+        return (
+          <Space direction="vertical" size={2}>
+            <Space size={4}>
+              <Tag color={origin === 'IMPORT' ? 'purple' : 'cyan'} style={{ fontWeight: 700, margin: 0 }}>
+                {origin}
+              </Tag>
+              <Tag color={t === 'URGENT' ? 'red' : 'blue'} style={{ margin: 0 }}>{t}</Tag>
+            </Space>
+            {origin === 'IMPORT' && (record.importCargoType || record.expectedEta) && (
+              <span style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)' }}>
+                {[record.importCargoType, record.incoterm, record.expectedEta ? `ETA ${dayjs(record.expectedEta).format('DD MMM')}` : null].filter(Boolean).join(' • ')}
+              </span>
+            )}
+          </Space>
+        );
+      },
     },
     {
       title: 'Department',
@@ -813,6 +849,19 @@ const PurchaseRequisitionManagement: React.FC = () => {
             <Tooltip title="Approve Requisition">
               <Button size="small" type="primary" icon={<CheckOutlined />} style={{ background: '#10b981', borderColor: '#10b981' }} onClick={() => handleAction(record.id, 'approve')}>
                 Approve
+              </Button>
+            </Tooltip>
+          )}
+
+          {record.status === 'APPROVED' && (
+            <Tooltip title="Create Multi-Supplier RFQ from this PR">
+              <Button
+                size="small"
+                type="primary"
+                icon={<FileTextOutlined />}
+                onClick={() => navigate(`/procurement/rfqs?requisitionId=${record.id}`)}
+              >
+                Create RFQ
               </Button>
             </Tooltip>
           )}
@@ -1293,6 +1342,7 @@ const PurchaseRequisitionManagement: React.FC = () => {
             dataSource={systemPrs}
             rowKey="id"
             loading={systemLoading}
+            scroll={{ x: 'max-content' }}
             pagination={{ pageSize: 15, showSizeChanger: false }}
             expandable={{
               expandedRowRender: renderSystemPrExpanded,
@@ -1302,8 +1352,8 @@ const PurchaseRequisitionManagement: React.FC = () => {
         </div>
       ) : (
         <div>
-          <Row gutter={16} style={{ marginBottom: 16 }}>
-            <Col span={8}>
+          <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
+            <Col xs={24} sm={12} md={8}>
               <Input
                 placeholder="Search requisitions, titles, departments..."
                 prefix={<SearchOutlined />}
@@ -1313,7 +1363,7 @@ const PurchaseRequisitionManagement: React.FC = () => {
                 allowClear
               />
             </Col>
-            <Col span={6}>
+            <Col xs={24} sm={8} md={6}>
               <Select
                 placeholder="Filter by status"
                 allowClear
@@ -1326,8 +1376,20 @@ const PurchaseRequisitionManagement: React.FC = () => {
                 ))}
               </Select>
             </Col>
-            <Col span={4}>
-              <Button type="primary" onClick={() => fetchData(1)}>Search</Button>
+            <Col xs={24} sm={12} md={6}>
+              <Segmented
+                block
+                value={originFilter}
+                onChange={(val) => setOriginFilter(val as 'ALL' | 'LOCAL' | 'IMPORT')}
+                options={[
+                  { label: 'All Origins', value: 'ALL' },
+                  { label: 'Local', value: 'LOCAL' },
+                  { label: 'Import', value: 'IMPORT' },
+                ]}
+              />
+            </Col>
+            <Col xs={24} sm={4} md={4}>
+              <Button type="primary" onClick={() => fetchData(1)} block>Search</Button>
             </Col>
           </Row>
 
@@ -1336,6 +1398,7 @@ const PurchaseRequisitionManagement: React.FC = () => {
             dataSource={data}
             rowKey="id"
             loading={loading}
+            scroll={{ x: 'max-content' }}
             pagination={{ current: page, total, pageSize, onChange: setPage, showSizeChanger: false }}
           />
         </div>
@@ -1398,6 +1461,7 @@ const PurchaseRequisitionManagement: React.FC = () => {
                   <Select
                     placeholder="Select requesting division..."
                     allowClear
+                    onChange={() => form.setFieldValue('department', undefined)}
                     options={divisions.map((d) => ({
                       value: d.id,
                       label: `${d.code ? `[${d.code}] ` : ''}${d.name}`,
@@ -1480,6 +1544,93 @@ const PurchaseRequisitionManagement: React.FC = () => {
                 </Form.Item>
               </Col>
             </Row>
+
+            {watchedOrigin === 'IMPORT' && (
+              <div
+                style={{
+                  marginTop: 8,
+                  padding: '12px 14px',
+                  borderRadius: 8,
+                  border: '1px dashed var(--theme-primary, #8b5cf6)',
+                  background: 'var(--theme-surface-alt, rgba(139, 92, 246, 0.06))',
+                }}
+              >
+                <div style={{ fontWeight: 700, marginBottom: 10, color: 'var(--theme-primary, #a78bfa)', fontSize: 13 }}>
+                  <GlobalOutlined style={{ marginRight: 6 }} />
+                  Import &amp; Cargo Requirements (LCL / FCL / Port / Schedule)
+                </div>
+                <Row gutter={[12, 8]}>
+                  <Col xs={24} sm={12} md={6}>
+                    <Form.Item name="importCargoType" label="Cargo / Shipment Mode" rules={[{ required: true, message: 'Select cargo mode' }]}>
+                      <Select
+                        placeholder="Select LCL / FCL..."
+                        options={[
+                          { value: 'LCL', label: 'LCL (Less than Container Load)' },
+                          { value: 'FCL_20', label: 'FCL (20ft Container)' },
+                          { value: 'FCL_40', label: 'FCL (40ft Container)' },
+                          { value: 'AIR', label: 'Air Freight' },
+                          { value: 'COURIER', label: 'Courier / DHL / FedEx' },
+                        ]}
+                      />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} sm={12} md={4}>
+                    <Form.Item name="incoterm" label="Incoterm">
+                      <Select
+                        allowClear
+                        placeholder="FOB / CIF"
+                        options={[
+                          { value: 'FOB', label: 'FOB' },
+                          { value: 'CIF', label: 'CIF' },
+                          { value: 'CFR', label: 'CFR' },
+                          { value: 'EXW', label: 'EXW' },
+                          { value: 'DDP', label: 'DDP' },
+                          { value: 'DAP', label: 'DAP' },
+                        ]}
+                      />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} sm={12} md={4}>
+                    <Form.Item name="currencyCode" label="Currency" initialValue="USD">
+                      <Select
+                        options={[
+                          { value: 'USD', label: 'USD' },
+                          { value: 'CNY', label: 'CNY' },
+                          { value: 'EUR', label: 'EUR' },
+                          { value: 'GBP', label: 'GBP' },
+                          { value: 'PKR', label: 'PKR' },
+                        ]}
+                      />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} sm={12} md={5}>
+                    <Form.Item name="expectedEtd" label="Target ETD (Origin)">
+                      <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} sm={12} md={5}>
+                    <Form.Item name="expectedEta" label="Target ETA (Karachi)">
+                      <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
+                    </Form.Item>
+                  </Col>
+                </Row>
+                <Row gutter={[12, 8]}>
+                  <Col xs={24} sm={12}>
+                    <Form.Item name="portOfLoading" label="Port of Loading / Origin Country">
+                      <Input placeholder="e.g. Shanghai / Ningbo, China" />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} sm={12}>
+                    <Form.Item name="portOfDischarge" label="Port of Discharge">
+                      <Input placeholder="e.g. Karachi Port (KICT / PICT / QICT)" />
+                    </Form.Item>
+                  </Col>
+                </Row>
+                <Form.Item name="importRemarks" label="Import / LC / Packing Requirements" style={{ marginBottom: 0 }}>
+                  <Input placeholder="e.g. Palletized packing, Certificate of Origin, LC at sight..." />
+                </Form.Item>
+              </div>
+            )}
           </Card>
 
           <Form.Item name="description" label={<span style={{ fontWeight: 600 }}>Purpose / Requirement Description</span>}>
@@ -1620,8 +1771,8 @@ const PurchaseRequisitionManagement: React.FC = () => {
             const meta = parsePrMeta(viewingItem);
             const stepIndex =
               viewingItem.status === 'APPROVED' ? 2 :
-              viewingItem.status === 'SUBMITTED' ? 1 :
-              viewingItem.status === 'CANCELLED' ? 1 : 0;
+                viewingItem.status === 'SUBMITTED' ? 1 :
+                  viewingItem.status === 'CANCELLED' ? 1 : 0;
 
             return (
               <div style={{ padding: '4px 0' }}>

@@ -20,6 +20,11 @@ export class CreatePurchaseReturnLineDto {
   @IsOptional()
   poLineId?: string;
 
+  @ApiPropertyOptional({ description: 'GRN line ID' })
+  @IsString()
+  @IsOptional()
+  grnLineId?: string;
+
   @ApiProperty({ description: 'Item ID' })
   @IsString()
   @IsNotEmpty()
@@ -68,6 +73,11 @@ export class CreatePurchaseReturnDto {
   @IsString()
   @IsNotEmpty()
   poId: string;
+
+  @ApiPropertyOptional({ description: 'GRN ID' })
+  @IsString()
+  @IsOptional()
+  grnId?: string;
 
   @ApiProperty({ description: 'Supplier ID' })
   @IsString()

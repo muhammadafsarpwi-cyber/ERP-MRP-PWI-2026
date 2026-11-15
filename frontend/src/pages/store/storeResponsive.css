@@ -1,0 +1,60 @@
+/* Store Department Responsive & Print Styles */
+
+.store-approval-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr));
+  gap: 16px;
+}
+
+.store-table-scroll {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+@media (max-width: 768px) {
+  .store-approval-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .store-page-header-actions {
+    width: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .store-filter-bar .ant-col {
+    margin-bottom: 4px;
+  }
+
+  .ant-modal {
+    max-width: calc(100vw - 16px) !important;
+    margin: 8px auto !important;
+  }
+
+  .ant-drawer-content-wrapper {
+    max-width: 100vw !important;
+  }
+}
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+
+  .store-print-voucher-sheet,
+  .store-print-voucher-sheet * {
+    visibility: visible;
+  }
+
+  .store-print-voucher-sheet {
+    position: fixed;
+    left: 0;
+    top: 0;
+    width: 100%;
+    padding: 20px;
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+}

@@ -65,6 +65,15 @@ export class RfqController {
     return { success: true, data: rfq, message: 'RFQ cancelled' };
   }
 
+  @Post(':id/suppliers')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('procurement.rfq.create')
+  @ApiOperation({ summary: 'Add suppliers to an RFQ' })
+  async addSuppliers(@Param('id') id: string, @Body('supplierIds') supplierIds: string[]) {
+    const rfq = await this.service.addSuppliers(id, supplierIds || []);
+    return { success: true, data: rfq, message: 'Suppliers added to RFQ' };
+  }
+
   @Post(':id/lines')
   @UseGuards(PermissionGuard)
   @RequirePermission('procurement.rfq.create')

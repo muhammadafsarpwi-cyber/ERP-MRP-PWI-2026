@@ -1,10 +1,11 @@
-import { Injectable, NotFoundException, ConflictException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, BadRequestException, Logger, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { PurchaseReturn, PurchaseReturnLine } from '../entities';
+import { PurchaseReturn, PurchaseReturnLine, PurchaseOrder, PurchaseOrderLine } from '../entities';
 import { CreatePurchaseReturnDto, PurchaseReturnFilterDto } from '../dto';
 import { StockLedgerService } from '../../inventory/services/stock-ledger.service';
 import { InventoryBalanceService } from '../../inventory/services/inventory-balance.service';
+import { FinanceAutoPostingService } from '../../finance/services/finance-auto-posting.service';
 
 const RETURN_REFERENCE_TYPE = 'PURCHASE_RETURN';
 
@@ -19,7 +20,9 @@ export class PurchaseReturnService {
     private readonly lineRepo: Repository<PurchaseReturnLine>,
     private readonly stockLedgerService: StockLedgerService,
     private readonly inventoryBalanceService: InventoryBalanceService,
-  ) {}
+    @Optional()
+    private readonly autoPosting?: FinanceAutoPostingService,
+  ) { }
 
   async create(dto: CreatePurchaseReturnDto, userId?: string): Promise<PurchaseReturn> {
     const existing = await this.repo.findOne({
@@ -29,8 +32,13 @@ export class PurchaseReturnService {
       throw new ConflictException(`Return code '${dto.returnCode}' already exists`);
     }
 
+    const totalAmount = Math.round(
+      (dto.lines || []).reduce((sum, l) => sum + Number(l.quantity || 0) * Number(l.unitPrice || 0), 0) * 100,
+    ) / 100;
+
     const purchaseReturn = this.repo.create({
       ...dto,
+      totalAmount,
       lines: undefined,
       status: 'DRAFT',
       createdBy: userId || null,
@@ -110,9 +118,13 @@ export class PurchaseReturnService {
     // stock forever and corrupt inventory reconciliation / MRP. The return is
     // only marked COMPLETED when every line has been reversed — or nothing is.
     await this.repo.manager.transaction(async (manager) => {
+      let returnTotal = 0;
+
       for (const line of purchaseReturn.lines || []) {
         const quantity = Number(line.quantity || 0);
         if (quantity <= 0) continue;
+
+        returnTotal += quantity * Number(line.unitPrice || 0);
 
         await this.stockLedgerService.create({
           companyId: purchaseReturn.companyId,
@@ -133,14 +145,53 @@ export class PurchaseReturnService {
           purchaseReturn.companyId, line.itemId, purchaseReturn.warehouseId,
           null, null, line.uomId, quantity, 'OUT', manager,
         );
+
+        // Adjust linked PO line received quantity if linked
+        if (line.poLineId) {
+          const poLine = await manager.findOne(PurchaseOrderLine, { where: { id: line.poLineId } });
+          if (poLine) {
+            const nextReceived = Math.max(0, Number(poLine.receivedQuantity || 0) - quantity);
+            await manager.update(PurchaseOrderLine, { id: poLine.id }, { receivedQuantity: nextReceived });
+          }
+        }
+      }
+
+      returnTotal = Math.round(returnTotal * 100) / 100;
+
+      // Reduce linked PO receivedAmount if linked
+      if (purchaseReturn.poId && returnTotal > 0) {
+        const po = await manager.findOne(PurchaseOrder, { where: { id: purchaseReturn.poId } });
+        if (po) {
+          const nextReceivedAmt = Math.max(0, Math.round((Number(po.receivedAmount || 0) - returnTotal) * 100) / 100);
+          await manager.update(PurchaseOrder, { id: po.id }, { receivedAmount: nextReceivedAmt });
+        }
+      }
+
+      // Post AP Debit Note journal (DR AP 2000 / CR Purchases 5100)
+      if (this.autoPosting && returnTotal > 0) {
+        await this.autoPosting.postPurchaseReturnDebitNote(
+          purchaseReturn.companyId,
+          purchaseReturn.returnCode,
+          purchaseReturn.id,
+          returnTotal,
+          userId,
+          manager,
+        );
+      }
+
+      purchaseReturn.totalAmount = returnTotal;
+      purchaseReturn.status = 'COMPLETED';
+      purchaseReturn.postedBy = userId || null;
+      purchaseReturn.postedAt = new Date();
+      purchaseReturn.updatedBy = userId || null;
+      if (typeof (manager as any)?.save === 'function') {
+        await manager.save(PurchaseReturn, purchaseReturn);
+      } else {
+        await this.repo.save(purchaseReturn);
       }
     });
 
-    purchaseReturn.status = 'COMPLETED';
-    purchaseReturn.postedBy = userId || null;
-    purchaseReturn.postedAt = new Date();
-    purchaseReturn.updatedBy = userId || null;
-    return this.repo.save(purchaseReturn);
+    return purchaseReturn;
   }
 
   async cancel(id: string, userId?: string): Promise<PurchaseReturn> {

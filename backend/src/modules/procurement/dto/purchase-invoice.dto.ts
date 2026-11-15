@@ -20,6 +20,11 @@ export class CreatePurchaseInvoiceLineDto {
   @IsOptional()
   poLineId?: string;
 
+  @ApiPropertyOptional({ description: 'GRN line ID' })
+  @IsString()
+  @IsOptional()
+  grnLineId?: string;
+
   @ApiProperty({ description: 'Item ID' })
   @IsString()
   @IsNotEmpty()
@@ -32,14 +37,30 @@ export class CreatePurchaseInvoiceLineDto {
 
   @ApiProperty({ description: 'Quantity' })
   @IsNumber()
-  @IsNotEmpty()
+  @IsOptional()
   @Min(0.0001)
-  quantity: number;
+  quantity?: number;
+
+  @ApiPropertyOptional({ description: 'Invoiced quantity alias' })
+  @IsNumber()
+  @IsOptional()
+  @Min(0.0001)
+  invoicedQty?: number;
 
   @ApiProperty({ description: 'Unit price' })
   @IsNumber()
   @IsNotEmpty()
   unitPrice: number;
+
+  @ApiPropertyOptional({ description: 'Tax percent' })
+  @IsNumber()
+  @IsOptional()
+  taxPercent?: number;
+
+  @ApiPropertyOptional({ description: 'Line total' })
+  @IsNumber()
+  @IsOptional()
+  lineTotal?: number;
 
   @ApiPropertyOptional({ description: 'Notes' })
   @IsString()
@@ -69,6 +90,11 @@ export class CreatePurchaseInvoiceDto {
   @IsString()
   @IsNotEmpty()
   poId: string;
+
+  @ApiPropertyOptional({ description: 'GRN ID' })
+  @IsString()
+  @IsOptional()
+  grnId?: string;
 
   @ApiProperty({ description: 'Supplier ID' })
   @IsString()

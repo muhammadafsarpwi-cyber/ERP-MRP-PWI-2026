@@ -43,6 +43,9 @@ export class Quotation extends BaseEntity {
   @Column({ name: 'delivery_terms', type: 'varchar', length: 100, nullable: true })
   deliveryTerms: string | null;
 
+  @Column({ name: 'delivery_lead_time_days', type: 'int', nullable: true })
+  deliveryLeadTimeDays: number | null;
+
   @Column({ name: 'total_amount', type: 'decimal', precision: 15, scale: 6, default: 0 })
   totalAmount: number;
 

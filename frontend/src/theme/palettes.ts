@@ -1,4 +1,5 @@
-export type ThemeMode = 'light' | 'dark';
+export type ThemeMode = 'light' | 'dark' | 'system';
+export type ResolvedThemeMode = 'light' | 'dark';
 
 export type PaletteCategory = 'all' | 'corporate' | 'tech' | 'vibrant' | 'warm' | 'minimal';
 
@@ -489,8 +490,25 @@ export const findPalette = (paletteId: string): PaletteDef => {
   return PALETTES.find((p) => p.id === paletteId) ?? PALETTES[0];
 };
 
-export const resolveRoles = (palette: PaletteDef, mode: ThemeMode): PaletteRoles => {
-  return mode === 'dark' ? palette.dark : palette.light;
+export const getOsPrefersDark = (): boolean =>
+  typeof window !== 'undefined' &&
+  typeof window.matchMedia === 'function' &&
+  window.matchMedia('(prefers-color-scheme: dark)').matches;
+
+export const resolveThemeMode = (
+  mode: ThemeMode,
+  osPrefersDark: boolean = getOsPrefersDark(),
+): ResolvedThemeMode => {
+  if (mode === 'system') return osPrefersDark ? 'dark' : 'light';
+  return mode === 'dark' ? 'dark' : 'light';
+};
+
+export const resolveRoles = (
+  palette: PaletteDef,
+  mode: ThemeMode,
+  osPrefersDark?: boolean,
+): PaletteRoles => {
+  return resolveThemeMode(mode, osPrefersDark) === 'dark' ? palette.dark : palette.light;
 };
 
 export const isKnownPaletteId = (paletteId: unknown): paletteId is string => {

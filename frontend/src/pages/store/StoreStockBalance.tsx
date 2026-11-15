@@ -288,7 +288,7 @@ const StoreStockBalance: React.FC = () => {
               rowKey="itemId"
               loading={loading}
               pagination={{ pageSize: 20, showSizeChanger: true, showTotal: (t) => `${t} items` }}
-              scroll={{ x: 1200 }}
+              scroll={{ x: 'max-content' }}
               size="middle"
             />
           )}

@@ -18,3 +18,6 @@ export { default as StoreTransfers } from './StoreTransfers';
 export { default as StoreAdjustments } from './StoreAdjustments';
 export { default as StoreOpeningStock } from './StoreOpeningStock';
 export { default as StoreItemLifecycle } from './StoreItemLifecycle';
+export { default as GatePasses } from './GatePasses';
+export { default as MaterialTransfers } from './MaterialTransfers';
+export { default as ScrapDisposalManagement } from './ScrapDisposalManagement';

@@ -655,7 +655,7 @@ export class StoreDashboardService {
   private async countStores(companyId: string, filters: StoreDashboardFilters) {
     const params: any[] = [companyId];
     return this.scalar(
-      `SELECT COUNT(*)::int AS v FROM stores s WHERE ${this.appendConds(`s.company_id = $1 AND s.status = 'ACTIVE'`, this.storeScopeConds(filters, params))}`,
+      `SELECT COUNT(*)::int AS v FROM stores s WHERE ${this.appendConds(`s.company_id = $1 AND s.status = 'ACTIVE' AND (s.division_id IS NULL OR EXISTS (SELECT 1 FROM divisions div_act WHERE div_act.id = s.division_id AND div_act.is_active = true AND div_act.status = 'ACTIVE'))`, this.storeScopeConds(filters, params))}`,
       params,
     );
   }
@@ -828,6 +828,7 @@ const params: any[] = [companyId];
     if (filters.dateFrom) add(dateColumn, '>=', filters.dateFrom);
     if (filters.dateTo) add(dateColumn, '<=', filters.dateTo);
     this.applyDivisionScope(conds, params, `${alias}.`, filters);
+    conds.push(`(${alias}.division_id IS NULL OR EXISTS (SELECT 1 FROM divisions div_act WHERE div_act.id = ${alias}.division_id AND div_act.is_active = true AND div_act.status = 'ACTIVE'))`);
     return conds;
   }
 
@@ -854,6 +855,7 @@ const params: any[] = [companyId];
     if (filters.dateFrom) add(dateColumn, '>=', filters.dateFrom);
     if (filters.dateTo) add(dateColumn, '<=', filters.dateTo);
     this.applyDivisionScope(conds, params, `${alias}.`, filters);
+    conds.push(`(${alias}.division_id IS NULL OR EXISTS (SELECT 1 FROM divisions div_act WHERE div_act.id = ${alias}.division_id AND div_act.is_active = true AND div_act.status = 'ACTIVE'))`);
     return conds;
   }
 
@@ -966,9 +968,12 @@ const params: any[] = [companyId];
       const p = `$${params.length}`;
       conds.push(`((s.department_id = ${p} OR (s.department_id IS NULL AND i.department_id = ${p})) AND (i.department_id = ${p} OR i.department_id IS NULL))`);
     }
+    conds.push(`(s.division_id IS NULL OR EXISTS (SELECT 1 FROM divisions div_act WHERE div_act.id = s.division_id AND div_act.is_active = true AND div_act.status = 'ACTIVE'))`);
     if (filters.itemType && filters.itemType !== 'ALL') {
       params.push(filters.itemType);
       conds.push(`i.item_type = $${params.length}`);
+    } else {
+      conds.push(`(i.item_type IS NULL OR i.item_type <> 'FINISHED_GOOD')`);
     }
     return conds;
   }

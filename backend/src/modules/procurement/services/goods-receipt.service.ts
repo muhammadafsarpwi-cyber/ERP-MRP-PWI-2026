@@ -280,14 +280,13 @@ export class GoodsReceiptService {
           line.locationId, line.batchId, postUomId, postQty, 'IN', manager,
         );
 
-        if (line.poLineId) {
-          const poLine = byId.get(line.poLineId);
-          if (poLine) {
-            const received = Number(poLine.receivedQuantity || 0) + acceptedQty;
-            await poLineRepo.update(poLine.id, { receivedQuantity: received });
-            byId.set(poLine.id, { ...poLine, receivedQuantity: received });
-            receivedMoney += acceptedQty * Number(poLine.unitPrice || 0);
-          }
+        const poLine = (line.poLineId ? byId.get(line.poLineId) : undefined)
+          || poLines.find((l) => l.itemId === line.itemId);
+        if (poLine) {
+          const received = Number(poLine.receivedQuantity || 0) + acceptedQty;
+          await poLineRepo.update(poLine.id, { receivedQuantity: received });
+          byId.set(poLine.id, { ...poLine, receivedQuantity: received });
+          receivedMoney += acceptedQty * Number(poLine.unitPrice || 0);
         }
       }
 
@@ -317,6 +316,32 @@ export class GoodsReceiptService {
                 receivedBy: userId || null,
                 receivedAt: new Date(),
               });
+
+              // Sync linked Material Request delivery status & ETA flag for Store Dashboard pipeline
+              const deliveryDateStr = locked.receiptDate
+                ? new Date(locked.receiptDate).toISOString().slice(0, 10)
+                : new Date().toISOString().slice(0, 10);
+              if (po.requisitionId) {
+                await manager.query(
+                  `UPDATE material_requests
+                      SET actual_delivery_date = $1,
+                          eta_pending = CASE WHEN $2 THEN false ELSE eta_pending END,
+                          po_id = COALESCE(po_id, $3),
+                          po_number = COALESCE(po_number, $4),
+                          updated_at = NOW()
+                    WHERE company_id = $5 AND (pr_id = $6 OR po_id = $3)`,
+                  [deliveryDateStr, allReceived, po.id, po.poCode, locked.companyId, po.requisitionId],
+                );
+              } else {
+                await manager.query(
+                  `UPDATE material_requests
+                      SET actual_delivery_date = $1,
+                          eta_pending = CASE WHEN $2 THEN false ELSE eta_pending END,
+                          updated_at = NOW()
+                    WHERE company_id = $3 AND po_id = $4`,
+                  [deliveryDateStr, allReceived, locked.companyId, po.id],
+                );
+              }
             }
           }
         }

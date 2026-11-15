@@ -2,6 +2,7 @@ import { Entity, Column, ManyToOne, JoinColumn, OneToMany } from 'typeorm';
 import { BaseEntity } from '../../../common/base.entity';
 import { Company } from '../../organization/entities/company.entity';
 import { PurchaseOrder } from './purchase-order.entity';
+import { GoodsReceipt } from './goods-receipt.entity';
 import { Supplier } from './supplier.entity';
 import { Warehouse } from '../../organization/entities/warehouse.entity';
 import { PurchaseReturnLine } from './purchase-return-line.entity';
@@ -25,6 +26,13 @@ export class PurchaseReturn extends BaseEntity {
   @JoinColumn({ name: 'po_id' })
   po: PurchaseOrder;
 
+  @Column({ name: 'grn_id', type: 'uuid', nullable: true })
+  grnId: string | null;
+
+  @ManyToOne(() => GoodsReceipt, { nullable: true })
+  @JoinColumn({ name: 'grn_id' })
+  grn: GoodsReceipt | null;
+
   @Column({ name: 'supplier_id', type: 'uuid' })
   supplierId: string;
 
@@ -47,6 +55,9 @@ export class PurchaseReturn extends BaseEntity {
 
   @Column({ type: 'varchar', length: 20, default: 'DRAFT' })
   status: string;
+
+  @Column({ name: 'total_amount', type: 'decimal', precision: 15, scale: 6, default: 0 })
+  totalAmount: number;
 
   @Column({ name: 'approved_by', type: 'uuid', nullable: true })
   approvedBy: string | null;

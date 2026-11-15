@@ -2,6 +2,7 @@ import { Entity, Column, ManyToOne, JoinColumn, OneToMany } from 'typeorm';
 import { BaseEntity } from '../../../common/base.entity';
 import { Company } from '../../organization/entities/company.entity';
 import { PurchaseOrder } from './purchase-order.entity';
+import { GoodsReceipt } from './goods-receipt.entity';
 import { Supplier } from './supplier.entity';
 import { PurchaseInvoiceLine } from './purchase-invoice-line.entity';
 
@@ -26,6 +27,13 @@ export class PurchaseInvoice extends BaseEntity {
   @ManyToOne(() => PurchaseOrder)
   @JoinColumn({ name: 'po_id' })
   po: PurchaseOrder;
+
+  @Column({ name: 'grn_id', type: 'uuid', nullable: true })
+  grnId: string | null;
+
+  @ManyToOne(() => GoodsReceipt, { nullable: true })
+  @JoinColumn({ name: 'grn_id' })
+  grn: GoodsReceipt | null;
 
   @Column({ name: 'supplier_id', type: 'uuid' })
   supplierId: string;

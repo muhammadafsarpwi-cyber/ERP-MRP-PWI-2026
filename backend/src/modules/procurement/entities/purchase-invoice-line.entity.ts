@@ -2,6 +2,7 @@ import { Entity, Column, ManyToOne, JoinColumn } from 'typeorm';
 import { BaseEntity } from '../../../common/base.entity';
 import { PurchaseInvoice } from './purchase-invoice.entity';
 import { PurchaseOrderLine } from './purchase-order-line.entity';
+import { GoodsReceiptLine } from './goods-receipt-line.entity';
 import { Item } from '../../item/entities/item.entity';
 import { Uom } from '../../item/entities/uom.entity';
 
@@ -20,6 +21,13 @@ export class PurchaseInvoiceLine extends BaseEntity {
   @ManyToOne(() => PurchaseOrderLine, { nullable: true })
   @JoinColumn({ name: 'po_line_id' })
   poLine: PurchaseOrderLine;
+
+  @Column({ name: 'grn_line_id', type: 'uuid', nullable: true })
+  grnLineId: string | null;
+
+  @ManyToOne(() => GoodsReceiptLine, { nullable: true })
+  @JoinColumn({ name: 'grn_line_id' })
+  grnLine: GoodsReceiptLine | null;
 
   @Column({ name: 'item_id', type: 'uuid' })
   itemId: string;
@@ -40,6 +48,9 @@ export class PurchaseInvoiceLine extends BaseEntity {
 
   @Column({ name: 'unit_price', type: 'decimal', precision: 15, scale: 6 })
   unitPrice: number;
+
+  @Column({ name: 'tax_percent', type: 'decimal', precision: 5, scale: 2, default: 0 })
+  taxPercent: number;
 
   @Column({ name: 'total_price', type: 'decimal', precision: 15, scale: 6, nullable: true })
   totalPrice: number | null;

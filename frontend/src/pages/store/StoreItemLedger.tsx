@@ -189,7 +189,7 @@ const StoreItemLedger: React.FC = () => {
               rowKey="id"
               loading={loading}
               pagination={{ pageSize: 20, showSizeChanger: true, showTotal: (t) => `${t} entries` }}
-              scroll={{ x: 1400 }}
+              scroll={{ x: 'max-content' }}
               size="middle"
             />
           )}

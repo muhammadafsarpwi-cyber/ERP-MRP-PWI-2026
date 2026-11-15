@@ -164,17 +164,48 @@ export interface PurchaseOrderSummary {
   }>;
 }
 
+export interface SalesOrderSummaryItem {
+  id: string;
+  lineNumber: number;
+  itemCode: string;
+  itemName: string;
+  uomCode: string;
+  orderedGrs: number;
+  dispatchedGrs: number;
+  balanceGrs: number;
+  completionPct: number;
+  status: string;
+}
+
+export interface SalesOrderSummaryOrder {
+  id: string;
+  orderNumber: string;
+  customerName: string;
+  orderDate: string | null;
+  deliveryDate: string | null;
+  totalAmount: number;
+  status: string;
+  currency: string;
+  partsCount: number;
+  orderedGrs: number;
+  dispatchedGrs: number;
+  balanceGrs: number;
+  completionPct: number;
+  isCompleted: boolean;
+  items: SalesOrderSummaryItem[];
+}
+
 export interface SalesOrderSummary {
-  recentOrders: Array<{
-    id: string;
-    orderNumber: string;
-    customerName: string;
-    orderDate: string | null;
-    deliveryDate: string | null;
-    totalAmount: number;
-    status: string;
-    currency: string;
-  }>;
+  summary?: {
+    totalOrderedGrs: number;
+    totalDispatchedGrs: number;
+    totalBalanceGrs: number;
+    thisMonthCount: number;
+    thisMonthGrs: number;
+    lastMonthCount: number;
+    lastMonthGrs: number;
+  };
+  recentOrders: SalesOrderSummaryOrder[];
   statusBreakdown: Array<{
     status: string;
     count: number;
@@ -354,8 +385,164 @@ class DashboardService {
     return apiService.get('/dashboard/procurement/summary');
   }
 
+  private convertQtyToGrs(qty: number, uomCode?: string | null): number {
+    const n = Number(qty || 0);
+    if (!n) return 0;
+    const code = (uomCode || 'GRS').toUpperCase().trim();
+    if (code === 'GRS' || code === 'GROSS') return Math.round(n * 100) / 100;
+    if (code === 'PCS' || code === 'PC' || code === 'EA') return Math.round((n / 144) * 100) / 100;
+    if (code === 'DOZ' || code === 'DZ') return Math.round((n / 12) * 100) / 100;
+    if (code === 'PAIR' || code === 'PRS') return Math.round((n / 72) * 100) / 100;
+    return Math.round(n * 100) / 100;
+  }
+
   async getSales(): Promise<{ success: boolean; data: SalesOrderSummary }> {
-    return apiService.get('/dashboard/sales/summary');
+    const summaryRes = await apiService.get<{ success: boolean; data: SalesOrderSummary }>('/dashboard/sales/summary');
+    const hasEnrichedPayload =
+      summaryRes?.success &&
+      summaryRes?.data?.summary &&
+      (summaryRes.data.recentOrders.length === 0 ||
+        Array.isArray(summaryRes.data.recentOrders[0]?.items));
+
+    if (hasEnrichedPayload) {
+      return summaryRes;
+    }
+
+    try {
+      const ordersRes = await apiService.get<{ data?: any[]; total?: number }>('/sales/orders', {
+        page: '1',
+        limit: '100',
+      });
+      const rawOrders: any[] = Array.isArray((ordersRes as any)?.data)
+        ? (ordersRes as any).data
+        : Array.isArray((ordersRes as any)?.data?.data)
+          ? (ordersRes as any).data.data
+          : [];
+
+      if (rawOrders.length === 0) {
+        return summaryRes;
+      }
+
+      const now = new Date();
+      const thisMonthPrefix = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
+      const lastMonthDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
+      const lastMonthPrefix = `${lastMonthDate.getUTCFullYear()}-${String(lastMonthDate.getUTCMonth() + 1).padStart(2, '0')}`;
+
+      let totalOrderedGrs = 0;
+      let totalDispatchedGrs = 0;
+      let thisMonthCount = 0;
+      let thisMonthGrs = 0;
+      let lastMonthCount = 0;
+      let lastMonthGrs = 0;
+
+      const recentOrders: SalesOrderSummaryOrder[] = rawOrders.map((so: any) => {
+        const rawItems: any[] = Array.isArray(so.items) ? so.items : [];
+        const items: SalesOrderSummaryItem[] = rawItems
+          .slice()
+          .sort((a, b) => Number(a.lineNumber ?? 0) - Number(b.lineNumber ?? 0))
+          .map((li: any) => {
+            const uomCode = li.uom?.code ?? 'GRS';
+            const orderedGrs = this.convertQtyToGrs(Number(li.quantity || 0), uomCode);
+            const dispatchedGrs = this.convertQtyToGrs(Number(li.shippedQuantity || 0), uomCode);
+            const balanceGrs = Math.max(0, Math.round((orderedGrs - dispatchedGrs) * 100) / 100);
+            const completionPct =
+              orderedGrs > 0 ? Math.min(100, Math.round((dispatchedGrs / orderedGrs) * 100)) : 0;
+            const itemCompleted = orderedGrs > 0 && balanceGrs <= 0.01;
+            return {
+              id: li.id,
+              lineNumber: Number(li.lineNumber ?? 0),
+              itemCode: li.item?.itemCode ?? '',
+              itemName: li.item?.name ?? li.description ?? 'Item',
+              uomCode,
+              orderedGrs,
+              dispatchedGrs,
+              balanceGrs,
+              completionPct,
+              status: itemCompleted ? 'Completed' : li.status || 'Pending',
+            };
+          });
+
+        const orderedGrs = Math.round(items.reduce((s, x) => s + x.orderedGrs, 0) * 100) / 100;
+        const dispatchedGrs = Math.round(items.reduce((s, x) => s + x.dispatchedGrs, 0) * 100) / 100;
+        const balanceGrs = Math.max(0, Math.round((orderedGrs - dispatchedGrs) * 100) / 100);
+        const completionPct =
+          orderedGrs > 0 ? Math.min(100, Math.round((dispatchedGrs / orderedGrs) * 100)) : 0;
+        const statusUpper = String(so.status || '').toUpperCase();
+        const isCompleted =
+          (orderedGrs > 0 && balanceGrs <= 0.01) ||
+          ['DELIVERED', 'COMPLETED', 'CLOSED'].includes(statusUpper);
+
+        if (statusUpper !== 'CANCELLED') {
+          totalOrderedGrs += orderedGrs;
+          totalDispatchedGrs += dispatchedGrs;
+          const dateKey = String(so.orderDate || so.createdAt || '').slice(0, 7);
+          if (dateKey === thisMonthPrefix) {
+            thisMonthCount += 1;
+            thisMonthGrs += orderedGrs;
+          } else if (dateKey === lastMonthPrefix) {
+            lastMonthCount += 1;
+            lastMonthGrs += orderedGrs;
+          }
+        }
+
+        return {
+          id: so.id,
+          orderNumber: so.orderNumber ?? '',
+          customerName: so.customer?.customerName ?? so.customer?.companyName ?? '',
+          orderDate: so.orderDate ?? null,
+          deliveryDate: so.deliveryDate ?? null,
+          totalAmount: Number(so.totalAmount || 0),
+          status: so.status ?? 'Draft',
+          currency: so.currency ?? 'PKR',
+          partsCount: items.length,
+          orderedGrs,
+          dispatchedGrs,
+          balanceGrs,
+          completionPct,
+          isCompleted,
+          items,
+        };
+      });
+
+      totalOrderedGrs = Math.round(totalOrderedGrs * 100) / 100;
+      totalDispatchedGrs = Math.round(totalDispatchedGrs * 100) / 100;
+      const totalBalanceGrs = Math.max(
+        0,
+        Math.round((totalOrderedGrs - totalDispatchedGrs) * 100) / 100,
+      );
+
+      const statusBreakdown =
+        summaryRes?.data?.statusBreakdown && summaryRes.data.statusBreakdown.length > 0
+          ? summaryRes.data.statusBreakdown
+          : Object.entries(
+            recentOrders.reduce<Record<string, { count: number; totalValue: number }>>((acc, o) => {
+              const st = o.status || 'Draft';
+              if (!acc[st]) acc[st] = { count: 0, totalValue: 0 };
+              acc[st].count += 1;
+              acc[st].totalValue += o.totalAmount;
+              return acc;
+            }, {}),
+          ).map(([status, v]) => ({ status, count: v.count, totalValue: v.totalValue }));
+
+      return {
+        success: true,
+        data: {
+          summary: {
+            totalOrderedGrs,
+            totalDispatchedGrs,
+            totalBalanceGrs,
+            thisMonthCount,
+            thisMonthGrs: Math.round(thisMonthGrs * 100) / 100,
+            lastMonthCount,
+            lastMonthGrs: Math.round(lastMonthGrs * 100) / 100,
+          },
+          recentOrders,
+          statusBreakdown,
+        },
+      };
+    } catch {
+      return summaryRes;
+    }
   }
 
   async getSchedule(): Promise<{ success: boolean; data: DashboardScheduleItem[] }> {

@@ -12,6 +12,7 @@ import {
 import { usePermission } from '../../hooks/usePermission';
 import { SETTINGS_PERMISSIONS } from './settingsNavigationConfig';
 import { DEFAULT_FLEET_TEMPLATE } from '../../pages/production/entries/deptFleetWhatsApp';
+import { DEFAULT_RM_RECEIPT_TEMPLATE } from '../../utils/receiptShare';
 import './whatsAppSettings.css';
 
 const { TextArea } = Input;
@@ -44,8 +45,8 @@ const DEFAULT_WHATSAPP_SETTINGS: WhatsAppSettingsData = {
     quotation: 'Dear {customer},\n\nHere is quotation {doc_no} for {amount}, valid until {due_date}.\n\nView, accept or decline: {link}',
     statement: 'Dear {customer},\n\nYour account balance with {company} is {balance} as of {date}.\n\nPlease reach out if anything looks incorrect.',
     receipt: 'Dear {customer},\n\nWe have received {amount} (receipt {doc_no}) on {date}. Thank you!\n\n{company}',
-    rmReceipt: '📦 *{company}*\n*RAW MATERIAL RECEIPT (GATE PASS)*\n━━━━━━━━━━━━━━━━━━━━━━━━━\n📋 *Receipt Code:* {receipt_code}\n🎫 *Gate Pass No:* {gate_pass_no}\n📅 *Receipt Date:* {date}\n🏪 *Warehouse:* {warehouse}\n🏢 *Division:* {division}\n🏬 *Section:* {section}\n━━━━━━━━━━━━━━━━━━━━━━━━━\n{items}\n━━━━━━━━━━━━━━━━━━━━━━━━━\n📊 *RECEIPT SUMMARY TOTALS:*\n• Total Gate Pass Qty: {total_gp_qty}\n• Total Received Qty: {total_rcv_qty}\n• Net Variance: {net_variance}\n━━━━━━━━━━━━━━━━━━━━━━━━━\n🌐 _Generated via PWI ERP System (2026-2027)_',
-    rmSummary: '📦 *{company}*\n*Raw Material Receiving — Summary*\n━━━━━━━━━━━━━━━━━━━━━━━━━\n🏢 *Division:* {division}\n🏪 *Warehouse:* {warehouse}\n📅 *Date Range:* {date}\n━━━━━━━━━━━━━━━━━━━━━━━━━\n• Gate Pass Qty: {total_gp_qty}\n• Received Qty: {total_rcv_qty}\n• Net Variance: {net_variance}\n━━━━━━━━━━━━━━━━━━━━━━━━━\n🌐 _Generated via PWI ERP System (2026-2027)_',
+    rmReceipt: DEFAULT_RM_RECEIPT_TEMPLATE,
+    rmSummary: '*{company}*\n*Raw Material Receiving — Summary*\n━━━━━━━━━━━━━━━━━━━━━━━━━\n*Date Range:* {date}\n*Division:* {division}\n*Warehouse:* {warehouse}\n━━━━━━━━━━━━━━━━━━━━━━━━━\n• Gate Pass Qty: {total_gp_qty}\n• Received Qty: {total_rcv_qty}\n• Net Variance: {net_variance}\n━━━━━━━━━━━━━━━━━━━━━━━━━\n_Generated via PWI ERP System_',
     dailyProductionFleet: DEFAULT_FLEET_TEMPLATE,
   },
 };
@@ -63,6 +64,8 @@ const TAG_VARIABLES = [
   '{link}',
   '{receipt_code}',
   '{gate_pass_no}',
+  '{source_no}',
+  '{heat_number}',
   '{warehouse}',
   '{division}',
   '{section}',
@@ -149,6 +152,12 @@ export const WhatsAppSettings: React.FC = () => {
     setData(initialData);
     setHasChanges(false);
     message.info('Changes discarded.');
+  };
+
+  const handleRestoreDefaults = () => {
+    if (!canEdit) return;
+    setData(DEFAULT_WHATSAPP_SETTINGS);
+    message.info('Default templates loaded. Click Save Changes to apply.');
   };
 
   return (
@@ -342,6 +351,15 @@ export const WhatsAppSettings: React.FC = () => {
 
       {/* ── Action Bar ── */}
       <div className="wa-action-bar">
+        <Button
+          icon={<UndoOutlined />}
+          size="large"
+          disabled={!canEdit || saving}
+          onClick={handleRestoreDefaults}
+          className="wa-btn-secondary"
+        >
+          Reset to Defaults
+        </Button>
         <Button
           icon={<UndoOutlined />}
           size="large"

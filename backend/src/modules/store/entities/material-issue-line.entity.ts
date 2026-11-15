@@ -37,6 +37,12 @@ export class MaterialIssueLine {
   @Column({ type: 'varchar', length: 50, nullable: true })
   rack!: string | null;
 
+  @Column({ name: 'requires_old_item_return', type: 'boolean', default: false })
+  requiresOldItemReturn!: boolean;
+
+  @Column({ name: 'old_item_returned_qty', type: 'decimal', precision: 15, scale: 4, default: 0 })
+  oldItemReturnedQty!: number;
+
   @Column({ type: 'text', nullable: true })
   remarks!: string | null;
 

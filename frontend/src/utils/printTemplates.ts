@@ -362,9 +362,7 @@ export function printInvoiceDocument(inv: any): void {
     <!-- Top Header -->
     <div style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #0f172a; padding-bottom: 12px; margin-bottom: 12px;">
       <div style="display: flex; align-items: center; gap: 12px;">
-        <div style="background: #181f2c; color: #ffffff; width: 48px; height: 48px; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 15px; letter-spacing: 0.5px;">
-          PWI
-        </div>
+        <img src="${getLogoUrl()}" alt="Pakistan Wire Industries (Pvt.) LTD" style="height: 54px; width: auto; max-width: 120px; object-fit: contain;" onerror="this.style.display='none'" />
         <div>
           <div style="font-size: 18px; font-weight: 800; color: #0f172a; line-height: 1.2;">Pakistan Wire Industries (Pvt.) LTD</div>
           <div style="font-size: 11px; color: #475569; margin-top: 2px;">State: ${custState}</div>
@@ -566,9 +564,7 @@ export function printPurchaseOrderDocument(po: any): void {
     <!-- Top Header -->
     <div style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #0f172a; padding-bottom: 12px; margin-bottom: 12px;">
       <div style="display: flex; align-items: center; gap: 12px;">
-        <div style="background: #181f2c; color: #ffffff; width: 48px; height: 48px; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 15px; letter-spacing: 0.5px;">
-          PWI
-        </div>
+        <img src="${getLogoUrl()}" alt="Pakistan Wire Industries (Pvt.) LTD" style="height: 54px; width: auto; max-width: 120px; object-fit: contain;" onerror="this.style.display='none'" />
         <div>
           <div style="font-size: 18px; font-weight: 800; color: #0f172a; line-height: 1.2;">Pakistan Wire Industries (Pvt.) LTD</div>
           <div style="font-size: 11px; color: #475569; margin-top: 2px;">State: ${supState}</div>
@@ -1714,9 +1710,7 @@ export function printGoodsReceiptDocument(gr: any): void {
     <!-- Top Header -->
     <div style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #0f172a; padding-bottom: 12px; margin-bottom: 12px;">
       <div style="display: flex; align-items: center; gap: 12px;">
-        <div style="background: #181f2c; color: #ffffff; width: 48px; height: 48px; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 15px; letter-spacing: 0.5px;">
-          PWI
-        </div>
+        <img src="${getLogoUrl()}" alt="Pakistan Wire Industries (Pvt.) LTD" style="height: 54px; width: auto; max-width: 120px; object-fit: contain;" onerror="this.style.display='none'" />
         <div>
           <div style="font-size: 18px; font-weight: 800; color: #0f172a; line-height: 1.2;">Pakistan Wire Industries (Pvt.) LTD</div>
           <div style="font-size: 11px; color: #475569; margin-top: 2px;">Inbound Quality & Warehouse Reception System</div>

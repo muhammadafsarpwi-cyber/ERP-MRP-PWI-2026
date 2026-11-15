@@ -1,8 +1,8 @@
 import { Injectable, NotFoundException, ConflictException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { PurchaseOrder, PurchaseOrderLine } from '../entities';
-import { CreatePurchaseOrderDto, UpdatePurchaseOrderDto, PurchaseOrderFilterDto } from '../dto';
+import { PurchaseOrder, PurchaseOrderLine, PurchaseOrderImportUpdate } from '../entities';
+import { CreatePurchaseOrderDto, UpdatePurchaseOrderDto, PurchaseOrderFilterDto, AddPoImportUpdateDto } from '../dto';
 import { Item, Uom } from '../../item/entities';
 
 @Injectable()
@@ -14,6 +14,8 @@ export class PurchaseOrderService {
     private readonly repo: Repository<PurchaseOrder>,
     @InjectRepository(PurchaseOrderLine)
     private readonly lineRepo: Repository<PurchaseOrderLine>,
+    @InjectRepository(PurchaseOrderImportUpdate)
+    private readonly importUpdateRepo: Repository<PurchaseOrderImportUpdate>,
   ) {}
 
   async create(dto: CreatePurchaseOrderDto, userId?: string): Promise<PurchaseOrder> {
@@ -24,14 +26,67 @@ export class PurchaseOrderService {
       throw new ConflictException(`PO code '${dto.poCode}' already exists`);
     }
 
-    const { lines, purchaseType, divisionId, ...restDto } = dto;
+    const { lines, purchaseType, divisionId, purchaseOrigin, ...restDto } = dto;
+    const origin = (purchaseOrigin || purchaseType || 'LOCAL').toUpperCase();
     const po = this.repo.create({
       ...restDto,
+      divisionId: divisionId || null,
+      purchaseOrigin: origin,
+      importStage: origin === 'IMPORT' ? (dto.importStage || 'ORDER_PLACED') : null,
       status: 'DRAFT',
       createdBy: userId || null,
       updatedBy: userId || null,
     });
     const saved = await this.repo.save(po);
+
+    if (origin === 'IMPORT') {
+      const initialLogs: Array<Partial<PurchaseOrderImportUpdate>> = [];
+      if (saved.productionReadyDate) {
+        initialLogs.push({
+          companyId: saved.companyId,
+          poId: saved.id,
+          milestoneType: 'PRODUCTION',
+          stage: saved.importStage || 'ORDER_PLACED',
+          previousDate: null,
+          newDate: saved.productionReadyDate,
+          locationPort: saved.portOfLoading || 'Supplier Factory',
+          remarks: 'Initial promised production completion date',
+          revisionNumber: 1,
+          updatedBy: userId || null,
+        });
+      }
+      if (saved.etdDate) {
+        initialLogs.push({
+          companyId: saved.companyId,
+          poId: saved.id,
+          milestoneType: 'ETD',
+          stage: saved.importStage || 'ORDER_PLACED',
+          previousDate: null,
+          newDate: saved.etdDate,
+          locationPort: saved.portOfLoading || 'Origin Port',
+          remarks: 'Initial scheduled ETD (Estimated Departure)',
+          revisionNumber: 1,
+          updatedBy: userId || null,
+        });
+      }
+      if (saved.etaDate) {
+        initialLogs.push({
+          companyId: saved.companyId,
+          poId: saved.id,
+          milestoneType: 'ETA',
+          stage: saved.importStage || 'ORDER_PLACED',
+          previousDate: null,
+          newDate: saved.etaDate,
+          locationPort: saved.portOfDischarge || 'Karachi Port',
+          remarks: 'Initial scheduled ETA (Karachi Port)',
+          revisionNumber: 1,
+          updatedBy: userId || null,
+        });
+      }
+      if (initialLogs.length > 0) {
+        await this.importUpdateRepo.save(initialLogs.map((l) => this.importUpdateRepo.create(l)));
+      }
+    }
 
     if (dto.lines && dto.lines.length > 0) {
       let subtotal = 0;
@@ -93,6 +148,7 @@ export class PurchaseOrderService {
 
     if (dto.supplierId !== undefined) po.supplierId = dto.supplierId;
     if (dto.warehouseId !== undefined) po.warehouseId = dto.warehouseId;
+    if (dto.divisionId !== undefined) po.divisionId = dto.divisionId || null;
     if (dto.orderDate !== undefined) po.orderDate = dto.orderDate;
     if (dto.expectedDeliveryDate !== undefined) po.expectedDeliveryDate = dto.expectedDeliveryDate;
     if (dto.deliveryAddress !== undefined) po.deliveryAddress = dto.deliveryAddress;
@@ -102,6 +158,20 @@ export class PurchaseOrderService {
     if (dto.discountPercent !== undefined) po.discountPercent = dto.discountPercent;
     if (dto.shippingCost !== undefined) po.shippingCost = dto.shippingCost;
     if (dto.notes !== undefined) po.notes = dto.notes;
+    if (dto.purchaseOrigin !== undefined) po.purchaseOrigin = dto.purchaseOrigin.toUpperCase();
+    if (dto.importCargoType !== undefined) po.importCargoType = dto.importCargoType || null;
+    if (dto.incoterm !== undefined) po.incoterm = dto.incoterm || null;
+    if (dto.portOfLoading !== undefined) po.portOfLoading = dto.portOfLoading || null;
+    if (dto.portOfDischarge !== undefined) po.portOfDischarge = dto.portOfDischarge || null;
+    if (dto.shippingLine !== undefined) po.shippingLine = dto.shippingLine || null;
+    if (dto.vesselName !== undefined) po.vesselName = dto.vesselName || null;
+    if (dto.blAwbNumber !== undefined) po.blAwbNumber = dto.blAwbNumber || null;
+    if (dto.containerNumber !== undefined) po.containerNumber = dto.containerNumber || null;
+    if (dto.lcTtNumber !== undefined) po.lcTtNumber = dto.lcTtNumber || null;
+    if (dto.productionReadyDate !== undefined) po.productionReadyDate = dto.productionReadyDate || null;
+    if (dto.etdDate !== undefined) po.etdDate = dto.etdDate || null;
+    if (dto.etaDate !== undefined) po.etaDate = dto.etaDate || null;
+    if (dto.importStage !== undefined) po.importStage = dto.importStage || null;
     po.updatedBy = userId || null;
 
     if (dto.lines !== undefined && Array.isArray(dto.lines) && dto.lines.length > 0) {
@@ -186,7 +256,7 @@ export class PurchaseOrderService {
   }
 
   async findAll(filter: PurchaseOrderFilterDto): Promise<{ data: PurchaseOrder[]; total: number }> {
-    const { page = 1, limit = 20, companyId, supplierId, status, search, sortField = 'createdAt', sortOrder = 'DESC' } = filter;
+    const { page = 1, limit = 20, companyId, supplierId, status, origin, search, sortField = 'createdAt', sortOrder = 'DESC' } = filter;
     const qb = this.repo.createQueryBuilder('po')
       .leftJoinAndSelect('po.supplier', 'supplier')
       .leftJoinAndSelect('po.warehouse', 'warehouse');
@@ -194,6 +264,7 @@ export class PurchaseOrderService {
     if (companyId) { qb.where('po.companyId = :companyId', { companyId }); hasWhere = true; }
     if (supplierId) { qb[hasWhere ? 'andWhere' : 'where']('po.supplierId = :supplierId', { supplierId }); hasWhere = true; }
     if (status) { qb[hasWhere ? 'andWhere' : 'where']('po.status = :status', { status }); hasWhere = true; }
+    if (origin && origin !== 'ALL') { qb[hasWhere ? 'andWhere' : 'where']('po.purchaseOrigin = :origin', { origin: origin.toUpperCase() }); hasWhere = true; }
     if (search) { qb[hasWhere ? 'andWhere' : 'where']('(po.poCode ILIKE :search)', { search: `%${search}%` }); hasWhere = true; }
     const validSortFields = ['createdAt', 'poCode', 'orderDate', 'status', 'totalAmount'];
     const field = validSortFields.includes(sortField) ? sortField : 'createdAt';
@@ -208,28 +279,37 @@ export class PurchaseOrderService {
     if (poIds.length > 0) {
       const agg = await this.lineRepo
         .createQueryBuilder('line')
+        .leftJoin('line.uom', 'uom')
         .select('line.poId', 'poId')
         .addSelect('COALESCE(SUM(line.quantity), 0)', 'orderedQty')
         .addSelect('COALESCE(SUM(line.receivedQuantity), 0)', 'receivedQty')
+        .addSelect('COUNT(line.id)', 'lineCount')
+        .addSelect('MAX(uom.code)', 'uomCode')
         .where('line.poId IN (:...poIds)', { poIds })
         .groupBy('line.poId')
         .getRawMany();
-      const map = new Map<string, { orderedQty: number; receivedQty: number }>();
+      const map = new Map<string, { orderedQty: number; receivedQty: number; lineCount: number; uomCode: string | null }>();
       for (const row of agg) {
         map.set(row.poId, {
           orderedQty: Number(row.orderedQty),
           receivedQty: Number(row.receivedQty),
+          lineCount: Number(row.lineCount || 0),
+          uomCode: row.uomCode || null,
         });
       }
       for (const po of data) {
-        const a = map.get(po.id) || { orderedQty: 0, receivedQty: 0 };
+        const a = map.get(po.id) || { orderedQty: 0, receivedQty: 0, lineCount: 0, uomCode: null };
         (po as any).orderedQty = a.orderedQty;
         (po as any).receivedQty = a.receivedQty;
+        (po as any).lineCount = a.lineCount;
+        (po as any).uomCode = a.uomCode;
       }
     } else {
       for (const po of data) {
         (po as any).orderedQty = 0;
         (po as any).receivedQty = 0;
+        (po as any).lineCount = 0;
+        (po as any).uomCode = null;
       }
     }
 
@@ -239,10 +319,79 @@ export class PurchaseOrderService {
   async findOne(id: string): Promise<PurchaseOrder> {
     const po = await this.repo.findOne({
       where: { id },
-      relations: ['supplier', 'quotation', 'requisition', 'warehouse', 'lines', 'lines.item', 'lines.uom', 'lines.warehouse'],
+      relations: ['supplier', 'quotation', 'requisition', 'warehouse', 'lines', 'lines.item', 'lines.uom', 'lines.warehouse', 'importUpdates'],
     });
     if (!po) throw new NotFoundException(`Purchase order with ID '${id}' not found`);
     return po;
+  }
+
+  async getImportUpdates(poId: string): Promise<PurchaseOrderImportUpdate[]> {
+    return this.importUpdateRepo.find({
+      where: { poId },
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  async addImportUpdate(
+    poId: string,
+    dto: AddPoImportUpdateDto,
+    user?: { id?: string; name?: string },
+  ): Promise<{ po: PurchaseOrder; update: PurchaseOrderImportUpdate }> {
+    return this.repo.manager.transaction(async (manager) => {
+      const poRepo = manager.getRepository(PurchaseOrder);
+      const updRepo = manager.getRepository(PurchaseOrderImportUpdate);
+
+      const po = await poRepo.findOne({ where: { id: poId } });
+      if (!po) throw new NotFoundException(`Purchase order with ID '${poId}' not found`);
+
+      let previousDate: string | null = null;
+      if (dto.milestoneType === 'PRODUCTION' || dto.milestoneType === 'READY_TO_SHIP') {
+        previousDate = po.productionReadyDate || null;
+        if (dto.newDate) po.productionReadyDate = dto.newDate;
+      } else if (dto.milestoneType === 'ETD') {
+        previousDate = po.etdDate || null;
+        if (dto.newDate) po.etdDate = dto.newDate;
+      } else if (dto.milestoneType === 'ETA') {
+        previousDate = po.etaDate || null;
+        if (dto.newDate) {
+          if (po.etaDate && dto.newDate !== po.etaDate) {
+            po.etaRevisionCount = (po.etaRevisionCount || 0) + 1;
+          }
+          po.etaDate = dto.newDate;
+          po.expectedDeliveryDate = dto.newDate;
+        }
+      }
+
+      if (dto.stage) po.importStage = dto.stage;
+      if (dto.vesselName !== undefined && dto.vesselName !== '') po.vesselName = dto.vesselName;
+      if (dto.blAwbNumber !== undefined && dto.blAwbNumber !== '') po.blAwbNumber = dto.blAwbNumber;
+      if (dto.containerNumber !== undefined && dto.containerNumber !== '') po.containerNumber = dto.containerNumber;
+      po.purchaseOrigin = 'IMPORT';
+      po.updatedBy = user?.id || null;
+      await poRepo.save(po);
+
+      const existingCount = await updRepo.count({
+        where: { poId, milestoneType: dto.milestoneType },
+      });
+
+      const update = updRepo.create({
+        companyId: po.companyId,
+        poId: po.id,
+        milestoneType: dto.milestoneType,
+        stage: dto.stage || po.importStage || null,
+        previousDate,
+        newDate: dto.newDate || null,
+        locationPort: dto.locationPort || null,
+        vesselName: dto.vesselName || po.vesselName || null,
+        blAwbNumber: dto.blAwbNumber || po.blAwbNumber || null,
+        remarks: dto.remarks || null,
+        revisionNumber: existingCount + 1,
+        updatedBy: user?.id || null,
+        updatedByName: user?.name || null,
+      });
+      const savedUpdate = await updRepo.save(update);
+      return { po, update: savedUpdate };
+    });
   }
 
   async submit(id: string, userId?: string): Promise<PurchaseOrder> {

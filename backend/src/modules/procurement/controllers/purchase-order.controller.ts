@@ -1,7 +1,7 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, Query, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query, Req, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { PurchaseOrderService } from '../services/purchase-order.service';
-import { CreatePurchaseOrderDto, UpdatePurchaseOrderDto } from '../dto';
+import { CreatePurchaseOrderDto, UpdatePurchaseOrderDto, AddPoImportUpdateDto } from '../dto';
 import { SupabaseJwtGuard } from '../../auth/guards/supabase-jwt.guard';
 import { PermissionGuard, RequirePermission } from '../../auth/guards/permission.guard';
 
@@ -28,10 +28,11 @@ export class PurchaseOrderController {
   async findAll(
     @Query('page') page?: number, @Query('limit') limit?: number, @Query('search') search?: string,
     @Query('companyId') companyId?: string, @Query('supplierId') supplierId?: string,
-    @Query('status') status?: string, @Query('sortField') sortField?: string, @Query('sortOrder') sortOrder?: string,
+    @Query('status') status?: string, @Query('origin') origin?: string,
+    @Query('sortField') sortField?: string, @Query('sortOrder') sortOrder?: string,
   ) {
     const result = await this.service.findAll({
-      page: Number(page) || 1, limit: Number(limit) || 20, search, companyId, supplierId, status, sortField, sortOrder,
+      page: Number(page) || 1, limit: Number(limit) || 20, search, companyId, supplierId, status, origin, sortField, sortOrder,
     });
     return { success: true, ...result };
   }
@@ -43,6 +44,27 @@ export class PurchaseOrderController {
   async getLatestItemRates() {
     const rates = await this.service.getLatestItemRates();
     return { success: true, data: rates };
+  }
+
+  @Get(':id/import-updates')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('procurement.order.view')
+  @ApiOperation({ summary: 'Get import milestone & date revision history for a PO' })
+  async getImportUpdates(@Param('id') id: string) {
+    const updates = await this.service.getImportUpdates(id);
+    return { success: true, data: updates };
+  }
+
+  @Post(':id/import-updates')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('procurement.order.create')
+  @ApiOperation({ summary: 'Add an import milestone update or date revision to a PO' })
+  async addImportUpdate(@Param('id') id: string, @Body() dto: AddPoImportUpdateDto, @Req() req: any) {
+    const result = await this.service.addImportUpdate(id, dto, {
+      id: req.user?.id,
+      name: req.user?.fullName || req.user?.email || 'User',
+    });
+    return { success: true, data: result, message: 'Import milestone updated' };
   }
 
   @Get(':id')

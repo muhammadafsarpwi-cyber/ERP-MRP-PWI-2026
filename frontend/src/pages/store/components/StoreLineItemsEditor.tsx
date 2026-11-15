@@ -24,6 +24,7 @@ export interface StoreLineItem {
   remarks?: string;
   poLineId?: string;
   unitPrice?: number;
+  oldItemReturnedQty?: number;
 }
 
 interface ItemOption {
@@ -50,7 +51,7 @@ interface UomOption {
 }
 
 export interface StoreLineItemsEditorProps {
-  mode: 'request' | 'issue' | 'return';
+  mode: 'request' | 'issue' | 'return' | 'receipt';
   value: StoreLineItem[];
   onChange: (lines: StoreLineItem[]) => void;
   disabled?: boolean;
@@ -64,7 +65,7 @@ export interface StoreLineItemsEditorProps {
 let lineIdCounter = 0;
 const nextKey = () => `sl-${++lineIdCounter}-${Date.now()}`;
 
-const emptyLine = (mode: 'request' | 'issue' | 'return'): StoreLineItem => {
+const emptyLine = (mode: 'request' | 'issue' | 'return' | 'receipt'): StoreLineItem => {
   const line: StoreLineItem = { key: nextKey() };
   if (mode === 'request') {
     line.requestedQuantity = 1;
@@ -99,7 +100,7 @@ const StoreLineItemsEditor: React.FC<StoreLineItemsEditorProps> = ({
   storeId,
   divisionId,
   divisionName,
-  excludeFinishedGoods = false,
+  excludeFinishedGoods = true,
 }) => {
   const { token } = theme.useToken();
   const [itemOptions, setItemOptions] = useState<ItemOption[]>([]);
@@ -129,8 +130,8 @@ const StoreLineItemsEditor: React.FC<StoreLineItemsEditorProps> = ({
         if (active) setUomOptions([]);
       }
 
-      // If no division AND no store is selected yet, do NOT load items
-      if (!divisionId && !storeId) {
+      // Only enforce store/division pre-selection when issuing stock
+      if (mode === 'issue' && !divisionId && !storeId) {
         if (active) {
           setItemOptions([]);
           setLoadingItems(false);
@@ -356,8 +357,8 @@ const StoreLineItemsEditor: React.FC<StoreLineItemsEditorProps> = ({
             loadingItems
               ? 'Loading division items...'
               : !divisionId && !storeId
-              ? 'Please select a Division or Store first'
-              : 'No items found in this division'
+                ? 'Please select a Division or Store first'
+                : 'No items found in this division'
           }
         />
         {record.itemId && record.itemName && (
@@ -531,12 +532,30 @@ const StoreLineItemsEditor: React.FC<StoreLineItemsEditorProps> = ({
     ),
   };
 
+  const oldReturnColumn = {
+    title: 'Old Returned (Scrap)',
+    key: 'oldItemReturnedQty',
+    width: 130,
+    render: (_: unknown, record: StoreLineItem) => (
+      <InputNumber
+        min={0}
+        step={1}
+        placeholder="0"
+        value={record.oldItemReturnedQty ?? 0}
+        disabled={disabled}
+        style={{ width: '100%' }}
+        onChange={(v) => updateLine(record.key, { oldItemReturnedQty: Number(v || 0) })}
+      />
+    ),
+  };
+
   const desktopColumns: ColumnsType<StoreLineItem> = [
     itemColumn,
     stockColumn,
     qtyColumn,
     remainingColumn,
     uomColumn,
+    ...(mode === 'issue' ? [oldReturnColumn] : []),
     remarksColumn,
     actionColumn,
   ];
@@ -561,13 +580,13 @@ const StoreLineItemsEditor: React.FC<StoreLineItemsEditorProps> = ({
           type="dashed"
           icon={<PlusOutlined />}
           onClick={addLine}
-          disabled={disabled || (!divisionId && !storeId)}
+          disabled={disabled || (mode === 'issue' && !divisionId && !storeId)}
         >
           Add Item Line
         </Button>
       </div>
 
-      {!divisionId && !storeId && (
+      {mode === 'issue' && !divisionId && !storeId && (
         <Alert
           type="warning"
           showIcon

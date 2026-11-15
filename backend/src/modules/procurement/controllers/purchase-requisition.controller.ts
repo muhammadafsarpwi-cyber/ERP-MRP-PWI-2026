@@ -27,11 +27,11 @@ export class PurchaseRequisitionController {
   @ApiOperation({ summary: 'List purchase requisitions' })
   async findAll(
     @Query('page') page?: number, @Query('limit') limit?: number, @Query('search') search?: string,
-    @Query('companyId') companyId?: string, @Query('status') status?: string,
+    @Query('companyId') companyId?: string, @Query('status') status?: string, @Query('origin') origin?: string,
     @Query('sortField') sortField?: string, @Query('sortOrder') sortOrder?: string,
   ) {
     const result = await this.service.findAll({
-      page: Number(page) || 1, limit: Number(limit) || 20, search, companyId, status, sortField, sortOrder,
+      page: Number(page) || 1, limit: Number(limit) || 20, search, companyId, status, origin, sortField, sortOrder,
     });
     return { success: true, ...result };
   }

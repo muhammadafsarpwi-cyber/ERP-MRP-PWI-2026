@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import './procurementResponsive.css';
+import QuotationComparisonModal from './QuotationComparisonModal';
 import {
   Table, Button, Space, Tag, Form, Input, Select, App, Card,
   Row, Col, DatePicker, Segmented, Badge, Modal, Empty, Spin,
@@ -25,6 +27,12 @@ interface Rfq {
   supplierId?: string;
   supplier?: { id: string; name: string };
   supplierName?: string;
+  rfqSuppliers?: Array<{
+    id: string;
+    supplierId: string;
+    status: 'PENDING' | 'QUOTED' | 'DECLINED' | string;
+    supplier?: { id: string; name: string };
+  }>;
   issueDate?: string;
   dueDate?: string;
   divisionId?: string;
@@ -41,12 +49,10 @@ interface DivisionOption { id: string; code?: string; name: string; }
 interface RequisitionOption { id: string; requisitionCode: string; title?: string; status: string; }
 
 const DEFAULT_DIVISIONS: DivisionOption[] = [
-  { id: 'd1000000-0000-0000-0000-000000000001', code: 'DIV-SPD', name: 'Spoke Division' },
-  { id: 'd1000000-0000-0000-0000-000000000002', code: 'DIV-CCD', name: 'Control Cable Division' },
-  { id: '50824516-9c24-4122-86e7-c8e6fa1c5869', code: 'DIV-001', name: 'Manufacturing Division' },
-  { id: 'b28f9d4f-53f3-4883-afb4-2af73c4dcca7', code: 'DIV-002', name: 'Sales & Marketing Division' },
-  { id: '3f222d46-6f96-44f6-9ead-27467c7e93a1', code: 'DIV-003', name: 'Supply Chain Division' },
-  { id: '83ecd746-1cc9-4849-bec4-d00bcc3ceeec', code: 'DIV-PWI', name: 'Main Division E-51' },
+  { id: 'd1000000-0000-0000-0000-000000000001', code: 'DIV-001-SPI', name: 'Spoke Division' },
+  { id: 'd1000000-0000-0000-0000-000000000002', code: 'DIV-002-CCD', name: 'Control Cable Division' },
+  { id: '0653339b-94d0-4cc5-b880-e07908b2015f', code: 'DIV-003-NB', name: 'NB Division' },
+  { id: '83ecd746-1cc9-4849-bec4-d00bcc3ceeec', code: 'DIV-004-MDE51', name: 'Main Division E-51' },
 ];
 
 const STATUS_OPTIONS = ['DRAFT', 'SENT', 'PARTIAL_RESPONSE', 'RESPONSE_RECEIVED', 'EVALUATED', 'CANCELLED'];
@@ -59,6 +65,9 @@ const statusColorMap: Record<string, string> = {
 const RfqManagement: React.FC = () => {
   const { message } = App.useApp();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [compareModalOpen, setCompareModalOpen] = useState(false);
+  const [compareRfqId, setCompareRfqId] = useState<string | null>(null);
   const [data, setData] = useState<Rfq[]>([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
@@ -77,12 +86,6 @@ const RfqManagement: React.FC = () => {
   const [warehouses, setWarehouses] = useState<Array<{ id: string; warehouseCode: string; name: string; warehouseType?: string }>>([]);
   const [lineItems, setLineItems] = useState<ERPLine[]>([]);
   const [companyId, setCompanyId] = useState('');
-
-  // Comparative Statement State
-  const [comparisonModalVisible, setComparisonModalVisible] = useState(false);
-  const [comparingRfq, setComparingRfq] = useState<Rfq | null>(null);
-  const [rfqQuotations, setRfqQuotations] = useState<any[]>([]);
-  const [comparisonLoading, setComparisonLoading] = useState(false);
 
   // Quick Quotation Entry State
   const [quoteModalVisible, setQuoteModalVisible] = useState(false);
@@ -178,6 +181,26 @@ const RfqManagement: React.FC = () => {
   useEffect(() => { fetchMasters(); fetchCounts(); }, [fetchMasters, fetchCounts]);
   useEffect(() => { fetchData(page); }, [page, fetchData]);
 
+  // Auto-open Create RFQ modal when navigated from Approved PR (?requisitionId=<id>)
+  useEffect(() => {
+    const reqId = searchParams.get('requisitionId');
+    if (!reqId) return;
+    setEditingItem(null);
+    form.resetFields();
+    form.setFieldsValue({
+      rfqCode: generateRfqCode(),
+      issueDate: dayjs(),
+      dueDate: dayjs().add(7, 'day'),
+      purchaseType: 'LOCAL',
+      requisitionId: reqId,
+    });
+    setModalVisible(true);
+    void handleRequisitionChange(reqId);
+    searchParams.delete('requisitionId');
+    setSearchParams(searchParams, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
   const generateRfqCode = useCallback(() => {
     const currentYear = new Date().getFullYear();
     const nextSeq = (total || data.length || 0) + 1;
@@ -269,8 +292,12 @@ const RfqManagement: React.FC = () => {
 
   const handleEdit = (record: Rfq) => {
     setEditingItem(record);
+    const existingSupplierIds = record.rfqSuppliers && record.rfqSuppliers.length > 0
+      ? record.rfqSuppliers.map((rs) => rs.supplierId)
+      : record.supplierId ? [record.supplierId] : [];
     form.setFieldsValue({
       ...record,
+      supplierIds: existingSupplierIds,
       issueDate: record.issueDate ? dayjs(record.issueDate) : undefined,
       dueDate: record.dueDate ? dayjs(record.dueDate) : undefined,
       purchaseType: record.purchaseType || 'LOCAL',
@@ -286,8 +313,15 @@ const RfqManagement: React.FC = () => {
         return;
       }
       setSubmitting(true);
+      const selectedSupplierIds: string[] = Array.isArray(values.supplierIds)
+        ? values.supplierIds
+        : values.supplierId
+          ? [values.supplierId]
+          : [];
       const payload = {
         ...values,
+        supplierIds: selectedSupplierIds,
+        supplierId: selectedSupplierIds[0] || values.supplierId,
         companyId: companyId || values.companyId,
         issueDate: values.issueDate ? dayjs(values.issueDate).format('YYYY-MM-DD') : undefined,
         dueDate: values.dueDate ? dayjs(values.dueDate).format('YYYY-MM-DD') : undefined,
@@ -332,46 +366,14 @@ const RfqManagement: React.FC = () => {
     }
   };
 
-  // Comparative Statement Modal Handler
-  const handleOpenComparison = async (rfq: Rfq) => {
-    setComparingRfq(rfq);
-    setComparisonModalVisible(true);
-    setComparisonLoading(true);
-    try {
-      // 1. Fetch full RFQ details
-      const rfqRes = await apiService.get<any>(`/procurement/rfqs/${rfq.id}`);
-      const detailedRfq = rfqRes?.data || rfqRes;
-      if (detailedRfq) setComparingRfq(detailedRfq);
-
-      // 2. Fetch all vendor quotations received against this RFQ
-      const qRes = await apiService.get<any>('/procurement/quotations', { rfqId: rfq.id, limit: 100 });
-      const qList = Array.isArray(qRes) ? qRes : qRes?.data || [];
-      setRfqQuotations(qList);
-    } catch {
-      message.error('Failed to load comparative statement data');
-    } finally {
-      setComparisonLoading(false);
-    }
+  // Comparative Statement Modal Handler (enterprise item-by-item matrix)
+  const handleOpenComparison = (rfq: Rfq) => {
+    setCompareRfqId(rfq.id);
+    setCompareModalOpen(true);
   };
 
-  // Select winning quotation from comparison
-  const handleSelectWinningQuotation = async (quotationId: string) => {
-    try {
-      await apiService.patch(`/procurement/quotations/${quotationId}/select`);
-      message.success('Quotation selected as winning bid!');
-      if (comparingRfq) {
-        handleOpenComparison(comparingRfq);
-      }
-      fetchData(page);
-      fetchCounts();
-    } catch (error: any) {
-      const msg = error?.response?.data?.message;
-      message.error(Array.isArray(msg) ? msg[0] : 'Failed to select quotation');
-    }
-  };
-
-  // Quick Quotation Entry modal for an RFQ
-  const handleOpenAddQuotation = async (rfq: Rfq) => {
+  // Quick Quotation Entry modal for an RFQ (optionally pre-selecting an invited supplier)
+  const handleOpenAddQuotation = async (rfq: Rfq, preferredSupplierId?: string) => {
     setTargetRfqForQuote(rfq);
     quoteForm.resetFields();
     try {
@@ -383,7 +385,7 @@ const RfqManagement: React.FC = () => {
       quoteForm.setFieldsValue({
         quotationCode: code,
         rfqId: fullRfq.id,
-        supplierId: fullRfq.supplierId,
+        supplierId: preferredSupplierId || fullRfq.supplierId,
         purchaseType: fullRfq.purchaseType || 'LOCAL',
         quotationDate: dayjs(),
         validUntil: dayjs().add(30, 'day'),
@@ -468,13 +470,6 @@ const RfqManagement: React.FC = () => {
     }
   };
 
-  // Find lowest total quotation in comparison
-  const minQuotationAmount = useMemo(() => {
-    const valid = rfqQuotations.filter((q) => Number(q.totalAmount) > 0);
-    if (valid.length === 0) return null;
-    return Math.min(...valid.map((q) => Number(q.totalAmount)));
-  }, [rfqQuotations]);
-
   const columns: ColumnsType<Rfq> = [
     {
       title: 'RFQ Code',
@@ -491,10 +486,39 @@ const RfqManagement: React.FC = () => {
       render: (t) => <span style={{ fontWeight: 600 }}>{t || '—'}</span>,
     },
     {
-      title: 'Supplier',
+      title: 'Invited Suppliers',
       key: 'supplier',
-      width: 220,
+      width: 280,
       render: (_, record: Rfq) => {
+        const invited = record.rfqSuppliers || [];
+        if (invited.length > 0) {
+          return (
+            <Space direction="vertical" size={4} style={{ width: '100%' }}>
+              {invited.map((rs) => {
+                const sName = rs.supplier?.name || suppliers.find(s => s.id === rs.supplierId)?.name || 'Supplier';
+                const tagColor = rs.status === 'QUOTED' ? 'success' : rs.status === 'DECLINED' ? 'error' : 'processing';
+                return (
+                  <div key={rs.id || rs.supplierId} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, flexWrap: 'wrap' }}>
+                    <span style={{ fontWeight: 600, fontSize: 12 }}>{sName}</span>
+                    <Space size={4}>
+                      <Tag color={tagColor} style={{ margin: 0, fontSize: 10 }}>{rs.status}</Tag>
+                      {record.status !== 'CANCELLED' && record.status !== 'DRAFT' && rs.status !== 'QUOTED' && (
+                        <Button
+                          size="small"
+                          type="link"
+                          style={{ padding: 0, height: 'auto', fontSize: 11, fontWeight: 600 }}
+                          onClick={() => handleOpenAddQuotation(record, rs.supplierId)}
+                        >
+                          + Quote
+                        </Button>
+                      )}
+                    </Space>
+                  </div>
+                );
+              })}
+            </Space>
+          );
+        }
         const name = record.supplier?.name || record.supplierName || suppliers.find(s => s.id === record.supplierId)?.name || '—';
         return <span style={{ fontWeight: 600 }}>{name}</span>;
       },
@@ -644,21 +668,22 @@ const RfqManagement: React.FC = () => {
         </Button>
       </div>
 
-      <Row gutter={16} style={{ marginBottom: 16 }}>
-        <Col span={8}>
+      <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
+        <Col xs={24} sm={12} md={8}>
           <Input placeholder="Search RFQs..." prefix={<SearchOutlined />} value={search} onChange={(e) => setSearch(e.target.value)} onPressEnter={() => fetchData(1)} allowClear />
         </Col>
-        <Col span={6}>
+        <Col xs={24} sm={12} md={6}>
           <Select placeholder="Filter by status" allowClear style={{ width: '100%' }} value={filterStatus} onChange={setFilterStatus}>
             {STATUS_OPTIONS.map(s => <Select.Option key={s} value={s}>{s}</Select.Option>)}
           </Select>
         </Col>
-        <Col span={4}>
-          <Button type="primary" onClick={() => fetchData(1)}>Search</Button>
+        <Col xs={24} sm={24} md={4}>
+          <Button type="primary" onClick={() => fetchData(1)} block>Search</Button>
         </Col>
       </Row>
 
       <Table columns={columns} dataSource={data} rowKey="id" loading={loading}
+        scroll={{ x: 'max-content' }}
         pagination={{ current: page, total, pageSize, onChange: setPage, showSizeChanger: false }} />
 
       {/* 1. Create/Edit RFQ Modal */}
@@ -712,23 +737,35 @@ const RfqManagement: React.FC = () => {
               </Col>
             </Row>
 
-            <Row gutter={16}>
-              <Col span={6}>
+            <Row gutter={[16, 12]}>
+              <Col xs={24} sm={12} md={5}>
                 <Form.Item name="rfqCode" label={<span style={{ fontWeight: 600 }}>RFQ Code <Tag color="blue">Auto RFQ</Tag></span>} rules={[{ required: true }]}>
                   <Input style={{ fontWeight: 700, fontFamily: 'monospace' }} />
                 </Form.Item>
               </Col>
-              <Col span={8}>
+              <Col xs={24} sm={12} md={7}>
                 <Form.Item name="title" label={<span style={{ fontWeight: 600 }}>Title / Subject</span>}>
                   <Input placeholder="e.g. Inquiries for Nipple & Spoke Galvanized Wire" />
                 </Form.Item>
               </Col>
-              <Col span={6}>
-                <Form.Item name="supplierId" label={<span style={{ fontWeight: 600 }}>Supplier</span>} rules={[{ required: true }]}>
-                  <Select showSearch optionFilterProp="label" placeholder="Select supplier..." options={suppliers.map((s) => ({ value: s.id, label: s.name }))} />
+              <Col xs={24} sm={16} md={8}>
+                <Form.Item
+                  name="supplierIds"
+                  label={<span style={{ fontWeight: 600 }}>Invited Suppliers (Multi-Select)</span>}
+                  rules={[{ required: true, type: 'array', min: 1, message: 'Select at least one supplier' }]}
+                >
+                  <Select
+                    mode="multiple"
+                    showSearch
+                    allowClear
+                    maxTagCount="responsive"
+                    optionFilterProp="label"
+                    placeholder="Select 1 or more suppliers (e.g. 4+ vendors)..."
+                    options={suppliers.map((s) => ({ value: s.id, label: s.name }))}
+                  />
                 </Form.Item>
               </Col>
-              <Col span={4}>
+              <Col xs={24} sm={8} md={4}>
                 <Form.Item name="purchaseType" label={<span style={{ fontWeight: 600 }}><GlobalOutlined style={{ marginRight: 4 }} />Origin</span>} initialValue="LOCAL">
                   <Segmented block options={[{ label: 'Local', value: 'LOCAL' }, { label: 'Import', value: 'IMPORT' }]} />
                 </Form.Item>
@@ -780,195 +817,16 @@ const RfqManagement: React.FC = () => {
         </Form>
       </DraggableResizableModal>
 
-      {/* 2. Comparative Statement Modal */}
-      <DraggableResizableModal
-        title={`Comparative Statement — ${comparingRfq?.rfqCode || ''}`}
-        subtitle="📊 Side-by-side comparison of supplier quotes, rates, delivery terms & winner selection"
-        open={comparisonModalVisible}
-        onCancel={() => setComparisonModalVisible(false)}
-        width={1160}
-        height={760}
-        footer={[
-          <Button key="close" onClick={() => setComparisonModalVisible(false)}>Close</Button>,
-          <Button
-            key="add-quote"
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={() => {
-              if (comparingRfq) handleOpenAddQuotation(comparingRfq);
-            }}
-            style={{ fontWeight: 600 }}
-          >
-            + Add Another Supplier Quote
-          </Button>,
-        ]}
-      >
-        {comparisonLoading ? (
-          <div style={{ textAlign: 'center', padding: 50 }}>
-            <Spin size="large" />
-          </div>
-        ) : (
-          <div>
-            {/* RFQ Summary Card */}
-            <Card size="small" style={{ marginBottom: 16, background: 'rgba(255, 255, 255, 0.02)' }}>
-              <Descriptions size="small" column={{ xs: 1, sm: 2, md: 4 }}>
-                <Descriptions.Item label="RFQ Code"><Tag color="blue" style={{ fontFamily: 'monospace', fontWeight: 700 }}>{comparingRfq?.rfqCode}</Tag></Descriptions.Item>
-                <Descriptions.Item label="Title">{comparingRfq?.title || '—'}</Descriptions.Item>
-                <Descriptions.Item label="Due Date">{comparingRfq?.dueDate ? dayjs(comparingRfq.dueDate).format('DD/MM/YYYY') : '—'}</Descriptions.Item>
-                <Descriptions.Item label="Quotations Received">
-                  <Tag color={rfqQuotations.length > 0 ? 'green' : 'orange'} style={{ fontWeight: 700 }}>
-                    {rfqQuotations.length} Quote(s) Received
-                  </Tag>
-                </Descriptions.Item>
-              </Descriptions>
-
-              {/* Items in this RFQ */}
-              {comparingRfq?.lines && comparingRfq.lines.length > 0 && (
-                <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-                  <span style={{ fontWeight: 600, fontSize: 12, color: '#94a3b8' }}>Requisitioned Line Items: </span>
-                  {comparingRfq.lines.map((l: any, idx: number) => (
-                    <Tag key={idx} color="cyan" style={{ margin: '2px 4px' }}>
-                      {l.item?.name || l.notes || l.itemCode} — <strong>{formatDecimal(l.quantity)} {l.uom?.code || 'Units'}</strong>
-                    </Tag>
-                  ))}
-                </div>
-              )}
-            </Card>
-
-            {/* Quotations Comparison Cards / List */}
-            {rfqQuotations.length === 0 ? (
-              <Empty
-                description="No supplier quotations recorded yet for this RFQ."
-                image={Empty.PRESENTED_IMAGE_SIMPLE}
-              >
-                <Button
-                  type="primary"
-                  icon={<PlusOutlined />}
-                  onClick={() => {
-                    if (comparingRfq) handleOpenAddQuotation(comparingRfq);
-                  }}
-                  style={{ fontWeight: 600 }}
-                >
-                  Enter First Supplier Quotation
-                </Button>
-              </Empty>
-            ) : (
-              <div>
-                <Row gutter={[16, 16]}>
-                  {rfqQuotations.map((quote: any) => {
-                    const isLowest = minQuotationAmount !== null && Number(quote.totalAmount) === minQuotationAmount;
-                    const isSelected = quote.status === 'SELECTED';
-                    const supName = quote.supplier?.name || quote.supplierName || 'Vendor';
-
-                    return (
-                      <Col xs={24} md={12} lg={8} key={quote.id}>
-                        <Card
-                          size="small"
-                          style={{
-                            border: isSelected
-                              ? '2px solid #10b981'
-                              : isLowest
-                              ? '2px solid #38bdf8'
-                              : '1px solid rgba(255, 255, 255, 0.1)',
-                            borderRadius: 8,
-                            position: 'relative',
-                            background: isSelected ? 'rgba(16, 185, 129, 0.06)' : undefined,
-                          }}
-                        >
-                          {isSelected && (
-                            <div style={{ position: 'absolute', top: -10, right: 12 }}>
-                              <Tag color="success" style={{ fontWeight: 800, padding: '2px 8px' }}>
-                                <CheckCircleOutlined /> WINNING BID (SELECTED)
-                              </Tag>
-                            </div>
-                          )}
-                          {!isSelected && isLowest && (
-                            <div style={{ position: 'absolute', top: -10, right: 12 }}>
-                              <Tag color="processing" style={{ fontWeight: 800, padding: '2px 8px' }}>
-                                <TrophyOutlined /> BEST / LOWEST PRICE
-                              </Tag>
-                            </div>
-                          )}
-
-                          <div style={{ fontWeight: 700, fontSize: 16, color: '#f1f5f9', marginBottom: 4 }}>
-                            {supName}
-                          </div>
-                          <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 12 }}>
-                            Quote Ref: <span style={{ fontFamily: 'monospace', fontWeight: 600, color: '#38bdf8' }}>{quote.quotationCode}</span>
-                            <span style={{ margin: '0 6px' }}>•</span>
-                            Valid: {quote.validUntil ? dayjs(quote.validUntil).format('DD/MM/YYYY') : '—'}
-                          </div>
-
-                          <div style={{ background: 'rgba(0,0,0,0.2)', padding: '10px 12px', borderRadius: 6, marginBottom: 12 }}>
-                            <div style={{ fontSize: 11, color: '#94a3b8', textTransform: 'uppercase' }}>Total Quoted Bid</div>
-                            <div style={{ fontSize: 22, fontWeight: 800, color: isLowest ? '#10b981' : '#f8fafc' }}>
-                              PKR {formatDecimal(quote.totalAmount || 0)}
-                            </div>
-                            <div style={{ fontSize: 12, marginTop: 4 }}>
-                              Status: <Tag color={statusColorMap[quote.status] || 'default'}>{quote.status}</Tag>
-                            </div>
-                          </div>
-
-                          {/* Line items quote rates preview */}
-                          {quote.lines && quote.lines.length > 0 && (
-                            <div style={{ fontSize: 12, marginBottom: 14 }}>
-                              <div style={{ fontWeight: 600, color: '#cbd5e1', marginBottom: 6 }}>Quoted Unit Rates:</div>
-                              {quote.lines.slice(0, 3).map((l: any, idx: number) => (
-                                <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', borderBottom: '1px dashed rgba(255,255,255,0.05)' }}>
-                                  <span style={{ color: '#94a3b8' }}>{l.item?.name || `Item ${idx + 1}`}</span>
-                                  <span style={{ fontWeight: 600, color: '#e2e8f0' }}>PKR {formatDecimal(l.unitPrice || 0)} / {l.uom?.code || 'Unit'}</span>
-                                </div>
-                              ))}
-                              {quote.lines.length > 3 && (
-                                <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>
-                                  +{quote.lines.length - 3} more item(s)
-                                </div>
-                              )}
-                            </div>
-                          )}
-
-                          <Space direction="vertical" style={{ width: '100%' }}>
-                            {!isSelected && (
-                              <Button
-                                block
-                                type="primary"
-                                icon={<CheckCircleOutlined />}
-                                onClick={() => handleSelectWinningQuotation(quote.id)}
-                                style={{
-                                  background: isLowest ? '#10b981' : undefined,
-                                  borderColor: isLowest ? '#10b981' : undefined,
-                                  fontWeight: 600,
-                                }}
-                              >
-                                Select Winning Quotation
-                              </Button>
-                            )}
-
-                            {isSelected && (
-                              <Button
-                                block
-                                type="primary"
-                                icon={<ShoppingCartOutlined />}
-                                onClick={() => {
-                                  setComparisonModalVisible(false);
-                                  navigate(`/procurement/orders?quotationId=${quote.id}`);
-                                }}
-                                style={{ background: '#10b981', borderColor: '#10b981', fontWeight: 700 }}
-                              >
-                                Generate Purchase Order (PO)
-                              </Button>
-                            )}
-                          </Space>
-                        </Card>
-                      </Col>
-                    );
-                  })}
-                </Row>
-              </div>
-            )}
-          </div>
-        )}
-      </DraggableResizableModal>
+      {/* 2. Enterprise Side-by-Side Quotation Comparison Matrix */}
+      <QuotationComparisonModal
+        rfqId={compareRfqId}
+        open={compareModalOpen}
+        onClose={() => setCompareModalOpen(false)}
+        onAwardSuccess={() => {
+          fetchData(page);
+          fetchCounts();
+        }}
+      />
 
       {/* 3. Quick Enter Vendor Quotation Modal */}
       <DraggableResizableModal

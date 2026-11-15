@@ -4,6 +4,7 @@ import { Company } from '../../organization/entities/company.entity';
 import { Supplier } from './supplier.entity';
 import { PurchaseRequisition } from './purchase-requisition.entity';
 import { RfqLine } from './rfq-line.entity';
+import { RfqSupplier } from './rfq-supplier.entity';
 
 @Entity('request_for_quotations')
 export class RequestForQuotation extends BaseEntity {
@@ -23,12 +24,12 @@ export class RequestForQuotation extends BaseEntity {
   @Column({ type: 'text', nullable: true })
   description: string | null;
 
-  @Column({ name: 'supplier_id', type: 'uuid' })
-  supplierId: string;
+  @Column({ name: 'supplier_id', type: 'uuid', nullable: true })
+  supplierId: string | null;
 
-  @ManyToOne(() => Supplier)
+  @ManyToOne(() => Supplier, { nullable: true })
   @JoinColumn({ name: 'supplier_id' })
-  supplier: Supplier;
+  supplier: Supplier | null;
 
   @Column({ name: 'requisition_id', type: 'uuid', nullable: true })
   requisitionId: string | null;
@@ -57,4 +58,7 @@ export class RequestForQuotation extends BaseEntity {
 
   @OneToMany(() => RfqLine, (line) => line.rfq)
   lines: RfqLine[];
+
+  @OneToMany(() => RfqSupplier, (rs) => rs.rfq)
+  rfqSuppliers: RfqSupplier[];
 }

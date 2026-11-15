@@ -21,11 +21,10 @@ import './gradientLoadingBar.css';
 import GradientLoadingBar from './GradientLoadingBar';
 import { useLoadingStore } from '../../store/loadingStore';
 import { useThemeStore } from '../../theme/themeStore';
+import { getOsPrefersDark, resolveThemeMode } from '../../theme/palettes';
 import { usePermission } from '../../hooks/usePermission';
 import { useHeaderActions } from './headerActionsStore';
 import Breadcrumbs from '../shared/Breadcrumbs';
-import ClassicalMusicControl from '../shared/ClassicalMusicControl';
-import InstallAppHeaderButton from '../pwa/InstallAppHeaderButton';
 import { useNavBadgeStore } from './navBadgeStore';
 import { syncMaintenanceQueueBadges } from './maintenanceQueueBadges';
 import apiService from '../../services/api';
@@ -483,7 +482,23 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
   }, [isMobile, effectivelyCollapsed]);
 
   const themeMode = useThemeStore((state) => state.draft.mode);
-  const isLight = themeMode === 'light';
+  const [osPrefersDark, setOsPrefersDark] = useState<boolean>(() => getOsPrefersDark());
+
+  React.useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    setOsPrefersDark(mq.matches);
+    const onChange = (e: MediaQueryListEvent) => setOsPrefersDark(e.matches);
+    if (typeof mq.addEventListener === 'function') {
+      mq.addEventListener('change', onChange);
+      return () => mq.removeEventListener('change', onChange);
+    }
+    mq.addListener(onChange);
+    return () => mq.removeListener(onChange);
+  }, []);
+
+  const resolvedThemeMode = resolveThemeMode(themeMode, osPrefersDark);
+  const isLight = resolvedThemeMode === 'light';
 
   return (
     <Layout style={{ minHeight: '100vh' }}>
@@ -761,7 +776,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
           }
         >
           <Menu
-            theme={themeMode}
+            theme={resolvedThemeMode}
             mode="inline"
             selectedKeys={[activeKeys.selectedKey]}
             openKeys={openKeys}
@@ -904,8 +919,6 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
               <NotificationBell />
               <EmailCommunicationIcon />
               <WhatsAppCommunicationIcon />
-              {!isMobile && <InstallAppHeaderButton />}
-              <ClassicalMusicControl />
               <ThemeSettingsButton />
               <ProfileMenu />
             </div>

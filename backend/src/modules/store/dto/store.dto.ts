@@ -290,6 +290,15 @@ export class CreateMaterialIssueLineDto {
   serialNumber?: string;
 
   @IsOptional()
+  @IsBoolean()
+  requiresOldItemReturn?: boolean;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  oldItemReturnedQty?: number;
+
+  @IsOptional()
   @IsString()
   bin?: string;
 
@@ -374,6 +383,15 @@ export class CreateMaterialReturnLineDto {
   serialNumber?: string;
 
   @IsOptional()
+  @IsBoolean()
+  requiresOldItemReturn?: boolean;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  oldItemReturnedQty?: number;
+
+  @IsOptional()
   @IsString()
   conditionCode?: string;
 
@@ -419,6 +437,11 @@ export class CreateStoreItemDto {
   @IsOptional()
   @IsNumber()
   @Min(0)
+  reorderLevel?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
   maximumStock?: number;
 
   @IsOptional()
@@ -460,6 +483,11 @@ export class UpdateStoreItemDto {
   @IsNumber()
   @Min(0)
   reorderPoint?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  reorderLevel?: number;
 
   @IsOptional()
   @IsNumber()
@@ -613,4 +641,206 @@ export class CreateMaterialReturnDto {
   @ValidateNested({ each: true })
   @Type(() => CreateMaterialReturnLineDto)
   lines!: CreateMaterialReturnLineDto[];
+}
+
+export class CreateScrapDisposalDto {
+  @IsOptional()
+  @IsUUID()
+  divisionId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  storeId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  warehouseId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  itemId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  uomId?: string;
+
+  @IsString()
+  @MaxLength(50)
+  disposalCode!: string;
+
+  @IsDateString()
+  disposalDate!: string;
+
+  @IsString()
+  @MaxLength(200)
+  buyerName!: string;
+
+  @IsNumber()
+  @Min(0.0001)
+  quantity!: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  auctionRate?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  totalValue?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  gatePassRef?: string;
+
+  @IsOptional()
+  @IsString()
+  remarks?: string;
+}
+
+export class CreateGatePassLineDto {
+  @IsOptional()
+  @IsUUID()
+  itemId?: string;
+
+  @IsString()
+  @MaxLength(255)
+  itemDescription!: string;
+
+  @IsOptional()
+  @IsUUID()
+  uomId?: string;
+
+  @IsNumber()
+  @Min(0.0001)
+  quantity!: number;
+
+  @IsOptional()
+  @IsString()
+  remarks?: string;
+}
+
+export class CreateGatePassDto {
+  @IsOptional()
+  @IsUUID()
+  divisionId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  storeId?: string;
+
+  @IsString()
+  @MaxLength(50)
+  gatePassNumber!: string;
+
+  @IsIn(['RGP', 'NRGP'])
+  passType!: string;
+
+  @IsString()
+  @MaxLength(200)
+  partyName!: string;
+
+  @IsOptional()
+  @IsString()
+  partyAddress?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  vehicleNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  driverName?: string;
+
+  @IsDateString()
+  issueDate!: string;
+
+  @IsOptional()
+  @IsDateString()
+  expectedReturnDate?: string;
+
+  @IsOptional()
+  @IsString()
+  purpose?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(150)
+  authorizedBy?: string;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CreateGatePassLineDto)
+  lines!: CreateGatePassLineDto[];
+}
+
+export class ReceiveGatePassReturnLineDto {
+  @IsUUID()
+  lineId!: string;
+
+  @IsNumber()
+  @Min(0.0001)
+  returnedQty!: number;
+}
+
+export class ReceiveGatePassReturnDto {
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ReceiveGatePassReturnLineDto)
+  lines!: ReceiveGatePassReturnLineDto[];
+
+  @IsOptional()
+  @IsString()
+  remarks?: string;
+}
+
+export class CreateTransferNoteLineDto {
+  @IsUUID()
+  itemId!: string;
+
+  @IsUUID()
+  uomId!: string;
+
+  @IsNumber()
+  @Min(0.0001)
+  quantity!: number;
+
+  @IsOptional()
+  @IsString()
+  remarks?: string;
+}
+
+export class CreateTransferNoteDto {
+  @IsString()
+  @MaxLength(50)
+  mtnNumber!: string;
+
+  @IsUUID()
+  fromStoreId!: string;
+
+  @IsUUID()
+  toStoreId!: string;
+
+  @IsOptional()
+  @IsUUID()
+  fromDivisionId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  toDivisionId?: string;
+
+  @IsDateString()
+  transferDate!: string;
+
+  @IsOptional()
+  @IsString()
+  purpose?: string;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CreateTransferNoteLineDto)
+  lines!: CreateTransferNoteLineDto[];
 }

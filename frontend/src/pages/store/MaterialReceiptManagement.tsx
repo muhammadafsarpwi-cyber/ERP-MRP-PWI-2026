@@ -2,13 +2,14 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   Card, Table, Button, Space, Modal, Form, Input, Select, Tag, App, DatePicker, Row, Col, Drawer, Descriptions, Spin, Popconfirm,
 } from 'antd';
-import { PlusOutlined, ArrowDownOutlined, SearchOutlined, CheckOutlined, EyeOutlined, DeleteOutlined } from '@ant-design/icons';
+import { PlusOutlined, ArrowDownOutlined, SearchOutlined, CheckOutlined, EyeOutlined, DeleteOutlined, PrinterOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import apiService from '../../services/api';
 import { usePermission } from '../../hooks/usePermission';
 import PageHeader from '../../components/shared/PageHeader';
 import StoreLineItemsEditor, { StoreLineItem } from './components/StoreLineItemsEditor';
+import StoreVoucherPrintModal, { StoreVoucherData } from './components/StoreVoucherPrintModal';
 
 interface GoodsReceipt {
   id: string;
@@ -33,6 +34,36 @@ const MaterialReceiptManagement: React.FC = () => {
   const canCreate = can('store.receive.create');
   const canPost = can('store.receive.post');
   const canInspect = can('store.receive.create');
+  const canDelete = can('store.receive.delete');
+  const [printVoucher, setPrintVoucher] = useState<StoreVoucherData | null>(null);
+
+  const openPrintModal = async (record: GoodsReceipt) => {
+    try {
+      const res = await apiService.get<any>(`/store/receipts/${record.id}`);
+      const d = res?.data || res || record;
+      const lines = Array.isArray(d.lines) ? d.lines : (Array.isArray(d.items) ? d.items : []);
+      setPrintVoucher({
+        type: 'GRN',
+        documentNumber: record.grnNumber || record.receiptCode,
+        date: record.receiptDate ? String(record.receiptDate).slice(0, 10) : undefined,
+        status: record.status,
+        partyName: record.supplierName || d.supplierName,
+        purpose: record.poCode ? `Against PO: ${record.poCode}` : undefined,
+        remarks: d.notes || undefined,
+        lines: lines.map((l: any, idx: number) => ({
+          key: l.id || idx,
+          lineNumber: idx + 1,
+          itemCode: l.itemCode || l.item?.code,
+          itemName: l.itemName || l.item?.name || l.description || 'Item',
+          uomCode: l.uomCode || l.uom?.code,
+          quantity: Number(l.receivedQty ?? l.acceptedQty ?? l.quantity ?? 0),
+          remarks: l.remarks || undefined,
+        })),
+      });
+    } catch {
+      message.error('Failed to load receipt details for printing');
+    }
+  };
 
   const [data, setData] = useState<GoodsReceipt[]>([]);
   const [loading, setLoading] = useState(false);
@@ -230,15 +261,16 @@ const MaterialReceiptManagement: React.FC = () => {
       ),
     },
     {
-      title: 'Actions', key: 'actions', width: 320, fixed: 'right',
+      title: 'Actions', key: 'actions', width: 320,
       render: (_, record) => (
         <Space wrap size={6}>
           <Button size="small" className="erp-action-btn act-view" icon={<EyeOutlined />} aria-label="View" onClick={() => openDetail(record)} />
+          <Button size="small" icon={<PrinterOutlined />} onClick={() => openPrintModal(record)}>Print Slip</Button>
           {record.status === 'RECEIVED' && canInspect && <Button size="small" type="primary" onClick={() => handleAction(record.id, 'inspect')}>Inspect</Button>}
           {record.status === 'INSPECTION' && canInspect && <Button size="small" type="primary" icon={<CheckOutlined />} onClick={() => handleAction(record.id, 'accept')}>Accept</Button>}
           {record.status === 'INSPECTION' && canInspect && <Button size="small" danger onClick={() => handleAction(record.id, 'reject')}>Reject</Button>}
           {record.status === 'ACCEPTED' && canPost && <Button size="small" type="primary" onClick={() => handleAction(record.id, 'post')}>Post to Stock</Button>}
-          {record.status !== 'POSTED' && (
+          {record.status !== 'POSTED' && canDelete && (
             <Popconfirm
               title="Delete this material receipt?"
               description="Are you sure you want to delete this receipt record?"
@@ -262,22 +294,22 @@ const MaterialReceiptManagement: React.FC = () => {
         subtitle="GRN receiving into store stock (uses procurement goods receipt engine)"
         extra={canCreate ? <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>New Receipt</Button> : undefined}
       />
-      <div style={{ padding: '0 24px' }}>
+      <div style={{ padding: '0 16px' }}>
         <Card>
-          <Row gutter={16} style={{ marginBottom: 16 }}>
-            <Col span={8}>
+          <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
+            <Col xs={24} sm={12} md={8}>
               <Input placeholder="Search receipts..." prefix={<SearchOutlined />} value={search} onChange={(e) => setSearch(e.target.value)} onPressEnter={() => fetchData(1)} />
             </Col>
-            <Col span={6}>
+            <Col xs={24} sm={8} md={6}>
               <Select placeholder="Filter by status" allowClear style={{ width: '100%' }} value={filterStatus} onChange={setFilterStatus}>
                 {STATUS_OPTIONS.map((s) => <Select.Option key={s} value={s}>{s}</Select.Option>)}
               </Select>
             </Col>
-            <Col span={4}>
+            <Col xs={24} sm={4} md={4}>
               <Button onClick={() => fetchData(1)}>Search</Button>
             </Col>
           </Row>
-          <Table columns={columns} dataSource={data} rowKey="id" loading={loading} scroll={{ x: 1100 }}
+          <Table columns={columns} dataSource={data} rowKey="id" loading={loading} scroll={{ x: 'max-content' }}
             pagination={{ current: page, total, pageSize, showSizeChanger: false, onChange: setPage }} />
         </Card>
       </div>
@@ -286,8 +318,8 @@ const MaterialReceiptManagement: React.FC = () => {
         onOk={handleSubmit} onCancel={() => setModalVisible(false)} width={900} destroyOnHidden>
         <Form form={form} layout="vertical">
           <Form.Item name="companyId" hidden><Input /></Form.Item>
-          <Row gutter={16}>
-            <Col span={8}>
+          <Row gutter={[16, 8]}>
+            <Col xs={24} sm={8}>
               <Form.Item name="receiptCode" label="Receipt Code" rules={[{ required: true }]}>
                 <Input />
               </Form.Item>
@@ -333,7 +365,7 @@ const MaterialReceiptManagement: React.FC = () => {
           {poLinesLoading ? (
             <Spin tip="Loading PO lines..." style={{ display: 'block', padding: 24, textAlign: 'center' }} />
           ) : (
-            <StoreLineItemsEditor mode="issue" value={lineItems} onChange={setLineItems} label="Receipt Items" />
+            <StoreLineItemsEditor mode="receipt" value={lineItems} onChange={setLineItems} label="Receipt Items" />
           )}
           <Form.Item name="notes" label="Notes">
             <Input.TextArea rows={2} />
@@ -352,6 +384,12 @@ const MaterialReceiptManagement: React.FC = () => {
           </Descriptions>
         )}
       </Drawer>
+
+      <StoreVoucherPrintModal
+        open={!!printVoucher}
+        onClose={() => setPrintVoucher(null)}
+        voucher={printVoucher}
+      />
     </div>
   );
 };

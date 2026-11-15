@@ -207,4 +207,29 @@ export class FinanceAutoPostingService {
       ],
     });
   }
+
+  /** Purchase return debit note -> DR AP, CR Purchases */
+  async postPurchaseReturnDebitNote(
+    companyId: string,
+    returnCode: string,
+    returnId: string,
+    amount: number,
+    actorId?: string,
+    manager?: EntityManager,
+  ) {
+    return this.postAutoJournal({
+      companyId,
+      journalType: JournalType.PURCHASE_INVOICE,
+      entryDate: new Date(),
+      description: `Debit note / AP reduction from purchase return ${returnCode}`,
+      referenceType: 'PURCHASE_RETURN',
+      referenceId: returnId,
+      actorId,
+      manager,
+      lines: [
+        { accountCode: '2000', debit: amount, credit: 0, description: `AP debit note - return ${returnCode}` },
+        { accountCode: '5100', debit: 0, credit: amount, description: `Purchase return reversal - ${returnCode}` },
+      ],
+    });
+  }
 }

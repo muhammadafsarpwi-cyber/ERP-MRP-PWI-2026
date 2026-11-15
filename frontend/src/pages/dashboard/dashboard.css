@@ -1163,6 +1163,7 @@
   text-overflow: ellipsis;
   display: -webkit-box;
   -webkit-line-clamp: 1;
+  line-clamp: 1;
   -webkit-box-orient: vertical;
 }
 
@@ -1176,7 +1177,7 @@
 .erp-alert-row__arrow { font-size: 9px; color: var(--theme-text-muted); }
 
 /* ── Activity feed ─────────────────────────────────────────────────────── */
-.erp-activity { display: flex; flex-direction: column; }
+.erp-activity { display: flex; flex-direction: column; max-height: 340px; overflow-y: auto; }
 
 .erp-activity-row {
   display: grid;
@@ -1472,5 +1473,325 @@
     border-radius: 12px !important;
     width: 100% !important;
     box-sizing: border-box !important;
+  }
+}
+
+/* ── Sales Orders (GRS) Dashboard Card ───────────────────────────────────── */
+.erp-so-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.erp-so-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.erp-so-kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--theme-surface-alt);
+  border: 1px solid var(--theme-border);
+}
+
+.erp-so-kpi__label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--theme-text-muted);
+}
+
+.erp-so-kpi__value {
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--theme-heading);
+  line-height: 1.25;
+}
+
+.erp-so-kpi__value small {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--theme-text-muted);
+}
+
+.erp-so-kpi__sub {
+  font-size: 10.5px;
+  color: var(--theme-text-secondary);
+}
+
+.erp-so-status-bar {
+  margin-bottom: 0;
+}
+
+.erp-status-bar__segment.is-active {
+  outline: 2px solid var(--theme-primary);
+  outline-offset: 1px;
+  filter: brightness(1.1);
+}
+
+.erp-so-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.erp-so-pills {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.erp-so-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--theme-border);
+  background: var(--theme-surface-alt);
+  color: var(--theme-text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.erp-so-pill span {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.85;
+}
+
+.erp-so-pill:hover {
+  border-color: var(--theme-primary);
+  color: var(--theme-heading);
+}
+
+.erp-so-pill.is-active {
+  background: var(--theme-primary);
+  border-color: var(--theme-primary);
+  color: var(--theme-on-primary, #ffffff);
+}
+
+.erp-so-search {
+  width: 220px;
+  max-width: 100%;
+}
+
+.erp-so-table-wrap {
+  max-height: 360px;
+  overflow-y: auto;
+  overflow-x: auto;
+  border: 1px solid var(--theme-border);
+  border-radius: 8px;
+}
+
+.erp-so-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.erp-so-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--theme-surface-alt);
+  color: var(--theme-text-muted);
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 8px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--theme-border);
+  white-space: nowrap;
+}
+
+.erp-so-table th.is-num,
+.erp-so-table td.is-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.erp-so-table th.is-center,
+.erp-so-table td.is-center {
+  text-align: center;
+}
+
+.erp-so-row {
+  cursor: pointer;
+  border-bottom: 1px solid var(--theme-border);
+  transition: background 0.12s ease;
+}
+
+.erp-so-row:hover {
+  background: var(--theme-surface-alt);
+}
+
+.erp-so-row.is-expanded {
+  background: var(--theme-surface-alt);
+}
+
+.erp-so-row td {
+  padding: 8px 10px;
+  vertical-align: middle;
+}
+
+.erp-so-row__chevron {
+  color: var(--theme-text-muted);
+  font-size: 10px;
+  text-align: center;
+}
+
+.erp-so-row__ident {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.erp-so-row__code {
+  font-weight: 700;
+  font-size: 12px;
+  color: var(--theme-heading);
+  font-variant-numeric: tabular-nums;
+}
+
+.erp-so-row__meta {
+  font-size: 10.5px;
+  color: var(--theme-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 240px;
+}
+
+.erp-so-parts-badge {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 6px;
+  font-size: 10.5px;
+  font-weight: 600;
+  background: var(--theme-surface-alt);
+  border: 1px solid var(--theme-border);
+  color: var(--theme-text-secondary);
+  white-space: nowrap;
+}
+
+.erp-so-num {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.erp-so-status-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.erp-so-detail-row td {
+  padding: 0;
+  border-bottom: 1px solid var(--theme-border);
+  background: var(--theme-surface-alt);
+}
+
+.erp-so-detail-panel {
+  padding: 10px 14px 12px 34px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.erp-so-detail-panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 11.5px;
+  color: var(--theme-text);
+}
+
+.erp-so-detail-panel__stats {
+  font-size: 11px;
+  color: var(--theme-text-secondary);
+}
+
+.erp-so-subtable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11.5px;
+  background: var(--theme-surface);
+  border: 1px solid var(--theme-border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.erp-so-subtable th {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--theme-text-muted);
+  padding: 6px 8px;
+  text-align: left;
+  border-bottom: 1px solid var(--theme-border);
+}
+
+.erp-so-subtable td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--theme-border);
+  color: var(--theme-text);
+}
+
+.erp-so-subtable tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.erp-so-subtable__item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.erp-so-subtable__code {
+  font-weight: 700;
+  font-size: 10.5px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--theme-surface-alt);
+  border: 1px solid var(--theme-border);
+  color: var(--theme-text-secondary);
+}
+
+.erp-so-empty-filter {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px 12px;
+  font-size: 12px;
+  color: var(--theme-text-muted);
+}
+
+.erp-so-detail-empty {
+  font-size: 11.5px;
+  color: var(--theme-text-muted);
+  padding: 6px 0;
+}
+
+@media (max-width: 900px) {
+  .erp-so-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

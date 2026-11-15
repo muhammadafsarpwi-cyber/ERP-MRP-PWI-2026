@@ -213,7 +213,7 @@ const StoreReturns: React.FC = () => {
             rowKey="id"
             loading={loading}
             pagination={{ pageSize: 15 }}
-            scroll={{ x: 1100 }}
+            scroll={{ x: 'max-content' }}
             size="middle"
           />
         </Card>

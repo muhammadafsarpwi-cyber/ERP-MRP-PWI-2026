@@ -12,6 +12,7 @@ import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import apiService from '../../services/api';
 import { ERPLineItems, ERPLine, DraggableResizableModal } from '../../components/shared';
+import './procurementResponsive.css';
 
 interface PurchaseReturn {
   id: string;
@@ -65,6 +66,8 @@ const PurchaseReturnManagement: React.FC = () => {
   const [suppliers, setSuppliers] = useState<Array<{ id: string; name: string }>>([]);
   const [divisions, setDivisions] = useState<DivisionOption[]>(DEFAULT_DIVISIONS);
   const [warehouses, setWarehouses] = useState<Array<{ id: string; warehouseCode: string; name: string; warehouseType?: string }>>([]);
+  const [purchaseOrders, setPurchaseOrders] = useState<any[]>([]);
+  const [goodsReceipts, setGoodsReceipts] = useState<any[]>([]);
 
   const watchedDivisionId = Form.useWatch('divisionId', form);
   const watchedWarehouseId = Form.useWatch('warehouseId', form);
@@ -98,6 +101,14 @@ const PurchaseReturnManagement: React.FC = () => {
           setDivisions(divItems.map((x: any) => ({ id: x.id, code: x.divisionCode, name: x.name })));
         }
       } catch { /* keep defaults */ }
+      try {
+        const poRes = await apiService.get<any>('/procurement/orders', { limit: 100 });
+        setPurchaseOrders(poRes?.data || (Array.isArray(poRes) ? poRes : []));
+      } catch { /* ignore */ }
+      try {
+        const grnRes = await apiService.get<any>('/procurement/receipts', { limit: 100 });
+        setGoodsReceipts(grnRes?.data || (Array.isArray(grnRes) ? grnRes : []));
+      } catch { /* ignore */ }
     })();
   }, []);
 
@@ -136,6 +147,85 @@ const PurchaseReturnManagement: React.FC = () => {
     setModalVisible(true);
   };
 
+  const handleSelectPo = async (poId: string | null) => {
+    if (!poId) return;
+    try {
+      const res = await apiService.get<any>(`/procurement/orders/${poId}`);
+      const po = res?.data || res;
+      if (!po) return;
+      form.setFieldsValue({
+        supplierId: po.supplierId,
+        warehouseId: po.warehouseId,
+        divisionId: po.divisionId,
+        purchaseType: po.purchaseType || 'LOCAL',
+        grnId: undefined,
+      });
+      if (Array.isArray(po.lines) && po.lines.length > 0) {
+        const mapped: any[] = po.lines.map((l: any, idx: number) => ({
+          id: `ret_po_${idx}_${Date.now()}`,
+          poLineId: l.id,
+          itemId: l.itemId,
+          itemCode: l.item?.itemCode || l.itemCode || '',
+          itemName: l.item?.name || l.notes || 'Item',
+          uomId: l.uomId,
+          uomCode: l.uom?.code || l.uomCode || 'KG',
+          quantity: Number(l.receivedQty || l.quantity || 1),
+          rate: Number(l.unitPrice || 0),
+          unitPrice: Number(l.unitPrice || 0),
+          discountPercent: 0,
+          taxPercent: Number(l.taxPercent || 0),
+          lineTotal: Number(l.receivedQty || l.quantity || 1) * Number(l.unitPrice || 0),
+        }));
+        setLineItems(mapped);
+        message.success(`Loaded ${mapped.length} item(s) from PO ${po.poCode}`);
+      }
+    } catch {
+      message.error('Failed to load PO details');
+    }
+  };
+
+  const handleSelectGrn = async (grnId: string | null) => {
+    if (!grnId) return;
+    try {
+      const res = await apiService.get<any>(`/procurement/receipts/${grnId}`);
+      const grn = res?.data || res;
+      if (!grn) return;
+      form.setFieldsValue({
+        poId: grn.poId,
+        supplierId: grn.supplierId,
+        warehouseId: grn.warehouseId,
+        divisionId: grn.divisionId,
+        purchaseType: grn.purchaseType || 'LOCAL',
+      });
+      if (Array.isArray(grn.lines) && grn.lines.length > 0) {
+        const mapped: any[] = grn.lines.map((l: any, idx: number) => {
+          const qty = Number(l.acceptedQty ?? l.receivedQty ?? l.quantity ?? 1);
+          const rate = Number(l.unitPrice ?? l.poLine?.unitPrice ?? 0);
+          return {
+            id: `ret_grn_${idx}_${Date.now()}`,
+            grnLineId: l.id,
+            poLineId: l.poLineId,
+            itemId: l.itemId,
+            itemCode: l.item?.itemCode || l.itemCode || '',
+            itemName: l.item?.name || l.notes || 'Item',
+            uomId: l.uomId,
+            uomCode: l.uom?.code || l.uomCode || 'KG',
+            quantity: qty,
+            rate,
+            unitPrice: rate,
+            discountPercent: 0,
+            taxPercent: 0,
+            lineTotal: qty * rate,
+          };
+        });
+        setLineItems(mapped);
+        message.success(`Loaded ${mapped.length} item(s) from GRN ${grn.receiptCode}`);
+      }
+    } catch {
+      message.error('Failed to load GRN details');
+    }
+  };
+
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields();
@@ -148,11 +238,13 @@ const PurchaseReturnManagement: React.FC = () => {
         ...values,
         companyId: companyId || values.companyId,
         returnDate: values.returnDate ? dayjs(values.returnDate).format('YYYY-MM-DD') : undefined,
-        lines: lineItems.map((l) => ({
+        lines: lineItems.map((l: any) => ({
           itemId: l.itemId,
           uomId: l.uomId,
+          poLineId: l.poLineId,
+          grnLineId: l.grnLineId,
           quantity: Number(l.quantity || 0),
-          unitPrice: Number(l.rate || 0),
+          unitPrice: Number(l.rate || l.unitPrice || 0),
           reason: l.itemName || l.itemCode,
         })),
       };
@@ -207,9 +299,14 @@ const PurchaseReturnManagement: React.FC = () => {
       key: 'actions',
       width: 220,
       render: (_, record) => (
-        <Space size="small">
+        <Space size="small" wrap>
           {record.status === 'DRAFT' && <Button size="small" type="primary" icon={<CheckOutlined />} onClick={() => handleAction(record.id, 'approve')}>Approve</Button>}
           {record.status === 'APPROVED' && <Button size="small" type="primary" icon={<SendOutlined />} onClick={() => handleAction(record.id, 'ship')}>Ship</Button>}
+          {(record.status === 'SHIPPED' || record.status === 'RECEIVED_BY_SUPPLIER') && (
+            <Button size="small" type="primary" style={{ background: '#10b981', borderColor: '#10b981' }} icon={<CheckOutlined />} onClick={() => handleAction(record.id, 'complete')}>
+              Complete & Post Debit
+            </Button>
+          )}
         </Space>
       ),
     },
@@ -230,21 +327,22 @@ const PurchaseReturnManagement: React.FC = () => {
         </Space>
       }
     >
-      <Row gutter={16} style={{ marginBottom: 16 }}>
-        <Col span={8}>
+      <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
+        <Col xs={24} sm={12} md={8}>
           <Input placeholder="Search returns, PO..." prefix={<SearchOutlined />} value={search} onChange={(e) => setSearch(e.target.value)} onPressEnter={() => fetchData(1)} allowClear />
         </Col>
-        <Col span={6}>
+        <Col xs={24} sm={12} md={6}>
           <Select placeholder="Filter by status" allowClear style={{ width: '100%' }} value={filterStatus} onChange={setFilterStatus}>
             {STATUS_OPTIONS.map(s => <Select.Option key={s} value={s}>{s}</Select.Option>)}
           </Select>
         </Col>
-        <Col span={4}>
-          <Button type="primary" onClick={() => fetchData(1)}>Search</Button>
+        <Col xs={24} sm={24} md={4}>
+          <Button type="primary" onClick={() => fetchData(1)} block>Search</Button>
         </Col>
       </Row>
 
       <Table columns={columns} dataSource={data} rowKey="id" loading={loading}
+        scroll={{ x: 'max-content' }}
         pagination={{ current: page, total, pageSize, onChange: setPage, showSizeChanger: false }} />
 
       <DraggableResizableModal
@@ -265,48 +363,73 @@ const PurchaseReturnManagement: React.FC = () => {
           <Form.Item name="companyId" hidden><Input /></Form.Item>
 
           <Card size="small" style={{ marginBottom: 14, background: 'rgba(255, 255, 255, 0.02)', borderColor: 'rgba(255, 255, 255, 0.1)' }}>
-            <Row gutter={16}>
-              <Col span={6}>
+            <Row gutter={[16, 12]}>
+              <Col xs={24} sm={12} md={6}>
                 <Form.Item name="returnCode" label={<span style={{ fontWeight: 600 }}>Return Code <Tag color="blue">Auto PRT</Tag></span>} rules={[{ required: true }]}>
                   <Input style={{ fontWeight: 700, fontFamily: 'monospace' }} />
                 </Form.Item>
               </Col>
-              <Col span={6}>
+              <Col xs={24} sm={12} md={6}>
+                <Form.Item name="poId" label={<span style={{ fontWeight: 600 }}>Purchase Order (Auto-fill)</span>}>
+                  <Select
+                    showSearch
+                    allowClear
+                    optionFilterProp="label"
+                    placeholder="Select PO to load items..."
+                    onChange={handleSelectPo}
+                    options={purchaseOrders.map((po) => ({
+                      value: po.id,
+                      label: `${po.poCode} — ${po.supplierName || po.supplier?.name || ''} [${po.status}]`,
+                    }))}
+                  />
+                </Form.Item>
+              </Col>
+              <Col xs={24} sm={12} md={6}>
+                <Form.Item name="grnId" label={<span style={{ fontWeight: 600 }}>Goods Receipt (GRN)</span>}>
+                  <Select
+                    showSearch
+                    allowClear
+                    optionFilterProp="label"
+                    placeholder="Select GRN to load accepted qty..."
+                    onChange={handleSelectGrn}
+                    options={goodsReceipts.map((grn) => ({
+                      value: grn.id,
+                      label: `${grn.receiptCode}${grn.poCode ? ` (${grn.poCode})` : ''} — ${grn.supplierName || grn.supplier?.name || ''}`,
+                    }))}
+                  />
+                </Form.Item>
+              </Col>
+              <Col xs={24} sm={12} md={6}>
                 <Form.Item name="supplierId" label={<span style={{ fontWeight: 600 }}>Supplier</span>} rules={[{ required: true }]}>
                   <Select showSearch optionFilterProp="label" placeholder="Select supplier..." options={suppliers.map((s) => ({ value: s.id, label: s.name }))} />
                 </Form.Item>
               </Col>
-              <Col span={6}>
-                <Form.Item name="poId" label={<span style={{ fontWeight: 600 }}>PO Reference</span>}>
-                  <Input placeholder="e.g. PO-2026-0001" />
-                </Form.Item>
-              </Col>
-              <Col span={6}>
-                <Form.Item name="purchaseType" label={<span style={{ fontWeight: 600 }}><GlobalOutlined style={{ marginRight: 4 }} />Origin</span>} initialValue="LOCAL">
-                  <Segmented block options={[{ label: 'Local', value: 'LOCAL' }, { label: 'Import', value: 'IMPORT' }]} />
-                </Form.Item>
-              </Col>
             </Row>
 
-            <Row gutter={16}>
-              <Col span={6}>
+            <Row gutter={[16, 12]}>
+              <Col xs={24} sm={12} md={5}>
                 <Form.Item name="divisionId" label={<span style={{ fontWeight: 600 }}><ApartmentOutlined style={{ marginRight: 4, color: '#10b981' }} />Division</span>}>
                   <Select placeholder="Select division..." allowClear options={divisions.map((d) => ({ value: d.id, label: `${d.code ? `[${d.code}] ` : ''}${d.name}` }))} />
                 </Form.Item>
               </Col>
-              <Col span={6}>
+              <Col xs={24} sm={12} md={5}>
                 <Form.Item name="warehouseId" label={<span style={{ fontWeight: 600 }}><ShopOutlined style={{ marginRight: 4, color: '#f59e0b' }} />Dispatch Store</span>}>
                   <Select placeholder="Select warehouse..." allowClear options={warehouses.map((w) => ({ value: w.id, label: `${w.warehouseCode} — ${w.name}` }))} />
                 </Form.Item>
               </Col>
-              <Col span={6}>
+              <Col xs={24} sm={12} md={4}>
                 <Form.Item name="returnDate" label={<span style={{ fontWeight: 600 }}>Return Date</span>}>
                   <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
                 </Form.Item>
               </Col>
-              <Col span={6}>
+              <Col xs={24} sm={12} md={6}>
                 <Form.Item name="reason" label={<span style={{ fontWeight: 600 }}>Return Reason</span>}>
                   <Input placeholder="e.g. Quality defect, wrong specification" />
+                </Form.Item>
+              </Col>
+              <Col xs={24} sm={24} md={4}>
+                <Form.Item name="purchaseType" label={<span style={{ fontWeight: 600 }}><GlobalOutlined style={{ marginRight: 4 }} />Origin</span>} initialValue="LOCAL">
+                  <Segmented block options={[{ label: 'Local', value: 'LOCAL' }, { label: 'Import', value: 'IMPORT' }]} />
                 </Form.Item>
               </Col>
             </Row>

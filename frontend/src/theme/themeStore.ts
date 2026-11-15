@@ -44,7 +44,12 @@ export const getUserScopeKey = (): string => {
 const sanitizePrefs = (value: unknown): ThemePrefs | null => {
   if (!value || typeof value !== 'object') return null;
   const candidate = value as Partial<ThemePrefs>;
-  const mode: ThemeMode = candidate.mode === 'dark' ? 'dark' : 'light';
+  const mode: ThemeMode =
+    candidate.mode === 'dark'
+      ? 'dark'
+      : candidate.mode === 'system'
+      ? 'system'
+      : 'light';
   if (!isKnownPaletteId(candidate.paletteId)) return null;
   return {
     mode,
@@ -107,6 +112,9 @@ interface ThemeStoreState {
   setGlassOpacity: (glassOpacity: number) => void;
   /** `null` hands colour back to the active palette. */
   setCustomAccent: (customAccent: string | null) => void;
+  toggleGlassImmediate: () => void;
+  cycleModeImmediate: () => void;
+  setModeImmediate: (mode: ThemeMode) => void;
   applyDraft: () => void;
   revertDraft: () => void;
   /** Loads the defaults into the draft WITHOUT persisting (Apply still required). */
@@ -158,6 +166,33 @@ export const useThemeStore = create<ThemeStoreState>((set, get) => ({
   setCustomAccent: (customAccent) => {
     const normalized = customAccent ? normalizeHex(customAccent) : null;
     set({ draft: { ...get().draft, customAccent: normalized } });
+  },
+
+  toggleGlassImmediate: () => {
+    const { scopeKey, saved, draft } = get();
+    const nextGlass = !saved.glass;
+    const nextSaved = { ...saved, glass: nextGlass };
+    const nextDraft = { ...draft, glass: nextGlass };
+    writePrefsForScope(scopeKey, nextSaved);
+    set({ saved: nextSaved, draft: nextDraft });
+  },
+
+  cycleModeImmediate: () => {
+    const { scopeKey, saved, draft } = get();
+    const nextMode: ThemeMode =
+      saved.mode === 'light' ? 'dark' : saved.mode === 'dark' ? 'system' : 'light';
+    const nextSaved = { ...saved, mode: nextMode };
+    const nextDraft = { ...draft, mode: nextMode };
+    writePrefsForScope(scopeKey, nextSaved);
+    set({ saved: nextSaved, draft: nextDraft });
+  },
+
+  setModeImmediate: (mode) => {
+    const { scopeKey, saved, draft } = get();
+    const nextSaved = { ...saved, mode };
+    const nextDraft = { ...draft, mode };
+    writePrefsForScope(scopeKey, nextSaved);
+    set({ saved: nextSaved, draft: nextDraft });
   },
 
   applyDraft: () => {

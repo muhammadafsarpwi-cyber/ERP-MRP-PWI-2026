@@ -15,6 +15,7 @@ import {
 import apiService from '../../services/api';
 import { toNum, formatNumber } from '../../utils/numberFormat';
 import { ERPTable, TableToolbar, PageHeader } from '../../components/shared';
+import { NippleDemandStockBalanceCard } from '../../components/analytics/NippleDemandStockBalanceCard';
 import {
   exportStockSummaryCsv,
   exportStockSummaryPdf,
@@ -729,6 +730,8 @@ const InventoryReports: React.FC = () => {
           showTotal: (t, r) => `Showing ${r[0]}–${r[1]} of ${t} entries`,
         }}
       />
+
+      <NippleDemandStockBalanceCard marginTop={20} />
     </div>
   );
 };

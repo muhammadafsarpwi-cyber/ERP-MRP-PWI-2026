@@ -298,7 +298,7 @@ const LowStockQueue: React.FC = () => {
   };
 
   const convertPr = async (row: ReplenishmentRow) => {
-    await postAction(`/store/replenishment/${row.id}/convert-pr`, {}, 'Converted to purchase requisition');
+    await postAction(`/store/replenishment/${row.id}/convert-pr`, { useShortageOnly: true }, 'Converted to purchase requisition');
   };
 
   const unreview = async (row: ReplenishmentRow) => {
@@ -553,7 +553,7 @@ const LowStockQueue: React.FC = () => {
             rowKey="id"
             loading={loading}
             size="middle"
-            scroll={{ x: 2100 }}
+            scroll={{ x: 'max-content' }}
             pagination={{
               current: page,
               pageSize,

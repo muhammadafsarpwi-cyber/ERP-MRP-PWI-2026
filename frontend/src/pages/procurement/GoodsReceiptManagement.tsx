@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Table, Button, Space, Tag, Form, Input, Select, App, Card,
   Row, Col, DatePicker, Segmented, Tooltip, Popconfirm, Modal,
@@ -17,6 +18,7 @@ import { useUserStore } from '../../store/userStore';
 import { ERPLineItems, ERPLine, DraggableResizableModal } from '../../components/shared';
 import { printGoodsReceiptDocument, printGatePassDocument } from '../../utils/printTemplates';
 import './GoodsReceiptManagement.css';
+import './procurementResponsive.css';
 
 interface GoodsReceipt {
   id: string;
@@ -44,12 +46,10 @@ interface DivisionOption {
 }
 
 const DEFAULT_DIVISIONS: DivisionOption[] = [
-  { id: 'd1000000-0000-0000-0000-000000000001', code: 'DIV-SPD', name: 'Spoke Division' },
-  { id: 'd1000000-0000-0000-0000-000000000002', code: 'DIV-CCD', name: 'Control Cable Division' },
-  { id: '83ecd746-1cc9-4849-bec4-d00bcc3ceeec', code: 'DIV-PWI', name: 'Main Division E-51' },
-  { id: '50824516-9c24-4122-86e7-c8e6fa1c5869', code: 'DIV-001', name: 'Manufacturing Division' },
-  { id: '3f222d46-6f96-44f6-9ead-27467c7e93a1', code: 'DIV-003', name: 'Supply Chain Division' },
-  { id: 'div-corp', code: 'CORP', name: 'Corporate & Master Store' },
+  { id: 'd1000000-0000-0000-0000-000000000001', code: 'DIV-001-SPI', name: 'Spoke Division' },
+  { id: 'd1000000-0000-0000-0000-000000000002', code: 'DIV-002-CCD', name: 'Control Cable Division' },
+  { id: '0653339b-94d0-4cc5-b880-e07908b2015f', code: 'DIV-003-NB', name: 'NB Division' },
+  { id: '83ecd746-1cc9-4849-bec4-d00bcc3ceeec', code: 'DIV-004-MDE51', name: 'Main Division E-51' },
 ];
 
 const STATUS_OPTIONS = ['DRAFT', 'RECEIVED', 'INSPECTION', 'ACCEPTED', 'REJECTED', 'POSTED'];
@@ -65,6 +65,7 @@ const statusColorMap: Record<string, string> = {
 
 const GoodsReceiptManagement: React.FC = () => {
   const { message } = App.useApp();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [data, setData] = useState<GoodsReceipt[]>([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
@@ -184,6 +185,26 @@ const GoodsReceiptManagement: React.FC = () => {
     setLineItems([]);
     setModalVisible(true);
   };
+
+  useEffect(() => {
+    const poId = searchParams.get('poId');
+    if (poId) {
+      setEditingItem(null);
+      form.resetFields();
+      loadReferences();
+      form.setFieldsValue({
+        receiptCode: generateReceiptCode(),
+        receiptDate: dayjs(),
+        purchaseType: 'LOCAL',
+        referenceKey: `PO:${poId}`,
+      });
+      setLineItems([]);
+      setModalVisible(true);
+      handleReferenceSelect(`PO:${poId}`);
+      setSearchParams({});
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   const handleOpenViewModal = async (record: GoodsReceipt) => {
     setViewLoading(true);
@@ -903,8 +924,8 @@ const GoodsReceiptManagement: React.FC = () => {
         </Space>
       }
     >
-      <Row gutter={16} style={{ marginBottom: 16 }}>
-        <Col span={8}>
+      <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
+        <Col xs={24} sm={12} md={8}>
           <Input
             placeholder="Search receipts, POs, GRN..."
             prefix={<SearchOutlined />}
@@ -914,7 +935,7 @@ const GoodsReceiptManagement: React.FC = () => {
             allowClear
           />
         </Col>
-        <Col span={6}>
+        <Col xs={24} sm={12} md={6}>
           <Select
             placeholder="Filter by status"
             allowClear
@@ -927,8 +948,8 @@ const GoodsReceiptManagement: React.FC = () => {
             ))}
           </Select>
         </Col>
-        <Col span={4}>
-          <Button type="primary" onClick={() => fetchData(1)}>Search</Button>
+        <Col xs={24} sm={24} md={4}>
+          <Button type="primary" onClick={() => fetchData(1)} block>Search</Button>
         </Col>
       </Row>
 
@@ -937,6 +958,7 @@ const GoodsReceiptManagement: React.FC = () => {
         dataSource={data}
         rowKey="id"
         loading={loading}
+        scroll={{ x: 'max-content' }}
         pagination={{ current: page, total, pageSize, onChange: setPage, showSizeChanger: false }}
       />
 

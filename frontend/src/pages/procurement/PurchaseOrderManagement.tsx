@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import {
   Table, Button, Input, Select, DatePicker, App, Modal, Tooltip,
-  Row, Col, Form, InputNumber, Tag, Badge, Progress, Spin, Card, Space,
+  Row, Col, Form, InputNumber, Tag, Badge, Progress, Spin, Card, Space, Segmented,
 } from 'antd';
 import {
   PlusOutlined, ReloadOutlined, FileTextOutlined, PrinterOutlined,
@@ -12,7 +12,7 @@ import {
   CameraOutlined, SoundOutlined, SaveOutlined, WarningOutlined,
   BarcodeOutlined, CarOutlined, WalletOutlined, UserOutlined,
   ClearOutlined, ApartmentOutlined, SafetyCertificateOutlined,
-  ShopOutlined, CheckCircleOutlined,
+  ShopOutlined, CheckCircleOutlined, GlobalOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
@@ -21,7 +21,9 @@ import { formatDecimal } from '../../utils/numberFormat';
 import { usePermission } from '../../hooks/usePermission';
 import { printPurchaseOrderDocument, printTableList, printGatePassDocument } from '../../utils/printTemplates';
 import { DraggableResizableModal } from '../../components/shared';
+import PoImportTrackingModal, { IMPORT_STAGES } from './components/PoImportTrackingModal';
 import './PurchaseOrderManagement.css';
+import './procurementResponsive.css';
 
 interface DivisionOption {
   id: string;
@@ -324,6 +326,7 @@ const PurchaseOrderManagement: React.FC = () => {
   }, [filterSupplier, filterPayment, filterDateFrom, filterDateTo]);
 
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const [quotationsList, setQuotationsList] = useState<any[]>([]);
   const [requisitionsList, setRequisitionsList] = useState<any[]>([]);
 
@@ -347,13 +350,18 @@ const PurchaseOrderManagement: React.FC = () => {
   const [scanSkuInput, setScanSkuInput] = useState('');
   const [lines, setLines] = useState<PurchaseOrderLineForm[]>([]);
   const [formDiscount, setFormDiscount] = useState<number>(0);
+  const [originFilter, setOriginFilter] = useState<'ALL' | 'LOCAL' | 'IMPORT'>('ALL');
+  const [importTrackPo, setImportTrackPo] = useState<any | null>(null);
+  const [modalOrigin, setModalOrigin] = useState<'LOCAL' | 'IMPORT'>('LOCAL');
+  const [linkedPrId, setLinkedPrId] = useState<string | undefined>(undefined);
+  const [linkedQtId, setLinkedQtId] = useState<string | undefined>(undefined);
 
   // Global Confirmation Modal State (required for EVERY button action)
   const [confirmModal, setConfirmModal] = useState<ConfirmModalState>({
     open: false,
     title: '',
     message: '',
-    onConfirm: () => {},
+    onConfirm: () => { },
   });
 
   // Framed Green Checkmark Result Dialog State
@@ -469,30 +477,57 @@ const PurchaseOrderManagement: React.FC = () => {
     }
   }, [selectedWarehouseId, fetchStockBalances]);
 
+  const formatQty = (val: number): string => {
+    const rounded = Math.round((Number(val) + Number.EPSILON) * 100) / 100;
+    return rounded.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  };
+
+  const formatStockText = (stock: unknown, isGross: boolean, uomCode?: string): string => {
+    if (stock === undefined || stock === null) return '0 in stock';
+    const pcs = Math.round((Number(stock) + Number.EPSILON) * 100) / 100;
+    if (isGross) {
+      let gross = Math.floor(pcs / 144);
+      let remPcs = Math.round(((pcs % 144) + Number.EPSILON) * 100) / 100;
+      if (remPcs >= 144) {
+        gross += 1;
+        remPcs = 0;
+      }
+      const grossStr =
+        remPcs > 0
+          ? `${gross.toLocaleString()} Gross + ${formatQty(remPcs)} pcs`
+          : `${gross.toLocaleString()} Gross`;
+      return `${grossStr} (${formatQty(pcs)} pcs in stock)`;
+    }
+    return `${formatQty(pcs)} ${uomCode || 'pcs'} in stock`;
+  };
+
+  const renderProductOptionLabel = (itemCode: string, name: string, stockText: string) => (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 2, lineHeight: 1.3, padding: '2px 0' }}>
+      <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--theme-primary, #10b981)', letterSpacing: '0.3px' }}>
+        {itemCode}
+      </span>
+      <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--theme-text)', wordBreak: 'break-word' }}>
+        {name}
+      </span>
+      <span style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)' }}>
+        {stockText}
+      </span>
+    </div>
+  );
+
   const productOptions = useMemo(() => {
-    const map = new Map<string, { value: string; label: string; itemCode?: string; name?: string }>();
+    const map = new Map<string, { value: string; label: React.ReactNode; searchText: string; itemCode?: string; name?: string }>();
     itemsCatalog.forEach((it) => {
       const name = it.itemName || it.name || it.itemCode;
       const stock = stockMap.get(it.id);
       const purUomCode = it.purchaseUom?.code || (it as any).pur_uom_code || it.uomCode;
       const isGross = purUomCode === 'GRS' || String(it.purchaseUom?.name).toLowerCase().includes('gross');
-
-      let stockText = '0 in stock';
-      if (stock !== undefined && stock !== null) {
-        const pcs = Number(stock);
-        if (isGross) {
-          const gross = Math.floor(pcs / 144);
-          const remPcs = pcs % 144;
-          const grossStr = remPcs > 0 ? `${gross.toLocaleString()} Gross + ${remPcs} pcs` : `${gross.toLocaleString()} Gross`;
-          stockText = `${grossStr} (${pcs.toLocaleString()} pcs in stock)`;
-        } else {
-          stockText = `${pcs.toLocaleString()} ${purUomCode || 'pcs'} in stock`;
-        }
-      }
+      const stockText = formatStockText(stock, isGross, purUomCode);
 
       map.set(it.id, {
         value: it.id,
-        label: `${name} [${it.itemCode}] (${stockText})`,
+        label: renderProductOptionLabel(it.itemCode, name, stockText),
+        searchText: `${it.itemCode} ${name} ${stockText}`,
         itemCode: it.itemCode,
         name,
       });
@@ -500,23 +535,14 @@ const PurchaseOrderManagement: React.FC = () => {
     lines.forEach((ln, idx) => {
       if (ln.itemId && !map.has(ln.itemId)) {
         const name = ln.itemName || ln.itemCode || `Product ${idx + 1}`;
+        const code = ln.itemCode || 'SKU';
         const stock = stockMap.get(ln.itemId);
         const isGross = ln.uomCode === 'GRS';
-        let stockText = '0 in stock';
-        if (stock !== undefined && stock !== null) {
-          const pcs = Number(stock);
-          if (isGross) {
-            const gross = Math.floor(pcs / 144);
-            const remPcs = pcs % 144;
-            const grossStr = remPcs > 0 ? `${gross.toLocaleString()} Gross + ${remPcs} pcs` : `${gross.toLocaleString()} Gross`;
-            stockText = `${grossStr} (${pcs.toLocaleString()} pcs in stock)`;
-          } else {
-            stockText = `${pcs.toLocaleString()} ${ln.uomCode || 'pcs'} in stock`;
-          }
-        }
+        const stockText = formatStockText(stock, isGross, ln.uomCode);
         map.set(ln.itemId, {
           value: ln.itemId,
-          label: `${name} [${ln.itemCode || 'SKU'}] (${stockText})`,
+          label: renderProductOptionLabel(code, name, stockText),
+          searchText: `${code} ${name} ${stockText}`,
           itemCode: ln.itemCode,
           name,
         });
@@ -532,6 +558,7 @@ const PurchaseOrderManagement: React.FC = () => {
       const params: any = { page: pageNum, limit: pageSize };
       if (search) params.search = search;
       if (filterSupplier) params.supplierId = filterSupplier;
+      if (originFilter !== 'ALL') params.origin = originFilter;
 
       if (activeChevron === 'PENDING') {
         params.status = 'PENDING';
@@ -570,7 +597,7 @@ const PurchaseOrderManagement: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [search, filterSupplier, filterPayment, filterDateFrom, filterDateTo, activeChevron, pageSize, message]);
+  }, [search, filterSupplier, filterPayment, filterDateFrom, filterDateTo, activeChevron, originFilter, pageSize, message]);
 
   useEffect(() => {
     fetchData(page);
@@ -606,6 +633,7 @@ const PurchaseOrderManagement: React.FC = () => {
   };
 
   const handleQuotationSelect = async (quotationId: string | null) => {
+    setLinkedQtId(quotationId || undefined);
     if (!quotationId) return;
     try {
       const res = await apiService.get<any>(`/procurement/quotations/${quotationId}`);
@@ -660,6 +688,7 @@ const PurchaseOrderManagement: React.FC = () => {
   };
 
   const handleRequisitionSelect = async (requisitionId: string | null) => {
+    setLinkedPrId(requisitionId || undefined);
     if (!requisitionId) return;
     try {
       const res = await apiService.get<any>(`/procurement/requisitions/${requisitionId}`);
@@ -693,6 +722,21 @@ const PurchaseOrderManagement: React.FC = () => {
       if (matchedWarehouseId) {
         updates.warehouseId = matchedWarehouseId;
         setSelectedWarehouseId(matchedWarehouseId);
+      }
+      const prOrigin = (pr.purchaseOrigin || pr.purchaseType || 'LOCAL').toUpperCase();
+      updates.purchaseOrigin = prOrigin;
+      setModalOrigin(prOrigin === 'IMPORT' ? 'IMPORT' : 'LOCAL');
+      if (prOrigin === 'IMPORT') {
+        if (pr.importCargoType) updates.importCargoType = pr.importCargoType;
+        if (pr.incoterm) updates.incoterm = pr.incoterm;
+        if (pr.portOfLoading) updates.portOfLoading = pr.portOfLoading;
+        updates.portOfDischarge = pr.portOfDischarge || 'Karachi Port (KICT / PICT / QICT)';
+        if (pr.currencyCode) updates.currencyCode = pr.currencyCode;
+        if (pr.expectedEtd) updates.etdDate = dayjs(pr.expectedEtd);
+        if (pr.expectedEta) {
+          updates.etaDate = dayjs(pr.expectedEta);
+          updates.expectedDeliveryDate = dayjs(pr.expectedEta);
+        }
       }
       updates.notes = `Generated from PR ${pr.requisitionCode}: ${pr.title || ''}`;
       form.setFieldsValue(updates);
@@ -752,10 +796,17 @@ const PurchaseOrderManagement: React.FC = () => {
     const defaultWh = warehouses.find(w => w.name?.toLowerCase().includes('spi main') || w.warehouseCode === 'WH-002') || warehouses[0];
     const whId = defaultWh?.id || '';
     setSelectedWarehouseId(whId);
+    setModalOrigin('LOCAL');
+    setLinkedPrId(undefined);
+    setLinkedQtId(undefined);
     form.setFieldsValue({
-      divisionId: divisions[0]?.id || 'div-wd',
+      divisionId: (defaultWh as any)?.divisionId || divisions[0]?.id || 'div-wd',
       warehouseId: whId,
       poCode: `PO-${nextPoNum}`,
+      purchaseOrigin: 'LOCAL',
+      currencyCode: 'PKR',
+      portOfDischarge: 'Karachi Port (KICT / PICT / QICT)',
+      importStage: 'ORDER_PLACED',
       orderDate: dayjs(),
       expectedDeliveryDate: dayjs().add(7, 'day'),
       paymentDue: dayjs().add(30, 'day'),
@@ -780,16 +831,35 @@ const PurchaseOrderManagement: React.FC = () => {
   const handleOpenEditModal = async (record: PurchaseOrder) => {
     setEditingItem(record);
     const recordWh = (record as any).warehouseId || (record as any).warehouse?.id || (record as any).lines?.[0]?.warehouseId;
-    const defaultWh = warehouses.find(w => w.id === recordWh) 
-      || warehouses.find(w => w.name?.toLowerCase().includes('spi main') || w.warehouseCode === 'WH-002') 
+    const defaultWh = warehouses.find(w => w.id === recordWh)
+      || warehouses.find(w => w.name?.toLowerCase().includes('spi main') || w.warehouseCode === 'WH-002')
       || warehouses[0];
     const whId = defaultWh?.id || '';
     setSelectedWarehouseId(whId);
+    const recOrigin = ((record as any).purchaseOrigin || 'LOCAL').toUpperCase() === 'IMPORT' ? 'IMPORT' : 'LOCAL';
+    setModalOrigin(recOrigin);
+    setLinkedPrId((record as any).requisitionId || undefined);
+    setLinkedQtId((record as any).quotationId || undefined);
     form.setFieldsValue({
-      divisionId: (record as any).divisionId || divisions[0]?.id || 'div-wd',
+      divisionId: (record as any).divisionId || (defaultWh as any)?.divisionId || divisions[0]?.id || 'div-wd',
       warehouseId: whId,
       poCode: record.poCode,
       supplierId: record.supplierId || record.supplier?.id,
+      purchaseOrigin: recOrigin,
+      importCargoType: (record as any).importCargoType || undefined,
+      incoterm: (record as any).incoterm || undefined,
+      portOfLoading: (record as any).portOfLoading || '',
+      portOfDischarge: (record as any).portOfDischarge || 'Karachi Port (KICT / PICT / QICT)',
+      shippingLine: (record as any).shippingLine || '',
+      vesselName: (record as any).vesselName || '',
+      blAwbNumber: (record as any).blAwbNumber || '',
+      containerNumber: (record as any).containerNumber || '',
+      lcTtNumber: (record as any).lcTtNumber || '',
+      currencyCode: record.currencyCode || 'PKR',
+      importStage: (record as any).importStage || 'ORDER_PLACED',
+      productionReadyDate: (record as any).productionReadyDate ? dayjs((record as any).productionReadyDate) : null,
+      etdDate: (record as any).etdDate ? dayjs((record as any).etdDate) : null,
+      etaDate: (record as any).etaDate ? dayjs((record as any).etaDate) : null,
       orderDate: record.orderDate ? dayjs(record.orderDate) : dayjs(),
       expectedDeliveryDate: record.expectedDeliveryDate ? dayjs(record.expectedDeliveryDate) : null,
       supplierBillNo: record.paymentTerms || '',
@@ -801,11 +871,19 @@ const PurchaseOrderManagement: React.FC = () => {
     try {
       const res = await apiService.get<any>(`/procurement/orders/${record.id}`);
       const poData = res.data || res;
+      const fetchedWhId = poData?.warehouseId || poData?.warehouse?.id || poData?.lines?.[0]?.warehouseId || whId;
       if (poData?.warehouseId || poData?.warehouse?.id || poData?.lines?.[0]?.warehouseId) {
-        const lineWh = poData.warehouseId || poData.warehouse?.id || poData.lines[0]?.warehouseId;
-        setSelectedWarehouseId(lineWh);
-        form.setFieldValue('warehouseId', lineWh);
+        setSelectedWarehouseId(fetchedWhId);
+        form.setFieldValue('warehouseId', fetchedWhId);
       }
+      const resolvedWh = warehouses.find(w => w.id === fetchedWhId);
+      const resolvedDivId = poData?.divisionId || (record as any).divisionId || (resolvedWh as any)?.divisionId || divisions[0]?.id || 'div-wd';
+      const fetchedOrigin = ((poData?.purchaseOrigin || recOrigin) as string).toUpperCase() === 'IMPORT' ? 'IMPORT' : 'LOCAL';
+      setModalOrigin(fetchedOrigin);
+      form.setFieldsValue({
+        divisionId: resolvedDivId,
+        purchaseOrigin: fetchedOrigin,
+      });
       if (poData?.lines && Array.isArray(poData.lines) && poData.lines.length > 0) {
         setLines(
           poData.lines.map((ln: any, idx: number) => {
@@ -1147,18 +1225,39 @@ const PurchaseOrderManagement: React.FC = () => {
       const finalPoCode = values.poCode || editingItem?.poCode || `PO-${dayjs().format('YYYY')}-${Date.now().toString().slice(-4)}`;
       const selectedWh = (values.warehouseId || selectedWarehouseId || '').trim() || undefined;
 
+      const originVal = (values.purchaseOrigin || modalOrigin || 'LOCAL').toUpperCase();
+      const isImport = originVal === 'IMPORT';
       const payload: any = {
         companyId: targetCompanyId || undefined,
+        divisionId: values.divisionId || undefined,
+        requisitionId: linkedPrId || undefined,
+        quotationId: linkedQtId || undefined,
         warehouseId: selectedWh,
         poCode: finalPoCode,
         supplierId: selectedSupplierId,
         orderDate: values.orderDate ? dayjs(values.orderDate).format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD'),
-        expectedDeliveryDate: values.expectedDeliveryDate ? dayjs(values.expectedDeliveryDate).format('YYYY-MM-DD') : undefined,
+        expectedDeliveryDate: values.expectedDeliveryDate
+          ? dayjs(values.expectedDeliveryDate).format('YYYY-MM-DD')
+          : (isImport && values.etaDate ? dayjs(values.etaDate).format('YYYY-MM-DD') : undefined),
         paymentTerms: values.supplierBillNo || '',
         taxPercent: 18,
         discountPercent: formDiscount,
         notes: values.notes || '',
-        currencyCode: 'PKR',
+        currencyCode: isImport ? (values.currencyCode || 'USD') : 'PKR',
+        purchaseOrigin: originVal,
+        importCargoType: isImport ? values.importCargoType : undefined,
+        incoterm: isImport ? values.incoterm : undefined,
+        portOfLoading: isImport ? values.portOfLoading : undefined,
+        portOfDischarge: isImport ? values.portOfDischarge : undefined,
+        shippingLine: isImport ? values.shippingLine : undefined,
+        vesselName: isImport ? values.vesselName : undefined,
+        blAwbNumber: isImport ? values.blAwbNumber : undefined,
+        containerNumber: isImport ? values.containerNumber : undefined,
+        lcTtNumber: isImport ? values.lcTtNumber : undefined,
+        importStage: isImport ? (values.importStage || 'ORDER_PLACED') : undefined,
+        productionReadyDate: isImport && values.productionReadyDate ? dayjs(values.productionReadyDate).format('YYYY-MM-DD') : undefined,
+        etdDate: isImport && values.etdDate ? dayjs(values.etdDate).format('YYYY-MM-DD') : undefined,
+        etaDate: isImport && values.etaDate ? dayjs(values.etaDate).format('YYYY-MM-DD') : undefined,
         lines: lines.map((l, idx) => {
           const matchedItem = itemsCatalog.find((it) => it.id === l.itemId);
           const resolvedUomId = l.uomId || matchedItem?.purchaseUomId || matchedItem?.baseUomId || undefined;
@@ -1343,7 +1442,7 @@ const PurchaseOrderManagement: React.FC = () => {
       title: 'Purchase Order',
       key: 'poCode',
       sorter: (a, b) => a.poCode.localeCompare(b.poCode),
-      width: 240,
+      width: 310,
       render: (_, record) => {
         const supplierDisplay = record.supplier?.name || record.supplierName || 'Supplier 1';
         const formattedDate = record.orderDate ? dayjs(record.orderDate).format('MMM DD, YYYY') : 'Aug 04, 2026';
@@ -1353,18 +1452,25 @@ const PurchaseOrderManagement: React.FC = () => {
           <div className="po-details-col">
             <div className="po-code-title">{record.poCode}</div>
             <div className="po-badge-stack">
-              <span className="po-badge-pill po-badge-supplier">
+              <span className="po-badge-pill po-badge-supplier" style={{ whiteSpace: 'nowrap', width: 'max-content' }}>
                 <CarOutlined /> {supplierDisplay}
               </span>
-              <span className="po-badge-pill po-badge-date">
-                <CalendarOutlined /> {formattedDate}
-              </span>
-              <span className="po-badge-pill po-badge-user">
-                <UserOutlined /> {raisedBy}
-              </span>
               {record.warehouse?.name && (
-                <span className="po-badge-pill po-badge-wh" style={{ color: '#38bdf8', background: 'rgba(56, 189, 248, 0.1)', border: '1px solid rgba(56, 189, 248, 0.25)' }}>
+                <span className="po-badge-pill po-badge-wh" style={{ whiteSpace: 'nowrap', color: '#38bdf8', background: 'rgba(56, 189, 248, 0.1)', border: '1px solid rgba(56, 189, 248, 0.25)' }}>
                   <ShopOutlined /> {record.warehouse.name}
+                </span>
+              )}
+              <Tag color={(record as any).purchaseOrigin === 'IMPORT' ? 'purple' : 'cyan'} style={{ margin: 0, fontWeight: 700 }}>
+                {(record as any).purchaseOrigin === 'IMPORT'
+                  ? `IMPORT${(record as any).importCargoType ? ` • ${(record as any).importCargoType}` : ''}`
+                  : 'LOCAL'}
+              </Tag>
+              {(record as any).purchaseOrigin === 'IMPORT' && (
+                <span className="po-badge-pill" style={{ color: '#f59e0b', background: 'rgba(245, 158, 11, 0.1)', border: '1px solid rgba(245, 158, 11, 0.25)' }}>
+                  <GlobalOutlined />{' '}
+                  {IMPORT_STAGES.find((s) => s.key === (record as any).importStage)?.label || 'Import'}
+                  {(record as any).etaDate ? ` • ETA ${dayjs((record as any).etaDate).format('DD MMM')}` : ''}
+                  {Number((record as any).etaRevisionCount || 0) > 0 ? ` (Rev ${(record as any).etaRevisionCount}x)` : ''}
                 </span>
               )}
             </div>
@@ -1373,45 +1479,33 @@ const PurchaseOrderManagement: React.FC = () => {
       },
     },
     {
-      title: 'Status',
-      dataIndex: 'status',
-      key: 'status',
-      sorter: (a, b) => (a.status || '').localeCompare(b.status || ''),
-      width: 130,
-      render: (st: string) => {
-        const norm = (st || '').toUpperCase();
-        let badgeClass = 'po-status-pending';
-        let label = 'Pending';
-
-        if (norm === 'FULLY_RECEIVED' || norm === 'APPROVED' || norm === 'RECEIVED') {
-          badgeClass = 'po-status-received';
-          label = 'Received';
-        } else if (norm === 'PARTIALLY_RECEIVED' || norm === 'PARTIAL') {
-          badgeClass = 'po-status-partial';
-          label = 'Partial';
-        } else if (norm === 'CANCELLED') {
-          badgeClass = 'po-status-cancelled';
-          label = 'Cancelled';
-        } else if (norm === 'DRAFT') {
-          badgeClass = 'po-status-draft';
-          label = 'Draft';
-        }
-
-        return <span className={`po-status-badge ${badgeClass}`}>{label}</span>;
-      },
-    },
-    {
-      title: 'Amounts',
+      title: 'Qty & Amounts',
       key: 'amounts',
       sorter: (a, b) => (a.totalAmount || 0) - (b.totalAmount || 0),
-      width: 210,
+      width: 225,
       render: (_, record) => {
         const rawTotal = Number(record.totalAmount || 0);
         const calcSubtotal = Number(record.subtotal || rawTotal * 0.85);
         const calcGst = Number(record.taxAmount || rawTotal - calcSubtotal);
+        const orderedQty = Number((record as any).orderedQty ?? 0);
+        const receivedQty = Number((record as any).receivedQty ?? 0);
+        const uomCode = (record as any).uomCode || '';
 
         return (
           <div className="po-amounts-box">
+            <div className="po-amount-row">
+              <span className="po-amount-label">
+                <ShoppingCartOutlined /> Qty
+              </span>
+              <span style={{ fontWeight: 700, color: '#2dd4bf' }}>
+                {formatQty(orderedQty)} {uomCode}
+                {receivedQty > 0 ? (
+                  <span style={{ color: '#22c55e', fontWeight: 600, fontSize: 11, marginLeft: 4 }}>
+                    (Rcvd: {formatQty(receivedQty)})
+                  </span>
+                ) : null}
+              </span>
+            </div>
             <div className="po-amount-row">
               <span className="po-amount-label">
                 <FileTextOutlined /> Subtotal
@@ -1460,6 +1554,47 @@ const PurchaseOrderManagement: React.FC = () => {
       },
     },
     {
+      title: 'Status',
+      dataIndex: 'status',
+      key: 'status',
+      sorter: (a, b) => (a.status || '').localeCompare(b.status || ''),
+      width: 150,
+      render: (st: string, record: PurchaseOrder) => {
+        const norm = (st || '').toUpperCase();
+        let badgeClass = 'po-status-pending';
+        let label = 'Pending';
+
+        if (norm === 'FULLY_RECEIVED' || norm === 'APPROVED' || norm === 'RECEIVED') {
+          badgeClass = 'po-status-received';
+          label = 'Received';
+        } else if (norm === 'PARTIALLY_RECEIVED' || norm === 'PARTIAL') {
+          badgeClass = 'po-status-partial';
+          label = 'Partial';
+        } else if (norm === 'CANCELLED') {
+          badgeClass = 'po-status-cancelled';
+          label = 'Cancelled';
+        } else if (norm === 'DRAFT') {
+          badgeClass = 'po-status-draft';
+          label = 'Draft';
+        }
+
+        const raisedBy = record.createdByName || 'admin';
+        const formattedDate = record.orderDate ? dayjs(record.orderDate).format('MMM DD, YYYY') : 'Aug 04, 2026';
+
+        return (
+          <div className="po-badge-stack" style={{ alignItems: 'flex-start', gap: 4 }}>
+            <span className="po-badge-pill po-badge-user">
+              <UserOutlined /> {raisedBy}
+            </span>
+            <span className="po-badge-pill po-badge-date">
+              <CalendarOutlined /> {formattedDate}
+            </span>
+            <span className={`po-status-badge ${badgeClass}`}>{label}</span>
+          </div>
+        );
+      },
+    },
+    {
       title: 'Actions',
       key: 'actions',
       width: 250,
@@ -1486,10 +1621,23 @@ const PurchaseOrderManagement: React.FC = () => {
               onClick={() => handlePrintGatePass(record)}
             />
           </Tooltip>
-          <Tooltip title="Receive Goods">
+          {['APPROVED', 'PARTIALLY_RECEIVED', 'PARTIAL'].includes((record.status || '').toUpperCase()) && (
+            <Tooltip title="Receive Goods (Create GRN)">
+              <Button
+                size="small"
+                type="primary"
+                style={{ background: '#10b981', borderColor: '#10b981', fontWeight: 600 }}
+                icon={<ShoppingCartOutlined />}
+                onClick={() => navigate(`/procurement/receipts?poId=${record.id}`)}
+              >
+                Receive Goods (GRN)
+              </Button>
+            </Tooltip>
+          )}
+          <Tooltip title="Quick Approve / Mark Received">
             <Button
               className="btn-po-action-icon"
-              icon={<ShoppingCartOutlined />}
+              icon={<CheckCircleOutlined />}
               onClick={() => handleReceiveClick(record)}
             />
           </Tooltip>
@@ -1508,6 +1656,15 @@ const PurchaseOrderManagement: React.FC = () => {
               className="btn-po-action-icon"
               icon={<EditOutlined />}
               onClick={() => handleOpenEditModal(record)}
+            />
+          </Tooltip>
+          <Tooltip title="Import Shipment Tracker & Date Revisions">
+            <Button
+              className="btn-po-action-icon"
+              type={(record as any).purchaseOrigin === 'IMPORT' ? 'primary' : 'default'}
+              ghost={(record as any).purchaseOrigin === 'IMPORT'}
+              icon={<GlobalOutlined />}
+              onClick={() => setImportTrackPo(record)}
             />
           </Tooltip>
           <Tooltip title="Email PO">
@@ -1647,6 +1804,16 @@ const PurchaseOrderManagement: React.FC = () => {
               />
             )}
           </Button>
+
+          <Segmented
+            value={originFilter}
+            onChange={(val) => setOriginFilter(val as 'ALL' | 'LOCAL' | 'IMPORT')}
+            options={[
+              { label: 'All POs', value: 'ALL' },
+              { label: 'Local', value: 'LOCAL' },
+              { label: 'Import', value: 'IMPORT' },
+            ]}
+          />
 
           <div style={{ flex: 1 }} />
 
@@ -1818,6 +1985,7 @@ const PurchaseOrderManagement: React.FC = () => {
           rowKey="id"
           loading={loading}
           pagination={false}
+          scroll={{ x: 'max-content' }}
           className="po-custom-table"
           expandable={{
             expandedRowRender: (record) => (
@@ -2073,8 +2241,148 @@ const PurchaseOrderManagement: React.FC = () => {
                     }}
                   />
                 </Form.Item>
+
+                <Form.Item
+                  name="purchaseOrigin"
+                  label={
+                    <span>
+                      <GlobalOutlined style={{ color: '#10b981', marginRight: 4 }} /> Purchase Origin
+                    </span>
+                  }
+                  initialValue="LOCAL"
+                >
+                  <Segmented
+                    block
+                    value={modalOrigin}
+                    onChange={(val) => {
+                      const next = val as 'LOCAL' | 'IMPORT';
+                      setModalOrigin(next);
+                      form.setFieldsValue({ purchaseOrigin: next });
+                    }}
+                    options={[
+                      { label: 'Local Purchase', value: 'LOCAL' },
+                      { label: 'Import Purchase', value: 'IMPORT' },
+                    ]}
+                  />
+                </Form.Item>
               </Col>
             </Row>
+
+            {modalOrigin === 'IMPORT' && (
+              <div
+                style={{
+                  marginBottom: 16,
+                  padding: '12px 14px',
+                  borderRadius: 8,
+                  border: '1px dashed var(--theme-primary, #8b5cf6)',
+                  background: 'var(--theme-surface-alt, rgba(139, 92, 246, 0.06))',
+                }}
+              >
+                <div style={{ fontWeight: 700, marginBottom: 10, color: 'var(--theme-primary, #a78bfa)', fontSize: 13 }}>
+                  <GlobalOutlined style={{ marginRight: 6 }} />
+                  Import Shipment, Cargo &amp; Milestone Schedule
+                </div>
+                <Row gutter={[12, 8]}>
+                  <Col xs={24} sm={12} md={6}>
+                    <Form.Item name="importCargoType" label="Cargo / Mode" rules={[{ required: true, message: 'Select cargo mode' }]}>
+                      <Select
+                        placeholder="LCL / FCL / Air"
+                        options={[
+                          { value: 'LCL', label: 'LCL (Consolidated)' },
+                          { value: 'FCL_20', label: 'FCL (20ft Container)' },
+                          { value: 'FCL_40', label: 'FCL (40ft Container)' },
+                          { value: 'AIR', label: 'Air Freight' },
+                          { value: 'COURIER', label: 'Courier / DHL' },
+                        ]}
+                      />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} sm={12} md={4}>
+                    <Form.Item name="incoterm" label="Incoterm">
+                      <Select
+                        allowClear
+                        placeholder="FOB/CIF"
+                        options={[
+                          { value: 'FOB', label: 'FOB' },
+                          { value: 'CIF', label: 'CIF' },
+                          { value: 'CFR', label: 'CFR' },
+                          { value: 'EXW', label: 'EXW' },
+                          { value: 'DDP', label: 'DDP' },
+                          { value: 'DAP', label: 'DAP' },
+                        ]}
+                      />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} sm={12} md={4}>
+                    <Form.Item name="currencyCode" label="Currency" initialValue="USD">
+                      <Select
+                        options={[
+                          { value: 'USD', label: 'USD' },
+                          { value: 'CNY', label: 'CNY' },
+                          { value: 'EUR', label: 'EUR' },
+                          { value: 'GBP', label: 'GBP' },
+                          { value: 'PKR', label: 'PKR' },
+                        ]}
+                      />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} sm={12} md={5}>
+                    <Form.Item name="importStage" label="Initial Stage" initialValue="ORDER_PLACED">
+                      <Select options={IMPORT_STAGES.map((s) => ({ value: s.key, label: s.label }))} />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} sm={12} md={5}>
+                    <Form.Item name="lcTtNumber" label="LC / TT Ref #">
+                      <Input placeholder="LC / TT Reference" />
+                    </Form.Item>
+                  </Col>
+                </Row>
+                <Row gutter={[12, 8]}>
+                  <Col xs={24} sm={12} md={6}>
+                    <Form.Item name="portOfLoading" label="Port of Loading">
+                      <Input placeholder="e.g. Shanghai / Ningbo" />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} sm={12} md={6}>
+                    <Form.Item name="portOfDischarge" label="Destination Port">
+                      <Input placeholder="e.g. Karachi Port (KICT)" />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} sm={12} md={4}>
+                    <Form.Item name="productionReadyDate" label="Production Ready">
+                      <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} sm={12} md={4}>
+                    <Form.Item name="etdDate" label="ETD (Origin)">
+                      <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} sm={12} md={4}>
+                    <Form.Item name="etaDate" label="ETA (Karachi Port)">
+                      <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
+                    </Form.Item>
+                  </Col>
+                </Row>
+                <Row gutter={[12, 8]}>
+                  <Col xs={24} sm={8}>
+                    <Form.Item name="shippingLine" label="Shipping Line / Forwarder" style={{ marginBottom: 0 }}>
+                      <Input placeholder="e.g. MSC / Maersk / COSCO" />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} sm={8}>
+                    <Form.Item name="vesselName" label="Vessel Name" style={{ marginBottom: 0 }}>
+                      <Input placeholder="Vessel / Flight #" />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} sm={8}>
+                    <Form.Item name="blAwbNumber" label="B/L or AWB #" style={{ marginBottom: 0 }}>
+                      <Input placeholder="Bill of Lading / AWB #" />
+                    </Form.Item>
+                  </Col>
+                </Row>
+              </div>
+            )}
 
             {/* Line Items Section */}
             <div className="po-line-items-section">
@@ -2107,106 +2415,111 @@ const PurchaseOrderManagement: React.FC = () => {
               </div>
 
               {/* Items Table */}
-              <table className="po-items-table">
-                <thead>
-                  <tr>
-                    <th style={{ width: '30%' }}>PRODUCT</th>
-                    <th style={{ width: '10%' }}>UOM</th>
-                    <th style={{ width: '13%', textAlign: 'right' }}>OLD / PREV RATE</th>
-                    <th style={{ width: '16%' }}>CURRENT RATE</th>
-                    <th style={{ width: '13%' }}>QTY</th>
-                    <th style={{ width: '6%', textAlign: 'center' }}>GST</th>
-                    <th style={{ width: '8%', textAlign: 'right' }}>LINE TOTAL</th>
-                    <th style={{ width: '4%', textAlign: 'center' }}></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {lines.map((line) => (
-                    <tr key={line.id}>
-                      <td>
-                        <Select
-                          showSearch
-                          placeholder="Search product..."
-                          optionFilterProp="label"
-                          style={{ width: '100%' }}
-                          value={line.itemId}
-                          onChange={(val) => handleLineChange(line.id, 'itemId', val)}
-                          options={productOptions}
-                        />
-                      </td>
-                      <td>
-                        <Tag
-                          color="cyan"
-                          style={{
-                            fontSize: 12,
-                            fontWeight: 700,
-                            padding: '3px 8px',
-                            borderRadius: 4,
-                            letterSpacing: '0.5px',
-                          }}
-                        >
-                          {line.uomCode || 'GRS'}
-                        </Tag>
-                      </td>
-                      <td style={{ textAlign: 'right', verticalAlign: 'middle' }}>
-                        <div style={{ fontWeight: 700, color: '#94a3b8', fontSize: 13 }}>
-                          Rs {formatDecimal(line.previousRate ?? 0)}
-                        </div>
-                        <div style={{ fontSize: 10, color: '#64748b' }}>
-                          Last / Cost ({line.uomCode || 'GRS'})
-                        </div>
-                      </td>
-                      <td>
-                        <InputNumber
-                          min={0}
-                          style={{ width: '100%' }}
-                          value={line.unitPrice}
-                          placeholder="Current Rate"
-                          onChange={(val) => handleLineChange(line.id, 'unitPrice', val)}
-                        />
-                        {line.previousRate !== undefined && line.unitPrice !== undefined && Number(line.previousRate) > 0 && (
-                          <div style={{ fontSize: 11, marginTop: 2 }}>
-                            {Number(line.unitPrice) > Number(line.previousRate) ? (
-                              <span style={{ color: '#f87171', fontWeight: 600 }}>
-                                ▲ +Rs {formatDecimal(Number(line.unitPrice) - Number(line.previousRate))}
-                              </span>
-                            ) : Number(line.unitPrice) < Number(line.previousRate) ? (
-                              <span style={{ color: '#34d399', fontWeight: 600 }}>
-                                ▼ -Rs {formatDecimal(Number(line.previousRate) - Number(line.unitPrice))}
-                              </span>
-                            ) : (
-                              <span style={{ color: '#94a3b8' }}>✓ Same as last</span>
-                            )}
-                          </div>
-                        )}
-                      </td>
-                      <td>
-                        <InputNumber
-                          min={1}
-                          style={{ width: '100%' }}
-                          value={line.quantity}
-                          addonAfter={line.uomCode || 'GRS'}
-                          onChange={(val) => handleLineChange(line.id, 'quantity', val)}
-                        />
-                      </td>
-                      <td style={{ textAlign: 'center', color: '#6b7280' }}>
-                        {line.gstPercent ? `${line.gstPercent}%` : '—'}
-                      </td>
-                      <td style={{ fontWeight: 700, textAlign: 'right' }}>
-                        {formatDecimal(line.lineTotal)}
-                      </td>
-                      <td style={{ textAlign: 'center' }}>
-                        <Button
-                          type="text"
-                          danger
-                          icon={<DeleteOutlined />}
-                          onClick={() => handleRemoveLine(line.id)}
-                        />
-                      </td>
+              <div className="proc-modal-table-wrap">
+                <table className="po-items-table">
+                  <thead>
+                    <tr>
+                      <th style={{ width: '31%' }}>PRODUCT</th>
+                      <th style={{ width: '7%' }}>UOM</th>
+                      <th style={{ width: '12%', textAlign: 'right' }}>OLD / PREV RATE</th>
+                      <th style={{ width: '15%' }}>CURRENT RATE</th>
+                      <th style={{ width: '15%' }}>QTY</th>
+                      <th style={{ width: '6%', textAlign: 'center' }}>GST</th>
+                      <th style={{ width: '10%', textAlign: 'right' }}>LINE TOTAL</th>
+                      <th style={{ width: '4%', textAlign: 'center' }}></th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {lines.map((line) => (
+                      <tr key={line.id}>
+                        <td>
+                          <Select
+                            showSearch
+                            className="po-product-select"
+                            placeholder="Search product by code or name..."
+                            optionFilterProp="searchText"
+                            popupMatchSelectWidth={false}
+                            styles={{ popup: { root: { minWidth: 340 } } }}
+                            style={{ width: '100%' }}
+                            value={line.itemId}
+                            onChange={(val) => handleLineChange(line.id, 'itemId', val)}
+                            options={productOptions}
+                          />
+                        </td>
+                        <td>
+                          <Tag
+                            color="cyan"
+                            style={{
+                              fontSize: 12,
+                              fontWeight: 700,
+                              padding: '3px 8px',
+                              borderRadius: 4,
+                              letterSpacing: '0.5px',
+                            }}
+                          >
+                            {line.uomCode || 'GRS'}
+                          </Tag>
+                        </td>
+                        <td style={{ textAlign: 'right', verticalAlign: 'middle' }}>
+                          <div style={{ fontWeight: 700, color: '#94a3b8', fontSize: 13 }}>
+                            Rs {formatDecimal(line.previousRate ?? 0)}
+                          </div>
+                          <div style={{ fontSize: 10, color: '#64748b' }}>
+                            Last / Cost ({line.uomCode || 'GRS'})
+                          </div>
+                        </td>
+                        <td>
+                          <InputNumber
+                            min={0}
+                            style={{ width: '100%' }}
+                            value={line.unitPrice}
+                            placeholder="Current Rate"
+                            onChange={(val) => handleLineChange(line.id, 'unitPrice', val)}
+                          />
+                          {line.previousRate !== undefined && line.unitPrice !== undefined && Number(line.previousRate) > 0 && (
+                            <div style={{ fontSize: 11, marginTop: 2 }}>
+                              {Number(line.unitPrice) > Number(line.previousRate) ? (
+                                <span style={{ color: '#f87171', fontWeight: 600 }}>
+                                  ▲ +Rs {formatDecimal(Number(line.unitPrice) - Number(line.previousRate))}
+                                </span>
+                              ) : Number(line.unitPrice) < Number(line.previousRate) ? (
+                                <span style={{ color: '#34d399', fontWeight: 600 }}>
+                                  ▼ -Rs {formatDecimal(Number(line.previousRate) - Number(line.unitPrice))}
+                                </span>
+                              ) : (
+                                <span style={{ color: '#94a3b8' }}>✓ Same as last</span>
+                              )}
+                            </div>
+                          )}
+                        </td>
+                        <td>
+                          <InputNumber
+                            min={1}
+                            style={{ width: '100%' }}
+                            value={line.quantity}
+                            addonAfter={line.uomCode || 'GRS'}
+                            onChange={(val) => handleLineChange(line.id, 'quantity', val)}
+                          />
+                        </td>
+                        <td style={{ textAlign: 'center', color: '#6b7280' }}>
+                          {line.gstPercent ? `${line.gstPercent}%` : '—'}
+                        </td>
+                        <td style={{ fontWeight: 700, textAlign: 'right' }}>
+                          {formatDecimal(line.lineTotal)}
+                        </td>
+                        <td style={{ textAlign: 'center' }}>
+                          <Button
+                            type="text"
+                            danger
+                            icon={<DeleteOutlined />}
+                            onClick={() => handleRemoveLine(line.id)}
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
 
               {/* Actions & Totals */}
               <div className="po-items-actions">
@@ -2425,6 +2738,13 @@ const PurchaseOrderManagement: React.FC = () => {
           OK
         </Button>
       </Modal>
+
+      <PoImportTrackingModal
+        open={!!importTrackPo}
+        po={importTrackPo}
+        onClose={() => setImportTrackPo(null)}
+        onUpdated={() => fetchData(page)}
+      />
     </div>
   );
 };

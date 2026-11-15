@@ -35,14 +35,35 @@ function fmt(val: number): string {
   return Number(val || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+export const DEFAULT_RM_RECEIPT_TEMPLATE = `*{company}*
+*RAW MATERIAL RECEIPT (GATE PASS)*
+━━━━━━━━━━━━━━━━━━━━━━━━━
+*Receipt Date:* {date}
+*Receipt Code:* {receipt_code}
+*Gate Pass No:* {gate_pass_no}
+*Source / DC No:* {source_no}
+*Heat Number:* {heat_number}
+*Warehouse:* {warehouse}
+*Division:* {division}
+*Section:* {section}
+━━━━━━━━━━━━━━━━━━━━━━━━━
+{items}
+━━━━━━━━━━━━━━━━━━━━━━━━━
+*RECEIPT SUMMARY TOTALS:*
+• Total Gate Pass Qty: {total_gp_qty}
+• Total Received Qty: {total_rcv_qty}
+• Net Variance: {net_variance}
+━━━━━━━━━━━━━━━━━━━━━━━━━
+_Generated via PWI ERP System_`;
+
 /**
  * Formats item lines for the WhatsApp receipt message.
- * Uses ➖ Shortage and ➕ Excess (no ❌ mark).
+ * Clean executive layout without box/icon clutter.
  */
 export function formatReceiptItemLines(lines: ShareLine[]): string {
   if (!lines || lines.length === 0) return '';
   const out: string[] = [];
-  out.push(`📋 *MATERIAL ITEMS (${lines.length} Line${lines.length > 1 ? 's' : ''}):*`);
+  out.push(`*MATERIAL ITEMS (${lines.length} Line${lines.length > 1 ? 's' : ''}):*`);
 
   lines.forEach((line, idx) => {
     // Name FIRST, Code in brackets
@@ -52,17 +73,17 @@ export function formatReceiptItemLines(lines: ShareLine[]): string {
     const rcvQty = fmt(line.receivedQuantity);
     const diffVal = Number(line.difference || 0);
 
-    let statusEmoji = '✅ Balanced';
+    let statusText = '✓ Balanced';
     if (diffVal < 0) {
-      statusEmoji = `➕ Excess (+${fmt(Math.abs(diffVal))}${uom})`;
+      statusText = `➕ Excess (+${fmt(Math.abs(diffVal))}${uom})`;
     } else if (diffVal > 0) {
-      statusEmoji = `➖ Shortage (-${fmt(diffVal)}${uom})`;
+      statusText = `➖ Shortage (-${fmt(diffVal)}${uom})`;
     }
 
     out.push(`\n*${idx + 1}. ${itemTitle}*`);
     out.push(`   • Gate Pass Qty: ${gpQty}${uom}`);
     out.push(`   • Received Qty: ${rcvQty}${uom}`);
-    out.push(`   • Status: ${statusEmoji}`);
+    out.push(`   • Status: ${statusText}`);
   });
 
   return out.join('\n');
@@ -96,7 +117,7 @@ function getStoredRmReceiptTemplate(): string | null {
 export function buildReceiptWhatsAppMessage(info: ShareReceiptInfo): string {
   const date = info.receiptDate || '';
   const netDiff = Number(info.differenceTotal || 0);
-  let netStatus = '✅ Balanced';
+  let netStatus = '✓ Balanced';
   let netVarianceStr = `${fmt(0)} KG`;
   if (netDiff > 0) {
     netStatus = '➖ Shortage';
@@ -118,6 +139,7 @@ export function buildReceiptWhatsAppMessage(info: ShareReceiptInfo): string {
       .replace(/{receipt_code}/g, info.receiptCode || '')
       .replace(/{gate_pass_no}/g, info.gatePassNo || '—')
       .replace(/{po_no}/g, info.poCode || '—')
+      .replace(/{source_no}/g, info.sourceNo || '—')
       .replace(/{doc_no}/g, info.gatePassNo || info.receiptCode || '')
       .replace(/{heat_number}/g, info.heatNumber || '—')
       .replace(/{date}/g, date)
@@ -131,20 +153,20 @@ export function buildReceiptWhatsAppMessage(info: ShareReceiptInfo): string {
   }
 
   const lines: string[] = [];
-  lines.push('📦 *Pakistan Wire Industries (Pvt.) LTD*');
+  lines.push('*Pakistan Wire Industries (Pvt.) LTD*');
   lines.push('*RAW MATERIAL RECEIPT (GATE PASS)*');
   lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━');
-  lines.push(`📋 *Receipt Code:* ${info.receiptCode}`);
-  if (info.gatePassNo) lines.push(`🎫 *Gate Pass No:* ${info.gatePassNo}`);
-  if (info.poCode) lines.push(`📑 *PO Number:* ${info.poCode}`);
-  if (info.sourceNo) lines.push(`📄 *Source / DC No:* ${info.sourceNo}`);
-  if (info.heatNumber) lines.push(`🔥 *Heat Number:* ${info.heatNumber}`);
-  if (date) lines.push(`📅 *Receipt Date:* ${date}`);
+  if (date) lines.push(`*Receipt Date:* ${date}`);
+  lines.push(`*Receipt Code:* ${info.receiptCode}`);
+  if (info.gatePassNo) lines.push(`*Gate Pass No:* ${info.gatePassNo}`);
+  if (info.poCode) lines.push(`*PO Number:* ${info.poCode}`);
+  if (info.sourceNo) lines.push(`*Source / DC No:* ${info.sourceNo}`);
+  if (info.heatNumber) lines.push(`*Heat Number:* ${info.heatNumber}`);
 
   // Display only clean entity names without bracketed codes
-  if (warehouseDisplay) lines.push(`🏪 *Warehouse:* ${warehouseDisplay}`);
-  if (divisionDisplay) lines.push(`🏢 *Division:* ${divisionDisplay}`);
-  if (sectionDisplay) lines.push(`🏬 *Section:* ${sectionDisplay}`);
+  if (warehouseDisplay) lines.push(`*Warehouse:* ${warehouseDisplay}`);
+  if (divisionDisplay) lines.push(`*Division:* ${divisionDisplay}`);
+  if (sectionDisplay) lines.push(`*Section:* ${sectionDisplay}`);
   // Department line removed as requested
 
   if (info.lines.length > 0) {
@@ -152,14 +174,14 @@ export function buildReceiptWhatsAppMessage(info: ShareReceiptInfo): string {
     lines.push(formatReceiptItemLines(info.lines));
 
     lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━');
-    lines.push('📊 *RECEIPT SUMMARY TOTALS:*');
+    lines.push('*RECEIPT SUMMARY TOTALS:*');
     lines.push(`• Total Gate Pass Qty: ${fmt(info.gatePassTotal)}`);
     lines.push(`• Total Received Qty: ${fmt(info.receivedTotal)}`);
     lines.push(`• Net Variance: ${netVarianceStr} (${netStatus})`);
   }
 
   lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━');
-  lines.push('🌐 _Generated via PWI ERP System (2026-2027)_');
+  lines.push('_Generated via PWI ERP System_');
 
   return lines.join('\n');
 }
@@ -194,26 +216,26 @@ export function buildReturnWhatsAppMessage(info: ShareReturnInfo): string {
   const date = info.returnDate || '';
   const lines: string[] = [];
 
-  lines.push('🔄 *Pakistan Wire Industries (Pvt.) LTD*');
+  lines.push('*Pakistan Wire Industries (Pvt.) LTD*');
   lines.push('*RAW MATERIAL RETURN*');
   lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━');
-  lines.push(`📋 *Return Code:* ${info.returnCode}`);
-  if (info.sourceNo) lines.push(`📄 *Source / DC No:* ${info.sourceNo}`);
-  if (info.referenceReceiptCode) lines.push(`🎫 *Ref Gate Pass:* ${info.referenceReceiptCode}`);
-  if (date) lines.push(`📅 *Return Date:* ${date}`);
+  if (date) lines.push(`*Return Date:* ${date}`);
+  lines.push(`*Return Code:* ${info.returnCode}`);
+  if (info.sourceNo) lines.push(`*Source / DC No:* ${info.sourceNo}`);
+  if (info.referenceReceiptCode) lines.push(`*Ref Gate Pass:* ${info.referenceReceiptCode}`);
 
   const warehouseDisplay = info.warehouseName?.trim() || info.warehouseCode?.trim() || '';
   const divisionDisplay = info.divisionName?.trim() || info.divisionCode?.trim() || '';
   const sectionDisplay = info.sectionName?.trim() || info.sectionCode?.trim() || '';
 
-  if (warehouseDisplay) lines.push(`🏪 *Return Warehouse:* ${warehouseDisplay}`);
-  if (divisionDisplay) lines.push(`🏢 *Division:* ${divisionDisplay}`);
-  if (sectionDisplay) lines.push(`🏬 *Section:* ${sectionDisplay}`);
-  if (info.reason) lines.push(`❓ *Reason:* ${info.reason}`);
+  if (warehouseDisplay) lines.push(`*Return Warehouse:* ${warehouseDisplay}`);
+  if (divisionDisplay) lines.push(`*Division:* ${divisionDisplay}`);
+  if (sectionDisplay) lines.push(`*Section:* ${sectionDisplay}`);
+  if (info.reason) lines.push(`*Reason:* ${info.reason}`);
 
   if (info.lines.length > 0) {
     lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━');
-    lines.push(`📋 *RETURNED ITEMS (${info.lines.length} Line${info.lines.length > 1 ? 's' : ''}):*`);
+    lines.push(`*RETURNED ITEMS (${info.lines.length} Line${info.lines.length > 1 ? 's' : ''}):*`);
 
     info.lines.forEach((line, idx) => {
       const itemTitle = formatNameWithCode(line.itemName, line.itemCode);
@@ -225,12 +247,12 @@ export function buildReturnWhatsAppMessage(info: ShareReturnInfo): string {
     });
 
     lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━');
-    lines.push('📊 *RETURN SUMMARY TOTAL:*');
+    lines.push('*RETURN SUMMARY TOTAL:*');
     lines.push(`• Total Returned Qty: ${fmt(info.quantityTotal)}`);
   }
 
   lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━');
-  lines.push('🌐 _Generated via PWI ERP System (2026-2027)_');
+  lines.push('_Generated via PWI ERP System_');
 
   return lines.join('\n');
 }

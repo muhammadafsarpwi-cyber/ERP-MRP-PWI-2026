@@ -1801,13 +1801,28 @@ export class DashboardService {
     };
   }
 
+  private convertOrderQtyToGrs(qty: number, uomCode?: string | null): number {
+    const n = Number(qty || 0);
+    if (!n) return 0;
+    const code = (uomCode || 'GRS').toUpperCase().trim();
+    if (code === 'GRS' || code === 'GROSS') return Math.round(n * 100) / 100;
+    if (code === 'PCS' || code === 'PC' || code === 'EA') return Math.round((n / 144) * 100) / 100;
+    if (code === 'DOZ' || code === 'DZ') return Math.round((n / 12) * 100) / 100;
+    if (code === 'PAIR' || code === 'PRS') return Math.round((n / 72) * 100) / 100;
+    return Math.round(n * 100) / 100;
+  }
+
   async getSalesOrderSummary(companyId: string) {
     const orders = await this.salesOrderRepo
       .createQueryBuilder('so')
       .leftJoinAndSelect('so.customer', 'customer')
+      .leftJoinAndSelect('so.items', 'items')
+      .leftJoinAndSelect('items.item', 'item')
+      .leftJoinAndSelect('items.uom', 'uom')
       .where('so."company_id" = :companyId', { companyId })
       .orderBy('so.created_at', 'DESC')
-      .limit(20)
+      .addOrderBy('items.line_number', 'ASC')
+      .take(60)
       .getMany();
 
     const statusCounts = await this.salesOrderRepo
@@ -1819,17 +1834,113 @@ export class DashboardService {
       .groupBy('so.status')
       .getRawMany();
 
+    const now = new Date();
+    const thisMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
+      .toISOString()
+      .slice(0, 10);
+    const nextMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1))
+      .toISOString()
+      .slice(0, 10);
+    const lastMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1))
+      .toISOString()
+      .slice(0, 10);
+
+    const grsConvertExpr = (col: string) => `
+      CASE
+        WHEN UPPER(COALESCE(u.code, 'GRS')) IN ('PCS', 'PC', 'EA') THEN COALESCE(${col}, 0) / 144.0
+        WHEN UPPER(COALESCE(u.code, 'GRS')) IN ('DOZ', 'DZ') THEN COALESCE(${col}, 0) / 12.0
+        WHEN UPPER(COALESCE(u.code, 'GRS')) IN ('PAIR', 'PRS') THEN COALESCE(${col}, 0) / 72.0
+        ELSE COALESCE(${col}, 0)
+      END
+    `;
+
+    const summaryAggRows = await this.salesOrderRepo.manager.query(
+      `
+      SELECT
+        COALESCE(SUM(CASE WHEN UPPER(COALESCE(so.status, '')) != 'CANCELLED' THEN ${grsConvertExpr('soi.quantity')} ELSE 0 END), 0) AS total_ordered_grs,
+        COALESCE(SUM(CASE WHEN UPPER(COALESCE(so.status, '')) != 'CANCELLED' THEN ${grsConvertExpr('soi.shipped_quantity')} ELSE 0 END), 0) AS total_dispatched_grs,
+        COUNT(DISTINCT CASE WHEN UPPER(COALESCE(so.status, '')) != 'CANCELLED' AND COALESCE(so.order_date, so.created_at::date) >= $2::date AND COALESCE(so.order_date, so.created_at::date) < $3::date THEN so.id END) AS this_month_count,
+        COALESCE(SUM(CASE WHEN UPPER(COALESCE(so.status, '')) != 'CANCELLED' AND COALESCE(so.order_date, so.created_at::date) >= $2::date AND COALESCE(so.order_date, so.created_at::date) < $3::date THEN ${grsConvertExpr('soi.quantity')} ELSE 0 END), 0) AS this_month_grs,
+        COUNT(DISTINCT CASE WHEN UPPER(COALESCE(so.status, '')) != 'CANCELLED' AND COALESCE(so.order_date, so.created_at::date) >= $4::date AND COALESCE(so.order_date, so.created_at::date) < $2::date THEN so.id END) AS last_month_count,
+        COALESCE(SUM(CASE WHEN UPPER(COALESCE(so.status, '')) != 'CANCELLED' AND COALESCE(so.order_date, so.created_at::date) >= $4::date AND COALESCE(so.order_date, so.created_at::date) < $2::date THEN ${grsConvertExpr('soi.quantity')} ELSE 0 END), 0) AS last_month_grs
+      FROM erp_sales.sales_orders so
+      LEFT JOIN erp_sales.sales_order_items soi ON soi.sales_order_id = so.id
+      LEFT JOIN erp_item.uoms u ON u.id = soi.uom_id
+      WHERE so.company_id = $1 AND so.deleted_at IS NULL
+      `,
+      [companyId, thisMonthStart, nextMonthStart, lastMonthStart],
+    );
+
+    const agg = summaryAggRows?.[0] ?? {};
+    const totalOrderedGrs = Math.round(Number(agg.total_ordered_grs || 0) * 100) / 100;
+    const totalDispatchedGrs = Math.round(Number(agg.total_dispatched_grs || 0) * 100) / 100;
+    const totalBalanceGrs = Math.max(0, Math.round((totalOrderedGrs - totalDispatchedGrs) * 100) / 100);
+
     return {
-      recentOrders: orders.map(so => ({
-        id: so.id,
-        orderNumber: so.orderNumber,
-        customerName: (so.customer as any)?.customerName ?? '',
-        orderDate: so.orderDate,
-        deliveryDate: so.deliveryDate,
-        totalAmount: Number(so.totalAmount),
-        status: so.status,
-        currency: so.currency,
-      })),
+      summary: {
+        totalOrderedGrs,
+        totalDispatchedGrs,
+        totalBalanceGrs,
+        thisMonthCount: parseInt(agg.this_month_count || '0', 10),
+        thisMonthGrs: Math.round(Number(agg.this_month_grs || 0) * 100) / 100,
+        lastMonthCount: parseInt(agg.last_month_count || '0', 10),
+        lastMonthGrs: Math.round(Number(agg.last_month_grs || 0) * 100) / 100,
+      },
+      recentOrders: orders.map(so => {
+        const mappedItems = (so.items ?? [])
+          .slice()
+          .sort((a, b) => (a.lineNumber ?? 0) - (b.lineNumber ?? 0))
+          .map(li => {
+            const uomCode = li.uom?.code ?? 'GRS';
+            const orderedGrs = this.convertOrderQtyToGrs(Number(li.quantity || 0), uomCode);
+            const dispatchedGrs = this.convertOrderQtyToGrs(Number(li.shippedQuantity || 0), uomCode);
+            const balanceGrs = Math.max(0, Math.round((orderedGrs - dispatchedGrs) * 100) / 100);
+            const completionPct =
+              orderedGrs > 0 ? Math.min(100, Math.round((dispatchedGrs / orderedGrs) * 100)) : 0;
+            const itemCompleted = orderedGrs > 0 && balanceGrs <= 0.01;
+            return {
+              id: li.id,
+              lineNumber: li.lineNumber ?? 0,
+              itemCode: li.item?.itemCode ?? '',
+              itemName: li.item?.name ?? li.description ?? 'Item',
+              uomCode,
+              orderedGrs,
+              dispatchedGrs,
+              balanceGrs,
+              completionPct,
+              status: itemCompleted ? 'Completed' : li.status || 'Pending',
+            };
+          });
+
+        const orderedGrs =
+          Math.round(mappedItems.reduce((acc, x) => acc + x.orderedGrs, 0) * 100) / 100;
+        const dispatchedGrs =
+          Math.round(mappedItems.reduce((acc, x) => acc + x.dispatchedGrs, 0) * 100) / 100;
+        const balanceGrs = Math.max(0, Math.round((orderedGrs - dispatchedGrs) * 100) / 100);
+        const completionPct =
+          orderedGrs > 0 ? Math.min(100, Math.round((dispatchedGrs / orderedGrs) * 100)) : 0;
+        const isCompleted =
+          (orderedGrs > 0 && balanceGrs <= 0.01) ||
+          ['DELIVERED', 'COMPLETED', 'CLOSED'].includes((so.status || '').toUpperCase());
+
+        return {
+          id: so.id,
+          orderNumber: so.orderNumber,
+          customerName: (so.customer as any)?.customerName ?? '',
+          orderDate: so.orderDate,
+          deliveryDate: so.deliveryDate,
+          totalAmount: Number(so.totalAmount),
+          status: so.status,
+          currency: so.currency,
+          partsCount: mappedItems.length,
+          orderedGrs,
+          dispatchedGrs,
+          balanceGrs,
+          completionPct,
+          isCompleted,
+          items: mappedItems,
+        };
+      }),
       statusBreakdown: statusCounts.map(s => ({
         status: s.status,
         count: parseInt(s.count, 10),

@@ -23,7 +23,8 @@ export class PurchaseRequisitionService {
       throw new ConflictException(`Requisition code '${dto.requisitionCode}' already exists`);
     }
 
-    const { divisionId, warehouseId, purchaseType, lines } = dto;
+    const { divisionId, warehouseId, purchaseType, purchaseOrigin, lines } = dto;
+    const origin = (purchaseOrigin || purchaseType || 'LOCAL').toUpperCase();
     const requisition = this.repo.create({
       companyId: dto.companyId,
       requisitionCode: dto.requisitionCode,
@@ -34,6 +35,15 @@ export class PurchaseRequisitionService {
       department: dto.department || null,
       projectCode: dto.projectCode || null,
       notes: dto.notes || null,
+      purchaseOrigin: origin,
+      importCargoType: origin === 'IMPORT' ? (dto.importCargoType || null) : null,
+      incoterm: origin === 'IMPORT' ? (dto.incoterm || null) : null,
+      portOfLoading: origin === 'IMPORT' ? (dto.portOfLoading || null) : null,
+      portOfDischarge: origin === 'IMPORT' ? (dto.portOfDischarge || null) : null,
+      currencyCode: dto.currencyCode || (origin === 'IMPORT' ? 'USD' : 'PKR'),
+      expectedEtd: origin === 'IMPORT' ? (dto.expectedEtd || null) : null,
+      expectedEta: origin === 'IMPORT' ? (dto.expectedEta || null) : null,
+      importRemarks: origin === 'IMPORT' ? (dto.importRemarks || null) : null,
       status: 'DRAFT',
       createdBy: userId || null,
       updatedBy: userId || null,
@@ -83,6 +93,17 @@ export class PurchaseRequisitionService {
     if (dto.department !== undefined) requisition.department = dto.department || null;
     if (dto.projectCode !== undefined) requisition.projectCode = dto.projectCode || null;
     if (dto.notes !== undefined) requisition.notes = dto.notes || null;
+    if (dto.purchaseOrigin !== undefined || dto.purchaseType !== undefined) {
+      requisition.purchaseOrigin = (dto.purchaseOrigin || dto.purchaseType || 'LOCAL').toUpperCase();
+    }
+    if (dto.importCargoType !== undefined) requisition.importCargoType = dto.importCargoType || null;
+    if (dto.incoterm !== undefined) requisition.incoterm = dto.incoterm || null;
+    if (dto.portOfLoading !== undefined) requisition.portOfLoading = dto.portOfLoading || null;
+    if (dto.portOfDischarge !== undefined) requisition.portOfDischarge = dto.portOfDischarge || null;
+    if (dto.currencyCode !== undefined) requisition.currencyCode = dto.currencyCode || 'PKR';
+    if (dto.expectedEtd !== undefined) requisition.expectedEtd = dto.expectedEtd || null;
+    if (dto.expectedEta !== undefined) requisition.expectedEta = dto.expectedEta || null;
+    if (dto.importRemarks !== undefined) requisition.importRemarks = dto.importRemarks || null;
     requisition.updatedBy = userId || null;
 
     await this.repo.save(requisition);
@@ -117,11 +138,12 @@ export class PurchaseRequisitionService {
   }
 
   async findAll(filter: PurchaseRequisitionFilterDto): Promise<{ data: PurchaseRequisition[]; total: number }> {
-    const { page = 1, limit = 20, companyId, status, search, sortField = 'createdAt', sortOrder = 'DESC' } = filter;
+    const { page = 1, limit = 20, companyId, status, origin, search, sortField = 'createdAt', sortOrder = 'DESC' } = filter;
     const qb = this.repo.createQueryBuilder('pr');
     let hasWhere = false;
     if (companyId) { qb.where('pr.companyId = :companyId', { companyId }); hasWhere = true; }
     if (status) { qb[hasWhere ? 'andWhere' : 'where']('pr.status = :status', { status }); hasWhere = true; }
+    if (origin && origin !== 'ALL') { qb[hasWhere ? 'andWhere' : 'where']('pr.purchaseOrigin = :origin', { origin: origin.toUpperCase() }); hasWhere = true; }
     if (search) { qb[hasWhere ? 'andWhere' : 'where']('(pr.title ILIKE :search OR pr.requisitionCode ILIKE :search)', { search: `%${search}%` }); hasWhere = true; }
     const validSortFields = ['createdAt', 'requisitionCode', 'title', 'status'];
     const field = validSortFields.includes(sortField) ? sortField : 'createdAt';

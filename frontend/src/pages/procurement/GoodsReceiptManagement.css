@@ -77,6 +77,18 @@
   margin-bottom: 16px;
 }
 
+@media (max-width: 768px) {
+  .gr-view-meta-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 480px) {
+  .gr-view-meta-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .gr-view-meta-card {
   background: var(--theme-surface-alt, rgba(0, 0, 0, 0.02));
   border: 1px solid var(--theme-border, rgba(0, 0, 0, 0.08));

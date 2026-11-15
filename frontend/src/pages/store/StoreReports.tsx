@@ -30,12 +30,12 @@ const reports: ReportCard[] = [
   { title: 'Material Issue Report', description: 'Material issues issued from store', icon: <ArrowUpOutlined style={{ fontSize: 28 }} />, path: '/store/material-issues', color: '#ff4d4f' },
   { title: 'Material Receive Report', description: 'Materials received into store', icon: <ArrowDownOutlined style={{ fontSize: 28 }} />, path: '/store/material-receipts', color: '#52c41a' },
   { title: 'GRN Report', description: 'Goods receipt notes', icon: <InboxOutlined style={{ fontSize: 28 }} />, path: '/store/material-receipts', color: '#faad14' },
-  { title: 'Transfer Report', description: 'Stock transfers between warehouses', icon: <SwapOutlined style={{ fontSize: 28 }} />, path: '/inventory/transfers', color: '#722ed1' },
+  { title: 'Transfer Report (MTN)', description: 'Stock transfers between stores', icon: <SwapOutlined style={{ fontSize: 28 }} />, path: '/store/transfers', color: '#722ed1' },
   { title: 'Stock Adjustment Report', description: 'Stock adjustments and corrections', icon: <EditOutlined style={{ fontSize: 28 }} />, path: '/inventory/adjustments', color: '#eb2f96' },
   { title: 'Purchase Requisition Report', description: 'Purchase requisitions and status', icon: <FileTextOutlined style={{ fontSize: 28 }} />, path: '/procurement/requisitions', color: '#fa8c16' },
   { title: 'Material Request Report', description: 'All material requests and fulfillment', icon: <FileTextOutlined style={{ fontSize: 28 }} />, path: '/store/material-requests', color: '#1890ff' },
   { title: 'Pending Approval Report', description: 'Items pending approval across store', icon: <ClockCircleOutlined style={{ fontSize: 28 }} />, path: '/store/pending-approvals', color: '#ff4d4f' },
-  { title: 'Store Performance Report', description: 'Store efficiency and fulfillment metrics', icon: <RiseOutlined style={{ fontSize: 28 }} />, path: '/store/reports', color: '#2f54eb' },
+  { title: 'Store Performance Dashboard', description: 'Store efficiency and fulfillment metrics', icon: <RiseOutlined style={{ fontSize: 28 }} />, path: '/store/dashboard', color: '#2f54eb' },
 ];
 
 const StoreReports: React.FC = () => {

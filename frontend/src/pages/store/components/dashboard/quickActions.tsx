@@ -23,11 +23,11 @@ interface QuickActionDef {
 }
 
 const ACTIONS: QuickActionDef[] = [
-  { key: 'mr', label: 'New Material Request', desc: 'Create request from a store', icon: <FileAddOutlined />, path: '/store/material-requests', permission: 'store.request.create', color: '#1677ff' },
+  { key: 'mr', label: 'New Material Request', desc: 'Create request from a store', icon: <FileAddOutlined />, path: '/store/material-requests?create=1', permission: 'store.request.create', color: '#1677ff' },
   { key: 'pr', label: 'Create Purchase Requisition', desc: 'Raise a PR from requests', icon: <FileSearchOutlined />, path: '/procurement/requisitions', permission: 'procurement.requisition.create', color: '#fa8c16' },
   { key: 'po', label: 'Create Purchase Order', desc: 'Convert PR into an order', icon: <ShoppingCartOutlined />, path: '/procurement/orders', permission: 'procurement.order.create', color: '#722ed1' },
   { key: 'grn', label: 'Receive Goods (GRN)', desc: 'Confirm inbound material receipt', icon: <ImportOutlined />, path: '/store/material-receipts', permission: 'store.receive.create', color: '#52c41a' },
-  { key: 'transfer', label: 'Stock Transfer', desc: 'Move stock between stores', icon: <SwapOutlined />, path: '/inventory/transfers', permission: 'inventory.transfer.create', color: '#13c2c2' },
+  { key: 'transfer', label: 'Material Transfer (MTN)', desc: 'Move stock between stores', icon: <SwapOutlined />, path: '/store/transfers', permission: 'store.issue.create', color: '#13c2c2' },
   { key: 'adjust', label: 'Stock Adjustment', desc: 'Correct stock levels', icon: <EditOutlined />, path: '/inventory/adjustments', permission: 'inventory.adjustment.create', color: '#eb2f96' },
   { key: 'issue', label: 'Material Issue', desc: 'Issue material from store', icon: <ExportOutlined />, path: '/store/material-issues', permission: 'store.issue.create', color: '#ff4d4f' },
   { key: 'return', label: 'Material Return', desc: 'Return material to store', icon: <RollbackOutlined />, path: '/store/material-returns', permission: 'store.return.create', color: '#faad14' },

@@ -1,17 +1,31 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Table, Button, Space, Tag, Modal, Form, Input, Select, App, Card,
-  InputNumber, Row, Col, DatePicker, Segmented,
+  InputNumber, Row, Col, Segmented, theme,
 } from 'antd';
 import {
   PlusOutlined, SearchOutlined, CheckOutlined, ReloadOutlined,
-  ApartmentOutlined, GlobalOutlined, FileTextOutlined,
+  ApartmentOutlined, GlobalOutlined, FileTextOutlined, DeleteOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
-import dayjs from 'dayjs';
 import apiService from '../../services/api';
 import { formatDecimal } from '../../utils/numberFormat';
 import { DraggableResizableModal } from '../../components/shared';
+import './procurementResponsive.css';
+
+interface InvoiceLineRow {
+  key: string;
+  poLineId?: string;
+  grnLineId?: string;
+  itemId: string;
+  itemName: string;
+  uomId: string;
+  uomCode: string;
+  invoicedQty: number;
+  unitPrice: number;
+  taxPercent: number;
+  lineTotal: number;
+}
 
 interface PurchaseInvoice {
   id: string;
@@ -70,6 +84,7 @@ const matchingStatusColorMap: Record<string, string> = {
 
 const PurchaseInvoiceManagement: React.FC = () => {
   const { message } = App.useApp();
+  const { token } = theme.useToken();
   const [data, setData] = useState<PurchaseInvoice[]>([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
@@ -86,6 +101,9 @@ const PurchaseInvoiceManagement: React.FC = () => {
   const [companyId, setCompanyId] = useState('');
   const [suppliers, setSuppliers] = useState<Array<{ id: string; name: string }>>([]);
   const [divisions, setDivisions] = useState<DivisionOption[]>(DEFAULT_DIVISIONS);
+  const [purchaseOrders, setPurchaseOrders] = useState<any[]>([]);
+  const [goodsReceipts, setGoodsReceipts] = useState<any[]>([]);
+  const [invoiceLines, setInvoiceLines] = useState<InvoiceLineRow[]>([]);
 
   useEffect(() => {
     const erpUser = localStorage.getItem('erp_user');
@@ -104,6 +122,14 @@ const PurchaseInvoiceManagement: React.FC = () => {
           setDivisions(divItems.map((x: any) => ({ id: x.id, code: x.divisionCode, name: x.name })));
         }
       } catch { /* keep defaults */ }
+      try {
+        const poRes = await apiService.get<any>('/procurement/orders', { limit: 100 });
+        setPurchaseOrders(poRes?.data || (Array.isArray(poRes) ? poRes : []));
+      } catch { /* ignore */ }
+      try {
+        const grnRes = await apiService.get<any>('/procurement/receipts', { limit: 100 });
+        setGoodsReceipts(grnRes?.data || (Array.isArray(grnRes) ? grnRes : []));
+      } catch { /* ignore */ }
     })();
   }, []);
 
@@ -131,8 +157,111 @@ const PurchaseInvoiceManagement: React.FC = () => {
     return `PINV-${currentYear}-${String(nextSeq).padStart(4, '0')}`;
   }, [total, data.length]);
 
+  const syncSubtotalFromLines = (lines: InvoiceLineRow[]) => {
+    const sum = lines.reduce((acc, r) => acc + Number(r.invoicedQty || 0) * Number(r.unitPrice || 0), 0);
+    form.setFieldsValue({ subtotal: Number(sum.toFixed(2)) });
+  };
+
+  const handleSelectPo = async (poId: string | null) => {
+    if (!poId) return;
+    try {
+      const res = await apiService.get<any>(`/procurement/orders/${poId}`);
+      const po = res?.data || res;
+      if (!po) return;
+      form.setFieldsValue({
+        supplierId: po.supplierId,
+        divisionId: po.divisionId,
+        purchaseType: po.purchaseType || 'LOCAL',
+        currencyCode: po.currencyCode || 'PKR',
+        grnId: undefined,
+      });
+      if (Array.isArray(po.lines) && po.lines.length > 0) {
+        const mapped: InvoiceLineRow[] = po.lines.map((l: any, idx: number) => {
+          const qty = Number(l.receivedQty || l.quantity || 0);
+          const price = Number(l.unitPrice || 0);
+          const tax = Number(l.taxPercent ?? 18);
+          return {
+            key: `inv_po_${idx}_${Date.now()}`,
+            poLineId: l.id,
+            itemId: l.itemId,
+            itemName: l.item?.name || l.notes || l.item?.itemCode || 'Item',
+            uomId: l.uomId,
+            uomCode: l.uom?.code || 'KG',
+            invoicedQty: qty,
+            unitPrice: price,
+            taxPercent: tax,
+            lineTotal: Number((qty * price).toFixed(2)),
+          };
+        });
+        setInvoiceLines(mapped);
+        syncSubtotalFromLines(mapped);
+        message.success(`Loaded ${mapped.length} line(s) from PO ${po.poCode}`);
+      }
+    } catch {
+      message.error('Failed to load PO details');
+    }
+  };
+
+  const handleSelectGrn = async (grnId: string | null) => {
+    if (!grnId) return;
+    try {
+      const res = await apiService.get<any>(`/procurement/receipts/${grnId}`);
+      const grn = res?.data || res;
+      if (!grn) return;
+      form.setFieldsValue({
+        poId: grn.poId,
+        supplierId: grn.supplierId,
+        divisionId: grn.divisionId,
+        purchaseType: grn.purchaseType || 'LOCAL',
+      });
+      if (Array.isArray(grn.lines) && grn.lines.length > 0) {
+        const mapped: InvoiceLineRow[] = grn.lines.map((l: any, idx: number) => {
+          const qty = Number(l.acceptedQty ?? l.receivedQty ?? l.quantity ?? 0);
+          const price = Number(l.unitPrice ?? l.poLine?.unitPrice ?? 0);
+          const tax = Number(l.poLine?.taxPercent ?? 18);
+          return {
+            key: `inv_grn_${idx}_${Date.now()}`,
+            grnLineId: l.id,
+            poLineId: l.poLineId,
+            itemId: l.itemId,
+            itemName: l.item?.name || l.notes || l.item?.itemCode || 'Item',
+            uomId: l.uomId,
+            uomCode: l.uom?.code || 'KG',
+            invoicedQty: qty,
+            unitPrice: price,
+            taxPercent: tax,
+            lineTotal: Number((qty * price).toFixed(2)),
+          };
+        });
+        setInvoiceLines(mapped);
+        syncSubtotalFromLines(mapped);
+        message.success(`Loaded ${mapped.length} line(s) from GRN ${grn.receiptCode}`);
+      }
+    } catch {
+      message.error('Failed to load GRN details');
+    }
+  };
+
+  const handleLineChange = (key: string, field: 'invoicedQty' | 'unitPrice' | 'taxPercent', value: number) => {
+    const updated = invoiceLines.map((row) => {
+      if (row.key !== key) return row;
+      const next = { ...row, [field]: Number(value || 0) };
+      next.lineTotal = Number((next.invoicedQty * next.unitPrice).toFixed(2));
+      return next;
+    });
+    setInvoiceLines(updated);
+    syncSubtotalFromLines(updated);
+  };
+
+  const handleRemoveLine = (key: string) => {
+    const updated = invoiceLines.filter((r) => r.key !== key);
+    setInvoiceLines(updated);
+    syncSubtotalFromLines(updated);
+  };
+
   const handleCreate = () => {
     form.resetFields();
+    setInvoiceLines([]);
     form.setFieldsValue({
       invoiceCode: generateInvoiceCode(),
       companyId,
@@ -140,6 +269,7 @@ const PurchaseInvoiceManagement: React.FC = () => {
       purchaseType: 'LOCAL',
       taxPercent: 18,
       discountAmount: 0,
+      subtotal: 0,
     });
     setModalVisible(true);
   };
@@ -151,6 +281,19 @@ const PurchaseInvoiceManagement: React.FC = () => {
       await apiService.post('/procurement/invoices', {
         ...values,
         companyId: companyId || values.companyId,
+        lines: invoiceLines.length > 0
+          ? invoiceLines.map((l) => ({
+              poLineId: l.poLineId,
+              grnLineId: l.grnLineId,
+              itemId: l.itemId,
+              uomId: l.uomId,
+              invoicedQty: Number(l.invoicedQty || 0),
+              quantity: Number(l.invoicedQty || 0),
+              unitPrice: Number(l.unitPrice || 0),
+              taxPercent: Number(l.taxPercent || 0),
+              lineTotal: Number(l.lineTotal || 0),
+            }))
+          : undefined,
       });
       message.success(`Purchase Invoice ${values.invoiceCode} created`);
       setModalVisible(false);
@@ -266,30 +409,31 @@ const PurchaseInvoiceManagement: React.FC = () => {
         </Space>
       }
     >
-      <Row gutter={16} style={{ marginBottom: 16 }}>
-        <Col span={8}>
+      <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
+        <Col xs={24} sm={12} md={8}>
           <Input placeholder="Search invoices, PO, supplier..." prefix={<SearchOutlined />} value={search} onChange={(e) => setSearch(e.target.value)} onPressEnter={() => fetchData(1)} allowClear />
         </Col>
-        <Col span={6}>
+        <Col xs={24} sm={12} md={6}>
           <Select placeholder="Filter by status" allowClear style={{ width: '100%' }} value={filterStatus} onChange={setFilterStatus}>
             {STATUS_OPTIONS.map(s => <Select.Option key={s} value={s}>{s}</Select.Option>)}
           </Select>
         </Col>
-        <Col span={4}>
-          <Button type="primary" onClick={() => fetchData(1)}>Search</Button>
+        <Col xs={24} sm={24} md={4}>
+          <Button type="primary" onClick={() => fetchData(1)} block>Search</Button>
         </Col>
       </Row>
 
       <Table columns={columns} dataSource={data} rowKey="id" loading={loading}
+        scroll={{ x: 'max-content' }}
         pagination={{ current: page, total, pageSize, onChange: setPage, showSizeChanger: false }} />
 
       <DraggableResizableModal
         title="Create Purchase Invoice"
-        subtitle="🧾 Enter vendor bill details with 3-way matching, PO receipt link & division routing"
+        subtitle="🧾 Enter vendor bill details with 3-way matching, PO/GRN link & itemized invoice lines"
         open={modalVisible}
         onCancel={() => setModalVisible(false)}
-        width={980}
-        height={620}
+        width={1100}
+        height={720}
         footer={[
           <Button key="cancel" onClick={() => setModalVisible(false)}>Cancel</Button>,
           <Button key="submit" type="primary" loading={submitting} onClick={handleSubmit} style={{ fontWeight: 600 }}>
@@ -300,70 +444,170 @@ const PurchaseInvoiceManagement: React.FC = () => {
         <Form form={form} layout="vertical">
           <Form.Item name="companyId" hidden><Input /></Form.Item>
 
-          <Card size="small" style={{ marginBottom: 14, background: 'rgba(255, 255, 255, 0.02)', borderColor: 'rgba(255, 255, 255, 0.1)' }}>
-            <Row gutter={16}>
-              <Col span={6}>
+          <Card size="small" style={{ marginBottom: 14, borderColor: token.colorBorderSecondary }}>
+            <Row gutter={[16, 12]}>
+              <Col xs={24} sm={12} md={6}>
                 <Form.Item name="invoiceCode" label={<span style={{ fontWeight: 600 }}>Invoice Code <Tag color="blue">Auto PINV</Tag></span>} rules={[{ required: true }]}>
                   <Input style={{ fontWeight: 700, fontFamily: 'monospace' }} />
                 </Form.Item>
               </Col>
-              <Col span={6}>
+              <Col xs={24} sm={12} md={6}>
                 <Form.Item name="supplierInvoiceNumber" label={<span style={{ fontWeight: 600 }}>Supplier Bill #</span>} rules={[{ required: true }]}>
                   <Input placeholder="Vendor physical invoice #" />
                 </Form.Item>
               </Col>
-              <Col span={6}>
+              <Col xs={24} sm={12} md={6}>
+                <Form.Item name="poId" label={<span style={{ fontWeight: 600 }}>Purchase Order (Auto-fill)</span>} rules={[{ required: true, message: 'Select a Purchase Order' }]}>
+                  <Select
+                    showSearch
+                    allowClear
+                    optionFilterProp="label"
+                    placeholder="Select PO..."
+                    onChange={handleSelectPo}
+                    options={purchaseOrders.map((po) => ({
+                      value: po.id,
+                      label: `${po.poCode} — ${po.supplierName || po.supplier?.name || ''} [${po.status}]`,
+                    }))}
+                  />
+                </Form.Item>
+              </Col>
+              <Col xs={24} sm={12} md={6}>
+                <Form.Item name="grnId" label={<span style={{ fontWeight: 600 }}>Goods Receipt (GRN — 3-Way Match)</span>}>
+                  <Select
+                    showSearch
+                    allowClear
+                    optionFilterProp="label"
+                    placeholder="Select GRN (recommended)..."
+                    onChange={handleSelectGrn}
+                    options={goodsReceipts.map((grn) => ({
+                      value: grn.id,
+                      label: `${grn.receiptCode}${grn.poCode ? ` (${grn.poCode})` : ''} — ${grn.supplierName || grn.supplier?.name || ''}`,
+                    }))}
+                  />
+                </Form.Item>
+              </Col>
+            </Row>
+
+            <Row gutter={[16, 12]}>
+              <Col xs={24} sm={12} md={6}>
                 <Form.Item name="supplierId" label={<span style={{ fontWeight: 600 }}>Supplier</span>} rules={[{ required: true }]}>
                   <Select showSearch optionFilterProp="label" placeholder="Select supplier..." options={suppliers.map((s) => ({ value: s.id, label: s.name }))} />
                 </Form.Item>
               </Col>
-              <Col span={6}>
+              <Col xs={24} sm={12} md={6}>
+                <Form.Item name="divisionId" label={<span style={{ fontWeight: 600 }}><ApartmentOutlined style={{ marginRight: 4, color: '#10b981' }} />Division</span>}>
+                  <Select placeholder="Select division..." allowClear options={divisions.map((d) => ({ value: d.id, label: `${d.code ? `[${d.code}] ` : ''}${d.name}` }))} />
+                </Form.Item>
+              </Col>
+              <Col xs={24} sm={12} md={4}>
+                <Form.Item name="currencyCode" label={<span style={{ fontWeight: 600 }}>Currency</span>} initialValue="PKR">
+                  <Input />
+                </Form.Item>
+              </Col>
+              <Col xs={24} sm={12} md={4}>
+                <Form.Item name="subtotal" label={<span style={{ fontWeight: 600 }}>Subtotal</span>} rules={[{ required: true }]}>
+                  <InputNumber style={{ width: '100%' }} min={0} />
+                </Form.Item>
+              </Col>
+              <Col xs={24} sm={24} md={4}>
                 <Form.Item name="purchaseType" label={<span style={{ fontWeight: 600 }}><GlobalOutlined style={{ marginRight: 4 }} />Origin</span>} initialValue="LOCAL">
                   <Segmented block options={[{ label: 'Local', value: 'LOCAL' }, { label: 'Import', value: 'IMPORT' }]} />
                 </Form.Item>
               </Col>
             </Row>
 
-            <Row gutter={16}>
-              <Col span={6}>
-                <Form.Item name="divisionId" label={<span style={{ fontWeight: 600 }}><ApartmentOutlined style={{ marginRight: 4, color: '#10b981' }} />Division</span>}>
-                  <Select placeholder="Select division..." allowClear options={divisions.map((d) => ({ value: d.id, label: `${d.code ? `[${d.code}] ` : ''}${d.name}` }))} />
-                </Form.Item>
-              </Col>
-              <Col span={6}>
-                <Form.Item name="poId" label={<span style={{ fontWeight: 600 }}>PO Reference ID</span>} rules={[{ required: true }]}>
-                  <Input placeholder="Linked PO ID or Code" />
-                </Form.Item>
-              </Col>
-              <Col span={6}>
-                <Form.Item name="currencyCode" label={<span style={{ fontWeight: 600 }}>Currency</span>} initialValue="PKR">
-                  <Input />
-                </Form.Item>
-              </Col>
-              <Col span={6}>
-                <Form.Item name="subtotal" label={<span style={{ fontWeight: 600 }}>Subtotal</span>} rules={[{ required: true }]}>
-                  <InputNumber style={{ width: '100%' }} min={0} />
-                </Form.Item>
-              </Col>
-            </Row>
-
-            <Row gutter={16}>
-              <Col span={8}>
+            <Row gutter={[16, 12]}>
+              <Col xs={24} sm={12} md={6}>
                 <Form.Item name="taxPercent" label={<span style={{ fontWeight: 600 }}>Tax %</span>} initialValue={18}>
                   <InputNumber style={{ width: '100%' }} min={0} max={100} />
                 </Form.Item>
               </Col>
-              <Col span={8}>
+              <Col xs={24} sm={12} md={6}>
                 <Form.Item name="discountAmount" label={<span style={{ fontWeight: 600 }}>Discount Amount</span>} initialValue={0}>
                   <InputNumber style={{ width: '100%' }} min={0} />
                 </Form.Item>
               </Col>
-              <Col span={8}>
+              <Col xs={24} sm={24} md={12}>
                 <Form.Item name="notes" label={<span style={{ fontWeight: 600 }}>Notes / Remarks</span>}>
                   <Input placeholder="Additional invoice notes..." />
                 </Form.Item>
               </Col>
             </Row>
+          </Card>
+
+          <Card
+            size="small"
+            title={<span style={{ fontWeight: 600 }}>Itemized Invoice Lines (3-Way PO / GRN Match)</span>}
+            style={{ borderColor: token.colorBorderSecondary }}
+          >
+            <Table
+              size="small"
+              rowKey="key"
+              dataSource={invoiceLines}
+              pagination={false}
+              scroll={{ x: 'max-content' }}
+              locale={{ emptyText: 'Select a Purchase Order or GRN above to auto-populate invoice line items' }}
+              columns={[
+                { title: 'Item', dataIndex: 'itemName', key: 'itemName', width: 220 },
+                { title: 'UOM', dataIndex: 'uomCode', key: 'uomCode', width: 70 },
+                {
+                  title: 'Invoiced Qty',
+                  key: 'invoicedQty',
+                  width: 120,
+                  render: (_, row) => (
+                    <InputNumber
+                      min={0}
+                      value={row.invoicedQty}
+                      onChange={(val) => handleLineChange(row.key, 'invoicedQty', Number(val || 0))}
+                      style={{ width: '100%' }}
+                    />
+                  ),
+                },
+                {
+                  title: 'Unit Price',
+                  key: 'unitPrice',
+                  width: 130,
+                  render: (_, row) => (
+                    <InputNumber
+                      min={0}
+                      value={row.unitPrice}
+                      onChange={(val) => handleLineChange(row.key, 'unitPrice', Number(val || 0))}
+                      style={{ width: '100%' }}
+                    />
+                  ),
+                },
+                {
+                  title: 'GST %',
+                  key: 'taxPercent',
+                  width: 90,
+                  render: (_, row) => (
+                    <InputNumber
+                      min={0}
+                      max={100}
+                      value={row.taxPercent}
+                      onChange={(val) => handleLineChange(row.key, 'taxPercent', Number(val || 0))}
+                      style={{ width: '100%' }}
+                    />
+                  ),
+                },
+                {
+                  title: 'Line Total',
+                  dataIndex: 'lineTotal',
+                  key: 'lineTotal',
+                  width: 120,
+                  align: 'right',
+                  render: (val) => <span style={{ fontWeight: 700 }}>{formatDecimal(val || 0)}</span>,
+                },
+                {
+                  title: '',
+                  key: 'remove',
+                  width: 50,
+                  render: (_, row) => (
+                    <Button type="text" danger icon={<DeleteOutlined />} onClick={() => handleRemoveLine(row.key)} />
+                  ),
+                },
+              ]}
+            />
           </Card>
         </Form>
       </DraggableResizableModal>

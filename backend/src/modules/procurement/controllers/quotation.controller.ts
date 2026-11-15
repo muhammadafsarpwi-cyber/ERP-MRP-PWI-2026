@@ -37,6 +37,15 @@ export class QuotationController {
     return { success: true, ...result };
   }
 
+  @Get('compare/:rfqId')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('procurement.quotation.view')
+  @ApiOperation({ summary: 'Compare all quotations for an RFQ side by side' })
+  async compareByRfq(@Param('rfqId') rfqId: string) {
+    const comparison = await this.service.compareByRfq(rfqId);
+    return { success: true, data: comparison };
+  }
+
   @Get(':id')
   @UseGuards(PermissionGuard)
   @RequirePermission('procurement.quotation.view')
@@ -60,10 +69,42 @@ export class QuotationController {
   @UseGuards(PermissionGuard)
   @RequirePermission('procurement.quotation.select')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Select quotation as winning' })
+  @ApiOperation({ summary: 'Select quotation as winning and reject competing bids' })
   async select(@Param('id') id: string) {
     const quotation = await this.service.select(id);
-    return { success: true, data: quotation, message: 'Quotation selected' };
+    return { success: true, data: quotation, message: 'Quotation selected and competing bids rejected' };
+  }
+
+  @Post(':id/select')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('procurement.quotation.select')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Select/award quotation as winning (POST alias)' })
+  async selectPost(@Param('id') id: string) {
+    const quotation = await this.service.select(id);
+    return { success: true, data: quotation, message: 'Quotation awarded and competing bids rejected' };
+  }
+
+  @Post(':id/award')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('procurement.quotation.select')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Award quotation as winning' })
+  async award(@Param('id') id: string) {
+    const quotation = await this.service.select(id);
+    return { success: true, data: quotation, message: 'Quotation awarded and competing bids rejected' };
+  }
+
+  @Post(':id/convert-to-po')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('procurement.po.create')
+  @ApiOperation({ summary: 'Convert winning quotation directly into a Draft Purchase Order' })
+  async convertToPo(
+    @Param('id') id: string,
+    @Body() body?: { warehouseId?: string; expectedDeliveryDate?: string; notes?: string },
+  ) {
+    const po = await this.service.convertToPo(id, body);
+    return { success: true, data: po, message: 'Draft Purchase Order created from quotation' };
   }
 
   @Patch(':id/reject')

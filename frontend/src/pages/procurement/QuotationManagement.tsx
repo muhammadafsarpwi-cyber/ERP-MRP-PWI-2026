@@ -7,13 +7,15 @@ import {
 import {
   PlusOutlined, EditOutlined, SearchOutlined, CheckOutlined, CloseOutlined,
   ReloadOutlined, ApartmentOutlined, ShopOutlined, GlobalOutlined,
-  DollarCircleOutlined, ShoppingCartOutlined, FileDoneOutlined,
+  DollarCircleOutlined, ShoppingCartOutlined, FileDoneOutlined, TrophyOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import apiService from '../../services/api';
 import { formatDecimal } from '../../utils/numberFormat';
 import { ERPLineItems, ERPLine, DraggableResizableModal } from '../../components/shared';
+import QuotationComparisonModal from './QuotationComparisonModal';
+import './procurementResponsive.css';
 
 interface Quotation {
   id: string;
@@ -31,6 +33,8 @@ interface Quotation {
   purchaseType?: string;
   quotationDate?: string;
   validUntil?: string;
+  deliveryLeadTimeDays?: number;
+  paymentTerms?: string;
   totalAmount: number;
   status: string;
   notes?: string;
@@ -76,6 +80,9 @@ const QuotationManagement: React.FC = () => {
   const [divisions, setDivisions] = useState<DivisionOption[]>(DEFAULT_DIVISIONS);
   const [warehouses, setWarehouses] = useState<Array<{ id: string; warehouseCode: string; name: string; warehouseType?: string }>>([]);
   const [rfqs, setRfqs] = useState<Array<{ id: string; rfqCode: string; title?: string; status: string }>>([]);
+  const [compareModalOpen, setCompareModalOpen] = useState(false);
+  const [compareRfqId, setCompareRfqId] = useState<string | null>(null);
+  const [awardingId, setAwardingId] = useState<string | null>(null);
 
   const watchedDivisionId = Form.useWatch('divisionId', form);
   const watchedWarehouseId = Form.useWatch('warehouseId', form);
@@ -288,6 +295,30 @@ const QuotationManagement: React.FC = () => {
     }
   };
 
+  const handleAwardAndGeneratePo = async (record: Quotation) => {
+    setAwardingId(record.id);
+    try {
+      if (record.status !== 'SELECTED') {
+        await apiService.post(`/procurement/quotations/${record.id}/award`, {});
+      }
+      const res = await apiService.post<any>(`/procurement/quotations/${record.id}/convert-to-po`, {});
+      const po = res?.data || res;
+      message.success(`Awarded ${record.quotationCode} & generated PO ${po?.poCode || ''}!`);
+      fetchData(page);
+      fetchCounts();
+      if (po?.id) {
+        navigate(`/procurement/orders?poId=${po.id}`);
+      } else {
+        navigate('/procurement/orders');
+      }
+    } catch (error: any) {
+      const msg = error?.response?.data?.message;
+      message.error(Array.isArray(msg) ? msg[0] : 'Failed to award quotation & generate PO');
+    } finally {
+      setAwardingId(null);
+    }
+  };
+
   const columns: ColumnsType<Quotation> = [
     {
       title: 'Quotation Code',
@@ -347,20 +378,35 @@ const QuotationManagement: React.FC = () => {
     {
       title: 'Actions',
       key: 'actions',
-      width: 250,
+      width: 310,
       render: (_, record) => (
         <Space size="small" wrap>
           <Button size="small" icon={<EditOutlined />} onClick={() => handleEdit(record)} disabled={record.status !== 'DRAFT'} />
-          
+
+          {record.rfqId && (
+            <Button
+              size="small"
+              icon={<TrophyOutlined />}
+              onClick={() => {
+                setCompareRfqId(record.rfqId || null);
+                setCompareModalOpen(true);
+              }}
+              style={{ borderColor: '#f59e0b', color: '#f59e0b', fontWeight: 600 }}
+            >
+              Compare Quotes
+            </Button>
+          )}
+
           {(record.status === 'RECEIVED' || record.status === 'EVALUATED') && (
             <Button
               size="small"
               type="primary"
               icon={<CheckOutlined />}
-              onClick={() => handleAction(record.id, 'select')}
+              loading={awardingId === record.id}
+              onClick={() => handleAwardAndGeneratePo(record)}
               style={{ background: '#0284c7', borderColor: '#0284c7', fontWeight: 600 }}
             >
-              Select Winner
+              Award & Generate PO
             </Button>
           )}
 
@@ -370,7 +416,8 @@ const QuotationManagement: React.FC = () => {
               type="primary"
               style={{ background: '#10b981', borderColor: '#10b981', fontWeight: 700 }}
               icon={<ShoppingCartOutlined />}
-              onClick={() => navigate(`/procurement/orders?quotationId=${record.id}`)}
+              loading={awardingId === record.id}
+              onClick={() => handleAwardAndGeneratePo(record)}
             >
               Generate PO
             </Button>
@@ -451,21 +498,22 @@ const QuotationManagement: React.FC = () => {
         </Button>
       </div>
 
-      <Row gutter={16} style={{ marginBottom: 16 }}>
-        <Col span={8}>
+      <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
+        <Col xs={24} sm={12} md={8}>
           <Input placeholder="Search quotations, RFQ..." prefix={<SearchOutlined />} value={search} onChange={(e) => setSearch(e.target.value)} onPressEnter={() => fetchData(1)} allowClear />
         </Col>
-        <Col span={6}>
+        <Col xs={24} sm={12} md={6}>
           <Select placeholder="Filter by status" allowClear style={{ width: '100%' }} value={filterStatus} onChange={setFilterStatus}>
             {STATUS_OPTIONS.map(s => <Select.Option key={s} value={s}>{s}</Select.Option>)}
           </Select>
         </Col>
-        <Col span={4}>
-          <Button type="primary" onClick={() => fetchData(1)}>Search</Button>
+        <Col xs={24} sm={24} md={4}>
+          <Button type="primary" onClick={() => fetchData(1)} block>Search</Button>
         </Col>
       </Row>
 
       <Table columns={columns} dataSource={data} rowKey="id" loading={loading}
+        scroll={{ x: 'max-content' }}
         pagination={{ current: page, total, pageSize, onChange: setPage, showSizeChanger: false }} />
 
       <DraggableResizableModal
@@ -519,41 +567,51 @@ const QuotationManagement: React.FC = () => {
               </Col>
             </Row>
 
-            <Row gutter={16}>
-              <Col span={6}>
+            <Row gutter={[16, 12]}>
+              <Col xs={24} sm={12} md={6}>
                 <Form.Item name="quotationCode" label={<span style={{ fontWeight: 600 }}>Quotation Code <Tag color="blue">Auto QT</Tag></span>} rules={[{ required: true }]}>
                   <Input style={{ fontWeight: 700, fontFamily: 'monospace' }} />
                 </Form.Item>
               </Col>
-              <Col span={6}>
+              <Col xs={24} sm={12} md={6}>
                 <Form.Item name="supplierId" label={<span style={{ fontWeight: 600 }}>Supplier</span>} rules={[{ required: true }]}>
                   <Select showSearch optionFilterProp="label" placeholder="Select supplier..." options={suppliers.map((s) => ({ value: s.id, label: s.name }))} />
                 </Form.Item>
               </Col>
-              <Col span={6}>
+              <Col xs={24} sm={12} md={6}>
                 <Form.Item name="quotationDate" label={<span style={{ fontWeight: 600 }}>Quotation Date</span>}>
                   <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
                 </Form.Item>
               </Col>
-              <Col span={6}>
+              <Col xs={24} sm={12} md={6}>
                 <Form.Item name="validUntil" label={<span style={{ fontWeight: 600 }}>Valid Until</span>}>
                   <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
                 </Form.Item>
               </Col>
             </Row>
 
-            <Row gutter={16}>
-              <Col span={8}>
+            <Row gutter={[16, 12]}>
+              <Col xs={24} sm={12} md={6}>
                 <Form.Item name="divisionId" label={<span style={{ fontWeight: 600 }}><ApartmentOutlined style={{ marginRight: 4, color: '#10b981' }} />Division</span>}>
                   <Select placeholder="Select division..." allowClear options={divisions.map((d) => ({ value: d.id, label: `${d.code ? `[${d.code}] ` : ''}${d.name}` }))} />
                 </Form.Item>
               </Col>
-              <Col span={8}>
+              <Col xs={24} sm={12} md={6}>
                 <Form.Item name="warehouseId" label={<span style={{ fontWeight: 600 }}><ShopOutlined style={{ marginRight: 4, color: '#f59e0b' }} />Target Warehouse / Store</span>}>
                   <Select placeholder="Select warehouse..." allowClear options={warehouses.map((w) => ({ value: w.id, label: `${w.warehouseCode} — ${w.name}` }))} />
                 </Form.Item>
               </Col>
-              <Col span={8}>
+              <Col xs={24} sm={12} md={4}>
+                <Form.Item name="deliveryLeadTimeDays" label={<span style={{ fontWeight: 600 }}>Lead Time (Days)</span>}>
+                  <InputNumber min={0} style={{ width: '100%' }} placeholder="e.g. 7" />
+                </Form.Item>
+              </Col>
+              <Col xs={24} sm={12} md={4}>
+                <Form.Item name="paymentTerms" label={<span style={{ fontWeight: 600 }}>Payment Terms</span>}>
+                  <Input placeholder="e.g. Net 30 / Cash" />
+                </Form.Item>
+              </Col>
+              <Col xs={24} sm={24} md={4}>
                 <Form.Item name="purchaseType" label={<span style={{ fontWeight: 600 }}><GlobalOutlined style={{ marginRight: 4 }} />Origin</span>} initialValue="LOCAL">
                   <Segmented block options={[{ label: 'Local', value: 'LOCAL' }, { label: 'Import', value: 'IMPORT' }]} />
                 </Form.Item>
@@ -583,6 +641,16 @@ const QuotationManagement: React.FC = () => {
           </Row>
         </Form>
       </DraggableResizableModal>
+
+      <QuotationComparisonModal
+        rfqId={compareRfqId}
+        open={compareModalOpen}
+        onClose={() => setCompareModalOpen(false)}
+        onAwardSuccess={() => {
+          fetchData(page);
+          fetchCounts();
+        }}
+      />
     </Card>
   );
 };

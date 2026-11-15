@@ -3,9 +3,9 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import {
   Supplier, SupplierItem,
   PurchaseRequisition, PurchaseRequisitionLine,
-  RequestForQuotation, RfqLine,
+  RequestForQuotation, RfqLine, RfqSupplier,
   Quotation, QuotationLine,
-  PurchaseOrder, PurchaseOrderLine,
+  PurchaseOrder, PurchaseOrderLine, PurchaseOrderImportUpdate,
   GoodsReceipt, GoodsReceiptLine,
   PurchaseReturn, PurchaseReturnLine,
   PurchaseInvoice, PurchaseInvoiceLine,
@@ -42,9 +42,9 @@ import { InventoryModule } from '../inventory/inventory.module';
     TypeOrmModule.forFeature([
       Supplier, SupplierItem,
       PurchaseRequisition, PurchaseRequisitionLine,
-      RequestForQuotation, RfqLine,
+      RequestForQuotation, RfqLine, RfqSupplier, RfqSupplier,
       Quotation, QuotationLine,
-      PurchaseOrder, PurchaseOrderLine,
+      PurchaseOrder, PurchaseOrderLine, PurchaseOrderImportUpdate,
       GoodsReceipt, GoodsReceiptLine,
       PurchaseReturn, PurchaseReturnLine,
       PurchaseInvoice, PurchaseInvoiceLine,

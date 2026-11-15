@@ -200,6 +200,76 @@ export class CreatePurchaseOrderDto {
   @IsOptional()
   purchaseType?: string;
 
+  @ApiPropertyOptional({ description: 'Purchase origin (LOCAL/IMPORT)' })
+  @IsString()
+  @IsOptional()
+  purchaseOrigin?: string;
+
+  @ApiPropertyOptional({ description: 'Import cargo type (LCL, FCL_20, FCL_40, AIR, COURIER)' })
+  @IsString()
+  @IsOptional()
+  importCargoType?: string;
+
+  @ApiPropertyOptional({ description: 'Incoterm (FOB, CIF, CFR, EXW, DDP)' })
+  @IsString()
+  @IsOptional()
+  incoterm?: string;
+
+  @ApiPropertyOptional({ description: 'Port of loading' })
+  @IsString()
+  @IsOptional()
+  portOfLoading?: string;
+
+  @ApiPropertyOptional({ description: 'Port of discharge' })
+  @IsString()
+  @IsOptional()
+  portOfDischarge?: string;
+
+  @ApiPropertyOptional({ description: 'Shipping line' })
+  @IsString()
+  @IsOptional()
+  shippingLine?: string;
+
+  @ApiPropertyOptional({ description: 'Vessel name' })
+  @IsString()
+  @IsOptional()
+  vesselName?: string;
+
+  @ApiPropertyOptional({ description: 'B/L or AWB number' })
+  @IsString()
+  @IsOptional()
+  blAwbNumber?: string;
+
+  @ApiPropertyOptional({ description: 'Container number' })
+  @IsString()
+  @IsOptional()
+  containerNumber?: string;
+
+  @ApiPropertyOptional({ description: 'LC / TT number' })
+  @IsString()
+  @IsOptional()
+  lcTtNumber?: string;
+
+  @ApiPropertyOptional({ description: 'Production ready date' })
+  @IsString()
+  @IsOptional()
+  productionReadyDate?: string;
+
+  @ApiPropertyOptional({ description: 'ETD date' })
+  @IsString()
+  @IsOptional()
+  etdDate?: string;
+
+  @ApiPropertyOptional({ description: 'ETA date' })
+  @IsString()
+  @IsOptional()
+  etaDate?: string;
+
+  @ApiPropertyOptional({ description: 'Import stage' })
+  @IsString()
+  @IsOptional()
+  importStage?: string;
+
   @ApiPropertyOptional({ description: 'Division ID' })
   @IsString()
   @IsOptional()
@@ -282,6 +352,67 @@ export class UpdatePurchaseOrderDto {
   @IsOptional()
   notes?: string;
 
+  @IsString()
+  @IsOptional()
+  purchaseOrigin?: string;
+
+  @IsString()
+  @IsOptional()
+  importCargoType?: string;
+
+  @IsString()
+  @IsOptional()
+  incoterm?: string;
+
+  @IsString()
+  @IsOptional()
+  portOfLoading?: string;
+
+  @IsString()
+  @IsOptional()
+  portOfDischarge?: string;
+
+  @IsString()
+  @IsOptional()
+  shippingLine?: string;
+
+  @IsString()
+  @IsOptional()
+  vesselName?: string;
+
+  @IsString()
+  @IsOptional()
+  blAwbNumber?: string;
+
+  @IsString()
+  @IsOptional()
+  containerNumber?: string;
+
+  @IsString()
+  @IsOptional()
+  lcTtNumber?: string;
+
+  @IsString()
+  @IsOptional()
+  productionReadyDate?: string;
+
+  @IsString()
+  @IsOptional()
+  etdDate?: string;
+
+  @IsString()
+  @IsOptional()
+  etaDate?: string;
+
+  @IsString()
+  @IsOptional()
+  importStage?: string;
+
+  @ApiPropertyOptional({ description: 'Division ID' })
+  @IsString()
+  @IsOptional()
+  divisionId?: string;
+
   @ApiPropertyOptional({ description: 'Lines' })
   @IsArray()
   @IsOptional()
@@ -323,6 +454,11 @@ export class PurchaseOrderFilterDto {
   @IsOptional()
   status?: string;
 
+  @ApiPropertyOptional({ description: 'Filter by purchase origin (LOCAL / IMPORT)' })
+  @IsString()
+  @IsOptional()
+  origin?: string;
+
   @ApiPropertyOptional({ description: 'Sort field' })
   @IsString()
   @IsOptional()
@@ -333,4 +469,46 @@ export class PurchaseOrderFilterDto {
   @IsOptional()
   @IsIn(['ASC', 'DESC'])
   sortOrder?: string;
+}
+
+export class AddPoImportUpdateDto {
+  @ApiPropertyOptional({ description: 'Milestone type: PRODUCTION, READY_TO_SHIP, ETD, ETA, VESSEL, CUSTOMS, GENERAL' })
+  @IsString()
+  @IsIn(['PRODUCTION', 'READY_TO_SHIP', 'ETD', 'ETA', 'VESSEL', 'CUSTOMS', 'GENERAL'])
+  milestoneType: string;
+
+  @ApiPropertyOptional({ description: 'Import stage' })
+  @IsString()
+  @IsOptional()
+  stage?: string;
+
+  @ApiPropertyOptional({ description: 'New revised date (YYYY-MM-DD)' })
+  @IsString()
+  @IsOptional()
+  newDate?: string;
+
+  @ApiPropertyOptional({ description: 'Location or port name' })
+  @IsString()
+  @IsOptional()
+  locationPort?: string;
+
+  @ApiPropertyOptional({ description: 'Vessel name' })
+  @IsString()
+  @IsOptional()
+  vesselName?: string;
+
+  @ApiPropertyOptional({ description: 'B/L or AWB number' })
+  @IsString()
+  @IsOptional()
+  blAwbNumber?: string;
+
+  @ApiPropertyOptional({ description: 'Container number' })
+  @IsString()
+  @IsOptional()
+  containerNumber?: string;
+
+  @ApiPropertyOptional({ description: 'Remarks / reason for revision or delay' })
+  @IsString()
+  @IsOptional()
+  remarks?: string;
 }

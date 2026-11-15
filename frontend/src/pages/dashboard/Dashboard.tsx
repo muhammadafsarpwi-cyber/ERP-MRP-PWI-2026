@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Button, Descriptions, Divider, Modal, Space, Tag, Typography } from 'antd';
-import { ApartmentOutlined, ArrowRightOutlined, CheckCircleOutlined, DollarOutlined, InfoCircleOutlined, ShoppingCartOutlined } from '@ant-design/icons';
+import { ApartmentOutlined, ArrowRightOutlined, CheckCircleOutlined, InfoCircleOutlined, ShoppingCartOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import AchievementCard from '../../components/dashboard/AchievementCard';
 import ActivityFeed from '../../components/dashboard/ActivityFeed';
@@ -13,6 +13,7 @@ import ItemOverview from '../../components/dashboard/ItemOverview';
 import KpiStrip from '../../components/dashboard/KpiStrip';
 import MachinePerformance from '../../components/dashboard/MachinePerformance';
 import OrderSummary from '../../components/dashboard/OrderSummary';
+import SalesOrdersCard from '../../components/dashboard/SalesOrdersCard';
 import ProductionPerformance from '../../components/dashboard/ProductionPerformance';
 import ProductionTrend from '../../components/dashboard/ProductionTrend';
 import QuickActions from '../../components/dashboard/QuickActions';
@@ -522,18 +523,7 @@ const Dashboard: React.FC = () => {
     date: po.orderDate,
   }));
 
-  const soRows = (soSummary?.recentOrders ?? []).map(so => ({
-    id: so.id,
-    code: so.orderNumber,
-    party: so.customerName,
-    amount: so.totalAmount,
-    currency: so.currency,
-    status: so.status,
-    date: so.orderDate,
-  }));
-
   const poTotal = (poSummary?.recentOrders.length ?? 0) + (poSummary?.statusBreakdown.reduce((s, b) => s + b.count, 0) ?? 0);
-  const soTotal = (soSummary?.recentOrders.length ?? 0) + (soSummary?.statusBreakdown.reduce((s, b) => s + b.count, 0) ?? 0);
 
   return (
     <TabKeepAlive
@@ -651,22 +641,10 @@ const Dashboard: React.FC = () => {
         />
       </div>
 
-      {/* ━━━ MACHINE PERFORMANCE (LEFT, WIDE) + ALERTS & ACTIVITY (RIGHT, NARROW) ━ */}
+      {/* ━━━ MACHINE PERFORMANCE, ITEM OVERVIEW & ORDERS (LEFT, WIDE) + ALERTS, ACTIVITY & INVENTORY (RIGHT, NARROW) ━ */}
       <div className="erp-row erp-row--a">
-        <div className="erp-col erp-col--wide">
+        <div className="erp-col erp-col--wide" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <MachinePerformance items={machinePerf} loading={secondaryLoading} nav={navigate} />
-        </div>
-        <div className="erp-col erp-col--narrow" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <AlertCenter alerts={alerts} loading={secondaryLoading} />
-          <ActivityFeed activity={activity} loading={secondaryLoading} />
-        </div>
-      </div>
-
-
-
-      {/* ━━━ ITEM OVERVIEW + INVENTORY ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-      <div className="erp-row erp-row--a">
-        <div className="erp-col erp-col--wide">
           <ItemOverview
             items={visibleItems}
             totalItems={filteredItems.length}
@@ -679,15 +657,11 @@ const Dashboard: React.FC = () => {
             onOpen={openItemDetail}
             nav={() => navigate('/production/inventory-report')}
           />
-        </div>
-        <div className="erp-col erp-col--narrow">
-          <InventoryHealth inventory={inventory} loading={secondaryLoading} nav={navigate} />
-        </div>
-      </div>
-
-      {/* ━━━ PROCUREMENT + SALES ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-      <div className="erp-row erp-row--half">
-        <div className="erp-col erp-col--half">
+          <SalesOrdersCard
+            data={soSummary}
+            loading={secondaryLoading}
+            onViewAll={() => navigate('/sales/orders')}
+          />
           <OrderSummary
             title="Purchase Orders"
             icon={<ShoppingCartOutlined />}
@@ -700,18 +674,10 @@ const Dashboard: React.FC = () => {
             nav={() => navigate('/procurement/orders')}
           />
         </div>
-        <div className="erp-col erp-col--half">
-          <OrderSummary
-            title="Sales Orders"
-            icon={<DollarOutlined />}
-            subtitle={`${soTotal} total`}
-            rows={soRows}
-            breakdown={soSummary?.statusBreakdown ?? []}
-            loading={secondaryLoading}
-            emptyTitle="No sales orders"
-            emptyDesc="Open orders will appear here once sales is configured"
-            nav={() => navigate('/sales/orders')}
-          />
+        <div className="erp-col erp-col--narrow" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <AlertCenter alerts={alerts} loading={secondaryLoading} />
+          <ActivityFeed activity={activity} loading={secondaryLoading} />
+          <InventoryHealth inventory={inventory} loading={secondaryLoading} nav={navigate} />
         </div>
       </div>
 

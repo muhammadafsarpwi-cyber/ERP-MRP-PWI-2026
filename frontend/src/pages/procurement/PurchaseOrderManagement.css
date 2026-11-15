@@ -109,8 +109,19 @@
   width: 100%;
   margin-bottom: 22px;
   border-radius: 8px;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+}
+
+@media (max-width: 768px) {
+  .po-chevron-step {
+    min-width: 120px;
+    padding: 10px 14px 10px 22px;
+    font-size: 11px;
+    white-space: nowrap;
+  }
 }
 
 .po-chevron-step {
@@ -705,21 +716,42 @@ html[data-theme='dark'] .po-settlement-note {
 }
 
 /* Items Table */
+.proc-modal-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
 .po-items-table {
   width: 100%;
+  min-width: 860px;
+  table-layout: fixed;
   border-collapse: collapse;
   margin-bottom: 12px;
 }
 
+.po-product-select .ant-select-selector {
+  height: auto !important;
+  min-height: 44px !important;
+  padding: 6px 10px !important;
+  align-items: flex-start !important;
+}
+
+.po-product-select .ant-select-selection-item {
+  white-space: normal !important;
+  line-height: 1.35 !important;
+  padding-inline-end: 18px !important;
+}
+
 .po-items-table th {
-  background-color: #161c2d;
-  color: #ffffff;
+  background-color: var(--theme-surface-alt, #161c2d);
+  color: var(--theme-heading, #ffffff);
   font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  padding: 8px 10px;
+  padding: 8px 8px;
   text-align: left;
+  white-space: nowrap;
 }
 
 .po-items-table td {

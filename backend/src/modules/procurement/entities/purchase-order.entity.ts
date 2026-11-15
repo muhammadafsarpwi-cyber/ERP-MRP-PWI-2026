@@ -5,6 +5,7 @@ import { Supplier } from './supplier.entity';
 import { Quotation } from './quotation.entity';
 import { PurchaseRequisition } from './purchase-requisition.entity';
 import { PurchaseOrderLine } from './purchase-order-line.entity';
+import { PurchaseOrderImportUpdate } from './purchase-order-import-update.entity';
 import { Warehouse } from '../../organization/entities/warehouse.entity';
 
 @Entity('purchase_orders')
@@ -42,6 +43,9 @@ export class PurchaseOrder extends BaseEntity {
 
   @Column({ name: 'warehouse_id', type: 'uuid', nullable: true })
   warehouseId: string | null;
+
+  @Column({ name: 'division_id', type: 'uuid', nullable: true })
+  divisionId: string | null;
 
   @ManyToOne(() => Warehouse, { nullable: true })
   @JoinColumn({ name: 'warehouse_id' })
@@ -116,6 +120,54 @@ export class PurchaseOrder extends BaseEntity {
   @Column({ type: 'text', nullable: true })
   notes: string | null;
 
+  @Column({ name: 'purchase_origin', type: 'varchar', length: 20, default: 'LOCAL' })
+  purchaseOrigin: string;
+
+  @Column({ name: 'import_cargo_type', type: 'varchar', length: 30, nullable: true })
+  importCargoType: string | null;
+
+  @Column({ name: 'incoterm', type: 'varchar', length: 20, nullable: true })
+  incoterm: string | null;
+
+  @Column({ name: 'port_of_loading', type: 'varchar', length: 150, nullable: true })
+  portOfLoading: string | null;
+
+  @Column({ name: 'port_of_discharge', type: 'varchar', length: 150, nullable: true })
+  portOfDischarge: string | null;
+
+  @Column({ name: 'shipping_line', type: 'varchar', length: 150, nullable: true })
+  shippingLine: string | null;
+
+  @Column({ name: 'vessel_name', type: 'varchar', length: 150, nullable: true })
+  vesselName: string | null;
+
+  @Column({ name: 'bl_awb_number', type: 'varchar', length: 100, nullable: true })
+  blAwbNumber: string | null;
+
+  @Column({ name: 'container_number', type: 'varchar', length: 100, nullable: true })
+  containerNumber: string | null;
+
+  @Column({ name: 'lc_tt_number', type: 'varchar', length: 100, nullable: true })
+  lcTtNumber: string | null;
+
+  @Column({ name: 'production_ready_date', type: 'date', nullable: true })
+  productionReadyDate: string | null;
+
+  @Column({ name: 'etd_date', type: 'date', nullable: true })
+  etdDate: string | null;
+
+  @Column({ name: 'eta_date', type: 'date', nullable: true })
+  etaDate: string | null;
+
+  @Column({ name: 'import_stage', type: 'varchar', length: 40, nullable: true })
+  importStage: string | null;
+
+  @Column({ name: 'eta_revision_count', type: 'int', default: 0 })
+  etaRevisionCount: number;
+
   @OneToMany(() => PurchaseOrderLine, (line) => line.po)
   lines: PurchaseOrderLine[];
+
+  @OneToMany(() => PurchaseOrderImportUpdate, (upd) => upd.purchaseOrder)
+  importUpdates: PurchaseOrderImportUpdate[];
 }

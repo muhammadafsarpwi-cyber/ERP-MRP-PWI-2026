@@ -104,7 +104,7 @@ describe('deptFleetWhatsApp', () => {
 
     // Actual, Achievement, Items should be present
     expect(text).toContain('*Actual:* 44,001 PCS');
-    expect(text).toContain('*Achievement:* 69.84% 🔴 ▼');
+    expect(text).toContain('*Achievement:* 69.84% ▼');
     expect(text).toContain('* CD-250*17 Butted (44,001 PCS)');
     expect(text).toContain('[Entered]');
     expect(text).not.toContain('✅');
@@ -116,7 +116,7 @@ describe('deptFleetWhatsApp', () => {
     expect(text).toContain('*Total Machines:* 3 Machines (2 Entered / 1 Pending)');
     // Sum actual: 44001 + 49509 + 0 = 93,510
     expect(text).toContain('*Total Production:* *93,510 PCS*');
-    expect(text).toContain('*Overall Achievement:* *44.45% 🔴 ▼*');
+    expect(text).toContain('*Overall Achievement:* *44.45% ▼*');
 
     // Check item-wise total summary
     expect(text).toContain('ITEM-WISE TOTAL SUMMARY:');
@@ -177,7 +177,7 @@ Overall Achievement: {overall_achievement}
     expect(text).toContain('Date: 05-Nov-2026');
     expect(text).toContain('Division: Spoke Division (DIV-SPD)');
     expect(text).toContain('Total: 93,510 PCS');
-    expect(text).toContain('Overall Achievement: 44.45% 🔴 ▼');
+    expect(text).toContain('Overall Achievement: 44.45% ▼');
     expect(text).toContain('ST-01 — Straightener Machine 01');
 
     localStorage.removeItem('erp_whatsapp_settings_v1');

@@ -31,7 +31,7 @@ const REPORTS: ReportCard[] = [
   { title: 'Material Issues', description: 'Issued from store', icon: <ArrowUpOutlined />, path: '/store/material-issues', color: '#f5222d' },
   { title: 'Material Receipts', description: 'Received into store', icon: <ArrowDownOutlined />, path: '/store/material-receipts', color: '#52c41a' },
   { title: 'GRN Report', description: 'Goods receipt notes', icon: <InboxOutlined />, path: '/store/material-receipts', color: '#faad14' },
-  { title: 'Transfers', description: 'Stock between stores', icon: <SwapOutlined />, path: '/inventory/transfers', color: '#722ed1' },
+  { title: 'Transfers (MTN)', description: 'Stock between stores', icon: <SwapOutlined />, path: '/store/transfers', color: '#722ed1' },
   { title: 'Adjustments', description: 'Stock corrections', icon: <EditOutlined />, path: '/inventory/adjustments', color: '#eb2f96' },
   { title: 'Purchase Requisitions', description: 'PRs and status', icon: <FileTextOutlined />, path: '/procurement/requisitions', color: '#fa8c16' },
   { title: 'Stock Ledger', description: 'All stock movements', icon: <DatabaseOutlined />, path: '/store/ledger', color: '#13c2c2' },

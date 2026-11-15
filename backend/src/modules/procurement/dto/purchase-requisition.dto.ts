@@ -158,6 +158,51 @@ export class CreatePurchaseRequisitionDto {
   @IsOptional()
   purchaseType?: string;
 
+  @ApiPropertyOptional({ description: 'Purchase origin (LOCAL / IMPORT)' })
+  @IsString()
+  @IsOptional()
+  purchaseOrigin?: string;
+
+  @ApiPropertyOptional({ description: 'Import cargo type (LCL, FCL_20, FCL_40, AIR, COURIER)' })
+  @IsString()
+  @IsOptional()
+  importCargoType?: string;
+
+  @ApiPropertyOptional({ description: 'Incoterm (FOB, CIF, CFR, EXW, DDP)' })
+  @IsString()
+  @IsOptional()
+  incoterm?: string;
+
+  @ApiPropertyOptional({ description: 'Port of loading' })
+  @IsString()
+  @IsOptional()
+  portOfLoading?: string;
+
+  @ApiPropertyOptional({ description: 'Port of discharge' })
+  @IsString()
+  @IsOptional()
+  portOfDischarge?: string;
+
+  @ApiPropertyOptional({ description: 'Currency code' })
+  @IsString()
+  @IsOptional()
+  currencyCode?: string;
+
+  @ApiPropertyOptional({ description: 'Expected ETD' })
+  @IsString()
+  @IsOptional()
+  expectedEtd?: string;
+
+  @ApiPropertyOptional({ description: 'Expected ETA' })
+  @IsString()
+  @IsOptional()
+  expectedEta?: string;
+
+  @ApiPropertyOptional({ description: 'Import remarks' })
+  @IsString()
+  @IsOptional()
+  importRemarks?: string;
+
   @ApiPropertyOptional({ description: 'Notes' })
   @IsString()
   @IsOptional()
@@ -198,6 +243,11 @@ export class PurchaseRequisitionFilterDto {
   @IsString()
   @IsOptional()
   status?: string;
+
+  @ApiPropertyOptional({ description: 'Filter by purchase origin (LOCAL / IMPORT)' })
+  @IsString()
+  @IsOptional()
+  origin?: string;
 
   @ApiPropertyOptional({ description: 'Sort field' })
   @IsString()

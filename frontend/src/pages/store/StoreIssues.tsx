@@ -37,6 +37,7 @@ import {
   FileTextOutlined,
   FullscreenOutlined,
   FullscreenExitOutlined,
+  PrinterOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
@@ -45,6 +46,7 @@ import { isValidUUID } from '../../utils/uuid';
 import { usePermission } from '../../hooks/usePermission';
 import PageHeader from '../../components/shared/PageHeader';
 import StoreLineItemsEditor, { StoreLineItem } from './components/StoreLineItemsEditor';
+import StoreVoucherPrintModal, { StoreVoucherData } from './components/StoreVoucherPrintModal';
 
 interface MaterialIssue {
   id: string;
@@ -410,6 +412,7 @@ const StoreIssues: React.FC = () => {
         lines: lineItems.map((l) => ({
           itemId: l.itemId,
           quantity: Number(l.quantity || 0),
+          oldItemReturnedQty: Number(l.oldItemReturnedQty || 0),
           uomId: l.uomId,
           remarks: l.remarks || undefined,
         })),
@@ -449,6 +452,43 @@ const StoreIssues: React.FC = () => {
     } catch (err: any) {
       const msg: any = err?.response?.data?.message;
       message.error(Array.isArray(msg) ? msg[0] : 'Failed to cancel issue');
+    }
+  };
+
+  const [printVoucher, setPrintVoucher] = useState<StoreVoucherData | null>(null);
+
+  const openPrintModal = async (record: MaterialIssue) => {
+    try {
+      const detail = await apiService.get<any>(`/store/material-issues/${record.id}`);
+      const d = detail?.data || detail || record;
+      const lines = Array.isArray(d.lines) ? d.lines : [];
+      setPrintVoucher({
+        type: 'MIR',
+        documentNumber: record.issueNumber,
+        date: record.issueDate ? String(record.issueDate).slice(0, 10) : undefined,
+        status: record.status,
+        divisionName: record.divisionId ? divisionMap[record.divisionId] : undefined,
+        storeName: record.storeName || (record.storeId ? storeMap[record.storeId] : undefined),
+        departmentName: record.issuedToDepartmentId
+          ? deptMap[record.issuedToDepartmentId]
+          : record.departmentId
+            ? deptMap[record.departmentId]
+            : undefined,
+        purpose: record.purpose || undefined,
+        remarks: d.remarks || undefined,
+        lines: lines.map((l: any, idx: number) => ({
+          key: l.id || idx,
+          lineNumber: idx + 1,
+          itemCode: l.itemCode,
+          itemName: l.itemName || l.itemId,
+          uomCode: l.uomCode,
+          quantity: Number(l.quantity || 0),
+          returnedQty: Number(l.oldItemReturnedQty || 0),
+          remarks: l.remarks || undefined,
+        })),
+      });
+    } catch {
+      message.error('Failed to load issue details for printing');
     }
   };
 
@@ -577,10 +617,12 @@ const StoreIssues: React.FC = () => {
     {
       title: 'Actions',
       key: 'actions',
-      width: 220,
-      fixed: 'right',
+      width: 260,
       render: (_: any, record: MaterialIssue) => (
-        <Space size="small">
+        <Space size="small" wrap>
+          <Button size="small" icon={<PrinterOutlined />} onClick={() => openPrintModal(record)}>
+            Print Slip
+          </Button>
           {record.status === 'DRAFT' && canPost && (
             <Popconfirm
               title="Post this material issue?"
@@ -706,7 +748,7 @@ const StoreIssues: React.FC = () => {
             rowKey="id"
             loading={loading}
             pagination={{ pageSize: 12, showTotal: (t) => `Total ${t} issues` }}
-            scroll={{ x: 1100 }}
+            scroll={{ x: 'max-content' }}
             size="middle"
           />
         </Card>
@@ -741,8 +783,8 @@ const StoreIssues: React.FC = () => {
           isMaximized
             ? { top: 10, margin: '0 auto', maxWidth: '98vw', padding: 0 }
             : isMobile
-            ? { top: 10, margin: '0 auto', maxWidth: '100vw' }
-            : { top: 24, maxWidth: 1100 }
+              ? { top: 10, margin: '0 auto', maxWidth: '100vw' }
+              : { top: 24, maxWidth: 1100 }
         }
         styles={{
           body: {
@@ -949,6 +991,12 @@ const StoreIssues: React.FC = () => {
           />
         </Form>
       </Modal>
+
+      <StoreVoucherPrintModal
+        open={!!printVoucher}
+        onClose={() => setPrintVoucher(null)}
+        voucher={printVoucher}
+      />
     </div>
   );
 };

@@ -130,10 +130,12 @@ import {
   PendingApprovals,
   StoreIssues,
   StoreReturns,
-  StoreTransfers,
   StoreAdjustments,
   StoreOpeningStock,
   StoreItemLifecycle,
+  GatePasses,
+  MaterialTransfers,
+  ScrapDisposalManagement,
 } from './pages/store';
 import AiAssistantPage from './pages/ai-assistant/AiAssistantPage';
 import GeneralReports from './pages/reports/GeneralReports';
@@ -315,7 +317,9 @@ const App: React.FC = () => {
                   <Route path="/store/material-issues" element={<StoreIssues />} />
                   <Route path="/store/material-receipts" element={<MaterialReceiptManagement />} />
                   <Route path="/store/material-returns" element={<StoreReturns />} />
-                  <Route path="/store/transfers" element={<StoreTransfers />} />
+                  <Route path="/store/transfers" element={<MaterialTransfers />} />
+                  <Route path="/store/gate-passes" element={<GatePasses />} />
+                  <Route path="/store/scrap-disposals" element={<ScrapDisposalManagement />} />
                   <Route path="/store/adjustments" element={<StoreAdjustments />} />
                   <Route path="/store/opening-stock" element={<StoreOpeningStock />} />
                   <Route path="/store/stock-balance" element={<StoreStockBalance />} />

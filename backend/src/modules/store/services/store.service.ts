@@ -27,6 +27,8 @@ import {
   DivisionAccess,
 } from '../../../common/division-scope.util';
 import { Department } from '../../organization/entities/department.entity';
+import { Item, UomConversion } from '../../item/entities';
+import { InventoryBalance, InventoryPolicy } from '../../inventory/entities';
 
 @Injectable()
 export class StoreService {
@@ -179,7 +181,7 @@ export class StoreService {
 
   async findStoreItems(
     storeId: string,
-    query?: { search?: string; status?: string },
+    query?: { search?: string; status?: string; includeFinishedGoods?: boolean },
     companyId?: string,
     allowedDivisionIds?: DivisionAccess,
   ) {
@@ -209,7 +211,7 @@ export class StoreService {
       try {
         const placeholders = itemIds.map((_, idx) => `$${idx + 1}`).join(', ');
         const itemDetails = await this.storeRepo.manager.query(
-          `SELECT i.id, i.item_code, i.name, u.code as uom_code, u.name as uom_name
+          `SELECT i.id, i.item_code, i.name, i.item_type, u.code as uom_code, u.name as uom_name
            FROM items i
            LEFT JOIN uoms u ON u.id = i.base_uom_id
            WHERE i.id IN (${placeholders})`,
@@ -247,11 +249,15 @@ export class StoreService {
       const b = balanceMap.get(rec.itemId);
       return {
         ...rec,
-        item: d ? { id: d.id, itemCode: d.item_code, name: d.name, uomCode: d.uom_code, uomName: d.uom_name } : null,
+        item: d ? { id: d.id, itemCode: d.item_code, name: d.name, itemType: d.item_type, uomCode: d.uom_code, uomName: d.uom_name } : null,
         onHandStock: b ? b.onHand : 0,
         availableStock: b ? b.available : 0,
       };
     });
+
+    if (!query?.includeFinishedGoods) {
+      results = results.filter(r => r.item?.itemType !== 'FINISHED_GOOD');
+    }
 
     if (query?.search) {
       const s = query.search.toLowerCase();
@@ -280,20 +286,45 @@ export class StoreService {
     return item;
   }
 
-  async createStoreItem(storeId: string, itemId: string, dto: Partial<StoreItem>, userId: string, companyId?: string) {
+  async createStoreItem(storeId: string, itemId: string, dto: Partial<StoreItem> & { reorderPoint?: number }, userId: string, companyId?: string) {
     const store = await this.storeRepo.findOne({ where: { id: storeId } });
     if (!store) throw new NotFoundException(`Store ${storeId} not found`);
     this.assertCompanyOwned(store, companyId);
     const existing = await this.storeItemRepo.findOne({ where: { storeId, itemId } });
     if (existing) throw new BadRequestException(`Item already exists in this store`);
 
-    const storeItem = this.storeItemRepo.create({ storeId, itemId, ...dto, createdBy: userId });
+    const itemRows = await this.storeRepo.manager.query(
+      `SELECT id, item_type, name FROM items WHERE id = $1 LIMIT 1`,
+      [itemId],
+    );
+    if (itemRows?.[0]?.item_type === 'FINISHED_GOOD') {
+      throw new BadRequestException(
+        `Finished Good "${itemRows[0].name}" cannot be added to Store Items. Store manages Raw Materials, Spare Parts, Tools, and Consumables.`,
+      );
+    }
+
+    const { reorderPoint, ...restDto } = dto as any;
+    const normalizedReorder = restDto.reorderLevel ?? reorderPoint;
+    const storeItem = this.storeItemRepo.create({
+      storeId,
+      itemId,
+      ...restDto,
+      ...(normalizedReorder !== undefined ? { reorderLevel: normalizedReorder } : {}),
+      createdBy: userId,
+    });
     return this.storeItemRepo.save(storeItem);
   }
 
-  async updateStoreItem(id: string, dto: Partial<StoreItem>, userId: string, companyId?: string, allowedDivisionIds?: DivisionAccess) {
+  async updateStoreItem(id: string, dto: Partial<StoreItem> & { reorderPoint?: number }, userId: string, companyId?: string, allowedDivisionIds?: DivisionAccess) {
     const item = await this.findStoreItemById(id, companyId, allowedDivisionIds);
-    Object.assign(item, dto, { updatedBy: userId });
+    const { reorderPoint, ...restDto } = dto as any;
+    const normalizedReorder = restDto.reorderLevel ?? reorderPoint;
+    Object.assign(
+      item,
+      restDto,
+      normalizedReorder !== undefined ? { reorderLevel: normalizedReorder } : {},
+      { updatedBy: userId },
+    );
     return this.storeItemRepo.save(item);
   }
 
@@ -554,7 +585,7 @@ export class StoreService {
     id: string,
     userId: string,
     companyId: string,
-    dto?: { lineQuantities?: { lineId: string; quantity: number; estimatedUnitPrice?: number }[] },
+    dto?: { useShortageOnly?: boolean; lineQuantities?: { lineId: string; quantity: number; estimatedUnitPrice?: number }[] },
     allowedDivisionIds?: DivisionAccess,
   ) {
     const request = await this.findMaterialRequestById(id, companyId, allowedDivisionIds);
@@ -580,8 +611,12 @@ export class StoreService {
       const requested = Number(line.requestedQuantity || 0);
       const already = Number(line.prCreatedQty || 0);
       const remaining = requested - already;
+      const available = Number(line.availableStock || 0);
 
-      let convertQty = remaining;
+      // Default to net shortage when useShortageOnly is requested or stock partially covers the MR
+      let convertQty = dto?.useShortageOnly || available > 0
+        ? Math.max(0, requested - available - already)
+        : remaining;
       const override = conversionMap.get(line.id);
       if (override) {
         convertQty = Math.min(Number(override.quantity), remaining);
@@ -844,6 +879,8 @@ export class StoreService {
           serialNumber: dto.lines[i].serialNumber || null,
           bin: dto.lines[i].bin || null,
           rack: dto.lines[i].rack || null,
+          requiresOldItemReturn: Boolean(dto.lines[i].requiresOldItemReturn),
+          oldItemReturnedQty: Number(dto.lines[i].oldItemReturnedQty || 0),
           remarks: dto.lines[i].remarks || null,
         });
         await this.materialIssueLineRepo.save(line);
@@ -870,6 +907,8 @@ export class StoreService {
           serialNumber: lines[i].serialNumber || null,
           bin: lines[i].bin || null,
           rack: lines[i].rack || null,
+          requiresOldItemReturn: Boolean(lines[i].requiresOldItemReturn),
+          oldItemReturnedQty: Number(lines[i].oldItemReturnedQty || 0),
           remarks: lines[i].remarks || null,
         });
         await this.materialIssueLineRepo.save(line);
@@ -878,6 +917,76 @@ export class StoreService {
 
     await this.materialIssueRepo.update(id, { updatedBy: userId });
     return this.findMaterialIssueById(id);
+  }
+
+  private async convertToBaseUom(
+    manager: EntityManager,
+    itemId: string,
+    uomId: string,
+    quantity: number,
+  ): Promise<{ postQty: number; postUomId: string; itemName: string }> {
+    let postQty = quantity;
+    let postUomId = uomId;
+    let itemName = itemId;
+
+    const item = await manager.getRepository(Item).findOne({ where: { id: itemId } });
+    if (item) {
+      itemName = item.name || item.itemCode || itemId;
+      if (item.baseUomId && uomId && item.baseUomId !== uomId) {
+        const conv = await manager.getRepository(UomConversion).findOne({
+          where: { fromUomId: uomId, toUomId: item.baseUomId },
+        });
+        if (conv && Number(conv.conversionFactor) > 0) {
+          postQty = quantity * Number(conv.conversionFactor);
+          postUomId = item.baseUomId;
+        }
+      }
+    }
+    return { postQty, postUomId, itemName };
+  }
+
+  private async addToScrapOrQuarantinePool(
+    manager: EntityManager,
+    companyId: string,
+    itemId: string,
+    warehouseId: string,
+    uomId: string,
+    qty: number,
+    pool: 'scrap' | 'quarantine',
+  ): Promise<void> {
+    if (qty <= 0) return;
+    const balRepo = manager.getRepository(InventoryBalance);
+    let balance = await balRepo.findOne({
+      where: { companyId, itemId, warehouseId, locationId: null as any, batchId: null as any },
+      lock: { mode: 'pessimistic_write' },
+    });
+    if (!balance) {
+      balance = await balRepo.findOne({
+        where: { companyId, itemId, warehouseId },
+        lock: { mode: 'pessimistic_write' },
+      });
+    }
+    if (!balance) {
+      balance = balRepo.create({
+        companyId,
+        itemId,
+        warehouseId,
+        uomId,
+        onHand: 0,
+        reserved: 0,
+        available: 0,
+        scrapQty: pool === 'scrap' ? qty : 0,
+        quarantineQty: pool === 'quarantine' ? qty : 0,
+        status: 'ACTIVE',
+      });
+    } else {
+      if (pool === 'scrap') {
+        balance.scrapQty = Number(balance.scrapQty || 0) + qty;
+      } else {
+        balance.quarantineQty = Number(balance.quarantineQty || 0) + qty;
+      }
+    }
+    await balRepo.save(balance);
   }
 
   async postMaterialIssue(id: string, userId: string, companyId?: string, allowedDivisionIds?: DivisionAccess) {
@@ -903,9 +1012,40 @@ export class StoreService {
       if (!locked) throw new NotFoundException(`Material issue ${id} not found`);
       if (locked.status !== 'DRAFT') throw new BadRequestException('Issue has already been posted');
 
+      const policy = await manager.getRepository(InventoryPolicy).findOne({
+        where: { companyId: locked.companyId },
+      });
+      const allowNegative = Boolean(policy?.allowNegativeStock);
+
       for (const line of locked.lines || []) {
         const qty = Number(line.quantity || 0);
         if (qty <= 0) continue;
+
+        const { postQty, postUomId, itemName } = await this.convertToBaseUom(
+          manager,
+          line.itemId,
+          line.uomId,
+          qty,
+        );
+
+        // Lock inventory balance rows for this item+warehouse to prevent concurrent negative stock race
+        const balRows = await manager
+          .getRepository(InventoryBalance)
+          .createQueryBuilder('ib')
+          .setLock('pessimistic_write')
+          .where('ib.company_id = :companyId AND ib.item_id = :itemId AND ib.warehouse_id = :warehouseId', {
+            companyId: locked.companyId,
+            itemId: line.itemId,
+            warehouseId: store.warehouseId!,
+          })
+          .getMany();
+
+        const availableBaseQty = balRows.reduce((sum, r) => sum + Number(r.available || 0), 0);
+        if (!allowNegative && availableBaseQty < postQty) {
+          throw new BadRequestException(
+            `Insufficient stock for ${itemName}: available ${availableBaseQty}, requested ${postQty}`,
+          );
+        }
 
         await this.stockLedgerService.create({
           companyId: locked.companyId,
@@ -914,13 +1054,13 @@ export class StoreService {
           itemId: line.itemId,
           warehouseId: store.warehouseId!,
           batchId: line.batchId || undefined,
-          quantity: qty,
-          uomId: line.uomId,
+          quantity: postQty,
+          uomId: postUomId,
           direction: 'OUT',
           referenceType: 'MATERIAL_ISSUE',
           referenceId: locked.id,
           referenceNumber: locked.issueNumber,
-          notes: `Material issue ${locked.issueNumber}`,
+          notes: `Material issue ${locked.issueNumber}${postQty !== qty ? ` (${qty} converted to ${postQty})` : ''}`,
           createdBy: userId,
           divisionId: locked.divisionId,
           sectionId: locked.sectionId,
@@ -929,8 +1069,23 @@ export class StoreService {
 
         await this.inventoryBalanceService.updateBalance(
           locked.companyId, line.itemId, store.warehouseId!,
-          null, line.batchId, line.uomId, qty, 'OUT', manager,
+          null, line.batchId, postUomId, postQty, 'OUT', manager,
         );
+
+        // Old consumable / tool exchange: log returned old item into Scrap Drum pool
+        const oldReturned = Number(line.oldItemReturnedQty || 0);
+        if (oldReturned > 0) {
+          const oldConv = await this.convertToBaseUom(manager, line.itemId, line.uomId, oldReturned);
+          await this.addToScrapOrQuarantinePool(
+            manager,
+            locked.companyId,
+            line.itemId,
+            store.warehouseId!,
+            oldConv.postUomId,
+            oldConv.postQty,
+            'scrap',
+          );
+        }
       }
 
       if (locked.requestId) {
@@ -1113,30 +1268,75 @@ export class StoreService {
         const qty = Number(line.quantity || 0);
         if (qty <= 0) continue;
 
-        await this.stockLedgerService.create({
-          companyId: locked.companyId,
-          transactionType: 'MATERIAL_RETURN',
-          transactionDate: new Date(),
-          itemId: line.itemId,
-          warehouseId: store.warehouseId!,
-          batchId: line.batchId || undefined,
-          quantity: qty,
-          uomId: line.uomId,
-          direction: 'IN',
-          referenceType: 'MATERIAL_RETURN',
-          referenceId: locked.id,
-          referenceNumber: locked.returnNumber,
-          notes: `Material return ${locked.returnNumber}`,
-          createdBy: userId,
-          divisionId: locked.divisionId,
-          sectionId: locked.sectionId,
-          departmentId: locked.departmentId || locked.fromDepartmentId,
-        }, manager);
-
-        await this.inventoryBalanceService.updateBalance(
-          locked.companyId, line.itemId, store.warehouseId!,
-          null, line.batchId, line.uomId, qty, 'IN', manager,
+        const { postQty, postUomId } = await this.convertToBaseUom(
+          manager,
+          line.itemId,
+          line.uomId,
+          qty,
         );
+
+        const cond = (line.conditionCode || locked.conditionCode || 'GOOD').toUpperCase();
+        const isUsable = cond === 'GOOD' || cond === 'REUSABLE';
+
+        if (isUsable) {
+          await this.stockLedgerService.create({
+            companyId: locked.companyId,
+            transactionType: 'MATERIAL_RETURN',
+            transactionDate: new Date(),
+            itemId: line.itemId,
+            warehouseId: store.warehouseId!,
+            batchId: line.batchId || undefined,
+            quantity: postQty,
+            uomId: postUomId,
+            direction: 'IN',
+            referenceType: 'MATERIAL_RETURN',
+            referenceId: locked.id,
+            referenceNumber: locked.returnNumber,
+            notes: `Material return ${locked.returnNumber} [${cond}]${postQty !== qty ? ` (${qty} converted to ${postQty})` : ''}`,
+            createdBy: userId,
+            divisionId: locked.divisionId,
+            sectionId: locked.sectionId,
+            departmentId: locked.departmentId || locked.fromDepartmentId,
+          }, manager);
+
+          await this.inventoryBalanceService.updateBalance(
+            locked.companyId, line.itemId, store.warehouseId!,
+            null, line.batchId, postUomId, postQty, 'IN', manager,
+          );
+        } else {
+          const pool: 'scrap' | 'quarantine' =
+            cond === 'DAMAGED' || cond === 'QUARANTINE' ? 'quarantine' : 'scrap';
+
+          await this.addToScrapOrQuarantinePool(
+            manager,
+            locked.companyId,
+            line.itemId,
+            store.warehouseId!,
+            postUomId,
+            postQty,
+            pool,
+          );
+
+          await this.stockLedgerService.create({
+            companyId: locked.companyId,
+            transactionType: 'MATERIAL_RETURN_SCRAP',
+            transactionDate: new Date(),
+            itemId: line.itemId,
+            warehouseId: store.warehouseId!,
+            batchId: line.batchId || undefined,
+            quantity: postQty,
+            uomId: postUomId,
+            direction: 'IN',
+            referenceType: 'MATERIAL_RETURN',
+            referenceId: locked.id,
+            referenceNumber: locked.returnNumber,
+            notes: `Material return ${locked.returnNumber} routed to ${pool.toUpperCase()} pool [${cond}]`,
+            createdBy: userId,
+            divisionId: locked.divisionId,
+            sectionId: locked.sectionId,
+            departmentId: locked.departmentId || locked.fromDepartmentId,
+          }, manager);
+        }
       }
 
       await repo.update(locked.id, {

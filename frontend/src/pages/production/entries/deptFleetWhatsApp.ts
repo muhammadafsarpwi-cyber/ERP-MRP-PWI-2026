@@ -165,8 +165,8 @@ export function buildDepartmentFleetWhatsAppText(params: DeptFleetWhatsAppParams
     const numEmoji = idx < NUMBER_EMOJIS.length ? NUMBER_EMOJIS[idx] : `#${idx + 1}`;
     // Status text without tick or hourglass emoji as requested
     const statusText = m.status === 'ENTERED' ? 'Entered' : 'Entry Required';
-    // Achievement tone: green circle up for >= 70%, red circle down for < 70%
-    const achTone = achievement >= 70 ? '🟢 ▲' : '🔴 ▼';
+    // Achievement tone: up triangle for >= 70%, down triangle for < 70% (no colored circle balls)
+    const achTone = achievement >= 70 ? '▲' : '▼';
 
     const displayName = m.machineCode
       ? `${m.machineCode} — ${m.name}`
@@ -201,7 +201,7 @@ export function buildDepartmentFleetWhatsAppText(params: DeptFleetWhatsAppParams
   });
 
   const overallAch = totalTarget > 0 ? Number(((totalActual / totalTarget) * 100).toFixed(2)) : 0;
-  const overallTone = overallAch >= 70 ? '🟢 ▲' : '🔴 ▼';
+  const overallTone = overallAch >= 70 ? '▲' : '▼';
   const overallAchText = `${overallAch.toFixed(2)}% ${overallTone}`;
   const totalProdText = `${formatNumber(totalActual, 0)} ${primaryUom}`;
   const fleetStatusText = `${deptMachines.length} Machines (${enteredCount} Entered / ${pendingCount} Pending)`;
