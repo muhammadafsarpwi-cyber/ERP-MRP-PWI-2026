@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import {
   Table, Button, Input, Select, DatePicker, App, Modal, Tooltip,
-  Row, Col, Form, InputNumber, Tag, Badge, Progress, Spin, Card, Space, Segmented,
+  Row, Col, Form, InputNumber, Tag, Badge, Progress, Spin, Card, Space, Segmented, theme,
 } from 'antd';
 import {
   PlusOutlined, ReloadOutlined, FileTextOutlined, PrinterOutlined,
@@ -131,6 +131,7 @@ interface PoFulfillmentLedgerProps {
 }
 
 export const PoFulfillmentLedger: React.FC<PoFulfillmentLedgerProps> = ({ poId, poCode }) => {
+  const { token } = theme.useToken();
   const [loading, setLoading] = useState(true);
   const [poDetails, setPoDetails] = useState<any>(null);
   const [receipts, setReceipts] = useState<any[]>([]);
@@ -159,8 +160,19 @@ export const PoFulfillmentLedger: React.FC<PoFulfillmentLedgerProps> = ({ poId, 
 
   if (loading) {
     return (
-      <div style={{ padding: '16px 24px', textAlign: 'center', background: 'rgba(15, 23, 42, 0.4)', borderRadius: 6 }}>
-        <Spin size="small" /> <span style={{ marginLeft: 8, color: '#94a3b8', fontSize: 12 }}>Loading Inbound Receiving Ledger for #{poCode}...</span>
+      <div
+        style={{
+          padding: '16px 24px',
+          textAlign: 'center',
+          background: token.colorFillAlter,
+          border: `1px solid ${token.colorBorderSecondary}`,
+          borderRadius: 8,
+        }}
+      >
+        <Spin size="small" />{' '}
+        <span style={{ marginLeft: 8, color: token.colorTextSecondary, fontSize: 12 }}>
+          Loading Inbound Receiving Ledger for #{poCode}...
+        </span>
       </div>
     );
   }
@@ -168,22 +180,40 @@ export const PoFulfillmentLedger: React.FC<PoFulfillmentLedgerProps> = ({ poId, 
   const lines = poDetails?.items || poDetails?.lines || [];
   if (lines.length === 0) {
     return (
-      <div style={{ padding: '12px 20px', background: 'rgba(15, 23, 42, 0.4)', borderRadius: 6, color: '#94a3b8', fontSize: 12 }}>
+      <div
+        style={{
+          padding: '12px 20px',
+          background: token.colorFillAlter,
+          border: `1px solid ${token.colorBorderSecondary}`,
+          borderRadius: 8,
+          color: token.colorTextSecondary,
+          fontSize: 12,
+        }}
+      >
         No items recorded for Purchase Order #{poCode}.
       </div>
     );
   }
 
   return (
-    <div style={{ padding: '14px 18px', background: 'rgba(15, 23, 42, 0.75)', border: '1px solid rgba(56, 189, 248, 0.3)', borderRadius: 8, margin: '6px 0' }}>
+    <div
+      style={{
+        padding: '14px 18px',
+        background: token.colorBgContainer,
+        border: `1px solid ${token.colorBorderSecondary}`,
+        borderLeft: `3px solid ${token.colorPrimary}`,
+        borderRadius: 8,
+        margin: '6px 0',
+      }}
+    >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 13.5, fontWeight: 800, color: '#38bdf8' }}>
+          <span style={{ fontSize: 13.5, fontWeight: 800, color: token.colorPrimary }}>
             📦 Inbound Receiving Ledger & Fulfillment History:
           </span>
           <Tag color="blue" style={{ fontWeight: 700 }}>PO #{poCode}</Tag>
-          <span style={{ fontSize: 12, color: '#94a3b8' }}>
-            Supplier: <strong style={{ color: '#cbd5e1' }}>{poDetails?.supplier?.name || poDetails?.supplierName || 'Supplier'}</strong>
+          <span style={{ fontSize: 12, color: token.colorTextSecondary }}>
+            Supplier: <strong style={{ color: token.colorText }}>{poDetails?.supplier?.name || poDetails?.supplierName || 'Supplier'}</strong>
           </span>
         </div>
         <div>
@@ -196,7 +226,15 @@ export const PoFulfillmentLedger: React.FC<PoFulfillmentLedgerProps> = ({ poId, 
       {/* Item-wise Fulfillment Summary Table */}
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, marginBottom: 16 }}>
         <thead>
-          <tr style={{ background: 'rgba(30, 41, 59, 0.95)', borderBottom: '1px solid rgba(56, 189, 248, 0.3)', color: '#94a3b8', textAlign: 'left' }}>
+          <tr
+            style={{
+              background: token.colorFillAlter,
+              borderTop: `1px solid ${token.colorBorderSecondary}`,
+              borderBottom: `1px solid ${token.colorBorder}`,
+              color: token.colorTextSecondary,
+              textAlign: 'left',
+            }}
+          >
             <th style={{ padding: '8px 10px' }}>Item Code</th>
             <th style={{ padding: '8px 10px' }}>Item Description</th>
             <th style={{ padding: '8px 10px', textAlign: 'right' }}>Ordered Qty</th>
@@ -215,12 +253,18 @@ export const PoFulfillmentLedger: React.FC<PoFulfillmentLedgerProps> = ({ poId, 
             const isFull = (ord > 0 && rec >= ord);
 
             return (
-              <tr key={l.id || idx} style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.05)', background: idx % 2 === 0 ? 'transparent' : 'rgba(255, 255, 255, 0.02)' }}>
-                <td style={{ padding: '8px 10px', fontWeight: 700, color: '#38bdf8' }}>{l.item?.itemCode || l.itemCode || 'ITEM'}</td>
-                <td style={{ padding: '8px 10px', color: '#cbd5e1' }}>{l.item?.name || l.itemName || l.name || '—'}</td>
-                <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, color: '#f1f5f9' }}>{ord.toLocaleString()} {uom}</td>
-                <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, color: isFull ? '#10b981' : '#38bdf8' }}>{rec.toLocaleString()} {uom}</td>
-                <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 800, color: isFull ? '#10b981' : '#f59e0b' }}>
+              <tr
+                key={l.id || idx}
+                style={{
+                  borderBottom: `1px solid ${token.colorBorderSecondary}`,
+                  background: idx % 2 === 0 ? 'transparent' : token.colorFillAlter,
+                }}
+              >
+                <td style={{ padding: '8px 10px', fontWeight: 700, color: token.colorPrimary }}>{l.item?.itemCode || l.itemCode || 'ITEM'}</td>
+                <td style={{ padding: '8px 10px', color: token.colorText }}>{l.item?.name || l.itemName || l.name || '—'}</td>
+                <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, color: token.colorText }}>{ord.toLocaleString()} {uom}</td>
+                <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, color: isFull ? token.colorSuccess : token.colorPrimary }}>{rec.toLocaleString()} {uom}</td>
+                <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 800, color: isFull ? token.colorSuccess : token.colorWarning }}>
                   {isFull ? `0 ${uom} (Fulfilled)` : `${bal.toLocaleString()} ${uom} Left`}
                 </td>
                 <td style={{ padding: '8px 10px', textAlign: 'center' }}>
@@ -230,7 +274,7 @@ export const PoFulfillmentLedger: React.FC<PoFulfillmentLedgerProps> = ({ poId, 
                       size="small"
                       status={isFull ? 'success' : 'active'}
                       style={{ width: 90, margin: 0 }}
-                      strokeColor={isFull ? '#10b981' : '#38bdf8'}
+                      strokeColor={isFull ? token.colorSuccess : token.colorPrimary}
                     />
                     <Tag color={isFull ? 'success' : (rec > 0 ? 'warning' : 'default')} style={{ margin: 0, fontWeight: 700, fontSize: 10 }}>
                       {isFull ? '✅ FULLY RECEIVED' : (rec > 0 ? 'PARTIAL' : 'PENDING')}
@@ -246,12 +290,20 @@ export const PoFulfillmentLedger: React.FC<PoFulfillmentLedgerProps> = ({ poId, 
       {/* Receipts Chronological Inbound History */}
       {receipts.length > 0 && (
         <div>
-          <div style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: token.colorTextSecondary, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
             <span>🚚 Chronological Inbound Receipts Audit Trail ({receipts.length} Receipt Entry):</span>
           </div>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5 }}>
             <thead>
-              <tr style={{ background: 'rgba(30, 41, 59, 0.65)', borderBottom: '1px solid rgba(255, 255, 255, 0.1)', color: '#94a3b8', textAlign: 'left' }}>
+              <tr
+                style={{
+                  background: token.colorFillAlter,
+                  borderTop: `1px solid ${token.colorBorderSecondary}`,
+                  borderBottom: `1px solid ${token.colorBorder}`,
+                  color: token.colorTextSecondary,
+                  textAlign: 'left',
+                }}
+              >
                 <th style={{ padding: '6px 8px' }}>#</th>
                 <th style={{ padding: '6px 8px' }}>Receipt Code</th>
                 <th style={{ padding: '6px 8px' }}>GRN #</th>
@@ -268,20 +320,20 @@ export const PoFulfillmentLedger: React.FC<PoFulfillmentLedgerProps> = ({ poId, 
                 const isPosted = gr.status === 'POSTED';
 
                 return (
-                  <tr key={gr.id || gIdx} style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.04)' }}>
-                    <td style={{ padding: '6px 8px', color: '#64748b' }}>{gIdx + 1}</td>
-                    <td style={{ padding: '6px 8px', fontWeight: 700, color: '#38bdf8' }}>{gr.receiptCode}</td>
-                    <td style={{ padding: '6px 8px', color: '#cbd5e1' }}>{gr.grnNumber || '—'}</td>
-                    <td style={{ padding: '6px 8px', color: '#94a3b8' }}>
+                  <tr key={gr.id || gIdx} style={{ borderBottom: `1px solid ${token.colorBorderSecondary}` }}>
+                    <td style={{ padding: '6px 8px', color: token.colorTextTertiary }}>{gIdx + 1}</td>
+                    <td style={{ padding: '6px 8px', fontWeight: 700, color: token.colorPrimary }}>{gr.receiptCode}</td>
+                    <td style={{ padding: '6px 8px', color: token.colorText }}>{gr.grnNumber || '—'}</td>
+                    <td style={{ padding: '6px 8px', color: token.colorTextSecondary }}>
                       {gr.receiptDate ? dayjs(gr.receiptDate).format('DD/MM/YYYY') : '—'}
                     </td>
-                    <td style={{ padding: '6px 8px', color: '#cbd5e1' }}>{gr.warehouse?.name || gr.warehouseName || '—'}</td>
+                    <td style={{ padding: '6px 8px', color: token.colorText }}>{gr.warehouse?.name || gr.warehouseName || '—'}</td>
                     <td style={{ padding: '6px 8px' }}>
                       <Tag color={isPosted ? 'purple' : 'blue'} style={{ fontSize: 10, fontWeight: 700 }}>
                         {gr.status}
                       </Tag>
                     </td>
-                    <td style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 700, color: '#10b981' }}>
+                    <td style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 700, color: token.colorSuccess }}>
                       {totReceived.toLocaleString()} GRS
                     </td>
                   </tr>

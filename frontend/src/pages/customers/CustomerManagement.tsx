@@ -253,6 +253,7 @@ const CustomerManagement: React.FC = () => {
   const [activeChevron, setActiveChevron] = useState<string>('ALL');
 
   // Customer Statement State
+  const [showFilters, setShowFilters] = useState(false);
   const [statementData, setStatementData] = useState<any>(null);
   const [statementLoading, setStatementLoading] = useState(false);
   const [statementFromDate, setStatementFromDate] = useState<string | undefined>(undefined);
@@ -567,6 +568,54 @@ const CustomerManagement: React.FC = () => {
     ]);
     printTableList('Customer Master Directory', headers, rows);
   }, [displayedCustomers]);
+
+  // Extract 3-letter abbreviation from Customer Name + 3-digit sequence (e.g. CUS-SWA-019)
+  const buildSmartCustomerCode = useCallback(
+    (rawName: string, currentCode?: string): string => {
+      const cleaned = (rawName || '')
+        .toUpperCase()
+        .replace(/\([^)]*\)/g, ' ')
+        .replace(/[^A-Z0-9\s-]/g, ' ')
+        .trim();
+      const words = cleaned
+        .split(/[\s-]+/)
+        .filter((w) => w.length > 0 && !['PVT', 'LTD', 'LIMITED', 'THE', 'AND'].includes(w));
+      const allWords = cleaned.split(/[\s-]+/).filter((w) => w.length > 0);
+      const targetWords = words.length > 0 ? words : allWords;
+
+      let abbr = 'GEN';
+      if (allWords.length >= 3 && allWords[0].length === 3) {
+        abbr = allWords[0].slice(0, 3);
+      } else if (allWords.length >= 3) {
+        abbr = (allWords[0][0] + allWords[1][0] + allWords[2][0]).toUpperCase();
+      } else if (targetWords.length === 2) {
+        const w1 = targetWords[0];
+        const w2 = targetWords[1];
+        abbr = w1.length >= 2 ? (w1.slice(0, 2) + w2[0]).toUpperCase() : (w1[0] + w2.slice(0, 2)).padEnd(3, 'X').toUpperCase();
+      } else if (targetWords.length === 1) {
+        abbr = targetWords[0].slice(0, 3).padEnd(3, 'X').toUpperCase();
+      }
+
+      // Preserve existing sequence number if editing, otherwise compute next sequence
+      const existingSeqMatch = (currentCode || editingCustomer?.customerCode || '').match(/([0-9]+)$/);
+      if (existingSeqMatch && editingCustomer) {
+        const seqNum = Number(existingSeqMatch[1]) || 1;
+        return `CUS-${abbr}-${String(seqNum).padStart(3, '0')}`;
+      }
+
+      let maxNum = 0;
+      for (const c of customers) {
+        const m = String(c.customerCode || '').match(/([0-9]+)$/);
+        if (m) {
+          const n = Number(m[1]);
+          if (n > maxNum && n < 900000) maxNum = n;
+        }
+      }
+      const nextSeq = String(maxNum + 1).padStart(3, '0');
+      return `CUS-${abbr}-${nextSeq}`;
+    },
+    [customers, editingCustomer],
+  );
 
   const handleCreate = useCallback(() => {
     setEditingCustomer(null);
@@ -939,7 +988,30 @@ const CustomerManagement: React.FC = () => {
       render: (_, record) => {
         return (
           <div className="customer-cell-wrapper">
+            {record.customerCode && (
+              <div style={{ marginBottom: 3 }}>
+                <span
+                  style={{
+                    background: 'var(--inv-filter-card-bg, #f1f5f9)',
+                    color: 'var(--inv-text-secondary, #1e293b)',
+                    border: '1px solid var(--inv-filter-card-border, #cbd5e1)',
+                    borderRadius: 4,
+                    padding: '1px 7px',
+                    fontSize: 11,
+                    fontFamily: 'monospace',
+                    fontWeight: 800,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 4,
+                  }}
+                >
+                  <BarcodeOutlined style={{ color: 'var(--inv-text-muted, #64748b)' }} />
+                  {record.customerCode}
+                </span>
+              </div>
+            )}
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              <UserOutlined style={{ color: 'var(--theme-accent, #0284c7)', fontSize: 12.5 }} />
               <span className="customer-name-text">{record.name}</span>
               {record.creditHold && (
                 <Tag color="error" icon={<StopOutlined />} style={{ fontSize: 10, padding: '0 4px' }}>
@@ -977,15 +1049,29 @@ const CustomerManagement: React.FC = () => {
         const divCode = record.division?.divisionCode || divisions.find(d => d.id === record.divisionId)?.code;
         return (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-            <Tag color="purple" style={{ fontWeight: 600, fontSize: 12, padding: '2px 8px', borderRadius: 4, display: 'inline-flex', alignItems: 'center', width: 'fit-content' }}>
+            {divCode && (
+              <div>
+                <span
+                  style={{
+                    background: 'var(--inv-badge-customer-bg, #f0f9ff)',
+                    color: 'var(--inv-badge-customer-text, #0369a1)',
+                    border: '1px solid var(--inv-badge-customer-border, #bae6fd)',
+                    borderRadius: 4,
+                    padding: '1px 7px',
+                    fontSize: 11,
+                    fontFamily: 'monospace',
+                    fontWeight: 800,
+                    display: 'inline-block',
+                  }}
+                >
+                  {divCode}
+                </span>
+              </div>
+            )}
+            <Tag color="purple" style={{ fontWeight: 600, fontSize: 12, padding: '2px 8px', borderRadius: 4, display: 'inline-flex', alignItems: 'center', width: 'fit-content', margin: 0 }}>
               <ApartmentOutlined style={{ marginRight: 5 }} />
               {divName}
             </Tag>
-            {divCode && (
-              <span style={{ fontSize: 11, color: '#64748b', fontFamily: 'monospace', paddingLeft: 4 }}>
-                {divCode}
-              </span>
-            )}
           </div>
         );
       },
@@ -1675,129 +1761,35 @@ const CustomerManagement: React.FC = () => {
           )}
         </div>
 
-        {/* 3. Filters Section */}
-        <div className="customer-filter-section">
-          <div className="filter-header-row">
-            <div className="filter-header-left">
-              <FilterOutlined className="filter-funnel-icon" />
-              <span>Filters</span>
+        {/* 3. Table Controls Bar (Search, Filters Toggle & Show entries) */}
+        <div className="customer-table-controls" style={{ marginBottom: showFilters ? 8 : 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <div className="search-control">
+              <span>Search:</span>
+              <Input
+                value={search}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setPage(1);
+                }}
+                placeholder="Search code, name, legal name, phone, NTN, STRN..."
+                className="search-input"
+                allowClear
+                style={{ width: 280 }}
+              />
             </div>
-            <button className="btn-clear-all" onClick={handleClearAll}>
-              <CloseCircleOutlined /> Clear All
-            </button>
+            <Button
+              icon={<FilterOutlined />}
+              type={showFilters ? 'primary' : 'default'}
+              onClick={() => setShowFilters((prev) => !prev)}
+              style={{ fontWeight: 600 }}
+            >
+              Filters {[filterDivision, filterState, filterStatus, filterBalance, filterCustomerType].filter(Boolean).length > 0
+                ? `(${[filterDivision, filterState, filterStatus, filterBalance, filterCustomerType].filter(Boolean).length})`
+                : ''}
+            </Button>
           </div>
 
-          <div className="filter-boxes-grid">
-            {/* Box 1: DIVISION */}
-            <div className="filter-box-item">
-              <div className="filter-box-label">
-                <ApartmentOutlined className="label-icon" />
-                <span>DIVISION</span>
-              </div>
-              <Select
-                placeholder="All Divisions"
-                allowClear
-                className="filter-box-select"
-                value={filterDivision}
-                onChange={(val) => {
-                  setFilterDivision(val);
-                  setPage(1);
-                }}
-              >
-                {divisions.map(d => (
-                  <Select.Option key={d.id} value={d.id}>
-                    {d.name} {d.code ? `(${d.code})` : ''}
-                  </Select.Option>
-                ))}
-              </Select>
-            </div>
-
-            {/* Box 2: STATE */}
-            <div className="filter-box-item">
-              <div className="filter-box-label">
-                <BankOutlined className="label-icon" />
-                <span>STATE / PROVINCE</span>
-              </div>
-              <Select
-                placeholder="All states"
-                allowClear
-                className="filter-box-select"
-                value={filterState}
-                onChange={(val) => setFilterState(val)}
-              >
-                {availableStates.map(st => (
-                  <Select.Option key={st} value={st}>{st}</Select.Option>
-                ))}
-              </Select>
-            </div>
-
-            {/* Box 3: STATUS */}
-            <div className="filter-box-item">
-              <div className="filter-box-label">
-                <CheckCircleOutlined className="label-icon" />
-                <span>STATUS</span>
-              </div>
-              <Select
-                placeholder="All statuses"
-                allowClear
-                className="filter-box-select"
-                value={filterStatus}
-                onChange={(val) => {
-                  setFilterStatus(val);
-                  setPage(1);
-                }}
-              >
-                {STATUS_OPTIONS.map(st => (
-                  <Select.Option key={st} value={st}>{st}</Select.Option>
-                ))}
-              </Select>
-            </div>
-
-            {/* Box 4: BALANCE */}
-            <div className="filter-box-item">
-              <div className="filter-box-label">
-                <WalletOutlined className="label-icon" />
-                <span>BALANCE STATUS</span>
-              </div>
-              <Select
-                placeholder="Any"
-                allowClear
-                className="filter-box-select"
-                value={filterBalance}
-                onChange={(val) => setFilterBalance(val)}
-              >
-                <Select.Option value="DUE">With Balance Due</Select.Option>
-                <Select.Option value="ZERO">Zero Balance</Select.Option>
-                <Select.Option value="EXCEEDED">Credit Limit Exceeded</Select.Option>
-              </Select>
-            </div>
-
-            {/* Box 5: CUSTOMER TYPE */}
-            <div className="filter-box-item">
-              <div className="filter-box-label">
-                <AuditOutlined className="label-icon" />
-                <span>CUSTOMER TYPE</span>
-              </div>
-              <Select
-                placeholder="All Types"
-                allowClear
-                className="filter-box-select"
-                value={filterCustomerType}
-                onChange={(val) => {
-                  setFilterCustomerType(val);
-                  setPage(1);
-                }}
-              >
-                {CUSTOMER_TYPES.map(m => (
-                  <Select.Option key={m} value={m}>{m}</Select.Option>
-                ))}
-              </Select>
-            </div>
-          </div>
-        </div>
-
-        {/* 4. Table Controls Bar (Show entries & Search) */}
-        <div className="customer-table-controls">
           <div className="entries-control">
             <span>Show</span>
             <Select
@@ -1815,22 +1807,130 @@ const CustomerManagement: React.FC = () => {
             </Select>
             <span>entries</span>
           </div>
-
-          <div className="search-control">
-            <span>Search:</span>
-            <Input
-              value={search}
-              onChange={(e) => {
-                setSearch(e.target.value);
-                setPage(1);
-              }}
-              placeholder="Search code, name, legal name, phone, NTN, STRN..."
-              className="search-input"
-              allowClear
-              style={{ width: 280 }}
-            />
-          </div>
         </div>
+
+        {/* 4. Collapsible Filters Section */}
+        {showFilters && (
+          <div className="customer-filter-section" style={{ marginBottom: 12 }}>
+            <div className="filter-header-row">
+              <div className="filter-header-left" style={{ cursor: 'pointer' }} onClick={() => setShowFilters(false)}>
+                <FilterOutlined className="filter-funnel-icon" />
+                <span>Filters</span>
+              </div>
+              <button className="btn-clear-all" onClick={handleClearAll}>
+                <CloseCircleOutlined /> Clear All
+              </button>
+            </div>
+
+            <div className="filter-boxes-grid">
+              {/* Box 1: DIVISION */}
+              <div className="filter-box-item">
+                <div className="filter-box-label">
+                  <ApartmentOutlined className="label-icon" />
+                  <span>DIVISION</span>
+                </div>
+                <Select
+                  placeholder="All Divisions"
+                  allowClear
+                  className="filter-box-select"
+                  value={filterDivision}
+                  onChange={(val) => {
+                    setFilterDivision(val);
+                    setPage(1);
+                  }}
+                >
+                  {divisions.map(d => (
+                    <Select.Option key={d.id} value={d.id}>
+                      {d.name} {d.code ? `(${d.code})` : ''}
+                    </Select.Option>
+                  ))}
+                </Select>
+              </div>
+
+              {/* Box 2: STATE */}
+              <div className="filter-box-item">
+                <div className="filter-box-label">
+                  <BankOutlined className="label-icon" />
+                  <span>STATE / PROVINCE</span>
+                </div>
+                <Select
+                  placeholder="All states"
+                  allowClear
+                  className="filter-box-select"
+                  value={filterState}
+                  onChange={(val) => setFilterState(val)}
+                >
+                  {availableStates.map(st => (
+                    <Select.Option key={st} value={st}>{st}</Select.Option>
+                  ))}
+                </Select>
+              </div>
+
+              {/* Box 3: STATUS */}
+              <div className="filter-box-item">
+                <div className="filter-box-label">
+                  <CheckCircleOutlined className="label-icon" />
+                  <span>STATUS</span>
+                </div>
+                <Select
+                  placeholder="All statuses"
+                  allowClear
+                  className="filter-box-select"
+                  value={filterStatus}
+                  onChange={(val) => {
+                    setFilterStatus(val);
+                    setPage(1);
+                  }}
+                >
+                  {STATUS_OPTIONS.map(st => (
+                    <Select.Option key={st} value={st}>{st}</Select.Option>
+                  ))}
+                </Select>
+              </div>
+
+              {/* Box 4: BALANCE */}
+              <div className="filter-box-item">
+                <div className="filter-box-label">
+                  <WalletOutlined className="label-icon" />
+                  <span>BALANCE STATUS</span>
+                </div>
+                <Select
+                  placeholder="Any"
+                  allowClear
+                  className="filter-box-select"
+                  value={filterBalance}
+                  onChange={(val) => setFilterBalance(val)}
+                >
+                  <Select.Option value="DUE">With Balance Due</Select.Option>
+                  <Select.Option value="ZERO">Zero Balance</Select.Option>
+                  <Select.Option value="EXCEEDED">Credit Limit Exceeded</Select.Option>
+                </Select>
+              </div>
+
+              {/* Box 5: CUSTOMER TYPE */}
+              <div className="filter-box-item">
+                <div className="filter-box-label">
+                  <AuditOutlined className="label-icon" />
+                  <span>CUSTOMER TYPE</span>
+                </div>
+                <Select
+                  placeholder="All Types"
+                  allowClear
+                  className="filter-box-select"
+                  value={filterCustomerType}
+                  onChange={(val) => {
+                    setFilterCustomerType(val);
+                    setPage(1);
+                  }}
+                >
+                  {CUSTOMER_TYPES.map(m => (
+                    <Select.Option key={m} value={m}>{m}</Select.Option>
+                  ))}
+                </Select>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* 5. Custom Styled Table */}
         {loading && customers.length === 0 ? (
@@ -1917,7 +2017,17 @@ const CustomerManagement: React.FC = () => {
                   }
                   rules={[{ required: true, message: 'Please enter customer name' }]}
                 >
-                  <Input placeholder="Customer Name" />
+                  <Input
+                    placeholder="e.g. Swabi Autos"
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (!editingCustomer) {
+                        form.setFieldsValue({
+                          customerCode: val.trim() ? buildSmartCustomerCode(val) : '',
+                        });
+                      }
+                    }}
+                  />
                 </Form.Item>
               </Col>
               <Col xs={24} sm={12} md={8}>
@@ -1989,11 +2099,30 @@ const CustomerManagement: React.FC = () => {
                   name="customerCode"
                   label={
                     <span className="reference-field-label">
-                      <BarcodeOutlined className="reference-field-icon" /> Customer Code
+                      <BarcodeOutlined className="reference-field-icon" /> Customer Code (Name + No.)
                     </span>
                   }
+                  tooltip="Auto-generates 3 letters from Customer Name + sequence number (e.g. CUS-SWA-019). You can also edit it manually."
                 >
-                  <Input placeholder="Leave blank for Auto CUS-XXXXXX" />
+                  <Input
+                    placeholder="e.g. CUS-SWA-019 (Auto from Name)"
+                    style={{ fontFamily: 'monospace', fontWeight: 700 }}
+                    addonAfter={
+                      <span
+                        style={{ cursor: 'pointer', fontSize: 11, fontWeight: 700, color: '#059669' }}
+                        title="Generate code from Customer Name"
+                        onClick={() => {
+                          const currentName = form.getFieldValue('name') || '';
+                          const currentCode = form.getFieldValue('customerCode') || '';
+                          form.setFieldsValue({
+                            customerCode: buildSmartCustomerCode(currentName, currentCode),
+                          });
+                        }}
+                      >
+                        Auto
+                      </span>
+                    }
+                  />
                 </Form.Item>
               </Col>
             </Row>

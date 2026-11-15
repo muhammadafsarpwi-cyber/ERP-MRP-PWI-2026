@@ -2,12 +2,12 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Table, Button, Form, Input, Select, App,
-  InputNumber, Row, Col, Descriptions, Divider, Tooltip, Tag, Modal, Badge, Checkbox,
+  InputNumber, Row, Col, Descriptions, Divider, Tooltip, Tag, Modal, Badge, Checkbox, theme,
 } from 'antd';
 import {
   PlusOutlined, EditOutlined, SearchOutlined, EyeOutlined, CheckOutlined,
   CarOutlined, InboxOutlined, StopOutlined, ReloadOutlined, FileExcelOutlined,
-  PrinterOutlined, FilterOutlined, CloseCircleOutlined, UserOutlined,
+  PrinterOutlined, FilterOutlined, CloseCircleOutlined, UserOutlined, BarcodeOutlined,
   CalendarOutlined, ShoppingCartOutlined, DollarOutlined, CheckCircleOutlined,
   BuildOutlined, BranchesOutlined, SendOutlined, DownOutlined, UpOutlined, ApartmentOutlined,
   DatabaseOutlined, SaveOutlined, CloseOutlined, ClearOutlined, AppstoreOutlined,
@@ -311,8 +311,12 @@ const SalesOrderManagement: React.FC = () => {
   const [warehouses, setWarehouses] = useState<Array<{ id: string; warehouseCode: string; name: string }>>([]);
   const [divisions, setDivisions] = useState<Array<{ id: string; divisionCode: string; name: string }>>([]);
   const [sections, setSections] = useState<Array<{ id: string; name: string; sectionCode?: string; divisionId?: string }>>([]);
+  const { token } = theme.useToken();
   const [selectedDivision, setSelectedDivision] = useState<string | undefined>(undefined);
   const selectedCustomerId = Form.useWatch('customerId', form);
+  const watchedDeliveryDate = Form.useWatch('deliveryDate', form);
+  const watchedOrderDate = Form.useWatch('orderDate', form);
+  const watchedSocNumber = Form.useWatch('socNumber', form);
 
   // Downstream Workflow: Delivery / Loading Advice Modal State
   interface DeliveryLineItem {
@@ -977,8 +981,8 @@ const SalesOrderManagement: React.FC = () => {
         const ful = fulfillmentMap.get(it.id);
         const ordered = Number(it.quantity || it.orderedQuantity || 0);
         const delivered = Number(ful?.deliveredQuantity ?? it.deliveredQuantity ?? 0);
-        const rem = ful?.remainingDeliveryQuantity !== undefined 
-          ? Number(ful.remainingDeliveryQuantity) 
+        const rem = ful?.remainingDeliveryQuantity !== undefined
+          ? Number(ful.remainingDeliveryQuantity)
           : Math.max(0, ordered - delivered);
         const code = ful?.itemCode || it.item?.code || (it as any).itemCode || `SKU-${idx + 1}`;
         const desc = it.description || it.item?.name || `Item #${idx + 1}`;
@@ -1030,15 +1034,15 @@ const SalesOrderManagement: React.FC = () => {
         carrier: deliveryCarrier,
         trackingNumber: deliveryTracking,
         notes: deliveryNotes,
-        lines: validLines.map(l => ({ 
-          salesOrderItemId: l.salesOrderItemId, 
+        lines: validLines.map(l => ({
+          salesOrderItemId: l.salesOrderItemId,
           itemId: l.itemId,
-          quantity: l.quantity 
+          quantity: l.quantity
         })),
-        items: validLines.map(l => ({ 
-          salesOrderItemId: l.salesOrderItemId, 
+        items: validLines.map(l => ({
+          salesOrderItemId: l.salesOrderItemId,
           itemId: l.itemId,
-          quantity: l.quantity 
+          quantity: l.quantity
         })),
       };
       const res = await apiService.post<any>(`/sales/orders/${deliveryOrder.id}/convert-to-delivery`, payload);
@@ -1259,11 +1263,7 @@ const SalesOrderManagement: React.FC = () => {
         const div = record.division || divisions.find(d => d.id === record.divisionId);
         if (!div) return <span style={{ color: 'var(--inv-text-muted, #64748b)', fontSize: 12 }}>-</span>;
         return (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 2, whiteSpace: 'nowrap' }}>
-            <span style={{ fontWeight: 700, color: 'var(--theme-accent, #0284c7)', fontSize: 12.5, whiteSpace: 'nowrap' }}>
-              <ApartmentOutlined style={{ marginRight: 4 }} />
-              {div.name}
-            </span>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 3, whiteSpace: 'nowrap' }}>
             <div>
               <span style={{
                 background: 'var(--inv-badge-customer-bg, #f0f9ff)',
@@ -1271,14 +1271,18 @@ const SalesOrderManagement: React.FC = () => {
                 border: '1px solid var(--inv-badge-customer-border, #bae6fd)',
                 borderRadius: 3,
                 padding: '1px 6px',
-                fontSize: 10.5,
+                fontSize: 11,
                 fontFamily: 'monospace',
-                fontWeight: 700,
+                fontWeight: 800,
                 whiteSpace: 'nowrap'
               }}>
                 {div.divisionCode}
               </span>
             </div>
+            <span style={{ fontWeight: 700, color: 'var(--theme-accent, #0284c7)', fontSize: 12.5, whiteSpace: 'nowrap' }}>
+              <ApartmentOutlined style={{ marginRight: 4 }} />
+              {div.name}
+            </span>
           </div>
         );
       },
@@ -1294,33 +1298,20 @@ const SalesOrderManagement: React.FC = () => {
         const phone = (c as any)?.phone || (record as any).phone;
         return (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 3, whiteSpace: 'nowrap' }}>
-            <div 
-              style={{ 
-                fontWeight: 700, 
-                fontSize: 13, 
-                color: 'var(--inv-text-primary, #0f172a)', 
-                whiteSpace: 'nowrap', 
-                overflow: 'hidden', 
-                textOverflow: 'ellipsis' 
-              }}
-              title={compName}
-            >
-              {compName}
-            </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'nowrap', whiteSpace: 'nowrap' }}>
               {custCode && (
-                <span style={{ 
-                  background: 'var(--inv-filter-card-bg, #f1f5f9)', 
-                  color: 'var(--inv-text-secondary, #1e293b)', 
-                  border: '1px solid var(--inv-filter-card-border, #cbd5e1)', 
-                  borderRadius: 3, 
-                  padding: '1px 6px', 
-                  fontSize: 10.5, 
+                <span style={{
+                  background: 'var(--inv-filter-card-bg, #f1f5f9)',
+                  color: 'var(--inv-text-secondary, #1e293b)',
+                  border: '1px solid var(--inv-filter-card-border, #cbd5e1)',
+                  borderRadius: 3,
+                  padding: '1px 6px',
+                  fontSize: 11,
                   fontFamily: 'monospace',
-                  fontWeight: 700,
+                  fontWeight: 800,
                   whiteSpace: 'nowrap'
                 }}>
-                  <UserOutlined style={{ marginRight: 3, color: 'var(--inv-text-muted, #64748b)' }} />
+                  <BarcodeOutlined style={{ marginRight: 4, color: 'var(--inv-text-muted, #64748b)' }} />
                   {custCode}
                 </span>
               )}
@@ -1329,6 +1320,23 @@ const SalesOrderManagement: React.FC = () => {
                   {phone}
                 </span>
               )}
+            </div>
+            <div
+              style={{
+                fontWeight: 700,
+                fontSize: 13,
+                color: 'var(--inv-text-primary, #0f172a)',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 5,
+              }}
+              title={compName}
+            >
+              <UserOutlined style={{ color: 'var(--theme-accent, #0284c7)', fontSize: 12.5, flexShrink: 0 }} />
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{compName}</span>
             </div>
           </div>
         );
@@ -1567,34 +1575,34 @@ const SalesOrderManagement: React.FC = () => {
                 {curr} {formatNumber(record.taxAmount || 0, 2)}
               </span>
             </div>
-            <div style={{ 
-              display: 'flex', 
-              alignItems: 'center', 
-              justifyContent: 'space-between', 
-              gap: 8, 
-              marginTop: 3, 
-              paddingTop: 4, 
-              borderTop: '1px dashed var(--inv-table-border, #cbd5e1)', 
-              whiteSpace: 'nowrap' 
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 8,
+              marginTop: 3,
+              paddingTop: 4,
+              borderTop: '1px dashed var(--inv-table-border, #cbd5e1)',
+              whiteSpace: 'nowrap'
             }}>
-              <span style={{ 
-                fontSize: 11, 
-                fontWeight: 800, 
-                background: 'var(--inv-badge-paid-bg, #dcfce7)', 
-                color: 'var(--inv-badge-paid-text, #15803d)', 
+              <span style={{
+                fontSize: 11,
+                fontWeight: 800,
+                background: 'var(--inv-badge-paid-bg, #dcfce7)',
+                color: 'var(--inv-badge-paid-text, #15803d)',
                 border: '1px solid var(--inv-badge-paid-border, #bbf7d0)',
-                padding: '1px 6px', 
-                borderRadius: 3, 
-                whiteSpace: 'nowrap' 
+                padding: '1px 6px',
+                borderRadius: 3,
+                whiteSpace: 'nowrap'
               }}>
                 Total
               </span>
-              <span style={{ 
-                fontSize: 13.5, 
-                fontWeight: 800, 
-                color: '#10b981', 
-                fontVariantNumeric: 'tabular-nums', 
-                whiteSpace: 'nowrap' 
+              <span style={{
+                fontSize: 13.5,
+                fontWeight: 800,
+                color: '#10b981',
+                fontVariantNumeric: 'tabular-nums',
+                whiteSpace: 'nowrap'
               }}>
                 {curr} {formatNumber(record.totalAmount || 0, 2)}
               </span>
@@ -2159,9 +2167,107 @@ const SalesOrderManagement: React.FC = () => {
         </div>
       </div>
 
-      {/* Create / Edit Order Modal */}
+      {/* Create / Edit Order Modal — Styled in the Daily Production Entry Wizard Pattern */}
       <DraggableResizableModal
-        title={editingItem ? `Edit Sales Order / SOC: ${editingItem.orderNumber}` : 'Create Sales Order / SOC'}
+        title={
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', paddingRight: 12, gap: 12, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div
+                style={{
+                  width: 42,
+                  height: 42,
+                  borderRadius: 10,
+                  background: 'linear-gradient(135deg, #ea580c 0%, #f97316 100%)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  boxShadow: '0 4px 14px rgba(234, 88, 12, 0.45)',
+                  color: '#ffffff',
+                  fontSize: 20,
+                  flexShrink: 0,
+                }}
+              >
+                <ShoppingCartOutlined />
+              </div>
+              <div>
+                <div
+                  style={{
+                    fontSize: 10.5,
+                    fontWeight: 900,
+                    textTransform: 'uppercase',
+                    letterSpacing: '1.1px',
+                    color: '#ea580c',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                  }}
+                >
+                  <span>COMMERCIAL ORDER BOOKING TERMINAL • ENTERPRISE SOC INTERFACE</span>
+                  <span
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 700,
+                      color: token.colorTextSecondary,
+                      backgroundColor: token.colorFillAlter,
+                      padding: '1px 8px',
+                      borderRadius: 6,
+                      border: `1px solid ${token.colorBorderSecondary}`,
+                      letterSpacing: 'normal',
+                      textTransform: 'none',
+                    }}
+                  >
+                    🖱️ Drag to Move
+                  </span>
+                </div>
+                <div style={{ fontSize: 19, fontWeight: 900, color: token.colorText, marginTop: 1 }}>
+                  {editingItem ? `Edit Sales Order / SOC: ${editingItem.orderNumber}` : 'Sales Order / SOC Booking Wizard'}
+                </div>
+              </div>
+            </div>
+
+            {/* Progression Step Pills */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <div
+                style={{
+                  padding: '5px 13px',
+                  borderRadius: 20,
+                  backgroundColor: '#ea580c',
+                  color: '#ffffff',
+                  fontWeight: 800,
+                  fontSize: 11.5,
+                }}
+              >
+                1 Order & Customer
+              </div>
+              <span style={{ color: token.colorTextTertiary, fontSize: 11 }}>➔</span>
+              <div
+                style={{
+                  padding: '5px 13px',
+                  borderRadius: 20,
+                  backgroundColor: lineItems.some((l) => l.itemId) ? '#0284c7' : token.colorFillAlter,
+                  color: lineItems.some((l) => l.itemId) ? '#ffffff' : token.colorTextSecondary,
+                  fontWeight: 800,
+                  fontSize: 11.5,
+                }}
+              >
+                2 Line Items ({lineItems.filter((l) => l.itemId).length})
+              </div>
+              <span style={{ color: token.colorTextTertiary, fontSize: 11 }}>➔</span>
+              <div
+                style={{
+                  padding: '5px 13px',
+                  borderRadius: 20,
+                  backgroundColor: confirmOrderVisible ? '#10b981' : token.colorFillAlter,
+                  color: confirmOrderVisible ? '#ffffff' : token.colorTextTertiary,
+                  fontWeight: 800,
+                  fontSize: 11.5,
+                }}
+              >
+                3 Confirm & Save
+              </div>
+            </div>
+          </div>
+        }
         open={modalVisible}
         onOk={handleSubmitForm}
         onCancel={() => {
@@ -2169,172 +2275,585 @@ const SalesOrderManagement: React.FC = () => {
           setEditingItem(null);
           setLineItems([]);
         }}
-        width={1180}
+        width={1220}
+        footer={
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: 12,
+              padding: '6px 4px',
+            }}
+          >
+            {/* Left Live Summary Badges */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span
+                style={{
+                  padding: '5px 12px',
+                  borderRadius: 8,
+                  backgroundColor: token.colorFillAlter,
+                  border: `1px solid ${token.colorBorderSecondary}`,
+                  fontSize: 12,
+                  fontWeight: 700,
+                  color: token.colorTextSecondary,
+                }}
+              >
+                Items: <strong style={{ color: token.colorText }}>{lineItems.filter((l) => l.itemId).length}</strong>
+              </span>
+              <span
+                style={{
+                  padding: '5px 12px',
+                  borderRadius: 8,
+                  backgroundColor: token.colorFillAlter,
+                  border: `1px solid ${token.colorBorderSecondary}`,
+                  fontSize: 12,
+                  fontWeight: 700,
+                  color: token.colorTextSecondary,
+                }}
+              >
+                Packages:{' '}
+                <strong style={{ color: '#059669' }}>
+                  {formatDecimal(
+                    lineItems.reduce((s, l) => s + Number(l.packageQuantity || 0), 0),
+                    2,
+                  )}{' '}
+                  Carton/Pkg
+                </strong>
+              </span>
+              <span
+                style={{
+                  padding: '5px 12px',
+                  borderRadius: 8,
+                  backgroundColor: token.colorFillAlter,
+                  border: `1px solid ${token.colorBorderSecondary}`,
+                  fontSize: 12,
+                  fontWeight: 700,
+                  color: token.colorTextSecondary,
+                }}
+              >
+                Total Qty:{' '}
+                <strong style={{ color: '#0284c7' }}>
+                  {formatDecimal(
+                    lineItems.reduce((s, l) => s + Number(l.quantity || 0), 0),
+                    2,
+                  )}{' '}
+                  GRS
+                </strong>
+              </span>
+            </div>
+
+            {/* Right Cancel + Large Prominent SAVE Button */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <Button
+                onClick={() => {
+                  setModalVisible(false);
+                  setEditingItem(null);
+                  setLineItems([]);
+                }}
+                style={{
+                  height: 48,
+                  padding: '0 22px',
+                  borderRadius: 10,
+                  fontWeight: 700,
+                  fontSize: 14,
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="primary"
+                icon={<SaveOutlined style={{ fontSize: 17 }} />}
+                onClick={handleSubmitForm}
+                style={{
+                  height: 50,
+                  minWidth: 260,
+                  padding: '0 28px',
+                  background: 'linear-gradient(135deg, #ea580c 0%, #f97316 100%)',
+                  borderColor: '#ea580c',
+                  borderRadius: 12,
+                  fontSize: 16,
+                  fontWeight: 900,
+                  letterSpacing: '0.4px',
+                  boxShadow: '0 6px 18px rgba(234, 88, 12, 0.35)',
+                }}
+              >
+                {editingItem ? 'SAVE & UPDATE ORDER ➔' : 'SAVE SALES ORDER / SOC ➔'}
+              </Button>
+            </div>
+          </div>
+        }
       >
         <Form form={form} layout="vertical">
-          <Row gutter={16}>
-            <Col span={8}>
-              <Form.Item 
-                name="socNumber" 
-                label={
-                  <span style={{ fontWeight: 600 }}>
-                    SOC Number <span style={{ color: '#ef4444' }}>*</span>
-                  </span>
-                } 
-                rules={[{ required: true, message: 'Please enter SOC sequence number' }]}
-                tooltip="Prefix 'SOC-' is automatic. You can customize or keep the auto-generated sequence number."
-              >
-                <Input
-                  addonBefore={<span style={{ fontWeight: 700, color: '#2563eb' }}>SOC-</span>}
-                  placeholder="e.g. 2026-00011"
-                  style={{ fontWeight: 600 }}
-                  disabled={Boolean(editingItem)}
-                />
-              </Form.Item>
-            </Col>
-            <Col span={8}>
-              <Form.Item 
-                name="divisionId" 
-                label="Manufacturing / Dispatch Division" 
-                rules={[{ required: true, message: 'Please select division' }]}
-              >
-                <Select
-                  placeholder="Select division (Spoke, Control Cable, E-51, NB)"
-                  options={divisions.map(d => ({ value: d.id, label: `${d.name} (${d.divisionCode})` }))}
-                  onChange={(val) => {
-                    const prev = selectedDivision;
-                    setSelectedDivision(val);
-                    form.setFieldsValue({ sectionId: undefined, customerId: undefined });
-                    if (prev && val !== prev && lineItems.length > 0) {
-                      setLineItems([]);
-                      message.info('Division changed: line items and customer reset to match selected division.');
-                    }
+          {/* Outer Bordered Container matching Daily Production Entry Wizard */}
+          <div
+            style={{
+              backgroundColor: token.colorFillAlter,
+              border: `1.5px solid ${token.colorBorder}`,
+              borderRadius: 16,
+              padding: '18px 20px',
+              marginBottom: 18,
+            }}
+          >
+            <div style={{ marginBottom: 16 }}>
+              <h3 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: token.colorText }}>
+                Step 1: Division Scope, Customer Account & Delivery Schedule
+              </h3>
+              <div style={{ color: token.colorTextSecondary, fontSize: 12.5, marginTop: 2 }}>
+                Select target manufacturing division, verified customer account, and scheduled delivery date before adding finished goods line items.
+              </div>
+            </div>
+
+            {/* 3 High-Contrast Selection Cards */}
+            <Row gutter={[16, 16]}>
+              {/* CARD 1: MANUFACTURING & SOC SCOPE */}
+              <Col xs={24} md={8}>
+                <div
+                  style={{
+                    backgroundColor: token.colorBgContainer,
+                    border: `1.5px solid ${token.colorBorderSecondary}`,
+                    borderRadius: 14,
+                    padding: '16px 18px',
+                    boxShadow: '0 2px 10px rgba(0, 0, 0, 0.05)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'space-between',
+                    minHeight: 285,
                   }}
-                  allowClear
-                />
-              </Form.Item>
-            </Col>
-            <Col span={8}>
-              <Form.Item name="sectionId" label="Production Section (Optional)">
-                <Select
-                  placeholder="Select section"
-                  allowClear
-                  options={sections
-                    .filter(s => !selectedDivision || s.divisionId === selectedDivision)
-                    .map(s => ({ value: s.id, label: `${s.name} (${s.sectionCode || ''})` }))}
-                />
-              </Form.Item>
-            </Col>
-          </Row>
-          <Row gutter={16}>
-            <Col span={14}>
-              <Form.Item 
-                name="customerId" 
-                label={
-                  <span>
-                    Customer <span style={{ color: '#ef4444' }}>*</span>
-                    {selectedDivision && (
-                      <span style={{ marginLeft: 8, fontSize: 11, color: '#059669', fontWeight: 600 }}>
-                        (Filtered: {divisions.find(d => d.id === selectedDivision)?.name || 'Selected Division'})
-                      </span>
+                >
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+                      <div
+                        style={{
+                          width: 42,
+                          height: 42,
+                          borderRadius: 10,
+                          background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.2) 0%, rgba(37, 99, 235, 0.1) 100%)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          color: '#3b82f6',
+                          fontSize: 20,
+                        }}
+                      >
+                        <AppstoreOutlined />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 15.5, fontWeight: 800, color: token.colorText }}>Manufacturing Area</div>
+                        <div style={{ fontSize: 11, color: token.colorTextSecondary }}>SOC Number & Division Selection</div>
+                      </div>
+                    </div>
+
+                    <Form.Item
+                      name="socNumber"
+                      style={{ marginBottom: 10 }}
+                      label={
+                        <span style={{ fontSize: 12, fontWeight: 700, color: token.colorTextSecondary }}>
+                          SOC Number <span style={{ color: '#ef4444' }}>*</span>
+                        </span>
+                      }
+                      rules={[{ required: true, message: 'Please enter SOC sequence number' }]}
+                    >
+                      <Input
+                        addonBefore={<span style={{ fontWeight: 800, color: '#2563eb' }}>SOC-</span>}
+                        placeholder="e.g. 2026-05827"
+                        style={{ fontWeight: 700 }}
+                        disabled={Boolean(editingItem)}
+                      />
+                    </Form.Item>
+
+                    <Form.Item
+                      name="divisionId"
+                      style={{ marginBottom: 10 }}
+                      label={
+                        <span style={{ fontSize: 12, fontWeight: 700, color: token.colorTextSecondary }}>
+                          Select Manufacturing Division <span style={{ color: '#ef4444' }}>*</span>
+                        </span>
+                      }
+                      rules={[{ required: true, message: 'Please select division' }]}
+                    >
+                      <Select
+                        placeholder="Select division (Spoke, Control Cable...)"
+                        options={divisions.map((d) => ({ value: d.id, label: `${d.name} (${d.divisionCode})` }))}
+                        onChange={(val) => {
+                          const prev = selectedDivision;
+                          setSelectedDivision(val);
+                          form.setFieldsValue({ sectionId: undefined, customerId: undefined });
+                          if (prev && val !== prev && lineItems.length > 0) {
+                            setLineItems([]);
+                            message.info('Division changed: line items and customer reset to match selected division.');
+                          }
+                        }}
+                        allowClear
+                      />
+                    </Form.Item>
+
+                    <Form.Item
+                      name="sectionId"
+                      style={{ marginBottom: 0 }}
+                      label={<span style={{ fontSize: 12, fontWeight: 700, color: token.colorTextSecondary }}>Operational Section (Optional)</span>}
+                    >
+                      <Select
+                        placeholder="All Sections in Division"
+                        allowClear
+                        options={sections
+                          .filter((s) => !selectedDivision || s.divisionId === selectedDivision)
+                          .map((s) => ({ value: s.id, label: `${s.name} (${s.sectionCode || ''})` }))}
+                      />
+                    </Form.Item>
+                  </div>
+
+                  <div
+                    style={{
+                      marginTop: 12,
+                      padding: '9px 12px',
+                      borderRadius: 10,
+                      backgroundColor: token.colorFillAlter,
+                      border: `1px solid ${token.colorBorderSecondary}`,
+                    }}
+                  >
+                    <div style={{ fontSize: 10.5, color: token.colorTextSecondary, textTransform: 'uppercase', fontWeight: 700 }}>
+                      Verified Manufacturing Scope:
+                    </div>
+                    <div style={{ fontSize: 13, fontWeight: 800, color: '#2563eb', marginTop: 2 }}>
+                      {selectedDivision
+                        ? (() => {
+                          const divObj = divisions.find((d) => d.id === selectedDivision);
+                          return divObj ? `${divObj.name} (${divObj.divisionCode})` : 'Selected Division';
+                        })()
+                        : 'Please Select Division First'}
+                    </div>
+                  </div>
+                </div>
+              </Col>
+
+              {/* CARD 2: CUSTOMER ACCOUNT & CURRENCY */}
+              <Col xs={24} md={8}>
+                <div
+                  style={{
+                    backgroundColor: token.colorBgContainer,
+                    border: `1.5px solid ${token.colorBorderSecondary}`,
+                    borderRadius: 14,
+                    padding: '16px 18px',
+                    boxShadow: '0 2px 10px rgba(0, 0, 0, 0.05)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'space-between',
+                    minHeight: 285,
+                  }}
+                >
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+                      <div
+                        style={{
+                          width: 42,
+                          height: 42,
+                          borderRadius: 10,
+                          background: 'linear-gradient(135deg, rgba(234, 88, 12, 0.2) 0%, rgba(194, 65, 12, 0.1) 100%)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          color: '#ea580c',
+                          fontSize: 20,
+                        }}
+                      >
+                        <UserOutlined />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 15.5, fontWeight: 800, color: token.colorText }}>Customer Account</div>
+                        <div style={{ fontSize: 11, color: token.colorTextSecondary }}>Customer Code, Name & Currency</div>
+                      </div>
+                    </div>
+
+                    <Form.Item
+                      name="customerId"
+                      style={{ marginBottom: 12 }}
+                      label={
+                        <span style={{ fontSize: 12, fontWeight: 700, color: token.colorTextSecondary }}>
+                          Select Customer <span style={{ color: '#ef4444' }}>*</span>
+                        </span>
+                      }
+                      rules={[{ required: true, message: 'Please select customer' }]}
+                    >
+                      <Select
+                        showSearch
+                        optionFilterProp="label"
+                        placeholder={selectedDivision ? 'Select customer for this division...' : '⚠️ Select Division first'}
+                        disabled={!selectedDivision && !editingItem}
+                        notFoundContent={selectedDivision ? 'No customers found for this division' : 'Select Division first'}
+                        options={customers
+                          .filter((c) => {
+                            if (!selectedDivision) return false;
+                            return c.divisionId === selectedDivision;
+                          })
+                          .map((c) => ({
+                            value: c.id,
+                            label: `${c.customerCode ? `[${c.customerCode}] ` : ''}${c.companyName || c.name}`,
+                          }))}
+                      />
+                    </Form.Item>
+
+                    <Form.Item
+                      name="currency"
+                      style={{ marginBottom: 0 }}
+                      label={<span style={{ fontSize: 12, fontWeight: 700, color: token.colorTextSecondary }}>Order Currency</span>}
+                    >
+                      <Select
+                        options={[
+                          { value: 'PKR', label: 'PKR — Pakistani Rupee' },
+                          { value: 'USD', label: 'USD — US Dollar' },
+                          { value: 'EUR', label: 'EUR — Euro' },
+                          { value: 'GBP', label: 'GBP — British Pound' },
+                        ]}
+                      />
+                    </Form.Item>
+                  </div>
+
+                  <div
+                    style={{
+                      marginTop: 12,
+                      padding: '9px 12px',
+                      borderRadius: 10,
+                      backgroundColor: token.colorFillAlter,
+                      border: `1px solid ${token.colorBorderSecondary}`,
+                    }}
+                  >
+                    <div style={{ fontSize: 10.5, color: token.colorTextSecondary, textTransform: 'uppercase', fontWeight: 700 }}>
+                      Selected Customer Account:
+                    </div>
+                    {selectedCustomerId ? (
+                      (() => {
+                        const custObj = customers.find((c) => c.id === selectedCustomerId);
+                        return (
+                          <div style={{ marginTop: 2 }}>
+                            {custObj?.customerCode && (
+                              <div style={{ fontSize: 11.5, fontWeight: 800, color: token.colorTextSecondary, fontFamily: 'monospace' }}>
+                                <BarcodeOutlined style={{ marginRight: 4, color: '#ea580c' }} />
+                                {custObj.customerCode}
+                              </div>
+                            )}
+                            <div style={{ fontSize: 13.5, fontWeight: 800, color: '#ea580c' }}>
+                              <UserOutlined style={{ marginRight: 5 }} />
+                              {custObj?.companyName || custObj?.name || 'Customer Selected'}
+                            </div>
+                          </div>
+                        );
+                      })()
+                    ) : (
+                      <div style={{ fontSize: 13, fontWeight: 800, color: token.colorTextTertiary, marginTop: 2 }}>
+                        No Customer Selected Yet
+                      </div>
                     )}
-                  </span>
-                } 
-                rules={[{ required: true, message: 'Please select customer' }]}
-              >
-                <Select
-                  showSearch
-                  optionFilterProp="label"
-                  placeholder={selectedDivision ? "Select customer for this division..." : "⚠️ Please select Manufacturing / Dispatch Division first"}
-                  disabled={!selectedDivision && !editingItem}
-                  notFoundContent={selectedDivision ? "No customers found for this division" : "Select Division first"}
-                  options={customers
-                    .filter(c => {
-                      if (!selectedDivision) return false;
-                      return c.divisionId === selectedDivision;
-                    })
-                    .map((c) => ({ 
-                      value: c.id, 
-                      label: `${c.customerCode ? `[${c.customerCode}] ` : ''}${c.companyName || c.name}` 
-                    }))}
-                />
-              </Form.Item>
-            </Col>
-            <Col span={10}>
-              <Form.Item name="currency" label="Currency">
-                <Select
-                  options={[
-                    { value: 'PKR', label: 'PKR — Pakistani Rupee' },
-                    { value: 'USD', label: 'USD — US Dollar' },
-                    { value: 'EUR', label: 'EUR — Euro' },
-                    { value: 'GBP', label: 'GBP — British Pound' },
-                  ]}
-                />
-              </Form.Item>
-            </Col>
-          </Row>
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item name="orderDate" label="Order Date" rules={[{ required: true }]}>
-                <Input type="date" />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="deliveryDate" label="Expected Delivery Date">
-                <Input type="date" />
-              </Form.Item>
-            </Col>
-          </Row>
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item name="shipToAddress" label="Ship-To Delivery Address">
-                <Input.TextArea rows={2} placeholder="Factory / Site destination address" />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="billToAddress" label="Bill-To Billing Address">
-                <Input.TextArea rows={2} placeholder="Head office / billing address" />
-              </Form.Item>
-            </Col>
-          </Row>
-          <ERPLineItems 
-            companyId={companyId} 
-            value={lineItems} 
-            onChange={setLineItems} 
-            showWarehouse={false} 
-            label="Order Line Items" 
-            currency={form.getFieldValue('currency') || 'PKR'} 
-            divisionId={selectedDivision}
-            defaultItemType="FINISHED_GOOD"
-            context="sales"
-            customerId={selectedCustomerId}
-            orderId={editingItem?.id}
-          />
-          <Row gutter={16} style={{ marginTop: 12 }}>
-            <Col span={6}>
-              <Form.Item name="discountAmount" label="Discount">
-                <InputNumber style={{ width: '100%' }} min={0} precision={2} />
-              </Form.Item>
-            </Col>
-            <Col span={6}>
-              <Form.Item name="taxAmount" label="Tax">
-                <InputNumber style={{ width: '100%' }} min={0} precision={2} />
-              </Form.Item>
-            </Col>
-            <Col span={6}>
-              <Form.Item name="freightAmount" label="Freight / Transport">
-                <InputNumber style={{ width: '100%' }} min={0} precision={2} />
-              </Form.Item>
-            </Col>
-            <Col span={6}>
-              <Form.Item name="totalAmount" label="Total (Auto)">
-                <InputNumber style={{ width: '100%' }} min={0} precision={2} disabled />
-              </Form.Item>
-            </Col>
-          </Row>
-          <Form.Item name="notes" label="Terms & Special Instructions">
-            <Input.TextArea rows={3} placeholder="Add production notes, payment terms, or delivery specs..." />
-          </Form.Item>
+                  </div>
+                </div>
+              </Col>
+
+              {/* CARD 3: ORDER & DELIVERY SCHEDULE */}
+              <Col xs={24} md={8}>
+                <div
+                  style={{
+                    backgroundColor: token.colorBgContainer,
+                    border: `1.5px solid ${token.colorBorderSecondary}`,
+                    borderRadius: 14,
+                    padding: '16px 18px',
+                    boxShadow: '0 2px 10px rgba(0, 0, 0, 0.05)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'space-between',
+                    minHeight: 285,
+                  }}
+                >
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+                      <div
+                        style={{
+                          width: 42,
+                          height: 42,
+                          borderRadius: 10,
+                          background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.2) 0%, rgba(5, 150, 105, 0.1) 100%)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          color: '#10b981',
+                          fontSize: 20,
+                        }}
+                      >
+                        <CalendarOutlined />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 15.5, fontWeight: 800, color: token.colorText }}>Order & Delivery Dates</div>
+                        <div style={{ fontSize: 11, color: token.colorTextSecondary }}>Booking & Dispatch Schedule</div>
+                      </div>
+                    </div>
+
+                    <Row gutter={10}>
+                      <Col span={12}>
+                        <Form.Item
+                          name="orderDate"
+                          style={{ marginBottom: 10 }}
+                          label={
+                            <span style={{ fontSize: 12, fontWeight: 700, color: token.colorTextSecondary }}>
+                              Order Date <span style={{ color: '#ef4444' }}>*</span>
+                            </span>
+                          }
+                          rules={[{ required: true }]}
+                        >
+                          <Input type="date" style={{ fontWeight: 700 }} />
+                        </Form.Item>
+                      </Col>
+                      <Col span={12}>
+                        <Form.Item
+                          name="deliveryDate"
+                          style={{ marginBottom: 10 }}
+                          label={<span style={{ fontSize: 12, fontWeight: 700, color: token.colorTextSecondary }}>Expected Delivery</span>}
+                        >
+                          <Input type="date" style={{ fontWeight: 700 }} />
+                        </Form.Item>
+                      </Col>
+                    </Row>
+
+                    {/* Rapid Touch Delivery Date Selectors matching Daily Production Entry */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6, marginTop: 2 }}>
+                      <Button
+                        size="small"
+                        onClick={() => form.setFieldsValue({ deliveryDate: dayjs().add(7, 'day').format('YYYY-MM-DD') })}
+                        style={{
+                          height: 32,
+                          fontSize: 11.5,
+                          fontWeight: 700,
+                          backgroundColor: token.colorFillAlter,
+                          border: `1px solid ${token.colorBorderSecondary}`,
+                          color: token.colorText,
+                        }}
+                      >
+                        +7 Days
+                      </Button>
+                      <Button
+                        size="small"
+                        onClick={() => form.setFieldsValue({ deliveryDate: dayjs().add(15, 'day').format('YYYY-MM-DD') })}
+                        style={{
+                          height: 32,
+                          fontSize: 11.5,
+                          fontWeight: 700,
+                          backgroundColor: token.colorFillAlter,
+                          border: `1px solid ${token.colorBorderSecondary}`,
+                          color: token.colorText,
+                        }}
+                      >
+                        +15 Days
+                      </Button>
+                      <Button
+                        size="small"
+                        onClick={() => form.setFieldsValue({ deliveryDate: dayjs().add(30, 'day').format('YYYY-MM-DD') })}
+                        style={{
+                          height: 32,
+                          fontSize: 11.5,
+                          fontWeight: 700,
+                          backgroundColor: token.colorFillAlter,
+                          border: `1px solid ${token.colorBorderSecondary}`,
+                          color: token.colorText,
+                        }}
+                      >
+                        +30 Days
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div
+                    style={{
+                      marginTop: 12,
+                      padding: '9px 12px',
+                      borderRadius: 10,
+                      backgroundColor: token.colorFillAlter,
+                      border: `1px solid ${token.colorBorderSecondary}`,
+                    }}
+                  >
+                    <div style={{ fontSize: 10.5, color: token.colorTextSecondary, textTransform: 'uppercase', fontWeight: 700 }}>
+                      Scheduled Delivery Date:
+                    </div>
+                    <div style={{ fontSize: 13, fontWeight: 800, color: '#10b981', marginTop: 2 }}>
+                      {watchedDeliveryDate ? dayjs(watchedDeliveryDate).format('dddd, DD-MMMM-YYYY') : 'Standard Lead-Time Schedule'}
+                    </div>
+                  </div>
+                </div>
+              </Col>
+            </Row>
+          </div>
+
+          {/* Step 2: Order Line Items inside a Bordered Card */}
+          <div
+            style={{
+              backgroundColor: token.colorBgContainer,
+              border: `1.5px solid ${token.colorBorder}`,
+              borderRadius: 16,
+              padding: '16px 18px',
+              marginBottom: 16,
+              boxShadow: '0 2px 10px rgba(0, 0, 0, 0.04)',
+            }}
+          >
+            <ERPLineItems
+              companyId={companyId}
+              value={lineItems}
+              onChange={setLineItems}
+              showWarehouse={false}
+              label="Step 2: Order Line Items (Finished Goods)"
+              currency={form.getFieldValue('currency') || 'PKR'}
+              divisionId={selectedDivision}
+              defaultItemType="FINISHED_GOOD"
+              context="sales"
+              customerId={selectedCustomerId}
+              orderId={editingItem?.id}
+            />
+          </div>
+
+          {/* Step 3: Addresses, Commercial Adjustments & Special Instructions inside a Bordered Card */}
+          <div
+            style={{
+              backgroundColor: token.colorBgContainer,
+              border: `1.5px solid ${token.colorBorderSecondary}`,
+              borderRadius: 14,
+              padding: '14px 18px',
+            }}
+          >
+            <Row gutter={16}>
+              <Col xs={24} md={12}>
+                <Form.Item name="shipToAddress" label={<span style={{ fontWeight: 700 }}>Ship-To Delivery Address</span>} style={{ marginBottom: 10 }}>
+                  <Input.TextArea rows={2} placeholder="Factory / Site destination address" />
+                </Form.Item>
+              </Col>
+              <Col xs={24} md={12}>
+                <Form.Item name="billToAddress" label={<span style={{ fontWeight: 700 }}>Bill-To Billing Address</span>} style={{ marginBottom: 10 }}>
+                  <Input.TextArea rows={2} placeholder="Head office / billing address" />
+                </Form.Item>
+              </Col>
+            </Row>
+            <Row gutter={16}>
+              <Col xs={12} md={6}>
+                <Form.Item name="discountAmount" label={<span style={{ fontWeight: 700 }}>Discount</span>} style={{ marginBottom: 10 }}>
+                  <InputNumber style={{ width: '100%' }} min={0} precision={2} />
+                </Form.Item>
+              </Col>
+              <Col xs={12} md={6}>
+                <Form.Item name="taxAmount" label={<span style={{ fontWeight: 700 }}>Tax</span>} style={{ marginBottom: 10 }}>
+                  <InputNumber style={{ width: '100%' }} min={0} precision={2} />
+                </Form.Item>
+              </Col>
+              <Col xs={12} md={6}>
+                <Form.Item name="freightAmount" label={<span style={{ fontWeight: 700 }}>Freight / Transport</span>} style={{ marginBottom: 10 }}>
+                  <InputNumber style={{ width: '100%' }} min={0} precision={2} />
+                </Form.Item>
+              </Col>
+              <Col xs={12} md={6}>
+                <Form.Item name="totalAmount" label={<span style={{ fontWeight: 700 }}>Total (Auto)</span>} style={{ marginBottom: 10 }}>
+                  <InputNumber style={{ width: '100%' }} min={0} precision={2} disabled />
+                </Form.Item>
+              </Col>
+            </Row>
+            <Form.Item name="notes" label={<span style={{ fontWeight: 700 }}>Terms & Special Instructions</span>} style={{ marginBottom: 0 }}>
+              <Input.TextArea rows={2} placeholder="Add production notes, payment terms, or delivery specs..." />
+            </Form.Item>
+          </div>
         </Form>
       </DraggableResizableModal>
 
@@ -2574,8 +3093,8 @@ const SalesOrderManagement: React.FC = () => {
                 let delivered = Number(it.deliveredQuantity ?? ful?.deliveredQuantity ?? it.shippedQuantity ?? 0);
                 let produced = Number(it.producedQuantity ?? ful?.producedQuantity ?? 0);
                 let available = Number(it.availableStock ?? ful?.availableStock ?? 0);
-                let remaining = it.remainingDeliveryQuantity !== undefined 
-                  ? Number(it.remainingDeliveryQuantity) 
+                let remaining = it.remainingDeliveryQuantity !== undefined
+                  ? Number(it.remainingDeliveryQuantity)
                   : (ful?.remainingDeliveryQuantity !== undefined ? Number(ful.remainingDeliveryQuantity) : Math.max(0, ordered - delivered));
 
                 if (isDelivered || String(it.status || '').toLowerCase() === 'delivered') {
@@ -3192,94 +3711,248 @@ const SalesOrderManagement: React.FC = () => {
         )}
       </DraggableResizableModal>
 
-      {/* Enterprise Pre-Save Order Confirmation Dialog */}
+      {/* Enterprise Pre-Save Order Confirmation Dialog (Matching Daily Production Entry Wizard Style) */}
       <Modal
         open={confirmOrderVisible}
         title={
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 16, fontWeight: 700, color: 'var(--theme-accent, #3b82f6)' }}>
-            <SaveOutlined style={{ fontSize: 18 }} />
-            <span>{editingItem ? 'Confirm Sales Order Update' : 'Confirm Sales Order Submission'}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div
+              style={{
+                width: 38,
+                height: 38,
+                borderRadius: 10,
+                background: 'linear-gradient(135deg, #ea580c 0%, #f97316 100%)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#ffffff',
+                fontSize: 18,
+                boxShadow: '0 4px 12px rgba(234, 88, 12, 0.35)',
+              }}
+            >
+              <CheckCircleOutlined />
+            </div>
+            <div>
+              <div style={{ fontSize: 10.5, fontWeight: 900, textTransform: 'uppercase', letterSpacing: '1px', color: '#ea580c' }}>
+                STEP 3 • FINAL PRE-SAVE VERIFICATION
+              </div>
+              <div style={{ fontSize: 17, fontWeight: 900, color: token.colorText }}>
+                {editingItem ? 'Confirm Sales Order / SOC Update' : 'Confirm Sales Order / SOC Before Saving'}
+              </div>
+            </div>
           </div>
         }
         centered
-        width={540}
+        width={780}
         zIndex={10050}
         onCancel={() => setConfirmOrderVisible(false)}
-        footer={[
-          <Button key="cancel" onClick={() => setConfirmOrderVisible(false)}>
-            Cancel
-          </Button>,
-          <Button
-            key="submit"
-            type="primary"
-            icon={<SaveOutlined />}
-            style={{ background: '#2563eb', borderColor: '#2563eb' }}
-            onClick={() => executeOrderSave(pendingOrderValues)}
-          >
-            {editingItem ? 'Yes, Update Order' : 'Yes, Create Order'}
-          </Button>,
-        ]}
-      >
-        <div style={{ padding: '12px 0' }}>
-          <p style={{ fontSize: 14, marginBottom: 16, color: 'var(--inv-text-primary, #0f172a)' }}>
-            Are you sure you want to {editingItem ? 'update order' : 'create new sales order for'}{' '}
-            <strong style={{ color: 'var(--theme-accent, #2563eb)', fontSize: 15 }}>
-              {customers.find(c => c.id === pendingOrderValues?.customerId)?.name || customers.find(c => c.id === pendingOrderValues?.customerId)?.companyName || 'Selected Customer'}
-            </strong>?
-          </p>
-          <div style={{
-            background: 'var(--inv-filter-card-bg, rgba(255, 255, 255, 0.04))',
-            border: '1px solid var(--inv-filter-card-border, #e2e8f0)',
-            borderRadius: 8,
-            padding: '12px 16px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 8,
-            fontSize: 13,
-            color: 'var(--inv-text-primary, inherit)',
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ color: 'var(--inv-text-muted, #64748b)' }}>Line Items:</span>
-              <strong>{lineItems.length} item(s)</strong>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ color: 'var(--inv-text-muted, #64748b)' }}>Order Date:</span>
-              <strong>{pendingOrderValues?.orderDate ? dayjs(pendingOrderValues.orderDate).format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD')}</strong>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ color: 'var(--inv-text-muted, #64748b)' }}>Status:</span>
-              <Tag color="blue">{editingItem ? 'UPDATE' : 'CONFIRMED'}</Tag>
-            </div>
-          {editingItem ? (() => {
-            const diffs = computeOrderChanges(editingItem, pendingOrderValues, lineItems, customers, divisions);
-            return (
-              <div style={{ marginTop: 12 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--theme-accent, #2563eb)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5, display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span>🔄 Modified Fields ({diffs.length}):</span>
-                </div>
-                {diffs.length > 0 ? (
-                  <div style={{ background: 'var(--inv-filter-card-bg, #f8fafc)', border: '1px solid var(--inv-filter-card-border, #e2e8f0)', borderRadius: 8, padding: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    {diffs.map((d, i) => (
-                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12.5, padding: '6px 10px', background: 'var(--inv-card-bg, #ffffff)', borderRadius: 6, border: '1px solid var(--inv-table-border, #edf2f7)' }}>
-                        <span style={{ fontWeight: 600, color: 'var(--inv-text-secondary, #475569)' }}>{d.field}:</span>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <span style={{ color: '#ef4444', textDecoration: 'line-through', fontSize: 11.5 }}>{d.oldVal}</span>
-                          <span style={{ color: 'var(--inv-text-muted, #94a3b8)' }}>➔</span>
-                          <strong style={{ color: d.color || 'var(--theme-accent, #2563eb)', fontSize: 12.5 }}>{d.newVal}</strong>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div style={{ padding: '8px 12px', background: 'var(--inv-filter-card-bg, #f0fdf4)', border: '1px solid var(--inv-filter-card-border, #bbf7d0)', borderRadius: 6, color: '#16a34a', fontSize: 12 }}>
-                    No field modifications detected. Order will be preserved with existing values.
-                  </div>
-                )}
-              </div>
-            );
-          })() : null}
+        footer={
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, padding: '6px 0' }}>
+            <Button
+              onClick={() => setConfirmOrderVisible(false)}
+              style={{
+                height: 46,
+                padding: '0 22px',
+                borderRadius: 10,
+                fontWeight: 700,
+                fontSize: 13.5,
+              }}
+            >
+              ← Back to Edit Order
+            </Button>
+            <Button
+              type="primary"
+              icon={<CheckCircleOutlined style={{ fontSize: 16 }} />}
+              onClick={() => executeOrderSave(pendingOrderValues)}
+              style={{
+                height: 48,
+                minWidth: 260,
+                padding: '0 26px',
+                background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)',
+                borderColor: '#059669',
+                borderRadius: 12,
+                fontSize: 15.5,
+                fontWeight: 900,
+                letterSpacing: '0.4px',
+                boxShadow: '0 6px 18px rgba(5, 150, 105, 0.35)',
+              }}
+            >
+              {editingItem ? 'CONFIRM & UPDATE ORDER ➔' : 'CONFIRM & SAVE ORDER ➔'}
+            </Button>
           </div>
-        </div>
+        }
+      >
+        {(() => {
+          const selCustomer = customers.find((c) => c.id === pendingOrderValues?.customerId);
+          const selDivision = divisions.find((d) => d.id === (pendingOrderValues?.divisionId || selectedDivision));
+          const validLines = lineItems.filter((l) => l.itemId && String(l.itemId).trim() !== '');
+          const totalPkgs = validLines.reduce((s, l) => s + Number(l.packageQuantity || 0), 0);
+          const totalGrs = validLines.reduce((s, l) => s + Number(l.quantity || 0), 0);
+          const grandTotal = validLines.reduce((s, l) => {
+            const q = Number(l.quantity || 0);
+            const r = Number(l.rate || 0);
+            const d = Number(l.discountPercent || 0);
+            return s + q * r * (1 - d / 100);
+          }, 0);
+          const curr = pendingOrderValues?.currency || 'PKR';
+
+          return (
+            <div style={{ padding: '8px 0', display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {/* Top Customer & Division Highlight Banner */}
+              <div
+                style={{
+                  backgroundColor: token.colorFillAlter,
+                  border: `1.5px solid ${token.colorBorder}`,
+                  borderRadius: 14,
+                  padding: '14px 18px',
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(3, 1fr)',
+                  gap: 14,
+                }}
+              >
+                {/* Customer Code & Name */}
+                <div>
+                  <div style={{ fontSize: 10.5, fontWeight: 800, textTransform: 'uppercase', color: token.colorTextSecondary }}>
+                    Selected Customer Account
+                  </div>
+                  {selCustomer?.customerCode && (
+                    <div style={{ fontSize: 12, fontWeight: 800, color: '#ea580c', fontFamily: 'monospace', marginTop: 3 }}>
+                      <BarcodeOutlined style={{ marginRight: 5 }} />
+                      {selCustomer.customerCode}
+                    </div>
+                  )}
+                  <div style={{ fontSize: 15, fontWeight: 900, color: token.colorText, marginTop: 1 }}>
+                    <UserOutlined style={{ marginRight: 6, color: '#2563eb' }} />
+                    {selCustomer?.companyName || selCustomer?.name || 'Selected Customer'}
+                  </div>
+                </div>
+
+                {/* Division & SOC Number */}
+                <div>
+                  <div style={{ fontSize: 10.5, fontWeight: 800, textTransform: 'uppercase', color: token.colorTextSecondary }}>
+                    Division & SOC Number
+                  </div>
+                  <div style={{ fontSize: 12, fontWeight: 800, color: '#2563eb', fontFamily: 'monospace', marginTop: 3 }}>
+                    <ApartmentOutlined style={{ marginRight: 5 }} />
+                    {selDivision?.divisionCode || 'DIV'} — {selDivision?.name || 'Division'}
+                  </div>
+                  <div style={{ fontSize: 14.5, fontWeight: 900, color: token.colorText, marginTop: 1 }}>
+                    SOC-{String(pendingOrderValues?.socNumber || watchedSocNumber || '').replace(/^SOC-/i, '')}
+                  </div>
+                </div>
+
+                {/* Dates & Grand Total */}
+                <div>
+                  <div style={{ fontSize: 10.5, fontWeight: 800, textTransform: 'uppercase', color: token.colorTextSecondary }}>
+                    Delivery Schedule & Total
+                  </div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: token.colorTextSecondary, marginTop: 3 }}>
+                    <CalendarOutlined style={{ marginRight: 5, color: '#10b981' }} />
+                    Delivery: {pendingOrderValues?.deliveryDate ? dayjs(pendingOrderValues.deliveryDate).format('DD-MMM-YYYY') : 'Standard'}
+                  </div>
+                  <div style={{ fontSize: 15, fontWeight: 900, color: '#059669', marginTop: 1 }}>
+                    {curr} {formatDecimal(grandTotal, 2)}
+                  </div>
+                </div>
+              </div>
+
+              {/* Selected Items & Quantities Table */}
+              <div
+                style={{
+                  border: `1.5px solid ${token.colorBorderSecondary}`,
+                  borderRadius: 12,
+                  overflow: 'hidden',
+                  backgroundColor: token.colorBgContainer,
+                }}
+              >
+                <div
+                  style={{
+                    padding: '9px 14px',
+                    backgroundColor: token.colorFillAlter,
+                    borderBottom: `1px solid ${token.colorBorderSecondary}`,
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                  }}
+                >
+                  <span style={{ fontSize: 12, fontWeight: 800, textTransform: 'uppercase', color: token.colorText }}>
+                    📦 Selected Items & Quantities ({validLines.length})
+                  </span>
+                  <span style={{ fontSize: 12, fontWeight: 800, color: '#0284c7' }}>
+                    Total: {formatDecimal(totalPkgs, 2)} Carton/Pkg • {formatDecimal(totalGrs, 2)} GRS
+                  </span>
+                </div>
+
+                <div style={{ maxHeight: 260, overflowY: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+                    <thead>
+                      <tr style={{ borderBottom: `1px solid ${token.colorBorderSecondary}`, textAlign: 'left', color: token.colorTextSecondary, fontSize: 11 }}>
+                        <th style={{ padding: '8px 12px' }}>#</th>
+                        <th style={{ padding: '8px 12px' }}>ITEM CODE & DESCRIPTION</th>
+                        <th style={{ padding: '8px 12px', textAlign: 'right' }}>PKG / CARTONS</th>
+                        <th style={{ padding: '8px 12px', textAlign: 'right' }}>QUANTITY</th>
+                        <th style={{ padding: '8px 12px', textAlign: 'right' }}>RATE ({curr})</th>
+                        <th style={{ padding: '8px 12px', textAlign: 'right' }}>LINE TOTAL</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {validLines.map((line, idx) => {
+                        const q = Number(line.quantity || 0);
+                        const r = Number(line.rate || 0);
+                        const d = Number(line.discountPercent || 0);
+                        const lineTotal = q * r * (1 - d / 100);
+                        return (
+                          <tr key={line.id || idx} style={{ borderBottom: `1px solid ${token.colorBorderSecondary}` }}>
+                            <td style={{ padding: '9px 12px', fontWeight: 700, color: token.colorTextSecondary }}>{idx + 1}</td>
+                            <td style={{ padding: '9px 12px' }}>
+                              {line.itemCode && (
+                                <div style={{ fontSize: 11, fontWeight: 800, color: '#2563eb', fontFamily: 'monospace' }}>
+                                  {line.itemCode}
+                                </div>
+                              )}
+                              <div style={{ fontWeight: 800, color: token.colorText }}>
+                                {line.itemName || 'Selected Finished Good'}
+                              </div>
+                            </td>
+                            <td style={{ padding: '9px 12px', textAlign: 'right', fontWeight: 800, color: '#059669' }}>
+                              {line.packageQuantity ? `${formatDecimal(line.packageQuantity, 2)} ${line.packagingType || 'Carton'}` : '—'}
+                            </td>
+                            <td style={{ padding: '9px 12px', textAlign: 'right', fontWeight: 900, color: '#0284c7' }}>
+                              {formatDecimal(q, 2)} {line.uomCode || 'GRS'}
+                            </td>
+                            <td style={{ padding: '9px 12px', textAlign: 'right', fontWeight: 700, color: token.colorTextSecondary }}>
+                              {formatDecimal(r, 2)}
+                            </td>
+                            <td style={{ padding: '9px 12px', textAlign: 'right', fontWeight: 900, color: token.colorText }}>
+                              {curr} {formatDecimal(lineTotal, 2)}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div
+                style={{
+                  padding: '10px 14px',
+                  borderRadius: 10,
+                  backgroundColor: token.colorFillAlter,
+                  border: `1px solid ${token.colorBorderSecondary}`,
+                  fontSize: 13,
+                  fontWeight: 700,
+                  color: token.colorTextSecondary,
+                  textAlign: 'center',
+                }}
+              >
+                Please confirm that the selected <strong style={{ color: token.colorText }}>Customer</strong>,{' '}
+                <strong style={{ color: token.colorText }}>Items</strong>, and{' '}
+                <strong style={{ color: token.colorText }}>Quantities</strong> above are correct before saving.
+              </div>
+            </div>
+          );
+        })()}
       </Modal>
 
       {/* Large Orbital Animated SaveResultDialog */}

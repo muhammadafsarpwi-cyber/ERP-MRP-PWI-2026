@@ -69,6 +69,7 @@ describe('FinishedGoodsInventoryService', () => {
 
   const mockBalanceRepo = {
     createQueryBuilder: jest.fn(),
+    manager: { query: jest.fn().mockResolvedValue([]) },
   };
 
   const mockPolicyRepo = {
@@ -77,6 +78,7 @@ describe('FinishedGoodsInventoryService', () => {
 
   const mockSoItemRepo = {
     createQueryBuilder: jest.fn(),
+    manager: { query: jest.fn().mockResolvedValue([]) },
   };
 
   const mockPoRepo = {
@@ -85,6 +87,34 @@ describe('FinishedGoodsInventoryService', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    mockBalanceRepo.manager.query.mockResolvedValue([]);
+    mockSoItemRepo.manager.query.mockImplementation(async (sql: string) => {
+      if (sql.includes('sales_delivery_lines')) {
+        return [];
+      }
+      const qb = mockSoItemRepo.createQueryBuilder();
+      if (sql.includes('ANY($2)')) {
+        const rows = qb?.getRawMany ? await qb.getRawMany() : [];
+        return (rows || []).map((r: any, idx: number) => ({
+          item_id: r.itemId,
+          order_number: `SOC-MOCK-${idx + 1}`,
+          quantity: r.openQty,
+          shipped_quantity: 0,
+        }));
+      }
+      const single = qb?.getRawOne ? await qb.getRawOne() : null;
+      if (single && Number(single.openQty || 0) > 0) {
+        return [
+          {
+            so_id: 'mock-so-1',
+            order_number: 'SOC-MOCK-1',
+            quantity: single.openQty,
+            shipped_quantity: 0,
+          },
+        ];
+      }
+      return [];
+    });
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [

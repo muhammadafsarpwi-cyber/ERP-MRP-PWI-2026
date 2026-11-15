@@ -6,6 +6,7 @@ import {
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
+import { formatDecimal } from '../../utils/numberFormat';
 import BarcodeScanner from './BarcodeScanner';
 
 export interface ERPLine {
@@ -587,7 +588,7 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
                 let pcsEquivalent: number | null = null;
                 if (isGross) {
                   if (pSize >= 144) {
-                    displayPSize = Math.round((pSize / 144) * 1000) / 1000;
+                    displayPSize = Math.round((pSize / 144) * 100) / 100;
                     pcsEquivalent = Math.round(pSize);
                   } else {
                     displayPSize = pSize;
@@ -602,9 +603,9 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
 
                 return (
                   <Tag color="cyan" style={{ fontSize: 10.5, fontWeight: 700, margin: 0, padding: '1px 6px', borderRadius: 4 }}>
-                    📦 1 {pUnitClean} = {displayPSize.toLocaleString()} {effectiveUomCode}
+                    📦 1 {pUnitClean} = {formatDecimal(displayPSize, 2)} {effectiveUomCode}
                     {pcsEquivalent && isGross ? ` (= ${pcsEquivalent.toLocaleString()} PCS)` : ''}
-                    {pcsEquivalent && !isGross && pSize >= 144 ? ` (= ${(Math.round((pSize / 144) * 1000) / 1000).toLocaleString()} GRS)` : ''}
+                    {pcsEquivalent && !isGross && pSize >= 144 ? ` (= ${formatDecimal(pSize / 144, 2)} GRS)` : ''}
                   </Tag>
                 );
               })() : null}
@@ -691,20 +692,20 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
                 gap: 6,
               }}>
                 <div style={{ color: 'var(--inv-text-primary, #0f172a)', display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
-                  <span>Stock: <strong>{avail.physicalStock}</strong> {avail.uomCode}</span>
+                  <span>Stock: <strong>{formatDecimal(avail.physicalStock, 2)}</strong> {avail.uomCode}</span>
                   <span style={{ color: '#94a3b8' }}>|</span>
                   {isDeliveryContext ? (
                     <>
-                      <span>Dispatch Qty: <strong style={{ color: '#0284c7' }}>{Number(record.quantity || 0).toLocaleString()}</strong> {avail.uomCode}</span>
+                      <span>Dispatch Qty: <strong style={{ color: '#0284c7' }}>{formatDecimal(record.quantity || 0, 2)}</strong> {avail.uomCode}</span>
                       <span style={{ color: '#94a3b8' }}>|</span>
-                      <span>Avail to Ship: <strong style={{ color: avail.availableStock >= Number(record.quantity || 0) ? '#10b981' : '#ef4444' }}>{avail.availableStock.toLocaleString()}</strong> {avail.uomCode}</span>
+                      <span>Avail to Ship: <strong style={{ color: avail.availableStock >= Number(record.quantity || 0) ? '#10b981' : '#ef4444' }}>{formatDecimal(avail.availableStock, 2)}</strong> {avail.uomCode}</span>
                       <span style={{ color: '#94a3b8' }}>|</span>
-                      <span>Remaining After Dispatch: <strong style={{ color: avail.projectedBalance >= 0 ? '#10b981' : '#ef4444' }}>{avail.projectedBalance.toLocaleString()}</strong> {avail.uomCode}</span>
+                      <span>Remaining After Dispatch: <strong style={{ color: avail.projectedBalance >= 0 ? '#10b981' : '#ef4444' }}>{formatDecimal(avail.projectedBalance, 2)}</strong> {avail.uomCode}</span>
                       {avail.socPackedQty !== undefined && avail.socPackedQty > 0 ? (
                         <>
                           <span style={{ color: '#94a3b8' }}>|</span>
                           <span style={{ color: '#059669', fontWeight: 700 }}>
-                            📦 Packed for SOC: {avail.socPackedQty.toLocaleString()} {avail.uomCode}
+                            📦 Packed for SOC: {formatDecimal(avail.socPackedQty, 2)} {avail.uomCode}
                           </span>
                         </>
                       ) : (
@@ -721,27 +722,27 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
                   ) : isPurchaseContext ? (
                     <>
                       <span style={{ color: '#3b82f6', fontWeight: 600 }}>
-                        Inbound Order: <strong>+{Number(record.quantity || 0).toLocaleString()}</strong> {avail.uomCode}
+                        Inbound Order: <strong>+{formatDecimal(record.quantity || 0, 2)}</strong> {avail.uomCode}
                       </span>
                       <span style={{ color: '#94a3b8' }}>|</span>
                       <span>
-                        Projected After Receipt: <strong style={{ color: '#10b981', fontSize: 11.5 }}>{(avail.availableStock + Number(record.quantity || 0)).toLocaleString()}</strong> {avail.uomCode}
+                        Projected After Receipt: <strong style={{ color: '#10b981', fontSize: 11.5 }}>{formatDecimal(avail.availableStock + Number(record.quantity || 0), 2)}</strong> {avail.uomCode}
                       </span>
                     </>
                   ) : (
                     <>
-                      <span>Committed: <strong>{avail.committedStock}</strong></span>
+                      <span>Committed: <strong>{formatDecimal(avail.committedStock, 2)}</strong></span>
                       <span style={{ color: '#94a3b8' }}>|</span>
-                      <span>Safety: <strong>{avail.safetyStock}</strong></span>
+                      <span>Safety: <strong>{formatDecimal(avail.safetyStock, 2)}</strong></span>
                       <span style={{ color: '#94a3b8' }}>|</span>
-                      <span>Avail: <strong style={{ color: avail.availableStock > 0 ? '#10b981' : '#f59e0b' }}>{avail.availableStock}</strong></span>
+                      <span>Avail: <strong style={{ color: avail.availableStock > 0 ? '#10b981' : '#f59e0b' }}>{formatDecimal(avail.availableStock, 2)}</strong></span>
                       <span style={{ color: '#94a3b8' }}>|</span>
-                      <span>Projected: <strong style={{ color: avail.projectedBalance >= 0 ? '#10b981' : '#ef4444' }}>{avail.projectedBalance}</strong></span>
+                      <span>Projected: <strong style={{ color: avail.projectedBalance >= 0 ? '#10b981' : '#ef4444' }}>{formatDecimal(avail.projectedBalance, 2)}</strong></span>
                       {avail.productionRequirementQty !== undefined && avail.productionRequirementQty > 0 && (
                         <>
                           <span style={{ color: '#94a3b8' }}>|</span>
                           <span style={{ color: '#7c3aed', fontWeight: 700 }}>
-                            Prod Req: {avail.productionRequirementQty} {avail.uomCode}
+                            Prod Req: {formatDecimal(avail.productionRequirementQty, 2)} {avail.uomCode}
                           </span>
                         </>
                       )}
@@ -759,10 +760,10 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
                   style={{ margin: 0, fontSize: 10, fontWeight: 700 }}
                 >
                   {isPurchaseContext
-                    ? `📥 Inbound Order (+${Number(record.quantity || 0).toLocaleString()} ${avail.uomCode})`
+                    ? `📥 Inbound Order (+${formatDecimal(record.quantity || 0, 2)} ${avail.uomCode})`
                     : isDeliveryContext
-                    ? (avail.shortageQty > 0 ? `⚠️ Short by ${avail.shortageQty.toLocaleString()} ${avail.uomCode}` : `✅ Ready to Dispatch (${Number(record.quantity || 0).toLocaleString()} ${avail.uomCode})`)
-                    : avail.statusLabel}
+                    ? (avail.shortageQty > 0 ? `⚠️ Short by ${formatDecimal(avail.shortageQty, 2)} ${avail.uomCode}` : `✅ Ready to Dispatch (${formatDecimal(record.quantity || 0, 2)} ${avail.uomCode})`)
+                    : String(avail.statusLabel || '').replace(/-?\d+(?:\.\d+)?/g, (m) => formatDecimal(m, 2))}
                 </Tag>
               </div>
             )}
@@ -882,7 +883,7 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
             <InputNumber
               controls={false}
               min={0}
-              value={record.quantity === 0 || record.quantity === undefined ? null : record.quantity}
+              value={record.quantity === 0 || record.quantity === undefined ? null : Math.round(Number(record.quantity) * 100) / 100}
               disabled={disabled}
               placeholder="0"
               status={isExcess ? 'error' : undefined}
@@ -920,9 +921,9 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
                       lineHeight: 1.3,
                     }}
                   >
-                    ⚠️ Excess +{(currentQty - orderBal).toLocaleString()} {effectiveUom}!
+                    ⚠️ Excess +{formatDecimal(currentQty - orderBal, 2)} {effectiveUom}!
                     <div style={{ fontSize: 9.5, fontWeight: 600, color: '#fca5a5' }}>
-                      Max {docLabel}: {orderBal.toLocaleString()} {effectiveUom}
+                      Max {docLabel}: {formatDecimal(orderBal, 2)} {effectiveUom}
                     </div>
                   </div>
                 )}

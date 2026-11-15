@@ -257,20 +257,11 @@ export class FinishedGoodsInventoryService {
     const itemIds = allFilteredItems.map((i) => i.id);
 
     // 2. Aggregate Physical Stock from inventory_balances in ONE query
-    // Avoid double/triple counting: when an unbatched master row (batch_id IS NULL) exists
-    // for an item, it represents the full physical stock. Batched child rows exist alongside
-    // it for batch-level traceability.
+    // Sum all active rows (both batched Opening/Safety Stock Transfers and unbatched daily Production/Deliveries)
     const rawBalances = await this.balanceRepo
       .createQueryBuilder('b')
       .select('b.itemId', 'itemId')
-      .addSelect(
-        `CASE 
-          WHEN COUNT(CASE WHEN b.batch_id IS NULL THEN 1 END) > 0 
-          THEN SUM(CASE WHEN b.batch_id IS NULL THEN b.on_hand ELSE 0 END)
-          ELSE SUM(b.on_hand)
-        END`,
-        'totalOnHand',
-      )
+      .addSelect('COALESCE(SUM(b.on_hand), 0)', 'totalOnHand')
       .where('b.companyId = :companyId', { companyId })
       .andWhere('b.itemId IN (:...itemIds)', { itemIds })
       .andWhere('b.status = :activeStatus', { activeStatus: 'ACTIVE' })
@@ -419,7 +410,7 @@ export class FinishedGoodsInventoryService {
     const wipRows: Array<{ item_code: string; name: string; on_hand: string | number }> =
       await this.balanceRepo.manager.query(
         `SELECT i.item_code, i.name,
-           SUM(CASE WHEN b.batch_id IS NULL THEN b.on_hand ELSE 0 END) as on_hand
+           COALESCE(SUM(b.on_hand), 0) as on_hand
          FROM inventory_balances b
          JOIN items i ON i.id = b.item_id
          WHERE b.company_id = $1 AND i.item_code LIKE 'WIP-SP%' AND b.status = 'ACTIVE'
@@ -730,17 +721,10 @@ export class FinishedGoodsInventoryService {
     const uomName = item.salesUom?.name || item.baseUom?.name || uomCode;
 
     // Physical stock from inventory_balances (stored in base UOM, e.g. PCS)
-    // Avoid double/triple counting batched child rows when master unbatched row exists
+    // Sum all active rows (both batched Opening/Safety Stock Transfers and unbatched daily Production/Deliveries)
     const rawBalance = await this.balanceRepo
       .createQueryBuilder('b')
-      .select(
-        `CASE 
-          WHEN COUNT(CASE WHEN b.batch_id IS NULL THEN 1 END) > 0 
-          THEN SUM(CASE WHEN b.batch_id IS NULL THEN b.on_hand ELSE 0 END)
-          ELSE SUM(b.on_hand)
-        END`,
-        'totalOnHand',
-      )
+      .select('COALESCE(SUM(b.on_hand), 0)', 'totalOnHand')
       .where('b.companyId = :companyId', { companyId })
       .andWhere('b.itemId = :itemId', { itemId })
       .andWhere('b.status = :activeStatus', { activeStatus: 'ACTIVE' })

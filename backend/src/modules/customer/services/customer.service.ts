@@ -87,21 +87,88 @@ export class CustomerService implements OnModuleInit {
   }
 
   /**
-   * Generates a professional, sequential, company-scoped customer code:
-   * e.g. CUS-000001, CUS-000002
+   * Extracts a 3-letter uppercase abbreviation from the Customer Name:
+   * - 3+ words (e.g. "Baba Fareed Autos" -> "BFA", "SSD Autos Larkana" -> "SSD")
+   * - 2 words (e.g. "Swabi Autos" -> "SWA", "Royal Power" -> "ROP")
+   * - 1 word (e.g. "FABRO" -> "FAB")
    */
-  async generateCustomerCode(companyId: string): Promise<string> {
-    const prefix = 'CUS-';
+  extractCustomerNameAbbr(customerName?: string): string {
+    const cleaned = (customerName || '')
+      .toUpperCase()
+      .replace(/\([^)]*\)/g, ' ')
+      .replace(/[^A-Z0-9\s-]/g, ' ')
+      .trim();
+    const words = cleaned.split(/[\s-]+/).filter((w) => w.length > 0 && !['PVT', 'LTD', 'LIMITED', 'THE', 'AND'].includes(w));
+    const allWords = cleaned.split(/[\s-]+/).filter((w) => w.length > 0);
+    const targetWords = words.length > 0 ? words : allWords;
+
+    if (targetWords.length === 0) return 'GEN';
+    if (allWords.length >= 3 && allWords[0].length === 3) {
+      return allWords[0].slice(0, 3);
+    }
+    if (allWords.length >= 3) {
+      return (allWords[0][0] + allWords[1][0] + allWords[2][0]).toUpperCase();
+    }
+    if (targetWords.length === 2) {
+      const w1 = targetWords[0];
+      const w2 = targetWords[1];
+      if (w1.length >= 2) {
+        return (w1.slice(0, 2) + w2[0]).toUpperCase();
+      }
+      return (w1[0] + w2.slice(0, 2)).padEnd(3, 'X').toUpperCase();
+    }
+    return targetWords[0].slice(0, 3).padEnd(3, 'X').toUpperCase();
+  }
+
+  /**
+   * Generates a professional, sequential, company-scoped customer code
+   * including 3 letters from the Customer Name:
+   * e.g. CUS-SWA-019, CUS-PTL-002, CUS-BFA-017
+   */
+  async generateCustomerCode(companyId: string, customerName?: string): Promise<string> {
+    const abbr = this.extractCustomerNameAbbr(customerName);
     const result = await this.repo
       .createQueryBuilder('c')
-      .select("MAX(CAST(SUBSTRING(c.customerCode FROM 'CUS-([0-9]+)') AS INT))", 'maxNum')
+      .select("MAX(CAST(SUBSTRING(c.customerCode FROM '([0-9]+)$') AS INT))", 'maxNum')
       .where('c.companyId = :companyId', { companyId })
-      .andWhere('c.customerCode LIKE :prefix', { prefix: `${prefix}%` })
       .getRawOne();
 
-    const maxNum = result?.maxNum || 0;
+    const maxNum = Number(result?.maxNum || 0);
     const nextNum = maxNum + 1;
-    return `${prefix}${String(nextNum).padStart(6, '0')}`;
+    return `CUS-${abbr}-${String(nextNum).padStart(3, '0')}`;
+  }
+
+  private async syncSalesCustomer(saved: Customer): Promise<void> {
+    try {
+      await this.repo.manager.query(
+        `INSERT INTO erp_sales.customers (id, company_id, customer_code, company_name, contact_person, email, phone, division_id, status, is_active, currency)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+         ON CONFLICT (id) DO UPDATE SET
+           customer_code = EXCLUDED.customer_code,
+           company_name = EXCLUDED.company_name,
+           contact_person = EXCLUDED.contact_person,
+           email = EXCLUDED.email,
+           phone = EXCLUDED.phone,
+           division_id = EXCLUDED.division_id,
+           status = EXCLUDED.status,
+           is_active = EXCLUDED.is_active`,
+        [
+          saved.id,
+          saved.companyId,
+          saved.customerCode,
+          saved.name,
+          saved.contactPerson || null,
+          saved.email || null,
+          saved.phone || null,
+          saved.divisionId || null,
+          saved.status || 'Active',
+          saved.isActive !== false,
+          saved.currencyCode || 'PKR',
+        ],
+      );
+    } catch (err) {
+      this.logger.warn(`Failed to sync customer ${saved.id} to erp_sales.customers: ${err}`);
+    }
   }
 
   /**
@@ -123,7 +190,7 @@ export class CustomerService implements OnModuleInit {
   async create(dto: CreateCustomerDto, userId?: string): Promise<Customer> {
     const companyId = await this.resolveCompanyId(dto.companyId);
     dto = { ...dto, companyId };
-    const finalCode = dto.customerCode?.trim() || (await this.generateCustomerCode(companyId));
+    const finalCode = dto.customerCode?.trim() || (await this.generateCustomerCode(companyId, dto.name));
 
     const existing = await this.repo.findOne({
       where: { customerCode: finalCode, companyId },
@@ -146,6 +213,7 @@ export class CustomerService implements OnModuleInit {
     });
 
     const saved = await this.repo.save(customer);
+    await this.syncSalesCustomer(saved);
 
     // Auto-create centralized barcode registry entry
     try {
@@ -311,6 +379,7 @@ export class CustomerService implements OnModuleInit {
     }
 
     const saved = await this.repo.save(customer);
+    await this.syncSalesCustomer(saved);
 
     // If opening balance was modified, update authoritative ledger
     const newOpening = Number(saved.openingBalance) || 0;

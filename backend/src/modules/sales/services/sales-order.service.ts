@@ -73,10 +73,34 @@ export class SalesOrderService {
         : null;
       if (pubCust && pubCust.length > 0) {
         const pc = pubCust[0];
+        let codeToUse = pc.customer_code;
+        const codeConflict = await this.customerRepo.findOne({
+          where: { customerCode: codeToUse },
+        });
+        if (codeConflict && codeConflict.id !== pc.id) {
+          // Sync the conflicting row's customer_code from public.customers if it changed there
+          const otherPub = this.repo.manager?.query
+            ? await this.repo.manager.query(
+                'SELECT customer_code FROM public.customers WHERE id = $1',
+                [codeConflict.id],
+              )
+            : null;
+          if (
+            otherPub &&
+            otherPub.length > 0 &&
+            otherPub[0].customer_code &&
+            otherPub[0].customer_code !== codeToUse
+          ) {
+            codeConflict.customerCode = otherPub[0].customer_code;
+            await this.customerRepo.save(codeConflict);
+          } else {
+            codeToUse = `${pc.customer_code}-${String(pc.id).slice(0, 4).toUpperCase()}`;
+          }
+        }
         customer = this.customerRepo.create({
           id: pc.id,
           companyId: pc.company_id || dto.companyId,
-          customerCode: pc.customer_code,
+          customerCode: codeToUse,
           companyName: pc.name,
           contactPerson: pc.contact_person,
           email: pc.email,
