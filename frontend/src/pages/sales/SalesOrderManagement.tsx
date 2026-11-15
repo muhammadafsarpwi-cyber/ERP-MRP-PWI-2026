@@ -274,7 +274,8 @@ const SalesOrderManagement: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
+  const [pageSize, setPageSize] = useState(25);
+  const [sortOrder, setSortOrder] = useState<'ASC' | 'DESC'>('ASC');
 
   // Chevron Process filter state
   const [activeChevron, setActiveChevron] = useState<string>('ALL');
@@ -422,7 +423,22 @@ const SalesOrderManagement: React.FC = () => {
           });
         } catch { /* ignore */ }
 
-        setCustomers(Array.from(combinedMap.values()));
+        const getCustSeq = (code?: string) => {
+          const upper = String(code || '').toUpperCase().trim();
+          if (upper.startsWith('DEMO-')) {
+            const m = upper.match(/(\d+)$/);
+            return 1000000 + (m ? parseInt(m[1], 10) : 0);
+          }
+          const m = upper.match(/(\d+)$/);
+          return m ? parseInt(m[1], 10) : 999999;
+        };
+        const sortedCustomers = Array.from(combinedMap.values()).sort((a, b) => {
+          const seqA = getCustSeq(a.customerCode);
+          const seqB = getCustSeq(b.customerCode);
+          if (seqA !== seqB) return seqA - seqB;
+          return String(a.customerCode || '').localeCompare(String(b.customerCode || ''), undefined, { numeric: true });
+        });
+        setCustomers(sortedCustomers);
       } catch { /* ignore */ }
       try {
         const w = await apiService.get<{ data: Array<{ id: string; warehouseCode: string; name: string }> }>('/warehouses', { limit: 100 });
@@ -466,10 +482,10 @@ const SalesOrderManagement: React.FC = () => {
     return record.customerId || 'Customer';
   }, [customers]);
 
-  const fetchData = useCallback(async (pageNum: number = 1, currentLimit: number = pageSize) => {
+  const fetchData = useCallback(async (pageNum: number = 1, currentLimit: number = pageSize, currentSortOrder: 'ASC' | 'DESC' = sortOrder) => {
     setLoading(true);
     try {
-      const params: any = { page: pageNum, limit: currentLimit };
+      const params: any = { page: pageNum, limit: currentLimit, sortField: 'orderNumber', sortOrder: currentSortOrder };
       if (search) params.search = search;
       if (filterCustomer) params.customerId = filterCustomer;
       if (filterStatus && filterStatus !== 'All statuses') params.status = filterStatus;
@@ -482,7 +498,7 @@ const SalesOrderManagement: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [search, filterCustomer, filterStatus, filterDivision, pageSize, message]);
+  }, [search, filterCustomer, filterStatus, filterDivision, pageSize, sortOrder, message]);
 
   useEffect(() => {
     fetchData(page, pageSize);
@@ -550,9 +566,9 @@ const SalesOrderManagement: React.FC = () => {
     return Array.from(set);
   }, [data]);
 
-  // Client-side filtering
+  // Client-side filtering & sequence sorting (first/oldest entry at top by default when ASC, newest at bottom)
   const displayedOrders = useMemo(() => {
-    return data.filter(d => {
+    const filtered = data.filter(d => {
       const status = (d.status || '').toLowerCase();
       // Chevron filter
       if (activeChevron === 'DRAFT' && status !== 'draft') return false;
@@ -578,7 +594,23 @@ const SalesOrderManagement: React.FC = () => {
 
       return true;
     });
-  }, [data, activeChevron, filterDivision, filterCurrency, filterCustomer, filterStatus, filterDateFrom, filterDateTo]);
+
+    const getOrderSeq = (orderNum?: string) => {
+      const m = String(orderNum || '').match(/(\d+)$/);
+      return m ? parseInt(m[1], 10) : 0;
+    };
+
+    return [...filtered].sort((a, b) => {
+      const seqA = getOrderSeq(a.orderNumber);
+      const seqB = getOrderSeq(b.orderNumber);
+      if (seqA !== seqB) {
+        return sortOrder === 'ASC' ? seqA - seqB : seqB - seqA;
+      }
+      const dateA = a.orderDate ? dayjs(a.orderDate).valueOf() : 0;
+      const dateB = b.orderDate ? dayjs(b.orderDate).valueOf() : 0;
+      return sortOrder === 'ASC' ? dateA - dateB : dateB - dateA;
+    });
+  }, [data, activeChevron, filterDivision, filterCurrency, filterCustomer, filterStatus, filterDateFrom, filterDateTo, sortOrder]);
 
   const activeFilterCount = [filterDivision, filterCurrency, filterCustomer, filterStatus, filterDateFrom, filterDateTo].filter(Boolean).length;
 
@@ -1203,6 +1235,12 @@ const SalesOrderManagement: React.FC = () => {
       title: 'Order Date / Dates',
       key: 'dates',
       width: 195,
+      sorter: (a, b) => {
+        const dA = a.orderDate ? dayjs(a.orderDate).valueOf() : 0;
+        const dB = b.orderDate ? dayjs(b.orderDate).valueOf() : 0;
+        if (dA !== dB) return dA - dB;
+        return String(a.orderNumber || '').localeCompare(String(b.orderNumber || ''), undefined, { numeric: true });
+      },
       render: (_, record) => (
         <div className="inv-dates-cell" style={{ whiteSpace: 'nowrap' }}>
           <div className="inv-date-row" style={{ whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -1230,6 +1268,7 @@ const SalesOrderManagement: React.FC = () => {
       title: 'Sales Order / SOC',
       key: 'order',
       width: 180,
+      sorter: (a, b) => String(a.orderNumber || '').localeCompare(String(b.orderNumber || ''), undefined, { numeric: true }),
       render: (_, record) => {
         return (
           <div className="inv-doc-cell" style={{ whiteSpace: 'nowrap' }}>
@@ -1291,6 +1330,18 @@ const SalesOrderManagement: React.FC = () => {
       title: 'Customer',
       key: 'customer',
       width: 260,
+      sorter: (a, b) => {
+        const codeA = a.customer?.customerCode || (a as any).customerCode || '';
+        const codeB = b.customer?.customerCode || (b as any).customerCode || '';
+        const mA = String(codeA).match(/(\d+)$/);
+        const mB = String(codeB).match(/(\d+)$/);
+        const seqA = mA ? parseInt(mA[1], 10) : 999999;
+        const seqB = mB ? parseInt(mB[1], 10) : 999999;
+        if (seqA !== seqB) return seqA - seqB;
+        const nameA = a.customer?.companyName || a.customer?.name || a.companyName || a.customerName || '';
+        const nameB = b.customer?.companyName || b.customer?.name || b.companyName || b.customerName || '';
+        return String(nameA).localeCompare(String(nameB));
+      },
       render: (_, record) => {
         const c = record.customer;
         const custCode = c?.customerCode || (record as any).customerCode;
@@ -1346,6 +1397,11 @@ const SalesOrderManagement: React.FC = () => {
       title: 'Items & Qty',
       key: 'itemsQty',
       width: 175,
+      sorter: (a, b) => {
+        const qA = (a.items || []).reduce((sum: number, it: any) => sum + Number(it.quantity || it.orderedQuantity || 0), 0);
+        const qB = (b.items || []).reduce((sum: number, it: any) => sum + Number(it.quantity || it.orderedQuantity || 0), 0);
+        return qA - qB;
+      },
       render: (_, record) => {
         const items = record.items || [];
         const itemCount = items.length;
@@ -1551,6 +1607,7 @@ const SalesOrderManagement: React.FC = () => {
       title: 'Amounts',
       key: 'amounts',
       width: 215,
+      sorter: (a, b) => Number(a.totalAmount || 0) - Number(b.totalAmount || 0),
       render: (_, record) => {
         const curr = record.currency || 'PKR';
         return (
@@ -1923,6 +1980,19 @@ const SalesOrderManagement: React.FC = () => {
               />
             )}
           </Button>
+          <Tooltip title="Toggle Ascending (First Entry ➔ New Entry) or Descending (New Entry ➔ First Entry)">
+            <Button
+              icon={sortOrder === 'ASC' ? <UpOutlined /> : <DownOutlined />}
+              onClick={() => {
+                const nextOrder = sortOrder === 'ASC' ? 'DESC' : 'ASC';
+                setSortOrder(nextOrder);
+                fetchData(1, pageSize, nextOrder);
+              }}
+              style={{ fontWeight: 600 }}
+            >
+              {sortOrder === 'ASC' ? 'Order: First ➔ New (ASC)' : 'Order: New ➔ First (DESC)'}
+            </Button>
+          </Tooltip>
 
           <div style={{ flex: 1 }} />
 

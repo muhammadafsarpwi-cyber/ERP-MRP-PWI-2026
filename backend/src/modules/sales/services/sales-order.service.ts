@@ -267,8 +267,8 @@ export class SalesOrderService {
     // convention already proven by the Raw Material Receiving fix.
     applyDivisionScopeFilter(qb as any, 'so.divisionId', allowedDivisionIds);
     const validSortFields = ['createdAt', 'orderNumber', 'orderDate', 'status', 'totalAmount'];
-    const field = validSortFields.includes(sortField) ? sortField : 'createdAt';
-    const order = sortOrder.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+    const field = validSortFields.includes(sortField) ? sortField : 'orderNumber';
+    const order = sortOrder ? (sortOrder.toUpperCase() === 'DESC' ? 'DESC' : 'ASC') : 'ASC';
     qb.orderBy(`so.${field}`, order);
     qb.skip((page - 1) * limit).take(limit);
     const [data, total] = await qb.getManyAndCount();
@@ -283,8 +283,19 @@ export class SalesOrderService {
     if (divisionId) {
       qb.andWhere('c.divisionId = :divisionId', { divisionId });
     }
-    qb.orderBy('c.customerCode', 'ASC');
-    return qb.getMany();
+    const list = await qb.getMany();
+    const getSeq = (code?: string | null) => {
+      const raw = String(code || '').trim().toUpperCase();
+      const m = raw.match(/([0-9]+)$/);
+      const num = m ? parseInt(m[1], 10) : 999999;
+      return raw.startsWith('DEMO-') ? 900000 + num : num;
+    };
+    list.sort((a, b) => {
+      const diff = getSeq(a.customerCode) - getSeq(b.customerCode);
+      if (diff !== 0) return diff;
+      return String(a.customerCode || '').localeCompare(String(b.customerCode || ''));
+    });
+    return list;
   }
 
   async getNextOrderNumber(companyId: string, prefixType: string = 'SOC-'): Promise<string> {

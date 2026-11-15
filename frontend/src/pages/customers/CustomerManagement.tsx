@@ -210,7 +210,8 @@ const CustomerManagement: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
+  const [pageSize, setPageSize] = useState(25);
+  const [sortOrder, setSortOrder] = useState<'ASC' | 'DESC'>('ASC');
 
   // Filter States
   const [filterState, setFilterState] = useState<string | undefined>(undefined);
@@ -303,10 +304,17 @@ const CustomerManagement: React.FC = () => {
       });
   }, []);
 
-  const fetchCustomers = useCallback(async (pageNum: number = 1, currentLimit: number = pageSize) => {
+  const getCustomerCodeSeq = useCallback((code?: string | null): number => {
+    const raw = String(code || '').trim().toUpperCase();
+    const m = raw.match(/([0-9]+)$/);
+    const num = m ? parseInt(m[1], 10) : 999999;
+    return raw.startsWith('DEMO-') ? 900000 + num : num;
+  }, []);
+
+  const fetchCustomers = useCallback(async (pageNum: number = 1, currentLimit: number = pageSize, currentOrder: 'ASC' | 'DESC' = sortOrder) => {
     setLoading(true);
     try {
-      const params: any = { page: pageNum, limit: currentLimit };
+      const params: any = { page: pageNum, limit: currentLimit, sortField: 'customerCode', sortOrder: currentOrder };
       if (search) params.search = search;
       if (filterStatus) params.status = filterStatus;
       if (filterCustomerType) params.customerType = filterCustomerType;
@@ -319,7 +327,7 @@ const CustomerManagement: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [search, filterStatus, filterCustomerType, filterDivision, pageSize, message]);
+  }, [search, filterStatus, filterCustomerType, filterDivision, pageSize, sortOrder, message]);
 
   useEffect(() => {
     fetchCustomers(page, pageSize);
@@ -382,9 +390,9 @@ const CustomerManagement: React.FC = () => {
     }
   };
 
-  // Client-side filtering for extra facets & master status chevron
+  // Client-side filtering & sequence sorting for extra facets & master status chevron
   const displayedCustomers = useMemo(() => {
-    return customers.filter(c => {
+    const filtered = customers.filter(c => {
       // Process Chevron Filter
       if (masterChevron === 'ACTIVE' && (c.status || '').toUpperCase() !== 'ACTIVE') return false;
       if (masterChevron === 'INACTIVE' && (c.status || '').toUpperCase() === 'ACTIVE') return false;
@@ -408,7 +416,14 @@ const CustomerManagement: React.FC = () => {
       }
       return true;
     });
-  }, [customers, filterDivision, filterState, filterBalance, masterChevron]);
+
+    const dir = sortOrder === 'ASC' ? 1 : -1;
+    return [...filtered].sort((a, b) => {
+      const diff = getCustomerCodeSeq(a.customerCode) - getCustomerCodeSeq(b.customerCode);
+      if (diff !== 0) return diff * dir;
+      return String(a.customerCode || '').localeCompare(String(b.customerCode || '')) * dir;
+    });
+  }, [customers, filterDivision, filterState, filterBalance, masterChevron, sortOrder, getCustomerCodeSeq]);
 
   // Clear all filters handler
   const handleClearAll = () => {
@@ -984,7 +999,7 @@ const CustomerManagement: React.FC = () => {
     {
       title: 'Customer',
       key: 'customer',
-      sorter: (a, b) => a.name.localeCompare(b.name),
+      sorter: (a, b) => getCustomerCodeSeq(a.customerCode) - getCustomerCodeSeq(b.customerCode),
       render: (_, record) => {
         return (
           <div className="customer-cell-wrapper">
@@ -1079,6 +1094,7 @@ const CustomerManagement: React.FC = () => {
     {
       title: 'Classification & Code',
       key: 'type-code',
+      sorter: (a, b) => getCustomerCodeSeq(a.customerCode) - getCustomerCodeSeq(b.customerCode),
       render: (_, record) => (
         <div className="location-cell-wrapper">
           <div className="location-top-row">
@@ -1137,6 +1153,7 @@ const CustomerManagement: React.FC = () => {
     {
       title: 'Commercial & Balance',
       key: 'balance',
+      sorter: (a, b) => (Number(a.totalRevenue || a.openingBalance || a.creditLimit || 0)) - (Number(b.totalRevenue || b.openingBalance || b.creditLimit || 0)),
       render: (_, record) => {
         const balanceDue = record.totalRevenue !== undefined && record.totalRevenue !== null ? record.totalRevenue : 0;
         const opening = record.openingBalance || 0;
@@ -1787,6 +1804,19 @@ const CustomerManagement: React.FC = () => {
               Filters {[filterDivision, filterState, filterStatus, filterBalance, filterCustomerType].filter(Boolean).length > 0
                 ? `(${[filterDivision, filterState, filterStatus, filterBalance, filterCustomerType].filter(Boolean).length})`
                 : ''}
+            </Button>
+            <Button
+              icon={sortOrder === 'ASC' ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
+              onClick={() => {
+                const next = sortOrder === 'ASC' ? 'DESC' : 'ASC';
+                setSortOrder(next);
+                setPage(1);
+                void fetchCustomers(1, pageSize, next);
+              }}
+              style={{ fontWeight: 700 }}
+              title="Toggle sequence order between Ascending (001 ➔ New) and Descending (New ➔ 001)"
+            >
+              {sortOrder === 'ASC' ? 'Order: 001 ➔ New (ASC)' : 'Order: New ➔ 001 (DESC)'}
             </Button>
           </div>
 

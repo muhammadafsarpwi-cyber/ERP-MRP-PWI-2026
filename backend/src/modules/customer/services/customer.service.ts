@@ -256,10 +256,20 @@ export class CustomerService implements OnModuleInit {
     return saved;
   }
 
+  private getCustomerCodeSeq(code?: string | null): number {
+    const raw = String(code || '').trim().toUpperCase();
+    const m = raw.match(/([0-9]+)$/);
+    const num = m ? parseInt(m[1], 10) : 999999;
+    if (raw.startsWith('DEMO-')) {
+      return 900000 + num;
+    }
+    return num;
+  }
+
   async findAll(filter: CustomerFilterDto): Promise<{ data: Customer[]; total: number }> {
     const {
       page = 1,
-      limit = 20,
+      limit = 25,
       companyId,
       divisionId,
       status,
@@ -269,8 +279,8 @@ export class CustomerService implements OnModuleInit {
       customerTier,
       state,
       city,
-      sortField = 'createdAt',
-      sortOrder = 'DESC',
+      sortField = 'customerCode',
+      sortOrder = 'ASC',
     } = filter;
 
     const qb = this.repo.createQueryBuilder('c').leftJoinAndSelect('c.division', 'division');
@@ -331,8 +341,23 @@ export class CustomerService implements OnModuleInit {
       'creditLimit',
       'customerSince',
     ];
-    const field = validSortFields.includes(sortField) ? sortField : 'createdAt';
-    const order = sortOrder?.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+    const field = validSortFields.includes(sortField) ? sortField : 'customerCode';
+    const order = sortOrder?.toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
+
+    if (field === 'customerCode') {
+      const allMatched = await qb.getMany();
+      const dir = order === 'ASC' ? 1 : -1;
+      allMatched.sort((a, b) => {
+        const seqDiff = this.getCustomerCodeSeq(a.customerCode) - this.getCustomerCodeSeq(b.customerCode);
+        if (seqDiff !== 0) return seqDiff * dir;
+        return String(a.customerCode || '').localeCompare(String(b.customerCode || '')) * dir;
+      });
+      const total = allMatched.length;
+      const start = (page - 1) * limit;
+      const data = allMatched.slice(start, start + limit);
+      return { data, total };
+    }
+
     qb.orderBy(`c.${field}`, order);
     qb.skip((page - 1) * limit).take(limit);
 
