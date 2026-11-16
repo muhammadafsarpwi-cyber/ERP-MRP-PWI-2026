@@ -1865,7 +1865,7 @@ export class DashboardService {
         COALESCE(SUM(CASE WHEN UPPER(COALESCE(so.status, '')) != 'CANCELLED' AND COALESCE(so.order_date, so.created_at::date) >= $4::date AND COALESCE(so.order_date, so.created_at::date) < $2::date THEN ${grsConvertExpr('soi.quantity')} ELSE 0 END), 0) AS last_month_grs
       FROM erp_sales.sales_orders so
       LEFT JOIN erp_sales.sales_order_items soi ON soi.sales_order_id = so.id
-      LEFT JOIN erp_item.uoms u ON u.id = soi.uom_id
+      LEFT JOIN public.uoms u ON u.id = soi.uom_id
       WHERE so.company_id = $1 AND so.deleted_at IS NULL
       `,
       [companyId, thisMonthStart, nextMonthStart, lastMonthStart],
