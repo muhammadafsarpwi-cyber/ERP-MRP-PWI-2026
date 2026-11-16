@@ -1508,11 +1508,13 @@ export class ProductionOpenStockService {
 
         // 1. Update original production entry to retain remaining cartons in Safety Stock
         let remainingRemarks = remarks
-          .replace(/Customer:\s*[^|]+/i, 'Customer: SAFETY STOCK')
-          .replace(/SOC:\s*[^|]+/i, 'SOC: SAFETY-STOCK')
+          .replace(/Customer:\s*[^|]+/i, 'Customer: SAFETY STOCK ')
+          .replace(/SOC:\s*[^|]+/i, 'SOC: SAFETY_STOCK ')
           .replace(/Cartons:\s*[\d.]+/i, `Cartons: ${remainingCartons}`)
-          .replace(/\([\d.]+\s*Gross/i, `(${remainingGross} Gross`)
-          .replace(/\/[\d.]+\s*PCS/i, `/ ${remainingPcs} PCS`)
+          .replace(/\(\s*[\d.]+\s*Gross/i, `(${remainingGross} Gross`)
+          .replace(/\/\s*[\d.]+\s*PCS/i, `/ ${remainingPcs} PCS`)
+          .replace(/Without Nipple:\s*([A-Za-z0-9_-]+)\s*\([\d.]+\s*GRS\)/i, `Without Nipple: $1 (${remainingGross} GRS)`)
+          .replace(/Pending Nipple:\s*([A-Za-z0-9_-]+)\s*\([\d.]+\s*GRS(?:\s*\/\s*[\d.]+\s*PCS)?\)/i, `Pending Nipple: $1 (${remainingGross} GRS / ${remainingPcs} PCS)`)
           .replace(/Weight:\s*[\d.]+\s*KG/i, `Weight: ${remainingWeightKg} KG`);
 
         await this.dataSource.query(`
@@ -1547,7 +1549,7 @@ export class ProductionOpenStockService {
           ) RETURNING id
         `, [
           companyId, pe.division_id, pe.section_id, pe.department_id, pe.warehouse_id,
-          shiftDateFormatted, pe.shift_id, `HAND-PACK-${newBatchNo}`, shiftPcs, peRemarks, userId || null,
+          shiftDateFormatted, pe.shift_id, `HAND-PACK-${newBatchNo}-${Date.now().toString().slice(-6)}`.slice(0, 50), shiftPcs, peRemarks, userId || null,
           pe.operator_name, pe.supervisor_name, pe.item_id, pe.uom_id, pe.running_hours
         ]);
 

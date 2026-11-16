@@ -4500,7 +4500,7 @@ addToDept(org, {
       remarks.match(/Without Nipple:\s*([A-Za-z0-9_-]+)\s*\(([\d.]+)\s*GRS/i);
 
     const ctnMatch = remarks.match(/Cartons:\s*(\d+(?:\.\d+)?)/i);
-    const totalCartons = ctnMatch ? parseFloat(ctnMatch[1]) : 0;
+    const totalCartons = ctnMatch ? parseFloat(ctnMatch[1]) : Math.max(1, Math.round(Number(entry.actualQuantity || 0) / 1440));
     const requestedCartons = Number(dto.completedCartons || 0);
     const isPartial = totalCartons > 0 && requestedCartons > 0 && requestedCartons < totalCartons;
     const completedCartons = isPartial ? requestedCartons : totalCartons;
@@ -4514,21 +4514,33 @@ addToDept(org, {
     let deductedPcs = 0;
     let deductedGross = 0;
     let nippleItemCode = '';
+    let nippleWpp = 0.00167;
 
     if (match) {
       nippleItemCode = match[1].trim();
       totalPendingGross = parseFloat(match[2]) || 0;
       totalPendingPcs = match[3] ? parseFloat(match[3]) : Math.round(totalPendingGross * 144);
+    } else {
+      const qtyMatch = remarks.match(/Cartons:\s*[\d.]+\s*\(\s*([\d.]+)\s*Gross(?:\s*\/\s*([\d.]+)\s*PCS)?\s*\)/i);
+      const nipCodeMatch = remarks.match(/NippleCode:\s*([A-Za-z0-9_-]+)/i);
+      nippleItemCode = nipCodeMatch ? nipCodeMatch[1].trim() : 'FG-NP-001';
+      totalPendingGross = qtyMatch ? (parseFloat(qtyMatch[1]) || totalCartons * 10) : totalCartons * 10;
+      totalPendingPcs = qtyMatch && qtyMatch[2] ? parseFloat(qtyMatch[2]) : (Number(entry.actualQuantity) || Math.round(totalPendingGross * 144));
+    }
 
-      deductedGross = Math.round((totalPendingGross * ratio) * 100) / 100;
-      deductedPcs = Math.round(totalPendingPcs * ratio);
+    deductedGross = Math.round((totalPendingGross * ratio) * 100) / 100;
+    deductedPcs = Math.round(totalPendingPcs * ratio);
 
+    if (nippleItemCode && deductedPcs > 0) {
       const item = await this.itemRepo.findOne({
         where: [{ itemCode: nippleItemCode, companyId }, { itemCode: nippleItemCode }],
         relations: ['baseUom'],
       });
 
-      if (item && deductedPcs > 0) {
+      if (item) {
+        if (Number(item.weightPerPiece) > 0) {
+          nippleWpp = Number(item.weightPerPiece);
+        }
         await this.inventoryBalanceService.updateBalance(
           companyId,
           item.id,
@@ -4560,21 +4572,60 @@ addToDept(org, {
       }
     }
 
+    const wtMatch = remarks.match(/Weight:\s*([\d.]+)\s*KG/i);
+    const origWeightKg = wtMatch ? parseFloat(wtMatch[1]) : 0;
+    const addedNippleWeightKg = Math.round(deductedPcs * nippleWpp * 10) / 10;
+
     if (isPartial) {
       const remainingCartons = Math.round((totalCartons - completedCartons) * 100) / 100;
       const remainingGross = Math.round((totalPendingGross - deductedGross) * 100) / 100;
-      const remainingPcs = Math.round(totalPendingPcs - deductedPcs);
+      const remainingPcs = Math.max(0, Math.round(totalPendingPcs - deductedPcs));
+      const remainingRatio = totalCartons > 0 ? (remainingCartons / totalCartons) : 0;
+      const remainingWeightKg = origWeightKg > 0 ? Math.round(origWeightKg * remainingRatio * 10) / 10 : 0;
+      const completedWeightKg = origWeightKg > 0 ? Math.round((origWeightKg * ratio + addedNippleWeightKg) * 10) / 10 : 0;
 
       entry.actualQuantity = Number(remainingPcs);
+      entry.packingMode = 'WITHOUT_NIPPLE';
       let updatedRemarks = remarks
-        .replace(/Cartons:\s*\d+(?:\.\d+)?/i, `Cartons: ${remainingCartons}`)
-        .replace(/\(\s*[\d.]+\s*Gross/i, `(${remainingGross} Gross`)
-        .replace(/Without Nipple:[^|]+/gi, `Without Nipple: ${nippleItemCode} (${remainingGross} GRS) `)
-        .replace(/Pending Nipple:[^|]+/gi, `Pending Nipple: ${nippleItemCode} (${remainingGross} GRS / ${remainingPcs} PCS) `)
+        .replace(
+          /Cartons:\s*[\d.]+\s*\(\s*[\d.]+\s*Gross(?:\s*\/\s*[\d.]+\s*PCS)?\s*\)/i,
+          `Cartons: ${remainingCartons} (${remainingGross} Gross / ${remainingPcs} PCS)`,
+        )
+        .replace(/Without Nipple:\s*[^|]+/gi, `Without Nipple: ${nippleItemCode} (${remainingGross} GRS)`)
+        .replace(
+          /Pending Nipple:\s*[^|]+/gi,
+          `Pending Nipple: ${nippleItemCode} (${remainingGross} GRS / ${remainingPcs} PCS)`,
+        )
+        .replace(/\|?\s*Partial Completed:[^|]+/gi, '')
         .trim();
+      if (remainingWeightKg > 0 && /Weight:\s*[\d.]+\s*KG/i.test(updatedRemarks)) {
+        updatedRemarks = updatedRemarks.replace(/Weight:\s*[\d.]+\s*KG/i, `Weight: ${remainingWeightKg} KG`);
+      }
       updatedRemarks += ` | Partial Completed: ${completionDateStr} (${completedCartons} of ${totalCartons} CTN completed with nipples, ${remainingCartons} CTN remaining in Safety Stock)`;
       entry.remarks = updatedRemarks;
       await this.entryRepo.save(entry);
+
+      let completedRemarks = remarks
+        .replace(
+          /Cartons:\s*[\d.]+\s*\(\s*[\d.]+\s*Gross(?:\s*\/\s*[\d.]+\s*PCS)?\s*\)/i,
+          `Cartons: ${completedCartons} (${deductedGross} Gross / ${deductedPcs} PCS)`,
+        )
+        .replace(/Status:\s*WITHOUT_NIPPLE/gi, 'Status: COMPLETED')
+        .replace(/SpokePackingMode:\s*WITHOUT_NIPPLE/gi, 'SpokePackingMode: FULL_SET')
+        .replace(/\|?\s*Without Nipple:[^|]+/gi, '')
+        .replace(/\|?\s*Pending Nipple:[^|]+/gi, '')
+        .replace(/\|?\s*Partial Completed:[^|]+/gi, '')
+        .replace(/\|?\s*(?:Component Scrap|Part Rejection):[^|]+/gi, '')
+        .replace(/\|?\s*(?:Scrap Detail|Reject Detail):[^|]+/gi, '')
+        .replace(/\|?\s*(?:Scrap Reasons|Fault Reasons):[^|]+/gi, '')
+        .trim();
+      if (completedWeightKg > 0 && /Weight:\s*[\d.]+\s*KG/i.test(completedRemarks)) {
+        completedRemarks = completedRemarks.replace(/Weight:\s*[\d.]+\s*KG/i, `Weight: ${completedWeightKg} KG`);
+      }
+      if (!/Status:\s*COMPLETED/i.test(completedRemarks)) {
+        completedRemarks += ' | Status: COMPLETED';
+      }
+      completedRemarks += ` | Nipple Stock Deducted: ${completionDateStr} (${deductedGross} GRS / ${deductedPcs} PCS from WH-002) | Partial Completion from ${entry.entryNumber} (${completedCartons} of ${totalCartons} CTN) | Completed by User`;
 
       const completedEntry = this.entryRepo.create({
         companyId: entry.companyId,
@@ -4587,7 +4638,7 @@ addToDept(org, {
         entryDate: entry.entryDate,
         shiftId: entry.shiftId,
         machineId: entry.machineId,
-        machineNo: entry.machineNo,
+        machineNo: `HAND-PACK-NP-${Date.now()}`.slice(0, 50),
         operatorName: entry.operatorName,
         supervisorName: entry.supervisorName,
         coilSize: entry.coilSize,
@@ -4598,14 +4649,7 @@ addToDept(org, {
         packingMode: 'FULL_SET',
         rawMaterialWarehouseId: entry.rawMaterialWarehouseId,
         warehouseId: entry.warehouseId,
-        remarks: remarks
-          .replace(/Cartons:\s*\d+(?:\.\d+)?/i, `Cartons: ${completedCartons}`)
-          .replace(/\(\s*[\d.]+\s*Gross[^\)]*\)/i, `(${deductedGross} Gross / ${deductedPcs} PCS)`)
-          .replace(/Status:\s*WITHOUT_NIPPLE/gi, 'Status: COMPLETED')
-          .replace(/SpokePackingMode:\s*WITHOUT_NIPPLE/gi, 'SpokePackingMode: FULL_SET')
-          .replace(/\|?\s*Without Nipple:[^|]+/gi, '')
-          .replace(/\|?\s*Pending Nipple:[^|]+/gi, '')
-          .trim() + ` | Nipple Stock Deducted: ${completionDateStr} (${deductedGross} GRS / ${deductedPcs} PCS from WH-002) | Partial Completion from ${entry.entryNumber} (${completedCartons} of ${totalCartons} CTN) | Completed by User`,
+        remarks: completedRemarks,
         createdBy: userId ?? null,
         updatedBy: userId ?? null,
       });
@@ -4613,21 +4657,33 @@ addToDept(org, {
 
       return {
         success: true,
-        message: `Partial batch completed! ${completedCartons} Cartons finalized with ${deductedGross} GRS (${deductedPcs.toLocaleString()} PCS) of nipple ${nippleItemCode} deducted from WH-002. Remaining ${remainingCartons} Cartons remain in Safety Stock.`,
+        message: `Partial batch completed! ${completedCartons} Cartons finalized with ${deductedGross} GRS (${deductedPcs.toLocaleString()} PCS) of nipple ${nippleItemCode} deducted from WH-002. Remaining ${remainingCartons} Cartons (${remainingGross} GRS) remain in Safety Stock.`,
         isPartial: true,
         completedCartons,
         remainingCartons,
+        remainingGross,
+        remainingPcs,
         deductedPcs,
         deductedGross,
         nippleItemCode,
+        completedEntryId: completedEntry.id,
       };
     } else {
-      const cleanRemarks = remarks
+      let cleanRemarks = remarks
         .replace(/Status:\s*WITHOUT_NIPPLE/gi, 'Status: COMPLETED')
         .replace(/SpokePackingMode:\s*WITHOUT_NIPPLE/gi, 'SpokePackingMode: FULL_SET')
         .replace(/\|?\s*Without Nipple:[^|]+/gi, '')
         .replace(/\|?\s*Pending Nipple:[^|]+/gi, '')
-        .trim() + ` | Nipple Stock Deducted: ${completionDateStr} (${deductedGross} GRS / ${deductedPcs} PCS from WH-002) | Completed by User`;
+        .replace(/\|?\s*Partial Completed:[^|]+/gi, '')
+        .trim();
+      if (origWeightKg > 0 && /Weight:\s*[\d.]+\s*KG/i.test(cleanRemarks)) {
+        const fullWeightKg = Math.round((origWeightKg + addedNippleWeightKg) * 10) / 10;
+        cleanRemarks = cleanRemarks.replace(/Weight:\s*[\d.]+\s*KG/i, `Weight: ${fullWeightKg} KG`);
+      }
+      if (!/Status:\s*COMPLETED/i.test(cleanRemarks)) {
+        cleanRemarks += ' | Status: COMPLETED';
+      }
+      cleanRemarks += ` | Nipple Stock Deducted: ${completionDateStr} (${deductedGross} GRS / ${deductedPcs} PCS from WH-002) | Completed by User`;
 
       entry.remarks = cleanRemarks;
       entry.packingMode = 'FULL_SET';
@@ -4638,6 +4694,7 @@ addToDept(org, {
         message: `Batch completed successfully! ${deductedGross} GRS (${deductedPcs.toLocaleString()} PCS) of nipple ${nippleItemCode} deducted from SPI Nipple Packing Warehouse (WH-002).`,
         isPartial: false,
         completedCartons: totalCartons,
+        remainingCartons: 0,
         deductedPcs,
         deductedGross,
         nippleItemCode,

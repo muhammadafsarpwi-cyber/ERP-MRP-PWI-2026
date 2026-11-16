@@ -1820,8 +1820,8 @@ export class DashboardService {
       .leftJoinAndSelect('items.item', 'item')
       .leftJoinAndSelect('items.uom', 'uom')
       .where('so."company_id" = :companyId', { companyId })
-      .orderBy('so.created_at', 'DESC')
-      .addOrderBy('items.line_number', 'ASC')
+      .orderBy('so.createdAt', 'DESC')
+      .addOrderBy('items.lineNumber', 'ASC')
       .take(60)
       .getMany();
 

@@ -1797,10 +1797,10 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
     nippleName?: string;
   } | null>(null);
 
-  const loadNippleStock = useCallback(async (batch: RecentPackingLog) => {
+  const loadNippleStock = useCallback(async (batch: RecentPackingLog, warehouseId = 'cf5c9db8-5e84-41d5-a4b4-988b8dfd122d') => {
     setNippleStockInfo({ loading: true, availablePcs: 0, availableGross: 0, availableCartons: 0, sufficient: false });
     try {
-      const res: any = await apiService.get('/inventory/balances?warehouseId=cf5c9db8-5e84-41d5-a4b4-988b8dfd122d&limit=100');
+      const res: any = await apiService.get(`/inventory/balances?warehouseId=${warehouseId}&limit=100`);
       const items = extractArray(res);
       const targetCode = (batch.pendingNippleCode || '').toUpperCase().trim();
       const matched = items.find((b: any) => {
@@ -1826,11 +1826,13 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
   }, []);
 
   const handleOpenAddNippleModal = useCallback((r: RecentPackingLog) => {
+    const defaultWh = 'cf5c9db8-5e84-41d5-a4b4-988b8dfd122d';
     setAddNippleTargetBatch(r);
+    setAddNippleCartons(r.cartons || 1);
     setAddNippleDate(dayjs());
-    setAddNippleWarehouseId('cf5c9db8-5e84-41d5-a4b4-988b8dfd122d');
+    setAddNippleWarehouseId(defaultWh);
     setAddNippleModalVisible(true);
-    loadNippleStock(r);
+    loadNippleStock(r, defaultWh);
   }, [loadNippleStock]);
 
   const [entryModalOpen, setEntryModalOpen] = useState<boolean>(false);
@@ -3457,70 +3459,42 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
   // Complete a batch that was packed without nipples by recording nipple deduction on current date
   const handleAddNippleSubmit = async () => {
     if (!addNippleTargetBatch) return;
+    const totalBatchCartons = addNippleTargetBatch.cartons || 1;
+    const requestedCartons = addNippleCartons > 0
+      ? Math.min(addNippleCartons, totalBatchCartons)
+      : totalBatchCartons;
+
+    if (requestedCartons <= 0) {
+      message.warning('Please enter at least 1 carton to complete.');
+      return;
+    }
+
     setAddNippleSubmitting(true);
     try {
       const entryId = addNippleTargetBatch.id;
       const completionDateStr = addNippleDate.format('YYYY-MM-DD');
 
-      let backendSuccess = false;
-      try {
-        const res: any = await apiService.post(`/production/entries/${entryId}/complete-nipple`, {
-          warehouseId: addNippleWarehouseId,
-          completionDate: completionDateStr,
-        });
-        if (res && (res.success || res.deductedPcs !== undefined)) {
-          backendSuccess = true;
-          message.success(
-            res.message ||
-              `Batch ${addNippleTargetBatch.batchNo} completed! Nipple stock deducted from SPI Nipple Packing Warehouse (WH-002).`
-          );
-        }
-      } catch (postErr) {
-        console.warn('Backend complete-nipple returned error, falling back to PUT update:', postErr);
-      }
+      const res: any = await apiService.post(`/production/entries/${entryId}/complete-nipple`, {
+        warehouseId: addNippleWarehouseId,
+        completionDate: completionDateStr,
+        completedCartons: requestedCartons,
+      });
 
-      if (!backendSuccess) {
-        const rawEntry = addNippleTargetBatch.rawEntry;
-        const oldRemarks = String(rawEntry?.remarks || '');
-        const fullBatchWeight = computeFgBatchWeightKg(
-          addNippleTargetBatch.fgItemCode,
-          addNippleTargetBatch.fgItemName,
-          addNippleTargetBatch.cartons,
-          false
+      if (res && (res.success || res.deductedPcs !== undefined)) {
+        message.success(
+          res.message ||
+            `Batch ${addNippleTargetBatch.batchNo} (${requestedCartons} Cartons) completed! Nipple stock deducted from SPI Nipple Packing Warehouse (WH-002).`
         );
-        let cleanRemarks = oldRemarks
-          .replace(/Status:\s*WITHOUT_NIPPLE/gi, 'Status: COMPLETED')
-          .replace(/\|?\s*Without Nipple:[^|]+/gi, '')
-          .replace(/\|?\s*Pending Nipple:[^|]+/gi, '');
-        if (/Weight:\s*[\d.]+\s*KG/i.test(cleanRemarks)) {
-          cleanRemarks = cleanRemarks.replace(/Weight:\s*[\d.]+\s*KG/i, `Weight: ${fullBatchWeight} KG`);
-        } else {
-          cleanRemarks += ` | Weight: ${fullBatchWeight} KG`;
-        }
-        cleanRemarks = cleanRemarks.trim() + ` | Nipple Added: ${completionDateStr} | Completed by: ${currentUserName}`;
-
-        const updatePayload: any = {
-          ...(rawEntry || {}),
-          remarks: cleanRemarks,
-          productionDate: rawEntry?.productionDate || rawEntry?.entryDate,
-          entryDate: rawEntry?.entryDate || rawEntry?.productionDate,
-        };
-
-        try {
-          await apiService.put(`/production/entries/${entryId}`, updatePayload);
-        } catch (putErr) {
-          console.warn('Backend PUT entries returned error, updating optimistically', putErr);
-        }
-
-        message.success(`Batch ${addNippleTargetBatch.batchNo} completed! Nipple stock deducted on ${addNippleDate.format('DD/MM/YYYY')}.`);
+        setAddNippleModalVisible(false);
+        setAddNippleTargetBatch(null);
+        loadRecentEntries();
+      } else {
+        message.error(res?.message || 'Failed to complete nipple addition.');
       }
-
-      setAddNippleModalVisible(false);
-      setAddNippleTargetBatch(null);
-      loadRecentEntries();
     } catch (err: any) {
       console.error('Failed to add nipple to batch', err);
-      message.error('Failed to complete nipple addition: ' + (err?.message || 'Server error'));
+      const errMsg = err?.response?.data?.message || err?.message || 'Server error';
+      message.error('Failed to complete nipple addition: ' + errMsg);
     } finally {
       setAddNippleSubmitting(false);
     }
@@ -6679,7 +6653,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                 value={addNippleWarehouseId}
                 onChange={(w) => {
                   setAddNippleWarehouseId(w);
-                  if (addNippleTargetBatch) loadNippleStock(addNippleTargetBatch);
+                  if (addNippleTargetBatch) loadNippleStock(addNippleTargetBatch, w);
                 }}
                 options={warehouses.map((w) => ({
                   value: w.id,
