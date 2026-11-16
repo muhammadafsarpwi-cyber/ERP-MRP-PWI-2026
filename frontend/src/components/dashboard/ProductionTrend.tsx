@@ -180,7 +180,7 @@ const ProductionTrend: React.FC<ProductionTrendProps> = ({
 
   if (loading && trend.length === 0) {
     return (
-      <SectionCard icon={<ClockCircleOutlined />} title="Production Trend" subtitle="Last 14 Days">
+      <SectionCard icon={<ClockCircleOutlined />} title="Production Trend" subtitle="Last 14 Days" style={{ height: '100%' }}>
         <SkeletonChart height={230} />
       </SectionCard>
     );
@@ -195,6 +195,7 @@ const ProductionTrend: React.FC<ProductionTrendProps> = ({
       icon={<ClockCircleOutlined />}
       title="Production Trend"
       subtitle={subtitleText}
+      style={{ height: '100%' }}
       extra={
         <Button size="small" type="link" className="erp-link-btn" onClick={() => nav('/production')}>
           View Entries <RightOutlined />

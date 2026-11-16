@@ -56,6 +56,7 @@ export const SPOKE_MAPPING: Record<string, { innerSpl: string; outerSpl: string;
   'SPI-FG-SPK-010': { innerSpl: 'WIP-SPL-017', outerSpl: 'WIP-SPL-018', innerSpk: 'WIP-SPK-017', outerSpk: 'WIP-SPK-018', nipple: 'FG-NP-001' },
   'SPI-FG-SPK-011': { innerSpl: 'WIP-SPL-013', outerSpl: 'WIP-SPL-014', innerSpk: 'WIP-SPK-013', outerSpk: 'WIP-SPK-014', nipple: 'FG-NP-005' },
   'SPI-FG-SPK-012': { innerSpl: 'WIP-SPL-005', outerSpl: 'WIP-SPL-006', innerSpk: 'WIP-SPK-005', outerSpk: 'WIP-SPK-006', nipple: 'FG-NP-004' },
+  'SPI-FG-SPK-013': { innerSpl: 'WIP-SPL-017', outerSpl: 'WIP-SPL-018', innerSpk: 'WIP-SPK-017', outerSpk: 'WIP-SPK-018', nipple: 'FG-NP-001' },
 };
 
 export interface FinishedGoodsItemAvailability {

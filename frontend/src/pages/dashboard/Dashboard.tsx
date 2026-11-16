@@ -541,8 +541,6 @@ const Dashboard: React.FC = () => {
 
       {error && <Alert message={error} type="warning" showIcon closable className="erp-alert-bar" onClose={() => setError(null)} />}
 
-      <NippleImportAlertBanner marginBottom={12} />
-
       <DashboardFilters
         divisions={divisions}
         sections={sections}
@@ -622,16 +620,23 @@ const Dashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* ━━━ PRODUCTION TREND ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-      <ProductionTrend
-        trend={trend}
-        loading={loading}
-        nav={navigate}
-        departments={prodSummary?.departments ?? []}
-        filters={appliedFilters}
-        divisionId={appliedFilters.divisionId}
-        divisionCode={divisions.find((d) => d.id === appliedFilters.divisionId)?.divisionCode}
-      />
+      {/* ━━━ PRODUCTION TREND (WIDE, 8/12) + NIPPLE IMPORT ALERT (NARROW, 4/12) ━ */}
+      <div className="erp-row erp-row--a" style={{ marginBottom: 16 }}>
+        <div className="erp-col erp-col--wide">
+          <ProductionTrend
+            trend={trend}
+            loading={loading}
+            nav={navigate}
+            departments={prodSummary?.departments ?? []}
+            filters={appliedFilters}
+            divisionId={appliedFilters.divisionId}
+            divisionCode={divisions.find((d) => d.id === appliedFilters.divisionId)?.divisionCode}
+          />
+        </div>
+        <div className="erp-col erp-col--narrow">
+          <NippleImportAlertBanner variant="card" marginBottom={0} />
+        </div>
+      </div>
 
       {/* ━━━ DEPARTMENT PERFORMANCE (FULL WIDTH SCORECARD) ━━━━━━━━━━━━━━━━━ */}
       <div style={{ marginBottom: 16 }}>

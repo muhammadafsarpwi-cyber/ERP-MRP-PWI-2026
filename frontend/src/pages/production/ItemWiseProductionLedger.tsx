@@ -762,6 +762,7 @@ export const STANDARD_ITEM_WEIGHTS: Record<string, number> = {
   'SPI-FG-SPK-010': 0.01181,
   'SPI-FG-SPK-011': 0.0162,
   'SPI-FG-SPK-012': 0.0172,
+  'SPI-FG-SPK-013': 0.01181,
 };
 
 /** Rows 2-8: PCS/GRS multiply by weight; KG and unknown units pass through. */
@@ -1117,6 +1118,7 @@ export const DEFAULT_MERGED_FG_GROUPS: string[][] = [
   ['SPI-FG-SPK-001', 'SPI-FG-SPK-002'],
   ['SPI-FG-SPK-004', 'SPI-FG-SPK-012'],
   ['SPI-FG-SPK-006', 'SPI-FG-SPK-011'],
+  ['SPI-FG-SPK-010', 'SPI-FG-SPK-013'],
 ];
 
 const MERGED_FG_GROUPS_STORAGE_KEY = 'pwi_iwl_merged_fg_groups_v2';
@@ -1220,6 +1222,8 @@ export const mergeChainsByGroups = (rawChains: readonly ChainDef[], groups: read
         '250*17 Inn / Out Spoke Straight__RM-250*17 Nipple & (CS) — SPI-FG-SPK-004 & 012',
       'SPI-FG-SPK-006+SPI-FG-SPK-011':
         '300X17 S9 Inn / Out Spoke Straight__125-S9 Nipple & (CS) — SPI-FG-SPK-006 & 011',
+      'SPI-FG-SPK-010+SPI-FG-SPK-013':
+        'DS Front Inn / Out Spoke Straight__225X17 Nipple & (CS) — SPI-FG-SPK-010 & 013',
     };
     let combinedLabel: string;
     if (MERGED_TITLE_OVERRIDES[sortedGrpKey]) {
@@ -2161,7 +2165,10 @@ const ItemWiseProductionLedger: React.FC = () => {
   // under (MainLayout opens a workspace tab keyed by `location.pathname`).
   const { pathname: routePath } = useLocation();
   const [viewMode, setViewMode] = useState<'daily' | 'range'>('daily');
-  const [range, setRange] = useState<[Dayjs, Dayjs]>([dayjs(), dayjs()]);
+  const [range, setRange] = useState<[Dayjs, Dayjs]>(() => {
+    const yesterday = dayjs().subtract(1, 'day');
+    return [yesterday, yesterday];
+  });
   const [loading, setLoading] = useState(true);
   const [loadStatus, setLoadStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('loading');
   const [error, setError] = useState<string | null>(null);
@@ -2354,10 +2361,33 @@ const ItemWiseProductionLedger: React.FC = () => {
     const toWeight = (raw: unknown): number | null =>
       raw === null || raw === undefined || raw === '' ? null : num(raw);
 
-    // 1) Single bulk request for Item Master with silent: true to avoid global spinner noise
+    // 1) Bulk request for Item Master + Production Routings
     try {
-      const res: any = await apiService.get('/master-data/items', { limit: 5000 });
+      const [res, routingsRes]: any[] = await Promise.all([
+        apiService.get('/master-data/items', { limit: 5000 }),
+        apiService.get('/production/routings').catch(() => null),
+      ]);
       const list: any[] = Array.isArray(res?.data) ? res.data : [];
+      const rawRoutings = routingsRes?.data;
+      const routingsList: any[] = Array.isArray(rawRoutings)
+        ? rawRoutings
+        : Array.isArray(rawRoutings?.data)
+        ? rawRoutings.data
+        : Array.isArray(routingsRes)
+        ? routingsRes
+        : [];
+      const routingByProductId = new Map<string, any>();
+      for (const rtg of routingsList) {
+        if (!rtg?.productId || rtg.isActive === false) continue;
+        const existing = routingByProductId.get(rtg.productId);
+        const isBetter =
+          !existing ||
+          (rtg.status === 'ACTIVE' && existing.status !== 'ACTIVE') ||
+          (rtg.status === existing.status && rtg.isDefault && !existing.isDefault);
+        if (isBetter) {
+          routingByProductId.set(rtg.productId, rtg);
+        }
+      }
       cachedMasterItems = list;
       const byCode = new Map<string, any>(list.map((i) => [i?.itemCode, i]));
       const byId = new Map<string, any>(list.map((i) => [i?.id, i]));
@@ -2387,14 +2417,19 @@ const ItemWiseProductionLedger: React.FC = () => {
       const dynamicFgCodes = new Set<string>();
 
       list.forEach((item) => {
-        if (!item || !item.itemCode) return;
+        if (!item || !item.itemCode || item.isActive === false) return;
         // Strictly Finished Goods only as requested by user
         const isFg = item.itemType === 'FINISHED_GOOD';
         if (!isFg) return;
 
-        if (Array.isArray(item.processes) && item.processes.length > 0) {
-          const fgCode = item.itemCode;
-          const fgName = item.name || fgCode;
+        const fgCode = item.itemCode;
+        const fgName = item.name || fgCode;
+        const routing = routingByProductId.get(item.id);
+        const hasItemProcesses = Array.isArray(item.processes) && item.processes.length > 0;
+        const hasRoutingOps = Array.isArray(routing?.operations) && routing.operations.length > 0;
+        const isKnownFgSeries = fgCode.startsWith('SPI-FG-SPK-') || fgCode.startsWith('CCD-FGR-');
+
+        if (hasItemProcesses || hasRoutingOps || isKnownFgSeries) {
           const key = fgCode;
           const label = `${fgName} — ${fgCode}`;
           const divId = item.divisionId || item.division?.id || null;
@@ -2402,76 +2437,104 @@ const ItemWiseProductionLedger: React.FC = () => {
           const rows: ChainRowDef[] = [];
           let order = 1;
 
-          const sortedProcesses = [...item.processes].sort((a: any, b: any) => (a.sequence || 0) - (b.sequence || 0));
-          sortedProcesses.forEach((p: any) => {
-            const outItem =
-              (p.outputItemId ? byId.get(p.outputItemId) : null) ||
-              (p.outputItemCode ? byCode.get(p.outputItemCode) : null);
-            const code =
-              outItem?.itemCode ||
-              p.outputItemCode ||
-              (typeof p.outputItemId === 'string' && !p.outputItemId.includes('-')
-                ? p.outputItemId
-                : '');
-            const rowItemName = outItem?.name || p.outputItemName || '';
-            const dept = (p.departmentName || p.name || '').toLowerCase();
+          const detectStage = (deptRaw: string, code: string) => {
+            const dept = deptRaw.toLowerCase();
+            if (dept.includes('store') || code.startsWith('RM-')) return { stage: 'RM', stageLabel: 'RM Stage' };
+            if (dept.includes('straight')) return { stage: 'ST', stageLabel: 'ST Stage' };
+            if (dept.includes('swag')) return { stage: 'SW', stageLabel: 'SW Stage' };
+            if (dept.includes('plat')) return { stage: 'PL', stageLabel: 'PL Stage' };
+            if (dept.includes('pack')) return { stage: 'FG', stageLabel: 'FG / Packing' };
+            if (dept.includes('spoke')) return { stage: 'SP', stageLabel: 'SP Stage' };
+            if (dept.includes('nipple')) return { stage: 'NP', stageLabel: 'NP Stage' };
+            if (dept.includes('draw')) return { stage: 'DR', stageLabel: 'DR Stage' };
+            if (dept.includes('head')) return { stage: 'HD', stageLabel: 'HD Stage' };
+            if (dept.includes('thread')) return { stage: 'TH', stageLabel: 'TH Stage' };
+            if (dept.includes('cut')) return { stage: 'CT', stageLabel: 'CT Stage' };
+            return {
+              stage: dept.slice(0, 2).toUpperCase() || 'PR',
+              stageLabel: `${deptRaw || 'Process'} Stage`,
+            };
+          };
 
-            let stage = 'ST';
-            let stageLabel = 'ST Stage';
-            if (dept.includes('store') || code.startsWith('RM-')) {
-              stage = 'RM';
-              stageLabel = 'RM Stage';
-            } else if (dept.includes('straight')) {
-              stage = 'ST';
-              stageLabel = 'ST Stage';
-            } else if (dept.includes('swag')) {
-              stage = 'SW';
-              stageLabel = 'SW Stage';
-            } else if (dept.includes('plat')) {
-              stage = 'PL';
-              stageLabel = 'PL Stage';
-            } else if (dept.includes('pack')) {
-              stage = 'FG';
-              stageLabel = 'FG / Packing';
-            } else if (dept.includes('spoke')) {
-              stage = 'SP';
-              stageLabel = 'SP Stage';
-            } else if (dept.includes('nipple')) {
-              stage = 'NP';
-              stageLabel = 'NP Stage';
-            } else if (dept.includes('draw')) {
-              stage = 'DR';
-              stageLabel = 'DR Stage';
-            } else if (dept.includes('head')) {
-              stage = 'HD';
-              stageLabel = 'HD Stage';
-            } else if (dept.includes('thread')) {
-              stage = 'TH';
-              stageLabel = 'TH Stage';
-            } else if (dept.includes('cut')) {
-              stage = 'CT';
-              stageLabel = 'CT Stage';
-            } else {
-              stage = dept.slice(0, 2).toUpperCase() || 'PR';
-              stageLabel = `${p.departmentName || p.name || 'Process'} Stage`;
-            }
+          if (hasItemProcesses) {
+            const sortedProcesses = [...item.processes].sort((a: any, b: any) => (a.sequence || 0) - (b.sequence || 0));
+            sortedProcesses.forEach((p: any) => {
+              const outItem =
+                (p.outputItemId ? byId.get(p.outputItemId) : null) ||
+                (p.outputItemCode ? byCode.get(p.outputItemCode) : null);
+              const code =
+                outItem?.itemCode ||
+                p.outputItemCode ||
+                (typeof p.outputItemId === 'string' && !p.outputItemId.includes('-')
+                  ? p.outputItemId
+                  : '');
+              const rowItemName = outItem?.name || p.outputItemName || '';
+              const deptRaw = p.departmentName || p.name || '';
+              const { stage, stageLabel } = detectStage(deptRaw, code);
 
-            let splitSide: SplitSide | undefined = undefined;
-            const combined = `${dept} ${rowItemName} ${code}`.toLowerCase();
-            if (combined.includes('inner')) splitSide = 'INNER';
-            else if (combined.includes('outer')) splitSide = 'OUTER';
+              let splitSide: SplitSide | undefined = undefined;
+              const combined = `${deptRaw} ${rowItemName} ${code}`.toLowerCase();
+              if (combined.includes('inner')) splitSide = 'INNER';
+              else if (combined.includes('outer')) splitSide = 'OUTER';
 
-            if (code) {
+              if (code) {
+                rows.push({
+                  order: order++,
+                  stage,
+                  stageLabel,
+                  itemCode: code,
+                  splitSide,
+                  itemLabel: rowItemName || undefined,
+                });
+              }
+            });
+          } else if (hasRoutingOps) {
+            const sortedOps = [...routing.operations]
+              .filter((op: any) => op.isActive !== false)
+              .sort((a: any, b: any) => (a.sequenceNo || 0) - (b.sequenceNo || 0));
+
+            // Include primary RM input item if the first operation consumes an RM-* item
+            const firstOp = sortedOps[0];
+            const firstInputId = firstOp?.inputItemId || firstOp?.inputs?.[0]?.itemId;
+            const firstInputItem = firstInputId ? byId.get(firstInputId) : null;
+            if (firstInputItem?.itemCode && firstInputItem.itemCode.startsWith('RM-')) {
               rows.push({
                 order: order++,
-                stage,
-                stageLabel,
-                itemCode: code,
-                splitSide,
-                itemLabel: rowItemName || undefined,
+                stage: 'RM',
+                stageLabel: 'RM Stage',
+                itemCode: firstInputItem.itemCode,
+                itemLabel: firstInputItem.name || undefined,
               });
             }
-          });
+
+            sortedOps.forEach((op: any) => {
+              const outId = op.outputItemId || op.outputs?.[0]?.itemId;
+              const outItem = outId ? byId.get(outId) : null;
+              const code = outItem?.itemCode || op.outputItem?.itemCode || '';
+              const rowItemName = outItem?.name || op.outputItem?.name || '';
+              const deptRaw = op.operationName || op.operationCode || op.department?.name || '';
+              const { stage, stageLabel } = detectStage(deptRaw, code);
+
+              let splitSide: SplitSide | undefined = undefined;
+              const combined = `${deptRaw} ${rowItemName} ${code}`.toLowerCase();
+              if (combined.includes('inner')) splitSide = 'INNER';
+              else if (combined.includes('outer')) splitSide = 'OUTER';
+
+              if (code && !rows.some((r) => r.itemCode === code && r.stage === stage)) {
+                rows.push({
+                  order: order++,
+                  stage,
+                  stageLabel,
+                  itemCode: code,
+                  splitSide,
+                  itemLabel: rowItemName || undefined,
+                });
+              }
+            });
+          } else if (CHAIN_REGISTRY.some((c) => c.fgItemCode === fgCode)) {
+            // Let enrichedRegistry handle known fallback items without DB processes/routing
+            return;
+          }
 
           const hasFg = rows.some((r) => r.stage === 'FG');
           if (!hasFg) {
@@ -2527,8 +2590,9 @@ const ItemWiseProductionLedger: React.FC = () => {
           };
         });
 
-      dynamicChains.sort((a, b) => a.fgItemCode.localeCompare(b.fgItemCode));
-      const unmergedFullChains = [...dynamicChains, ...enrichedRegistry];
+      const unmergedFullChains = [...dynamicChains, ...enrichedRegistry].sort((a, b) =>
+        a.fgItemCode.localeCompare(b.fgItemCode, undefined, { numeric: true, sensitivity: 'base' }),
+      );
       cachedRawChainsList = unmergedFullChains;
       setRawChains(unmergedFullChains);
 
@@ -3475,18 +3539,18 @@ const ItemWiseProductionLedger: React.FC = () => {
                 style={
                   isNeg
                     ? {
-                        background: '#fee2e2',
-                        borderRadius: 4,
-                        padding: '1px 6px',
-                        border: '1px solid #f87171',
+                        background: 'var(--theme-error-bg, rgba(239, 68, 68, 0.14))',
+                        borderRadius: 6,
+                        padding: '2px 8px',
+                        border: '1px solid var(--theme-error, #ef4444)',
                         display: 'inline-flex',
                       }
                     : undefined
                 }
               >
                 <span
-                  className="iwl-weight-total"
-                  style={isNeg ? { color: '#dc2626', fontWeight: 800, fontSize: 13.5 } : { fontWeight: 800, fontSize: 13.5 }}
+                  className={isNeg ? 'iwl-weight-total iwl-weight-total--neg' : 'iwl-weight-total'}
+                  style={{ fontWeight: 800, fontSize: 13.5 }}
                 >
                   {fmtDisplayKg(v)}
                 </span>
@@ -3591,41 +3655,45 @@ const ItemWiseProductionLedger: React.FC = () => {
         width: 250,
         render: (v: string, row: LedgerMetrics) => {
           if (!v || v === '—') {
-            return <span style={{ color: token.colorTextTertiary }}>—</span>;
+            return <span style={{ color: 'var(--theme-text-muted, #94a3b8)' }}>—</span>;
           }
           if (row.returnOutValue > 0 && row.prodValue > 0) {
             return (
-              <span style={{ fontSize: 11.5, fontWeight: 700, color: '#b45309' }}>
+              <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--theme-warning, #d97706)' }}>
                 {v}
               </span>
             );
           }
           if (row.returnOutValue > 0) {
             return (
-              <span style={{ fontSize: 11.5, fontWeight: 700, color: '#dc2626' }}>
+              <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--theme-error, #ef4444)' }}>
                 {v}
               </span>
             );
           }
           if (row.prodValue > 0 && row.stage === 'RM') {
             return (
-              <span style={{ fontSize: 11.5, fontWeight: 700, color: '#0284c7' }}>
+              <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--theme-info, #0284c7)' }}>
                 {v}
               </span>
             );
           }
           if (v.startsWith('Issued to')) {
             return (
-              <span style={{ fontSize: 11.5, fontWeight: 700, color: '#059669' }}>
+              <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--theme-success, #10b981)' }}>
                 {v}
               </span>
             );
           }
-          return <span style={{ fontSize: 11.5, fontWeight: 600, color: token.colorTextSecondary }}>{v}</span>;
+          return (
+            <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--theme-text-secondary, #94a3b8)' }}>
+              {v}
+            </span>
+          );
         },
       },
     ],
-    [endDate, monthFrom],
+    [endDate, monthFrom, token],
   );
 
   const chainOptions = useMemo(() => {
@@ -4005,6 +4073,7 @@ const ItemWiseProductionLedger: React.FC = () => {
         .iwl-grid-title { text-align: center; font-weight: 800 !important; letter-spacing: 0.2px; }
         .iwl-grid--off .iwl-grid-title { text-decoration: line-through; color: #b0b7c3; }
         .iwl-grid--off .iwl-grid-table { display: none; }
+        .iwl-grid-table { --theme-table-row-even: var(--theme-table-row-odd); }
         .iwl-remarks { margin-top: 20px; }
 
         /* ── §2 stacked Item cell: CODE over NAME, never overlapping ──── */
@@ -4137,6 +4206,11 @@ const ItemWiseProductionLedger: React.FC = () => {
         .dark .iwl-weight-total {
           color: #f1f5f9 !important;
         }
+        .iwl-weight-total--neg,
+        [data-theme='dark'] .iwl-weight-total--neg,
+        .dark .iwl-weight-total--neg {
+          color: var(--theme-error, #ef4444) !important;
+        }
         [data-theme='dark'] .iwl-weight-ppw,
         .dark .iwl-weight-ppw {
           color: #94a3b8 !important;
@@ -4173,14 +4247,14 @@ const ItemWiseProductionLedger: React.FC = () => {
         .iwl-grid .ant-table,
         .iwl-grid .ant-table-container,
         .iwl-grid .ant-table-content {
-          border-color: #94a3b8 !important;
+          border-color: var(--theme-border, #94a3b8) !important;
         }
         .iwl-grid .ant-table-thead > tr > th,
         .iwl-grid .ant-table-tbody > tr > td {
-          border-color: #94a3b8 !important;
+          border-color: var(--theme-border, #94a3b8) !important;
         }
         .iwl-grid .ant-table-tbody > tr {
-          border-bottom-color: #94a3b8 !important;
+          border-bottom-color: var(--theme-border, #94a3b8) !important;
         }
         .iwl-grid .ant-table-tbody > tr > td:not(.iwl-cell-item):not(.iwl-cell-prod):not(.iwl-cell-close):not(.iwl-cell-scrap) {
           color: var(--theme-text, ${token.colorText}) !important;
@@ -5072,7 +5146,7 @@ const ItemWiseProductionLedger: React.FC = () => {
                 Select Production Item Chain (Finished Goods)
               </Text>
               <Select
-                style={{ minWidth: 420, width: 480 }}
+                style={{ minWidth: 300, width: 380 }}
                 popupMatchSelectWidth={false}
                 dropdownStyle={{ minWidth: 540, maxWidth: 750, padding: 6 }}
                 showSearch
@@ -5248,17 +5322,18 @@ const ItemWiseProductionLedger: React.FC = () => {
             §10 — it now sits under the unified filter row, immediately
             before the data tables. */}
         {/* ── EXECUTIVE KPI METRIC CARDS ─────────────────────────────────── */}
-        <Row gutter={[16, 16]} className="iwl-no-print" style={{ marginBottom: 18 }}>
+        <Row gutter={[16, 16]} className="iwl-no-print" style={{ marginBottom: 18 }} align="stretch">
           {/* Card 1: Pipeline Stages */}
-          <Col xs={24} sm={12} lg={6}>
+          <Col xs={24} sm={12} lg={6} style={{ display: 'flex' }}>
             <div
               style={{
-                background: token.colorBgContainer,
-                border: `1px solid ${token.colorBorderSecondary}`,
+                width: '100%',
+                background: `var(--theme-surface, ${token.colorBgContainer})`,
+                border: `1px solid var(--theme-border, ${token.colorBorderSecondary})`,
                 borderTop: `3px solid ${token.colorPrimary}`,
                 borderRadius: 10,
                 padding: '14px 18px',
-                boxShadow: '0 2px 6px rgba(0,0,0,0.03)',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
@@ -5298,15 +5373,16 @@ const ItemWiseProductionLedger: React.FC = () => {
           </Col>
 
           {/* Card 2: Production Date & Baseline Anchor */}
-          <Col xs={24} sm={12} lg={6}>
+          <Col xs={24} sm={12} lg={6} style={{ display: 'flex' }}>
             <div
               style={{
-                background: token.colorBgContainer,
-                border: `1px solid ${token.colorBorderSecondary}`,
+                width: '100%',
+                background: `var(--theme-surface, ${token.colorBgContainer})`,
+                border: `1px solid var(--theme-border, ${token.colorBorderSecondary})`,
                 borderTop: '3px solid #0284c7',
                 borderRadius: 10,
                 padding: '14px 18px',
-                boxShadow: '0 2px 6px rgba(0,0,0,0.03)',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
@@ -5341,15 +5417,16 @@ const ItemWiseProductionLedger: React.FC = () => {
           </Col>
 
           {/* Card 3: Total Hand Packed Today */}
-          <Col xs={24} sm={12} lg={6}>
+          <Col xs={24} sm={12} lg={6} style={{ display: 'flex' }}>
             <div
               style={{
-                background: token.colorBgContainer,
-                border: `1px solid ${token.colorBorderSecondary}`,
+                width: '100%',
+                background: `var(--theme-surface, ${token.colorBgContainer})`,
+                border: `1px solid var(--theme-border, ${token.colorBorderSecondary})`,
                 borderTop: '3px solid #10b981',
                 borderRadius: 10,
                 padding: '14px 18px',
-                boxShadow: '0 2px 6px rgba(0,0,0,0.03)',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
@@ -5389,15 +5466,16 @@ const ItemWiseProductionLedger: React.FC = () => {
           </Col>
 
           {/* Card 4: Mathematical Balance */}
-          <Col xs={24} sm={12} lg={6}>
+          <Col xs={24} sm={12} lg={6} style={{ display: 'flex' }}>
             <div
               style={{
-                background: token.colorBgContainer,
-                border: `1px solid ${token.colorBorderSecondary}`,
+                width: '100%',
+                background: `var(--theme-surface, ${token.colorBgContainer})`,
+                border: `1px solid var(--theme-border, ${token.colorBorderSecondary})`,
                 borderTop: summary.balanced ? '3px solid #8b5cf6' : '3px solid #ef4444',
                 borderRadius: 10,
                 padding: '14px 18px',
-                boxShadow: '0 2px 6px rgba(0,0,0,0.03)',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
