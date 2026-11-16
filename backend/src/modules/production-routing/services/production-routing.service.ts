@@ -917,10 +917,10 @@ export class ProductionRoutingService {
       ];
     }
 
-    if (!inputs.some((i) => i.isPrimary)) {
+    if (inputs.length > 0 && !inputs.some((i) => i.isPrimary)) {
       inputs[0] = { ...inputs[0], isPrimary: true };
     }
-    if (!outputs.some((o) => o.isPrimary)) {
+    if (outputs.length > 0 && !outputs.some((o) => o.isPrimary)) {
       outputs[0] = { ...outputs[0], isPrimary: true };
     }
 
@@ -955,11 +955,11 @@ export class ProductionRoutingService {
         laborRequired: opDto.laborRequired ?? true,
         machineRequired: opDto.machineRequired ?? false,
         machineId: opDto.machineId || null,
-        inputItemId: opDto.inputs[0].itemId,
-        outputItemId: opDto.outputs[0].itemId,
-        inputQuantity: opDto.inputs[0].quantity ?? 0,
-        outputQuantity: opDto.outputs[0].quantity ?? 0,
-        uomId: opDto.inputs[0].uomId ?? opDto.outputs[0].uomId ?? null,
+        inputItemId: opDto.inputs[0]?.itemId || null,
+        outputItemId: opDto.outputs[0]?.itemId || null,
+        inputQuantity: opDto.inputs[0]?.quantity ?? 0,
+        outputQuantity: opDto.outputs[0]?.quantity ?? 0,
+        uomId: opDto.inputs[0]?.uomId ?? opDto.outputs[0]?.uomId ?? null,
         scrapPercentage: opDto.scrapPercentage || 0,
         setupScrapPercentage: opDto.setupScrapPercentage || 0,
         status: opDto.status || 'ACTIVE',
@@ -968,21 +968,25 @@ export class ProductionRoutingService {
       });
       const saved = await this.operationRepo.save(operation);
 
-      const inputs = opDto.inputs.map((i: RoutingOperationInputDto, idx: number) =>
-        this.inputRepo.create({
-          companyId: saved.companyId,
-          routingOperationId: saved.id,
-          itemId: i.itemId,
-          quantity: i.quantity ?? 0,
-          uomId: i.uomId ?? null,
-          sourceWarehouseId: i.sourceWarehouseId ?? null,
-          scrapBasis: i.scrapBasis ?? RoutingInputScrapBasis.WITH_SCRAP,
-          isPrimary: i.isPrimary ?? (idx === 0),
-          lineNumber: i.lineNumber ?? (idx + 1) * 10,
-          createdBy: userId || null,
-        }),
-      );
-      const outputs = opDto.outputs.map((o: RoutingOperationOutputDto, idx: number) =>
+      const inputs = opDto.inputs
+        .filter((i: RoutingOperationInputDto) => !!i?.itemId)
+        .map((i: RoutingOperationInputDto, idx: number) =>
+          this.inputRepo.create({
+            companyId: saved.companyId,
+            routingOperationId: saved.id,
+            itemId: i.itemId,
+            quantity: i.quantity ?? 0,
+            uomId: i.uomId ?? null,
+            sourceWarehouseId: i.sourceWarehouseId ?? null,
+            scrapBasis: i.scrapBasis ?? RoutingInputScrapBasis.WITH_SCRAP,
+            isPrimary: i.isPrimary ?? (idx === 0),
+            lineNumber: i.lineNumber ?? (idx + 1) * 10,
+            createdBy: userId || null,
+          }),
+        );
+      const outputs = opDto.outputs
+        .filter((o: RoutingOperationOutputDto) => !!o?.itemId)
+        .map((o: RoutingOperationOutputDto, idx: number) =>
         this.outputRepo.create({
           companyId: saved.companyId,
           routingOperationId: saved.id,

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import {
   Table, Button, Space, Tag, Modal, Form, Input, Select, App, Card,
-  InputNumber, Row, Col, Popconfirm, Tooltip, Typography, Descriptions, Segmented, Alert,
+  InputNumber, Row, Col, Tooltip, Typography, Descriptions, Segmented, Alert,
   Checkbox, Statistic, theme,
 } from 'antd';
 import {
@@ -658,6 +658,49 @@ const RoutingManagement: React.FC = () => {
     }
   };
 
+  const confirmStatusChange = (routing: Routing, nextStatus: 'ACTIVE' | 'DRAFT' | 'OBSOLETE') => {
+    const opsCount = routing.operations?.length || 0;
+    const config =
+      nextStatus === 'ACTIVE'
+        ? {
+            title: 'Activate Routing for Production',
+            okText: 'Activate Routing',
+            danger: false,
+            desc: `This will set routing ${routing.routingCode} (${opsCount} operations) to ACTIVE so it can be used in Production Orders and MRP.`,
+          }
+        : nextStatus === 'OBSOLETE'
+        ? {
+            title: 'Mark Routing as Obsolete',
+            okText: 'Mark Obsolete',
+            danger: true,
+            desc: `This will mark routing ${routing.routingCode} as OBSOLETE. It will no longer be used for new Production Orders.`,
+          }
+        : {
+            title: routing.status === 'OBSOLETE' ? 'Restore Routing to Draft' : 'Revert Routing to Draft',
+            okText: routing.status === 'OBSOLETE' ? 'Restore to Draft' : 'Revert to Draft',
+            danger: false,
+            desc: `This will move routing ${routing.routingCode} back to DRAFT so its operations can be edited or reordered.`,
+          };
+
+    modal.confirm({
+      centered: true,
+      width: 480,
+      title: config.title,
+      content: (
+        <div style={{ marginTop: 8 }}>
+          <div style={{ fontWeight: 700, marginBottom: 6 }}>
+            {routing.routingCode} — {routing.name}
+          </div>
+          <div style={{ color: 'var(--theme-text-secondary, #64748b)' }}>{config.desc}</div>
+        </div>
+      ),
+      okText: config.okText,
+      cancelText: 'Cancel',
+      okButtonProps: config.danger ? { danger: true } : undefined,
+      onOk: () => handleStatusChange(routing.id, nextStatus),
+    });
+  };
+
   const handleAddOp = () => {
     setOpEditor({ open: true, operation: null });
   };
@@ -934,7 +977,7 @@ const RoutingManagement: React.FC = () => {
             style={{ fontWeight: 700, borderRadius: 6, cursor: s === 'DRAFT' ? 'pointer' : 'default' }}
             onClick={() => {
               if (s === 'DRAFT') {
-                handleStatusChange(r.id, 'ACTIVE');
+                confirmStatusChange(r, 'ACTIVE');
               }
             }}
           >
@@ -1557,29 +1600,36 @@ const RoutingManagement: React.FC = () => {
 
           <Space size={8}>
             {selectedRouting.status === 'DRAFT' && (
-              <Popconfirm title="Activate this routing for production?" onConfirm={() => handleStatusChange(selectedRouting.id, 'ACTIVE')}>
-                <Button type="primary" disabled={(selectedRouting.operations?.length || 0) === 0} style={{ fontWeight: 600, borderRadius: 8 }}>
-                  Activate Routing
-                </Button>
-              </Popconfirm>
+              <Button
+                type="primary"
+                disabled={(selectedRouting.operations?.length || 0) === 0}
+                onClick={() => confirmStatusChange(selectedRouting, 'ACTIVE')}
+                style={{ fontWeight: 600, borderRadius: 8 }}
+              >
+                Activate Routing
+              </Button>
             )}
             {selectedRouting.status === 'ACTIVE' && (
               <>
                 <Button type="primary" onClick={() => setDetailVisible(false)} style={{ fontWeight: 600, borderRadius: 8 }}>
                   Done — Back to List
                 </Button>
-                <Popconfirm title="Revert to Draft for revisions?" onConfirm={() => handleStatusChange(selectedRouting.id, 'DRAFT')}>
-                  <Button style={{ borderRadius: 8 }}>Revert to Draft</Button>
-                </Popconfirm>
-                <Popconfirm title="Mark this routing as Obsolete?" onConfirm={() => handleStatusChange(selectedRouting.id, 'OBSOLETE')}>
-                  <Button danger style={{ borderRadius: 8 }}>Mark Obsolete</Button>
-                </Popconfirm>
+                <Button onClick={() => confirmStatusChange(selectedRouting, 'DRAFT')} style={{ borderRadius: 8 }}>
+                  Revert to Draft
+                </Button>
+                <Button danger onClick={() => confirmStatusChange(selectedRouting, 'OBSOLETE')} style={{ borderRadius: 8 }}>
+                  Mark Obsolete
+                </Button>
               </>
             )}
             {selectedRouting.status === 'OBSOLETE' && (
-              <Popconfirm title="Restore back to Draft?" onConfirm={() => handleStatusChange(selectedRouting.id, 'DRAFT')}>
-                <Button type="primary" style={{ fontWeight: 600, borderRadius: 8 }}>Restore to Draft</Button>
-              </Popconfirm>
+              <Button
+                type="primary"
+                onClick={() => confirmStatusChange(selectedRouting, 'DRAFT')}
+                style={{ fontWeight: 600, borderRadius: 8 }}
+              >
+                Restore to Draft
+              </Button>
             )}
           </Space>
         </div>

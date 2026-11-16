@@ -599,9 +599,9 @@ const DEFAULT_FACTORY_WAREHOUSES = [
   { id: 'aa9fedcb-27ac-47d2-a963-40d01c2594bc', warehouseCode: 'WH-MAIN-001', name: 'Main Warehouse', warehouseType: 'GENERAL' },
 ];
 
-// Authoritative spoke finished goods and Semi-Finished components with exact database UUIDs
+// Authoritative spoke finished goods with exact database UUIDs (no WIP/raw material items)
 const DEFAULT_SPOKE_FINISHED_GOODS = [
-  { id: '044b1a9c-1230-450e-a38b-a8a7493c6c48', itemCode: 'SPI-FG-SPK-001', name: '250X17 INN / OUT Spoke Butted__225X17 Nipple', itemType: 'FINISHED_GOOD', packagingSize: 10, packagingUnit: 'Carton' },
+  { id: '044b1a9c-1230-450e-a38b-a8a7493c6c48', itemCode: 'SPI-FG-SPK-001', name: '250X17 Inn / Out Spoke Butted__225X17 Nipple', itemType: 'FINISHED_GOOD', packagingSize: 10, packagingUnit: 'Carton' },
   { id: '6aaa54fe-6899-4b06-97c3-031c714f9155', itemCode: 'SPI-FG-SPK-002', name: '250X17 Inn / Out Spoke Butted__CD-250X17 Nipple', itemType: 'FINISHED_GOOD', packagingSize: 10, packagingUnit: 'Carton' },
   { id: 'f8b141d9-7e0c-48a7-b2f0-60b8b32ff83d', itemCode: 'SPI-FG-SPK-003', name: '250X18 Inn / Out Spoke Butted__CD-250X17 Nipple', itemType: 'FINISHED_GOOD', packagingSize: 10, packagingUnit: 'Carton' },
   { id: '9aaa3aed-9198-4c08-a9ef-496ed0c6afea', itemCode: 'SPI-FG-SPK-004', name: '250*17 Inn / Out Spoke Straight__RM-250*17 Nipple', itemType: 'FINISHED_GOOD', packagingSize: 10, packagingUnit: 'Carton' },
@@ -613,10 +613,71 @@ const DEFAULT_SPOKE_FINISHED_GOODS = [
   { id: '1e9379be-18b1-4290-a4c3-d97ee928eefd', itemCode: 'SPI-FG-SPK-010', name: 'DS Front Inn / Out Spoke Straight__225X17 Nipple', itemType: 'FINISHED_GOOD', packagingSize: 10, packagingUnit: 'Carton' },
   { id: '97c71e50-99a9-4ff4-8fa5-660a384e5870', itemCode: 'SPI-FG-SPK-011', name: '300X17 S9 Inn / Out Spoke Straight (CS)__125-S9 Nipple (CS)', itemType: 'FINISHED_GOOD', packagingSize: 10.556, packagingUnit: 'Carton' },
   { id: 'dda771db-eda4-4fe0-a1a4-5c147a275159', itemCode: 'SPI-FG-SPK-012', name: 'RM Inn / Out Spoke Straight (CS)__RM-250*17 Nipple', itemType: 'FINISHED_GOOD', packagingSize: 10.556, packagingUnit: 'Carton' },
-  { id: 'bad446f8-9bf6-49ce-b63b-e88c54607003', itemCode: 'WIP-SPL-013', name: '125-300*17 Inner Straight', itemType: 'SEMI_FINISHED' },
-  { id: 'beaa0ddf-e109-4f48-9609-04e5967bc795', itemCode: 'WIP-SPL-014', name: '125-300*17 Outer Straight', itemType: 'SEMI_FINISHED' },
-  { id: 'ced9ab53-b470-47c2-83a9-829726b38b5b', itemCode: 'SPI-FG-NP-005', name: '125-S9 Nipple', itemType: 'FINISHED_GOOD' },
+  { id: '81f96445-c222-45d6-b863-22ff6736174e', itemCode: 'SPI-FG-SPK-013', name: 'DS Front Inn / Out Spoke Straight (CS)__225X17 Nipple', itemType: 'FINISHED_GOOD', packagingSize: 10.556, packagingUnit: 'Carton' },
 ];
+
+/**
+ * Filter to genuine Finished Goods (never WIP/RM), deduplicate by id & itemCode,
+ * and sort so SPI-FG-SPK-001..N appear first in natural code order, followed by
+ * other FG items, with loose nipples (FG-NP-*) at the bottom.
+ */
+const normalizePackingFgItems = (itemsList: any[]): any[] => {
+  const seenIds = new Set<string>();
+  const seenCodes = new Set<string>();
+  const filtered: any[] = [];
+
+  for (const item of itemsList || []) {
+    if (!item) continue;
+    if (item.isActive === false) continue;
+    const code = String(item.itemCode || item.item_code || '').toUpperCase().trim();
+    const type = String(item.itemType || item.item_type || '').toUpperCase().trim();
+    if (!code) continue;
+
+    // Strictly exclude WIP / Semi-Finished / Raw Material items
+    if (
+      code.startsWith('WIP-') ||
+      code.startsWith('RM-') ||
+      code.startsWith('WIRE-') ||
+      code.startsWith('FLAT-') ||
+      type.includes('WIP') ||
+      type.includes('SEMI_FINISHED') ||
+      type.includes('RAW_MATERIAL') ||
+      type.includes('WORK_IN_PROCESS')
+    ) {
+      continue;
+    }
+
+    // Must be a Finished Good
+    const isFg =
+      type === 'FINISHED_GOOD' ||
+      type === 'FINISHED_GOODS' ||
+      type === 'FG' ||
+      code.startsWith('SPI-FG') ||
+      code.startsWith('FG-') ||
+      code.startsWith('CCD-FG');
+    if (!isFg) continue;
+
+    const idKey = String(item.id || '').trim();
+    if ((idKey && seenIds.has(idKey)) || seenCodes.has(code)) continue;
+    if (idKey) seenIds.add(idKey);
+    seenCodes.add(code);
+    filtered.push(item);
+  }
+
+  const getRank = (code: string): number => {
+    if (code.startsWith('SPI-FG-SPK-')) return 0;
+    if (code.startsWith('FG-NP-') || code.startsWith('SPI-FG-NP-') || code.includes('-NP-')) return 2;
+    return 1;
+  };
+
+  return filtered.sort((a, b) => {
+    const codeA = String(a.itemCode || a.item_code || '').toUpperCase().trim();
+    const codeB = String(b.itemCode || b.item_code || '').toUpperCase().trim();
+    const rankDiff = getRank(codeA) - getRank(codeB);
+    if (rankDiff !== 0) return rankDiff;
+    return codeA.localeCompare(codeB, undefined, { numeric: true, sensitivity: 'base' });
+  });
+};
 
 const extractArray = (res: any): any[] => {
   if (!res) return [];
@@ -2878,18 +2939,9 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         if (cachedSnap.uomConversions.length > 0) setUomConversions(cachedSnap.uomConversions);
 
         // Finished Goods from cache
-        let resolvedFgItems: typeof DEFAULT_SPOKE_FINISHED_GOODS = DEFAULT_SPOKE_FINISHED_GOODS;
-        if (cachedSnap.items.length > 0) {
-          const fg = cachedSnap.items.filter(
-            (i: any) => i.itemType === 'FINISHED_GOOD' || i.itemType === 'FINISHED_GOODS' || i.itemType === 'FG' || (i.itemCode && i.itemCode.startsWith('SPI-FG'))
-          ) as any[];
-          resolvedFgItems = (fg.length > 0 ? fg : (cachedSnap.items as any[])) as typeof DEFAULT_SPOKE_FINISHED_GOODS;
-          for (const std of DEFAULT_SPOKE_FINISHED_GOODS) {
-            if (!resolvedFgItems.some((f: any) => f.itemCode === std.itemCode)) {
-              resolvedFgItems = [std, ...resolvedFgItems] as typeof DEFAULT_SPOKE_FINISHED_GOODS;
-            }
-          }
-        }
+        const resolvedFgItems = cachedSnap.items.length > 0
+          ? normalizePackingFgItems([...cachedSnap.items, ...DEFAULT_SPOKE_FINISHED_GOODS])
+          : normalizePackingFgItems(DEFAULT_SPOKE_FINISHED_GOODS);
         setFgItems(resolvedFgItems);
 
         const defaultDivision = loadedDivs.find((d: any) =>
@@ -3047,19 +3099,9 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         if (convList.length > 0) setUomConversions(convList);
 
         // Finished Goods Items
-        let resolvedFgItems = DEFAULT_SPOKE_FINISHED_GOODS;
-        if (itemList.length > 0) {
-          const fg = itemList.filter(
-            (i: any) => i.itemType === 'FINISHED_GOOD' || i.itemType === 'FINISHED_GOODS' || i.itemType === 'FG' || (i.itemCode && i.itemCode.startsWith('SPI-FG'))
-          );
-          resolvedFgItems = fg.length > 0 ? fg : itemList;
-          // Ensure standard spoke items are always present
-          for (const std of DEFAULT_SPOKE_FINISHED_GOODS) {
-            if (!resolvedFgItems.some((f) => f.itemCode === std.itemCode)) {
-              resolvedFgItems.unshift(std);
-            }
-          }
-        }
+        const resolvedFgItems = itemList.length > 0
+          ? normalizePackingFgItems([...itemList, ...DEFAULT_SPOKE_FINISHED_GOODS])
+          : normalizePackingFgItems(DEFAULT_SPOKE_FINISHED_GOODS);
         setFgItems(resolvedFgItems);
 
         // Default organizational context for Hand Packing: Division (SPD) -> Section (SEC-013) -> Department (SPD-DEPT008)
@@ -5060,7 +5102,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
       key: 'itemId',
       width: 250,
       render: (val: string, record: PackingMasterItemRow) => {
-        const itemOptions = fgItems.map((f) => ({
+        const itemOptions = normalizePackingFgItems(fgItems).map((f) => ({
           value: f.id,
           label: `${f.itemCode} — ${f.name}`,
         }));
@@ -7168,7 +7210,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
           });
         })();
 
-    const itemOptions = availableFgs.map((f) => ({ value: f.id, label: `${f.itemCode} — ${f.name}` }));
+    const itemOptions = normalizePackingFgItems(availableFgs).map((f) => ({ value: f.id, label: `${f.itemCode} — ${f.name}` }));
     if (primaryItem.itemId && !itemOptions.some((o) => o.value === primaryItem.itemId)) {
       const fallback = DEFAULT_SPOKE_FINISHED_GOODS.find((f) => f.id === primaryItem.itemId);
       const label = fallback
