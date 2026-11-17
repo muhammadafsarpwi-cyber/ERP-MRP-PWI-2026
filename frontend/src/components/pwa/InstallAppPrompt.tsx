@@ -45,6 +45,13 @@ export const InstallAppPrompt: React.FC = () => {
     return /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent);
   }, []);
 
+  const isInsecureHttp = useMemo(() => {
+    if (typeof window === 'undefined') return false;
+    return !window.isSecureContext && window.location.protocol === 'http:';
+  }, []);
+
+  const currentOrigin = typeof window !== 'undefined' ? window.location.origin : 'http://192.168.1.2:3000';
+
   const handleDesktopInstall = async () => {
     if (isInstalled) {
       message.info('Pakistan Wire Industries ERP is already installed as a desktop application!');
@@ -595,6 +602,52 @@ export const InstallAppPrompt: React.FC = () => {
                     >
                       📱 <strong>موبائل میں انسٹال کرنے کا طریقہ:</strong> براؤزر کے اوپر دائیں کونے میں <strong>3 نقطے (⋮)</strong> دبائیں اور مینو سے <strong>"Install app"</strong> یا <strong>"Add to Home screen"</strong> پر کلک کریں۔ ایپ موبائل میں انسٹال ہو جائے گی۔
                     </div>
+
+                    {/* Android Go / HTTP LAN Fallback Guide when Chrome hides Install App */}
+                    {isInsecureHttp && (
+                      <div
+                        style={{
+                          marginTop: 10,
+                          padding: '10px 12px',
+                          background: token.colorWarningBg,
+                          border: `1px solid ${token.colorWarningBorder}`,
+                          borderRadius: 8,
+                          fontSize: 12,
+                          color: token.colorText,
+                        }}
+                      >
+                        <div style={{ fontWeight: 700, color: token.colorWarningText, marginBottom: 4 }}>
+                          <InfoCircleOutlined style={{ marginRight: 6 }} />
+                          &quot;Install app&quot; missing in Chrome menu? (e.g. Realme C30 / C11 / Android Go)
+                        </div>
+                        <div style={{ fontSize: 11.5, color: token.colorTextSecondary, lineHeight: 1.5 }}>
+                          Chrome hides &quot;Install app&quot; on local <code>http://</code> links. To enable it on this phone:
+                          <br />
+                          1. Open <strong>chrome://flags</strong> in Chrome &rarr; search{' '}
+                          <strong>unsafely-treat-insecure-origin-as-secure</strong>
+                          <br />
+                          2. Set to <strong>Enabled</strong>, paste{' '}
+                          <code style={{ fontWeight: 700 }}>{currentOrigin}</code>, and tap <strong>Relaunch</strong>.
+                          <br />
+                          <em>Or open this link in Microsoft Edge / Firefox to add to Home Screen directly.</em>
+                        </div>
+                        <Button
+                          size="small"
+                          icon={<CopyOutlined />}
+                          style={{ marginTop: 8 }}
+                          onClick={() => {
+                            if (navigator.clipboard) {
+                              navigator.clipboard.writeText(currentOrigin);
+                              message.success(`Copied ${currentOrigin}`);
+                            } else {
+                              message.info(currentOrigin);
+                            }
+                          }}
+                        >
+                          Copy Server URL ({currentOrigin})
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 </div>
               ) : (
